@@ -664,6 +664,57 @@ async def ensure_label_exists(name: str, color: str, description: str) -> None:
     logger.info("✅ Label %r ensured on %s", name, repo)
 
 
+async def remove_label_from_issue(issue_number: int, label: str) -> None:
+    """Remove *label* from an issue.
+
+    Runs ``gh issue edit --remove-label`` as a subprocess and invalidates the
+    cache on success.  If the label is not present on the issue, ``gh`` exits
+    cleanly — this function is idempotent with respect to absent labels.
+
+    Parameters
+    ----------
+    issue_number:
+        GitHub issue number to modify.
+    label:
+        Label name to remove (e.g. ``"blocked"``).
+
+    Raises
+    ------
+    RuntimeError
+        When ``gh`` exits with a non-zero status for any reason other than the
+        label not being present on the issue.
+    """
+    repo = settings.gh_repo
+
+    proc = await asyncio.create_subprocess_exec(
+        "gh", "issue", "edit", str(issue_number),
+        "--repo", repo,
+        "--remove-label", label,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _stdout, stderr = await proc.communicate()
+
+    if proc.returncode != 0:
+        err_msg = stderr.decode().strip()
+        # gh returns non-zero when the label does not exist on the issue;
+        # treat that as a no-op rather than a hard failure.
+        if "not found" in err_msg.lower() or "could not find" in err_msg.lower():
+            logger.debug(
+                "⚠️ remove_label_from_issue: label %r not on issue #%d (no-op)",
+                label,
+                issue_number,
+            )
+            return
+        raise RuntimeError(
+            f"gh issue edit (remove label) failed (exit {proc.returncode}): "
+            f"{err_msg!r}"
+        )
+
+    logger.info("✅ Removed %r from issue #%d", label, issue_number)
+    _cache_invalidate()
+
+
 async def clear_wip_label(issue_number: int) -> None:
     """Remove the ``agent:wip`` label from an issue.
 

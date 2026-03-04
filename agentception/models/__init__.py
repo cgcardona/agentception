@@ -270,6 +270,10 @@ class PipelineConfig(BaseModel):
     projects: list[ProjectConfig] = []
     active_project: str | None = None
     approval_required_labels: list[str] = ["db-schema", "security", "api-contract"]
+    #: Label removed from to_phase issues when advancing a phase gate.
+    phase_advance_blocked_label: str = "blocked"
+    #: Label added to to_phase issues when they become eligible for dispatch.
+    phase_advance_active_label: str = "pipeline-active"
 
 
 class SpawnRequest(BaseModel):
