@@ -1,0 +1,36 @@
+{#
+  Inline success panel — replaces #spawn-form-container after a successful
+  POST /api/control/spawn.  Returned as raw HTML (Content-Type: text/html)
+  when the request carries Accept: text/html.
+
+  Context variables:
+  - result       SpawnResult (spawned, branch, worktree, host_worktree, agent_task, spawned_at)
+  - agent_id     str  e.g. "issue-42"  — matches the agent detail URL
+#}
+<div id="spawn-form-container" class="spawn-success card">
+  <div class="spawn-success-header">
+    <span class="spawn-success-icon">✅</span>
+    <h2 class="section-title">Agent spawned — issue #{{ result.spawned }}</h2>
+  </div>
+
+  <div class="spawn-result-grid">
+    <span class="spawn-result-key">Branch</span>
+    <code class="spawn-result-val">{{ result.branch }}</code>
+
+    <span class="spawn-result-key">Worktree</span>
+    <code class="spawn-result-val">{{ result.host_worktree }}</code>
+
+    <span class="spawn-result-key">Spawned at</span>
+    <span class="spawn-result-val">{{ result.spawned_at }}</span>
+  </div>
+
+  <div class="spawn-success-actions">
+    <a href="/agents/{{ agent_id }}" class="btn btn-primary">View agent →</a>
+    <a href="/agents/spawn" class="btn btn-ghost">Spawn another</a>
+  </div>
+
+  <details class="spawn-success-task">
+    <summary class="spawn-success-task-toggle">Show .agent-task</summary>
+    <pre class="agent-task-pre">{{ result.agent_task }}</pre>
+  </details>
+</div>

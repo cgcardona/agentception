@@ -1,0 +1,89 @@
+/* ── Board loading spinner ────────────────────────────────────── */
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.board-spinner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 2.5rem 1rem;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.board-spinner__ring {
+  width: 2rem;
+  height: 2rem;
+  border: 2px solid var(--border-default);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.65s linear infinite;
+}
+
+/* ── Issues list page ─────────────────────────────────────────── */
+
+.issues-list,
+.prs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.issue-row,
+.pr-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  transition: border-color 0.15s, background 0.15s;
+  text-decoration: none;
+}
+
+.issue-row:hover,
+.pr-row:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-elevated);
+  text-decoration: none;
+}
+
+.issue-row-number,
+.pr-row-number {
+  font-weight: 700;
+  color: var(--accent-bright);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  min-width: 3rem;
+}
+
+.issue-row-title,
+.pr-row-title {
+  flex: 1;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.issue-row-state,
+.pr-row-state {
+  flex-shrink: 0;
+}
+
+.issue-row-date,
+.pr-row-date {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+

@@ -1,0 +1,74 @@
+{#
+  HTMX partial for issue analysis results.
+
+  Rendered by POST /api/analyze/issue/{number}/partial.
+  Injected into #analysis-{number} via hx-swap="innerHTML".
+
+  Context variable:
+    a  — IssueAnalysis object from agentception.intelligence.analyzer
+#}
+<div class="analysis-card" role="region" aria-label="Analysis result for issue #{{ a.number }}">
+
+  {# Dependencies #}
+  <div class="analysis-row">
+    <span class="analysis-label">Dependencies</span>
+    <span class="analysis-deps">
+      {% if a.dependencies %}
+        {% for dep in a.dependencies %}
+          <a
+            class="dep-chip"
+            href="{{ gh_base_url }}/issues/{{ dep }}"
+            target="_blank"
+            rel="noopener noreferrer"
+          >#{{ dep }}</a>
+        {% endfor %}
+      {% else %}
+        <span class="text-muted">None</span>
+      {% endif %}
+    </span>
+  </div>
+
+  {# Parallelism badge #}
+  <div class="analysis-row">
+    <span class="analysis-label">Parallelism</span>
+    {% if a.parallelism == "safe" %}
+      <span class="badge badge--green">Parallel safe</span>
+    {% elif a.parallelism == "risky" %}
+      <span class="badge badge--yellow">Risky</span>
+    {% else %}
+      <span class="badge badge--red">Serial only</span>
+    {% endif %}
+  </div>
+
+  {# Conflict risk badge #}
+  <div class="analysis-row">
+    <span class="analysis-label">Conflict risk</span>
+    {% if a.conflict_risk == "none" %}
+      <span class="badge badge--green">None</span>
+    {% elif a.conflict_risk == "low" %}
+      <span class="badge badge--yellow">Low</span>
+    {% else %}
+      <span class="badge badge--red">High</span>
+    {% endif %}
+  </div>
+
+  {# Role recommendation #}
+  <div class="analysis-row">
+    <span class="analysis-label">Role</span>
+    <span class="role-chip">{{ a.recommended_role }}</span>
+  </div>
+
+  {# MERGE_AFTER recommendation #}
+  {% if a.recommended_merge_after %}
+  <div class="analysis-row">
+    <span class="analysis-label">Merge after</span>
+    <a
+      class="dep-chip"
+      href="{{ gh_base_url }}/issues/{{ a.recommended_merge_after }}"
+      target="_blank"
+      rel="noopener noreferrer"
+    >#{{ a.recommended_merge_after }}</a>
+  </div>
+  {% endif %}
+
+</div>

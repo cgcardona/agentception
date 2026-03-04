@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+
+{% block title %}AgentCeption — Transcript {{ uuid[:8] }}{% endblock %}
+
+{% block content %}
+
+{% if error %}
+<div class="card alert-card--danger">
+  <p class="alert-text--danger">⚠️ {{ error }}</p>
+  <a href="/transcripts" class="btn btn-secondary btn--top">← Back to browser</a>
+</div>
+{% elif not transcript %}
+<div class="card">
+  <p class="text-muted">Transcript not found.</p>
+  <a href="/transcripts" class="btn btn-secondary btn--top">← Back to browser</a>
+</div>
+{% else %}
+
+{# ── Page header ──────────────────────────────────────────────────── #}
+<div class="page-header">
+  <div class="detail-header-content">
+    <div class="detail-breadcrumb">
+      <a href="/transcripts" class="detail-back-link">← Transcripts</a>
+
+      {# Role badge #}
+      {% set role_class = {
+        'cto': 'badge--orange',
+        'engineering-vp': 'badge--blue',
+        'engineering-coordinator': 'badge--blue', 'qa-coordinator': 'badge--teal',
+        'qa-vp': 'badge--purple',
+        'python-developer': 'badge--green',
+        'pr-reviewer': 'badge--teal',
+        'muse-specialist': 'badge--pink',
+        'database-architect': 'badge--yellow',
+        'unknown': 'badge--gray',
+      }.get(transcript.role, 'badge--gray') %}
+      <span class="badge {{ role_class }}">{{ transcript.role }}</span>
+
+      {# Status badge #}
+      {% if transcript.status == 'done' %}
+      <span class="badge badge--green">✓ Done — PR opened</span>
+      {% else %}
+      <span class="badge badge--gray">⏳ In-progress / unknown</span>
+      {% endif %}
+
+      {% if transcript.is_coordinator %}
+      <span class="badge badge--purple">Coordinator</span>
+      {% endif %}
+    </div>
+
+    <h1 class="page-title page-title--mono">{{ uuid }}</h1>
+    <p class="page-subtitle">{{ transcript.mtime | int | timestamp_to_date }}</p>
+  </div>
+</div>
+
+{# ── Stats strip ──────────────────────────────────────────────────── #}
+<div class="stats-strip">
+  <div class="stat-chip">
+    <span class="stat-chip__value">{{ transcript.total_messages }}</span>
+    <span class="stat-chip__label">messages</span>
+  </div>
+  <div class="stat-chip">
+    <span class="stat-chip__value">{{ transcript.user_msg_count }}</span>
+    <span class="stat-chip__label">user turns</span>
+  </div>
+  <div class="stat-chip">
+    <span class="stat-chip__value">{{ transcript.asst_msg_count }}</span>
+    <span class="stat-chip__label">assistant turns</span>
+  </div>
+  <div class="stat-chip">
+    <span class="stat-chip__value">{{ "{:,}".format(transcript.word_count) }}</span>
+    <span class="stat-chip__label">words</span>
+  </div>
+  {% if transcript.subagents %}
+  <div class="stat-chip">
+    <span class="stat-chip__value">{{ transcript.subagents | length }}</span>
+    <span class="stat-chip__label">sub-agents</span>
+  </div>
+  {% endif %}
+</div>
+
+{# ── Two-column layout: conversation + sidebar ────────────────────── #}
+<div class="detail-layout">
+
+  {# ── LEFT: Conversation thread ──────────────────────────────────── #}
+  <div class="detail-main">
+
+    {% if transcript.truncated %}
+    <div class="truncated-notice">
+      ⚠️ Showing last {{ transcript.messages | length }} of {{ transcript.total_messages }} messages.
+      <a href="/transcripts/{{ uuid }}?full=1">Load all</a>
+    </div>
+    {% endif %}
+
+    {# transcriptDetail() lives in /static/app.js #}
+    <div class="chat-thread" x-data="transcriptDetail()">
+
+      {# In-thread search #}
+      <div class="thread-search">
+        <div class="thread-search__field">
+          <input
+            type="search"
+            placeholder="Search within conversation…"
+            class="thread-search__input"
+            x-model="search"
+          />
+          <span class="thread-search__icon">🔍</span>
+        </div>
+      </div>
+
+      {% for msg in transcript.messages %}
+      <div
+        class="chat-msg chat-msg--{{ msg.role }}"
+        x-show='!search || {{ msg.text | tojson }}.toLowerCase().includes(search.toLowerCase())'
+      >
+        <div class="chat-msg__header">
+          {% if msg.role == 'user' %}
+          <span class="chat-msg__role chat-msg__role--user">You</span>
+          {% else %}
+          <span class="chat-msg__role chat-msg__role--assistant">Agent</span>
+          {% endif %}
+        </div>
+        <div class="chat-msg__body">
+          <pre class="chat-msg__text" x-html='highlight({{ msg.text | tojson }})'></pre>
+        </div>
+      </div>
+      {% endfor %}
+
+    </div>{# /chat-thread #}
+  </div>{# /detail-main #}
+
+  {# ── RIGHT: Sidebar ─────────────────────────────────────────────── #}
+  <aside class="detail-sidebar">
+
+    {# Linked Issues #}
+    {% if transcript.linked_issues %}
+    <div class="sidebar-card">
+      <h3 class="sidebar-card__title">Linked Issues</h3>
+      <div class="sidebar-card__body">
+        {% for n in transcript.linked_issues %}
+        <a href="/issues/{{ n }}" class="sidebar-issue-link">#{{ n }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {# PR Links #}
+    {% if transcript.pr_urls %}
+    <div class="sidebar-card">
+      <h3 class="sidebar-card__title">Pull Requests</h3>
+      <div class="sidebar-card__body">
+        {% for url in transcript.pr_urls %}
+        {% set pr_num = url.split('/')[-1] %}
+        <a href="{{ url }}" target="_blank" rel="noopener" class="sidebar-pr-link">
+          PR #{{ pr_num }} ↗
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {# Sub-agents #}
+    {% if transcript.subagents %}
+    <div class="sidebar-card">
+      <h3 class="sidebar-card__title">Sub-agents ({{ transcript.subagents | length }})</h3>
+      <div class="sidebar-card__body sidebar-card__body--subagents">
+        {% for sa in transcript.subagents %}
+        {% set sa_role_class = {
+          'cto': 'badge--orange',
+          'engineering-vp': 'badge--blue',
+          'engineering-coordinator': 'badge--blue', 'qa-coordinator': 'badge--teal',
+          'qa-vp': 'badge--purple',
+          'python-developer': 'badge--green',
+          'pr-reviewer': 'badge--teal',
+          'muse-specialist': 'badge--pink',
+          'database-architect': 'badge--yellow',
+          'unknown': 'badge--gray',
+        }.get(sa.role, 'badge--gray') %}
+        <div class="subagent-card">
+          <div class="subagent-card__header">
+            <span class="badge badge--sm {{ sa_role_class }}">{{ sa.role }}</span>
+            {% if sa.status == 'done' %}
+            <span class="badge badge--green badge--sm">✓</span>
+            {% else %}
+            <span class="badge badge--gray badge--sm">⏳</span>
+            {% endif %}
+          </div>
+          <p class="subagent-card__uuid">{{ sa.uuid[:12] }}…</p>
+          {% if sa.preview %}
+          <p class="subagent-card__preview">{{ sa.preview }}</p>
+          {% endif %}
+          <p class="subagent-card__count">{{ sa.message_count }} messages</p>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {# Metadata #}
+    <div class="sidebar-card">
+      <h3 class="sidebar-card__title">Metadata</h3>
+      <dl class="meta-dl sidebar-card__body">
+        <dt>UUID</dt>
+        <dd class="meta-dd--mono">{{ uuid }}</dd>
+        <dt>Modified</dt>
+        <dd>{{ transcript.mtime | int | timestamp_to_date }}</dd>
+        <dt>Role</dt>
+        <dd>{{ transcript.role }}</dd>
+        <dt>Status</dt>
+        <dd>{{ transcript.status }}</dd>
+        <dt>Messages</dt>
+        <dd>{{ transcript.total_messages }}</dd>
+        <dt>Words</dt>
+        <dd>{{ "{:,}".format(transcript.word_count) }}</dd>
+      </dl>
+    </div>
+
+  </aside>
+</div>
+
+{% endif %}
+
+{% endblock %}

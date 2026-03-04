@@ -1,0 +1,384 @@
+{% extends "base.html" %}
+
+{% block title %}AgentCeption — Mission Control{% endblock %}
+
+{% block content %}
+
+<nav class="breadcrumb" aria-label="Breadcrumb">
+  <a href="/agents">← Agents</a>
+  <span class="breadcrumb-sep">/</span>
+  <span class="breadcrumb-current">Mission Control</span>
+</nav>
+
+{% if error %}
+<div class="alert-banner" role="alert">
+  <span>⚠️</span>
+  <span>{{ error }}</span>
+</div>
+{% endif %}
+
+{#
+  Alpine root — missionControl() lives in /static/app.js.
+
+  Data is passed via data-* attributes with single-quote delimiters so that
+  the JSON values (which always use double-quotes) never collide with the HTML
+  attribute boundary. missionControl() reads them in its init() hook via $el.dataset.
+#}
+<div
+  id="spawn-form-container"
+  class="spawn-page"
+  x-data="missionControl()"
+  data-issues='{{ issues | tojson }}'
+  data-active-label='{{ active_label | tojson }}'
+  data-unclaimed-count="{{ board_counts.unclaimed }}"
+>
+
+  {# ── Status bar ──────────────────────────────────────────────────── #}
+  <div class="spawn-status-bar">
+    {% if active_label %}
+    <span class="spawn-status-pill spawn-status-pill--phase">
+      <span class="spawn-status-dot"></span>
+      {{ active_label }}
+    </span>
+    {% endif %}
+    <span class="spawn-status-pill">
+      {{ board_counts.total }} open
+    </span>
+    <span class="spawn-status-pill spawn-status-pill--unclaimed">
+      <span class="spawn-status-dot"></span>
+      {{ board_counts.unclaimed }} unclaimed
+    </span>
+    {% if board_counts.claimed %}
+    <span class="spawn-status-pill spawn-status-pill--claimed">
+      <span class="spawn-status-dot"></span>
+      {{ board_counts.claimed }} in progress
+    </span>
+    {% endif %}
+  </div>
+
+  {# ── Mode tabs ────────────────────────────────────────────────────── #}
+  <div class="spawn-tabs" role="tablist" aria-label="Spawn mode">
+    <button
+      class="spawn-tab"
+      :class="{ 'spawn-tab--active': mode === 'single' }"
+      @click="mode = 'single'; clearResult()"
+      role="tab"
+      :aria-selected="mode === 'single'"
+    >Single Agent</button>
+    <button
+      class="spawn-tab"
+      :class="{ 'spawn-tab--active': mode === 'wave' }"
+      @click="mode = 'wave'; clearResult()"
+      role="tab"
+      :aria-selected="mode === 'wave'"
+    >Wave Spawn</button>
+    <button
+      class="spawn-tab"
+      :class="{ 'spawn-tab--active': mode === 'coordinator' }"
+      @click="mode = 'coordinator'; clearResult()"
+      role="tab"
+      :aria-selected="mode === 'coordinator'"
+    >Coordinator</button>
+  </div>
+
+  {# ═══════════════════════════════════════════════════════════════════
+     SINGLE AGENT PANEL
+     Issue board (left) + role picker (right) → POST /api/control/spawn
+  ════════════════════════════════════════════════════════════════════ #}
+  <div class="spawn-panel" x-show="mode === 'single'" x-cloak>
+
+    <div class="spawn-single-layout">
+
+      {# Issue board #}
+      <div class="spawn-issue-board">
+        <div class="spawn-issue-toolbar">
+          <input
+            class="spawn-issue-search"
+            type="search"
+            placeholder="Filter issues…"
+            x-model="searchQ"
+            aria-label="Filter issues"
+          >
+          <button
+            class="spawn-issue-refresh"
+            hx-get="/agents/spawn/issues"
+            hx-target="#spawn-issue-list"
+            hx-swap="innerHTML"
+            hx-indicator="#spawn-refresh-indicator"
+            title="Refresh issue list"
+            aria-label="Refresh issue list"
+          >↻</button>
+          <span id="spawn-refresh-indicator" class="htmx-indicator text-muted" style="font-size:0.75rem;">…</span>
+        </div>
+
+        <div class="spawn-issue-list" id="spawn-issue-list" role="listbox" aria-label="Issues">
+          <template x-if="filteredIssues.length === 0">
+            <div class="spawn-issue-empty">
+              {% if issues %}
+              No issues match your filter.
+              {% else %}
+              No open unclaimed issues found. All issues may already have <code>agent:wip</code>.
+              {% endif %}
+            </div>
+          </template>
+          <template x-for="iss in filteredIssues" :key="iss.number">
+            <div
+              class="spawn-issue-card"
+              :class="{
+                'spawn-issue-card--selected': selectedIssue?.number === iss.number,
+                'spawn-issue-card--claimed':  iss.claimed,
+              }"
+              @click="selectIssue(iss)"
+              @keydown.enter.space.prevent="selectIssue(iss)"
+              role="option"
+              tabindex="0"
+              :aria-selected="selectedIssue?.number === iss.number"
+              :title="iss.claimed ? 'Already claimed (agent:wip)' : iss.title"
+            >
+              <span class="spawn-issue-num" x-text="'#' + iss.number"></span>
+              <div class="spawn-issue-body">
+                <div class="spawn-issue-title" x-text="iss.title"></div>
+                <div class="spawn-issue-meta">
+                  <template x-if="iss.phase_label">
+                    <span class="spawn-issue-phase" x-text="iss.phase_label"></span>
+                  </template>
+                  <template x-if="iss.claimed">
+                    <span class="spawn-issue-wip">wip</span>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      {# Role picker — pre-grouped by category in canonical order (server-side) #}
+      <div class="spawn-role-picker" role="radiogroup" aria-label="Agent role">
+        {% for group in role_groups %}
+        <div class="spawn-role-section">
+          <div class="spawn-role-section-label">{{ group.category }}</div>
+          {% for role in group.roles %}
+          <div
+            class="spawn-role-option"
+            :class="{ 'spawn-role-option--selected': selectedRole === '{{ role.slug }}' }"
+            @click="selectRole('{{ role.slug }}')"
+            @keydown.enter.space.prevent="selectRole('{{ role.slug }}')"
+            role="radio"
+            tabindex="0"
+            :aria-checked="selectedRole === '{{ role.slug }}'"
+          >
+            <div class="spawn-role-radio"></div>
+            <div class="spawn-role-body">
+              <span class="spawn-role-name">{{ role.label }}</span>
+              {% if role.description %}
+              <small class="spawn-role-desc">{{ role.description }}</small>
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+
+    </div>{# end .spawn-single-layout #}
+
+    {# Action row #}
+    <div class="spawn-actions">
+      <button
+        class="btn btn-primary"
+        @click="submitSingle()"
+        :disabled="loading || !selectedIssue"
+        x-text="loading ? 'Spawning…' : (selectedIssue ? 'Spawn Agent → #' + selectedIssue.number : 'Select an issue')"
+      ></button>
+      <span class="spawn-selection-summary" x-show="selectedIssue">
+        <strong x-text="selectedRole"></strong> on <strong x-text="'#' + selectedIssue?.number"></strong>
+      </span>
+    </div>
+
+  </div>{# end single panel #}
+
+  {# ═══════════════════════════════════════════════════════════════════
+     WAVE SPAWN PANEL
+     Spawn all unclaimed issues at once → POST /api/control/spawn-wave
+  ════════════════════════════════════════════════════════════════════ #}
+  <div class="spawn-panel" x-show="mode === 'wave'" x-cloak>
+
+    <div class="spawn-wave-layout">
+
+      <div class="spawn-wave-info">
+        <div class="spawn-wave-count" x-text="liveUnclaimedCount"></div>
+        <div class="spawn-wave-label">
+          unclaimed issue<span x-text="liveUnclaimedCount === 1 ? '' : 's'"></span>
+          ready to spawn
+          {% if active_label %}
+          under <strong>{{ active_label }}</strong>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="wave-role">Role for all agents</label>
+        <select id="wave-role" class="form-select" x-model="waveRole" style="max-width:320px">
+          {% for role in roles_flat %}
+          <option value="{{ role.slug }}" {% if role.slug == "python-developer" %}selected{% endif %}>
+            {{ role.label }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="spawn-actions">
+        <button
+          class="btn btn-primary"
+          @click="submitWave()"
+          :disabled="loading || liveUnclaimedCount === 0"
+          x-text="loading ? 'Spawning wave…' : 'Spawn Wave (' + liveUnclaimedCount + ' agents)'"
+        ></button>
+      </div>
+
+    </div>
+
+  </div>{# end wave panel #}
+
+  {# ═══════════════════════════════════════════════════════════════════
+     COORDINATOR PANEL
+     Brain-dump → coordinator agent → POST /api/control/spawn-coordinator
+  ════════════════════════════════════════════════════════════════════ #}
+  <div class="spawn-panel" x-show="mode === 'coordinator'" x-cloak>
+
+    <div class="spawn-coordinator-layout">
+
+      <div class="spawn-coordinator-desc">
+        The coordinator ingests your brain dump, breaks it into phases and
+        tickets, and spawns sub-agents. It's the entry point for full
+        autonomous project execution — equivalent to handing a spec to your
+        engineering manager.
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="brain-dump">Brain Dump</label>
+        <textarea
+          id="brain-dump"
+          class="spawn-brain-dump"
+          x-model="brainDump"
+          placeholder="Describe what you want to build, fix, or refactor. Be as detailed as you like — the coordinator will break this into actionable issues and phases."
+          rows="6"
+        ></textarea>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="label-prefix">Label prefix <span class="text-muted">(optional)</span></label>
+        <input
+          id="label-prefix"
+          type="text"
+          class="form-select"
+          x-model="labelPrefix"
+          placeholder="e.g. sprint-42"
+          style="max-width:240px"
+        >
+      </div>
+
+      <div class="spawn-actions">
+        <button
+          class="btn btn-primary"
+          @click="submitCoordinator()"
+          :disabled="loading || !brainDump.trim()"
+          x-text="loading ? 'Spawning coordinator…' : 'Spawn Coordinator'"
+        ></button>
+      </div>
+
+    </div>
+
+  </div>{# end coordinator panel #}
+
+  {# ═══════════════════════════════════════════════════════════════════
+     RESULT / ERROR PANEL — shown below whichever panel ran
+  ════════════════════════════════════════════════════════════════════ #}
+
+  {# Error #}
+  <template x-if="formError">
+    <div class="card spawn-result spawn-result--error" role="alert">
+      <p style="margin:0; font-size:0.875rem;">
+        <strong>Error:</strong> <span x-text="formError"></span>
+      </p>
+    </div>
+  </template>
+
+  {# Single agent success #}
+  <template x-if="result && resultMode === 'single'">
+    <div class="card spawn-result" role="region" aria-label="Spawn result">
+      <h2 class="section-title" style="margin-bottom:0.75rem;">
+        Agent spawned — issue #<span x-text="result.spawned"></span>
+      </h2>
+      <div class="spawn-result-grid">
+        <span class="spawn-result-key">Branch</span>
+        <code class="spawn-result-val" x-text="result.branch"></code>
+        <span class="spawn-result-key">Worktree</span>
+        <code class="spawn-result-val" x-text="result.worktree"></code>
+        <span class="spawn-result-key">Host path</span>
+        <code class="spawn-result-val" x-text="result.host_worktree"></code>
+      </div>
+      <div class="mt-2">
+        <h3 class="section-subtitle">.agent-task</h3>
+        <pre class="agent-task-pre" x-text="result.agent_task"></pre>
+      </div>
+    </div>
+  </template>
+
+  {# Wave success #}
+  <template x-if="result && resultMode === 'wave'">
+    <div class="card spawn-result spawn-result--wave" role="region" aria-label="Wave result">
+      <h2 class="section-title" style="margin-bottom:0.75rem;">
+        Wave spawned — <span x-text="result.spawned.length"></span> agent<span x-text="result.spawned.length === 1 ? '' : 's'"></span>
+        <template x-if="result.skipped.length">
+          <span class="text-muted" style="font-size:0.85em; font-weight:400;">
+            (<span x-text="result.skipped.length"></span> skipped)
+          </span>
+        </template>
+      </h2>
+      <div class="spawn-wave-results">
+        <template x-for="s in result.spawned" :key="s.spawned">
+          <div class="spawn-wave-result-item">
+            <span style="color:var(--success)">✓</span>
+            Issue #<span x-text="s.spawned"></span> →
+            <code style="font-size:0.77rem; color:var(--text-muted)" x-text="s.branch"></code>
+          </div>
+        </template>
+        <template x-for="s in result.skipped" :key="s.issue_number ?? s.number">
+          <div class="spawn-wave-result-skip">
+            ↷ Issue #<span x-text="s.issue_number ?? s.number"></span> skipped
+            <span x-text="s.reason ? '— ' + s.reason : ''"></span>
+          </div>
+        </template>
+      </div>
+    </div>
+  </template>
+
+  {# Coordinator success #}
+  <template x-if="result && resultMode === 'coordinator'">
+    <div class="card spawn-result" role="region" aria-label="Coordinator result">
+      <h2 class="section-title" style="margin-bottom:0.75rem;">
+        Coordinator spawned
+      </h2>
+      <div class="spawn-result-grid">
+        <span class="spawn-result-key">Slug</span>
+        <code class="spawn-result-val" x-text="result.slug"></code>
+        <span class="spawn-result-key">Branch</span>
+        <code class="spawn-result-val" x-text="result.branch"></code>
+        <span class="spawn-result-key">Worktree</span>
+        <code class="spawn-result-val" x-text="result.worktree"></code>
+        <span class="spawn-result-key">Host path</span>
+        <code class="spawn-result-val" x-text="result.host_worktree"></code>
+      </div>
+      <div class="mt-2">
+        <h3 class="section-subtitle">.agent-task</h3>
+        <pre class="agent-task-pre" x-text="result.agent_task"></pre>
+      </div>
+    </div>
+  </template>
+
+</div>{# end .spawn-page / x-data #}
+
+{# missionControl() lives in /static/app.js #}
+
+{% endblock %}

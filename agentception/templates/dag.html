@@ -1,0 +1,263 @@
+{% extends "base.html" %}
+
+{% block title %}DAG — AgentCeption{% endblock %}
+
+{% block head %}
+  {# D3 must load before Alpine initialises dagVisualization() #}
+  <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"
+          integrity="sha256-8glLv2FBs1lyLE/kVOtsSw8OQswQzHr5IfwVj864ZTk="
+          crossorigin="anonymous"></script>
+{% endblock %}
+
+{% block content %}
+
+{# ── JSON data injection — avoids all Jinja/JS quote collisions ──────────── #}
+<script type="application/json" id="dag-data">
+{{ {
+  "nodes":        dag.nodes,
+  "edges":        dag.edges,
+  "phase_labels": phase_labels,
+  "gh_base_url":  gh_base_url
+} | tojson }}
+</script>
+
+{# ── Root Alpine component ─────────────────────────────────────────────────── #}
+<div class="dag-layout"
+     x-data="dagVisualization()"
+     x-init="init()">
+
+  {# ── Page header ─────────────────────────────────────────────────────────── #}
+  <div class="dag-page-header">
+    <div>
+      <h1 class="dag-page-title">Dependency DAG</h1>
+      <p class="dag-page-subtitle">
+        Issue dependency graph — nodes coloured by phase, WIP issues ringed green.
+      </p>
+    </div>
+
+    {# ── Controls ────────────────────────────────────────────────────────── #}
+    <div class="dag-controls">
+      <span class="dag-controls-label">Filter:</span>
+      <select class="dag-filter-select"
+              x-model="filter"
+              aria-label="Filter by phase label">
+        <option value="all">All phases</option>
+        {% for label in phase_labels %}
+        <option value="{{ label }}">{{ label.split('/')[-1] }}</option>
+        {% endfor %}
+      </select>
+
+      <input class="dag-search-input"
+             type="search"
+             placeholder="Search #123 or keyword…"
+             x-model.debounce.200="search"
+             aria-label="Search issues" />
+
+      <button class="dag-ctrl-btn" type="button" @click="zoomIn()" title="Zoom in" aria-label="Zoom in">
+        <span class="dag-ctrl-btn-icon">＋</span>Zoom in
+      </button>
+      <button class="dag-ctrl-btn" type="button" @click="zoomOut()" title="Zoom out" aria-label="Zoom out">
+        <span class="dag-ctrl-btn-icon">－</span>Zoom out
+      </button>
+      <button class="dag-ctrl-btn" type="button" @click="resetView()" title="Reset layout" aria-label="Reset layout">
+        ↺ Reset
+      </button>
+      <button class="dag-ctrl-btn" type="button" @click="fitView()" title="Fit all nodes in view" aria-label="Fit to view">
+        ⊡ Fit view
+      </button>
+      <button class="dag-ctrl-btn" type="button"
+              @click="refreshData()"
+              :disabled="refreshing"
+              x-text="refreshing ? 'Refreshing…' : '⟳ Refresh'"
+              aria-label="Refresh DAG data">⟳ Refresh</button>
+    </div>
+  </div>
+
+  {# ── Stats bar (server-rendered — zero flicker) ───────────────────────── #}
+  <div class="dag-stats-bar">
+    <div class="dag-stat-chip">
+      <span class="dag-stat-chip-icon">⬡</span>
+      <span class="dag-stat-chip-value">{{ stats.node_count }}</span>
+      <span>issues</span>
+    </div>
+    <div class="dag-stat-chip">
+      <span class="dag-stat-chip-icon">→</span>
+      <span class="dag-stat-chip-value">{{ stats.edge_count }}</span>
+      <span>dependencies</span>
+    </div>
+    <div class="dag-stat-chip">
+      <span class="dag-stat-chip-icon">✓</span>
+      <span class="dag-stat-chip-value">{{ stats.open_count }}</span>
+      <span>open</span>
+    </div>
+    <div class="dag-stat-chip wip">
+      <span class="dag-stat-chip-icon">🟢</span>
+      <span class="dag-stat-chip-value">{{ stats.wip_count }}</span>
+      <span>WIP</span>
+    </div>
+    <div class="dag-stat-chip depth">
+      <span class="dag-stat-chip-icon">⬇</span>
+      <span class="dag-stat-chip-value">{{ stats.max_depth }}</span>
+      <span>max depth</span>
+    </div>
+    {% if phase_labels %}
+    <div class="dag-stat-chip">
+      <span class="dag-stat-chip-icon">🏷</span>
+      <span class="dag-stat-chip-value">{{ phase_labels | length }}</span>
+      <span>phases</span>
+    </div>
+    {% endif %}
+  </div>
+
+  {# ── Canvas + sidebar ─────────────────────────────────────────────────── #}
+  <div class="dag-body" :class="{ 'sidebar-open': sidebarOpen }">
+
+    {# Canvas #}
+    <div class="dag-canvas-wrapper">
+      <svg id="dag-svg" aria-label="Dependency DAG — force-directed graph"></svg>
+      <div id="dag-tooltip" role="tooltip"></div>
+
+      {% if stats.node_count == 0 %}
+      <div class="dag-canvas-empty">
+        <span class="dag-canvas-empty-icon">⬡</span>
+        <span>No open issues found. Create some GitHub issues to see the DAG.</span>
+      </div>
+      {% endif %}
+    </div>
+
+    {# Issue detail sidebar #}
+    <aside class="dag-sidebar"
+           x-show="sidebarOpen"
+           x-transition:enter="transition ease-out duration-150"
+           x-transition:enter-start="opacity-0 translate-x-4"
+           x-transition:enter-end="opacity-100 translate-x-0"
+           aria-label="Issue detail">
+
+      <template x-if="selectedNode">
+        <div style="display:contents">
+
+          {# Header #}
+          <div class="dag-sidebar-header">
+            <span class="dag-sidebar-num" x-text="'#' + selectedNode.number"></span>
+            <button class="dag-sidebar-close" type="button"
+                    @click="closeNode()" aria-label="Close sidebar">✕</button>
+          </div>
+
+          {# Title #}
+          <p class="dag-sidebar-title" x-text="selectedNode.title"></p>
+
+          {# State badge #}
+          <span class="dag-sidebar-state"
+                :class="String(selectedNode.state).toUpperCase() === 'OPEN' ? 'open' : 'closed'">
+            <span x-text="String(selectedNode.state).toUpperCase() === 'OPEN' ? '● Open' : '✓ Closed'"></span>
+          </span>
+
+          {# Metrics row #}
+          <div class="dag-sidebar-metrics">
+            <div class="dag-sidebar-metric">
+              <div class="dag-sidebar-metric-val" x-text="selectedNode.deps ? selectedNode.deps.length : 0"></div>
+              <div class="dag-sidebar-metric-lbl">Depends on</div>
+            </div>
+            <div class="dag-sidebar-metric">
+              <div class="dag-sidebar-metric-val" x-text="selectedNode.blocking_count || 0"></div>
+              <div class="dag-sidebar-metric-lbl">Blocks</div>
+            </div>
+            <div class="dag-sidebar-metric">
+              <div class="dag-sidebar-metric-val" x-text="selectedNode.depth || 0"></div>
+              <div class="dag-sidebar-metric-lbl">Depth</div>
+            </div>
+            <div class="dag-sidebar-metric">
+              <div class="dag-sidebar-metric-val"
+                   x-text="selectedNode.has_wip ? 'Yes' : 'No'"
+                   :style="selectedNode.has_wip ? 'color:#22c55e' : ''"></div>
+              <div class="dag-sidebar-metric-lbl">WIP</div>
+            </div>
+          </div>
+
+          {# Labels #}
+          <template x-if="selectedNode.labels && selectedNode.labels.length > 0">
+            <div>
+              <p class="dag-sidebar-section-title">Labels</p>
+              <div class="dag-sidebar-labels">
+                <template x-for="lbl in selectedNode.labels" :key="lbl">
+                  <span class="dag-sidebar-label-chip" x-text="lbl"></span>
+                </template>
+              </div>
+            </div>
+          </template>
+
+          {# Dependencies #}
+          <template x-if="selectedNode.deps && selectedNode.deps.length > 0">
+            <div>
+              <p class="dag-sidebar-section-title">
+                Depends on (<span x-text="selectedNode.deps.length"></span>)
+              </p>
+              <ul class="dag-sidebar-dep-list">
+                <template x-for="depNum in selectedNode.deps" :key="depNum">
+                  <li class="dag-sidebar-dep-item">
+                    <span class="dag-sidebar-dep-num"
+                          @click="selectNode(depNum)"
+                          x-text="'#' + depNum"></span>
+                    <span class="dag-sidebar-dep-title"
+                          x-text="depTitle(depNum)"></span>
+                  </li>
+                </template>
+              </ul>
+            </div>
+          </template>
+
+          {# GitHub link #}
+          <a class="dag-sidebar-gh-link"
+             :href="ghBaseUrl + '/issues/' + selectedNode.number"
+             target="_blank"
+             rel="noopener noreferrer">
+            🐙 Open on GitHub
+          </a>
+
+        </div>
+      </template>
+    </aside>
+
+  </div>{# end .dag-body #}
+
+  {# ── Legend (Jinja-rendered — no DOM manipulation) ────────────────────── #}
+  <div class="dag-legend" aria-label="Phase colour legend">
+
+    {# Phase labels — coloured by matching PALETTE index in JS #}
+    {% set palette = ['#3b82f6','#6366f1','#14b8a6','#22c55e','#f97316','#ef4444','#a855f7','#06b6d4','#eab308','#ec4899'] %}
+    {% for label in phase_labels %}
+    <div class="dag-legend-item">
+      <div class="dag-legend-swatch"
+           style="background:{{ palette[loop.index0 % palette|length] }}"></div>
+      <span>{{ label.split('/')[-1] }}</span>
+    </div>
+    {% endfor %}
+
+    {% if phase_labels %}
+    <div class="dag-legend-sep" aria-hidden="true"></div>
+    {% endif %}
+
+    {# Fixed indicators #}
+    <div class="dag-legend-item">
+      <div class="dag-legend-swatch"
+           style="background:transparent;border:2px solid #22c55e"></div>
+      <span>WIP (agent:wip)</span>
+    </div>
+    <div class="dag-legend-item">
+      <div class="dag-legend-swatch"
+           style="background:#6b7280;opacity:0.4"></div>
+      <span>Closed</span>
+    </div>
+
+    <div class="dag-legend-sep" aria-hidden="true"></div>
+
+    {# Edge type legend #}
+    <div class="dag-legend-item">
+      <div class="dag-legend-edge-indicator" aria-hidden="true"></div>
+      <span>Depends on (solid arrow)</span>
+    </div>
+  </div>
+
+</div>{# end .dag-layout #}
+
+{% endblock %}

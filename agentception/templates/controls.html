@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+
+{% block title %}Controls — AgentCeption{% endblock %}
+
+{% block content %}
+
+{# ── Page header ─────────────────────────────────────────────────────────── #}
+<div class="controls-page-header">
+  <div>
+    <h1 class="controls-page-title">Controls</h1>
+    <p class="controls-page-subtitle">
+      Pipeline control hub — pause, spawn, kill agents, and trigger manual ticks.
+    </p>
+  </div>
+  <div class="controls-status-pill {% if paused %}controls-status-pill--paused{% else %}controls-status-pill--running{% endif %}">
+    <span class="controls-status-dot"></span>
+    {% if paused %}Paused{% else %}Running{% endif %}
+  </div>
+</div>
+
+{# ── Action grid ──────────────────────────────────────────────────────────── #}
+<div class="controls-grid">
+
+  {# ── 1. Pause / Resume ───────────────────────────────────────────────── #}
+  <section class="controls-card" aria-labelledby="pause-heading">
+    <div class="controls-card-icon">⏸</div>
+    <h2 id="pause-heading" class="controls-card-title">Pipeline</h2>
+    <p class="controls-card-desc">
+      Pause halts new agent spawning without killing running agents.
+      Resume restores automatic dispatching.
+    </p>
+
+    <div class="controls-card-actions" id="pause-zone">
+      {% if paused %}
+      <button
+        class="btn btn-primary"
+        hx-post="/api/control/resume"
+        hx-target="#pause-zone"
+        hx-swap="innerHTML"
+        hx-indicator="#pause-indicator"
+      >▶ Resume Pipeline</button>
+      {% else %}
+      <button
+        class="btn btn-danger"
+        hx-post="/api/control/pause"
+        hx-target="#pause-zone"
+        hx-swap="innerHTML"
+        hx-indicator="#pause-indicator"
+      >⏸ Pause Pipeline</button>
+      {% endif %}
+      <span id="pause-indicator" class="htmx-indicator controls-spinner" aria-hidden="true">⏳</span>
+    </div>
+
+    <p class="controls-card-state">
+      Pipeline is currently
+      <strong class="{% if paused %}text-danger{% else %}text-success{% endif %}">
+        {% if paused %}paused{% else %}running{% endif %}
+      </strong>.
+    </p>
+  </section>
+
+  {# ── 2. Spawn Agent ──────────────────────────────────────────────────── #}
+  <section class="controls-card" aria-labelledby="spawn-heading">
+    <div class="controls-card-icon">🚀</div>
+    <h2 id="spawn-heading" class="controls-card-title">Spawn Agent</h2>
+    <p class="controls-card-desc">
+      Open the Mission Control spawn form to seed a new engineer agent for an
+      open GitHub issue, run a wave, or dispatch a brain-dump coordinator.
+    </p>
+    <div class="controls-card-actions">
+      <a href="/agents/spawn" class="btn btn-primary">Open Spawn Form →</a>
+    </div>
+    <p class="controls-card-state">
+      <span class="text-muted">{{ state.agents | length }} agent(s) currently active.</span>
+    </p>
+  </section>
+
+  {# ── 3. Kill Agent ───────────────────────────────────────────────────── #}
+  <section class="controls-card" aria-labelledby="kill-heading">
+    <div class="controls-card-icon">💀</div>
+    <h2 id="kill-heading" class="controls-card-title">Kill Agent</h2>
+    <p class="controls-card-desc">
+      Force-remove a running agent worktree and clear its
+      <code>agent:wip</code> label. Irreversible — use with care.
+    </p>
+
+    {% if running_agents %}
+    <div class="controls-kill-form" x-data="controlsKill()">
+      <div class="controls-kill-row">
+        <select
+          class="controls-select"
+          aria-label="Select agent worktree to kill"
+          x-model="slug"
+        >
+          <option value="">— select a worktree —</option>
+          {% for slug in running_agents %}
+          <option value="{{ slug }}">{{ slug }}</option>
+          {% endfor %}
+        </select>
+        <button
+          class="btn btn-danger"
+          :disabled="!slug || killing"
+          hx-post=""
+          :hx-post="slug ? '/api/control/kill/' + slug : null"
+          hx-target="#kill-result"
+          hx-swap="innerHTML"
+          hx-indicator="#kill-indicator"
+          @htmx:before-request="killing = true"
+          @htmx:after-request="killing = false"
+        >Kill</button>
+      </div>
+      <span id="kill-indicator" class="htmx-indicator controls-spinner" aria-hidden="true">⏳</span>
+    </div>
+    <div id="kill-result" class="controls-kill-result"></div>
+    {% else %}
+    <p class="controls-card-state text-muted">No running agent worktrees detected.</p>
+    {% endif %}
+  </section>
+
+  {# ── 4. Trigger Poll Tick ────────────────────────────────────────────── #}
+  <section class="controls-card" aria-labelledby="poll-heading">
+    <div class="controls-card-icon">🔄</div>
+    <h2 id="poll-heading" class="controls-card-title">Trigger Poll</h2>
+    <p class="controls-card-desc">
+      Fire an immediate poller tick to refresh pipeline state from the
+      filesystem without waiting for the next scheduled interval.
+    </p>
+    <div class="controls-card-actions" id="poll-zone">
+      <button
+        class="btn btn-secondary"
+        hx-post="/api/control/trigger-poll"
+        hx-target="#poll-result"
+        hx-swap="innerHTML"
+        hx-indicator="#poll-indicator"
+      >🔄 Trigger Poll</button>
+      <span id="poll-indicator" class="htmx-indicator controls-spinner" aria-hidden="true">⏳</span>
+    </div>
+    <div id="poll-result" class="controls-poll-result"></div>
+  </section>
+
+</div>{# end .controls-grid #}
+
+{# ── Recent kill history ──────────────────────────────────────────────────── #}
+{% if kill_history %}
+<section class="controls-history" aria-labelledby="history-heading">
+  <h2 id="history-heading" class="controls-history-title">Recent Terminated Agents</h2>
+  <table class="controls-history-table">
+    <thead>
+      <tr>
+        <th>Agent ID</th>
+        <th>Role</th>
+        <th>Status</th>
+        <th>Issue</th>
+        <th>Completed</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for run in kill_history %}
+      <tr>
+        <td>
+          <a href="/agents/{{ run.id }}" class="controls-history-link">{{ (run.id | string)[:12] }}</a>
+        </td>
+        <td>{{ run.role or '—' }}</td>
+        <td>
+          <span class="badge badge--{{ run.status }}">{{ run.status }}</span>
+        </td>
+        <td>
+          {% if run.issue_number %}
+          <a href="/issues/{{ run.issue_number }}" class="controls-history-link">#{{ run.issue_number }}</a>
+          {% else %}—{% endif %}
+        </td>
+        <td class="text-muted">{{ (run.completed_at | string)[:16] | replace('T', ' ') if run.completed_at else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% endblock %}

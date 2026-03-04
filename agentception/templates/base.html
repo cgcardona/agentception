@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Agentception — The Singularity Is Here{% endblock %}</title>
+
+  <!-- Inline SVG favicon — no 404 on /favicon.ico -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%238b5cf6'/><text x='50%25' y='56%25' dominant-baseline='middle' text-anchor='middle' font-size='18' font-family='monospace' fill='white'>⚡</text></svg>" />
+
+  <!-- Design system (includes Inter @import) -->
+  <link rel="stylesheet" href="/static/app.css" />
+
+  <!-- HTMX 2.x — server-driven hypermedia -->
+  <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.4/dist/htmx.min.js" defer></script>
+
+  <!-- Alpine.js component library — must load before Alpine initialises.
+       type="module" is required because app.js uses ES import statements.
+       Module scripts are deferred by default and execute in document order,
+       so this runs before the Alpine CDN tag below. -->
+  <script src="/static/app.js" type="module"></script>
+
+  <!-- Alpine.js 3.x — lightweight reactivity (loads after app.js) -->
+  <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.3/dist/cdn.min.js" defer></script>
+
+  {% block head %}{% endblock %}
+</head>
+<body class="layout"
+      hx-on::after-request="const hdr = event.detail.xhr.getResponseHeader('HX-Trigger'); if (hdr) { try { const triggers = JSON.parse(hdr); if (triggers.toast) window.dispatchEvent(new CustomEvent('toast', { detail: triggers.toast })); } catch(e) {} }">
+
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+
+  <nav class="topnav" role="navigation" aria-label="Main navigation">
+    <span class="brand">⚡ Agentception</span>
+
+    {# ── Primary nav: Plan → Build → Ship ───────────────────────────────── #}
+    <a href="/plan" class="nav-cta {% if request.url.path == '/' or request.url.path.startswith('/plan') %}active{% endif %}">Plan</a>
+    <a href="/build" class="{% if request.url.path.startswith('/build') %}active{% endif %}">Build</a>
+    <a href="/controls"   class="{% if request.url.path.startswith('/controls') %}active{% endif %}">Ship</a>
+
+    {# ── Secondary pages — temporarily hidden while 1-2-3 flow is primary ─ #}
+    {#
+    <a href="/plan" class="nav-cta {% if request.url.path.startswith('/plan') %}active{% endif %}">Plan</a>
+    <a href="/agents"   class="{% if request.url.path.startswith('/agents') %}active{% endif %}">Agents</a>
+    <a href="/telemetry" class="{% if request.url.path.startswith('/telemetry') %}active{% endif %}">Telemetry</a>
+    <a href="/roles"    class="{% if request.url.path.startswith('/roles') %}active{% endif %}">Roles</a>
+    <a href="/org-chart" class="{% if request.url.path.startswith('/org-chart') %}active{% endif %}">Org Chart</a>
+    <a href="/cognitive-arch" class="{% if request.url.path.startswith('/cognitive-arch') %}active{% endif %}">Cog Arch</a>
+    <a href="/config"   class="{% if request.url.path.startswith('/config') %}active{% endif %}">Config</a>
+    <a href="/dag"      class="{% if request.url.path.startswith('/dag') %}active{% endif %}">DAG</a>
+    <a href="/ab-testing" class="{% if request.url.path.startswith('/ab-testing') %}active{% endif %}">A/B</a>
+    <a href="/templates" class="{% if request.url.path.startswith('/templates') %}active{% endif %}">Templates</a>
+    <a href="/transcripts" class="{% if request.url.path.startswith('/transcripts') %}active{% endif %}">Transcripts</a>
+    <a href="/worktrees" class="{% if request.url.path.startswith('/worktrees') %}active{% endif %}">Worktrees</a>
+    <a href="/controls" class="{% if request.url.path.startswith('/controls') %}active{% endif %}">Controls</a>
+    <a href="/settings" class="{% if request.url.path.startswith('/settings') %}active{% endif %}">Settings</a>
+    <a href="/api" class="{% if request.url.path == '/api' %}active{% endif %}">API</a>
+    <a href="/docs"     class="{% if request.url.path.startswith('/docs') %}active{% endif %}">Docs</a>
+    #}
+
+    {#
+      Project switcher — only rendered when pipeline-config.json defines
+      multiple projects.  Fetches /api/config on mount, POSTs on change.
+    #}
+    <div
+      id="project-switcher"
+      class="project-switcher"
+      x-data="projectSwitcher()"
+      x-init="load()"
+      x-show="projects.length > 0"
+    >
+      <label for="project-select" class="project-switcher__label">Project</label>
+      <select
+        id="project-select"
+        class="project-switcher__select"
+        x-model="activeProject"
+        @change="switchProject($event.target.value)"
+        aria-label="Switch active project"
+      >
+        <template x-for="p in projects" :key="p.name">
+          <option :value="p.name" x-text="p.name" :selected="p.name === activeProject"></option>
+        </template>
+      </select>
+    </div>
+  </nav>
+
+  <main id="main-content" role="main">
+    {% block content %}
+    <div class="card">
+      <p class="text-muted">Welcome to <strong>Agentception</strong> — <em>The Singularity Is Here.</em></p>
+      <p class="mt-1 text-muted">Select a section from the navigation above to get started.</p>
+    </div>
+    {% endblock %}
+  </main>
+
+  {% block extra_scripts %}{% endblock %}
+
+  <!-- Toast notification system -->
+  <div id="toast-container"
+       x-data="toastStore()"
+       @toast.window="add($event.detail)"
+       class="toast-container"
+       aria-live="polite"
+       aria-label="Notifications">
+    <template x-for="toast in toasts" :key="toast.id">
+      <div class="toast"
+           :class="`toast--${toast.type}`"
+           x-show="toast.visible"
+           x-transition
+           @click="remove(toast.id)"
+           role="status">
+        <span x-text="toast.message"></span>
+      </div>
+    </template>
+  </div>
+
+
+</body>
+</html>

@@ -1,0 +1,89 @@
+{% for group in groups %}
+{% set closed_count = group.issues | selectattr("state", "equalto", "closed") | list | length %}
+{% set total_count  = group.issues | length %}
+
+<div class="build-phase
+  {%- if group.complete %} build-phase--complete
+  {%- elif group.locked %} build-phase--locked
+  {%- elif not group.issues %} build-phase--empty
+  {%- else %} build-phase--active
+  {%- endif %}"
+  x-data="{ open: {{ 'true' if (not group.locked and not group.complete and group.issues) else 'false' }} }"
+>
+
+  <div class="build-phase__header" @click="open = !open">
+    <span class="build-phase__icon">
+      {%- if group.complete %}✅{%- elif group.locked %}🔒{%- elif not group.issues %}○{%- else %}🔓{%- endif %}
+    </span>
+    <span class="build-phase__label">{{ group.label }}</span>
+    {% if total_count > 0 %}
+    <span class="build-phase__progress">{{ closed_count }}&thinsp;/&thinsp;{{ total_count }}</span>
+    {% else %}
+    <span class="build-phase__progress build-phase__progress--empty">no issues</span>
+    {% endif %}
+    {% if group.locked %}
+    <span class="build-phase__gate">locked</span>
+    {% endif %}
+    {% if not group.locked and group.issues and initiative %}
+    <button class="build-phase__launch-btn"
+            @click.stop='$dispatch("open-label-dispatch", { label: {{ initiative | tojson }} })'>
+      Launch →
+    </button>
+    {% endif %}
+    <span class="build-phase__chevron" :class="{ 'build-phase__chevron--open': open }">›</span>
+  </div>
+
+  {% if group.issues %}
+  <ul class="build-phase__issues" x-show="open">
+    {% for issue in group.issues %}
+    {% set run = issue.run %}
+    {% set is_running = run and run.status in ('implementing', 'pending_launch', 'IMPLEMENTING', 'PENDING_LAUNCH') %}
+    <li class="build-issue
+      {%- if issue.state == 'closed' %} build-issue--closed
+      {%- elif is_running %} build-issue--active build-issue--running
+      {%- elif run %} build-issue--active
+      {%- endif %}"
+      @click='$dispatch("inspect-issue", {{ issue | tojson }})'
+    >
+      <div class="build-issue__header">
+        <a class="build-issue__number" href="{{ issue.url }}" target="_blank" rel="noopener" @click.stop>
+          #{{ issue.number }}
+        </a>
+        {% set ns = namespace(role_label=none) %}
+        {% for lbl in issue.labels %}
+          {% if ns.role_label is none and not lbl.startswith('phase-') and lbl != initiative %}
+            {% set ns.role_label = lbl %}
+          {% endif %}
+        {% endfor %}
+        {% if ns.role_label %}
+        <span class="build-issue__label-pill">{{ ns.role_label }}</span>
+        {% endif %}
+        <span class="build-issue__state-dot
+          {%- if issue.state == 'closed' %} build-issue__state-dot--closed
+          {%- elif is_running %} build-issue__state-dot--active
+          {%- else %} build-issue__state-dot--open
+          {%- endif %}"></span>
+      </div>
+      <p class="build-issue__title">{{ issue.title }}</p>
+      <div class="build-issue__footer">
+        {% if run %}
+        <div class="build-issue__run">
+          <span class="build-issue__role">{{ run.role }}</span>
+          <span class="build-issue__status build-issue__status--{{ run.status | lower }}">{{ run.status }}</span>
+          {% if run.pr_number %}
+          <a class="build-issue__pr" href="https://github.com/{{ repo }}/pull/{{ run.pr_number }}"
+             target="_blank" rel="noopener" @click.stop>PR&thinsp;#{{ run.pr_number }}</a>
+          {% endif %}
+        </div>
+        {% elif not group.locked and issue.state == 'open' %}
+        <button class="build-issue__assign-btn"
+                @click.stop='$dispatch("open-dispatch", {{ issue | tojson }})'>Assign →</button>
+        {% endif %}
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+</div>
+{% endfor %}

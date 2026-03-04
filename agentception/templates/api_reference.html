@@ -1,0 +1,438 @@
+{% extends "base.html" %}
+{% block title %}API Reference — Agentception{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3.14.3/dist/cdn.min.js" defer></script>
+{% endblock %}
+
+{#
+  Native API Reference — architecture layers
+  ─────────────────────────────────────────────────────────────────────────────
+  Jinja  : full page — schema pre-processed in Python, Jinja only renders
+  HTMX   : none
+  Alpine : expand/collapse, Try It execution (apiEndpoint() in app.js)
+  CSS    : app.css  §  API Reference
+  JS     : app.js  →  apiEndpoint()
+  ─────────────────────────────────────────────────────────────────────────────
+#}
+
+{# ── Macros ─────────────────────────────────────────────────────────────── #}
+
+{% macro method_badge(method) %}
+<span class="api-method api-method--{{ method | lower }}">{{ method }}</span>
+{% endmacro %}
+
+{% macro ct_badge(ct) %}
+{% if ct %}
+<span class="api-ct-badge">{{ ct }}</span>
+{% endif %}
+{% endmacro %}
+
+{% macro param_table(parameters) %}
+{% set path_p   = parameters | selectattr("in", "equalto", "path")   | list %}
+{% set query_p  = parameters | selectattr("in", "equalto", "query")  | list %}
+{% set header_p = parameters | selectattr("in", "equalto", "header") | list %}
+{% if path_p or query_p or header_p %}
+<div class="api-section-label">Parameters</div>
+<table class="api-param-table">
+  <thead><tr><th>Name</th><th>In</th><th>Type</th><th>Req</th><th>Description</th></tr></thead>
+  <tbody>
+    {% for p in path_p + query_p + header_p %}
+    <tr>
+      <td><code class="api-param-name">{{ p.name }}</code></td>
+      <td><span class="api-param-in api-param-in--{{ p.in }}">{{ p.in }}</span></td>
+      <td class="api-param-type">{{ p.schema.type if p.schema else '' }}</td>
+      <td>{% if p.required %}<span class="api-req">✓</span>{% endif %}</td>
+      <td class="api-param-desc">{{ p.description or '' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endmacro %}
+
+{% macro fields_table(fields, label, content_type='') %}
+{% if fields %}
+<div class="api-section-label">
+  {{ label }}
+  {% if content_type %}{{ ct_badge(content_type) }}{% endif %}
+</div>
+<table class="api-param-table">
+  <thead><tr><th>Field</th><th>Type</th><th>Req</th><th>Description</th></tr></thead>
+  <tbody>
+    {% for f in fields %}
+    <tr>
+      <td><code class="api-param-name">{{ f.name }}</code></td>
+      <td class="api-param-type">{{ f.type }}</td>
+      <td>{% if f.required %}<span class="api-req">✓</span>{% endif %}</td>
+      <td class="api-param-desc">
+        {{ f.description }}
+        {% if f.default is not none and f.default != '' %}
+        <span class="api-default">default: {{ f.default }}</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endmacro %}
+
+{% block content %}
+<div
+  class="api-layout"
+  x-data="{
+    active: '{{ groups[0].tag if groups else '' }}',
+    onScroll() {
+      const sections = document.querySelectorAll('.api-tag-section');
+      for (const el of sections) {
+        const rect = el.getBoundingClientRect();
+        if (rect.top <= 100 && rect.bottom > 100) { this.active = el.id.replace('tag-', ''); break; }
+      }
+    }
+  }"
+  @scroll.window.passive="onScroll()"
+>
+
+  {# ── Sidebar ─────────────────────────────────────────────────────────── #}
+  <nav class="api-sidebar" aria-label="API sections">
+    <div class="api-sidebar-header">
+      <div class="api-sidebar-title">{{ info.title or 'API Reference' }}</div>
+      <div class="api-sidebar-version">v{{ info.version or '' }}</div>
+    </div>
+    <ul class="api-sidebar-nav">
+      {% for group in groups %}
+      <li>
+        <a
+          class="api-sidebar-link"
+          :class="active === '{{ group.tag }}' ? 'api-sidebar-link--active' : ''"
+          href="#tag-{{ group.tag }}"
+          @click.prevent="active = '{{ group.tag }}'; document.getElementById('tag-{{ group.tag }}').scrollIntoView({behavior:'smooth', block:'start'})"
+        >
+          <span class="api-sidebar-label">{{ group.label }}</span>
+          <span class="api-sidebar-count">{{ group.endpoints | length }}</span>
+        </a>
+      </li>
+      {% endfor %}
+      {% if schema_models %}
+      <li class="api-sidebar-divider"></li>
+      <li>
+        <a
+          class="api-sidebar-link"
+          :class="active === '__models' ? 'api-sidebar-link--active' : ''"
+          href="#tag-models"
+          @click.prevent="active = '__models'; document.getElementById('tag-models').scrollIntoView({behavior:'smooth', block:'start'})"
+        >
+          <span class="api-sidebar-label">Schema Models</span>
+          <span class="api-sidebar-count">{{ schema_models | length }}</span>
+        </a>
+      </li>
+      {% endif %}
+    </ul>
+    {% if info.description %}
+    <div class="api-sidebar-desc">{{ info.description }}</div>
+    {% endif %}
+  </nav>
+
+  {# ── Main content ────────────────────────────────────────────────────── #}
+  <div class="api-main">
+
+    {% for group in groups %}
+    <section class="api-tag-section" id="tag-{{ group.tag }}">
+      <h2 class="api-tag-heading">{{ group.label }}</h2>
+
+      {% for ep in group.endpoints %}
+      <div
+        class="api-endpoint{% if ep.deprecated %} api-endpoint--deprecated{% endif %}"
+        x-data="apiEndpoint()"
+        data-method="{{ ep.method }}"
+        data-path="{{ ep.path }}"
+        data-query-params='{{ ep.parameters | selectattr("in", "equalto", "query") | list | tojson }}'
+        data-body-fields='{{ ep.request_body.fields | tojson if ep.request_body else "[]" }}'
+      >
+
+        {# ── Collapsed row ──────────────────────────────────────────────── #}
+        <button
+          class="api-endpoint-row"
+          :class="open ? 'api-endpoint-row--open' : ''"
+          @click="open = !open"
+          :aria-expanded="open"
+        >
+          {{ method_badge(ep.method) }}
+          <code class="api-endpoint-path">{{ ep.path }}</code>
+          <span class="api-endpoint-summary">
+            {% if ep.deprecated %}<span class="api-deprecated-badge">deprecated</span>{% endif %}
+            {{ ep.summary }}
+          </span>
+          <span class="api-endpoint-chevron" :class="open ? 'api-endpoint-chevron--up' : ''">›</span>
+        </button>
+
+        {# ── Expanded detail ────────────────────────────────────────────── #}
+        <div class="api-endpoint-detail" x-show="open" x-collapse>
+
+          {# Metadata row — operation ID #}
+          {% if ep.operation_id %}
+          <div class="api-meta-row">
+            <span class="api-meta-label">operationId</span>
+            <code class="api-meta-value">{{ ep.operation_id }}</code>
+          </div>
+          {% endif %}
+
+          {# Description — rendered as Markdown #}
+          {% if ep.description %}
+          <div class="api-endpoint-desc api-md">{{ ep.description | markdown }}</div>
+          {% endif %}
+
+          {# Parameters table #}
+          {{ param_table(ep.parameters) }}
+
+          {# Request body #}
+          {% if ep.request_body %}
+          {{ fields_table(
+              ep.request_body.fields,
+              'Request Body' + (' — ' + ep.request_body.schema_name if ep.request_body.schema_name else '') + (' (required)' if ep.request_body.required else ''),
+              ep.request_body.content_type
+          ) }}
+          {% endif %}
+
+          {# Responses — each code gets content-type badge + expanded schema fields #}
+          {% if ep.responses %}
+          <div class="api-section-label">Responses</div>
+          <div class="api-responses">
+            {% for resp in ep.responses %}
+            <div class="api-response-block" x-data="{ schemaOpen: false }">
+              <div class="api-response">
+                <span class="api-response-code api-response-code--{{ '2' if resp.code.startswith('2') else ('4' if resp.code.startswith('4') else '5') }}">
+                  {{ resp.code }}
+                </span>
+                <span class="api-response-desc">{{ resp.description }}</span>
+                {% if resp.content_type %}{{ ct_badge(resp.content_type) }}{% endif %}
+                {% if resp.schema_name %}
+                <code class="api-response-schema">{{ resp.schema_name }}</code>
+                {% endif %}
+                {% if resp.fields %}
+                <button class="api-schema-toggle" @click="schemaOpen = !schemaOpen" :aria-expanded="schemaOpen">
+                  <span x-text="schemaOpen ? '▴ fields' : '▾ fields'"></span>
+                </button>
+                {% endif %}
+              </div>
+              {% if resp.fields %}
+              <div x-show="schemaOpen" x-collapse>
+                <table class="api-param-table api-param-table--nested">
+                  <thead><tr><th>Field</th><th>Type</th><th>Req</th><th>Description</th></tr></thead>
+                  <tbody>
+                    {% for f in resp.fields %}
+                    <tr>
+                      <td><code class="api-param-name">{{ f.name }}</code></td>
+                      <td class="api-param-type">{{ f.type }}</td>
+                      <td>{% if f.required %}<span class="api-req">✓</span>{% endif %}</td>
+                      <td class="api-param-desc">{{ f.description }}</td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+              {% endif %}
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+
+          {# ── Try It panel ──────────────────────────────────────────────── #}
+          <div class="api-try">
+            <button
+              class="api-try-toggle"
+              :class="tryOpen ? 'api-try-toggle--open' : ''"
+              @click="tryOpen = !tryOpen; if (!tryOpen) response = null"
+            >
+              <span x-text="tryOpen ? 'Close' : 'Try it out'"></span>
+              <span x-text="tryOpen ? '×' : '→'"></span>
+            </button>
+
+            <div class="api-try-panel" x-show="tryOpen" x-collapse>
+
+              {# URL preview #}
+              <div class="api-try-url-row">
+                {{ method_badge(ep.method) }}
+                <code class="api-try-url" x-text="resolvedPath"></code>
+              </div>
+
+              {# Path params #}
+              <template x-if="pathParamNames.length > 0">
+                <div class="api-try-group">
+                  <div class="api-section-label">Path parameters</div>
+                  <template x-for="name in pathParamNames" :key="name">
+                    <div class="api-try-field">
+                      <label class="api-try-label" x-text="name"></label>
+                      <input class="api-try-input" type="text"
+                        :placeholder="'{' + name + '}'"
+                        :value="pathParamValues[name]"
+                        @input="pathParamValues[name] = $event.target.value"
+                      />
+                    </div>
+                  </template>
+                </div>
+              </template>
+
+              {# Query params #}
+              <template x-if="queryParams.length > 0">
+                <div class="api-try-group">
+                  <div class="api-section-label">Query parameters</div>
+                  <template x-for="qp in queryParams" :key="qp.name">
+                    <div class="api-try-field">
+                      <label class="api-try-label">
+                        <span x-text="qp.name"></span>
+                        <span class="api-req" x-show="qp.required"> *</span>
+                      </label>
+                      <input class="api-try-input" type="text"
+                        :placeholder="qp.description || qp.name"
+                        :value="queryValues[qp.name]"
+                        @input="queryValues[qp.name] = $event.target.value"
+                      />
+                    </div>
+                  </template>
+                </div>
+              </template>
+
+              {# Request body #}
+              <template x-if="bodyFields.length > 0">
+                <div class="api-try-group">
+                  <div class="api-section-label">Request body <span style="font-weight:400;text-transform:none;">(JSON)</span></div>
+                  <textarea class="api-try-body" x-model="bodyJson" spellcheck="false" rows="6"></textarea>
+                </div>
+              </template>
+
+              {# cURL preview — reactive, updates as form values change #}
+              <div class="api-try-group" x-data="{ curlOpen: false }">
+                <button class="api-curl-toggle" @click="curlOpen = !curlOpen">
+                  <span x-text="curlOpen ? '▴ cURL' : '▾ cURL'"></span>
+                </button>
+                <div x-show="curlOpen" x-collapse>
+                  <pre class="api-curl-pre" x-text="curlCommand"></pre>
+                </div>
+              </div>
+
+              {# Execute #}
+              <button class="btn btn-primary api-try-send" @click="send()" :disabled="sending"
+                x-text="sending ? 'Sending…' : 'Execute'"></button>
+
+              {# Response #}
+              <template x-if="response">
+                <div class="api-try-response" x-data="{ tab: 'raw' }">
+
+                  {# Metadata bar #}
+                  <div class="api-try-meta-bar">
+                    <span class="api-response-code"
+                      :class="response.ok ? 'api-response-code--2' : 'api-response-code--4'"
+                      x-text="response.status || 'Error'"
+                    ></span>
+                    <span class="api-try-meta-item" x-show="response.elapsed">
+                      <span class="api-try-meta-label">Time</span>
+                      <span x-text="response.elapsed + ' ms'"></span>
+                    </span>
+                    <span class="api-try-meta-item" x-show="response.size">
+                      <span class="api-try-meta-label">Size</span>
+                      <span x-text="formatSize(response.size)"></span>
+                    </span>
+                    <span class="api-try-meta-item" x-show="response.contentType">
+                      <span class="api-try-meta-label">Content-Type</span>
+                      <code x-text="response.contentType"></code>
+                    </span>
+                    <div class="api-try-tabs">
+                      <button class="api-try-tab" :class="tab==='raw'     ? 'api-try-tab--active':''" @click="tab='raw'">Raw</button>
+                      <button class="api-try-tab" :class="tab==='preview' ? 'api-try-tab--active':''" @click="tab='preview'">Preview</button>
+                      <button class="api-try-tab" :class="tab==='headers' ? 'api-try-tab--active':''" @click="tab='headers'">Headers</button>
+                    </div>
+                  </div>
+
+                  {# Raw #}
+                  <pre class="api-try-response-body" x-show="tab==='raw'" x-text="response.body"></pre>
+
+                  {# Preview #}
+                  <div class="api-try-response-preview" x-show="tab==='preview'">
+                    <template x-if="response.body.trimStart().startsWith('<')">
+                      <iframe class="api-try-iframe" :srcdoc="response.body"
+                        sandbox="allow-same-origin" title="Response preview"></iframe>
+                    </template>
+                    <template x-if="!response.body.trimStart().startsWith('<')">
+                      <pre class="api-try-response-body" x-text="response.body"></pre>
+                    </template>
+                  </div>
+
+                  {# Headers #}
+                  <div x-show="tab==='headers'">
+                    <table class="api-headers-table">
+                      <thead><tr><th>Header</th><th>Value</th></tr></thead>
+                      <tbody>
+                        <template x-for="h in response.headers" :key="h.name">
+                          <tr>
+                            <td class="api-param-name" x-text="h.name"></td>
+                            <td class="api-param-desc" x-text="h.value"></td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+
+                </div>
+              </template>
+
+            </div>
+          </div>
+
+        </div>
+      </div>
+      {% endfor %}
+
+    </section>
+    {% endfor %}
+
+    {# ── Schema Models browser ─────────────────────────────────────────── #}
+    {% if schema_models %}
+    <section class="api-tag-section" id="tag-models">
+      <h2 class="api-tag-heading">Schema Models</h2>
+      {% for model in schema_models %}
+      <div class="api-endpoint" x-data="{ open: false }">
+        <button class="api-endpoint-row" :class="open ? 'api-endpoint-row--open' : ''"
+          @click="open = !open" :aria-expanded="open">
+          <span class="api-model-name">{{ model.name }}</span>
+          {% if model.description %}
+          <span class="api-endpoint-summary">{{ model.description[:80] }}{% if model.description | length > 80 %}…{% endif %}</span>
+          {% endif %}
+          <span class="api-endpoint-chevron" :class="open ? 'api-endpoint-chevron--up' : ''">›</span>
+        </button>
+        <div class="api-endpoint-detail" x-show="open" x-collapse>
+          {% if model.description %}
+          <div class="api-endpoint-desc api-md">{{ model.description | markdown }}</div>
+          {% endif %}
+          {% if model.fields %}
+          <table class="api-param-table">
+            <thead><tr><th>Field</th><th>Type</th><th>Req</th><th>Description</th></tr></thead>
+            <tbody>
+              {% for f in model.fields %}
+              <tr>
+                <td><code class="api-param-name">{{ f.name }}</code></td>
+                <td class="api-param-type">{{ f.type }}</td>
+                <td>{% if f.required %}<span class="api-req">✓</span>{% endif %}</td>
+                <td class="api-param-desc">
+                  {{ f.description }}
+                  {% if f.default is not none and f.default != '' %}
+                  <span class="api-default">default: {{ f.default }}</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <p class="api-endpoint-desc" style="color:var(--text-muted)">No fields.</p>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </section>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}

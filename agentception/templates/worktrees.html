@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block title %}Agentception — Agent Sandboxes{% endblock %}
+
+{% block content %}
+
+{# ── Page header ─────────────────────────────────────────────────────────── #}
+<div class="env-page-header">
+  <div>
+    <h1 class="env-page-title">Agent Sandboxes</h1>
+    <p class="env-page-subtitle">
+      Each agent operates in an isolated code environment. Click a sandbox to
+      inspect its commit history, changed files, and task.
+    </p>
+  </div>
+  <div class="env-page-meta">
+    <span class="env-page-count">{{ agent_worktrees | length }}</span>
+    <span class="env-page-count-label">active</span>
+  </div>
+</div>
+
+{# ── Branch tree ──────────────────────────────────────────────────────────── #}
+<div class="env-tree">
+
+  {# ── Trunk: base environment ───────────────────────────────────────────── #}
+  <div class="env-trunk-node">
+    <div class="env-trunk-dot"></div>
+    <div class="env-trunk-info">
+      <code class="env-trunk-branch">{{ main_wt.branch if main_wt else 'dev' }}</code>
+      <span class="env-trunk-label">base environment</span>
+      {% if main_wt %}
+      <span class="env-trunk-sha" title="{{ main_wt.head_sha }}">{{ (main_wt.head_sha or '')[:7] }}</span>
+      <span class="env-trunk-commit">{{ main_wt.head_message or '' }}</span>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── Agent sandboxes ───────────────────────────────────────────────────── #}
+  {% if agent_worktrees %}
+
+    {% for wt in agent_worktrees %}
+    {# Last branch gets the └ connector, others get ├ #}
+    {% set is_last = loop.last %}
+
+    <div
+      class="env-branch{% if is_last %} env-branch--last{% endif %}"
+      x-data="envSandbox('{{ wt.slug }}')"
+      :class="open ? 'env-branch--open' : ''"
+    >
+
+      {# ── Branch connector + head row ──────────────────────────────────── #}
+      <div class="env-branch-head" @click="toggle()">
+
+        {# Connector dot — sits on the trunk line #}
+        <div class="env-branch-origin-dot"></div>
+
+        {# Branch content #}
+        <div class="env-branch-content">
+
+          <div class="env-branch-top">
+            {# Type / issue badge #}
+            {% if wt.issue_number %}
+            <span class="env-badge env-badge--issue">issue · #{{ wt.issue_number }}</span>
+            {% else %}
+            <span class="env-badge env-badge--custom">sandbox</span>
+            {% endif %}
+
+            {# Lock indicator #}
+            {% if wt.locked %}
+            <span class="env-lock" title="Locked — protected from auto-prune">🔒</span>
+            {% endif %}
+
+            {# Branch name #}
+            <code class="env-branch-name">{{ wt.branch or '(detached HEAD)' }}</code>
+
+            {# Actions — right side #}
+            <div class="env-branch-actions">
+              {% if wt.task_mtime_str %}
+              <span class="env-age">{{ wt.task_mtime_str }}</span>
+              {% endif %}
+
+              {% if wt.issue_number %}
+              <a
+                class="env-gh-link"
+                href="https://github.com/{{ gh_repo }}/issues/{{ wt.issue_number }}"
+                target="_blank"
+                rel="noopener"
+                @click.stop
+                title="View issue #{{ wt.issue_number }} on GitHub"
+              >#{{ wt.issue_number }} ↗</a>
+              {% endif %}
+
+              <button
+                class="env-delete btn btn-xs btn-danger"
+                @click.stop="deleteWorktree('{{ wt.slug }}')"
+                title="Remove sandbox"
+              >✕</button>
+
+              <span class="env-chevron" :class="open ? 'env-chevron--open' : ''">▾</span>
+            </div>
+          </div>
+
+          {# HEAD commit preview #}
+          <div class="env-branch-commit-preview">
+            <span class="env-sha">{{ (wt.head_sha or '')[:7] or '—' }}</span>
+            <span class="env-commit-msg">{{ wt.head_message or '—' }}</span>
+          </div>
+
+        </div>
+      </div>
+
+      {# ── Expandable detail panel (lazy HTMX) ──────────────────────────── #}
+      <div class="env-branch-body" x-show="open" x-transition>
+        <div
+          id="env-detail-{{ wt.slug }}"
+          class="env-detail"
+          hx-get="/worktrees/{{ wt.slug }}/detail"
+          hx-trigger="detail-load once"
+          hx-swap="innerHTML"
+        >
+          <div class="env-detail-loading">
+            <span class="env-spinner"></span> Loading sandbox detail…
+          </div>
+        </div>
+      </div>
+
+    </div>
+    {% endfor %}
+
+  {% else %}
+  <div class="env-empty">
+    <p>No agent sandboxes are currently active.</p>
+    <p>Start a wave from the <a href="/">Overview</a> or <a href="/brain-dump">Brain Dump</a> a new batch of work.</p>
+  </div>
+  {% endif %}
+
+</div>
+
+{% endblock %}

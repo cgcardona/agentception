@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+
+{% block title %}AgentCeption — Transcripts{% endblock %}
+
+{% block content %}
+
+{# ── Page header ──────────────────────────────────────────────────── #}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Transcript Browser</h1>
+    <p class="page-subtitle">
+      {{ total }} conversation{{ 's' if total != 1 else '' }} found
+      {% if transcripts_dir %} · <code class="dir-badge">{{ transcripts_dir }}</code>{% endif %}
+    </p>
+  </div>
+</div>
+
+{% if error %}
+<div class="card alert-card--danger">
+  <p class="alert-text--danger">⚠️ {{ error }}</p>
+</div>
+{% endif %}
+
+{# ── Filter bar (Alpine-powered) ──────────────────────────────────── #}
+{# transcriptBrowser() lives in /static/app.js #}
+<div
+  class="filter-group"
+  x-data='transcriptBrowser({{ filter_q | tojson }}, {{ filter_role | tojson }}, {{ filter_status | tojson }})'
+  x-init="applyFilters()"
+>
+  <div class="filter-bar">
+    {# Search #}
+    <div class="search-wrapper">
+      <input
+        type="search"
+        placeholder="Search conversations…"
+        class="filter-input filter-input--search"
+        x-model="q"
+        @input.debounce.200ms="applyFilters()"
+      />
+      <span class="search-icon">🔍</span>
+    </div>
+
+    {# Role filter #}
+    <select
+      class="filter-input filter-input--wide"
+      x-model="filterRole"
+      @change="applyFilters()"
+    >
+      <option value="">All roles</option>
+      {% for r in all_roles %}
+      <option value="{{ r }}" {% if filter_role == r %}selected{% endif %}>{{ r }}</option>
+      {% endfor %}
+    </select>
+
+    {# Status filter #}
+    <select
+      class="filter-input"
+      x-model="filterStatus"
+      @change="applyFilters()"
+    >
+      <option value="">All statuses</option>
+      <option value="done" {% if filter_status == 'done' %}selected{% endif %}>✅ Done</option>
+      <option value="unknown" {% if filter_status == 'unknown' %}selected{% endif %}>⏳ In-progress</option>
+    </select>
+
+    {# Sort #}
+    <select
+      class="filter-input"
+      x-model="sort"
+      @change="applySortDom()"
+    >
+      <option value="mtime">Sort: recent first</option>
+      <option value="messages">Sort: most messages</option>
+      <option value="words">Sort: most words</option>
+      <option value="subagents">Sort: most sub-agents</option>
+    </select>
+
+    {% if filter_role or filter_status or filter_issue or filter_q %}
+    <a href="/transcripts" class="btn btn-secondary filter-clear">✕ Clear filters</a>
+    {% endif %}
+  </div>
+
+  {# ── Transcript table ────────────────────────────────────────────── #}
+  {% if transcripts %}
+  <div class="card table-card">
+    <table class="telemetry-table transcript-table">
+      <colgroup>
+        <col><col><col><col><col><col><col><col>
+      </colgroup>
+      <thead>
+        <tr>
+          <th>UUID</th>
+          <th>Role</th>
+          <th>Status</th>
+          <th>First message</th>
+          <th class="text-right">Msgs</th>
+          <th class="text-right">Sub-agents</th>
+          <th>Issues</th>
+          <th class="text-right">Modified</th>
+        </tr>
+      </thead>
+      <tbody id="transcript-tbody">
+        {% for t in transcripts %}
+        <tr
+          data-transcript-row
+          data-preview="{{ t.preview | e }}"
+          data-role="{{ t.role }}"
+          data-status="{{ t.status }}"
+          data-mtime="{{ t.mtime }}"
+          data-messages="{{ t.message_count }}"
+          data-words="{{ t.word_count }}"
+          data-subagents="{{ t.subagent_count }}"
+          class="transcript-row"
+          @click="window.location='/transcripts/{{ t.uuid }}'"
+          title="Open conversation {{ t.uuid }}"
+        >
+          {# UUID #}
+          <td>
+            <span class="mono-badge" title="{{ t.uuid }}">{{ t.uuid[:8] }}…</span>
+            {% if t.is_coordinator %}
+            <span class="badge badge--purple badge--sm badge--coord">coord</span>
+            {% endif %}
+          </td>
+
+          {# Role badge #}
+          <td>
+            {% set role_class = {
+              'cto': 'badge--orange',
+              'engineering-vp': 'badge--blue',
+              'engineering-coordinator': 'badge--blue', 'qa-coordinator': 'badge--teal',
+              'qa-vp': 'badge--purple',
+              'python-developer': 'badge--green',
+              'pr-reviewer': 'badge--teal',
+              'muse-specialist': 'badge--pink',
+              'database-architect': 'badge--yellow',
+              'unknown': 'badge--gray',
+            }.get(t.role, 'badge--gray') %}
+            <span class="badge {{ role_class }}">{{ t.role }}</span>
+          </td>
+
+          {# Status badge #}
+          <td>
+            {% if t.status == 'done' %}
+            <span class="badge badge--green">✓ done</span>
+            {% else %}
+            <span class="badge badge--gray">⏳ active</span>
+            {% endif %}
+          </td>
+
+          {# Preview #}
+          <td class="transcript-preview-cell">{{ t.preview or '—' }}</td>
+
+          {# Message count #}
+          <td class="transcript-count-cell">{{ t.message_count }}</td>
+
+          {# Sub-agents #}
+          <td class="transcript-subagent-cell">
+            {% if t.has_subagents %}
+            <span class="badge badge--blue badge--xs">{{ t.subagent_count }}</span>
+            {% else %}
+            <span class="text-faint">—</span>
+            {% endif %}
+          </td>
+
+          {# Linked issues #}
+          <td class="transcript-issues-cell">
+            {% for n in (t.linked_issues or [])[:3] %}
+            <a href="/issues/{{ n }}" @click.stop class="issue-link">#{{ n }}</a>{% if not loop.last %} {% endif %}
+            {% endfor %}
+            {% if (t.linked_issues | length) > 3 %}
+            <span class="text-muted">+{{ (t.linked_issues | length) - 3 }}</span>
+            {% endif %}
+            {% if not t.linked_issues %}
+            <span class="text-faint">—</span>
+            {% endif %}
+          </td>
+
+          {# Modified date #}
+          <td class="transcript-date-cell">{{ t.mtime | int | timestamp_to_date }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% elif not error %}
+  <div class="card">
+    <p class="text-muted empty-state">
+      No transcripts found. Make sure the Cursor projects directory is mounted correctly.
+    </p>
+  </div>
+  {% endif %}
+
+</div>{# /filter-group #}
+
+{% endblock %}

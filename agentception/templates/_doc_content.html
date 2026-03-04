@@ -1,0 +1,13 @@
+{# HTMX partial — loaded into #docs-content by sidebar link clicks. #}
+<div class="docs-content-header">
+  <h1 class="docs-content-title">{{ label }}</h1>
+  <span class="docs-content-slug">{{ slug }}</span>
+</div>
+
+{% if content_html %}
+<div class="docs-prose">{{ content_html }}</div>
+{% elif error %}
+<p class="docs-error">⚠️ {{ error }}</p>
+{% else %}
+<p class="docs-empty">File is empty.</p>
+{% endif %}

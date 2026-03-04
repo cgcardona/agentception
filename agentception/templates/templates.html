@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block title %}Templates — AgentCeption{% endblock %}
+
+{% block content %}
+<div class="tpl-layout">
+
+  <header class="tpl-page-header">
+    <h1 class="tpl-page-title">Role Templates</h1>
+    <p class="tpl-page-subtitle">Export, import, and browse pipeline configuration bundles.</p>
+  </header>
+
+  {# ── Export section ──────────────────────────────────────────────────────── #}
+  <section class="tpl-section" x-data="exportPanel()" aria-labelledby="tpl-export-heading">
+    <h2 id="tpl-export-heading" class="tpl-section-title">Export current pipeline</h2>
+
+    <div class="tpl-form-row">
+      <label class="tpl-form-label" for="tpl-name">Name</label>
+      <input id="tpl-name"
+             class="tpl-input"
+             type="text"
+             placeholder="e.g. maestro-pipeline"
+             x-model.trim="name"
+             aria-label="Template name" />
+    </div>
+
+    <div class="tpl-form-row">
+      <label class="tpl-form-label" for="tpl-ver">Version</label>
+      <input id="tpl-ver"
+             class="tpl-input"
+             type="text"
+             placeholder="e.g. 1.0.0"
+             x-model.trim="version"
+             aria-label="Template version" />
+    </div>
+
+    <div class="tpl-form-row">
+      <button class="tpl-btn-primary"
+              type="button"
+              :disabled="busy || !name || !version"
+              @click="doExport()"
+              x-text="busy ? 'Exporting…' : 'Export'">Export</button>
+
+      <span class="tpl-toast"
+            :class="toast.cls"
+            x-text="toast.msg"
+            role="status"
+            aria-live="polite"></span>
+    </div>
+  </section>
+
+  {# ── Import section ──────────────────────────────────────────────────────── #}
+  <section class="tpl-section" x-data="importPanel()" aria-labelledby="tpl-import-heading">
+    <h2 id="tpl-import-heading" class="tpl-section-title">Import template</h2>
+
+    <div class="tpl-form-row">
+      <label class="tpl-form-label" for="tpl-file">Archive</label>
+      <input id="tpl-file"
+             class="tpl-input"
+             type="file"
+             accept=".tar.gz,.gz"
+             @change="onFileChange($event)"
+             aria-label="Template archive file" />
+    </div>
+
+    <div class="tpl-form-row">
+      <label class="tpl-form-label" for="tpl-repo">Target repo</label>
+      <input id="tpl-repo"
+             class="tpl-input"
+             type="text"
+             placeholder="/absolute/path/to/repo"
+             x-model.trim="targetRepo"
+             aria-label="Target repository path" />
+    </div>
+
+    <div class="tpl-form-row">
+      <button class="tpl-btn-primary"
+              type="button"
+              :disabled="busy || !file || !targetRepo"
+              @click="doImport()"
+              x-text="busy ? 'Importing…' : 'Import'">Import</button>
+
+      <span class="tpl-toast"
+            :class="toast.cls"
+            x-text="toast.msg"
+            role="status"
+            aria-live="polite"></span>
+    </div>
+
+    {# Conflict list — rendered by Alpine after a successful import #}
+    <template x-if="conflicts.length > 0">
+      <div>
+        <p class="tpl-conflict-warning">⚠️ The following files were overwritten:</p>
+        <ul class="tpl-conflict-list">
+          <template x-for="c in conflicts" :key="c.path">
+            <li class="tpl-conflict-item" x-text="c.path"></li>
+          </template>
+        </ul>
+      </div>
+    </template>
+  </section>
+
+  {# ── Stored templates ────────────────────────────────────────────────────── #}
+  <section class="tpl-section" aria-labelledby="tpl-stored-heading">
+    <h2 id="tpl-stored-heading" class="tpl-section-title">Exported templates</h2>
+
+    {% if stored_templates %}
+    <table class="tpl-table" aria-label="Previously exported templates">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Version</th>
+          <th>Repo</th>
+          <th>Exported at</th>
+          <th class="tpl-cell-size">Size</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for tpl in stored_templates %}
+        <tr>
+          <td class="tpl-cell-name">{{ tpl.name }}</td>
+          <td class="tpl-cell-version">{{ tpl.version }}</td>
+          <td class="tpl-cell-repo" title="{{ tpl.gh_repo }}">{{ tpl.gh_repo }}</td>
+          <td class="tpl-cell-date">{{ tpl.created_at[:19].replace("T", " ") }}</td>
+          <td class="tpl-cell-size">{{ (tpl.size_bytes / 1024) | round(1) }} KB</td>
+          <td class="tpl-cell-action">
+            <a class="tpl-btn-download"
+               href="/api/templates/{{ tpl.filename }}"
+               download="{{ tpl.filename }}"
+               aria-label="Download {{ tpl.filename }}">
+              ↓ Download
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="tpl-empty">No templates exported yet. Use the export form above to create your first one.</p>
+    {% endif %}
+  </section>
+
+</div>
+{% endblock %}

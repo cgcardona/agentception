@@ -1,0 +1,368 @@
+{% extends "base.html" %}
+
+{% block title %}
+  {% if node %}AgentCeption — {{ node.role }} ({{ node.id[:8] }}){% else %}AgentCeption — Agent Not Found{% endif %}
+{% endblock %}
+
+{% block content %}
+
+{# ── Breadcrumb ─────────────────────────────────────────────────────────── #}
+<nav class="breadcrumb" aria-label="Breadcrumb">
+  <a href="/">← Overview</a>
+  <span class="breadcrumb-sep">/</span>
+  <span class="breadcrumb-current">
+    {% if node %}{{ node.role }}{% else %}Not Found{% endif %}
+  </span>
+</nav>
+
+{% if not node %}
+{# ── 404 state ──────────────────────────────────────────────────────────── #}
+<div class="card mt-2">
+  <p class="text-danger">Agent <code>{{ agent_id }}</code> not found in the current pipeline state.</p>
+  <p class="text-muted mt-1">The agent may have completed and removed its worktree, or the ID is invalid.</p>
+</div>
+
+{% else %}
+
+{# ── Agent header + persona hero ─────────────────────────────────────────── #}
+<div class="agent-detail-header card">
+  <div class="agent-hero-row">
+
+    {# Persona avatar #}
+    <div class="agent-persona-avatar agent-persona-avatar--{{ persona.archetype | replace('the_','') if persona.archetype else 'default' }}">
+      <span class="agent-persona-emoji">{{ persona.archetype_emoji }}</span>
+    </div>
+
+    <div class="agent-hero-body">
+      <div class="agent-detail-title">
+        <span class="status-badge status-badge--{{ node.status.value }}" aria-label="Status">{{ node.status.value }}</span>
+        <h1 class="agent-detail-role">{{ node.role | replace('-', ' ') | title }}</h1>
+      </div>
+
+      {# Persona line #}
+      <div class="agent-persona-line">
+        <span class="agent-persona-name">{{ persona.display_name }}</span>
+        {% if persona.archetype %}
+          <span class="agent-persona-archetype">{{ persona.archetype | replace('_', ' ') | title }}</span>
+        {% endif %}
+        {% if persona.raw %}
+          <a href="/cognitive-arch/{{ persona.raw | urlencode }}"
+             class="agent-persona-link" title="View full cognitive architecture">
+            View Architecture →
+          </a>
+        {% endif %}
+      </div>
+
+      {# Meta chips #}
+      <div class="agent-detail-meta">
+        {% if node.batch_id %}
+          <span class="meta-chip">
+            <span class="meta-label">Batch</span>
+            <code class="meta-value">{{ node.batch_id }}</code>
+          </span>
+        {% endif %}
+        {% if node.issue_number %}
+          <span class="meta-chip">
+            <span class="meta-label">Issue</span>
+            <a href="{{ gh_base_url }}/issues/{{ node.issue_number }}"
+               target="_blank" rel="noopener" class="meta-value">#{{ node.issue_number }}</a>
+          </span>
+        {% endif %}
+        {% if node.pr_number %}
+          <span class="meta-chip">
+            <span class="meta-label">PR</span>
+            <a href="{{ gh_base_url }}/pull/{{ node.pr_number }}"
+               target="_blank" rel="noopener" class="meta-value">#{{ node.pr_number }}</a>
+          </span>
+        {% endif %}
+        {% if node.branch %}
+          <span class="meta-chip">
+            <span class="meta-label">Branch</span>
+            <code class="meta-value">{{ node.branch }}</code>
+          </span>
+        {% endif %}
+        <span class="meta-chip">
+          <span class="meta-label">Messages</span>
+          <span class="meta-value">{{ node.message_count }}</span>
+        </span>
+      </div>
+    </div>
+  </div>
+
+  {# ── Quick actions ──────────────────────────────────────────────────────── #}
+  <div class="quick-actions" x-data="{ showKillModal: false }">
+    {% if node.issue_number %}
+      <a href="{{ gh_base_url }}/issues/{{ node.issue_number }}"
+         target="_blank" rel="noopener" class="btn btn-secondary">
+        View Issue on GitHub ↗
+      </a>
+    {% endif %}
+    {% if node.pr_number %}
+      <a href="{{ gh_base_url }}/pull/{{ node.pr_number }}"
+         target="_blank" rel="noopener" class="btn btn-secondary">
+        View PR on GitHub ↗
+      </a>
+    {% endif %}
+    {% if persona.raw %}
+      <a href="/cognitive-arch/{{ persona.raw | urlencode }}"
+         class="btn btn-secondary">
+        {{ persona.archetype_emoji }} Cognitive Architecture
+      </a>
+    {% endif %}
+
+    {# Kill button — only shown for active agents that have a worktree slug #}
+    {% if node.worktree_path %}
+    <button class="btn btn-danger" @click="showKillModal = true">
+      Kill Agent
+    </button>
+
+    <div
+      class="modal-backdrop"
+      x-show="showKillModal"
+      x-cloak
+      @keydown.escape.window="showKillModal = false"
+      @click.self="showKillModal = false"
+    >
+      <div class="modal-box"
+           role="dialog"
+           aria-modal="true"
+           aria-labelledby="kill-modal-title">
+        <h2 id="kill-modal-title" class="modal-title">Kill agent{% if node.issue_number %} for issue #{{ node.issue_number }}{% endif %}?</h2>
+        <p class="modal-body">
+          This removes the worktree at
+          <code>{{ node.worktree_path | replace(node.worktree_path | dirname, '…') }}</code>
+          and clears the <code>agent:wip</code> label.
+          The issue will be available for re-claim.
+        </p>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" @click="showKillModal = false">Cancel</button>
+          <button
+            class="btn btn-danger"
+            hx-post="/api/control/kill/{{ node.id }}"
+            hx-target="#result"
+            hx-swap="innerHTML"
+            @click="showKillModal = false"
+          >
+            Confirm Kill
+          </button>
+        </div>
+      </div>
+    </div>
+    <div id="result"></div>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Cognitive Architecture panel ────────────────────────────────────────── #}
+{% if persona.is_named_figure or persona.raw %}
+<div class="cog-panel card mt-2">
+  <div class="cog-panel__header">
+    <span class="cog-panel__emoji">{{ persona.archetype_emoji }}</span>
+    <div>
+      <div class="cog-panel__title">{{ persona.display_name }}</div>
+      {% if persona.archetype %}
+        <div class="cog-panel__sub">{{ persona.archetype | replace('_', ' ') | title }}</div>
+      {% endif %}
+    </div>
+    {% if persona.raw %}
+      <a href="/cognitive-arch/{{ persona.raw | urlencode }}"
+         class="cog-panel__detail-link">Full Architecture Page →</a>
+    {% endif %}
+  </div>
+
+  {% if persona.description %}
+  <p class="cog-panel__desc">{{ persona.description | truncate(280) }}</p>
+  {% endif %}
+
+  <div class="cog-panel__body">
+    {% if persona.overrides %}
+    <div class="cog-panel__atoms">
+      <div class="cog-panel__section-label">Cognitive Atoms</div>
+      <div class="cog-atoms-row">
+        {% for dim, val in persona.overrides.items() %}
+        <div class="cog-atom-pill">
+          <span class="cog-atom-pill__key">{{ dim | replace('_', ' ') }}</span>
+          <span class="cog-atom-pill__val">{{ val | replace('_', ' ') }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if persona.skill_domains %}
+    <div class="cog-panel__skills">
+      <div class="cog-panel__section-label">Skill Domains</div>
+      <div class="cog-skills-row">
+        {% for skill in persona.skill_domains %}
+        <span class="cog-skill-tag">{{ skill | replace('_', ' ') | title }}</span>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{# ── Two-column body ─────────────────────────────────────────────────────── #}
+<div class="agent-detail-columns mt-2">
+
+  {# ── Left: .agent-task table (40%) ──────────────────────────────────────── #}
+  <section class="agent-task-panel" aria-label="Agent task fields">
+    <h2 class="section-title">.agent-task</h2>
+    <div class="card">
+      <table class="task-table">
+        <tbody>
+          <tr>
+            <td class="task-key">id</td>
+            <td class="task-value">
+              <code>{{ node.id }}</code>
+              <button
+                class="btn btn-sm btn-ghost btn-copy"
+                title="Copy to clipboard"
+                x-data="{ copied: false }"
+                @click="navigator.clipboard.writeText('{{ node.id }}').then(() => { copied = true; setTimeout(() => copied = false, 1500) })"
+                :aria-label="copied ? 'Copied!' : 'Copy'"
+              ><span x-text="copied ? '✓' : '⧉'"></span></button>
+            </td>
+          </tr>
+          <tr>
+            <td class="task-key">role</td>
+            <td class="task-value">{{ node.role }}</td>
+          </tr>
+          <tr>
+            <td class="task-key">status</td>
+            <td class="task-value">
+              <span class="status-badge status-badge--{{ node.status.value }}">{{ node.status.value }}</span>
+            </td>
+          </tr>
+          {% if node.cognitive_arch %}
+          <tr>
+            <td class="task-key">cognitive_arch</td>
+            <td class="task-value">
+              <a href="/cognitive-arch/{{ node.cognitive_arch | urlencode }}">
+                <code>{{ node.cognitive_arch }}</code>
+              </a>
+            </td>
+          </tr>
+          {% endif %}
+          {% if node.issue_number %}
+          <tr>
+            <td class="task-key">issue_number</td>
+            <td class="task-value">
+              <a href="{{ gh_base_url }}/issues/{{ node.issue_number }}"
+                 target="_blank" rel="noopener">#{{ node.issue_number }}</a>
+            </td>
+          </tr>
+          {% endif %}
+          {% if node.pr_number %}
+          <tr>
+            <td class="task-key">pr_number</td>
+            <td class="task-value">
+              <a href="{{ gh_base_url }}/pull/{{ node.pr_number }}"
+                 target="_blank" rel="noopener">#{{ node.pr_number }}</a>
+            </td>
+          </tr>
+          {% endif %}
+          {% if node.branch %}
+          <tr>
+            <td class="task-key">branch</td>
+            <td class="task-value">
+              <code>{{ node.branch }}</code>
+              <button
+                class="btn btn-sm btn-ghost btn-copy"
+                title="Copy to clipboard"
+                x-data="{ copied: false }"
+                @click="navigator.clipboard.writeText('{{ node.branch }}').then(() => { copied = true; setTimeout(() => copied = false, 1500) })"
+                :aria-label="copied ? 'Copied!' : 'Copy'"
+              ><span x-text="copied ? '✓' : '⧉'"></span></button>
+            </td>
+          </tr>
+          {% endif %}
+          {% if node.batch_id %}
+          <tr>
+            <td class="task-key">batch_id</td>
+            <td class="task-value"><code>{{ node.batch_id }}</code></td>
+          </tr>
+          {% endif %}
+          {% if node.worktree_path %}
+          <tr>
+            <td class="task-key">worktree_path</td>
+            <td class="task-value task-value--path">
+              <code>{{ node.worktree_path }}</code>
+              <button
+                class="btn btn-sm btn-ghost btn-copy"
+                title="Copy to clipboard"
+                x-data="{ copied: false }"
+                @click="navigator.clipboard.writeText('{{ node.worktree_path }}').then(() => { copied = true; setTimeout(() => copied = false, 1500) })"
+                :aria-label="copied ? 'Copied!' : 'Copy'"
+              ><span x-text="copied ? '✓' : '⧉'"></span></button>
+            </td>
+          </tr>
+          {% endif %}
+          {% if node.transcript_path %}
+          <tr>
+            <td class="task-key">transcript_path</td>
+            <td class="task-value task-value--path"><code>{{ node.transcript_path }}</code></td>
+          </tr>
+          {% endif %}
+          <tr>
+            <td class="task-key">message_count</td>
+            <td class="task-value">{{ node.message_count }}</td>
+          </tr>
+          <tr>
+            <td class="task-key">children</td>
+            <td class="task-value">{{ node.children | length }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {# ── Right: Transcript (60%) ─────────────────────────────────────────────── #}
+  <section class="transcript-panel" aria-label="Agent transcript">
+    <h2 class="section-title">Transcript ({{ messages | length }} messages)</h2>
+
+    <div id="transcript-section"
+         hx-get="/partials/agents/{{ node.id }}/transcript"
+         hx-trigger="every 8s"
+         hx-swap="innerHTML"
+         x-data
+         x-init="$nextTick(() => { const l = document.querySelector('#transcript .message:last-child'); l?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); })"
+         hx-on:htmx:after-settle="(function(){ const l = document.querySelector('#transcript .message:last-child'); l?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); })()">
+      {% if messages %}
+      <div class="transcript-container" id="transcript">
+        {% for msg in messages %}
+        <div
+          class="message message--{{ msg.role }}"
+          x-data='{ "expanded": {{ loop.last | tojson }} }'
+        >
+          <div class="message-role">{{ msg.role }}</div>
+          <div
+            class="message-body"
+            :class="expanded ? 'message-body--expanded' : 'message-body--collapsed'"
+            @click="expanded = !expanded"
+          >
+            <pre class="message-text">{{ msg.text if msg.text is defined else msg.content }}</pre>
+          </div>
+          <button
+            class="message-expand-btn"
+            @click.stop="expanded = !expanded"
+            aria-label="Toggle full message"
+            x-text="expanded ? '▲ Collapse' : '▼ Expand'"
+          ></button>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="card">
+        <p class="text-muted empty-state">No transcript available for this agent.</p>
+      </div>
+      {% endif %}
+    </div>
+
+  </section>
+
+</div>{# .agent-detail-columns #}
+{% endif %}{# node #}
+
+{% endblock %}

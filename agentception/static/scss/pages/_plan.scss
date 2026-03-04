@@ -1,0 +1,491 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// Plan page — the first step in the Plan → Build → Ship pipeline.
+//
+// Three-state flow: write → generating → review → done
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── Page shell ────────────────────────────────────────────────────────────
+.plan-page {
+  max-width: 860px;
+  margin: 2.5rem auto;
+  padding: 0 1.25rem;
+}
+
+// ── Step indicator ────────────────────────────────────────────────────────
+.plan-stepper {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  margin-bottom: 2.5rem;
+}
+
+.plan-step {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-shrink: 0;
+}
+
+.plan-step-bubble {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  font-size: .85rem;
+  font-weight: 700;
+  transition: background .2s, color .2s;
+}
+
+.plan-step-label {
+  font-size: .85rem;
+  font-weight: 600;
+  transition: color .2s;
+}
+
+.plan-step--active {
+  .plan-step-bubble { background: var(--accent-bright, #a78bfa); color: #fff; }
+  .plan-step-label  { color: var(--accent-bright, #a78bfa); }
+}
+
+.plan-step--done {
+  .plan-step-bubble { background: var(--success, #22c55e); color: #fff; }
+  .plan-step-label  { color: var(--success, #22c55e); }
+}
+
+.plan-step--future {
+  .plan-step-bubble { background: var(--border, #2a2a3e); color: var(--text-muted, #666); }
+  .plan-step-label  { color: var(--text-muted, #666); }
+}
+
+.plan-step-check { font-size: .85rem; }
+.plan-step-num   { font-size: .8rem;  }
+
+.plan-step-conn {
+  flex: 1;
+  height: 2px;
+  background: var(--border, #2a2a3e);
+  transition: background .3s;
+  min-width: 1.5rem;
+
+  &--lit { background: var(--accent-bright, #a78bfa); }
+}
+
+// ── Write state ───────────────────────────────────────────────────────────
+.plan-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -.02em;
+  margin: 0 0 .4rem;
+}
+
+.plan-sub {
+  color: var(--text-secondary, #999);
+  font-size: .95rem;
+  margin: 0 0 1.5rem;
+}
+
+.plan-textarea-wrap {
+  border: 1.5px solid var(--border, #2a2a3e);
+  border-radius: var(--radius, 8px);
+  background: var(--bg-secondary, #1a1a2e);
+  transition: border-color .15s;
+
+  &--focused { border-color: var(--accent-bright, #a78bfa); }
+}
+
+.plan-textarea {
+  width: 100%;
+  min-height: 180px;
+  max-height: 520px;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 1rem;
+  font-size: .95rem;
+  font-family: inherit;
+  color: var(--text-primary, #e8e8f0);
+  line-height: 1.6;
+  box-sizing: border-box;
+}
+
+.plan-textarea-toolbar {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .5rem .75rem;
+  border-top: 1px solid var(--border, #2a2a3e);
+}
+
+.plan-toolbar-btn {
+  background: none;
+  border: 1px solid var(--border, #2a2a3e);
+  color: var(--text-muted, #666);
+  border-radius: 4px;
+  padding: .2rem .55rem;
+  font-size: .78rem;
+  cursor: pointer;
+  transition: color .12s, border-color .12s;
+
+  &:hover:not(:disabled) {
+    color: var(--text-primary, #e8e8f0);
+    border-color: var(--text-muted, #666);
+  }
+
+  &:disabled { opacity: .4; cursor: not-allowed; }
+}
+
+.plan-char-count {
+  margin-left: auto;
+  font-size: .75rem;
+  color: var(--text-muted, #666);
+}
+
+// ── Seed chips ────────────────────────────────────────────────────────────
+.plan-seeds {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .4rem;
+  margin-top: 1rem;
+}
+
+.plan-seeds-label {
+  font-size: .78rem;
+  color: var(--text-muted, #666);
+  flex-shrink: 0;
+}
+
+.plan-seed-chip {
+  background: none;
+  border: 1px solid var(--border, #2a2a3e);
+  color: var(--text-secondary, #999);
+  border-radius: 14px;
+  padding: .2rem .7rem;
+  font-size: .78rem;
+  cursor: pointer;
+  transition: color .12s, border-color .12s, background .12s;
+
+  &:hover:not(:disabled) {
+    border-color: var(--accent, #7c3aed);
+    color: var(--accent-bright, #a78bfa);
+    background: rgba(124, 58, 237, .08);
+  }
+}
+
+// ── Options panel ─────────────────────────────────────────────────────────
+.plan-options-row  { margin-top: 1rem; }
+
+.plan-options-btn {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  background: none;
+  border: none;
+  color: var(--text-muted, #666);
+  font-size: .82rem;
+  cursor: pointer;
+  padding: 0;
+  transition: color .12s;
+
+  &:hover { color: var(--text-secondary, #999); }
+}
+
+.plan-options-badge {
+  font-size: .72rem;
+  background: var(--accent, #7c3aed);
+  color: #fff;
+  border-radius: 3px;
+  padding: .05rem .35rem;
+}
+
+.plan-options-fields {
+  margin-top: .75rem;
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+}
+
+.plan-label-sm  { font-size: .8rem; color: var(--text-muted, #666); }
+.plan-optional  { font-weight: 400; opacity: .7; }
+
+.plan-input {
+  background: var(--bg-secondary, #1a1a2e);
+  border: 1px solid var(--border, #2a2a3e);
+  border-radius: 5px;
+  padding: .45rem .65rem;
+  font-size: .88rem;
+  color: var(--text-primary, #e8e8f0);
+  outline: none;
+  width: 260px;
+  transition: border-color .15s;
+
+  &:focus { border-color: var(--accent-bright, #a78bfa); }
+}
+
+.plan-prefix-row { display: flex; gap: .5rem; align-items: center; }
+
+// ── Submit row ────────────────────────────────────────────────────────────
+.plan-submit-row {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  margin-top: 1.25rem;
+}
+
+.plan-submit-btn { font-size: .9rem; padding: .55rem 1.25rem; }
+
+.plan-kbd {
+  background: var(--bg-tertiary, #111122);
+  border: 1px solid var(--border, #2a2a3e);
+  border-radius: 4px;
+  padding: .1rem .4rem;
+  font-size: .72rem;
+  color: var(--text-muted, #666);
+}
+
+// ── Generating state ──────────────────────────────────────────────────────
+// No x-transition so the generating div disappears instantly on step change,
+// preventing Monaco from initializing against an animating layout.
+.plan-generating {
+  text-align: left;
+  padding: 4rem 1rem;
+}
+
+.plan-gen-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+
+  .plan-spinner       { flex-shrink: 0; margin: 0; }
+  .plan-generating-text { margin: 0 0 .2rem; }
+  .plan-generating-sub  { margin: 0; }
+  .plan-cancel-btn    { margin-left: auto; flex-shrink: 0; }
+}
+
+.plan-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--border, #2a2a3e);
+  border-top-color: var(--accent-bright, #a78bfa);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+  margin: 0 auto 1.25rem;
+}
+
+.plan-generating-text {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 .4rem;
+}
+
+.plan-generating-sub {
+  font-size: .85rem;
+  color: var(--text-muted, #666);
+  margin: 0 0 1.5rem;
+}
+
+.plan-cancel-btn {
+  background: none;
+  border: 1px solid var(--border, #2a2a3e);
+  color: var(--text-muted, #666);
+  border-radius: 5px;
+  padding: .35rem .85rem;
+  font-size: .82rem;
+  cursor: pointer;
+  transition: color .12s, border-color .12s;
+
+  &:hover {
+    color: var(--text-secondary, #999);
+    border-color: var(--text-muted, #666);
+  }
+}
+
+// ── YAML stream preview ───────────────────────────────────────────────────
+.plan-stream-wrap {
+  border-radius: 6px;
+  border: 1px solid var(--border, #2a2a3e);
+  background: #0d0d1a;
+  overflow: hidden;
+  max-height: 420px;
+}
+
+.plan-stream-pre {
+  margin: 0;
+  padding: 1rem;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: .78rem;
+  line-height: 1.55;
+  color: #a0d0a0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-y: auto;
+  max-height: 420px;
+}
+
+// ── Review state ──────────────────────────────────────────────────────────
+.plan-review-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: .6rem;
+  flex-wrap: wrap;
+}
+
+.plan-review-title { font-size: 1.3rem; font-weight: 700; margin: 0 0 .2rem; }
+.plan-review-meta  { font-size: .82rem; color: var(--text-muted, #666); margin: 0; }
+.plan-review-actions { display: flex; gap: .6rem; flex-shrink: 0; }
+.plan-review-sub { font-size: .85rem; color: var(--text-secondary, #999); margin: 0 0 .75rem; }
+
+.plan-yaml-validation {
+  font-size: .8rem;
+  padding: .4rem .7rem;
+  border-radius: 5px;
+  margin-bottom: .5rem;
+
+  &--ok    { background: rgba(34, 197, 94, .1); color: var(--success, #22c55e); border: 1px solid rgba(34, 197, 94, .25); }
+  &--error { background: rgba(239, 68, 68, .08); color: #f87171; border: 1px solid rgba(239, 68, 68, .2); }
+}
+
+// CodeMirror 6 editor container.
+// The editor renders its own DOM (.cm-editor) inside this div.
+// We size the container; CodeMirror fills it via its own CSS.
+.plan-yaml-editor {
+  height: calc(100vh - 320px);
+  min-height: 400px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border, #2a2a3e);
+
+  // Make the CodeMirror view fill the container.
+  .cm-editor {
+    height: 100%;
+    font-size: 13px;
+  }
+
+  .cm-scroller {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    overflow: auto;
+  }
+}
+
+// ── Inline error message ──────────────────────────────────────────────────
+.plan-error {
+  margin-top: .75rem;
+  font-size: .85rem;
+  color: #f87171;
+  background: rgba(239, 68, 68, .08);
+  border: 1px solid rgba(239, 68, 68, .2);
+  border-radius: 5px;
+  padding: .5rem .75rem;
+}
+
+// ── Filing progress strip (launching state) ────────────────────────────────
+.plan-filing-progress {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  margin-top: 1rem;
+  padding: .6rem .9rem;
+  background: var(--bg-secondary, #1a1a2e);
+  border: 1px solid var(--border, #2a2a3e);
+  border-radius: 6px;
+  font-size: .85rem;
+  color: var(--text-secondary, #aaa);
+}
+
+// Small spinner variant for inline use.
+.plan-spinner--sm {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+  flex-shrink: 0;
+}
+
+// ── Done state ────────────────────────────────────────────────────────────
+.plan-done {
+  padding: 2.5rem 0;
+}
+
+.plan-done-badge { font-size: 3rem; margin-bottom: .75rem; text-align: center; }
+.plan-done-title { font-size: 1.5rem; font-weight: 700; margin: 0 0 .5rem; text-align: center; }
+
+.plan-done-sub {
+  color: var(--text-secondary, #999);
+  font-size: .9rem;
+  margin: 0 0 2rem;
+  text-align: center;
+}
+
+// Per-phase issue list in done state.
+.plan-done-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  margin-bottom: 2rem;
+}
+
+.plan-done-phase {
+  background: var(--bg-secondary, #1a1a2e);
+  border: 1px solid var(--border, #2a2a3e);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.plan-done-phase-label {
+  font-size: .7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--text-muted, #666);
+  padding: .5rem .9rem;
+  border-bottom: 1px solid var(--border, #2a2a3e);
+  margin: 0;
+  background: rgba(255, 255, 255, .02);
+}
+
+.plan-done-issue-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.plan-done-issue-item {
+  border-bottom: 1px solid var(--border, #2a2a3e);
+
+  &:last-child { border-bottom: none; }
+}
+
+.plan-done-issue-link {
+  display: flex;
+  align-items: baseline;
+  gap: .6rem;
+  padding: .6rem .9rem;
+  text-decoration: none;
+  color: inherit;
+  transition: background .15s;
+
+  &:hover { background: rgba(255, 255, 255, .04); }
+}
+
+.plan-done-issue-num {
+  font-family: monospace;
+  font-size: .8rem;
+  color: var(--accent-bright, #a78bfa);
+  flex-shrink: 0;
+}
+
+.plan-done-issue-title {
+  font-size: .875rem;
+  color: var(--text-primary, #e5e5e5);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-done-actions { display: flex; justify-content: center; gap: .75rem; }

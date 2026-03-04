@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+
+{% block title %}Settings — AgentCeption{% endblock %}
+
+{% block content %}
+
+<div class="cfg-page-header">
+  <div>
+    <h1 class="cfg-page-title">Settings</h1>
+    <p class="cfg-page-subtitle">Runtime configuration and connection status for this AgentCeption instance.</p>
+  </div>
+</div>
+
+<div class="settings-layout">
+
+  {# ── GitHub Connection ───────────────────────────────────────────────────── #}
+  <section class="settings-section" aria-labelledby="gh-section-title">
+    <h2 class="settings-section-title" id="gh-section-title">GitHub Connection</h2>
+
+    <dl class="settings-dl">
+      <div class="settings-row">
+        <dt class="settings-label">Repository</dt>
+        <dd class="settings-value">
+          <a href="https://github.com/{{ settings.gh_repo }}" target="_blank" rel="noopener noreferrer" class="settings-link">
+            {{ settings.gh_repo }}
+          </a>
+        </dd>
+      </div>
+
+      <div class="settings-row">
+        <dt class="settings-label">Auth status</dt>
+        <dd class="settings-value">
+          <span id="gh-status">
+            {% if gh_auth_ok %}
+              <span class="badge badge--green">✅ Authenticated</span>
+            {% else %}
+              <span class="badge badge--red">❌ Not authenticated</span>
+            {% endif %}
+          </span>
+          <button
+            class="btn btn--sm btn--ghost"
+            hx-get="/partials/settings/gh-check"
+            hx-target="#gh-status"
+            hx-swap="innerHTML"
+            type="button"
+          >Re-check</button>
+        </dd>
+      </div>
+    </dl>
+  </section>
+
+  {# ── Pipeline Config ─────────────────────────────────────────────────────── #}
+  <section class="settings-section" aria-labelledby="pipeline-section-title">
+    <h2 class="settings-section-title" id="pipeline-section-title">Pipeline Config</h2>
+
+    <dl class="settings-dl">
+      <div class="settings-row">
+        <dt class="settings-label">Poll interval</dt>
+        <dd class="settings-value">{{ settings.poll_interval_seconds }}s</dd>
+      </div>
+
+      <div class="settings-row">
+        <dt class="settings-label">GitHub cache TTL</dt>
+        <dd class="settings-value">{{ settings.github_cache_seconds }}s</dd>
+      </div>
+
+      <div class="settings-row">
+        <dt class="settings-label">Worktrees directory</dt>
+        <dd class="settings-value settings-value--mono">{{ settings.worktrees_dir }}</dd>
+      </div>
+
+      <div class="settings-row">
+        <dt class="settings-label">Host worktrees directory</dt>
+        <dd class="settings-value settings-value--mono">{{ settings.host_worktrees_dir }}</dd>
+      </div>
+
+      <div class="settings-row">
+        <dt class="settings-label">Repository directory</dt>
+        <dd class="settings-value settings-value--mono">{{ settings.repo_dir }}</dd>
+      </div>
+
+      <div class="settings-row">
+        <dt class="settings-label">Cursor projects directory</dt>
+        <dd class="settings-value settings-value--mono">{{ settings.cursor_projects_dir }}</dd>
+      </div>
+
+      <div class="settings-row">
+        <dt class="settings-label">Database URL</dt>
+        <dd class="settings-value settings-value--mono">
+          {% if settings.database_url %}
+            {{ settings.database_url.split("@")[-1] if "@" in settings.database_url else settings.database_url }}
+          {% else %}
+            <span class="settings-empty">Not configured (SQLite fallback)</span>
+          {% endif %}
+        </dd>
+      </div>
+    </dl>
+  </section>
+
+</div>
+
+<style>
+  .settings-layout {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6, 1.5rem);
+    max-width: 720px;
+  }
+
+  .settings-section {
+    background: var(--surface-2, #1e1e2e);
+    border: 1px solid var(--border, #313244);
+    border-radius: var(--radius-lg, 0.75rem);
+    padding: var(--space-6, 1.5rem);
+  }
+
+  .settings-section-title {
+    font-size: var(--text-sm, 0.875rem);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted, #6c7086);
+    margin: 0 0 var(--space-4, 1rem);
+  }
+
+  .settings-dl {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3, 0.75rem);
+    margin: 0;
+  }
+
+  .settings-row {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: var(--space-4, 1rem);
+    align-items: start;
+    padding: var(--space-2, 0.5rem) 0;
+    border-bottom: 1px solid var(--border-subtle, #1e1e2e);
+  }
+
+  .settings-row:last-child {
+    border-bottom: none;
+  }
+
+  .settings-label {
+    font-size: var(--text-sm, 0.875rem);
+    color: var(--text-muted, #6c7086);
+    font-weight: 500;
+    padding-top: 2px;
+  }
+
+  .settings-value {
+    font-size: var(--text-sm, 0.875rem);
+    color: var(--text, #cdd6f4);
+    display: flex;
+    align-items: center;
+    gap: var(--space-3, 0.75rem);
+    flex-wrap: wrap;
+  }
+
+  .settings-value--mono {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--text-xs, 0.75rem);
+    word-break: break-all;
+  }
+
+  .settings-link {
+    color: var(--accent, #89b4fa);
+    text-decoration: none;
+  }
+
+  .settings-link:hover {
+    text-decoration: underline;
+  }
+
+  .settings-empty {
+    color: var(--text-muted, #6c7086);
+    font-style: italic;
+  }
+
+  .badge--green {
+    background: color-mix(in srgb, var(--green, #a6e3a1) 15%, transparent);
+    color: var(--green, #a6e3a1);
+    border: 1px solid color-mix(in srgb, var(--green, #a6e3a1) 40%, transparent);
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: var(--text-xs, 0.75rem);
+    font-weight: 500;
+  }
+
+  .badge--red {
+    background: color-mix(in srgb, var(--red, #f38ba8) 15%, transparent);
+    color: var(--red, #f38ba8);
+    border: 1px solid color-mix(in srgb, var(--red, #f38ba8) 40%, transparent);
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: var(--text-xs, 0.75rem);
+    font-weight: 500;
+  }
+
+  .btn--sm {
+    padding: 2px 10px;
+    font-size: var(--text-xs, 0.75rem);
+  }
+
+  .btn--ghost {
+    background: transparent;
+    border: 1px solid var(--border, #313244);
+    color: var(--text-muted, #6c7086);
+    border-radius: var(--radius, 0.5rem);
+    cursor: pointer;
+  }
+
+  .btn--ghost:hover {
+    border-color: var(--accent, #89b4fa);
+    color: var(--accent, #89b4fa);
+  }
+</style>
+
+{% endblock %}
