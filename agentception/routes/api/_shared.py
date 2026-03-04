@@ -45,7 +45,7 @@ def _resolve_cognitive_arch(issue_body: str, role: str) -> str:
         skills = "postgresql:python"
     elif any(k in body for k in ("dockerfile", "from python", "compose.*service")):
         skills = "devops"
-    elif any(k in body for k in ("midi", "storpheus", "gm.program", "tmidix")):
+    elif any(k in body for k in ("midi", "muse", "variation", "beat")):
         skills = "midi:python"
     elif any(k in body for k in ("llm", "embedding", "rag", "openrouter", "claude")):
         skills = "llm:python"

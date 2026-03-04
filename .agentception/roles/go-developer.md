@@ -26,7 +26,7 @@ Every Go file you write or touch must:
 
 ## Architecture Boundaries
 
-- Go services communicate with Maestro Python via gRPC or HTTP — never via shared process state.
+- Go services communicate with AgentCeption Python via gRPC or HTTP — never via shared process state.
 - No CGo unless absolutely necessary; document why if used.
 - HTTP handlers are thin: parse request, call service layer, write response. No business logic in handlers.
 - Service layer accepts and returns domain types — never raw `map[string]interface{}`.

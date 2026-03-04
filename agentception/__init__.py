@@ -1,2 +1,2 @@
-"""AgentCeption — standalone dashboard service for monitoring Maestro pipeline agents."""
+"""AgentCeption — multi-agent orchestration dashboard."""
 from __future__ import annotations

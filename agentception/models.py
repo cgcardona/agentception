@@ -126,7 +126,7 @@ class BoardIssue(BaseModel):
 
 
 class PipelineState(BaseModel):
-    """Snapshot of the entire Maestro pipeline at a point in time.
+    """Snapshot of the entire AgentCeption pipeline at a point in time.
 
     Aggregated by the background poller and served to the dashboard UI.
     ``polled_at`` is a UNIX timestamp — compare with ``time.time()`` to know
@@ -235,7 +235,7 @@ class ProjectConfig(BaseModel):
     The ``active_project`` field in :class:`PipelineConfig` selects which
     project the AgentCeption dashboard currently targets.
 
-    ``worktrees_dir`` supports ``~`` expansion (e.g. ``~/.agentception/worktrees/maestro``).
+    ``worktrees_dir`` supports ``~`` expansion (e.g. ``~/.agentception/worktrees/agentception``).
     ``cursor_project_id`` is the Cursor project slug used to locate transcript files.
     """
 
@@ -301,7 +301,7 @@ class SpawnResult(BaseModel):
 
     ``worktree`` is the container-side path (``/worktrees/issue-N``).
     ``host_worktree`` is the equivalent host-side path the user can open in
-    AgentCeption (``~/.agentception/worktrees/maestro/issue-N``).
+    AgentCeption (``~/.agentception/worktrees/agentception/issue-N``).
     ``spawned_at`` is an ISO-8601 UTC timestamp indicating when the worktree
     was created (included for display in the HTML success panel).
     """

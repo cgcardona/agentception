@@ -164,7 +164,7 @@ Current atomic domains:
 | `d3` | Force-directed graphs, SVG, D3 selections |
 | `monaco` | In-browser code editor CDN integration |
 | `devops` | Docker, Compose, Nginx, CI/CD |
-| `midi` | MIDI pipeline, GM programs, Storpheus integration |
+| `midi` | MIDI pipeline, GM programs, Muse protocol integration |
 | `llm` | LLM calls, embeddings, RAG, OpenRouter |
 
 

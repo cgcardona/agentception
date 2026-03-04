@@ -144,8 +144,8 @@ Lineage for traceability. Every artifact produced (commit, PR, issue comment) em
 
 Commit message trailers written by every agent:
 ```
-Maestro-Batch: <pipeline.batch_id>
-Maestro-Session: <agent.session_id>
+AgentCeption-Batch: <pipeline.batch_id>
+AgentCeption-Session: <agent.session_id>
 ```
 
 ---

@@ -17,7 +17,7 @@ Error handling follows the JSON-RPC 2.0 specification:
   - Invalid params   → code -32602 (wrong or missing tool name / arguments)
   - Internal error   → code -32603 (unexpected exception in tool handler)
 
-Boundary constraint: zero imports from maestro, muse, kly, or storpheus.
+Boundary constraint: zero imports from external packages.
 """
 
 import json

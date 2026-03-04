@@ -38,7 +38,7 @@ Pydantic `BaseModel` — A single project entry in `pipeline-config.json`. Each 
 | Field | Type | Description |
 |-------|------|-------------|
 | `name` | `str` | Human-readable project name; must be unique within `PipelineConfig.projects` |
-| `gh_repo` | `str` | GitHub repository slug (e.g. `cgcardona/maestro`) |
+| `gh_repo` | `str` | GitHub repository slug (e.g. `cgcardona/agentception`) |
 | `repo_dir` | `str` | Absolute path to the local git repository |
 | `worktrees_dir` | `str` | Path to the worktrees root for this project; `~` expansion is applied |
 | `cursor_project_id` | `str` | Cursor project slug used to locate transcript files |

@@ -28,7 +28,7 @@ Every Ruby file you write or touch must:
 
 - Controllers are thin: find the resource, call a service, render the response.
 - Mailers, background jobs, and webhooks are separate classes — never inlined in controllers.
-- Cross-service communication (e.g., calling Maestro from Rails) goes through a typed service client class in `app/services/`.
+- Cross-service communication (e.g., calling AgentCeption from Rails) goes through a typed service client class in `app/services/`.
 - No business logic in views or helpers — helpers format data, they don't compute it.
 
 ## Failure Modes to Avoid

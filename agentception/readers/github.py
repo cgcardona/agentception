@@ -78,7 +78,7 @@ async def gh_json(args: list[str], jq: str, cache_key: str) -> JsonValue:
     ----------
     args:
         Additional ``gh`` sub-command arguments (e.g. ``["issue", "list",
-        "--repo", "cgcardona/maestro"]``).  Do **not** include ``--json`` or
+        "--repo", "cgcardona/agentception"]``).  Do **not** include ``--json`` or
         ``--jq`` — those are appended automatically.
     jq:
         A ``jq`` filter string passed verbatim to ``--jq``.  The ``gh`` CLI

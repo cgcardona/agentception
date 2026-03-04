@@ -28,12 +28,12 @@ Services in this repo:
 
 | Service | Container | Port |
 |---------|-----------|------|
-| Maestro | `maestro-app` | 10001 |
-| Storpheus | `maestro-storpheus` | 10002 |
+| AgentCeption | `agentception` | 10003 |
+| Muse | `agentception-muse` | 10002 |
 | AgentCeption | (agentception service) | 7777 |
-| Postgres | `maestro-postgres` | 5432 |
-| Qdrant | `maestro-qdrant` | 6333/6334 |
-| Nginx | `maestro-nginx` | 80/443 |
+| Postgres | `agentception-postgres` | 5433 |
+| Qdrant | `agentception-qdrant` | 6335/6336 |
+| Nginx | `agentception-nginx` | 80/443 |
 
 Dev bind mounts are active in `docker-compose.override.yml`. Host file edits are instantly visible inside containers — no rebuild needed for code changes. Rebuild only when `requirements.txt`, `Dockerfile`, or `entrypoint.sh` change.
 

@@ -13,7 +13,7 @@ Side effects
 1. ``git worktree add <worktrees_dir>/plan-draft-<draft_id>`` is executed
    (awaited; it is fast and must succeed before we write the task file).
    The worktree is created under ``settings.worktrees_dir`` — the canonical
-   Docker-mounted path (``/worktrees`` in-container, ``~/.agentception/worktrees/maestro``
+   Docker-mounted path (``/worktrees`` in-container, ``~/.agentception/worktrees/agentception``
    on the host) — so mypy/pytest can reference it via ``/worktrees/<name>``
    inside the container without path mismatches.
 2. A ``.agent-task`` file is written to the new worktree using the K=V format
@@ -35,7 +35,7 @@ Steps:
 4. Call plan_spawn_coordinator(manifest_json) — fire-and-forget style.
 5. Return PlanLaunchResponse immediately.
 
-Boundary: zero imports from maestro/, muse/, kly/, or storpheus/.
+Boundary: zero imports from external packages.
 """
 
 import asyncio

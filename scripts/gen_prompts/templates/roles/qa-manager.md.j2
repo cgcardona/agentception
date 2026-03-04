@@ -85,7 +85,7 @@ SEED:
               SKILLS="postgresql:python"
             elif echo "$CONTENT" | grep -qiE "dockerfile|FROM python|compose.*service"; then
               SKILLS="devops"
-            elif echo "$CONTENT" | grep -qiE "midi|storpheus|gm.program|tmidix"; then
+            elif echo "$CONTENT" | grep -qiE "midi|muse"; then
               SKILLS="midi:python"
             elif echo "$CONTENT" | grep -qiE "llm|embedding|rag|openrouter|claude"; then
               SKILLS="llm:python"
@@ -204,7 +204,7 @@ then waits for the gate to clear before merging. No PR waits unreviewed.
 - Never review a PR yourself
 - Never run mypy or pytest yourself
 - Never merge a PR yourself
-- Never touch `maestro/api/routes/musehub/__init__.py`
+- Never touch `agentception/muse/api/routes/__init__.py`
 
 ---
 

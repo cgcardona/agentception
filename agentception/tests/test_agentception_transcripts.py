@@ -148,7 +148,7 @@ def test_infer_role_python_developer() -> None:
     messages = [
         {
             "role": "assistant",
-            "text": "You are a python-developer on the Maestro project.",
+            "text": "You are a python-developer on the AgentCeption project.",
         },
     ]
     assert infer_role_from_messages(messages) == "python-developer"
@@ -203,7 +203,7 @@ def test_infer_status_done_when_last_assistant_has_pr_url() -> None:
         {"role": "user", "text": "Did you open a PR?"},
         {
             "role": "assistant",
-            "text": "Yes! https://github.com/cgcardona/maestro/pull/42",
+            "text": "Yes! https://github.com/cgcardona/agentception/pull/42",
         },
     ]
     assert infer_status_from_messages(messages) == AgentStatus.DONE
@@ -228,7 +228,7 @@ def test_infer_status_uses_last_assistant_message() -> None:
     messages = [
         {
             "role": "assistant",
-            "text": "Opened https://github.com/cgcardona/maestro/pull/10",
+            "text": "Opened https://github.com/cgcardona/agentception/pull/10",
         },
         {"role": "user", "text": "That was reverted. Can you redo it?"},
         {"role": "assistant", "text": "Re-implementing now."},
@@ -288,7 +288,7 @@ async def test_build_agent_tree_parent_child(tmp_path: Path) -> None:
             (
                 "assistant",
                 "Operating as pr-reviewer. "
-                "PR merged: https://github.com/cgcardona/maestro/pull/99",
+                "PR merged: https://github.com/cgcardona/agentception/pull/99",
             ),
         ],
     )

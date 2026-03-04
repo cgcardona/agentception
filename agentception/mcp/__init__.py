@@ -4,7 +4,7 @@ from __future__ import annotations
 
 Provides Model Context Protocol (JSON-RPC 2.0) tool definitions and
 dispatchers for the plan-step-v2 pipeline.  All tools operate within the
-``agentception/`` boundary — zero imports from maestro, muse, kly, or storpheus.
+``agentception/`` boundary — zero imports from external packages.
 
 Public surface:
   - ``agentception.mcp.types``      — protocol TypedDicts (ACToolDef, ACToolResult, …)
@@ -13,5 +13,5 @@ Public surface:
                                       plan_spawn_coordinator()
   - ``agentception.mcp.server``     — JSON-RPC 2.0 dispatcher (handle_request)
 
-Boundary constraint: zero imports from maestro, muse, kly, or storpheus.
+Boundary constraint: zero imports from external packages.
 """

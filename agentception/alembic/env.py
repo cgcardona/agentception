@@ -1,4 +1,4 @@
-"""Alembic environment for AgentCeption — fully self-contained, no maestro imports."""
+"""Alembic environment for AgentCeption — fully self-contained, no external imports."""
 from __future__ import annotations
 
 import asyncio
@@ -23,7 +23,7 @@ target_metadata = Base.metadata
 
 # Resolve the database URL from the environment.
 # DATABASE_URL is the canonical name; fall back to DATABASE_URL if unset
-# so the agentception container can share the maestro Postgres credentials
+# AgentCeption container Postgres credentials
 # without duplicating the secret.
 _db_url: str = os.environ.get("DATABASE_URL") or os.environ.get("DATABASE_URL") or ""
 if not _db_url:
@@ -58,7 +58,7 @@ def _do_run_migrations(connection: Connection) -> None:
         compare_type=True,
         compare_server_default=True,
         # Separate version table so AgentCeption migrations don't collide with
-        # Maestro's alembic_version entries in the shared Postgres instance.
+        # Separate alembic_version table avoids conflicts with other services.
         version_table="alembic_version_ac",
     )
     with context.begin_transaction():

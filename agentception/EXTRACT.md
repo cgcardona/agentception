@@ -1,7 +1,7 @@
 # AgentCeption — Extraction Procedure
 
 This document describes the step-by-step process for extracting `agentception/` from the
-`maestro` monorepo into a standalone GitHub repository and publishing it to PyPI.
+the monorepo into a standalone GitHub repository and publishing it to PyPI.
 
 ---
 
@@ -21,7 +21,7 @@ Before extracting, confirm the package is fully self-contained:
 
 ```bash
 # Run the self-containment test suite
-cd /path/to/maestro
+cd /path/to/monorepo
 pytest agentception/tests/test_agentception_extraction.py -v
 
 # Verify pip install works from repo root
@@ -41,7 +41,7 @@ All three checks must pass:
 producing a branch whose root is the `agentception/` directory contents.
 
 ```bash
-cd /path/to/maestro
+cd /path/to/monorepo
 
 # Create a branch containing only agentception/ history
 git subtree split --prefix=agentception --branch agentception-standalone
@@ -65,7 +65,7 @@ gh repo create agentception \
 cd agentception
 
 # Pull the extracted history in
-git pull /path/to/maestro agentception-standalone
+git pull /path/to/monorepo agentception-standalone
 
 # Verify the structure
 ls -la
@@ -251,7 +251,7 @@ git subtree split --prefix=agentception --branch agentception-standalone
 
 # In the standalone repo: pull the new commits
 cd /path/to/agentception
-git pull /path/to/maestro agentception-standalone
+git pull /path/to/monorepo agentception-standalone
 ```
 
 For the reverse direction (changes made in the standalone repo → monorepo):

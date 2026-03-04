@@ -70,7 +70,7 @@ Clear the existing allowlist entirely, then paste the block below into
 > commands in kickoff prompts must be written as single lines.
 
 ```
-ls, ls -la, ls -lah, ls -l, pwd, cat, head, tail, echo, print, true, false, seq, wc, file, stat, which, date, basename, dirname, printf, jq, sort, uniq, tr, awk, sed, perl, cut, xargs, tee, rg, grep, find, source, mkdir, cp, mv, rm, touch, ln -s, rsync, rsync -a, cd, sleep, break, continue, exit, exit 0, exit 1, mapfile, read, IFS=, python3, python3 -c, python3 -m, open, check_issue_deps, check_deps, base64, openssl, REPO=, WTNAME=, DEV_SHA=, WT=, NUM=, TITLE=, BRANCH=, PRTREES=, WORKTREE=, ENTRY=, FOLLOW_UP_URL=, ISSUE_URL=, GH_REPO=, export GH_REPO=, declare -a, declare -A, declare -a ISSUES=, declare -a PRS=, for entry in, for NUM in, for WT in, for i in, for label in, for n in, N=$(grep, N=$(printf, BRANCH=$(grep, MERGE_AFTER=$(grep, LABELS_TO_APPLY=$(grep, CLOSES_ISSUES=$(grep, STATE=$(gh, PR_BRANCH=$(gh, PR_FILES=$(gh, CLOSES_ISSUE=$(gh, OPEN_PRS=$(gh, REMAINING=$(gh, NUM=$(echo, TITLE=$(echo, LABELS=$(echo, PHASE=$(echo, BATCH=$(echo, SHORT=$(grep, git, gh, docker compose, docker compose ps, docker compose logs, docker compose config, docker compose -f, docker ps, docker inspect, docker logs, docker exec, docker compose exec maestro mypy, docker compose exec maestro pytest, docker compose exec maestro sh -c, docker compose exec maestro python -m coverage, docker compose exec maestro python -c, docker compose exec maestro python3 -m, docker compose exec maestro ps, docker compose exec maestro ls, docker compose exec maestro cat, docker compose exec maestro sed, docker compose exec maestro head, docker compose exec maestro tail, docker compose exec maestro wc, docker compose exec maestro awk, docker compose exec maestro rg, docker compose exec maestro grep, docker compose exec maestro find, docker compose exec maestro alembic history, docker compose exec maestro alembic current, docker compose exec maestro alembic heads, docker compose exec maestro alembic upgrade head, docker compose exec maestro python3, docker compose exec storpheus mypy, docker compose exec storpheus pytest, docker compose exec storpheus sh -c, docker compose exec storpheus ls, docker compose exec storpheus cat, docker compose exec storpheus rg, docker compose exec storpheus grep, docker compose exec storpheus python3, docker compose exec agentception mypy, docker compose exec agentception pytest, docker compose exec agentception sh -c, docker compose exec agentception ls, docker compose exec agentception cat, docker compose exec agentception rg, docker compose exec agentception grep, docker compose exec agentception python3, docker compose exec agentception python3 -m, docker compose exec agentception python -c, docker compose exec agentception tail, docker compose exec agentception head, docker compose exec agentception wc, docker compose exec postgres psql, npm run, npm ci, npx, sass, brew install, pip3, ps aux, ps -ef, pgrep, nc -z, curl, REPO=$(git, WTNAME=$(basename, DEV_SHA=$(git, WT=$HOME, BRANCH=$(git, cd $HOME/.cursor, cd $HOME/dev
+ls, ls -la, ls -lah, ls -l, pwd, cat, head, tail, echo, print, true, false, seq, wc, file, stat, which, date, basename, dirname, printf, jq, sort, uniq, tr, awk, sed, perl, cut, xargs, tee, rg, grep, find, source, mkdir, cp, mv, rm, touch, ln -s, rsync, rsync -a, cd, sleep, break, continue, exit, exit 0, exit 1, mapfile, read, IFS=, python3, python3 -c, python3 -m, open, check_issue_deps, check_deps, base64, openssl, REPO=, WTNAME=, DEV_SHA=, WT=, NUM=, TITLE=, BRANCH=, PRTREES=, WORKTREE=, ENTRY=, FOLLOW_UP_URL=, ISSUE_URL=, GH_REPO=, export GH_REPO=, declare -a, declare -A, declare -a ISSUES=, declare -a PRS=, for entry in, for NUM in, for WT in, for i in, for label in, for n in, N=$(grep, N=$(printf, BRANCH=$(grep, MERGE_AFTER=$(grep, LABELS_TO_APPLY=$(grep, CLOSES_ISSUES=$(grep, STATE=$(gh, PR_BRANCH=$(gh, PR_FILES=$(gh, CLOSES_ISSUE=$(gh, OPEN_PRS=$(gh, REMAINING=$(gh, NUM=$(echo, TITLE=$(echo, LABELS=$(echo, PHASE=$(echo, BATCH=$(echo, SHORT=$(grep, git, gh, docker compose, docker compose ps, docker compose logs, docker compose config, docker compose -f, docker ps, docker inspect, docker logs, docker exec, docker compose exec agentception mypy, docker compose exec agentception pytest, docker compose exec agentception sh -c, docker compose exec agentception python -m coverage, docker compose exec agentception python -c, docker compose exec agentception python3 -m, docker compose exec agentception ps, docker compose exec agentception ls, docker compose exec agentception cat, docker compose exec agentception sed, docker compose exec agentception head, docker compose exec agentception tail, docker compose exec agentception wc, docker compose exec agentception awk, docker compose exec agentception rg, docker compose exec agentception grep, docker compose exec agentception find, docker compose exec agentception alembic history, docker compose exec agentception alembic current, docker compose exec agentception alembic heads, docker compose exec agentception alembic upgrade head, docker compose exec agentception python3, docker compose exec agentception mypy, docker compose exec agentception pytest, docker compose exec agentception sh -c, docker compose exec agentception ls, docker compose exec agentception cat, docker compose exec agentception rg, docker compose exec agentception grep, docker compose exec agentception python3, docker compose exec agentception mypy, docker compose exec agentception pytest, docker compose exec agentception sh -c, docker compose exec agentception ls, docker compose exec agentception cat, docker compose exec agentception rg, docker compose exec agentception grep, docker compose exec agentception python3, docker compose exec agentception python3 -m, docker compose exec agentception python -c, docker compose exec agentception tail, docker compose exec agentception head, docker compose exec agentception wc, docker compose exec postgres psql, npm run, npm ci, npx, sass, brew install, pip3, ps aux, ps -ef, pgrep, nc -z, curl, REPO=$(git, WTNAME=$(basename, DEV_SHA=$(git, WT=$HOME, BRANCH=$(git, cd $HOME/.cursor, cd $HOME/dev
 ```
 
 ---
@@ -319,7 +319,7 @@ gh issue edit <N> --add-label "..."        ← apply labels here, after creation
 # ⚠️  LABEL RULE: a single missing label causes gh issue create to fail entirely.
 #    Always create the issue first, then apply labels with gh issue edit || true.
 #    Valid labels: bug enhancement documentation performance ai-pipeline muse muse-cli
-#                 muse-hub muse-music-extensions storpheus maestro-integration mypy
+#                 muse-hub muse-music-extensions agentception muse mypy
 #                 cli testing multimodal help-wanted good-first-issue weekend-mvp
 ```
 
@@ -332,46 +332,46 @@ docker compose logs <service>
 docker compose config
 docker ps
 docker inspect <container>
-docker logs <container> [--tail N]   ← direct container log access (e.g. docker logs maestro-agentception --tail 50)
-docker exec <container> <cmd>        ← direct container exec (e.g. docker exec maestro-agentception tail -50 /proc/...)
+docker logs <container> [--tail N]   ← direct container log access (e.g. docker logs agentception --tail 50)
+docker exec <container> <cmd>        ← direct container exec (e.g. docker exec agentception tail -50 /proc/...)
 ```
 
-### Docker — exec maestro (tests, type checks, migrations, inspection)
+### Docker — exec agentception (tests, type checks, migrations, inspection)
 ```
-docker compose exec maestro mypy <paths>
-docker compose exec maestro pytest <file> -v [flags]
-docker compose exec maestro sh -c "<any command>"
-docker compose exec maestro python -m coverage run ...
-docker compose exec maestro python -m coverage report ...
-docker compose exec maestro python3 -m <module>       ← stdlib modules inside container
-docker compose exec maestro ps aux                    ← process inspection inside container
-docker compose exec maestro ls <path>
-docker compose exec maestro cat <file>
-docker compose exec maestro sed <args>
-docker compose exec maestro head <args>
-docker compose exec maestro tail <args>
-docker compose exec maestro wc <args>
-docker compose exec maestro awk <args>
-docker compose exec maestro rg <pattern>
-docker compose exec maestro grep <pattern>
-docker compose exec maestro find <path>
-docker compose exec maestro python -c "<one-liner>"   ← Python one-liner inside container
-docker compose exec maestro python3 <script>          ← explicit python3 binary
-docker compose exec maestro alembic history
-docker compose exec maestro alembic current
-docker compose exec maestro alembic heads
-docker compose exec maestro alembic upgrade head   ← forward migration only
+docker compose exec agentception mypy <paths>
+docker compose exec agentception pytest <file> -v [flags]
+docker compose exec agentception sh -c "<any command>"
+docker compose exec agentception python -m coverage run ...
+docker compose exec agentception python -m coverage report ...
+docker compose exec agentception python3 -m <module>       ← stdlib modules inside container
+docker compose exec agentception ps aux                    ← process inspection inside container
+docker compose exec agentception ls <path>
+docker compose exec agentception cat <file>
+docker compose exec agentception sed <args>
+docker compose exec agentception head <args>
+docker compose exec agentception tail <args>
+docker compose exec agentception wc <args>
+docker compose exec agentception awk <args>
+docker compose exec agentception rg <pattern>
+docker compose exec agentception grep <pattern>
+docker compose exec agentception find <path>
+docker compose exec agentception python -c "<one-liner>"   ← Python one-liner inside container
+docker compose exec agentception python3 <script>          ← explicit python3 binary
+docker compose exec agentception alembic history
+docker compose exec agentception alembic current
+docker compose exec agentception alembic heads
+docker compose exec agentception alembic upgrade head   ← forward migration only
 ```
 
-### Docker — exec storpheus
+### Docker — exec agentception (Muse services)
 ```
-docker compose exec storpheus mypy <paths>
-docker compose exec storpheus pytest <file> -v [flags]
-docker compose exec storpheus sh -c "<any command>"
-docker compose exec storpheus ls <path>
-docker compose exec storpheus cat <file>
-docker compose exec storpheus rg <pattern>
-docker compose exec storpheus grep <pattern>
+docker compose exec agentception mypy agentception/ (or muse/ when implemented)
+docker compose exec agentception pytest <file> -v [flags]
+docker compose exec agentception sh -c "<any command>"
+docker compose exec agentception ls <path>
+docker compose exec agentception cat <file>
+docker compose exec agentception rg <pattern>
+docker compose exec agentception grep <pattern>
 ```
 
 ### Docker — exec agentception (tests, type checks, inspection)
@@ -393,9 +393,9 @@ docker compose exec agentception grep <pattern>
 
 ### Docker — exec postgres (read-only queries only)
 ```
-docker compose exec postgres psql -U maestro -c "SELECT ..."
-docker compose exec postgres psql -U maestro -c "\dt"
-docker compose exec postgres psql -U maestro -c "\d <table>"
+docker compose exec agentception-postgres psql -U agentception -c "SELECT ..."
+docker compose exec agentception-postgres psql -U agentception -c "\dt"
+docker compose exec agentception-postgres psql -U agentception -c "\d <table>"
 ```
 
 ### Process Inspection
@@ -469,7 +469,7 @@ needed and confirm scope is correct before running.
 | `git rebase <branch>` | Cleaning up local commits before PR (own worktree, not shared) | Any rebase that rewrites shared/pushed history |
 | `git stash drop` | Discarding a stash explicitly created by this agent | Any stash not created by this agent |
 | `curl -s <url>` POST/PUT | Probing a local endpoint for a diagnostic reason | Any POST/PUT/DELETE to production or external services |
-| `docker compose exec maestro alembic downgrade` | Explicitly requested DB rollback | Routine use — destructive, should always be questioned |
+| `docker compose exec agentception alembic downgrade` | Explicitly requested DB rollback | Routine use — destructive, should always be questioned |
 | `docker compose exec postgres psql` with mutations | Explicitly requested data fix | Any ad-hoc data modification without explicit user request |
 | `sed -i` (in-place file edit via shell) | Never — use the StrReplace tool instead | Always |
 | `python3 <script.py>` on the host | Allowed for `scripts/gen_prompts/` and `agentception/` scripts | Any other business logic — use `docker compose exec` instead |
@@ -547,7 +547,7 @@ cat .muse/config.toml           ← contains Hub auth token
 
 ### Alembic destructive
 ```
-docker compose exec maestro alembic downgrade base   ← drops all tables
+docker compose exec agentception alembic downgrade base   ← drops all tables
 alembic stamp <rev>                                  ← rewrites migration pointer without migrating
 ```
 

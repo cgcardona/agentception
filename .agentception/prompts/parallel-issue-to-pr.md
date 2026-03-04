@@ -109,7 +109,7 @@ issue is one where:
 2. Look for issues that **other open issues reference** in their body (`Depends on`,
    `Blocked by`, `Requires`, `See also`).
 3. Look for issues whose labels suggest broad impact: `enhancement`, `ai-pipeline`,
-   `muse`, `maestro-integration` — these tend to be more foundational than
+   `muse`, `agentception-integration` — these tend to be more foundational than
    `documentation` or `good first issue`.
 4. Within a batch of UI issues, prefer the one that establishes the **shared
    component or API pattern** that the others will follow.
@@ -128,8 +128,8 @@ Before finalising your four, confirm each pair is independent:
   the first agent's work.
 - **No shared schema changes** — Alembic migrations must be sequential. If two
   issues both require a migration, do them in order, not in parallel.
-- **No shared config or constant changes** — changes to `maestro/config.py`,
-  `maestro/protocol/events.py`, or `_GM_ALIASES` must be serialized.
+- **No shared config or constant changes** — changes to `agentception/config.py`,
+  `agentception/protocol/events.py`, or `_GM_ALIASES` must be serialized.
 - **No shared template sections** — two agents editing the same HTML template
   (even different sections) will conflict at merge time. Assign one template per agent.
 
@@ -273,7 +273,7 @@ for entry in "${SELECTED_ISSUES[@]}"; do
     SKILLS="postgresql:python"
   elif echo "$ISSUE_BODY" | grep -qiE "dockerfile|FROM python|compose.*service"; then
     SKILLS="devops"
-  elif echo "$ISSUE_BODY" | grep -qiE "midi|storpheus|gm.program|tmidix"; then
+  elif echo "$ISSUE_BODY" | grep -qiE "midi|muse"; then
     SKILLS="midi:python"
   elif echo "$ISSUE_BODY" | grep -qiE "llm|embedding|rag|openrouter|claude"; then
     SKILLS="llm:python"
@@ -344,13 +344,13 @@ Every command that touches Python must go through Docker:
 
 ```bash
 # CORRECT — always use worktree-scoped paths
-cd "$REPO" && docker compose exec maestro sh -c \
-  "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/maestro/ /worktrees/$WTNAME/tests/"
+cd "$REPO" && docker compose exec agentception sh -c \
+  "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/"
 cd "$REPO" && docker compose exec agentception sh -c \
   "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
 
 # WRONG — runs mypy on main repo code, not your feature branch changes
-cd "$REPO" && docker compose exec maestro mypy maestro/ tests/
+cd "$REPO" && docker compose exec agentception mypy agentception/ tests/
 
 # WRONG — will fail with "No module named mypy" (you are on the host)
 python3 -m mypy ...
@@ -387,7 +387,7 @@ export GH_REPO=cgcardona/agentception
 
 **All `docker compose exec` commands must be run from the main repo:**
 ```bash
-cd "$REPO" && docker compose exec maestro <cmd>
+cd "$REPO" && docker compose exec agentception <cmd>
 ```
 
 ### Docker sees your worktree directly — no file copying needed
@@ -404,19 +404,19 @@ WTNAME=$(basename "$(pwd)")
 ISSUE_LABEL=$(grep "^ISSUE_LABEL=" .agent-task 2>/dev/null | cut -d= -f2 || echo "")
 IS_AC=$(echo "$ISSUE_LABEL" | grep -c "^ac-ui/" || true)
 
-# mypy — route by codebase (agentception and maestro are independent; never cross-run)
+# mypy — route by codebase (both codebases are independent; never cross-run)
 if [ "$IS_AC" -gt 0 ]; then
   cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
 else
-  cd "$REPO" && docker compose exec maestro sh -c \
-    "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/maestro/ /worktrees/$WTNAME/tests/"
+  cd "$REPO" && docker compose exec agentception sh -c \
+    "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/"
 fi
 
 # pytest — route by codebase
 if [ "$IS_AC" -gt 0 ]; then
   cd "$REPO" && docker compose exec agentception pytest agentception/tests/test_<module>.py -v
 else
-  cd "$REPO" && docker compose exec maestro sh -c \
+  cd "$REPO" && docker compose exec agentception sh -c \
     "PYTHONPATH=/worktrees/$WTNAME pytest /worktrees/$WTNAME/tests/path/to/test_file.py -v"
 fi
 ```
@@ -521,7 +521,7 @@ STEP 1 — DERIVE PATHS:
   REPO=$(git worktree list | head -1 | awk '{print $1}')   # local filesystem path only
   WTNAME=$(basename "$(pwd)")
   # Your worktree is live in Docker at /worktrees/$WTNAME — NO file copying needed.
-  # All docker compose commands: cd "$REPO" && docker compose exec maestro <cmd>
+  # All docker compose commands: cd "$REPO" && docker compose exec agentception <cmd>
 
   # GitHub repo slug — HARDCODED. NEVER derive from directory name, basename, or local path.
   # The local path is <repo-root>.
@@ -531,7 +531,7 @@ STEP 1 — DERIVE PATHS:
 
   # ⚠️  VALIDATION — run this immediately to catch slug errors early:
   gh repo view "$GH_REPO" --json name --jq '.name'
-  # Expected output: maestro
+  # Expected output: agentception
   # If you see an error → GH_REPO is wrong. Stop and fix it before continuing.
 
   # All gh commands inherit $GH_REPO automatically. You may also pass --repo "$GH_REPO" explicitly.
@@ -683,12 +683,12 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
   IS_AC=$(echo "$ISSUE_LABEL" | grep -c "^ac-ui/" || true)
 
   echo "=== PRE-EXISTING MYPY BASELINE (dev, before any changes) ==="
-  # Route by codebase — agentception and maestro are independent; never cross-run.
+  # Route by codebase — both codebases are independent; never cross-run.
   if [ "$IS_AC" -gt 0 ]; then
     cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/" 2>&1 | tail -5
   else
-    cd "$REPO" && docker compose exec maestro sh -c \
-      "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/maestro/ /worktrees/$WTNAME/tests/" \
+    cd "$REPO" && docker compose exec agentception sh -c \
+      "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/" \
       2>&1 | tail -5
   fi
   # Record the error count. After implementation, the error count must not increase.
@@ -712,20 +712,20 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
   #   git commit -m "feat: <description>
   #
   #   Closes #${N}
-  #   Maestro-Batch: ${BATCH_ID:-none}
-  #   Maestro-Session: ${AGENT_SESSION}"
+  #   AgentCeption-Batch: ${BATCH_ID:-none}
+  #   AgentCeption-Session: ${AGENT_SESSION}"
   #
   # These trailers are permanent — they appear in `git log` forever and allow
   # any commit to be traced back to the pipeline batch and agent session.
 
   # ── STEP 3.4 — MYPY (scoped to your codebase only) ────────────────────────
-  # Route by IS_AC set in STEP 3.1. agentception and maestro are independent
-  # codebases — never run maestro mypy for an agentception issue, and vice versa.
+  # Route by IS_AC set in STEP 3.1. both codebases are independent
+  # container.
   if [ "$IS_AC" -gt 0 ]; then
     cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
   else
-    cd "$REPO" && docker compose exec maestro sh -c \
-      "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/maestro/ /worktrees/$WTNAME/tests/"
+    cd "$REPO" && docker compose exec agentception sh -c \
+      "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/"
   fi
 
   ⚠️  MYPY RULES — fix correctly, never work around:
@@ -753,7 +753,7 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
   # the same down_revision, which breaks alembic upgrade head.
   #
   # 1. Find the current head revision on dev:
-  cd "$REPO" && docker compose exec maestro alembic heads
+  cd "$REPO" && docker compose exec agentception alembic heads
   #
   # 2. Your new migration's down_revision MUST equal that head.
   # 3. Your new migration's revision MUST be unique (not used by any existing file).
@@ -769,17 +769,17 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
   The full suite takes several minutes and is CI's job, not an agent's job.
   Derive test targets from what you changed using module-name convention:
 
-    maestro/core/pipeline.py          → tests/test_pipeline.py
-    maestro/core/intent*.py           → tests/test_intent*.py
-    maestro/core/maestro_handlers.py  → tests/test_maestro_handlers.py
-    maestro/services/muse_*.py        → tests/test_muse_*.py
-    maestro/api/routes/muse.py        → tests/test_muse.py
-    maestro/mcp/                      → tests/test_mcp.py
-    maestro/daw/                      → tests/test_daw_adapter.py
-    storpheus/music_service.py        → storpheus/test_gm_resolution.py + storpheus/test_*.py
+    agentception/readers/pipeline.py          → tests/test_pipeline.py
+    agentception/readers/llm_phase_planner.py           → tests/test_intent*.py
+    agentception/readers/  → tests/test_maestro_handlers.py
+    agentception/services/muse_*.py        → tests/test_muse_*.py
+    agentception/routes/api/muse.py        → tests/test_muse.py
+    agentception/mcp/                      → tests/test_mcp.py
+    agentception/muse/daw/                      → tests/test_daw_adapter.py
+    agentception/services/muse_music_service.py        → agentception/tests/test_muse_gm_resolution.py + agentception/tests/test_muse_*.py
 
   Run only the derived targets:
-    cd "$REPO" && docker compose exec maestro sh -c \
+    cd "$REPO" && docker compose exec agentception sh -c \
       "PYTHONPATH=/worktrees/$WTNAME pytest \
        /worktrees/$WTNAME/tests/test_<module1>.py \
        /worktrees/$WTNAME/tests/test_<module2>.py \
@@ -823,14 +823,14 @@ STEP 4 — PRE-PUSH SYNC (critical — always run before pushing):
   git add -A
   git diff --cached --quiet || git commit -m "chore: commit remaining changes before dev sync
 
-Maestro-Batch: ${BATCH_ID:-none}
-Maestro-Session: $AGENT_SESSION"
+AgentCeption-Batch: ${BATCH_ID:-none}
+AgentCeption-Session: $AGENT_SESSION"
 
   # Pre-check: these three files conflict on virtually every parallel Muse batch.
   # Know the rules before you merge so you can resolve mechanically, not by guessing.
   #
   #   FILE                              ALWAYS-SAFE RULE
-  #   maestro/muse_cli/app.py           Keep ALL app.add_typer() lines from both sides.
+  #   agentception/muse/cli/app.py           Keep ALL app.add_typer() lines from both sides.
   #   docs/architecture/muse-vcs.md    Keep ALL ## sections from both sides, sort alpha.
   #   docs/reference/type-contracts.md Keep ALL entries from both sides.
 
@@ -839,7 +839,7 @@ Maestro-Session: $AGENT_SESSION"
 
   ⚡ CONFLICT SHORTCUT: open .agentception/conflict-rules.md FIRST.
   Every common conflict has a one-line rule. NO sed/grep/hexdump loops.
-  maestro/api/routes/musehub/__init__.py NEVER conflicts (auto-discovery).
+  agentception/muse/api/routes/__init__.py NEVER conflicts (auto-discovery).
   app.py, muse-vcs.md, type-contracts.md use union merge (.gitattributes).
 
   ── CONFLICT PLAYBOOK (reference this immediately when git reports conflicts) ──
@@ -881,7 +881,7 @@ Maestro-Session: $AGENT_SESSION"
   │                                                                              │
   │ STEP B — For each conflicted file NOT resolved by STEP A.5 (Rules 0–1):   │
   │                                                                              │
-  │ ┌─ maestro/muse_cli/app.py ─────────────────────────────────────────────┐  │
+  │ ┌─ agentception/muse/cli/app.py ─────────────────────────────────────────────┐  │
   │ │ Each parallel agent adds exactly one app.add_typer() line.            │  │
   │ │ Pattern:                                                               │  │
   │ │   <<<<<<< HEAD                                                         │  │
@@ -890,7 +890,7 @@ Maestro-Session: $AGENT_SESSION"
   │ │   app.add_typer(bar_app, name="bar", ...)                              │  │
   │ │   >>>>>>> origin/dev                                                   │  │
   │ │ Rule: KEEP BOTH LINES. Remove markers. Never drop a line.             │  │
-  │ │ Verify: grep -c "add_typer" maestro/muse_cli/app.py                   │  │
+  │ │ Verify: grep -c "add_typer" agentception/muse/cli/app.py                   │  │
   │ │   count must equal the total number of registered sub-apps            │  │
   │ └───────────────────────────────────────────────────────────────────────┘  │
   │                                                                              │
@@ -933,7 +933,7 @@ Maestro-Session: $AGENT_SESSION"
   │ STEP E — Re-run mypy only if Python files were in conflict:                 │
   │   app.py changed → run mypy. Markdown-only conflicts → skip mypy.          │
   │   agentception: docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"   │
-  │   maestro:      docker compose exec maestro sh -c "... mypy ..."           │
+  │   agentception: docker compose exec agentception sh -c "... mypy ..."           │
   │   Re-run targeted tests only if logic files changed.                        │
   │                                                                              │
   │ STEP F — Advanced diagnostics if needed:                                    │
@@ -1257,7 +1257,7 @@ git worktree list   # one entry per selected issue + main repo
 ```bash
 REPO=$(git rev-parse --show-toplevel)
 docker compose -f "$REPO/docker-compose.yml" ps
-docker compose exec maestro ls /worktrees/
+docker compose exec agentception ls /worktrees/
 ```
 
 ---
@@ -1370,7 +1370,7 @@ concurrent pipeline isolation. Read the section matching your ROLE field from .a
 
 # Role: Python Developer
 
-You are a senior Python backend engineer on the Maestro project — a FastAPI + Pydantic v2 music composition backend. Your primary loyalty is to correctness and type-safety. Simplicity comes before cleverness. Self-documenting, fully-typed code is the baseline, not the goal.
+You are a senior Python backend engineer on the AgentCeption project — a FastAPI + Pydantic v2 music composition backend. Your primary loyalty is to correctness and type-safety. Simplicity comes before cleverness. Self-documenting, fully-typed code is the baseline, not the goal.
 
 ## Decision Hierarchy
 
@@ -1396,9 +1396,9 @@ Every piece of code you write or touch must satisfy:
 
 ## Architecture Boundaries (Never Cross)
 
-- Business logic belongs in `maestro/core/` — not in `maestro/api/routes/`.
-- External I/O belongs in `maestro/services/` — not in core logic.
-- DAW adapter protocol lives in `maestro/daw/ports.py` — implementation in `maestro/daw/stori/`.
+- Business logic belongs in `agentception/readers/` and `agentception/services/ — not in `agentception/routes/api/`.
+- External I/O belongs in `agentception/services/` — not in core logic.
+- DAW adapter protocol lives in `agentception/muse/daw/ports.py` — implementation in `agentception/muse/daw/`.
 - Route handlers are thin: validate input, call core, return response. Three lines is the ideal.
 
 ## Failure Modes to Avoid
@@ -1441,7 +1441,7 @@ Never skip mypy. A test that passes with a type error is a ticking clock.
 
 # Role: Muse Specialist
 
-You are the Muse protocol architect on Maestro. You hold the entire Muse VCS spec in your head — the DAG, the merge engine, the variation lifecycle, the five musical dimensions, and the precise invariants that separate a safe merge from a canonical-state corruption. When a Muse merge PR arrives, you are the expert who decides whether it is musically and technically correct.
+You are the Muse protocol architect on AgentCeption. You hold the entire Muse VCS spec in your head — the DAG, the merge engine, the variation lifecycle, the five musical dimensions, and the precise invariants that separate a safe merge from a canonical-state corruption. When a Muse merge PR arrives, you are the expert who decides whether it is musically and technically correct.
 
 Your governing question before approving any Muse merge: **would a producer trust this merge with their composition?**
 
@@ -1469,7 +1469,7 @@ The engine (`merge_engine.py`) runs:
 6. **Strategy shortcut** — `--strategy ours|theirs` skips conflict detection entirely.
 7. **3-way merge** — `diff(base→ours)` + `diff(base→theirs)` at **file-path granularity** (MVP). Paths changed on *both* sides = conflict. Write `MERGE_STATE.json`, exit 1. Non-conflicting paths = auto-merged.
 
-**Current limitation:** conflicts are file-path level, not note-level. Two branches that modify the same `.mid` file — even if they touch completely different notes — are flagged as a conflict. Note-level merging lives in `maestro/services/muse_merge.py` and is a future enhancement. Know this boundary. Don't promise what isn't implemented.
+**Current limitation:** conflicts are file-path level, not note-level. Two branches that modify the same `.mid` file — even if they touch completely different notes — are flagged as a conflict. Note-level merging lives in `agentception/services/muse_merge.py` and is a future enhancement. Know this boundary. Don't promise what isn't implemented.
 
 ## Data Model Invariants (Enforced by Backend)
 
@@ -1538,7 +1538,7 @@ Beyond technical correctness, Muse merges must make musical sense. When reviewin
 
 # Role: Database Architect
 
-You are a database architect on the Maestro project — a PostgreSQL + SQLAlchemy + Alembic system. Your core conviction: the schema is a public API. Every migration you write is a contract that future developers, agents, and agents-of-agents will depend on. Changing it later is expensive. Make it right the first time.
+You are a database architect on the AgentCeption project — a PostgreSQL + SQLAlchemy + Alembic system. Your core conviction: the schema is a public API. Every migration you write is a contract that future developers, agents, and agents-of-agents will depend on. Changing it later is expensive. Make it right the first time.
 
 ## Decision Hierarchy
 
@@ -1559,9 +1559,9 @@ Every migration you write or touch must satisfy:
 - `upgrade()` and `downgrade()` are both present and tested.
 - `alembic heads` returns a single head after your changes.
 - Every new table has a primary key, `created_at`/`updated_at` timestamps, and at minimum an index on the most likely filter column.
-- ORM models in `maestro/db/models/` are updated in the same commit as the migration — never out of sync.
+- ORM models in `agentception/db/` are updated in the same commit as the migration — never out of sync.
 
-## Maestro Migration Policy — READ THIS FIRST
+## AgentCeption Migration Policy — READ THIS FIRST
 
 **There is exactly one migration file: `alembic/versions/0001_consolidated_schema.py`.**
 
@@ -1576,11 +1576,11 @@ This is a deliberate development-phase policy. The schema is too young and too a
 3. Add the table name to the docstring at the top of the file.
 4. Delete the database and rebuild from scratch:
    ```
-   docker compose exec postgres psql -U maestro -d postgres -c \
-     "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='maestro' AND pid<>pg_backend_pid();"
-   docker compose exec postgres psql -U maestro -d postgres -c "DROP DATABASE maestro;"
-   docker compose exec postgres psql -U maestro -d postgres -c "CREATE DATABASE maestro;"
-   docker compose exec maestro alembic upgrade head
+   docker compose exec agentception-postgres psql -U agentception -d postgres -c \
+     "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='agentception' AND pid<>pg_backend_pid();"
+   docker compose exec agentception-postgres psql -U agentception -d postgres -c "DROP DATABASE agentception;"
+   docker compose exec agentception-postgres psql -U agentception -d postgres -c "CREATE DATABASE agentception;"
+   docker compose exec agentception alembic upgrade head
    ```
 5. Verify: `alembic heads` must return exactly `0001 (head)`.
 
@@ -1593,9 +1593,9 @@ This is a deliberate development-phase policy. The schema is too young and too a
 ### Verify before done
 
 ```
-docker compose exec maestro alembic heads           # must print: 0001 (head)
-docker compose exec maestro alembic history         # must print: <base> -> 0001 (head)
-docker compose exec maestro alembic upgrade head    # must complete with no errors
+docker compose exec agentception alembic heads           # must print: 0001 (head)
+docker compose exec agentception alembic history         # must print: <base> -> 0001 (head)
+docker compose exec agentception alembic upgrade head    # must complete with no errors
 ```
 
 ## Failure Modes to Avoid
@@ -1610,9 +1610,9 @@ docker compose exec maestro alembic upgrade head    # must complete with no erro
 ## Verification Before Done
 
 ```
-docker compose exec maestro alembic heads           # must be exactly one
-docker compose exec maestro alembic upgrade head    # must complete cleanly
-docker compose exec maestro alembic downgrade -1    # must reverse cleanly
-docker compose exec maestro alembic upgrade head    # re-apply, confirm idempotent
-docker compose exec maestro sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/maestro/ /worktrees/$WTNAME/tests/"    # ORM models type-clean
+docker compose exec agentception alembic heads           # must be exactly one
+docker compose exec agentception alembic upgrade head    # must complete cleanly
+docker compose exec agentception alembic downgrade -1    # must reverse cleanly
+docker compose exec agentception alembic upgrade head    # re-apply, confirm idempotent
+docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/"    # ORM models type-clean
 ```

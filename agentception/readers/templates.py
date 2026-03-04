@@ -3,7 +3,7 @@ from __future__ import annotations
 """Template export and import logic for AC-602.
 
 A *template* is a versioned ``.tar.gz`` archive of the pipeline configuration
-files that live under ``.agentception/`` in a Maestro repo.  Exporting
+Files that live under ``.agentception/`` —  Exporting
 packages the current repo's managed files; importing extracts them into any
 target repo's ``.agentception/`` directory.
 

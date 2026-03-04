@@ -4,9 +4,9 @@
 Outputs JSON (machine-readable) + a human summary to stdout.
 
 Usage:
-    python tools/typing_audit.py                        # maestro/ + tests/ + storpheus/ + agentception/
+    python tools/typing_audit.py                        # agentception/ + tests/
     python tools/typing_audit.py --json artifacts/typing_audit.json
-    python tools/typing_audit.py --dirs maestro/ storpheus/
+    python tools/typing_audit.py --dirs agentception/ tests/
     python tools/typing_audit.py --dirs agentception/ --max-any 10
 """
 
@@ -223,7 +223,7 @@ def main() -> None:
     parser.add_argument(
         "--dirs",
         nargs="+",
-        default=["maestro/", "tests/", "storpheus/", "agentception/"],
+        default=["agentception/", "tests/"],
         help="Directories to scan",
     )
     parser.add_argument("--json", type=str, help="Write JSON report to file")

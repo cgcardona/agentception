@@ -10,7 +10,7 @@ Covers:
   plan_spawn_coordinator() (AC-871)
 - agentception.mcp.server: list_tools(), call_tool(), handle_request()
 
-Boundary: zero imports from maestro, muse, kly, or storpheus.
+Boundary: zero imports from external packages.
 """
 
 import json

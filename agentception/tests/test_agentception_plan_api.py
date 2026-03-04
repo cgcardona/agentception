@@ -20,7 +20,7 @@ POST /api/plan/launch covers:
 All git subprocess calls and plan_spawn_coordinator are mocked so these tests
 do not require a live git repository or network access.
 
-Boundary: zero imports from maestro/, muse/, kly/, or storpheus/.
+Boundary: zero imports from external packages.
 """
 
 import json

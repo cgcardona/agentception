@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Worktree reader for AgentCeption.
 
-Scans ``~/.agentception/worktrees/maestro/`` for active git worktrees and parses
+Scans ``~/.agentception/worktrees/agentception/`` for active git worktrees and parses
 the ``.agent-task`` file in each one to derive live agent metadata.
 
 This is the primary filesystem signal for the poller — it tells the dashboard

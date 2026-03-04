@@ -168,7 +168,7 @@ scripts/
 
 ## Related Projects
 
-- **[cgcardona/maestro](https://github.com/cgcardona/maestro)** — AI music composition backend for the Stori DAW. AgentCeption was originally co-located here and has been extracted into this standalone repository.
+- **[cgcardona/agentception](https://github.com/cgcardona/agentception)** — AI music composition backend for the Muse client. AgentCeption was originally co-located here and has been extracted into this standalone repository.
 
 ---
 

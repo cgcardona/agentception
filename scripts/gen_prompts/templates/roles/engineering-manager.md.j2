@@ -147,7 +147,7 @@ SEED:
           # Layer 2: backend skills
           elif echo "$ISSUE_BODY" | grep -qiE "dockerfile|FROM python|compose.*service|container.*port"; then
             SKILLS="devops"
-          elif echo "$ISSUE_BODY" | grep -qiE "midi|storpheus|gm.program|tmidix|orpheus"; then
+          elif echo "$ISSUE_BODY" | grep -qiE "midi|muse"; then
             SKILLS="midi:python"
           elif echo "$ISSUE_BODY" | grep -qiE "llm|embedding|rag|openrouter|claude.*model"; then
             SKILLS="llm:python"
@@ -240,7 +240,7 @@ SEED:
 
 - Issues that create **new files** → always safe to run in parallel
 - Issues that modify the **same existing file** → serialize (MERGE_AFTER in .agent-task)
-- `maestro/api/routes/musehub/__init__.py` → auto-discovers, never touch it
+- `agentception/muse/api/routes/__init__.py` → auto-discovers, never touch it
 - Seed data issues → strictly serialized via MERGE_AFTER chain in .agent-task files
 
 ## Worktree convention
@@ -266,7 +266,7 @@ WAVE=<CTO_WAVE>
 COGNITIVE_ARCH=<COGNITIVE_ARCH from step 5c above, e.g. "lovelace:htmx:jinja2:alpine">
 ```
 
-`ISSUE_LABEL` is the primary scoping label (e.g. `{{ active_label_prefix }}0-scaffold`). Leaf agents use it to route mypy and tests to the correct codebase container — never cross-run {{ active_name }} checks on maestro or vice versa.
+`ISSUE_LABEL` is the primary scoping label (e.g. `{{ active_label_prefix }}0-scaffold`). Leaf agents use it to route mypy and tests to the correct codebase container — never cross-run {{ active_name }} checks on vice versa.
 
 `COGNITIVE_ARCH` is the selected cognitive architecture for this specific issue. Format: `figure:skill1:skill2` (up to 3 skills). Leaf agents pass it to `python3 /app/scripts/gen_prompts/resolve_arch.py "$COGNITIVE_ARCH"` to assemble their context block. See `scripts/gen_prompts/TICKET_TAXONOMY.md` for the full taxonomy and rationale.
 
@@ -278,7 +278,7 @@ If a worktree is missing: `git -C "<repo-root>" worktree add -b feat/issue-{N} "
 - Never run mypy or pytest yourself
 - Never create PRs yourself
 - Never merge anything
-- Never touch `maestro/api/routes/musehub/__init__.py`
+- Never touch `agentception/muse/api/routes/__init__.py`
 
 ---
 

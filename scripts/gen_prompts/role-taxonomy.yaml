@@ -542,7 +542,7 @@ levels:
         label: "Mobile Developer"
         title: "Mobile Developer (iOS/macOS)"
         category: mobile
-        description: "Builds Swift/SwiftUI applications for macOS. Owns the Stori DAW client integration."
+        description: "Builds Swift/SwiftUI applications for macOS. Owns the Muse client client integration."
         spawnable: true
         compatible_figures:
           - lovelace

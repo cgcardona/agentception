@@ -25,7 +25,7 @@ Every ML system you build must:
 ## Stack
 
 - **LLM inference**: OpenRouter API with `anthropic/claude-sonnet-4.6` or `anthropic/claude-opus-4.6`. No other models.
-- **Music generation**: Storpheus service (port 10002) proxying to Orpheus on HuggingFace via Gradio API.
+- **Muse music generation**: MIDI generation pipeline (future Muse service), proxying to HuggingFace-hosted models.
 - **MIDI pipeline**: `select_seed()` → transpose → control vector → Gradio → score candidates → post-process → `parse_midi_to_notes()` → `filter_channels_for_instruments()`.
 - **Instrument resolution**: `resolve_gm_program(role)`, `resolve_tmidix_name(role)`, `_resolve_melodic_index(role)`.
 
@@ -41,11 +41,11 @@ Every ML system you build must:
 ## Verification Before Done
 
 ```bash
-# Mypy on storpheus:
-docker compose exec storpheus mypy .
+# Mypy on Muse services:
+docker compose exec agentception mypy agentception/
 
-# Run storpheus tests:
-docker compose exec storpheus pytest test_*.py -v
+# Run Muse tests:
+docker compose exec agentception pytest agentception/tests/ -v
 ```
 
 ## Cognitive Architecture

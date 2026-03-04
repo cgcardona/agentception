@@ -76,7 +76,7 @@ A batch is "ready" if:
 - Any batch in `phase-1/db-schema` containing an Alembic migration — migration chains
   must be audited for MERGE_AFTER ordering before parallel review.
 - Any issue or PR labeled `security`.
-- Any PR that modifies `maestro/protocol/events.py` (SSE contract — Swift frontend impact).
+- Any PR that modifies `agentception/protocol/events.py` (SSE contract — Swift frontend impact).
 
 ---
 

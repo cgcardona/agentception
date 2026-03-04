@@ -2,7 +2,7 @@
 
 ## Decision: Discard
 
-When AgentCeption moves to its own dedicated PostgreSQL instance (see [Database Independence](../README.md#database-independence)), the `ac_initiative_phases` and `ac_task_runs` tables currently living in the Maestro PostgreSQL instance will **not be migrated**.
+When AgentCeption moves to its own dedicated PostgreSQL instance (see [Database Independence](../README.md#database-independence)), the `ac_initiative_phases` and `ac_task_runs` tables currently living in the shared PostgreSQL instance will **not be migrated**.
 
 ## Rationale
 
@@ -25,41 +25,41 @@ The cost of a migration (manual `pg_dump | pg_restore`, row count verification, 
 
 1. AgentCeption's new Postgres instance is provisioned with its own Alembic migrations (see issue #965).
 2. The tables are re-created from scratch by the first `alembic upgrade head` in the new instance.
-3. Any historical `ac_task_runs` data in Maestro Postgres is left in place until the Maestro cleanup phase.
-4. During the Maestro cleanup phase (final step of extraction), the `ac_initiative_phases` and `ac_task_runs` tables are dropped from Maestro Postgres: `DROP TABLE ac_initiative_phases, ac_task_runs CASCADE;`
+3. Any historical `ac_task_runs` data in the old Postgres is left in place until cleanup.
+4. During cleanup (final step of extraction), the `ac_initiative_phases` and `ac_task_runs` tables are dropped from the old Postgres: `DROP TABLE ac_initiative_phases, ac_task_runs CASCADE;`
 
-## Cleanup Checklist (Maestro side — handled during final extraction cleanup)
+## Cleanup Checklist (handled during final extraction cleanup)
 
 These steps happen AFTER AgentCeption is running independently and verified:
 
 - [ ] Confirm AgentCeption's own Postgres has the tables re-created and healthy
-- [ ] Remove the Alembic migrations for ac_* tables from the Maestro migration chain
-- [ ] Run `DROP TABLE ac_initiative_phases, ac_task_runs CASCADE;` in Maestro Postgres
-- [ ] Remove the SQLAlchemy ORM models for ac_* from the Maestro codebase
+- [ ] Remove the Alembic migrations for ac_* tables from the old migration chain
+- [ ] Run `DROP TABLE ac_initiative_phases, ac_task_runs CASCADE;` in the old Postgres
+- [ ] Remove the SQLAlchemy ORM models for ac_* from the old codebase
 
 ## If You Ever Need to Migrate (Migrate path, not recommended)
 
 ```bash
 # On the machine with access to both Postgres instances:
 pg_dump \
-  --host=<maestro-postgres-host> \
-  --username=maestro \
+  --host=<old-postgres-host> \
+  --username=<old-db-user> \
   --table=ac_initiative_phases \
   --table=ac_task_runs \
   --data-only \
-  maestro | \
+  <old-db> | \
 psql \
   --host=<agentception-postgres-host> \
   --username=agentception \
   agentception
 
 # Verify row counts match:
-# Maestro:      SELECT COUNT(*) FROM ac_initiative_phases; SELECT COUNT(*) FROM ac_task_runs;
+# Old DB:      SELECT COUNT(*) FROM ac_initiative_phases; SELECT COUNT(*) FROM ac_task_runs;
 # AgentCeption: same queries
 ```
 
 ## References
 
-- Issue: cgcardona/maestro#972
-- Depends on: cgcardona/maestro#965 (database independence)
+- Issue: cgcardona/agentception#972
+- Depends on: cgcardona/agentception#965 (database independence)
 - Cleanup tracked in: final extraction cleanup phase

@@ -271,11 +271,11 @@ async def test_settings_reads_active_project(tmp_path: Path) -> None:
         "active_project": "Other Repo",
         "projects": [
             {
-                "name": "Maestro AgentCeption",
-                "gh_repo": "cgcardona/maestro",
+                "name": "Example Project",
+                "gh_repo": "cgcardona/agentception",
                 "repo_dir": str(tmp_path),
-                "worktrees_dir": "~/.cursor/worktrees/maestro",
-                "cursor_project_id": "Users-example-dev-cgcardona-maestro",
+                "worktrees_dir": "~/.cursor/worktrees/agentception",
+                "cursor_project_id": "Users-example-dev-cgcardona-example-project",
                 "active_labels_order": [],
             },
             {
@@ -313,14 +313,14 @@ async def test_switch_project_updates_config(tmp_path: Path) -> None:
         "max_qa_vps": 1,
         "pool_size_per_vp": 4,
         "active_labels_order": [],
-        "active_project": "Maestro AgentCeption",
+        "active_project": "Example Project",
         "projects": [
             {
-                "name": "Maestro AgentCeption",
-                "gh_repo": "cgcardona/maestro",
-                "repo_dir": "/dev/maestro",
-                "worktrees_dir": "~/.cursor/worktrees/maestro",
-                "cursor_project_id": "maestro-id",
+                "name": "Example Project",
+                "gh_repo": "cgcardona/agentception",
+                "repo_dir": "/dev/example-project",
+                "worktrees_dir": "~/.cursor/worktrees/agentception",
+                "cursor_project_id": "example-project-id",
                 "active_labels_order": [],
             },
             {
@@ -352,14 +352,14 @@ async def test_switch_project_rejects_unknown_name(tmp_path: Path) -> None:
         "max_qa_vps": 1,
         "pool_size_per_vp": 4,
         "active_labels_order": [],
-        "active_project": "Maestro AgentCeption",
+        "active_project": "Example Project",
         "projects": [
             {
-                "name": "Maestro AgentCeption",
-                "gh_repo": "cgcardona/maestro",
-                "repo_dir": "/dev/maestro",
-                "worktrees_dir": "~/.cursor/worktrees/maestro",
-                "cursor_project_id": "maestro-id",
+                "name": "Example Project",
+                "gh_repo": "cgcardona/agentception",
+                "repo_dir": "/dev/example-project",
+                "worktrees_dir": "~/.cursor/worktrees/agentception",
+                "cursor_project_id": "example-project-id",
                 "active_labels_order": [],
             },
         ],

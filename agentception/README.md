@@ -41,7 +41,7 @@ AgentCeption has exactly two external interfaces:
 **What AgentCeption is NOT:**
 - Not an LLM client — it never calls OpenRouter, Anthropic, or any model API directly.
 - Not a Cursor fork — it is a standalone Python service that Cursor talks to.
-- Not tightly coupled to Maestro — `agentception/` has zero imports from `maestro/`, `muse/`, `kly/`, or `storpheus/`.
+- Fully self-contained — `agentception/` has zero imports from external packages.
 
 ---
 
@@ -173,9 +173,9 @@ AgentCeption is configured via environment variables or via the `pipeline-config
 | Variable | Default | Description |
 |---|---|---|
 | `REPO_DIR` | Current working directory | Absolute path to the repository root |
-| `WORKTREES_DIR` | `~/.agentception/worktrees/maestro` | Directory containing agent git worktrees |
+| `WORKTREES_DIR` | `~/.agentception/worktrees/agentception` | Directory containing agent git worktrees |
 | `CURSOR_PROJECTS_DIR` | `~/.cursor/projects` | Cursor projects directory (for transcript reading) |
-| `GH_REPO` | `cgcardona/maestro` | GitHub repository slug (`owner/repo`) |
+| `GH_REPO` | `cgcardona/agentception` | GitHub repository slug (`owner/repo`) |
 | `POLL_INTERVAL_SECONDS` | `5` | How often the poller refreshes state |
 | `GITHUB_CACHE_SECONDS` | `10` | TTL for GitHub API response cache |
 | `HOST` | `0.0.0.0` | Bind host for the uvicorn server |
@@ -278,8 +278,8 @@ curl -X POST http://localhost:7777/api/templates/import \
 ### Development Setup
 
 ```bash
-git clone https://github.com/cgcardona/maestro
-cd maestro/agentception
+git clone https://github.com/cgcardona/agentception
+cd agentception
 
 # Install in editable mode with dev dependencies
 pip install -e ".[dev]"

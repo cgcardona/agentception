@@ -5,7 +5,7 @@
 Enrich assigned cognitive architecture figure YAML files to match the quality bar set by
 `scripts/gen_prompts/cognitive_archetypes/figures/gabriel_cardona.yaml` — the canonical reference.
 
-You are working inside the Maestro repository (`$REPO`). All YAML files live under:
+You are working inside the AgentCeption repository (`$REPO`). All YAML files live under:
 ```
 scripts/gen_prompts/cognitive_archetypes/figures/
 ```

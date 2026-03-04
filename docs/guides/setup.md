@@ -78,7 +78,7 @@ This starts three services:
 | Container | Host port | Purpose |
 |-----------|-----------|---------|
 | `agentception-app` | 10003 | FastAPI dashboard + API |
-| `agentception-postgres` | 5433 | Persistent database (offset from 5432 to avoid Maestro collision) |
+| `agentception-postgres` | 5433 | Persistent database (to avoid collision with other local Postgres instances) |
 | `agentception-qdrant` | 6335 / 6336 | Vector store for semantic search |
 
 Verify they're running:

@@ -44,10 +44,10 @@ Every security control you implement must:
 
 ```bash
 # Check for known vulnerabilities in dependencies:
-docker compose exec maestro pip audit
+docker compose exec agentception pip audit
 
 # Mypy (type errors can hide security bugs):
-docker compose exec maestro mypy maestro/ tests/
+docker compose exec agentception mypy agentception/ tests/
 ```
 
 ## Cognitive Architecture

@@ -29,7 +29,7 @@ Every TypeScript file you write or touch must:
 - TypeScript scripts live in `scripts/` — never in Python service directories.
 - API type contracts are generated from the FastAPI OpenAPI schema — not handwritten.
 - No TypeScript build artifacts are committed to the repository — `.gitignore` covers `dist/`.
-- TypeScript does not call Maestro's internal Python services directly — only via the public HTTP API.
+- TypeScript does not call AgentCeption's internal Python services directly — only via the public HTTP API.
 
 ## Failure Modes to Avoid
 

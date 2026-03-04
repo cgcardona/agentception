@@ -3,5 +3,5 @@ from __future__ import annotations
 """AgentCeption database package.
 
 Self-contained: own Base, engine, session factory, and Alembic migration tree.
-Designed for clean extraction to a standalone service — no imports from maestro.db.
+Fully self-contained database layer — zero imports from external packages.
 """

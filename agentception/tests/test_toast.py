@@ -47,7 +47,7 @@ def test_kill_response_has_hx_trigger_toast(client: TestClient, tmp_path: Path) 
     worktree = tmp_path / "issue-999"
     worktree.mkdir()
     (worktree / ".agent-task").write_text(
-        "WORKFLOW=issue-to-pr\nISSUE_NUMBER=999\nGH_REPO=cgcardona/maestro\n",
+        "WORKFLOW=issue-to-pr\nISSUE_NUMBER=999\nGH_REPO=cgcardona/agentception\n",
         encoding="utf-8",
     )
 
@@ -60,7 +60,7 @@ def test_kill_response_has_hx_trigger_toast(client: TestClient, tmp_path: Path) 
     ):
         mock_settings.worktrees_dir = tmp_path
         mock_settings.repo_dir = Path("/repo")
-        mock_settings.gh_repo = "cgcardona/maestro"
+        mock_settings.gh_repo = "cgcardona/agentception"
 
         resp = client.post("/api/control/kill/issue-999")
 
