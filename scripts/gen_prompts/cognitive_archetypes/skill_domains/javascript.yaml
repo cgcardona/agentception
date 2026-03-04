@@ -1,0 +1,72 @@
+id: javascript
+display_name: "JavaScript (Vanilla)"
+description: |
+  Vanilla JavaScript for browser-side logic that neither HTMX nor Alpine.js
+  covers: custom event listeners, DOM manipulation, async fetch calls,
+  and integration glue between third-party libraries.
+
+prompt_fragment: |
+  ## Skill Domain: JavaScript (Vanilla)
+
+  Write modern ES2022+ JavaScript. No jQuery. No bundler assumed (CDN delivery).
+  Use modules via `<script type="module">` when isolation is needed.
+
+  ### Async patterns
+
+  ```js
+  // Preferred: async/await over .then chains
+  async function fetchAgentStatus(id) {
+    const res = await fetch(`/api/agents/${id}/status`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  }
+
+  // Error boundary pattern
+  try {
+    const data = await fetchAgentStatus(agentId);
+    renderCard(data);
+  } catch (err) {
+    console.error("Failed to load agent:", err);
+    showError(err.message);
+  }
+  ```
+
+  ### DOM patterns
+
+  ```js
+  // Query — always scope to a container, never document-wide unless necessary
+  const container = document.getElementById("agent-grid");
+  const cards = container.querySelectorAll(".agent-card");
+
+  // Event delegation — one listener, many targets
+  container.addEventListener("click", (e) => {
+    const card = e.target.closest(".agent-card");
+    if (!card) return;
+    handleCardClick(card.dataset.agentId);
+  });
+
+  // HTMX events — listen for swap completion
+  document.addEventListener("htmx:afterSwap", (e) => {
+    if (e.detail.target.id === "agent-grid") reinitWidgets();
+  });
+  ```
+
+  ### Rules
+
+  - Always handle errors from `fetch` (check `res.ok`).
+  - Use `const`/`let` — never `var`.
+  - Prefer `addEventListener` over inline `on*` attributes (except Alpine directives).
+  - Never store sensitive data in `localStorage` or `sessionStorage`.
+  - Use event delegation for dynamic content added by HTMX swaps.
+
+review_checklist: |
+  - fetch() calls check res.ok and handle errors; no silent failures
+  - const/let used — no var declarations
+  - Event listeners use delegation for HTMX-swapped dynamic content
+  - No sensitive data stored in localStorage/sessionStorage
+  - No inline onclick= / onchange= attributes (use addEventListener)
+  - Async functions have try/catch or propagate errors to caller
+
+quality_gates:
+  linter: 'docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"'
+  test_runner: "docker compose exec agentception pytest agentception/tests/ -v"

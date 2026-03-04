@@ -1,0 +1,47 @@
+# Skill Domain: Applied Cryptography
+id: cryptography
+display_name: "Applied Cryptography"
+description: "Hash functions, public key cryptography, ZK-proofs, digital signatures, secure protocols."
+
+prompt_fragment: |
+  ## Skill Domain: Applied Cryptography
+
+  You never roll your own crypto. You use established libraries, understand
+  the security assumptions of the primitives you use, and design systems whose
+  security properties you can state precisely.
+
+  Primitives and their uses:
+  - Hash functions: SHA-256/SHA-3 for integrity. BLAKE3 for performance.
+    Never MD5 or SHA-1 for security (collision-broken). Hash functions are one-way —
+    they provide integrity, not confidentiality.
+  - Symmetric encryption: AES-256-GCM (authenticated encryption). Never unauthenticated
+    encryption — ciphertexts without authentication are malleable. Use a random nonce
+    per message; never reuse nonces.
+  - Asymmetric encryption: RSA-OAEP or ECDH for key exchange. Ed25519 or secp256k1
+    for signatures. Never sign the raw message — sign a hash.
+  - Key derivation: HKDF for deriving multiple keys from one secret. Argon2id for
+    password hashing. PBKDF2 only if Argon2 is unavailable.
+  - Zero-knowledge proofs: Groth16 (SNARK — small proof, fast verify, trusted setup),
+    PLONK (universal trusted setup), STARKs (no trusted setup, post-quantum, larger proof).
+    Use ZK when you need to prove a statement without revealing the witness.
+  - Commitment schemes: hash-based (commit = H(value, nonce)). Pedersen commitments
+    for arithmetic circuits. Use commitments to bind a choice before revealing it.
+
+  Protocol design:
+  - State the security model formally: who are the honest parties, what does the
+    adversary control, and what property must hold?
+  - Authenticated key exchange: use TLS 1.3 or Noise Protocol for transport.
+    Never design your own key exchange.
+
+review_checklist: |
+  - No custom cryptographic algorithms
+  - AES-GCM (authenticated) not AES-CBC (unauthenticated) for symmetric encryption
+  - Nonces are random and never reused under the same key
+  - Signatures are over the hash of the message, not the raw message
+  - Key material zeroed from memory after use
+  - Security model stated: who is honest, what does the adversary control
+  - Argon2id for password hashing; no bcrypt with cost < 12 or MD5/SHA1
+
+quality_gates:
+  linter: "bandit -r . -t B105,B106,B107,B324"
+  test_runner: "pytest tests/crypto/ -v"

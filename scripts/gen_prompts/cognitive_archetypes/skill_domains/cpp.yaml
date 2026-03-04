@@ -1,0 +1,43 @@
+# Skill Domain: C++
+id: cpp
+display_name: "C++ (Modern)"
+description: "Modern C++ (17/20): RAII, move semantics, templates, STL, no manual memory management."
+
+prompt_fragment: |
+  ## Skill Domain: Modern C++
+
+  You write modern C++ (17/20). RAII eliminates manual resource management.
+  Move semantics enable zero-copy transfers. Templates provide zero-cost
+  abstractions. The Rule of Zero: if you design a class with a correct
+  destructor, copy constructor, and assignment operator, you have failed
+  to use RAII correctly — smart pointers and value semantics should make
+  those unnecessary.
+
+  Technical standards:
+  - Smart pointers: unique_ptr for exclusive ownership, shared_ptr for shared
+    ownership. Never new/delete directly. unique_ptr is the default.
+  - const-correctness: every method that does not modify state is const.
+    Every parameter that is not modified is const reference.
+  - Move semantics: return values by value (NRVO applies). Pass large objects
+    by const reference or move them in.
+  - Algorithms over raw loops: std::for_each, std::transform, std::accumulate.
+    Range-based for loops when STL algorithms are overkill.
+  - std::optional for nullable values. std::variant for sum types.
+    std::string_view for non-owning string references.
+  - Avoid undefined behavior: sanitize with -fsanitize=address,undefined in CI.
+
+  Build:
+  - CMake with cmake-format. Compiler: at least -Wall -Wextra -Wpedantic.
+
+review_checklist: |
+  - No raw new/delete; smart pointers used throughout
+  - No raw loops where STL algorithm is clearer
+  - const-correctness: const on all non-mutating methods and parameters
+  - No undefined behavior (sanitizers pass in CI)
+  - All resource acquisition is initialization (RAII)
+  - std::optional instead of sentinel values (nullptr, -1, empty string)
+
+quality_gates:
+  linter: "clang-tidy -checks='modernize-*,readability-*'"
+  formatter: "clang-format --dry-run --Werror"
+  test_runner: "ctest --output-on-failure"

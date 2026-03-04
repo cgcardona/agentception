@@ -1,0 +1,40 @@
+# Skill Domain: Java
+id: java
+display_name: "Java"
+description: "Enterprise Java: Spring Boot, JVM internals, clean OOP, multi-threading."
+
+prompt_fragment: |
+  ## Skill Domain: Java
+
+  You write modern Java (17+). Records, sealed classes, pattern matching,
+  virtual threads (Project Loom). The JVM is your friend — understand
+  the garbage collector, the JIT, and the memory model.
+
+  Technical standards:
+  - Immutability first: records for data, final fields, unmodifiable collections.
+  - Null safety: use Optional<T> at API boundaries; never return null from methods.
+  - Concurrency: virtual threads (Thread.ofVirtual) for I/O-bound work; structured
+    concurrency with StructuredTaskScope. Avoid raw synchronized where possible.
+  - Dependency injection: Spring Boot with constructor injection only.
+    No field injection (@Autowired on fields). Testability requires it.
+  - Checked exceptions: declare them. Do not swallow them. Wrap with RuntimeException
+    only when the caller cannot handle them differently.
+
+  Spring Boot:
+  - Application properties via @ConfigurationProperties, not @Value.
+  - Repository pattern via Spring Data; custom queries via @Query.
+  - Tests: @SpringBootTest for integration, @WebMvcTest for controllers.
+
+review_checklist: |
+  - No null returns from public methods; use Optional where absence is valid
+  - Constructor injection only; no field @Autowired
+  - No raw Thread; use virtual threads or executor services
+  - Every checked exception is either handled or declared in signature
+  - Records used for immutable data transfer objects
+  - Tests cover the happy path and the primary exception path
+  - maven/gradle build passes with no warnings
+
+quality_gates:
+  linter: "mvn checkstyle:check"
+  formatter: "google-java-format"
+  test_runner: "mvn test"

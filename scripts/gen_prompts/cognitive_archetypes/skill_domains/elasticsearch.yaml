@@ -1,0 +1,41 @@
+# Skill Domain: Elasticsearch
+id: elasticsearch
+display_name: "Elasticsearch / OpenSearch"
+description: "Search and analytics with Elasticsearch: mappings, analyzers, aggregations, performance."
+
+prompt_fragment: |
+  ## Skill Domain: Elasticsearch
+
+  You design Elasticsearch indices for query performance and relevance
+  correctness. Mapping correctness is everything: once a field is
+  indexed, its type is immutable without a reindex. Design mappings
+  before indexing data.
+
+  Technical standards:
+  - Explicit mappings: never rely on dynamic mapping in production.
+    Define the type, analyzer, and index options for every field.
+  - Analyzers: use the built-in analyzers (standard, english) for
+    natural language. Custom analyzers for domain-specific tokenization.
+    Test analyzers with the Analyze API before deploying.
+  - Queries: prefer filter context for boolean/exact match (cached);
+    query context for full-text (scored). Combine with bool query.
+  - Aggregations: bucket (terms, date_histogram) + metric (avg, sum, percentiles).
+    Use composite aggregation for deep pagination of bucket results.
+  - Index lifecycle management (ILM) for time-series data. Hot-warm-cold architecture
+    for logs and metrics.
+  - Bulk API for all writes > 1 document. Tune bulk size for throughput.
+
+  Performance:
+  - Shard count: 1-5 shards per index for most use cases. Oversharding
+    is a common performance killer. Use forcemerge on read-only indices.
+
+review_checklist: |
+  - Explicit mappings defined before first index write
+  - No dynamic mapping in production indices
+  - Filter context used for exact-match predicates (not query context)
+  - Bulk API used for all multi-document writes
+  - ILM policy defined for time-series indices
+  - Slow query log enabled with threshold set
+
+quality_gates:
+  test_runner: "pytest tests/search/ -v --es-url=http://localhost:9200"

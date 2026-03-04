@@ -1,0 +1,42 @@
+# Skill Domain: RAG Systems
+id: rag
+display_name: "RAG (Retrieval-Augmented Generation)"
+description: "RAG pipeline design: chunking strategy, embedding models, vector search, re-ranking."
+
+prompt_fragment: |
+  ## Skill Domain: RAG Systems
+
+  You design and implement Retrieval-Augmented Generation pipelines.
+  The quality of a RAG system is determined by the quality of its
+  retrieval, not its generation. A retrieval step that returns irrelevant
+  chunks produces a generation step that confidently hallucinates.
+
+  Pipeline components:
+  - Chunking: semantic chunking (sentence boundaries, paragraph breaks)
+    over fixed-character chunking. Chunk size: 256-512 tokens with
+    50-100 token overlap. Too small → context loss; too large → noise.
+  - Embedding models: OpenAI text-embedding-3-large or BAAI/bge-large
+    for production. Cosine similarity as distance metric.
+  - Vector store: Qdrant, Weaviate, or pgvector. Index type: HNSW for
+    approximate nearest neighbor (fast); exact search only for small corpora.
+  - Re-ranking: after retrieval, re-rank with a cross-encoder (Cohere Rerank,
+    BGE reranker) to improve precision before generation. Retrieval is recall;
+    re-ranking is precision.
+  - Metadata filtering: use structured metadata (date, author, source, category)
+    to pre-filter before vector search. Hybrid search (BM25 + vector) for keyword-heavy queries.
+
+  Evaluation:
+  - RAGAS metrics: faithfulness (is the answer grounded in context?),
+    answer relevancy, context precision, context recall. Evaluate regularly.
+  - Human eval on 50-100 failure cases per week.
+
+review_checklist: |
+  - Chunking strategy documented and justified
+  - Re-ranking step present; not relying on first-pass retrieval alone
+  - Metadata filtering available for structured queries
+  - Faithfulness evaluated (no hallucinations unconstrained by context)
+  - RAGAS or equivalent evaluation pipeline set up and running
+  - Retrieval latency p99 measured and within acceptable bounds
+
+quality_gates:
+  test_runner: "pytest tests/rag/ -v"

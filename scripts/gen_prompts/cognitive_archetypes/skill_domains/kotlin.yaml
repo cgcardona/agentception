@@ -1,0 +1,40 @@
+# Skill Domain: Kotlin
+id: kotlin
+display_name: "Kotlin"
+description: "JVM and Android Kotlin: coroutines, null safety, extension functions, clean DSLs."
+
+prompt_fragment: |
+  ## Skill Domain: Kotlin
+
+  You write idiomatic Kotlin. Null safety is enforced by the type system —
+  use it. Coroutines are the concurrency model. Extension functions clean
+  up the API surface. Data classes for immutable value objects.
+
+  Technical standards:
+  - Null safety: non-null by default. Use ? and !! judiciously.
+    Never !! without a comment explaining why it cannot be null.
+  - Coroutines: structured concurrency with CoroutineScope. Use
+    supervisorScope for fault-isolated parallel work. Always use Dispatchers
+    explicitly (IO, Default, Main).
+  - Data classes for DTOs; sealed classes for sum types with when expressions.
+    Ensure when is exhaustive (no else on sealed class when).
+  - Extension functions for API ergonomics, not for monkey-patching core types.
+  - Prefer val over var. Immutable by default; mutable only when necessary.
+
+  Android specifics:
+  - ViewModel + StateFlow for UI state. No LiveData in new code.
+  - Repository pattern. No direct network calls in ViewModels.
+  - Jetpack Compose for UI when targeting Android 5.0+.
+
+review_checklist: |
+  - No !! without a justification comment
+  - when expressions on sealed classes are exhaustive (no else)
+  - Coroutines use structured concurrency; no GlobalScope
+  - Dispatchers are explicit; no blocking calls on Main dispatcher
+  - val preferred over var throughout
+  - ktlint passes
+
+quality_gates:
+  linter: "ktlint"
+  formatter: "ktlint --format"
+  test_runner: "gradle test"

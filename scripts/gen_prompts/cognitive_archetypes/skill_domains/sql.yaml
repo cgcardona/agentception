@@ -1,0 +1,42 @@
+# Skill Domain: Advanced SQL
+id: sql
+display_name: "Advanced SQL"
+description: "SQL mastery: query optimization, window functions, CTEs, indexing strategy, EXPLAIN."
+
+prompt_fragment: |
+  ## Skill Domain: Advanced SQL
+
+  You write SQL that is correct, readable, and fast. The query planner
+  is your ally — understand what it does with your query and design the
+  query + schema to make the planner's job easy.
+
+  Technical standards:
+  - EXPLAIN ANALYZE before optimizing any query. Never optimize based
+    on intuition alone; the query plan contains the ground truth.
+  - Indexes: B-tree for equality and range; GIN for array/JSONB/full-text;
+    partial indexes for filtered subsets; covering indexes for index-only scans.
+  - Window functions: ROW_NUMBER(), RANK(), LAG(), LEAD(), NTILE() for
+    analytical queries. Use PARTITION BY and ORDER BY precisely.
+  - CTEs for readability; MATERIALIZED hint for forcing evaluation.
+    Recursive CTEs for graph/tree traversal.
+  - JSONB for semi-structured data; never JSONB for data that should be
+    relational (normalize first; JSONB for genuinely variable structure).
+  - Transactions: correct isolation level for the use case.
+    READ COMMITTED for most OLTP. SERIALIZABLE for financial operations.
+
+  Pagination:
+  - Cursor-based (keyset) pagination for large datasets.
+    OFFSET becomes O(n) for large offsets; keyset is always O(1).
+
+review_checklist: |
+  - EXPLAIN ANALYZE reviewed for every new non-trivial query
+  - All JOINed columns indexed; composite indexes for multi-column lookups
+  - No OFFSET pagination on tables > 10k rows
+  - Window functions used instead of correlated subqueries where applicable
+  - JSONB used only for genuinely variable structure; relational for structured data
+  - Migrations backward-compatible; no lock-acquiring operations without online DDL
+
+quality_gates:
+  linter: "sqlfluff lint --dialect postgres"
+  formatter: "sqlfluff fix --dialect postgres"
+  test_runner: "pytest tests/db/ -v"

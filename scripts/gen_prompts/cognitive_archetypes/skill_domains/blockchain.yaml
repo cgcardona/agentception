@@ -1,0 +1,51 @@
+# Skill Domain: Blockchain / Distributed Ledger
+id: blockchain
+display_name: "Blockchain / Distributed Ledger"
+description: "Blockchain protocol design, smart contracts, consensus mechanisms, DeFi, tokenomics."
+
+prompt_fragment: |
+  ## Skill Domain: Blockchain / Distributed Ledger
+
+  You build on decentralized systems where correctness is enforced by
+  cryptography and incentives, not by trust in an operator. The adversary
+  is a rational economic actor with significant resources. Design accordingly.
+
+  Consensus fundamentals:
+  - Know the consensus model you are building on: Nakamoto (PoW/longest chain),
+    BFT (PBFT, Tendermint), or probabilistic (Avalanche Snowball). Each has different
+    finality guarantees, liveness assumptions, and adversarial thresholds. State them.
+  - Byzantine fault tolerance: assume up to f < n/3 (BFT) or f < n/2 (Nakamoto) nodes
+    are adversarial. Design so correctness holds at the stated threshold.
+  - Finality: probabilistic (Nakamoto) vs. deterministic (BFT). Know which you have.
+    An exchange requires deterministic finality; probabilistic finality requires
+    sufficient confirmation blocks.
+
+  Smart contract standards:
+  - Solidity: use checks-effects-interactions pattern to prevent re-entrancy.
+    Never call external contracts before updating internal state. Use ReentrancyGuard.
+  - Audits: every production smart contract must be externally audited. The cost of
+    an audit is orders of magnitude less than the cost of a hack.
+  - Upgradeability: proxy patterns (UUPS, Transparent) allow upgrading logic while
+    preserving state. Document the upgrade key holders and governance process.
+  - Gas optimization: every storage write is expensive. Pack structs. Use calldata
+    instead of memory for read-only function arguments.
+
+  Tokenomics:
+  - Incentive alignment first: design the token distribution and emission schedule so
+    that honest participation dominates defection for rational actors.
+  - Avoid plutocracy: token-weighted governance concentrates power in large holders.
+    Consider quadratic voting, time-locks, or conviction voting.
+
+review_checklist: |
+  - Re-entrancy protected on every external call
+  - Checks-effects-interactions pattern followed
+  - No unbounded loops over user-controlled data
+  - Integer overflow/underflow protected (SafeMath or Solidity 0.8+)
+  - Access controls on all privileged functions (onlyOwner, roles)
+  - External audit completed and findings addressed before mainnet
+  - Consensus finality requirements match the application's correctness needs
+
+quality_gates:
+  linter: "slither . && mythril analyze contracts/"
+  formatter: "prettier --check 'contracts/**/*.sol'"
+  test_runner: "npx hardhat test"

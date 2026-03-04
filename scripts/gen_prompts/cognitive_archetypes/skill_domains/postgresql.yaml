@@ -1,0 +1,83 @@
+id: postgresql
+display_name: "PostgreSQL"
+description: |
+  PostgreSQL schema design, query patterns, and async SQLAlchemy integration.
+  Covers indexing strategy, FK constraints, migration discipline (Alembic),
+  and connection pooling with asyncpg.
+
+prompt_fragment: |
+  ## Skill Domain: PostgreSQL
+
+  Design for reads. Write explicitly. Migrate with Alembic. Never raw SQL in
+  application code — use SQLAlchemy ORM or Core with explicit type mappings.
+
+  ### Schema conventions
+
+  ```sql
+  -- Tables: snake_case, plural
+  -- PKs: always UUID or serial with explicit name
+  -- FKs: always ON DELETE behavior specified
+  -- Timestamps: always UTC, always indexed when filtered
+
+  CREATE TABLE agents (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    slug        TEXT NOT NULL UNIQUE,
+    status      TEXT NOT NULL DEFAULT 'pending',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+
+  CREATE INDEX agents_status_created ON agents (status, created_at DESC);
+  ```
+
+  ### SQLAlchemy async patterns
+
+  ```python
+  from __future__ import annotations
+
+  from sqlalchemy.ext.asyncio import AsyncSession
+  from sqlalchemy import select, update
+  from sqlalchemy.orm import selectinload
+
+  # Always use explicit select() — never session.query()
+  async def get_agent(db: AsyncSession, agent_id: str) -> Agent | None:
+      result = await db.execute(
+          select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.tasks))
+      )
+      return result.scalar_one_or_none()
+
+  # Bulk update — use core update() for efficiency
+  async def mark_stale(db: AsyncSession, ids: list[str]) -> None:
+      await db.execute(
+          update(Agent).where(Agent.id.in_(ids)).values(status="stale")
+      )
+      await db.commit()
+  ```
+
+  ### Migration rules
+
+  - Every schema change has an Alembic migration. No ad-hoc `CREATE TABLE` in code.
+  - Migrations are reversible — always implement `downgrade()`.
+  - Add indexes in migration, not in `__table_args__` only.
+  - Never drop a column in the same migration that removes it from the ORM model.
+
+  ### Rules
+
+  - No raw SQL strings in Python — use SQLAlchemy text() with bound params at minimum.
+  - All timestamps are `TIMESTAMPTZ` (UTC) — never `TIMESTAMP WITHOUT TIME ZONE`.
+  - Use `scalar_one_or_none()` for single-row fetches — never `first()` silently hiding duplicates.
+  - Connection pooling via asyncpg + SQLAlchemy `AsyncEngine` — no per-request connections.
+  - FK constraints always have `ON DELETE CASCADE` or `ON DELETE SET NULL` specified.
+
+review_checklist: |
+  - No raw SQL strings in Python — SQLAlchemy ORM or text() with bound params
+  - All timestamps TIMESTAMPTZ (UTC); none use TIMESTAMP WITHOUT TIME ZONE
+  - scalar_one_or_none() used for single-row fetches — not first()
+  - FK constraints specify ON DELETE behavior explicitly
+  - New columns/tables have a corresponding Alembic migration with downgrade()
+  - Indexes added for columns used in WHERE, ORDER BY, or JOIN on high-cardinality data
+  - select() used — not deprecated session.query()
+
+quality_gates:
+  linter: "mypy ."
+  test_runner: "pytest tests/ -v"

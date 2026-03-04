@@ -1,0 +1,80 @@
+id: jinja2
+display_name: "Jinja2"
+description: |
+  Server-side HTML templating with Jinja2. Template inheritance, macros,
+  filters, and TemplateResponse integration with FastAPI/Starlette.
+  Used for rendering the AgentCeption dashboard's layout and partials.
+
+prompt_fragment: |
+  ## Skill Domain: Jinja2
+
+  All HTML is rendered via Jinja2 templates served by FastAPI's TemplateResponse.
+  Partials are rendered with the same mechanism — just different template files.
+
+  ### Template layout pattern
+
+  ```
+  templates/
+    base.html          # root layout — <html>, <head>, <body>, nav
+    components/
+      agent_card.html  # reusable macro or {% include %}
+      tree_node.html
+    pages/
+      dashboard.html   # {% extends "base.html" %}
+    partials/
+      pipeline_tree.html  # bare fragment — no base.html
+      agent_row.html
+  ```
+
+  ### Key constructs
+
+  ```jinja2
+  {# Template inheritance #}
+  {% extends "base.html" %}
+  {% block content %} ... {% endblock %}
+
+  {# Reusable macro #}
+  {% macro agent_card(agent) %}
+    <div class="card">{{ agent.name }}</div>
+  {% endmacro %}
+
+  {# Import a macro #}
+  {% from "components/agent_card.html" import agent_card %}
+  {{ agent_card(a) }}
+
+  {# Partials — no base, just a fragment #}
+  {# Rendered via: templates.TemplateResponse("partials/tree.html", {"request": req, "tree": tree}) #}
+  ```
+
+  ### FastAPI integration
+
+  ```python
+  from fastapi.templating import Jinja2Templates
+  templates = Jinja2Templates(directory="agentception/templates")
+
+  @router.get("/pipeline", response_class=HTMLResponse)
+  async def pipeline_partial(request: Request) -> Response:
+      return templates.TemplateResponse("partials/pipeline_tree.html",
+                                        {"request": request, "tree": tree})
+  ```
+
+  ### Rules
+
+  - `base.html` owns all `<head>` tags, CDN links, and Alpine/HTMX script tags.
+  - Partials never extend `base.html` — they are bare HTML fragments.
+  - `{{ request }}` is always in the template context (Starlette requires it).
+  - Macro files live in `templates/components/`. Never inline macros in page templates.
+  - Use `{{ var | default("…") }}` for optional variables.
+  - Escape user-supplied strings with `{{ str | e }}` (auto-escaped in Jinja2's HTML mode).
+
+review_checklist: |
+  - base.html owns all <head> CDN tags; partials do not extend base.html
+  - Macros are defined in components/ and imported, not inlined in page templates
+  - TemplateResponse always passes {"request": request, ...}
+  - No raw user input rendered without | e or auto-escape enabled
+  - Partial templates are bare HTML fragments (no <html>/<body>)
+  - Variables that may be absent use | default("...") to avoid UndefinedError
+
+quality_gates:
+  linter: 'docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"'
+  test_runner: "docker compose exec agentception pytest agentception/tests/ -v"

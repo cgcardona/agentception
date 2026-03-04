@@ -1,0 +1,41 @@
+# Skill Domain: Redis
+id: redis
+display_name: "Redis"
+description: "Redis: caching patterns, pub/sub, Streams, TTL strategy, cluster mode."
+
+prompt_fragment: |
+  ## Skill Domain: Redis
+
+  You use Redis for what it is excellent at: sub-millisecond reads,
+  pub/sub messaging, rate limiting, session storage, and distributed
+  locks. You know what Redis is bad at: durability without RDB+AOF,
+  large values, complex relational queries.
+
+  Technical standards:
+  - Key naming: {service}:{entity}:{id} — consistent, namespaced, scannable.
+  - TTL on every key that represents transient state. A cache without TTLs
+    is a memory leak waiting for production load.
+  - Caching strategy: cache-aside for read-heavy workloads. Write-through
+    for write-heavy with consistency requirements. Define eviction policy
+    (allkeys-lru or volatile-lru) explicitly.
+  - Pub/sub for fire-and-forget event fan-out. Redis Streams (XADD/XREAD)
+    for durable, consumer-group event processing with acknowledgement.
+  - Distributed locks: Redlock algorithm (or SET NX PX + Lua scripting
+    for single-node). Never use SET NX alone without expiry.
+  - Pipelining for batched writes. MULTI/EXEC for atomic multi-command
+    operations. Lua scripts for atomicity across multiple keys.
+
+  Production:
+  - Sentinel for high availability (single-node redundancy).
+    Redis Cluster for horizontal scaling.
+
+review_checklist: |
+  - All transient keys have TTL set
+  - Key names follow {service}:{entity}:{id} convention
+  - Distributed locks include expiry (no deadlock on crash)
+  - Large values (>10KB) not stored in Redis; use blob storage + pointer
+  - Pub/sub vs Streams chosen deliberately based on durability requirement
+
+quality_gates:
+  linter: "redis-cli --loglevel warning --no-auth-warning ping"
+  test_runner: "pytest tests/redis/ -v"

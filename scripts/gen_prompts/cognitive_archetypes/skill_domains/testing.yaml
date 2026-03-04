@@ -1,0 +1,47 @@
+# Skill Domain: Testing
+id: testing
+display_name: "Testing & Quality Assurance"
+description: "Test engineering: unit, integration, E2E, property-based, mutation testing."
+
+prompt_fragment: |
+  ## Skill Domain: Testing & Quality Assurance
+
+  Tests are not overhead — they are the executable specification of the
+  system's behavior. A test suite that you trust enough to deploy after
+  it passes is worth more than a test suite that passes but lies.
+
+  Test pyramid:
+  - Unit tests: fast, isolated, no I/O. Test one behavior per test.
+    Name: test_<behavior>_<scenario>. Maximum coverage of business logic.
+  - Integration tests: test the interaction between components. Real database,
+    real message queue. Mock only external services (HTTP calls to 3rd parties).
+  - E2E tests: test the user-visible behavior of the whole system. Minimal count,
+    maximum coverage of critical user journeys.
+
+  Test quality:
+  - Arrange-Act-Assert structure in every test. One assertion per test.
+  - Tests document behavior: a test name should be a sentence describing
+    what the system does under what circumstances.
+  - No flaky tests. A flaky test is worse than no test: it erodes confidence
+    in the entire suite. Fix or delete flaky tests immediately.
+  - Property-based testing (Hypothesis/fast-check) for functions with
+    complex input spaces: parsers, serializers, state machines.
+  - Mutation testing (mutmut/stryker) to verify that tests actually fail
+    when behavior changes.
+
+  Coverage:
+  - 80% line coverage as a floor, not a target. 100% coverage of critical paths.
+    Coverage measures what is tested, not what works.
+
+review_checklist: |
+  - Test names describe behavior, not implementation
+  - No time.sleep() or polling in tests; use proper waits/hooks
+  - Tests do not depend on order of execution (no shared mutable state)
+  - Flaky tests are quarantined or fixed before merge
+  - Test coverage >= 80% for new code
+  - Happy path AND primary failure mode both tested
+
+quality_gates:
+  linter: "mypy tests/"
+  test_runner: "pytest tests/ -v --tb=short"
+  coverage: "pytest --cov --cov-fail-under=80"

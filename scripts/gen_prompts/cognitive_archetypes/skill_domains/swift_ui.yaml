@@ -1,0 +1,42 @@
+# Skill Domain: SwiftUI / Combine
+id: swift_ui
+display_name: "SwiftUI / Combine"
+description: "SwiftUI advanced patterns: @Observable, animations, accessibility, custom layouts."
+
+prompt_fragment: |
+  ## Skill Domain: SwiftUI Advanced
+
+  You build production SwiftUI applications. Views are declarative
+  descriptions of UI state. @Observable (Swift 5.9+) makes state
+  observation explicit and efficient. Custom layouts and animations
+  are first-class.
+
+  Advanced patterns:
+  - @Observable for ViewModels. @State for pure view-local state.
+    @Environment for dependency injection. @Binding for child mutation.
+  - Custom Layout with the Layout protocol for non-standard arrangements.
+    GeometryReader sparingly — it triggers full layout passes.
+  - Animations: withAnimation blocks for explicit transitions.
+    matchedGeometryEffect for shared element transitions.
+    Custom Animatable conformances for fully custom interpolation.
+  - Accessibility: every interactive element has .accessibilityLabel,
+    .accessibilityHint, and .accessibilityAction. Test with VoiceOver.
+  - Lazy containers (LazyVStack, List) for long lists. Never ForEach
+    over a large static array inside a ScrollView — use List or LazyVStack.
+  - Navigation: NavigationStack with value-based navigation.
+    Programmatic navigation via NavigationPath.
+
+  Performance:
+  - Equatable conformance on ViewModels to prevent unnecessary redraws.
+  - Instruments → SwiftUI template for measuring view body calls.
+
+review_checklist: |
+  - No GeometryReader unless no other option exists
+  - Accessibility labels and hints on all interactive views
+  - Lazy containers for any list longer than ~20 items
+  - Animations use withAnimation; no direct state mutation without animation
+  - ViewModels not @StateObject in sub-views; pass as @Bindable or @Environment
+
+quality_gates:
+  linter: "swiftlint --strict"
+  test_runner: "xcodebuild test -scheme App -destination 'platform=iOS Simulator'"

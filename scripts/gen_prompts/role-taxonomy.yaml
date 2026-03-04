@@ -1,0 +1,999 @@
+# Role Taxonomy — Three-tier organizational hierarchy for AgentCeption
+#
+# This file is the canonical source for the full org chart.
+# The GUI reads this via GET /api/roles/taxonomy to render the hierarchy browser.
+# Each role's "slug" maps to a .cursor/roles/<slug>.md file (Track A — org prompt).
+# Each role's "compatible_figures" maps to cognitive_archetypes/figures/ (Track B — cognitive overlay).
+#
+# Spawnable roles are those that can be assigned to a leaf agent via POST /api/control/spawn.
+# Orchestration roles (CTO, VPs, Coordinator) are spawnable only through the CTO pipeline.
+#
+# The system is intentionally not limited to tech startups. Any hierarchy of cognitive
+# archetypes can be composed here: research labs, creative studios, government agencies,
+# scientific expeditions, military units, or any domain the user defines.
+
+levels:
+  - id: c_suite
+    label: "C-Suite"
+    description: "Executive leaders who set organizational strategy, culture, and direction."
+    roles:
+      - slug: ceo
+        label: "CEO"
+        title: "Chief Executive Officer"
+        category: executive
+        description: "Sets company vision, culture, and strategy. The final decision-maker on product and organizational direction."
+        spawnable: false
+        compatible_figures:
+          - steve_jobs
+          - satya_nadella
+          - jeff_bezos
+          - bill_gates
+          - paul_graham
+          - patrick_collison
+          - sam_altman
+          - elon_musk
+          - andy_grove
+          - peter_drucker
+          - sun_tzu
+          - da_vinci
+          - newton
+          - darwin
+          - satoshi_nakamoto
+          - vitalik_buterin
+          - gabriel_cardona
+        compatible_skill_domains:
+          - llm
+          - python
+        file_exists: true
+
+      - slug: cto
+        label: "CTO"
+        title: "Chief Technology Officer"
+        category: engineering
+        description: "Owns technology strategy and the AI pipeline that turns GitHub issues into shipped code."
+        spawnable: false
+        compatible_figures:
+          - werner_vogels
+          - margaret_hamilton
+          - turing
+          - shannon
+          - von_neumann
+          - jeff_dean
+          - leslie_lamport
+          - vint_cerf
+          - ken_thompson
+          - rob_pike
+          - anders_hejlsberg
+          - linus_torvalds
+          - bjarne_stroustrup
+          - barbara_liskov
+          - wozniak
+          - emin_gun_sirer
+          - gavin_wood
+          - gabriel_cardona
+        compatible_skill_domains:
+          - fastapi
+          - postgresql
+          - devops
+          - llm
+          - python
+        file_exists: true
+
+      - slug: cpo
+        label: "CPO"
+        title: "Chief Product Officer"
+        category: product
+        description: "Owns the product roadmap, user research strategy, and prioritization framework."
+        spawnable: false
+        compatible_figures:
+          - steve_jobs
+          - lovelace
+          - feynman
+          - einstein
+          - don_norman
+          - paul_graham
+          - patrick_collison
+          - da_vinci
+          - nassim_taleb
+          - gabriel_cardona
+        compatible_skill_domains:
+          - llm
+          - javascript
+        file_exists: true
+
+      - slug: cfo
+        label: "CFO"
+        title: "Chief Financial Officer"
+        category: finance
+        description: "Owns financial modeling, unit economics, and resource allocation."
+        spawnable: false
+        compatible_figures:
+          - von_neumann
+          - hamming
+          - shannon
+          - nassim_taleb
+          - andy_grove
+          - peter_drucker
+        compatible_skill_domains:
+          - python
+          - postgresql
+        file_exists: true
+
+      - slug: ciso
+        label: "CISO"
+        title: "Chief Information Security Officer"
+        category: security
+        description: "Owns security posture, compliance, threat modeling, and incident response."
+        spawnable: false
+        compatible_figures:
+          - margaret_hamilton
+          - bruce_schneier
+          - dijkstra
+          - knuth
+          - nassim_taleb
+          - sun_tzu
+          - david_chaum
+          - hal_finney
+          - nick_szabo
+        compatible_skill_domains:
+          - devops
+          - python
+          - postgresql
+        file_exists: true
+
+      - slug: cdo
+        label: "CDO"
+        title: "Chief Data Officer"
+        category: data
+        description: "Owns data strategy, AI/ML leadership, data governance, and analytics."
+        spawnable: false
+        compatible_figures:
+          - yann_lecun
+          - shannon
+          - von_neumann
+          - hamming
+          - fei_fei_li
+          - geoffrey_hinton
+          - jeff_dean
+        compatible_skill_domains:
+          - postgresql
+          - python
+          - llm
+        file_exists: true
+
+      - slug: cmo
+        label: "CMO"
+        title: "Chief Marketing Officer"
+        category: marketing
+        description: "Owns growth, brand, developer relations, and go-to-market strategy."
+        spawnable: false
+        compatible_figures:
+          - steve_jobs
+          - satya_nadella
+          - feynman
+          - lovelace
+          - carl_sagan
+          - paul_graham
+        compatible_skill_domains:
+          - javascript
+          - llm
+        file_exists: true
+
+      - slug: coo
+        label: "COO"
+        title: "Chief Operating Officer"
+        category: operations
+        description: "Owns operational excellence, process optimization, and organizational scaling."
+        spawnable: false
+        compatible_figures:
+          - jeff_bezos
+          - hamming
+          - ritchie
+          - hopper
+          - andy_grove
+          - peter_drucker
+          - sun_tzu
+        compatible_skill_domains:
+          - python
+          - devops
+          - postgresql
+        file_exists: true
+
+  - id: coordinator
+    label: "Coordinator Level"
+    description: "Coordinators who lead functional teams and translate executive strategy into execution. Can be nested to arbitrary depth."
+    roles:
+      - slug: engineering-coordinator
+        label: "Engineering Coordinator"
+        title: "Engineering Coordinator"
+        category: engineering
+        description: "Leads the engineering team. Assigns issues, tracks velocity, and ensures quality gates."
+        spawnable: false
+        compatible_figures:
+          - linus_torvalds
+          - bjarne_stroustrup
+          - werner_vogels
+          - hopper
+          - hamming
+          - ritchie
+          - ken_thompson
+          - rob_pike
+          - jeff_dean
+          - barbara_liskov
+          - andy_grove
+          - joe_armstrong
+          - gabriel_cardona
+        compatible_skill_domains:
+          - fastapi
+          - python
+          - devops
+          - postgresql
+        file_exists: true
+
+      - slug: qa-coordinator
+        label: "QA Coordinator"
+        title: "QA Coordinator"
+        category: quality
+        description: "Leads the QA team. Sets quality gates, test strategy, and review standards."
+        spawnable: false
+        compatible_figures:
+          - dijkstra
+          - knuth
+          - margaret_hamilton
+          - turing
+          - bruce_schneier
+          - barbara_liskov
+          - marie_curie
+          - leslie_lamport
+        compatible_skill_domains:
+          - python
+          - fastapi
+          - postgresql
+        file_exists: true
+
+      - slug: vp-product
+        label: "VP Product"
+        title: "VP of Product"
+        category: product
+        description: "Drives roadmap execution, product discovery, and user story quality."
+        spawnable: false
+        compatible_figures:
+          - steve_jobs
+          - lovelace
+          - feynman
+          - einstein
+          - don_norman
+          - paul_graham
+          - da_vinci
+        compatible_skill_domains:
+          - llm
+          - javascript
+          - htmx
+        file_exists: true
+
+      - slug: vp-design
+        label: "VP Design"
+        title: "VP of Design / UX"
+        category: design
+        description: "Leads design systems, interaction design, accessibility, and user research."
+        spawnable: false
+        compatible_figures:
+          - lovelace
+          - steve_jobs
+          - feynman
+          - einstein
+          - don_norman
+          - da_vinci
+        compatible_skill_domains:
+          - javascript
+          - alpine
+          - htmx
+          - jinja2
+        file_exists: true
+
+      - slug: vp-data
+        label: "VP Data"
+        title: "VP of Data & Analytics"
+        category: data
+        description: "Leads data pipelines, business intelligence, and experimentation infrastructure."
+        spawnable: false
+        compatible_figures:
+          - yann_lecun
+          - shannon
+          - hamming
+          - von_neumann
+          - fei_fei_li
+          - jeff_dean
+          - darwin
+          - marie_curie
+        compatible_skill_domains:
+          - postgresql
+          - python
+          - llm
+        file_exists: true
+
+      - slug: vp-security
+        label: "VP Security"
+        title: "VP of Security"
+        category: security
+        description: "Leads application security, infrastructure hardening, and security audits."
+        spawnable: false
+        compatible_figures:
+          - bruce_schneier
+          - dijkstra
+          - margaret_hamilton
+          - knuth
+          - sun_tzu
+          - nassim_taleb
+          - david_chaum
+          - hal_finney
+          - nick_szabo
+        compatible_skill_domains:
+          - devops
+          - python
+          - postgresql
+        file_exists: true
+
+      - slug: vp-infrastructure
+        label: "VP Infrastructure"
+        title: "VP of Infrastructure / DevOps"
+        category: infrastructure
+        description: "Leads platform reliability, CI/CD pipelines, and cloud infrastructure."
+        spawnable: false
+        compatible_figures:
+          - ritchie
+          - linus_torvalds
+          - werner_vogels
+          - hopper
+          - vint_cerf
+          - ken_thompson
+          - joe_armstrong
+        compatible_skill_domains:
+          - devops
+          - python
+          - postgresql
+        file_exists: true
+
+      - slug: vp-mobile
+        label: "VP Mobile"
+        title: "VP of Mobile"
+        category: mobile
+        description: "Leads iOS and Android strategy, mobile architecture, and platform-specific UX."
+        spawnable: false
+        compatible_figures:
+          - hopper
+          - lovelace
+          - steve_jobs
+          - ritchie
+          - wozniak
+          - don_norman
+        compatible_skill_domains:
+          - javascript
+          - devops
+        file_exists: true
+
+      - slug: vp-platform
+        label: "VP Platform"
+        title: "VP of Platform Engineering"
+        category: platform
+        description: "Leads internal SDK development, API platform, and developer experience."
+        spawnable: false
+        compatible_figures:
+          - ritchie
+          - mccarthy
+          - turing
+          - bjarne_stroustrup
+          - vint_cerf
+          - tim_berners_lee
+          - patrick_collison
+          - anders_hejlsberg
+          - satoshi_nakamoto
+          - vitalik_buterin
+          - gavin_wood
+          - gabriel_cardona
+        compatible_skill_domains:
+          - fastapi
+          - python
+          - postgresql
+          - devops
+        file_exists: true
+
+      - slug: vp-ml
+        label: "VP ML/AI"
+        title: "VP of Machine Learning / AI"
+        category: ml_ai
+        description: "Leads model lifecycle, training infrastructure, inference optimization, and evaluation."
+        spawnable: false
+        compatible_figures:
+          - yann_lecun
+          - andrej_karpathy
+          - turing
+          - shannon
+          - von_neumann
+          - geoffrey_hinton
+          - ilya_sutskever
+          - demis_hassabis
+          - fei_fei_li
+          - gabriel_cardona
+        compatible_skill_domains:
+          - python
+          - llm
+          - postgresql
+        file_exists: true
+
+  - id: worker
+    label: "Workers"
+    description: "Individual contributor agents that implement, review, and ship features."
+    roles:
+      - slug: python-developer
+        label: "Python Developer"
+        title: "Python Developer"
+        category: engineering
+        description: "Full-featured Python implementer for backend features, APIs, and services."
+        spawnable: true
+        compatible_figures:
+          - guido_van_rossum
+          - hopper
+          - feynman
+          - ritchie
+          - turing
+          - dijkstra
+          - shannon
+          - dhh
+          - rich_hickey
+          - nassim_taleb
+          - gabriel_cardona
+        compatible_skill_domains:
+          - python
+          - fastapi
+          - postgresql
+          - llm
+        file_exists: true
+
+      - slug: database-architect
+        label: "Database Architect"
+        title: "Database Architect"
+        category: data
+        description: "Designs and implements database schemas, migrations, query optimization, and data models."
+        spawnable: true
+        compatible_figures:
+          - dijkstra
+          - von_neumann
+          - knuth
+          - shannon
+          - hamming
+          - leslie_lamport
+          - rich_hickey
+          - barbara_liskov
+        compatible_skill_domains:
+          - postgresql
+          - python
+          - fastapi
+          - sql
+        file_exists: true
+
+      - slug: pr-reviewer
+        label: "PR Reviewer"
+        title: "Pull Request Reviewer"
+        category: quality
+        description: "Reviews pull requests for correctness, style, security, and test coverage."
+        spawnable: true
+        compatible_figures:
+          - dijkstra
+          - knuth
+          - margaret_hamilton
+          - turing
+          - shannon
+          - barbara_liskov
+          - marie_curie
+          - linus_torvalds
+        compatible_skill_domains:
+          - python
+          - fastapi
+          - postgresql
+        file_exists: true
+
+      - slug: frontend-developer
+        label: "Frontend Developer"
+        title: "Frontend Developer"
+        category: frontend
+        description: "Builds server-side rendered UIs with Jinja2, HTMX, and Alpine.js. Owns CSS, accessibility, and client interactivity."
+        spawnable: true
+        compatible_figures:
+          - lovelace
+          - hopper
+          - feynman
+          - ritchie
+          - don_norman
+          - brendan_eich
+          - da_vinci
+        compatible_skill_domains:
+          - htmx
+          - alpine
+          - jinja2
+          - javascript
+          - d3
+        file_exists: true
+
+      - slug: full-stack-developer
+        label: "Full-Stack Developer"
+        title: "Full-Stack Developer"
+        category: engineering
+        description: "Owns end-to-end feature delivery — FastAPI backend through HTMX/Alpine frontend."
+        spawnable: true
+        compatible_figures:
+          - hopper
+          - feynman
+          - ritchie
+          - hamming
+          - dhh
+          - don_norman
+          - gabriel_cardona
+        compatible_skill_domains:
+          - python
+          - fastapi
+          - htmx
+          - alpine
+          - jinja2
+          - postgresql
+        file_exists: true
+
+      - slug: mobile-developer
+        label: "Mobile Developer"
+        title: "Mobile Developer (iOS/macOS)"
+        category: mobile
+        description: "Builds Swift/SwiftUI applications for macOS. Owns the Stori DAW client integration."
+        spawnable: true
+        compatible_figures:
+          - lovelace
+          - hopper
+          - ritchie
+          - steve_jobs
+          - wozniak
+          - don_norman
+          - gabriel_cardona
+        compatible_skill_domains:
+          - swift
+          - swift_ui
+          - javascript
+          - devops
+        file_exists: true
+
+      - slug: systems-programmer
+        label: "Systems Programmer"
+        title: "Systems Programmer"
+        category: systems
+        description: "Low-level implementation in C/Rust. Owns performance, memory safety, and hardware interfaces."
+        spawnable: true
+        compatible_figures:
+          - ritchie
+          - linus_torvalds
+          - dijkstra
+          - knuth
+          - bjarne_stroustrup
+          - graydon_hoare
+          - ken_thompson
+          - fabrice_bellard
+          - wozniak
+          - nikola_tesla
+          - satoshi_nakamoto
+          - hal_finney
+        compatible_skill_domains:
+          - rust
+          - cpp
+          - python
+          - devops
+        file_exists: true
+
+      - slug: ml-engineer
+        label: "ML Engineer"
+        title: "Machine Learning Engineer"
+        category: ml_ai
+        description: "Implements training loops, fine-tuning pipelines, inference optimization, and model evaluation."
+        spawnable: true
+        compatible_figures:
+          - andrej_karpathy
+          - yann_lecun
+          - turing
+          - shannon
+          - von_neumann
+          - geoffrey_hinton
+          - ilya_sutskever
+          - fei_fei_li
+          - john_carmack
+          - gabriel_cardona
+        compatible_skill_domains:
+          - python
+          - llm
+          - pytorch
+          - postgresql
+        file_exists: true
+
+      - slug: data-engineer
+        label: "Data Engineer"
+        title: "Data Engineer"
+        category: data
+        description: "Builds ETL pipelines, data warehouses, and streaming data infrastructure."
+        spawnable: true
+        compatible_figures:
+          - shannon
+          - hamming
+          - von_neumann
+          - dijkstra
+          - jeff_dean
+          - darwin
+        compatible_skill_domains:
+          - postgresql
+          - python
+          - fastapi
+          - kafka
+          - sql
+        file_exists: true
+
+      - slug: devops-engineer
+        label: "DevOps Engineer"
+        title: "DevOps / Platform Engineer"
+        category: infrastructure
+        description: "Owns Docker, CI/CD pipelines, observability, and infrastructure as code."
+        spawnable: true
+        compatible_figures:
+          - ritchie
+          - hopper
+          - linus_torvalds
+          - hamming
+          - vint_cerf
+          - ken_thompson
+          - joe_armstrong
+        compatible_skill_domains:
+          - devops
+          - docker
+          - kubernetes
+          - terraform
+          - aws
+          - python
+          - postgresql
+        file_exists: true
+
+      - slug: security-engineer
+        label: "Security Engineer"
+        title: "Security Engineer"
+        category: security
+        description: "Pen testing, static analysis, dependency auditing, and security hardening."
+        spawnable: true
+        compatible_figures:
+          - bruce_schneier
+          - dijkstra
+          - margaret_hamilton
+          - knuth
+          - sun_tzu
+          - nassim_taleb
+          - david_chaum
+          - hal_finney
+          - nick_szabo
+        compatible_skill_domains:
+          - python
+          - devops
+          - postgresql
+          - application_security
+          - cryptography
+        file_exists: true
+
+      - slug: test-engineer
+        label: "Test Engineer"
+        title: "Test / QA Engineer"
+        category: quality
+        description: "Designs and implements automated test suites — unit, integration, and end-to-end."
+        spawnable: true
+        compatible_figures:
+          - dijkstra
+          - knuth
+          - margaret_hamilton
+          - turing
+          - barbara_liskov
+          - marie_curie
+          - leslie_lamport
+        compatible_skill_domains:
+          - python
+          - fastapi
+          - postgresql
+          - htmx
+          - testing
+        file_exists: true
+
+      - slug: architect
+        label: "Architect"
+        title: "Software Architect"
+        category: architecture
+        description: "System design, architectural decision records, cross-cutting concerns, and technical debt strategy."
+        spawnable: true
+        compatible_figures:
+          - martin_fowler
+          - kent_beck
+          - turing
+          - shannon
+          - mccarthy
+          - bjarne_stroustrup
+          - barbara_liskov
+          - leslie_lamport
+          - rich_hickey
+          - vint_cerf
+          - joe_armstrong
+          - satoshi_nakamoto
+          - emin_gun_sirer
+          - gavin_wood
+          - nick_szabo
+          - gabriel_cardona
+        compatible_skill_domains:
+          - python
+          - fastapi
+          - postgresql
+          - devops
+          - llm
+          - blockchain
+          - cryptography
+        file_exists: true
+
+      - slug: api-developer
+        label: "API Developer"
+        title: "API Developer"
+        category: engineering
+        description: "Designs and implements REST, GraphQL, and gRPC APIs with versioning and contract testing."
+        spawnable: true
+        compatible_figures:
+          - ritchie
+          - mccarthy
+          - turing
+          - hopper
+          - vint_cerf
+          - tim_berners_lee
+          - anders_hejlsberg
+          - vitalik_buterin
+          - gavin_wood
+          - gabriel_cardona
+        compatible_skill_domains:
+          - fastapi
+          - python
+          - postgresql
+          - javascript
+          - graphql
+          - blockchain
+        file_exists: true
+
+      - slug: technical-writer
+        label: "Technical Writer"
+        title: "Technical Writer"
+        category: documentation
+        description: "Authors API references, guides, runbooks, and architectural documentation."
+        spawnable: true
+        compatible_figures:
+          - feynman
+          - hopper
+          - lovelace
+          - knuth
+          - carl_sagan
+          - don_norman
+          - paul_graham
+          - gabriel_cardona
+        compatible_skill_domains:
+          - python
+          - llm
+          - jinja2
+        file_exists: true
+
+      # ── New Worker Roles ──────────────────────────────────────────────────────
+
+      - slug: rust-developer
+        label: "Rust Developer"
+        title: "Rust / Systems Developer"
+        category: systems
+        description: "Memory-safe systems programming in Rust: ownership model, zero-cost abstractions, async Tokio services."
+        spawnable: true
+        compatible_figures:
+          - graydon_hoare
+          - ken_thompson
+          - ritchie
+          - linus_torvalds
+          - bjarne_stroustrup
+          - fabrice_bellard
+          - john_carmack
+          - wozniak
+          - gavin_wood
+          - emin_gun_sirer
+        compatible_skill_domains:
+          - rust
+          - systems
+          - cpp
+          - devops
+          - blockchain
+        file_exists: true
+
+      - slug: go-developer
+        label: "Go Developer"
+        title: "Go / Backend Developer"
+        category: engineering
+        description: "Idiomatic Go services: goroutines, channels, net/http, gRPC, structured concurrency."
+        spawnable: true
+        compatible_figures:
+          - rob_pike
+          - ken_thompson
+          - ritchie
+          - joe_armstrong
+          - vint_cerf
+        compatible_skill_domains:
+          - go
+          - devops
+          - postgresql
+          - python
+        file_exists: true
+
+      - slug: typescript-developer
+        label: "TypeScript Developer"
+        title: "TypeScript / Full-Stack Developer"
+        category: frontend
+        description: "Type-safe full-stack TypeScript: strict mode, Zod validation, React/Next.js, Node.js APIs."
+        spawnable: true
+        compatible_figures:
+          - anders_hejlsberg
+          - brendan_eich
+          - ryan_dahl
+          - lovelace
+          - don_norman
+          - gabriel_cardona
+        compatible_skill_domains:
+          - typescript
+          - javascript
+          - react
+          - nextjs
+          - nodejs
+        file_exists: true
+
+      - slug: ios-developer
+        label: "iOS / macOS Developer"
+        title: "iOS / macOS Developer"
+        category: mobile
+        description: "Swift/SwiftUI applications for Apple platforms. Concurrency with async/await and Actors."
+        spawnable: true
+        compatible_figures:
+          - steve_jobs
+          - wozniak
+          - lovelace
+          - don_norman
+          - hopper
+          - gabriel_cardona
+        compatible_skill_domains:
+          - swift
+          - swift_ui
+          - devops
+        file_exists: true
+
+      - slug: android-developer
+        label: "Android Developer"
+        title: "Android / Kotlin Developer"
+        category: mobile
+        description: "Kotlin and Jetpack Compose for Android. Coroutines, StateFlow, MVVM architecture."
+        spawnable: true
+        compatible_figures:
+          - james_gosling
+          - lovelace
+          - don_norman
+          - hopper
+          - ritchie
+        compatible_skill_domains:
+          - kotlin
+          - java
+          - devops
+        file_exists: true
+
+      - slug: rails-developer
+        label: "Rails Developer"
+        title: "Ruby on Rails Developer"
+        category: engineering
+        description: "Convention-over-configuration Rails apps: ActiveRecord, Turbo/Hotwire, Sidekiq, REST APIs."
+        spawnable: true
+        compatible_figures:
+          - dhh
+          - matz
+          - kent_beck
+          - martin_fowler
+          - hopper
+        compatible_skill_domains:
+          - rails
+          - ruby
+          - postgresql
+          - javascript
+        file_exists: true
+
+      - slug: react-developer
+        label: "React Developer"
+        title: "React / Frontend Developer"
+        category: frontend
+        description: "Modern React with TypeScript: hooks, React Query, component architecture, testing."
+        spawnable: true
+        compatible_figures:
+          - brendan_eich
+          - anders_hejlsberg
+          - ryan_dahl
+          - lovelace
+          - don_norman
+          - gabriel_cardona
+        compatible_skill_domains:
+          - react
+          - typescript
+          - javascript
+          - nextjs
+        file_exists: true
+
+      - slug: site-reliability-engineer
+        label: "Site Reliability Engineer"
+        title: "Site Reliability Engineer (SRE)"
+        category: infrastructure
+        description: "Owns availability, latency, error budgets, SLOs/SLIs, incident response, and chaos engineering."
+        spawnable: true
+        compatible_figures:
+          - werner_vogels
+          - linus_torvalds
+          - hopper
+          - joe_armstrong
+          - vint_cerf
+          - nassim_taleb
+          - andy_grove
+          - gabriel_cardona
+        compatible_skill_domains:
+          - devops
+          - kubernetes
+          - python
+          - postgresql
+          - aws
+        file_exists: true
+
+      - slug: ml-researcher
+        label: "ML Researcher"
+        title: "Machine Learning Researcher"
+        category: ml_ai
+        description: "Novel ML research: architecture design, training dynamics, evaluation methodology, paper-level rigour."
+        spawnable: true
+        compatible_figures:
+          - andrej_karpathy
+          - geoffrey_hinton
+          - ilya_sutskever
+          - yann_lecun
+          - fei_fei_li
+          - demis_hassabis
+          - turing
+          - shannon
+          - von_neumann
+          - darwin
+          - linus_pauling
+          - marie_curie
+          - emin_gun_sirer
+        compatible_skill_domains:
+          - python
+          - pytorch
+          - llm
+          - postgresql
+          - cryptography
+        file_exists: true
+
+      - slug: data-scientist
+        label: "Data Scientist"
+        title: "Data Scientist"
+        category: data
+        description: "Statistical analysis, experiment design, A/B testing, ML modeling, and insight communication."
+        spawnable: true
+        compatible_figures:
+          - shannon
+          - hamming
+          - von_neumann
+          - darwin
+          - marie_curie
+          - feynman
+          - nassim_taleb
+          - fei_fei_li
+          - carl_sagan
+        compatible_skill_domains:
+          - python
+          - postgresql
+          - sql
+          - pytorch
+          - llm
+        file_exists: true

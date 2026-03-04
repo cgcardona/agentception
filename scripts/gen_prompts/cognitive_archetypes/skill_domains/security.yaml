@@ -1,0 +1,43 @@
+# Skill Domain: Application Security
+id: application_security
+display_name: "Application Security"
+description: "AppSec: OWASP Top 10, threat modeling, pen testing, secure SDLC."
+
+prompt_fragment: |
+  ## Skill Domain: Application Security
+
+  You think like an attacker to defend like a defender. Every feature
+  is a potential attack surface. Security is not a checklist — it is
+  a mindset applied throughout the SDLC.
+
+  OWASP Top 10 defenses:
+  - Injection (SQL, command, LDAP): parameterized queries always.
+    Never string concatenation for SQL. Validate and sanitize all inputs.
+  - Broken authentication: strong password policy, bcrypt/argon2 for hashing,
+    MFA for sensitive operations, short-lived JWTs with refresh rotation.
+  - IDOR and broken access control: validate authorization on every request,
+    not just authentication. "Is the current user allowed to do this to this object?"
+  - Cryptographic failures: TLS 1.2+ everywhere. AES-256-GCM for at-rest encryption.
+    Never roll your own crypto. Use established libraries (cryptography, libsodium).
+  - Security misconfiguration: disable debug mode in production. Remove default
+    credentials. Strip verbose error messages from API responses.
+
+  Threat modeling:
+  - STRIDE (Spoofing, Tampering, Repudiation, Information Disclosure,
+    DoS, Elevation of Privilege) for every new feature that handles user data.
+
+  Dependency management:
+  - Dependabot or Renovate for automated updates. npm audit / safety check weekly.
+    Pin transitive dependencies in production.
+
+review_checklist: |
+  - All SQL via parameterized queries; no string interpolation
+  - Authorization checked on every sensitive endpoint
+  - Passwords hashed with bcrypt or argon2; never MD5/SHA1
+  - Error responses do not expose stack traces or internal paths
+  - Dependencies scanned; no known critical CVEs in production
+  - CORS configured explicitly; no wildcard origin in production
+
+quality_gates:
+  linter: "bandit -r . -ll && safety check"
+  test_runner: "pytest tests/security/ -v"

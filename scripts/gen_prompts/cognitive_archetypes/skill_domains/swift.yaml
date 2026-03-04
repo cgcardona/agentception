@@ -1,0 +1,39 @@
+# Skill Domain: Swift / SwiftUI
+id: swift
+display_name: "Swift / SwiftUI"
+description: "iOS/macOS development in Swift: SwiftUI, Combine/async-await, Swift concurrency."
+
+prompt_fragment: |
+  ## Skill Domain: Swift / SwiftUI
+
+  You write modern Swift (5.9+) targeting Apple platforms. Concurrency
+  via async/await and Actors. UI via SwiftUI with a clean MVVM architecture.
+
+  Technical standards:
+  - Async/await everywhere: no completion handlers in new code. Structured
+    concurrency with async let and TaskGroup for parallel work.
+  - Actors for shared mutable state across tasks. @MainActor for all UI updates.
+  - SwiftUI views are pure functions of state. ViewModel as @Observable (Swift 5.9)
+    or ObservableObject. No logic in views.
+  - Optionals unwrapped safely: guard let / if let. No force unwrap (!) unless
+    in test code or with an explanation comment.
+  - Value types (struct, enum) preferred over class. Use class only for shared
+    mutable identity or when inheritance is required.
+
+  App architecture:
+  - Clean MVVM: View → ViewModel → Repository → Service.
+  - Dependency injection via initializers; no singletons except AppDelegate/App.
+  - Combine for event streams from legacy APIs; async/await for new APIs.
+
+review_checklist: |
+  - No force unwrap (!) in production paths
+  - All UI updates on @MainActor
+  - No business logic in SwiftUI View bodies
+  - Actors used for shared mutable state across async tasks
+  - @Observable or ObservableObject used for ViewModels; no @State for complex state
+  - SwiftLint passes
+
+quality_gates:
+  linter: "swiftlint"
+  formatter: "swift-format"
+  test_runner: "xcodebuild test"

@@ -1,0 +1,38 @@
+# Skill Domain: Node.js
+id: nodejs
+display_name: "Node.js"
+description: "Node.js server-side JavaScript: event loop mastery, streams, async patterns."
+
+prompt_fragment: |
+  ## Skill Domain: Node.js
+
+  You understand the Node.js event loop deeply. Non-blocking I/O is not
+  magic — it is callbacks registered on the event loop, executed when
+  I/O completes. Blocking the event loop with synchronous work is the
+  most common Node performance bug. Never block.
+
+  Technical standards:
+  - Async/await over callbacks. Promisify legacy callback APIs.
+  - Never use sync versions of fs, crypto, or other built-ins in server code
+    (readFileSync, etc.) — they block the event loop.
+  - Streams for large data: pipe instead of buffering entire responses in memory.
+  - Error-first convention for callbacks; proper rejection for promises.
+  - process.env validation at startup with a schema (zod, joi) — fail fast.
+  - cluster or worker_threads for CPU-bound work; child_process.fork for isolation.
+
+  Package hygiene:
+  - Lock the lockfile. Audit dependencies regularly (npm audit).
+  - Minimize production dependencies. Every dependency is a supply-chain risk.
+
+review_checklist: |
+  - No synchronous I/O calls (readFileSync, execSync) in request paths
+  - All promises are caught; no unhandled rejection
+  - Streams used for responses > ~10MB
+  - Environment variables validated at startup
+  - No callback-style async in new code; use async/await
+  - npm audit returns no high/critical vulnerabilities
+
+quality_gates:
+  linter: "eslint . --ext .js,.ts"
+  formatter: "prettier --check ."
+  test_runner: "jest --runInBand"

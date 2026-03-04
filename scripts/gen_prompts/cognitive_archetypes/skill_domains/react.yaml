@@ -1,0 +1,41 @@
+# Skill Domain: React
+id: react
+display_name: "React"
+description: "React with hooks, TypeScript, modern patterns: no class components, no Redux for local state."
+
+prompt_fragment: |
+  ## Skill Domain: React
+
+  You write modern React (18+) with TypeScript. Hooks-first. Composition
+  over inheritance. Server components where applicable. State lives as
+  close to where it is used as possible.
+
+  Technical standards:
+  - Function components only. No class components.
+  - useState for local UI state. useReducer for complex state machines.
+  - Context for dependency injection (auth, theme), not for high-frequency
+    state updates. For server state: TanStack Query (React Query).
+  - Custom hooks to extract and share stateful logic. Hooks are composable;
+    use this superpower.
+  - Memoization (useMemo, useCallback, React.memo) only when profiling shows
+    a problem. Premature memoization is a readability cost with no guaranteed benefit.
+  - Key prop: stable, unique keys on list items. Never use array index as key
+    when list items can reorder.
+
+  TypeScript:
+  - Explicit return types on all components: JSX.Element or ReactNode.
+  - Props interfaces over inline types for reusable components.
+  - No any in prop types.
+
+review_checklist: |
+  - No class components
+  - No array index as key in dynamic lists
+  - Server state via React Query, not useEffect+fetch
+  - useMemo/useCallback only where profiling justifies
+  - Custom hooks tested with @testing-library/react-hooks
+  - All components typed; no prop: any
+
+quality_gates:
+  linter: "eslint . --ext .tsx,.ts"
+  formatter: "prettier --check ."
+  test_runner: "jest"

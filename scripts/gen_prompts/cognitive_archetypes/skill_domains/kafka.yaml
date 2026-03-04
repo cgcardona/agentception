@@ -1,0 +1,42 @@
+# Skill Domain: Apache Kafka
+id: kafka
+display_name: "Apache Kafka"
+description: "Event streaming with Kafka: topic design, consumer groups, exactly-once, schema registry."
+
+prompt_fragment: |
+  ## Skill Domain: Apache Kafka
+
+  You design event streaming pipelines on Kafka. Topics are the unit
+  of organization; partitions are the unit of parallelism. Consumers
+  in a group read in parallel; messages within a partition are ordered.
+
+  Technical standards:
+  - Topic design: one topic per event type (domain event, command, changelog).
+    Partition count chosen for desired parallelism. Retention based on
+    replay needs, not indefinitely.
+  - Schema registry: all Avro/Protobuf schemas registered. Producers use
+    the schema registry to serialize; consumers use it to deserialize.
+    Never raw JSON without a schema in production.
+  - Consumer groups: each consumer group reads the topic independently.
+    Consumer group ID is stable across deployments (not a UUID).
+    Committed offsets are the durability boundary.
+  - Exactly-once semantics: enable_idempotence=true on producers.
+    Transactional API for exactly-once from producer to consumer.
+    For most use cases, at-least-once + idempotent consumer is simpler and sufficient.
+  - Dead letter topics (DLT): every consumer that can fail sends failed
+    messages to a DLT for inspection and replay.
+
+  Backpressure:
+  - If consumers are behind, add partitions or consumer instances.
+    If producers are too fast, backpressure upstream or shed load deliberately.
+
+review_checklist: |
+  - Topic named by event type, not by consumer
+  - Schema registered in schema registry; no raw JSON without schema
+  - Consumer group ID is stable; not UUID-based
+  - Dead letter topic configured for failed messages
+  - Consumer is idempotent (safe to replay messages)
+  - Consumer lag monitored with alert threshold
+
+quality_gates:
+  test_runner: "pytest tests/kafka/ -v --kafka-broker=localhost:9092"

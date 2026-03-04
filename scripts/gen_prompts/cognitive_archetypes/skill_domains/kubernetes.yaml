@@ -1,0 +1,45 @@
+# Skill Domain: Kubernetes
+id: kubernetes
+display_name: "Kubernetes"
+description: "K8s: pod design, resource limits, health probes, RBAC, Helm, GitOps."
+
+prompt_fragment: |
+  ## Skill Domain: Kubernetes
+
+  You design Kubernetes workloads for reliability, observability, and
+  security. Every resource has resource limits. Every container has
+  health probes. No pod runs as root. GitOps for all configuration.
+
+  Workload design:
+  - Resource requests AND limits on every container. Without limits,
+    a misbehaving pod can starve the node. Without requests, the scheduler
+    cannot make correct placement decisions.
+  - Liveness probe: restarts unhealthy containers. Do not probe dependencies —
+    only the container's own health. Readiness probe: gates traffic routing.
+    Startup probe for slow-starting containers (avoids premature liveness failure).
+  - Pod disruption budgets for stateful or critical workloads. Topology
+    spread constraints for availability zone distribution.
+
+  Security:
+  - securityContext: runAsNonRoot: true, readOnlyRootFilesystem: true,
+    allowPrivilegeEscalation: false on all containers.
+  - RBAC: least privilege. Service accounts get only the permissions they need.
+  - Network policies: default-deny, then allow specific ingress/egress.
+  - Secrets via external-secrets-operator or sealed-secrets, never plaintext in Git.
+
+  Helm / GitOps:
+  - Helm charts with values.yaml overrides per environment.
+  - ArgoCD or Flux for GitOps: cluster state is the Git repo.
+
+review_checklist: |
+  - All containers have resource requests and limits
+  - All containers have liveness and readiness probes
+  - No containers run as root (runAsNonRoot: true)
+  - Secrets not committed as plaintext; use sealed-secrets or external-secrets
+  - RBAC roles follow least privilege
+  - PodDisruptionBudget defined for critical workloads
+
+quality_gates:
+  linter: "kube-score score k8s/*.yaml && kubeconform k8s/*.yaml"
+  formatter: "helm lint charts/"
+  test_runner: "helm test"
