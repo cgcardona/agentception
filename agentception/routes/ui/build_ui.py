@@ -177,9 +177,9 @@ async def build_page(
     ]
 
     return _TEMPLATES.TemplateResponse(
+        request,
         "build.html",
         {
-            "request": request,
             "repo": repo,
             "initiative": initiative or "",
             "initiatives": initiatives,
@@ -231,9 +231,9 @@ async def build_board_partial(
     ]
 
     return _TEMPLATES.TemplateResponse(
+        request,
         "_build_board.html",
         {
-            "request": request,
             "groups": enriched_groups,
             "repo": repo,
             "initiative": initiative or "",
