@@ -65,18 +65,18 @@ class AgentCeptionSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AC_")
 
     cursor_projects_dir: Path = Path.home() / ".cursor/projects"
-    worktrees_dir: Path = Path.home() / ".agentception/worktrees/maestro"
-    host_worktrees_dir: Path = Path.home() / ".agentception/worktrees/maestro"
+    worktrees_dir: Path = Path.home() / ".agentception/worktrees"
+    host_worktrees_dir: Path = Path.home() / ".agentception/worktrees"
     """Host-side path to the worktrees directory.
 
     Inside Docker, ``worktrees_dir`` is the container path (``/worktrees``).
     ``host_worktrees_dir`` is the corresponding path on the developer's machine
-    (e.g. ``~/.agentception/worktrees/maestro``), used to generate paths that the
+    (e.g. ``~/.agentception/worktrees``), used to generate paths that the
     user can open directly in Cursor and that the agent-task file embeds.
     Set via ``AC_HOST_WORKTREES_DIR`` in docker-compose.override.yml.
     """
     repo_dir: Path = Path.cwd()
-    gh_repo: str = "cgcardona/maestro"
+    gh_repo: str = "cgcardona/agentception"
 
     @property
     def ac_dir(self) -> Path:
