@@ -60,7 +60,7 @@ async def detect_stale_claims(
         Each dict must contain at minimum ``number`` (int) and ``title`` (str).
     worktrees_dir:
         Root directory where worktrees are created, e.g.
-        ``~/.agentception/worktrees/maestro``.
+        ``~/.agentception/worktrees/agentception``.
 
     Returns
     -------

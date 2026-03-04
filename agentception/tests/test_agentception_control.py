@@ -34,7 +34,7 @@ def tmp_worktree(tmp_path: Path) -> Path:
     worktree = tmp_path / "issue-999"
     worktree.mkdir()
     (worktree / ".agent-task").write_text(
-        "WORKFLOW=issue-to-pr\nISSUE_NUMBER=999\nGH_REPO=cgcardona/maestro\n",
+        "WORKFLOW=issue-to-pr\nISSUE_NUMBER=999\nGH_REPO=cgcardona/agentception\n",
         encoding="utf-8",
     )
     return worktree
@@ -59,7 +59,7 @@ def test_kill_nonexistent_worktree_returns_404(
     with patch("agentception.routes.control.settings") as mock_settings:
         mock_settings.worktrees_dir = tmp_path
         mock_settings.repo_dir = tmp_path
-        mock_settings.gh_repo = "cgcardona/maestro"
+        mock_settings.gh_repo = "cgcardona/agentception"
 
         response = client.post("/api/control/kill/nonexistent-slug")
 
@@ -87,7 +87,7 @@ def test_kill_removes_worktree_and_clears_label(
     ):
         mock_settings.worktrees_dir = parent
         mock_settings.repo_dir = Path("/repo")
-        mock_settings.gh_repo = "cgcardona/maestro"
+        mock_settings.gh_repo = "cgcardona/agentception"
 
         response = client.post(f"/api/control/kill/{slug}")
 
@@ -115,7 +115,7 @@ def test_kill_endpoint_requires_existing_slug(
     with patch("agentception.routes.control.settings") as mock_settings:
         mock_settings.worktrees_dir = tmp_path
         mock_settings.repo_dir = tmp_path
-        mock_settings.gh_repo = "cgcardona/maestro"
+        mock_settings.gh_repo = "cgcardona/agentception"
 
         response = client.post("/api/control/kill/does-not-exist")
 
@@ -142,7 +142,7 @@ def test_kill_worktree_without_agent_task_still_succeeds(
     ):
         mock_settings.worktrees_dir = parent
         mock_settings.repo_dir = Path("/repo")
-        mock_settings.gh_repo = "cgcardona/maestro"
+        mock_settings.gh_repo = "cgcardona/agentception"
 
         response = client.post(f"/api/control/kill/{slug}")
 

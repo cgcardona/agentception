@@ -6,7 +6,7 @@ Every pull request and push to `main` runs the full CI suite via GitHub Actions
 | Job | What it does |
 |-----|-------------|
 | **mypy** | `mypy agentception/ tests/` with `--strict` — zero errors required |
-| **typing-ratchet** | `tools/typing_audit.py --max-any 10` — Any ceiling enforced |
+| **typing-ratchet** | `tools/typing_audit.py --max-any 0` — Any ceiling enforced |
 | **pytest** | Full test suite against a live ephemeral Postgres |
 | **smoke** | `docker compose up -d --wait` → `curl /health` → `curl /` |
 
@@ -19,9 +19,9 @@ Set these in **Settings → Secrets and variables → Actions** for `cgcardona/a
 | Secret | Required by | Description |
 |--------|-------------|-------------|
 | `DB_PASSWORD` | All jobs | Postgres password. Any random string works for CI (the database is ephemeral). Example: `openssl rand -hex 16` |
-| `AC_GH_REPO` | smoke, test | The GitHub repo the instance manages. Defaults to `cgcardona/agentception`. |
-| `AC_OPENROUTER_API_KEY` | smoke | OpenRouter key for Phase 1A planning. Can be empty for the smoke test (health endpoint doesn't require it). |
-| `AC_GITHUB_TOKEN` | smoke | GitHub PAT with `repo` + `issues` scope. Can be empty for smoke-only runs. |
+| `GH_REPO` | smoke, test | The GitHub repo the instance manages. Defaults to `cgcardona/agentception`. |
+| `OPENROUTER_API_KEY` | smoke | OpenRouter key for Phase 1A planning. Can be empty for the smoke test (health endpoint doesn't require it). |
+| `GITHUB_TOKEN` | smoke | GitHub PAT with `repo` + `issues` scope. Can be empty for smoke-only runs. |
 
 > **Note:** `DB_PASSWORD` is the only secret required for CI to pass today. The others are needed
 > for E2E flows that involve real GitHub API calls.
@@ -42,7 +42,7 @@ docker compose -f docker-compose.yml -f docker-compose.ci.yml \
 
 # Typing ratchet
 docker compose -f docker-compose.yml -f docker-compose.ci.yml \
-  run --rm agentception python tools/typing_audit.py --dirs agentception/ tests/ --max-any 10
+  run --rm agentception python tools/typing_audit.py --dirs agentception/ tests/ --max-any 0
 
 # Full test suite (start postgres first)
 docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d postgres
@@ -64,6 +64,6 @@ docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
 The CI override strips host-specific bind mounts that don't exist on GitHub Actions runners:
 
 - Removes the `~/.cursor` mount (Cursor is not installed on runners)
-- Removes the `~/.config/gh` mount (gh CLI auth is handled via `AC_GITHUB_TOKEN`)
+- Removes the `~/.config/gh` mount (gh CLI auth is handled via `GITHUB_TOKEN`)
 - Remaps paths to runner-safe locations (`/root`, `/tmp`)
-- Sets `AC_REPO_DIR=/app` (the built image already has the code at `/app`)
+- Sets `REPO_DIR=/app` (the built image already has the code at `/app`)

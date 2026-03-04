@@ -2,8 +2,8 @@ from __future__ import annotations
 
 """Declarative base for all AgentCeption ORM models.
 
-Intentionally isolated from ``maestro.db.database.Base`` so that this package
-can be extracted to its own service without touching the Maestro codebase.
+Intentionally self-contained — no shared Base class from external services.
+
 """
 
 from sqlalchemy.orm import DeclarativeBase

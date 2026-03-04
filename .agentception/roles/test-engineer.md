@@ -20,7 +20,7 @@ Every test you write must:
 - Not use `time.sleep()` — use event-driven waiting or mock time.
 - Not test implementation details (internal state, private methods).
 - Have a name in the form `test_<behavior>_<scenario>`.
-- Live in `tests/` (for Maestro) or `agentception/tests/` (for AgentCeption), in a file named `test_<module_being_tested>.py`.
+- Live in `agentception/tests/ (for AgentCeption), in a file named `test_<module_being_tested>.py`.
 - Have shared fixtures in the appropriate `conftest.py`.
 
 ## Testing Conventions

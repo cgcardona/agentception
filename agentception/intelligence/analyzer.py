@@ -32,7 +32,7 @@ from agentception.readers.github import get_issue_body
 _HIGH_CONFLICT_FILES: frozenset[str] = frozenset(
     {
         "agentception/app.py",
-        "maestro/muse_cli/app.py",
+        "agentception/muse/cli/app.py",
         "docs/architecture/muse-vcs.md",
         "docs/reference/type-contracts.md",
         "alembic/versions/",   # any migration file
@@ -45,9 +45,9 @@ _MIGRATION_PATTERNS: list[str] = ["alembic/versions/", "migration", "alembic"]
 # Shared config / protocol files that multiple agents frequently edit.
 _SHARED_CONFIG_FILES: frozenset[str] = frozenset(
     {
-        "maestro/config.py",
-        "maestro/protocol/events.py",
+        "agentception/protocol/events.py",
         "agentception/config.py",
+        "agentception/models.py",
     }
 )
 

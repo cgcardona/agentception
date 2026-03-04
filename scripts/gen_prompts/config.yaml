@@ -36,8 +36,8 @@ codebases:
   active: "agentception_ui"
 
   muse_hub:
-    container: "maestro"
-    mypy: 'docker compose exec maestro sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/maestro/ /worktrees/$WTNAME/tests/"'
+    container: "agentception"
+    mypy: 'docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/"'
     test_dir: "tests"
     test_glob: "tests/test_*.py"
     label_prefix: "htmx/"
@@ -56,12 +56,12 @@ codebases:
     test_glob: "agentception/tests/test_*.py"
     label_prefix: "agentception/"
 
-  maestro:
-    container: "maestro"
-    mypy: 'docker compose exec maestro sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/maestro/ /worktrees/$WTNAME/tests/"'
+  muse:
+    container: "agentception"
+    mypy: 'docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/"'
     test_dir: "tests"
     test_glob: "tests/test_*.py"
-    label_prefix: "maestro/"
+    label_prefix: "muse/"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # GitHub Labels — single source of truth for all pipeline labels.

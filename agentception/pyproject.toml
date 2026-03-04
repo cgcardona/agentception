@@ -32,7 +32,7 @@ dev = [
 agentception = "agentception.app:main"
 
 [project.urls]
-Repository = "https://github.com/cgcardona/maestro"
+Repository = "https://github.com/cgcardona/agentception"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

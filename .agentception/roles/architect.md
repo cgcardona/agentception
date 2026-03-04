@@ -24,27 +24,25 @@ Every architectural artifact (ADR, design doc, RFC) you produce must:
 
 ## Architecture Reference
 
-This codebase has four services:
+This repository is a single standalone service:
 
 ```
-maestro/     # Core AI pipeline — FastAPI + Pydantic v2 (port 10001)
-storpheus/   # Music generation — FastAPI proxying HuggingFace (port 10002)
-agentception/ # AgentCeption dashboard — FastAPI + HTMX + Alpine (port 7777)
-(Swift DAW)  # Stori macOS client — separate repo
+agentception/ # AgentCeption — FastAPI + HTMX + Alpine (port 10003)
+              #   muse/       # Muse protocol implementation (future)
+              #   mcp/        # MCP server for Cursor/Claude tool integration
 ```
 
 Architecture layers:
 ```
-Routes (thin) → Core → Services → Models
+Routes (thin) → Readers/Services → Models → DB
 Never collapse layers. Never leak layer concerns.
 ```
 
 Key patterns:
-- **Intent-first**: Classify → REASONING / EDITING / COMPOSING.
-- **Single engine**: Stream and MCP share pipeline, tools, and DAW state.
+- **Planning pipeline**: Phase 1A (LLM → PlanSpec) → Phase 1B (human review) → Issue creation → Agent dispatch.
 - **SSE for live updates**: AgentCeption poller broadcasts `PipelineState` via SSE.
-- **Postgres for rich data**: `ac_*` tables for AgentCeption; Maestro tables for the core pipeline.
-- **Alembic per service**: Independent migration trees (AgentCeption uses `alembic_version_ac` table).
+- **Postgres for persistence**: `ac_*` tables. Alembic manages the migration tree.
+- **Muse-aware**: The Muse VCS protocol is a first-class domain — beats over seconds, Variation/Phrase/NoteChange vocabulary.
 
 ## Anti-patterns (Never Do)
 

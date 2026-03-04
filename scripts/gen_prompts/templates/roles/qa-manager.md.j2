@@ -39,7 +39,7 @@ SEED:
 
   2. Clear stale claims from crashed prior runs (worktree missing):
        # Remove stale {{ claim_label }} from PRs whose review worktree no longer exists.
-       MAIN_REPO="$HOME/dev/tellurstori/{{ repo_name }}"
+       MAIN_REPO="<repo-root>"
        git -C "$MAIN_REPO" worktree list --porcelain | grep "^worktree" | awk '{print $2}' \
          > /tmp/active_worktrees
        for pr in $(gh pr list --base dev --state open --label "{{ claim_label }}" \
@@ -65,7 +65,7 @@ SEED:
             PR_BODY=$(gh pr view <N> --repo {{ gh_repo }} --json body --jq .body)
             PR_TITLE=$(gh pr view <N> --repo {{ gh_repo }} --json title --jq .title)
        c. Create worktree:
-            git -C "$HOME/dev/tellurstori/{{ repo_name }}" worktree add \
+            git -C "<repo-root>" worktree add \
               "$HOME/.agentception/worktrees/{{ repo_name }}/pr-<N>" \
               origin/$BRANCH
        d. Select cognitive architecture for the reviewer based on PR content:
@@ -85,7 +85,7 @@ SEED:
               SKILLS="postgresql:python"
             elif echo "$CONTENT" | grep -qiE "dockerfile|FROM python|compose.*service"; then
               SKILLS="devops"
-            elif echo "$CONTENT" | grep -qiE "midi|storpheus|gm.program|tmidix"; then
+            elif echo "$CONTENT" | grep -qiE "midi|muse"; then
               SKILLS="midi:python"
             elif echo "$CONTENT" | grep -qiE "llm|embedding|rag|openrouter|claude"; then
               SKILLS="llm:python"
@@ -134,7 +134,7 @@ FILES_CHANGED=$PR_FILES
 MERGE_AFTER=$MERGE_AFTER_VAL
 HAS_MIGRATION=$HAS_MIGRATION_VAL
 ROLE=pr-reviewer
-ROLE_FILE=$HOME/dev/tellurstori/{{ repo_name }}/.cursor/roles/pr-reviewer.md
+ROLE_FILE=<repo-root>/.cursor/roles/pr-reviewer.md
 COGNITIVE_ARCH=$COGNITIVE_ARCH
 BATCH_ID=$BATCH_ID
 WAVE=$CTO_WAVE
@@ -157,7 +157,7 @@ TASKEOF
 
        Part 1 — prefix (paste verbatim):
          "Read the .agent-task file in your worktree first.
-          GH_REPO={{ gh_repo }}  Repo: $HOME/dev/tellurstori/{{ repo_name }}"
+          GH_REPO={{ gh_repo }}  Repo: <repo-root>"
 
        Part 2 — reviewer kickoff:
          Paste the entire ## Embedded Reviewer Kickoff section below verbatim.
@@ -183,7 +183,7 @@ Worktrees live at: `$HOME/.agentception/worktrees/{{ repo_name }}/pr-{N}/`
 .agent-task files are pre-written in each worktree.
 If a worktree is missing for a new PR:
   `BRANCH=$(gh pr view {N} --json headRefName --jq '.headRefName')`
-  `git -C "$HOME/dev/tellurstori/{{ repo_name }}" worktree add "$HOME/.agentception/worktrees/{{ repo_name }}/pr-{N}" origin/$BRANCH`
+  `git -C "<repo-root>" worktree add "$HOME/.agentception/worktrees/{{ repo_name }}/pr-{N}" origin/$BRANCH`
   Then write a .agent-task file with TASK=pr-review, PR={N}, BRANCH=..., ROLE=..., etc.
 
 ## MERGE_AFTER protocol
@@ -204,7 +204,7 @@ then waits for the gate to clear before merging. No PR waits unreviewed.
 - Never review a PR yourself
 - Never run mypy or pytest yourself
 - Never merge a PR yourself
-- Never touch `maestro/api/routes/musehub/__init__.py`
+- Never touch `agentception/muse/api/routes/__init__.py`
 
 ---
 

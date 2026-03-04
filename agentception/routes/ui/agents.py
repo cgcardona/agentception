@@ -5,12 +5,19 @@ import asyncio
 import datetime
 import logging
 from pathlib import Path
+from typing import TypedDict
 
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 from starlette.requests import Request
 from starlette.responses import Response
 
+from agentception.db.queries import (
+    AgentMessageRow,
+    AgentRunDetail,
+    AgentRunRow,
+    BoardIssueRow,
+)
 from agentception.models import AgentNode, PipelineState, VALID_ROLES
 from agentception.poller import get_state
 from agentception.readers.pipeline_config import read_pipeline_config
@@ -26,6 +33,61 @@ from ._shared import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# View-layer TypedDicts — enriched structures built in route handlers.
+# ---------------------------------------------------------------------------
+
+
+class AgentEnrichedRow(TypedDict):
+    """Live agent node enriched with persona and timing metadata."""
+
+    node: AgentNode
+    persona: dict[str, object]
+    elapsed: str
+    is_stale_idle: bool
+
+
+class EnrichedAgentRunRow(TypedDict):
+    """AgentRunRow with computed duration and formatted timestamp fields."""
+
+    id: str
+    wave_id: str | None
+    issue_number: int | None
+    pr_number: int | None
+    branch: str | None
+    worktree_path: str | None
+    role: str
+    status: str
+    attempt_number: int
+    spawn_mode: str | None
+    batch_id: str | None
+    spawned_at: str
+    last_activity_at: str | None
+    completed_at: str | None
+    duration_s: float | None
+    duration_str: str
+    spawned_fmt: str
+    completed_fmt: str
+
+
+class BatchRow(TypedDict):
+    """History rows grouped by batch_id for the agents listing view."""
+
+    batch_id: str
+    runs: list[EnrichedAgentRunRow]
+    spawned_at: str | None
+    spawned_fmt: str | None
+    phase_label: str
+    success_rate: int
+
+
+class RoleGroupRow(TypedDict):
+    """Role cards grouped by UI category for the spawn form."""
+
+    category: str
+    roles: list[dict[str, str]]
 
 
 @router.get("/agents", response_class=HTMLResponse)
@@ -56,7 +118,7 @@ async def agents_list(request: Request) -> HTMLResponse:
         all_agents.extend(agent.children)
 
     # Enrich each live agent with persona + runtime context.
-    agents_enriched: list[dict[str, object]] = []
+    agents_enriched: list[AgentEnrichedRow] = []
     for ag in all_agents:
         persona = resolve_cognitive_arch(ag.cognitive_arch)
         elapsed = ""
@@ -72,22 +134,22 @@ async def agents_list(request: Request) -> HTMLResponse:
         if last_activity_dt:
             idle_s = (now_utc - last_activity_dt).total_seconds()
             is_stale_idle = idle_s > 900  # >15 min without activity
-        agents_enriched.append({
-            "node": ag,
-            "persona": persona,
-            "elapsed": elapsed,
-            "is_stale_idle": is_stale_idle,
-        })
+        agents_enriched.append(AgentEnrichedRow(
+            node=ag,
+            persona=persona,
+            elapsed=elapsed,
+            is_stale_idle=is_stale_idle,
+        ))
 
     # Fetch full history from Postgres.
-    run_history: list[dict[str, object]] = []
+    run_history: list[AgentRunRow] = []
     try:
         run_history = await get_agent_run_history(limit=200)
     except Exception as exc:
         logger.debug("DB agent run history fetch skipped: %s", exc)
 
     # ── Compute duration + enrich each history row ────────────────────────
-    enriched_history: list[dict[str, object]] = []
+    enriched_history: list[EnrichedAgentRunRow] = []
     total_duration_s = 0.0
     completed_count = 0
     for run in run_history:
@@ -102,40 +164,51 @@ async def agents_list(request: Request) -> HTMLResponse:
                 total_duration_s += duration_s
                 completed_count += 1
 
-        enriched_history.append({
-            **run,
-            "duration_s": duration_s,
-            "duration_str": duration_str,
-            "spawned_fmt": str(run.get("spawned_at", ""))[:16].replace("T", " "),
-            "completed_fmt": str(run.get("completed_at", ""))[:16].replace("T", " ") if run.get("completed_at") else "—",
-        })
+        enriched_history.append(EnrichedAgentRunRow(
+            id=run["id"],
+            wave_id=run["wave_id"],
+            issue_number=run["issue_number"],
+            pr_number=run["pr_number"],
+            branch=run["branch"],
+            worktree_path=run["worktree_path"],
+            role=run["role"],
+            status=run["status"],
+            attempt_number=run["attempt_number"],
+            spawn_mode=run["spawn_mode"],
+            batch_id=run["batch_id"],
+            spawned_at=run["spawned_at"],
+            last_activity_at=run["last_activity_at"],
+            completed_at=run["completed_at"],
+            duration_s=duration_s,
+            duration_str=duration_str,
+            spawned_fmt=run["spawned_at"][:16].replace("T", " "),
+            completed_fmt=run["completed_at"][:16].replace("T", " ") if run["completed_at"] else "—",
+        ))
 
     # ── Group history by batch_id, newest batch first ─────────────────────
-    batches: list[dict[str, object]] = []
-    seen_batches: dict[str, dict[str, object]] = {}
+    batches: list[BatchRow] = []
+    seen_batches: dict[str, BatchRow] = {}
     for run in enriched_history:
         bid = str(run.get("batch_id") or "ungrouped")
         if bid not in seen_batches:
-            batch_entry: dict[str, object] = {
-                "batch_id": bid,
-                "runs": [],
-                "spawned_at": run.get("spawned_at"),
-                "spawned_fmt": run.get("spawned_fmt"),
+            batch_entry = BatchRow(
+                batch_id=bid,
+                runs=[],
+                spawned_at=run.get("spawned_at"),
+                spawned_fmt=run.get("spawned_fmt"),
                 # phase_label is derived from the batch_id string (e.g. "eng-20260302T…")
-                "phase_label": str(bid).split("-")[0] if bid != "ungrouped" else "",
-            }
+                phase_label=str(bid).split("-")[0] if bid != "ungrouped" else "",
+                success_rate=0,
+            )
             seen_batches[bid] = batch_entry
             batches.append(batch_entry)
-        batch_runs = seen_batches[bid]["runs"]
-        assert isinstance(batch_runs, list)
-        batch_runs.append(run)
+        seen_batches[bid]["runs"].append(run)
 
     # Add per-batch success rate.
     for batch in batches:
         b_runs = batch["runs"]
-        assert isinstance(b_runs, list)
         b_total = len(b_runs)
-        b_done = sum(1 for r in b_runs if isinstance(r, dict) and r.get("status") == "done")
+        b_done = sum(1 for r in b_runs if r.get("status") == "done")
         batch["success_rate"] = round(b_done / b_total * 100) if b_total else 0
 
     # ── Aggregate KPI stats ───────────────────────────────────────────────
@@ -190,7 +263,7 @@ async def agents_partial(request: Request) -> HTMLResponse:
         all_agents.append(agent)
         all_agents.extend(agent.children)
 
-    agents_enriched: list[dict[str, object]] = []
+    agents_enriched: list[AgentEnrichedRow] = []
     for ag in all_agents:
         persona = resolve_cognitive_arch(ag.cognitive_arch)
         elapsed = ""
@@ -206,12 +279,12 @@ async def agents_partial(request: Request) -> HTMLResponse:
         if last_activity_dt:
             idle_s = (now_utc - last_activity_dt).total_seconds()
             is_stale_idle = idle_s > 900
-        agents_enriched.append({
-            "node": ag,
-            "persona": persona,
-            "elapsed": elapsed,
-            "is_stale_idle": is_stale_idle,
-        })
+        agents_enriched.append(AgentEnrichedRow(
+            node=ag,
+            persona=persona,
+            elapsed=elapsed,
+            is_stale_idle=is_stale_idle,
+        ))
 
     return _TEMPLATES.TemplateResponse(
         request,
@@ -253,7 +326,7 @@ async def controls_hub(request: Request) -> HTMLResponse:
         logger.warning("⚠️ Could not list worktrees dir for controls hub")
 
     # Recent kill history from Postgres — status done/stale = terminated runs.
-    kill_history: list[dict[str, object]] = []
+    kill_history: list[AgentRunRow] = []
     try:
         history = await get_agent_run_history(limit=50)
         kill_history = [
@@ -297,7 +370,7 @@ async def spawn_form(request: Request) -> HTMLResponse:
     from agentception.config import settings as _cfg
 
     error: str | None = None
-    issues: list[dict[str, object]] = []
+    issues: list[BoardIssueRow] = []
     board_counts: dict[str, int] = {"total": 0, "claimed": 0, "unclaimed": 0}
 
     try:
@@ -344,8 +417,8 @@ async def spawn_form(request: Request) -> HTMLResponse:
     for cat in _cat_buckets:
         _cat_buckets[cat].sort(key=lambda r: _ROLE_CATEGORY_MAP.get(r["slug"], ("", 99))[1])
 
-    role_groups: list[dict[str, object]] = [
-        {"category": cat, "roles": _cat_buckets[cat]}
+    role_groups: list[RoleGroupRow] = [
+        RoleGroupRow(category=cat, roles=_cat_buckets[cat])
         for cat in _CATEGORY_ORDER
         if _cat_buckets.get(cat)
     ]
@@ -353,7 +426,7 @@ async def spawn_form(request: Request) -> HTMLResponse:
     roles_flat: list[dict[str, str]] = [
         r
         for g in role_groups
-        for r in (g["roles"] if isinstance(g["roles"], list) else [])
+        for r in g["roles"]
     ]
 
     return _TEMPLATES.TemplateResponse(
@@ -380,7 +453,7 @@ async def spawn_issues_partial(request: Request) -> HTMLResponse:
     from agentception.db.queries import get_board_issues as _get_board_issues
     from agentception.config import settings as _cfg
 
-    issues: list[dict[str, object]] = []
+    issues: list[BoardIssueRow] = []
     try:
         issues_raw = await _get_board_issues(repo=_cfg.gh_repo, include_claimed=True)
         issues = list(issues_raw)
@@ -409,7 +482,7 @@ async def agent_transcript_partial(request: Request, agent_id: str) -> Response:
     state = get_state()
     node = _find_agent(state, agent_id)
 
-    db_messages: list[dict[str, object]] = []
+    db_messages: list[AgentMessageRow] = []
     if node is None:
         try:
             db_run = await get_agent_run_detail(agent_id)
@@ -475,12 +548,12 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
     node = _find_agent(state, agent_id)
 
     # Try DB run detail as a fallback enrichment (or if node is not in memory).
-    db_run: dict[str, object] | None = None
-    db_messages: list[dict[str, object]] = []
+    db_run: AgentRunDetail | None = None
+    db_messages: list[AgentMessageRow] = []
     try:
         db_run = await get_agent_run_detail(agent_id)
         if db_run:
-            db_messages = db_run.get("messages", [])  # type: ignore[assignment]
+            db_messages = db_run.get("messages", [])
     except Exception as exc:
         logger.debug("DB agent run lookup skipped: %s", exc)
 
@@ -506,11 +579,11 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
             id=str(db_run.get("id", agent_id)),
             role=str(db_run.get("role", "unknown")),
             status=synth_status,
-            issue_number=db_run.get("issue_number"),  # type: ignore[arg-type]
-            pr_number=db_run.get("pr_number"),  # type: ignore[arg-type]
-            branch=db_run.get("branch"),  # type: ignore[arg-type]
-            batch_id=db_run.get("batch_id"),  # type: ignore[arg-type]
-            worktree_path=db_run.get("worktree_path"),  # type: ignore[arg-type]
+            issue_number=db_run.get("issue_number"),
+            pr_number=db_run.get("pr_number"),
+            branch=db_run.get("branch"),
+            batch_id=db_run.get("batch_id"),
+            worktree_path=db_run.get("worktree_path"),
         )
 
     # Filesystem transcript takes priority — it's the live Cursor session.

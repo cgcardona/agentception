@@ -54,15 +54,17 @@ SCOPE_TYPE    = "label"
 SCOPE_VALUE   = "AC-UI/0-CRITICAL-BUGS"
 
 # ── Provenance ────────────────────────────────────────────────────────────────
-GH_REPO       = "cgcardona/maestro"
+GH_REPO       = "cgcardona/agentception"
 BRANCH        = ""                  # empty for manager tiers (no dedicated branch)
-WORKTREE      = "/Users/gabriel/.agentception/worktrees/maestro/label-AC-UI-0-..."
+WORKTREE      = "$HOME/.agentception/worktrees/agentception/label-AC-UI-0-..."
 BATCH_ID      = "label-AC-UI-0-20260303T200000Z-a1b2"
 PARENT_RUN_ID = ""                  # empty for root; set by parent for all other tiers
 
 # ── Callbacks ─────────────────────────────────────────────────────────────────
-AC_URL        = "http://localhost:7777"
-ROLE_FILE     = "/Users/gabriel/dev/tellurstori/maestro/.cursor/roles/cto.md"
+AC_URL        = "http://localhost:10003"
+# ROLE_FILE is written by AgentCeption from REPO_DIR + .agentception/roles/<role>.md.
+# Agents read it for role context; the kickoff prompt also embeds the content inline.
+ROLE_FILE     = "<repo-root>/.agentception/roles/cto.md"
 ```
 
 ### Leaf engineer example
@@ -73,13 +75,13 @@ ROLE          = "python-developer"
 TIER          = "engineer"
 SCOPE_TYPE    = "issue"
 SCOPE_VALUE   = "42"
-GH_REPO       = "cgcardona/maestro"
+GH_REPO       = "cgcardona/agentception"
 BRANCH        = "feat/issue-42"
-WORKTREE      = "/Users/gabriel/.agentception/worktrees/maestro/issue-42"
+WORKTREE      = "$HOME/.agentception/worktrees/agentception/issue-42"
 BATCH_ID      = "label-AC-UI-0-20260303T200000Z-a1b2"
 PARENT_RUN_ID = "label-AC-UI-0-CRITICAL-BUGS-20260303T200000Z-a1b2"
-AC_URL        = "http://localhost:7777"
-ROLE_FILE     = "/Users/gabriel/dev/tellurstori/maestro/.cursor/roles/python-developer.md"
+AC_URL        = "http://localhost:10003"
+ROLE_FILE     = "<repo-root>/.agentception/roles/python-developer.md"
 ```
 
 ### Leaf reviewer example
@@ -90,14 +92,19 @@ ROLE          = "pr-reviewer"
 TIER          = "reviewer"
 SCOPE_TYPE    = "pr"
 SCOPE_VALUE   = "99"
-GH_REPO       = "cgcardona/maestro"
+GH_REPO       = "cgcardona/agentception"
 BRANCH        = ""
-WORKTREE      = "/Users/gabriel/.agentception/worktrees/maestro/pr-99"
+WORKTREE      = "$HOME/.agentception/worktrees/agentception/pr-99"
 BATCH_ID      = "label-AC-UI-0-20260303T200000Z-a1b2"
 PARENT_RUN_ID = "label-AC-UI-0-CRITICAL-BUGS-20260303T200000Z-a1b2"
-AC_URL        = "http://localhost:7777"
-ROLE_FILE     = "/Users/gabriel/dev/tellurstori/maestro/.cursor/roles/pr-reviewer.md"
+AC_URL        = "http://localhost:10003"
+ROLE_FILE     = "<repo-root>/.agentception/roles/pr-reviewer.md"
 ```
+
+> `<repo-root>` is the absolute path to the cloned repository on the host
+> machine — the value of `REPO_DIR` (defaults to `/app` inside the
+> container). AgentCeption writes the real absolute path when it creates each
+> `.agent-task` file. Never derive this from `pwd` or `basename`.
 
 ---
 

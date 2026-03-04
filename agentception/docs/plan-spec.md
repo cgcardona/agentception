@@ -234,7 +234,7 @@ The **coordinator agent** (running in Cursor via MCP) then:
 3. Within a phase, issues with no `depends_on` can be worked in parallel by separate agents in isolated worktrees.
 4. Issue-level `depends_on` constrains the order within a phase — the coordinator will not assign a dependent issue until its dependency is merged.
 
-> **Note:** The current implementation creates issues phase-by-phase (phase-N issues are only created after phase-(N-1) completes). See [#933](https://github.com/cgcardona/maestro/issues/933) for the planned migration to create all issues at launch and gate execution by label instead.
+> **Note:** The current implementation creates issues phase-by-phase (phase-N issues are only created after phase-(N-1) completes). See [#933](https://github.com/cgcardona/agentception/issues/933) for the planned migration to create all issues at launch and gate execution by label instead.
 
 ---
 

@@ -234,7 +234,7 @@ async def _do_spawn(body: SpawnRequest) -> SpawnResult:
     # Lock the worktree immediately so git doesn't auto-prune it when git
     # is run from a context where the container-internal path is not resolvable
     # (e.g. running `git worktree list` from the host sees /worktrees/issue-N
-    # as missing since it's bind-mounted from ~/.agentception/worktrees/maestro/).
+    # as missing since it's bind-mounted from ~/.agentception/worktrees/agentception/).
     lock_proc = await asyncio.create_subprocess_exec(
         "git", "-C", repo_dir,
         "worktree", "lock", str(worktree_path),
@@ -274,7 +274,7 @@ async def _do_spawn(body: SpawnRequest) -> SpawnResult:
         phase_label = ""
 
     # Compute the host-side worktree path for display to the user.
-    # host_worktrees_dir is ~/.agentception/worktrees/maestro (set via AC_HOST_WORKTREES_DIR).
+    # host_worktrees_dir is ~/.agentception/worktrees/agentception (set via HOST_WORKTREES_DIR).
     host_worktree_path = settings.host_worktrees_dir / f"issue-{issue_number}"
 
     agent_task_content = _build_agent_task(

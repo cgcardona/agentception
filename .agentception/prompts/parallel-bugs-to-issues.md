@@ -150,7 +150,7 @@ all telemetry chart styles) is parsed as part of `.agent-task-pre` and silently 
 **Fix:** Add the missing `}` at the correct position in `app.css`.
 
 **Acceptance criteria:**
-- `docker compose exec maestro mypy agentception/` clean
+- `docker compose exec agentception mypy agentception/` clean
 - Kill button and modal render correctly in the browser
 - Telemetry chart bars are styled (coloured, proportional)
 

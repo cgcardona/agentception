@@ -31,10 +31,10 @@ def issue_task_content() -> str:
     """Minimal .agent-task content for an issue-to-pr workflow."""
     return (
         "TASK=issue-to-pr\n"
-        "GH_REPO=cgcardona/maestro\n"
+        "GH_REPO=cgcardona/agentception\n"
         "ISSUE_NUMBER=610\n"
         "BRANCH=feat/issue-610\n"
-        "WORKTREE=/home/user/.cursor/worktrees/maestro/issue-610\n"
+        "WORKTREE=/home/user/.cursor/worktrees/agentception/issue-610\n"
         "ROLE=python-developer\n"
         "BASE=dev\n"
         "BATCH_ID=eng-20260301T214203Z-057d\n"
@@ -53,10 +53,10 @@ def pr_review_task_content() -> str:
         "TASK=pr-review\n"
         "PR=642\n"
         "BRANCH=feat/issue-609\n"
-        "WORKTREE=/home/user/.cursor/worktrees/maestro/pr-642\n"
+        "WORKTREE=/home/user/.cursor/worktrees/agentception/pr-642\n"
         "ROLE=pr-reviewer\n"
         "BASE=dev\n"
-        "GH_REPO=cgcardona/maestro\n"
+        "GH_REPO=cgcardona/agentception\n"
         "BATCH_ID=eng-20260301T211956Z-741f\n"
         "SPAWN_MODE=chain\n"
     )
@@ -88,7 +88,7 @@ async def test_parse_agent_task_issue(worktree_with_issue_task: Path) -> None:
 
     assert result is not None
     assert result.task == "issue-to-pr"
-    assert result.gh_repo == "cgcardona/maestro"
+    assert result.gh_repo == "cgcardona/agentception"
     assert result.issue_number == 610
     assert result.branch == "feat/issue-610"
     assert result.role == "python-developer"
@@ -112,7 +112,7 @@ async def test_parse_agent_task_pr_review(worktree_with_pr_review_task: Path) ->
     assert result.pr_number == 642
     assert result.branch == "feat/issue-609"
     assert result.role == "pr-reviewer"
-    assert result.gh_repo == "cgcardona/maestro"
+    assert result.gh_repo == "cgcardona/agentception"
     assert result.batch_id == "eng-20260301T211956Z-741f"
     assert result.spawn_mode == "chain"
     assert result.issue_number is None

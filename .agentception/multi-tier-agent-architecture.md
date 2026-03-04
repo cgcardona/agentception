@@ -1,4 +1,4 @@
-# Multi-Tier Agent Architecture — Autonomous GitFlow for Maestro
+# Multi-Tier Agent Architecture — Autonomous GitFlow for AgentCeption
 
 > "The infinite music machine, continuously shipping."
 
@@ -90,7 +90,7 @@ No manager or worker may bypass it.
 
 The control plane is a Python package that runs on the **host** (not in Docker),
 because it orchestrates Docker, git worktrees, and the GitHub CLI. It is not
-part of the Maestro application. All modules expose both a library API and a
+part of the AgentCeption application. All modules expose both a library API and a
 CLI interface so AI agents can invoke them as shell commands.
 
 ```
@@ -141,7 +141,7 @@ registry writer, which enforces the chain and rejects split-brain writes.
     {
       "issue_number": 140,
       "phase": "merged",
-      "branch": "feat/muse-harmony",
+      "branch": "feat/example-feature",
       "pull_request_number": 150,
       "grade": "A",
       "merged_at": "2026-02-28T01:44:00Z",
@@ -413,11 +413,11 @@ each batch of workers.
 ### Checks
 
 ```python
-def check_docker_cpu_percent(container: str = "maestro-app") -> float
+def check_docker_cpu_percent(container: str = "agentception") -> float
     # docker stats --no-stream --format "{{.CPUPerc}}" <container>
     # Returns 0.0–100.0
 
-def check_docker_memory_mb(container: str = "maestro-app") -> float
+def check_docker_memory_mb(container: str = "agentception") -> float
     # docker stats --no-stream --format "{{.MemUsage}}" <container>
     # Parses "1.2GiB / 8GiB" → returns current usage in MB
 
@@ -778,7 +778,7 @@ Label set per phase:
     {
       "issue_number": 140,
       "phase": "merged",
-      "branch": "feat/muse-harmony",
+      "branch": "feat/example-feature",
       "pull_request_number": 150,
       "grade": "A",
       "merged_at": "2026-02-28T01:44:00Z",

@@ -149,7 +149,7 @@ all telemetry chart styles) is parsed as part of `.agent-task-pre` and silently 
 **Fix:** Add the missing `}` at the correct position in `app.css`.
 
 **Acceptance criteria:**
-- `docker compose exec maestro mypy agentception/` clean
+- `docker compose exec agentception mypy agentception/` clean
 - Kill button and modal render correctly in the browser
 - Telemetry chart bars are styled (coloured, proportional)
 
@@ -179,7 +179,7 @@ echo "   Output → $PLAN_FILE"
 # The Phase Planner produces a JSON document of this shape:
 # {
 #   "label_prefix": "ac-ui",       # prefix for all phase labels
-#   "gh_repo": "cgcardona/maestro",
+#   "gh_repo": "cgcardona/agentception",
 #   "phases": [
 #     {
 #       "id": 0,
@@ -375,12 +375,12 @@ earlier phases to create their issues (so real #N numbers are known).**
 
 ```python
 # Phase 0 and any other dep-free phases launch immediately in parallel:
-Task(worktree="~/.agentception/worktrees/maestro/bugs-phase-0", prompt=KICKOFF_PROMPT)
-Task(worktree="~/.agentception/worktrees/maestro/bugs-phase-1", prompt=KICKOFF_PROMPT)
+Task(worktree="~/.agentception/worktrees/agentception/bugs-phase-0", prompt=KICKOFF_PROMPT)
+Task(worktree="~/.agentception/worktrees/agentception/bugs-phase-1", prompt=KICKOFF_PROMPT)
 
 # After phase 0 and 1 issues are created, update phase 2+ task files with real #N,
 # then launch phase 2+ agents:
-Task(worktree="~/.agentception/worktrees/maestro/bugs-phase-2", prompt=KICKOFF_PROMPT)
+Task(worktree="~/.agentception/worktrees/agentception/bugs-phase-2", prompt=KICKOFF_PROMPT)
 # ... and so on
 ```
 

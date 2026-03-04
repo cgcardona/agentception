@@ -7,7 +7,7 @@ AgentCeption is a multi-agent orchestration system that translates high-level go
 ```
 agentception/
   app.py           → FastAPI application factory and lifespan manager
-  config.py        → Pydantic Settings (all env vars prefixed AC_)
+  config.py        → Pydantic Settings (unprefixed env vars)
   models.py        → PlanSpec, PlanIssue, PlanPhase, and domain models
   poller.py        → Background polling loop (pipeline state refresh)
   telemetry.py     → Structured logging setup

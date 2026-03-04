@@ -58,8 +58,8 @@ async def get_role(slug: str) -> RoleResponse:
 ## Verification Before Done
 
 ```bash
-docker compose exec maestro mypy maestro/api/routes/ maestro/api/models/
-docker compose exec maestro pytest tests/test_<routes>.py -v
+docker compose exec agentception mypy agentception/routes/api/ agentception/models.py
+docker compose exec agentception pytest tests/test_<routes>.py -v
 ```
 
 ## Cognitive Architecture

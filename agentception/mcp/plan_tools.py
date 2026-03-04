@@ -29,7 +29,7 @@ Provides five MCP-exposed functions:
     Async.  Validates the manifest, creates a git worktree, and writes a
     ``.agent-task`` file for the coordinator agent.
 
-Boundary constraint: zero imports from maestro, muse, kly, or storpheus.
+Boundary constraint: zero imports from external packages.
 """
 
 import asyncio

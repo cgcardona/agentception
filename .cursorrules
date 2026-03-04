@@ -28,7 +28,7 @@ When uncertain: (1) preserve existing patterns, (2) prefer smaller changes over 
 - **Dev bind mounts are active.** `docker-compose.override.yml` bind-mounts `agentception/`, `tests/`, `scripts/`, and `pyproject.toml` into the container. Host file edits are **instantly visible** inside the container — no rebuild needed for code changes. Only rebuild (`docker compose build agentception && docker compose up -d`) when you change `requirements.txt`, `Dockerfile`, or `entrypoint.sh`.
 - **Verification order: mypy → tests → docs.** Always run mypy first. Fix type errors before running tests so you only need one test pass.
 - **Mypy:** `docker compose exec agentception mypy agentception/ tests/` — must be clean before any commit.
-- **Typing ratchet:** `python tools/typing_audit.py --dirs agentception/ tests/ --max-any 10`. Never raise the ceiling without justification.
+- **Typing ceiling:** `python tools/typing_audit.py --dirs agentception/ tests/ --max-any 0`. Zero `Any` is the hard ceiling — never raise it.
 - **Tests:** Run individual files yourself; user runs full suite. Regression test for every bug fix: `test_<what_broke>_<fixed_behavior>`.
 - **Show full output:** Never truncate, pipe through `head`/`tail`, or hide shell output.
 - **After tests pass:** Update affected docs, then commit — don't wait to be asked.

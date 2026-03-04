@@ -29,11 +29,10 @@ def _all_python_files(exclude_self: bool = False) -> list[Path]:
 
 
 def test_no_maestro_imports_in_agentception() -> None:
-    """No .py file in agentception/ may import from the maestro package.
+    """No .py file in agentception/ may import from the legacy maestro package.
 
-    AgentCeption must be fully self-contained for standalone extraction.
-    Cross-package imports from maestro.* would create an unresolvable
-    dependency on the host monorepo after extraction.
+    AgentCeption is fully self-contained. Imports from maestro.* would reintroduce
+    a hard dependency on the old monorepo that no longer exists here.
     """
     violations: list[str] = []
     pattern = re.compile(r"^\s*(from maestro[.\s]|import maestro[.\s])", re.MULTILINE)
@@ -44,7 +43,7 @@ def test_no_maestro_imports_in_agentception() -> None:
             violations.append(str(path.relative_to(AGENTCEPTION_ROOT.parent)))
 
     assert not violations, (
-        "Found maestro.* imports in agentception/ — these must be removed before extraction:\n"
+        "Found maestro.* imports in agentception/ — remove them, agentception is standalone:\n"
         + "\n".join(f"  {v}" for v in violations)
     )
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """AgentCeption FastAPI application factory.
 
-Entry point: ``uvicorn agentception.app:app --port 7777 --reload``
+Entry point: ``uvicorn agentception.app:app --port 10003 --reload``
 
 Architecture:
 - ``lifespan`` starts the background ``polling_loop`` task from ``poller.py``
@@ -60,7 +60,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(
     title="Agentception",
-    description="Maestro pipeline agent dashboard",
+    description="AgentCeption orchestration dashboard",
     version="0.1.0",
     lifespan=lifespan,
     # Disable the built-in Swagger/ReDoc UIs — we serve a native branded
@@ -91,16 +91,16 @@ def main() -> None:
     """CLI entrypoint: ``agentception`` (installed via pyproject.toml scripts).
 
     Launches the AgentCeption dashboard with uvicorn.  Configure the host and
-    port via environment variables ``AC_HOST`` (default ``0.0.0.0``) and
-    ``AC_PORT`` (default ``7777``), or override ``agentception.app:app`` directly
+    port via environment variables ``HOST`` (default ``0.0.0.0``) and
+    ``PORT`` (default ``10003``), or override ``agentception.app:app`` directly
     when running under a production ASGI server.
     """
     import os
 
     import uvicorn
 
-    host = os.environ.get("AC_HOST", "0.0.0.0")
-    port = int(os.environ.get("AC_PORT", "7777"))
+    host = os.environ.get("HOST", "0.0.0.0")
+    port = int(os.environ.get("PORT", "10003"))
     uvicorn.run("agentception.app:app", host=host, port=port, reload=False)
 
 

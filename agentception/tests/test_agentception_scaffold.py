@@ -43,12 +43,12 @@ def test_settings_loads_defaults() -> None:
     """AgentCeptionSettings must load without errors and expose expected fields.
 
     We do not assert a specific ``worktrees_dir`` path because it is
-    overridden by the ``AC_WORKTREES_DIR`` env var in the container
+    overridden by the ``WORKTREES_DIR`` env var in the container
     (set to ``/worktrees`` in docker-compose.override.yml).  We check only
     that the field is a ``Path`` instance and is non-empty.
     """
     s = AgentCeptionSettings()
-    assert s.gh_repo == "cgcardona/maestro"
+    assert s.gh_repo == "cgcardona/agentception"
     assert s.poll_interval_seconds == 5
     assert s.github_cache_seconds == 10
     assert isinstance(s.worktrees_dir, __import__("pathlib").Path)
@@ -112,7 +112,7 @@ def test_task_file_model_parses_known_fields() -> None:
     """TaskFile must parse a representative .agent-task payload correctly."""
     tf = TaskFile(
         task="issue-to-pr",
-        gh_repo="cgcardona/maestro",
+        gh_repo="cgcardona/agentception",
         issue_number=609,
         branch="feat/issue-609",
         role="python-developer",

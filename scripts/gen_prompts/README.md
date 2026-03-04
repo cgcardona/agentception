@@ -132,18 +132,18 @@ as-is — Jinja2 never touches bare `$` variables.
 
 ## Switching Projects
 
-To move the pipeline from `agentception/*` work to `maestro/*` work:
+To move the pipeline to a different project's work:
 
 ```yaml
 # config.yaml
 pipeline:
   phases:
-    - "maestro/0-foundation"
-    - "maestro/1-features"
+    - "muse/0-foundation"
+    - "muse/1-features"
     # ...
 
 codebases:
-  active: "maestro"   # ← only change needed here
+  active: "muse"   # ← only change needed here
 ```
 
 Then run the generator and commit. All 12 prompt files update atomically.

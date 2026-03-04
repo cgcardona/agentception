@@ -51,7 +51,7 @@ class DispatchRequest(BaseModel):
     role: str
     """Role slug from ``agentception/.cursor/roles/`` (e.g. ``python-developer``)."""
     repo: str
-    """``owner/repo`` string (e.g. ``tellurstori/maestro``)."""
+    """``owner/repo`` string (e.g. ``cgcardona/agentception``)."""
 
 
 class DispatchResponse(BaseModel):
@@ -119,7 +119,7 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
 
     logger.info("✅ dispatch: worktree created at %s", worktree_path)
 
-    ac_url = getattr(settings, "ac_url", "http://localhost:7777")
+    ac_url = settings.ac_url
     role_file = str(Path(settings.repo_dir) / ".agentception" / "roles" / f"{req.role}.md")
     agent_task = (
         f"RUN_ID={run_id}\n"
@@ -274,6 +274,10 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
         HTTPException 409: Worktree already exists.
         HTTPException 500: git worktree or .agent-task write failed.
     """
+    logger.warning(
+        "🚀 dispatch-label: received request label=%r role=%r repo=%r",
+        req.label, req.role, req.repo,
+    )
     tier = _tier_for_role(req.role)
     label_slug = _label_slug(req.label)
     batch_id = _make_label_batch_id(req.label)
@@ -282,6 +286,10 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
 
     worktree_path = str(Path(settings.worktrees_dir) / run_id)
     host_worktree_path = str(Path(settings.host_worktrees_dir) / run_id)
+    logger.warning(
+        "🚀 dispatch-label: run_id=%r tier=%r worktree_path=%r host_worktree_path=%r",
+        run_id, tier, worktree_path, host_worktree_path,
+    )
 
     if Path(worktree_path).exists():
         raise HTTPException(
@@ -303,7 +311,7 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
 
     logger.info("✅ dispatch-label: worktree %s for label %r tier=%s", worktree_path, req.label, tier)
 
-    ac_url = getattr(settings, "ac_url", "http://localhost:7777")
+    ac_url = settings.ac_url
     role_file = str(Path(settings.repo_dir) / ".agentception" / "roles" / f"{req.role}.md")
 
     agent_task = (
@@ -353,8 +361,12 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
         logger.error("❌ dispatch-label: .agent-task write failed — %s", exc)
         raise HTTPException(status_code=500, detail=f".agent-task write failed: {exc}") from exc
 
-    logger.info("✅ dispatch-label: .agent-task written to %s", agent_task_path)
+    logger.warning("✅ dispatch-label: .agent-task written to %s", agent_task_path)
 
+    logger.warning(
+        "🚀 dispatch-label: calling persist_agent_run_dispatch run_id=%r host_worktree_path=%r",
+        run_id, host_worktree_path,
+    )
     await persist_agent_run_dispatch(
         run_id=run_id,
         issue_number=0,          # no single issue — label-scoped
@@ -364,6 +376,7 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
         batch_id=batch_id,
         host_worktree_path=host_worktree_path,
     )
+    logger.warning("✅ dispatch-label: persist_agent_run_dispatch complete — run_id=%r is now pending_launch", run_id)
 
     return LabelDispatchResponse(
         run_id=run_id,
@@ -382,7 +395,7 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
 # Dispatcher prompt — serve the coordinator prompt so the UI can copy it
 # ---------------------------------------------------------------------------
 
-_DISPATCHER_PROMPT_PATH = Path(settings.repo_dir) / ".cursor" / "agentception-dispatcher.md"
+_DISPATCHER_PROMPT_PATH = Path(settings.repo_dir) / ".agentception" / "dispatcher.md"
 
 
 @router.get("/dispatcher-prompt")

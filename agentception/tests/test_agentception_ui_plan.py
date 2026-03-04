@@ -42,7 +42,7 @@ def test_parse_task_fields_extracts_key_value_pairs() -> None:
     """_parse_task_fields must parse structured key=value lines correctly."""
     content = textwrap.dedent("""\
         WORKFLOW=bugs-to-issues
-        GH_REPO=cgcardona/maestro
+        GH_REPO=cgcardona/agentception
         BATCH_ID=plan-20260303-164033
         LABEL_PREFIX=q2-rewrite
 

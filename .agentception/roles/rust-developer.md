@@ -26,9 +26,9 @@ Every Rust file you write or touch must:
 
 ## Architecture Boundaries
 
-- Rust components communicate with the Python Maestro backend via stdin/stdout pipes or Unix sockets — never via shared memory.
+- Rust components communicate with the AgentCeption backend via stdin/stdout pipes or Unix sockets — never via shared memory.
 - FFI boundaries must be wrapped in a safe Rust API layer; the unsafe block never leaks past the module boundary.
-- No Rust code should import from `maestro/` Python modules — integration is at the process boundary.
+- No Rust code should import from `agentception/` Python modules — integration is at the process boundary.
 - MIDI processing utilities live in their own crate with no FastAPI dependency.
 
 ## Failure Modes to Avoid

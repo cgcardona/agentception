@@ -24,7 +24,7 @@ It returns a list of pending launches shaped like:
       "issue_number": 0,
       "role": "cto",
       "branch": "agent/ac-ui-0-a1b2",
-      "host_worktree_path": "/Users/gabriel/.agentception/worktrees/agentception/label-ac-ui-0-a1b2c3",
+      "host_worktree_path": "$HOME/.agentception/worktrees/agentception/label-ac-ui-0-a1b2c3",
       "batch_id": "label-ac-ui-0-critical-20260303T120000Z-a1b2"
     }
   ],
@@ -67,7 +67,7 @@ For each pending launch (batch up to 3 simultaneously using parallel Task calls)
 ### 3a. Claim the run
 
 ```bash
-curl -s -X POST http://localhost:7777/api/build/acknowledge/{run_id}
+curl -s -X POST http://localhost:10003/api/build/acknowledge/{run_id}
 ```
 
 This atomically marks the run as `implementing` so no other Dispatcher can
@@ -99,7 +99,7 @@ RUN_ID:      {run_id}
 SCOPE_TYPE:  label
 SCOPE_VALUE: {scope_value}
 GH_REPO:     {gh_repo}
-AC_URL:      http://localhost:7777
+AC_URL:      http://localhost:10003
 
 Step 1: Read your role file:
   {role_file}
@@ -154,7 +154,7 @@ RUN_ID:      {run_id}
 SCOPE_TYPE:  {scope_type}    (issue or pr)
 SCOPE_VALUE: {scope_value}   (issue or PR number)
 GH_REPO:     {gh_repo}
-AC_URL:      http://localhost:7777
+AC_URL:      http://localhost:10003
 
 Step 1: Read your role file:
   {role_file}

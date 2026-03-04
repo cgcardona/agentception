@@ -6,7 +6,7 @@ Two public entry points:
 
 ``generate_plan_yaml(dump)``
     Step 1.A: calls Claude, returns a validated PlanSpec YAML string ready for
-    the Monaco editor.  This is the production path when AC_OPENROUTER_API_KEY
+    the Monaco editor.  This is the production path when OPENROUTER_API_KEY
     is set.
 
 ``plan_phases_llm(dump)``
@@ -233,7 +233,7 @@ async def generate_plan_yaml(dump: str, label_prefix: str = "") -> str:
 
     Raises:
         ValueError: Empty dump, invalid YAML from LLM, or schema mismatch.
-        RuntimeError: Missing AC_OPENROUTER_API_KEY.
+        RuntimeError: Missing OPENROUTER_API_KEY.
         httpx.HTTPStatusError: Non-2xx from OpenRouter.
     """
     dump = dump.strip()

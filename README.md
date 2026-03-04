@@ -87,10 +87,10 @@ open http://localhost:10003
 | Variable | Description |
 |----------|-------------|
 | `DATABASE_URL` | PostgreSQL connection string (see docker-compose.yml for local defaults) |
-| `AC_GITHUB_TOKEN` | GitHub PAT with `repo` + `issues` scope |
-| `AC_GH_REPO` | The repo this instance manages (`owner/repo`) |
-| `AC_OPENROUTER_API_KEY` | OpenRouter API key for Phase 1A planning |
-| `AC_HOST_WORKTREES_DIR` | Host path where agent worktrees are created |
+| `GITHUB_TOKEN` | GitHub PAT with `repo` + `issues` scope |
+| `GH_REPO` | The repo this instance manages (`owner/repo`) |
+| `OPENROUTER_API_KEY` | OpenRouter API key for Phase 1A planning |
+| `HOST_WORKTREES_DIR` | Host path where agent worktrees are created |
 
 See `.env.example` for the full list with descriptions. See [docs/guides/setup.md](docs/guides/setup.md) for detailed setup instructions.
 
@@ -147,7 +147,7 @@ agentception/
   mcp/             → MCP server (Cursor/Claude tool integration)
   static/          → Compiled JS/CSS bundles
   templates/       → Jinja2 HTML templates
-  config.py        → Pydantic Settings (AC_* env vars)
+  config.py        → Pydantic Settings (env vars)
   models.py        → PlanSpec, PlanIssue, PlanPhase, and domain models
 
 scripts/
@@ -166,9 +166,19 @@ scripts/
 
 ---
 
+## Quick Reference
+
+| Area | Description |
+|------|-------------|
+| **Developer tools** | [`scripts/dev.sh`](scripts/dev.sh) — Convenience wrapper for mypy / test / cover / build / restart / logs / migrate / shell |
+| **Guides** | [Developer workflow](docs/guides/developer-workflow.md) · [Contributing](docs/guides/contributing.md) — Bind-mount loop, verification order, branch protection, PR & commit conventions |
+| **Changelog** | [`CHANGELOG.md`](CHANGELOG.md) — Release history in Keep a Changelog 1.0.0 format |
+
+---
+
 ## Related Projects
 
-- **[cgcardona/maestro](https://github.com/cgcardona/maestro)** — AI music composition backend for the Stori DAW. AgentCeption was originally co-located here and has been extracted into this standalone repository.
+- **[cgcardona/agentception](https://github.com/cgcardona/agentception)** — AI music composition backend for the Muse client. AgentCeption was originally co-located here and has been extracted into this standalone repository.
 
 ---
 

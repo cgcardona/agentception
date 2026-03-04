@@ -34,20 +34,20 @@ Open `.env` and fill in the required values:
 | Variable | Required | What it is | Where to get it |
 |----------|----------|------------|-----------------|
 | `DB_PASSWORD` | **Yes** | Postgres password. No default — the compose file requires it explicitly. | Generate with `openssl rand -hex 16` |
-| `AC_GH_REPO` | **Yes** | The `owner/repo` this AgentCeption instance orchestrates. | Your GitHub repo |
-| `AC_GITHUB_TOKEN` | Optional | GitHub PAT with `repo` + `issues` scope. If you have `~/.config/gh` configured (via `gh auth login`), the container volume-mounts it and you can leave this blank. | [github.com/settings/tokens](https://github.com/settings/tokens) |
-| `AC_OPENROUTER_API_KEY` | Optional | OpenRouter API key. Required for Phase 1A LLM planning. Without it the service starts, but the planner falls back to a keyword classifier. | [openrouter.ai/keys](https://openrouter.ai/keys) |
-| `AC_HOST_WORKTREES_DIR` | Optional | Host path where agent git worktrees are created. Use an absolute path (no `~` — compose doesn't expand it). | Default: `~/.agentception/worktrees` |
-| `AC_WORKTREES_DIR` | Optional | Container-internal path that maps to `AC_HOST_WORKTREES_DIR`. Add a matching volume in `docker-compose.override.yml` if you change this. | Default: `/worktrees` |
-| `AC_REPO_DIR` | Optional | Absolute path to the cloned agentception repo on the host. Used for git operations inside the container. | Default: `/app` (the container working directory) |
-| `AC_PORT` | Optional | Port the FastAPI app listens on. | Default: `10003` |
-| `AC_LOG_LEVEL` | Optional | Log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`. | Default: `INFO` |
+| `GH_REPO` | **Yes** | The `owner/repo` this AgentCeption instance orchestrates. | Your GitHub repo |
+| `GITHUB_TOKEN` | Optional | GitHub PAT with `repo` + `issues` scope. If you have `~/.config/gh` configured (via `gh auth login`), the container volume-mounts it and you can leave this blank. | [github.com/settings/tokens](https://github.com/settings/tokens) |
+| `OPENROUTER_API_KEY` | Optional | OpenRouter API key. Required for Phase 1A LLM planning. Without it the service starts, but the planner falls back to a keyword classifier. | [openrouter.ai/keys](https://openrouter.ai/keys) |
+| `HOST_WORKTREES_DIR` | Optional | Host path where agent git worktrees are created. Use an absolute path (no `~` — compose doesn't expand it). | Default: `~/.agentception/worktrees` |
+| `WORKTREES_DIR` | Optional | Container-internal path that maps to `HOST_WORKTREES_DIR`. Add a matching volume in `docker-compose.override.yml` if you change this. | Default: `/worktrees` |
+| `REPO_DIR` | Optional | Absolute path to the cloned agentception repo on the host. Used for git operations inside the container. | Default: `/app` (the container working directory) |
+| `PORT` | Optional | Port the FastAPI app listens on. | Default: `10003` |
+| `LOG_LEVEL` | Optional | Log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`. | Default: `INFO` |
 
 Minimal `.env` that works for a basic smoke test (no LLM features):
 
 ```bash
 DB_PASSWORD=<run: openssl rand -hex 16>
-AC_GH_REPO=owner/your-repo
+GH_REPO=owner/your-repo
 ```
 
 ---
@@ -78,7 +78,7 @@ This starts three services:
 | Container | Host port | Purpose |
 |-----------|-----------|---------|
 | `agentception-app` | 10003 | FastAPI dashboard + API |
-| `agentception-postgres` | 5433 | Persistent database (offset from 5432 to avoid Maestro collision) |
+| `agentception-postgres` | 5433 | Persistent database (to avoid collision with other local Postgres instances) |
 | `agentception-qdrant` | 6335 / 6336 | Vector store for semantic search |
 
 Verify they're running:

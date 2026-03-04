@@ -1,4 +1,4 @@
-# team.yaml — Declarative agent org chart for the Maestro pipeline.
+# team.yaml — Declarative agent org chart for the AgentCeption pipeline.
 #
 # This file defines the cognitive architecture assigned to each role in the
 # agent hierarchy. It is read by generate.py (for validation) and by

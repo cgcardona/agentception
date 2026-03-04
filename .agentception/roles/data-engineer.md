@@ -42,10 +42,10 @@ Every pipeline you build must:
 
 ```bash
 # Mypy:
-docker compose exec maestro mypy maestro/ tests/
+docker compose exec agentception mypy agentception/ tests/
 
 # Tests:
-docker compose exec maestro pytest tests/test_muse_vcs.py -v
+docker compose exec agentception pytest tests/test_muse_vcs.py -v
 ```
 
 ## Cognitive Architecture

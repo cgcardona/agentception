@@ -35,7 +35,7 @@ from pydantic import BaseModel
 from starlette.requests import Request
 
 from agentception.readers.phase_planner import plan_phases
-from agentception.readers.llm_phase_planner import _strip_fences  # type: ignore[attr-defined]
+from agentception.readers.llm_phase_planner import _strip_fences
 from agentception.services.llm import call_openrouter_stream
 from ._shared import _TEMPLATES
 
@@ -276,13 +276,13 @@ async def plan_preview(body: PlanDraftRequest) -> StreamingResponse:
     Returns ``text/event-stream``.  Each event is a JSON object on a ``data:``
     line.  See module docstring for the full event shape reference.
 
-    When ``AC_OPENROUTER_API_KEY`` is set the LLM path streams tokens in real
+    When ``OPENROUTER_API_KEY`` is set the LLM path streams tokens in real
     time so the browser can show progress.  When the key is absent the heuristic
     fallback emits a single ``done`` event immediately.
     """
     from agentception.config import settings as _cfg
     from agentception.models import PlanSpec
-    from agentception.readers.llm_phase_planner import _YAML_SYSTEM_PROMPT  # type: ignore[attr-defined]
+    from agentception.readers.llm_phase_planner import _YAML_SYSTEM_PROMPT
 
     dump = body.dump.strip()
     if not dump:

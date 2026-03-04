@@ -166,8 +166,8 @@ def test_analyze_serial_marker_overrides() -> None:
 
 
 def test_analyze_shared_config_file_is_risky() -> None:
-    """Touching maestro/config.py is classified as risky."""
-    files = ["maestro/config.py"]
+    """Touching agentception/config.py is classified as risky."""
+    files = ["agentception/config.py"]
     parallelism = infer_parallelism("Update config settings.", files)
     assert parallelism == "risky"
 
@@ -193,7 +193,7 @@ def test_analyze_high_conflict_file_is_high_risk() -> None:
 
 def test_analyze_shared_config_is_low_risk() -> None:
     """Shared config files produce low (not high) risk."""
-    files = ["maestro/config.py"]
+    files = ["agentception/config.py"]
     risk = infer_conflict_risk(files)
     assert risk == "low"
 

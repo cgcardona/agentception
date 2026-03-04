@@ -7,6 +7,8 @@ AgentCeption MCP tool layer.  The dispatcher is synchronous and stateless —
 it handles exactly one request per call to :func:`handle_request`.
 
 Supported methods:
+  ``initialize``  — MCP protocol handshake (returns server capabilities)
+  ``initialized`` — MCP notification (no response; acknowledged silently)
   ``tools/list``  — returns all registered :class:`~agentception.mcp.types.ACToolDef`
   ``tools/call``  — dispatches to the named tool function
 
@@ -17,7 +19,7 @@ Error handling follows the JSON-RPC 2.0 specification:
   - Invalid params   → code -32602 (wrong or missing tool name / arguments)
   - Internal error   → code -32603 (unexpected exception in tool handler)
 
-Boundary constraint: zero imports from maestro, muse, kly, or storpheus.
+Boundary constraint: zero imports from external packages.
 """
 
 import json
@@ -51,6 +53,12 @@ from agentception.mcp.types import (
 )
 
 logger = logging.getLogger(__name__)
+
+#: MCP protocol version this server implements.
+_MCP_PROTOCOL_VERSION = "2024-11-05"
+
+#: Server identity advertised in the ``initialize`` response.
+_SERVER_INFO: dict[str, object] = {"name": "agentception", "version": "1.0.0"}
 
 # ---------------------------------------------------------------------------
 # Tool registry
@@ -483,7 +491,7 @@ async def call_tool_async(
 
 def handle_request(
     raw: dict[str, object],
-) -> dict[str, object]:
+) -> dict[str, object] | None:
     """Dispatch a JSON-RPC 2.0 request dict and return a response dict.
 
     This is the single entry point for the MCP layer.  The caller is
@@ -491,20 +499,24 @@ def handle_request(
     this function handles everything from field extraction through to
     building the response envelope.
 
+    Returns ``None`` for JSON-RPC notifications (messages with no ``id``
+    field, such as ``initialized``) — the caller must not write anything to
+    the wire for a ``None`` return value.
+
     Args:
         raw: A ``dict[str, object]`` parsed from a JSON-RPC 2.0 request body.
 
     Returns:
-        Either a :class:`~agentception.mcp.types.JsonRpcSuccessResponse` or
-        a :class:`~agentception.mcp.types.JsonRpcErrorResponse`.  The caller
-        should serialise the return value back to JSON for the wire.
+        A :class:`~agentception.mcp.types.JsonRpcSuccessResponse`,
+        a :class:`~agentception.mcp.types.JsonRpcErrorResponse`, or ``None``
+        for notifications that require no response.
 
     Never raises.
     """
-    request_id: int | str | None = raw.get("id")  # type: ignore[assignment]
-    # Narrow: id must be int | str | None per spec; cast safely.
-    if not isinstance(request_id, (int, str, type(None))):
-        request_id = None
+    _raw_id: object = raw.get("id")
+    request_id: int | str | None = (
+        _raw_id if isinstance(_raw_id, (int, str)) else None
+    )
 
     jsonrpc = raw.get("jsonrpc")
     if jsonrpc != "2.0":
@@ -523,6 +535,24 @@ def handle_request(
         ))
 
     logger.debug("🔧 handle_request: method=%r id=%r", method, request_id)
+
+    # ── MCP lifecycle handshake ──────────────────────────────────────────────
+
+    if method == "initialize":
+        # Respond with our protocol version and tool capability declaration.
+        result: dict[str, object] = {
+            "protocolVersion": _MCP_PROTOCOL_VERSION,
+            "capabilities": {"tools": {}},
+            "serverInfo": _SERVER_INFO,
+        }
+        return cast(dict[str, object], _make_success_response(request_id, result))
+
+    if method == "initialized":
+        # JSON-RPC notification — no id, no response required.
+        logger.debug("✅ MCP initialized notification received")
+        return None
+
+    # ── Tool methods ─────────────────────────────────────────────────────────
 
     if method == "tools/list":
         tools = list_tools()
@@ -559,6 +589,109 @@ def handle_request(
             tool_result = call_tool(tool_name, arguments)
         except Exception as exc:
             logger.error("❌ handle_request: internal error in call_tool — %s", exc, exc_info=True)
+            return cast(dict[str, object], _make_error_response(
+                request_id,
+                JSONRPC_ERR_INTERNAL_ERROR,
+                f"Internal error: {exc}",
+            ))
+
+        return cast(dict[str, object], _make_success_response(request_id, tool_result))
+
+    return cast(dict[str, object], _make_error_response(
+        request_id,
+        JSONRPC_ERR_METHOD_NOT_FOUND,
+        f"Method not found: {method!r}",
+    ))
+
+
+async def handle_request_async(
+    raw: dict[str, object],
+) -> dict[str, object] | None:
+    """Async variant of :func:`handle_request` — routes ``tools/call`` through
+    :func:`call_tool_async` so that async tools (all build tools and
+    ``plan_get_labels`` / ``plan_spawn_coordinator``) are awaited correctly.
+
+    The stdio transport must use this function instead of
+    :func:`handle_request`; the sync version hard-returns an error for every
+    async tool.
+
+    Returns ``None`` for JSON-RPC notifications (no ``id`` field).
+    Never raises.
+    """
+    _raw_id: object = raw.get("id")
+    request_id: int | str | None = (
+        _raw_id if isinstance(_raw_id, (int, str)) else None
+    )
+
+    jsonrpc = raw.get("jsonrpc")
+    if jsonrpc != "2.0":
+        return cast(dict[str, object], _make_error_response(
+            request_id,
+            JSONRPC_ERR_INVALID_REQUEST,
+            "jsonrpc must be '2.0'",
+        ))
+
+    method = raw.get("method")
+    if not isinstance(method, str):
+        return cast(dict[str, object], _make_error_response(
+            request_id,
+            JSONRPC_ERR_INVALID_REQUEST,
+            "method must be a string",
+        ))
+
+    logger.debug("🔧 handle_request_async: method=%r id=%r", method, request_id)
+
+    if method == "initialize":
+        result: dict[str, object] = {
+            "protocolVersion": _MCP_PROTOCOL_VERSION,
+            "capabilities": {"tools": {}},
+            "serverInfo": _SERVER_INFO,
+        }
+        return cast(dict[str, object], _make_success_response(request_id, result))
+
+    if method == "initialized":
+        logger.debug("✅ MCP initialized notification received")
+        return None
+
+    if method == "tools/list":
+        tools = list_tools()
+        return cast(dict[str, object], _make_success_response(request_id, {"tools": tools}))
+
+    if method == "tools/call":
+        params = raw.get("params")
+        if not isinstance(params, dict):
+            return cast(dict[str, object], _make_error_response(
+                request_id,
+                JSONRPC_ERR_INVALID_PARAMS,
+                "params must be an object for tools/call",
+            ))
+
+        tool_name = params.get("name")
+        if not isinstance(tool_name, str):
+            return cast(dict[str, object], _make_error_response(
+                request_id,
+                JSONRPC_ERR_INVALID_PARAMS,
+                "params.name must be a string",
+            ))
+
+        arguments_raw = params.get("arguments", {})
+        if not isinstance(arguments_raw, dict):
+            return cast(dict[str, object], _make_error_response(
+                request_id,
+                JSONRPC_ERR_INVALID_PARAMS,
+                "params.arguments must be an object",
+            ))
+
+        arguments: dict[str, object] = {k: v for k, v in arguments_raw.items()}
+
+        try:
+            tool_result = await call_tool_async(tool_name, arguments)
+        except Exception as exc:
+            logger.error(
+                "❌ handle_request_async: internal error in call_tool_async — %s",
+                exc,
+                exc_info=True,
+            )
             return cast(dict[str, object], _make_error_response(
                 request_id,
                 JSONRPC_ERR_INTERNAL_ERROR,

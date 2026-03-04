@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.requests import Request
+from starlette.responses import Response
 
 from agentception.config import settings as _settings
 from ._shared import _TEMPLATES, _md_to_html
@@ -55,11 +56,11 @@ def _render_doc(slug: str) -> tuple[str | None, str | None, str | None]:
 
 
 @router.get("/docs", response_class=HTMLResponse)
-async def docs_index(request: Request) -> HTMLResponse:
+async def docs_index(request: Request) -> Response:
     """Redirect to the first available doc."""
     docs = _scan_cursor_docs()
     if docs:
-        return RedirectResponse(url=f"/docs/{docs[0]['slug']}", status_code=302)  # type: ignore[return-value]
+        return RedirectResponse(url=f"/docs/{docs[0]['slug']}", status_code=302)
     raise HTTPException(status_code=404, detail="No .cursor/ docs found")
 
 

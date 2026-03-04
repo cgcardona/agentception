@@ -2,8 +2,8 @@ from __future__ import annotations
 
 """Protocol TypedDicts for the AgentCeption MCP layer.
 
-All types defined here are self-contained — zero imports from maestro,
-muse, kly, or storpheus.  They map 1-to-1 with the MCP JSON-RPC 2.0
+All types defined here are self-contained — zero imports from external packages.
+external packages.  They map 1-to-1 with the MCP JSON-RPC 2.0
 wire protocol so callers can rely on them for type-safe serialisation.
 
 JSON-RPC 2.0 error codes (JSONRPC_ERR_*) are defined as module-level

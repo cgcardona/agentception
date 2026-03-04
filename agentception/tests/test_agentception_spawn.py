@@ -69,7 +69,7 @@ def test_spawn_creates_worktree_and_task_file(
     client: TestClient, tmp_path: Path
 ) -> None:
     """POST /api/control/spawn must create a worktree and return SpawnResult on success."""
-    worktree_dir = tmp_path / "worktrees" / "maestro"
+    worktree_dir = tmp_path / "worktrees" / "agentception"
     worktree_dir.mkdir(parents=True)
     # Simulate what `git worktree add` would do: create the directory.
     expected_worktree = worktree_dir / "issue-42"
@@ -215,7 +215,7 @@ def test_spawn_existing_worktree_returns_409(
     client: TestClient, tmp_path: Path
 ) -> None:
     """POST /api/control/spawn must return 409 when the worktree directory already exists."""
-    worktrees = tmp_path / "worktrees" / "maestro"
+    worktrees = tmp_path / "worktrees" / "agentception"
     # Pre-create the issue worktree so the endpoint sees it exists
     existing = worktrees / "issue-42"
     existing.mkdir(parents=True)
@@ -301,7 +301,7 @@ def test_spawn_returns_html_when_accept_text_html(
     client: TestClient, tmp_path: Path
 ) -> None:
     """POST /api/control/spawn with Accept: text/html must return the success partial."""
-    worktree_dir = tmp_path / "worktrees" / "maestro"
+    worktree_dir = tmp_path / "worktrees" / "agentception"
     worktree_dir.mkdir(parents=True)
     expected_worktree = worktree_dir / "issue-55"
 
@@ -362,7 +362,7 @@ def test_spawn_returns_json_without_html_accept(
     client: TestClient, tmp_path: Path
 ) -> None:
     """POST /api/control/spawn without Accept: text/html must still return JSON."""
-    worktree_dir = tmp_path / "worktrees" / "maestro"
+    worktree_dir = tmp_path / "worktrees" / "agentception"
     worktree_dir.mkdir(parents=True)
     expected_worktree = worktree_dir / "issue-56"
 

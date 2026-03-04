@@ -97,7 +97,7 @@ Run from anywhere inside the main repo. Paths are derived automatically.
 > the main repo has `dev` checked out.
 
 > **GitHub repo slug:** Always `cgcardona/agentception`. The local path
-> (`/Users/gabriel/dev/tellurstori/agentception`) is misleading — `tellurstori` is
+> (`<repo-root>`) is misleading — the local repo directory is
 > NOT the GitHub org. Never derive the slug from `basename` or `pwd`.
 
 ```bash
@@ -174,7 +174,7 @@ for entry in "${PRS[@]}"; do
     R_SKILLS="postgresql:python"
   elif echo "$PR_CONTENT" | grep -qiE "APIRouter|FastAPI|Depends"; then
     R_SKILLS="fastapi:python"
-  elif echo "$PR_CONTENT" | grep -qiE "midi|storpheus|tmidix"; then
+  elif echo "$PR_CONTENT" | grep -qiE "midi|muse"; then
     R_SKILLS="midi:python"
   elif echo "$PR_CONTENT" | grep -qiE "llm|embedding|rag|openrouter"; then
     R_SKILLS="llm:python"
@@ -212,7 +212,7 @@ FILES_CHANGED=$PR_FILES
 MERGE_AFTER=$MERGE_AFTER_VAL
 HAS_MIGRATION=$HAS_MIGRATION_VAL
 ROLE=$REVIEW_ROLE
-ROLE_FILE=$HOME/dev/tellurstori/agentception/.agentception/roles/${REVIEW_ROLE}.md
+ROLE_FILE=<repo-root>/.agentception/roles/${REVIEW_ROLE}.md
 COGNITIVE_ARCH=$R_COGNITIVE_ARCH
 BATCH_ID=$R_BATCH_ID
 VP_FINGERPRINT=$VP_FINGERPRINT
@@ -246,7 +246,7 @@ Every command that touches Python must go through Docker:
 ```bash
 # CORRECT
 cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
-cd "$REPO" && docker compose exec maestro sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/maestro/ /worktrees/$WTNAME/tests/"
+cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/"
 
 # WRONG — will fail with "No module named mypy"
 python3 -m mypy ...
@@ -269,7 +269,7 @@ WTNAME=$(basename "$(pwd)")                               # this worktree's name
 # Docker path to your worktree: /worktrees/$WTNAME
 
 # GitHub repo slug — HARDCODED. NEVER derive from local path or directory name.
-# The local path is /Users/gabriel/dev/tellurstori/agentception — "tellurstori" is NOT the GitHub org.
+# The local path is derived from REPO_DIR — never use directory name as the GitHub org.
 export GH_REPO=cgcardona/agentception
 ```
 
@@ -283,7 +283,7 @@ export GH_REPO=cgcardona/agentception
 
 **All `docker compose exec` commands must be run from the main repo:**
 ```bash
-cd "$REPO" && docker compose exec maestro <cmd>
+cd "$REPO" && docker compose exec agentception <cmd>
 ```
 
 ### Docker sees your worktree directly — no file copying needed
@@ -296,7 +296,7 @@ the container. After checking out the PR branch, your worktree's code is
 REPO=$(git worktree list | head -1 | awk '{print $1}')
 WTNAME=$(basename "$(pwd)")
 
-# Detect codebase from PR labels (ac-ui/* vs maestro/storpheus)
+# Detect codebase from PR labels (ac-ui/* vs agentception/muse)
 IS_AC=$(gh pr view $N --repo $GH_REPO --json labels \
   --jq '.labels[].name' | grep -c "^ac-ui/" || true)
 
@@ -308,8 +308,8 @@ if [ "$IS_AC" -gt 0 ]; then
   cd "$REPO" && docker compose exec agentception sh -c \
     "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
 else
-  cd "$REPO" && docker compose exec maestro sh -c \
-    "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/maestro/ /worktrees/$WTNAME/tests/"
+  cd "$REPO" && docker compose exec agentception sh -c \
+    "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/"
 fi
 
 # pytest (specific file) — route by codebase
@@ -317,7 +317,7 @@ if [ "$IS_AC" -gt 0 ]; then
   cd "$REPO" && docker compose exec agentception sh -c \
     "PYTHONPATH=/worktrees/$WTNAME pytest /worktrees/$WTNAME/agentception/tests/test_<module>.py -v"
 else
-  cd "$REPO" && docker compose exec maestro sh -c \
+  cd "$REPO" && docker compose exec agentception sh -c \
     "PYTHONPATH=/worktrees/$WTNAME pytest /worktrees/$WTNAME/tests/path/to/test_file.py -v"
 fi
 ```
@@ -437,17 +437,17 @@ STEP 1 — DERIVE PATHS:
   REPO=$(git worktree list | head -1 | awk '{print $1}')   # local filesystem path only
   WTNAME=$(basename "$(pwd)")
   # Your worktree is live in Docker at /worktrees/$WTNAME — NO file copying needed.
-  # All docker compose commands: cd "$REPO" && docker compose exec maestro <cmd>
+  # All docker compose commands: cd "$REPO" && docker compose exec agentception <cmd>
 
   # GitHub repo slug — HARDCODED. NEVER derive from directory name, basename, or local path.
-  # The local path is /Users/gabriel/dev/tellurstori/agentception.
-  # "tellurstori" is the LOCAL directory — it is NOT the GitHub org.
+  # The local path is <repo-root>.
+  # The local directory name is NOT the GitHub org. Always use GH_REPO explicitly.
   # The GitHub org is "cgcardona". Using the wrong slug → "Forbidden" or "Repository not found".
   export GH_REPO=cgcardona/agentception
 
   # ⚠️  VALIDATION — run this immediately to catch slug errors early:
   gh repo view "$GH_REPO" --json name --jq '.name'
-  # Expected output: maestro
+  # Expected output: agentception
   # If you see an error → GH_REPO is wrong. Stop and fix it before continuing.
 
   # All gh commands inherit $GH_REPO automatically. You may also pass --repo "$GH_REPO" explicitly.
@@ -509,13 +509,13 @@ STEP 3 — CHECKOUT & SYNC (only if STEP 2 shows the PR is open and unreviewed):
   #    Read this section now so you can resolve mechanically when git stops.
   #
   #    FILE                              ALWAYS-SAFE RULE
-  #    maestro/muse_cli/app.py           Keep ALL app.add_typer() lines from both sides.
+  #    agentception/muse/cli/app.py           Keep ALL app.add_typer() lines from both sides.
   #    docs/architecture/muse-vcs.md    Keep ALL ## sections from both sides, sort alpha.
   #    docs/reference/type-contracts.md Keep ALL entries from both sides.
   #
   #    ⚡ SHORTCUT: open .agentception/conflict-rules.md — every common conflict in this
   #    repo has a one-line mechanical rule. Do NOT use sed/grep/hexdump loops.
-  #    maestro/api/routes/musehub/__init__.py NEVER conflicts (auto-discovery).
+  #    agentception/muse/api/routes/__init__.py NEVER conflicts (auto-discovery).
   #    app.py, muse-vcs.md, type-contracts.md use union merge via .gitattributes.
 
   # 4. Merge the latest dev into this feature branch NOW
@@ -560,7 +560,7 @@ STEP 3 — CHECKOUT & SYNC (only if STEP 2 shows the PR is open and unreviewed):
   │                                                                              │
   │ STEP B — For each conflicted file NOT resolved by STEP A.5 (Rules 0–1):   │
   │                                                                              │
-  │ ┌─ maestro/muse_cli/app.py ─────────────────────────────────────────────┐  │
+  │ ┌─ agentception/muse/cli/app.py ─────────────────────────────────────────────┐  │
   │ │ Each parallel agent adds exactly one app.add_typer() line.            │  │
   │ │ Pattern:                                                               │  │
   │ │   <<<<<<< HEAD                                                         │  │
@@ -569,7 +569,7 @@ STEP 3 — CHECKOUT & SYNC (only if STEP 2 shows the PR is open and unreviewed):
   │ │   app.add_typer(bar_app, name="bar", ...)                              │  │
   │ │   >>>>>>> origin/dev                                                   │  │
   │ │ Rule: KEEP BOTH LINES. Remove markers. Never drop a line.             │  │
-  │ │ Verify: grep -c "add_typer" maestro/muse_cli/app.py                   │  │
+  │ │ Verify: grep -c "add_typer" agentception/muse/cli/app.py                   │  │
   │ │   count must equal the total number of registered sub-apps            │  │
   │ └───────────────────────────────────────────────────────────────────────┘  │
   │                                                                              │
@@ -628,7 +628,7 @@ STEP 3 — CHECKOUT & SYNC (only if STEP 2 shows the PR is open and unreviewed):
   │ STEP E — Re-run mypy only if resolved files contain Python changes:         │
   │   app.py changed → run mypy. Markdown-only conflicts → skip mypy.          │
   │   agentception PR: docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/" │
-  │   maestro PR:      docker compose exec maestro sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/maestro/" │
+  │   agentception PR:      docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/" │
   │                                                                              │
   │ STEP F — Advanced diagnostics if needed:                                    │
   │   git log --oneline origin/dev...HEAD  ← commits this PR adds              │
@@ -654,22 +654,22 @@ STEP 4 — TARGETED TEST SCOPING (before review):
   git log --oneline HEAD..origin/dev
 
   # 3. Derive test targets using module-name convention:
-  #    maestro/core/pipeline.py        → tests/test_pipeline.py
-  #    maestro/services/muse_vcs.py    → tests/test_muse_vcs.py
-  #    maestro/api/routes/muse.py      → tests/test_muse.py (or e2e/test_muse_e2e_harness.py)
-  #    storpheus/music_service.py      → storpheus/test_music_service.py
+  #    agentception/readers/pipeline.py        → tests/test_pipeline.py
+  #    agentception/services/muse_vcs.py    → tests/test_muse_vcs.py
+  #    agentception/routes/api/muse.py      → tests/test_muse.py (or e2e/test_muse_e2e_harness.py)
+  #    agentception/services/muse_music_service.py      → agentception/muse/test_music_service.py
   #    tests/test_*.py (already a test)→ run it directly
   #
   #    Quick reference (from .cursorrules):
-  #      maestro/core/intent*.py           → tests/test_intent*.py
-  #      maestro/core/pipeline.py          → tests/test_pipeline.py
-  #      maestro/core/maestro_handlers.py  → tests/test_maestro_handlers.py
-  #      maestro/services/muse_*.py        → tests/test_muse_*.py
-  #      maestro/mcp/                      → tests/test_mcp.py
-  #      maestro/daw/                      → tests/test_daw_adapter.py
-  #      storpheus/music_service.py        → storpheus/test_gm_resolution.py + storpheus/test_*.py
+  #      agentception/readers/llm_phase_planner.py           → tests/test_intent*.py
+  #      agentception/readers/pipeline.py          → tests/test_pipeline.py
+  #      agentception/readers/  → tests/test_maestro_handlers.py
+  #      agentception/services/muse_*.py        → tests/test_muse_*.py
+  #      agentception/mcp/                      → tests/test_mcp.py
+  #      agentception/muse/daw/                      → tests/test_daw_adapter.py
+  #      agentception/services/muse_music_service.py        → agentception/tests/test_muse_gm_resolution.py + agentception/tests/test_muse_*.py
   #
-  #    AgentCeption (agentception container — NEVER maestro container):
+  #    AgentCeption (agentception container — NEVER a different container):
   #      agentception/app.py               → agentception/tests/test_agentception_scaffold.py
   #      agentception/readers/worktrees.py → agentception/tests/test_agentception_worktrees.py
   #      agentception/readers/transcripts.py → agentception/tests/test_agentception_transcripts.py
@@ -680,10 +680,10 @@ STEP 4 — TARGETED TEST SCOPING (before review):
   #      agentception/telemetry.py         → agentception/tests/test_agentception_telemetry.py
   #      agentception/intelligence/*.py    → agentception/tests/test_agentception_dag.py, etc.
   #
-  # ⚠️  CODEBASE ISOLATION — agentception and maestro are independent. NEVER cross-run:
+  # ⚠️  CODEBASE ISOLATION — both codebases are independent. NEVER cross-run:
   #         CORRECT:   docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME pytest /worktrees/$WTNAME/agentception/tests/<X>.py -v"
   #         INCORRECT: docker compose exec agentception pytest agentception/tests/... (tests /app/ not the PR branch)
-  #         INCORRECT: docker compose exec maestro pytest agentception/... (wrong container/deps)
+  #         INCORRECT: docker compose exec agentception pytest agentception/... (wrong container/deps)
   #         INCORRECT: python3 -m pytest ... (host — missing deps)
   #
   # 4. If the PR only changes .agentception/, .cursor/, docs/, or other non-.py files: skip pytest entirely.
@@ -698,8 +698,8 @@ STEP 4 — TARGETED TEST SCOPING (before review):
       "PYTHONPATH=/worktrees/$WTNAME pytest \
        /worktrees/$WTNAME/agentception/tests/test_<module>.py -v"
   else
-    #    maestro PRs:
-    cd "$REPO" && docker compose exec maestro sh -c \
+    #    muse PRs:
+    cd "$REPO" && docker compose exec agentception sh -c \
       "PYTHONPATH=/worktrees/$WTNAME pytest \
        /worktrees/$WTNAME/tests/test_<module1>.py \
        /worktrees/$WTNAME/tests/test_<module2>.py \
@@ -737,14 +737,14 @@ STEP 5 — REVIEW:
   git stash  # if you already have the PR branch checked out
   git checkout dev
   echo "=== PRE-EXISTING MYPY BASELINE (dev before PR) ==="
-  # Route by codebase — agentception and maestro are independent; never cross-run.
+  # Route by codebase — both codebases are independent; never cross-run.
   # Baseline uses /app/agentception/ (the live dev bind-mount) — correct here because
   # we haven't checked out the PR branch yet. After checkout, switch to /worktrees/$WTNAME/.
   if [ "$IS_AC" -gt 0 ]; then
     cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/" 2>&1 | tail -10
   else
-    cd "$REPO" && docker compose exec maestro sh -c \
-      "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/maestro/ /worktrees/$WTNAME/tests/" \
+    cd "$REPO" && docker compose exec agentception sh -c \
+      "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/" \
       2>&1 | tail -10
   fi
   # Note: any error shown here is pre-existing on dev — you own fixing it if it
@@ -767,12 +767,12 @@ STEP 5 — REVIEW:
   # 3. No two files may share the same revision ID.
   # 4. No two files may share the same down_revision (that creates a branch, not a chain).
   # 5. alembic heads must return exactly one head after merging this PR.
-  #    cd "$REPO" && docker compose exec maestro alembic heads
+  #    cd "$REPO" && docker compose exec agentception alembic heads
   # If the chain is broken → MANDATORY fix before grading. Renumber the migration and
   # update its down_revision. This is a C-grade issue at minimum.
 
   4. Run mypy then TARGETED tests — scoped to the PR's codebase only:
-     ⚠️  agentception and maestro are independent codebases. NEVER cross-run their checks.
+     ⚠️  both codebases are independent codebases. NEVER cross-run their checks.
      ⚠️  Tests: targeted files only — but cross-reference the baseline from STEP 5.A.
      ⚠️  Never pipe mypy/pytest through grep/head/tail — full output, exit code is authoritative.
 
@@ -782,9 +782,9 @@ STEP 5 — REVIEW:
     cd "$REPO" && docker compose exec agentception sh -c \
       "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
   else
-    # maestro PRs:
-    cd "$REPO" && docker compose exec maestro sh -c \
-      "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/maestro/ /worktrees/$WTNAME/tests/"
+    #    muse PRs:
+    cd "$REPO" && docker compose exec agentception sh -c \
+      "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/"
   fi
 
   5. Pre-existing failures — you own them if they are in files this PR touches:
@@ -861,8 +861,8 @@ STEP 5 — REVIEW:
       │ bug              documentation     duplicate         enhancement       │
       │ good first issue help wanted       invalid           question          │
       │ wontfix          multimodal        performance       ai-pipeline       │
-      │ muse             muse-cli          muse-hub          storpheus         │
-      │ maestro-integration  mypy          cli               testing           │
+      │ agentception     muse              muse-cli          muse-hub          │
+      │ agentception-integration  mypy          cli               testing           │
       │ weekend-mvp      muse-music-extensions                                 │
       │                                                                        │
       │ ⚠️  Never invent labels (e.g. "tech-debt", "mcp", "budget",           │
@@ -1071,7 +1071,7 @@ $CLOSE_FINGERPRINT"
   git -C "$REPO" add -A
   git -C "$REPO" diff --cached --quiet || git -C "$REPO" commit -m "chore: save main repo state before post-merge dev sync
 
-Maestro-Session: ${AGENT_SESSION:-unset}"
+AgentCeption-Session: ${AGENT_SESSION:-unset}"
   git -C "$REPO" fetch origin
   git -C "$REPO" merge origin/dev
 
@@ -1085,7 +1085,7 @@ STEP 7 — REGRESSION FEEDBACK LOOP (only if merge succeeded — skip if D/F gra
   git -C "$REPO" add -A
   git -C "$REPO" diff --cached --quiet || git -C "$REPO" commit -m "chore: save main repo state before regression-feedback dev sync
 
-Maestro-Session: ${AGENT_SESSION:-unset}"
+AgentCeption-Session: ${AGENT_SESSION:-unset}"
   git -C "$REPO" fetch origin && git -C "$REPO" merge origin/dev
 
   # Run TARGETED tests only — never the full suite.
@@ -1102,8 +1102,8 @@ Maestro-Session: ${AGENT_SESSION:-unset}"
         CANDIDATE="$REPO/agentception/tests/test_agentception_${MODULE}.py"
         [ -f "$CANDIDATE" ] && TEST_FILES="$TEST_FILES $CANDIDATE"
         ;;
-      maestro/*)
-        MODULE=$(echo "$f" | sed 's|maestro/||' | sed 's|/|_|g' | sed 's|\.py||')
+      agentception/*)
+        MODULE=$(echo "$f" | sed 's|agentception/||' | sed 's|/|_|g' | sed 's|\.py||')
         CANDIDATE="$REPO/tests/test_${MODULE}.py"
         [ -f "$CANDIDATE" ] && TEST_FILES="$TEST_FILES $CANDIDATE"
         ;;
@@ -1120,7 +1120,7 @@ Maestro-Session: ${AGENT_SESSION:-unset}"
     echo "ℹ️  No derived test files found — skipping regression run."
     TEST_OUTPUT="no tests"
   else
-    # Route by codebase — agentception and maestro are isolated; never cross-run.
+    # Route by codebase — always run in the agentception container.
     HAS_AC=$(echo "$TEST_FILES" | grep -c "test_agentception" || true)
     HAS_MAESTRO=$(echo "$TEST_FILES" | grep -v "test_agentception" | grep -c "test_" || true)
 
@@ -1138,7 +1138,7 @@ Maestro-Session: ${AGENT_SESSION:-unset}"
       # Convert host-absolute paths to container-relative (strip $REPO/ prefix)
       M_TESTS_CONTAINER=$(echo "$TEST_FILES" | tr ' ' '\n' | grep -v "test_agentception" | \
         sed "s|$REPO/||" | tr '\n' ' ')
-      M_OUTPUT=$(cd "$REPO" && docker compose exec maestro sh -c \
+      M_OUTPUT=$(cd "$REPO" && docker compose exec agentception sh -c \
         "PYTHONPATH=/worktrees/$WTNAME pytest $M_TESTS_CONTAINER -v --tb=short -q 2>&1")
       echo "$M_OUTPUT"
       TEST_OUTPUT="${TEST_OUTPUT}${M_OUTPUT}"
@@ -1163,7 +1163,7 @@ Maestro-Session: ${AGENT_SESSION:-unset}"
 
 ## Reproduction
 \`\`\`bash
-docker compose exec maestro pytest $test_line -v
+docker compose exec agentception pytest $test_line -v
 \`\`\`
 
 ## Context
@@ -1284,7 +1284,7 @@ WORKTREE=$NEXT_WORKTREE
 BASE=dev
 CLOSES_ISSUES=$NEXT_ISSUE
 ROLE=python-developer
-ROLE_FILE=$HOME/dev/tellurstori/agentception/.agentception/roles/python-developer.md
+ROLE_FILE=<repo-root>/.agentception/roles/python-developer.md
 BATCH_ID=${BATCH_ID:-none}
 VP_FINGERPRINT=${VP_FINGERPRINT:-unset}
 WAVE=${WAVE:-unset}
@@ -1302,7 +1302,7 @@ TASK
       # IMPLEMENTER_PROMPT is self-contained — do NOT reference PARALLEL_ISSUE_TO_PR.md on disk.
       # Construct it from your context:
       #   1. Prefix:  "Read the .agent-task file in your worktree first.
-      #               GH_REPO=cgcardona/agentception  Repo: $HOME/dev/tellurstori/agentception"
+      #               GH_REPO=cgcardona/agentception  Repo: <repo-root>"
       #   2. Body:    paste the entire ## Pass-Along: Implementer Kickoff section verbatim
       #               (your parent embedded it when it dispatched you)
       # The implementer's prompt already contains its own ## Pass-Along: Reviewer Kickoff
@@ -1351,7 +1351,7 @@ FILES_CHANGED=$NEXT_FILES
 MERGE_AFTER=$NEXT_MERGE_AFTER
 HAS_MIGRATION=$NEXT_HAS_MIG_VAL
 ROLE=pr-reviewer
-ROLE_FILE=$HOME/dev/tellurstori/agentception/.agentception/roles/pr-reviewer.md
+ROLE_FILE=<repo-root>/.agentception/roles/pr-reviewer.md
 COGNITIVE_ARCH=${COGNITIVE_ARCH:-knuth:python}
 BATCH_ID=${BATCH_ID:-none}
 VP_FINGERPRINT=${VP_FINGERPRINT:-unset}
@@ -1370,7 +1370,7 @@ TASK
       # REVIEWER_PROMPT is self-contained — do NOT reference PARALLEL_PR_REVIEW.md on disk.
       # Construct it from your context:
       #   1. Prefix:  "Read the .agent-task file in your worktree first.
-      #               GH_REPO=cgcardona/agentception  Repo: $HOME/dev/tellurstori/agentception"
+      #               GH_REPO=cgcardona/agentception  Repo: <repo-root>"
       #   2. Body:    paste the entire ## Embedded Reviewer Kickoff section verbatim
       #               (your QA VP embedded it when it seeded you — or your own prompt IS it)
       # The replacement reviewer's prompt also contains ## Pass-Along: Implementer Kickoff
@@ -1471,7 +1471,7 @@ Confirm worktrees appear: `git worktree list`
 ```bash
 REPO=$(git rev-parse --show-toplevel)
 docker compose -f "$REPO/docker-compose.yml" ps
-docker compose exec maestro ls /worktrees/
+docker compose exec agentception ls /worktrees/
 ```
 
 ---
@@ -1596,8 +1596,8 @@ if [ "$IS_AC" -gt 0 ]; then
   docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/" 2>&1 | tail -5
 else
   REPO=$(git worktree list | head -1 | awk '{print $1}')
-  cd "$REPO" && docker compose exec maestro sh -c \
-    "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/maestro/ /worktrees/$WTNAME/tests/" 2>&1 | tail -5
+  cd "$REPO" && docker compose exec agentception sh -c \
+    "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/" 2>&1 | tail -5
 fi
 ```
 Your job is to ensure the PR does not *introduce* new errors. But if you touch a file with pre-existing errors, you own them.

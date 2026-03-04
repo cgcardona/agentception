@@ -75,13 +75,13 @@ async def test_cache_hit_skips_subprocess() -> None:
     ) as mock_exec:
         # First call — subprocess runs.
         result1 = await gh_json(
-            ["issue", "list", "--repo", "cgcardona/maestro", "--json", "number,title"],
+            ["issue", "list", "--repo", "cgcardona/agentception", "--json", "number,title"],
             ".",
             "test_key",
         )
         # Second call — should use cache.
         result2 = await gh_json(
-            ["issue", "list", "--repo", "cgcardona/maestro", "--json", "number,title"],
+            ["issue", "list", "--repo", "cgcardona/agentception", "--json", "number,title"],
             ".",
             "test_key",
         )
