@@ -60,6 +60,8 @@ services:
       timeout: 5s
       retries: 5
     ports:
+      # 5433 on the host — offset from Maestro's 5432 to avoid collision when
+      # both docker-compose stacks run on the same machine during development.
       - "127.0.0.1:5433:5432"
 
   # ==========================================================================
