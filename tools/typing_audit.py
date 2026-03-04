@@ -7,7 +7,7 @@ Usage:
     python tools/typing_audit.py                        # agentception/ + tests/
     python tools/typing_audit.py --json artifacts/typing_audit.json
     python tools/typing_audit.py --dirs agentception/ tests/
-    python tools/typing_audit.py --dirs agentception/ --max-any 10
+    python tools/typing_audit.py --dirs agentception/ --max-any 0
 """
 
 from __future__ import annotations
