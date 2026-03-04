@@ -35,7 +35,7 @@ docker-compose.override.yml
 
 # OS
 .DS_Store
-Thumbs.db
+*.db
 
 # Logs
 *.log
