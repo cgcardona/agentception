@@ -6,7 +6,7 @@ Every pull request and push to `main` runs the full CI suite via GitHub Actions
 | Job | What it does |
 |-----|-------------|
 | **mypy** | `mypy agentception/ tests/` with `--strict` — zero errors required |
-| **typing-ratchet** | `tools/typing_audit.py --max-any 10` — Any ceiling enforced |
+| **typing-ratchet** | `tools/typing_audit.py --max-any 0` — Any ceiling enforced |
 | **pytest** | Full test suite against a live ephemeral Postgres |
 | **smoke** | `docker compose up -d --wait` → `curl /health` → `curl /` |
 
@@ -42,7 +42,7 @@ docker compose -f docker-compose.yml -f docker-compose.ci.yml \
 
 # Typing ratchet
 docker compose -f docker-compose.yml -f docker-compose.ci.yml \
-  run --rm agentception python tools/typing_audit.py --dirs agentception/ tests/ --max-any 10
+  run --rm agentception python tools/typing_audit.py --dirs agentception/ tests/ --max-any 0
 
 # Full test suite (start postgres first)
 docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d postgres
