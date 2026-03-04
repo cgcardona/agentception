@@ -61,8 +61,18 @@ This codebase is operated by humans and agents. Strong types are the contract th
 | `object` | The actual type or a constrained union |
 | `list` (bare) | `list[X]` where X is the concrete element type |
 | `dict` (bare) | `dict[K, V]` with concrete key and value types |
+| `dict[str, X]` with known keys | `TypedDict` or `BaseModel` — if you know the keys, name them |
 | `cast(T, x)` | Fix the function that produces `x` to return `T` |
 | `# type: ignore` | Fix the underlying type error |
+
+### The known-keys rule
+
+`list[X]` and `dict[K, V]` are fine when the collection *is* the abstraction — a homogeneous sequence or a genuine dynamic lookup table where any key is valid. The key question: **do you know the keys at write time?**
+
+- **Yes** → use a `TypedDict` or `BaseModel`. A `dict[str, str]` whose keys are always `"title"`, `"body"`, and `"label"` is a `TypedDict` waiting to be written. Name it.
+- **No** → `dict[K, V]` is correct. A label-to-color map or a phase-to-count lookup has no fixed key structure; the parameterized dict is the right type.
+
+`dict[str, Any]` or `dict[str, object]` with a known key structure is the highest-signal red flag in the codebase — structured data being treated as unstructured. Always replace it with a named type.
 
 ## Testing
 

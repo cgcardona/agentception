@@ -137,8 +137,11 @@ This codebase is read and modified by humans and agents alike. Strong, explicit 
 | `object` | Effectively `Any` — carries no structural information | The actual type or a constrained union |
 | `list` (bare) | Tells nothing about contents | `list[X]` with the concrete element type |
 | `dict` (bare) | Same | `dict[K, V]` with concrete key and value types |
+| `dict[str, X]` with known keys | Structured data masquerading as dynamic | `TypedDict` or `BaseModel` — if you know the keys, name them |
 | `cast(T, x)` | Masks a broken return type upstream | Fix the callee to return `T` correctly |
 | `# type: ignore` | A lie in the source — silences a real error | Fix the root cause; use a typed stub for third-party issues |
+
+**The known-keys rule:** `list[X]` and `dict[K, V]` are fine when the collection *is* the abstraction — a homogeneous sequence or a genuine dynamic lookup table. The key question: **do you know the keys at write time?** If yes, use a `TypedDict` or `BaseModel` and name them. If no (any string key is valid), `dict[K, V]` is correct. `dict[str, Any]` or `dict[str, object]` with a known key structure is the highest-signal red flag in the codebase — structured data being treated as unstructured.
 
 **The cast rule deserves emphasis:** if you find yourself writing `cast(SomeType, value)` at a call site, it means the function producing `value` is returning the wrong type. Do not paper over it at the call site. Go upstream, fix the return type, and let the correct type flow down. A cast is always a symptom of a type error elsewhere.
 
