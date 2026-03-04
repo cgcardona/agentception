@@ -14,7 +14,6 @@ defaults.  This is the primary mechanism for multi-repo generalisation (AC-601).
 calls it at the top of every tick so a project switch via the GUI takes effect
 within one polling interval — no service restart required.
 """
-from __future__ import annotations
 
 import json
 import logging
