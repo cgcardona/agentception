@@ -382,7 +382,7 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
 # Dispatcher prompt — serve the coordinator prompt so the UI can copy it
 # ---------------------------------------------------------------------------
 
-_DISPATCHER_PROMPT_PATH = Path(settings.repo_dir) / ".cursor" / "agentception-dispatcher.md"
+_DISPATCHER_PROMPT_PATH = Path(settings.repo_dir) / ".agentception" / "dispatcher.md"
 
 
 @router.get("/dispatcher-prompt")
