@@ -36,16 +36,39 @@ When uncertain: (1) preserve existing patterns, (2) prefer smaller changes over 
 ## Code standards
 
 - **Every Python file** starts with `from __future__ import annotations`. No exceptions.
-- Black formatting. Type hints everywhere — 100% coverage, no untyped functions or parameters. `list[...]`/`dict[...]` style. No `# type: ignore` without a reason comment explaining why.
+- Black formatting. Type hints everywhere — 100% coverage, no untyped functions or parameters. `list[...]`/`dict[...]` style (never `List`, `Dict`, `Optional`).
 - **Mypy before tests — always.** Run `docker compose exec agentception mypy <path>` on every Python file you create or modify. Fix all type errors before running tests.
-- **`Any` is a last resort.** Prefer `object`, `TypedDict`, or a Pydantic `BaseModel`. Every `Any` counts against the ratchet; never suppress the ratchet.
 - Async for all I/O. `logging.getLogger(__name__)` — never `print()`. `AC_*` env vars via `agentception/config.py`.
 - Sparse logs with emoji prefixes (❌ error, ⚠️ warning, ✅ success). No noise.
 - Docstrings on public modules/classes/functions. "Why" over "what." Update docs in the same commit as code changes.
 
+## Typing — zero-tolerance rules
+
+This codebase is operated by humans and agents. Strong types are the contract that lets both navigate it safely. There are no exceptions to these rules.
+
+- **No `Any`. Ever.** `Any` destroys type safety for every caller downstream. If you think you need `Any`, you need a `TypedDict`, a `BaseModel`, a `Protocol`, or a more specific union. There is always a correct type — find it.
+- **No `object`. Ever.** `object` is `Any` with a different name for this purpose. If you know the shape, express it. If you don't, define it.
+- **No naked collections.** `list`, `dict`, `set`, `tuple` with no type parameters are banned. Always write `list[str]`, `dict[str, int]`, `tuple[str, int, bool]`. A bare `list` tells agents and mypy nothing.
+- **No `# type: ignore`.** If mypy flags something, fix the root cause — don't silence it. A suppression comment is a lie baked into the source. If a third-party library forces the issue, use a typed stub or a narrow wrapper with a documented reason.
+- **No casting or type coercion at call sites.** If you find yourself writing `cast(SomeType, value)` or forcing a type at a caller, the callee is returning the wrong type. Fix the callee. A cast at a call site means the type contract is broken upstream — trace it to the source and fix it there.
+- **Mypy strict = true, zero errors.** The mypy configuration in `pyproject.toml` runs with `strict = true`. All errors are real errors. Fixing them by weakening the config is not a fix.
+
+### What to use instead
+
+| Banned | Use instead |
+|--------|-------------|
+| `Any` | `TypedDict`, `BaseModel`, `Protocol`, a specific union type |
+| `object` | The actual type or a constrained union |
+| `list` (bare) | `list[X]` where X is the concrete element type |
+| `dict` (bare) | `dict[K, V]` with concrete key and value types |
+| `cast(T, x)` | Fix the function that produces `x` to return `T` |
+| `# type: ignore` | Fix the underlying type error |
+
 ## Testing
 
+- **Four levels, all required:** unit tests, integration tests, regression tests (one per bug fix), and E2E tests where behavior crosses a service boundary. Omitting a level requires a documented reason in the PR.
 - Naming: `test_<behavior>_<scenario>`. Shared fixtures in `tests/conftest.py`. `@pytest.mark.anyio` for async.
+- **Agents own all broken tests — not just theirs.** If you run the test suite and see a failing test, you are responsible for fixing it before merging your work. "This was broken before I got here" is not a valid reason to merge. Either fix it or open a blocking issue and get explicit sign-off. A PR that introduces or knowingly ignores a broken test will not be merged.
 - Coverage: `docker compose exec agentception sh -c "export COVERAGE_FILE=/tmp/.coverage && python -m coverage run -m pytest tests/ -v && python -m coverage report --fail-under=80 --show-missing"`
 
 ## JS / CSS build discipline
@@ -69,7 +92,9 @@ The browser loads **compiled bundles**, not source files directly:
 - **No legacy, no deprecated, no backwards compatibility.** Remove dead code, dead fields, dead endpoints on sight. Never add fallback paths for old API shapes.
 - Business logic in route handlers. Global mutable state outside designated stores.
 - Hardcoded model IDs, secrets, or URLs outside config.
+- **`Any`, `object`, bare collections, `cast()`, or `# type: ignore`.** See the Typing section — these are absolute bans, not guidelines.
 - Tests on live APIs without skip guards. `sleep()` in tests. Asserting implementation details instead of behavior.
+- **Merging with a known broken test.** If you see a failing test, own it. Fix it or block the PR. No exceptions.
 - `print()` for diagnostics. Committing ephemeral scripts.
 - Adding pip dependencies without updating `requirements.txt`. Running Python on the host.
 - **Jinja2 `tojson` inside double-quoted HTML attributes.** `tojson` emits double-quoted JSON strings; wrapping them in a double-quoted attribute truncates the value at the first `"`. **Always use single-quoted HTML attributes when the value contains `tojson` output.** This applies to `x-data`, `x-text`, `:class`, `@click`, and any other Alpine.js or HTMX directive. Example — correct: `x-data='fn({{ val | tojson }})'`; wrong: `x-data="fn({{ val | tojson }})"`. We introduced this bug three times before codifying this rule.
