@@ -23,8 +23,13 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from starlette.requests import Request
 
+from typing import TypedDict
+
 from agentception.config import settings
 from agentception.db.queries import (
+    PhasedIssueRow,
+    PhaseGroupRow,
+    RunForIssueRow,
     get_agent_events_tail,
     get_agent_thoughts_tail,
     get_initiatives,
@@ -32,6 +37,27 @@ from agentception.db.queries import (
     get_runs_for_issue_numbers,
 )
 from ._shared import _TEMPLATES
+
+
+class EnrichedIssueRow(TypedDict):
+    """PhasedIssueRow with the most-recent agent run attached."""
+
+    number: int
+    title: str
+    state: str
+    url: str
+    labels: list[str]
+    run: RunForIssueRow | None
+
+
+class EnrichedPhaseGroupRow(TypedDict):
+    """PhaseGroupRow whose issues are EnrichedIssueRow (have a 'run' field)."""
+
+    label: str
+    issues: list[EnrichedIssueRow]
+    locked: bool
+    complete: bool
+    depends_on: list[str]
 
 logger = logging.getLogger(__name__)
 
@@ -106,9 +132,26 @@ async def build_page(
     all_issue_numbers = [i["number"] for g in groups for i in g["issues"]]
     runs = await get_runs_for_issue_numbers(all_issue_numbers)
 
-    for group in groups:
-        for issue in group["issues"]:
-            issue["run"] = runs.get(issue["number"])
+    enriched_groups: list[EnrichedPhaseGroupRow] = [
+        EnrichedPhaseGroupRow(
+            label=g["label"],
+            issues=[
+                EnrichedIssueRow(
+                    number=i["number"],
+                    title=i["title"],
+                    state=i["state"],
+                    url=i["url"],
+                    labels=i["labels"],
+                    run=runs.get(i["number"]),
+                )
+                for i in g["issues"]
+            ],
+            locked=g["locked"],
+            complete=g["complete"],
+            depends_on=g["depends_on"],
+        )
+        for g in groups
+    ]
 
     return _TEMPLATES.TemplateResponse(
         "build.html",
@@ -117,7 +160,7 @@ async def build_page(
             "repo": repo,
             "initiative": initiative or "",
             "initiatives": initiatives,
-            "groups": groups,
+            "groups": enriched_groups,
             "role_groups": _available_roles(),
             "total_issues": len(all_issue_numbers),
         },
@@ -141,15 +184,32 @@ async def build_board_partial(
     all_issue_numbers = [i["number"] for g in groups for i in g["issues"]]
     runs = await get_runs_for_issue_numbers(all_issue_numbers)
 
-    for group in groups:
-        for issue in group["issues"]:
-            issue["run"] = runs.get(issue["number"])
+    enriched_groups: list[EnrichedPhaseGroupRow] = [
+        EnrichedPhaseGroupRow(
+            label=g["label"],
+            issues=[
+                EnrichedIssueRow(
+                    number=i["number"],
+                    title=i["title"],
+                    state=i["state"],
+                    url=i["url"],
+                    labels=i["labels"],
+                    run=runs.get(i["number"]),
+                )
+                for i in g["issues"]
+            ],
+            locked=g["locked"],
+            complete=g["complete"],
+            depends_on=g["depends_on"],
+        )
+        for g in groups
+    ]
 
     return _TEMPLATES.TemplateResponse(
         "_build_board.html",
         {
             "request": request,
-            "groups": groups,
+            "groups": enriched_groups,
             "repo": repo,
             "initiative": initiative or "",
         },
@@ -186,7 +246,7 @@ async def _inspector_sse(run_id: str) -> AsyncGenerator[str, None]:
                 {
                     "t": "event",
                     "event_type": ev["event_type"],
-                    "payload": ev["payload"],
+                    "payload": json.loads(ev["payload"]),
                     "recorded_at": ev["recorded_at"],
                 }
             )

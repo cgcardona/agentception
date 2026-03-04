@@ -86,7 +86,8 @@ async def telemetry_trend_partial(request: Request) -> HTMLResponse:
     import json as _json
     from agentception.db.queries import get_pipeline_trend
 
-    trend: list[dict[str, object]] = []
+    from agentception.db.queries import PipelineTrendRow
+    trend: list[PipelineTrendRow] = []
     try:
         trend = await get_pipeline_trend(hours=24, limit=500)
     except Exception as exc:  # pragma: no cover

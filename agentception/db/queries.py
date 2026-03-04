@@ -9,11 +9,10 @@ empty results so a database outage degrades gracefully to in-memory state.
 
 import json
 import logging
-from typing import Any
+from pathlib import Path
+from typing import TypedDict
 
 from sqlalchemy import select, text
-
-from pathlib import Path
 
 from agentception.db.engine import get_session
 from agentception.db.models import (
@@ -25,6 +24,300 @@ from agentception.db.models import (
     ACPullRequest,
     ACWave,
 )
+
+
+# ---------------------------------------------------------------------------
+# Row TypedDicts — typed return shapes for every query function.
+# All fields match the dict literals built in each query body exactly.
+# ---------------------------------------------------------------------------
+
+
+class LabelEntry(TypedDict):
+    """Single label object as returned by the GitHub API shape."""
+
+    name: str
+
+
+class BoardIssueRow(TypedDict):
+    """One row from get_board_issues."""
+
+    number: int
+    title: str
+    state: str
+    labels: list[LabelEntry]
+    claimed: bool
+    phase_label: str | None
+    last_synced_at: str
+
+
+class PipelineTrendRow(TypedDict):
+    """One snapshot row from get_pipeline_trend."""
+
+    polled_at: str
+    active_label: str | None
+    issues_open: int
+    prs_open: int
+    agents_active: int
+    alert_count: int
+
+
+class AgentRunRow(TypedDict):
+    """One row from get_agent_run_history."""
+
+    id: str
+    wave_id: str | None
+    issue_number: int | None
+    pr_number: int | None
+    branch: str | None
+    worktree_path: str | None
+    role: str
+    status: str
+    attempt_number: int
+    spawn_mode: str | None
+    batch_id: str | None
+    spawned_at: str
+    last_activity_at: str | None
+    completed_at: str | None
+
+
+class AgentMessageRow(TypedDict):
+    """One transcript message row from get_agent_run_detail."""
+
+    role: str
+    content: str | None
+    tool_name: str | None
+    sequence_index: int
+    recorded_at: str
+
+
+class AgentRunDetail(TypedDict):
+    """Full detail dict from get_agent_run_detail."""
+
+    id: str
+    issue_number: int | None
+    pr_number: int | None
+    branch: str | None
+    role: str
+    status: str
+    spawned_at: str
+    last_activity_at: str | None
+    messages: list[AgentMessageRow]
+
+
+class OpenPRRow(TypedDict):
+    """One row from get_open_prs_db."""
+
+    number: int
+    title: str
+    state: str
+    headRefName: str | None
+    labels: list[LabelEntry]
+
+
+class LinkedPRRow(TypedDict):
+    """Linked PR summary embedded in IssueDetailRow."""
+
+    number: int
+    title: str
+    state: str
+    head_ref: str | None
+    merged_at: str | None
+
+
+class IssueAgentRunRow(TypedDict):
+    """Agent run summary embedded in IssueDetailRow."""
+
+    id: str
+    role: str
+    status: str
+    branch: str | None
+    pr_number: int | None
+    spawned_at: str
+    last_activity_at: str | None
+
+
+class IssueDetailRow(TypedDict):
+    """Full detail dict from get_issue_detail."""
+
+    number: int
+    title: str
+    body: str
+    state: str
+    labels: list[str]
+    phase_label: str | None
+    claimed: bool
+    first_seen_at: str
+    last_synced_at: str
+    closed_at: str | None
+    linked_prs: list[LinkedPRRow]
+    agent_runs: list[IssueAgentRunRow]
+
+
+class AllIssueRow(TypedDict):
+    """One row from get_all_issues."""
+
+    number: int
+    title: str
+    state: str
+    labels: list[str]
+    phase_label: str | None
+    closed_at: str | None
+    last_synced_at: str
+
+
+class LinkedIssueRow(TypedDict):
+    """Linked issue summary embedded in PRDetailRow."""
+
+    number: int
+    title: str
+    state: str
+
+
+class PRAgentRunRow(TypedDict):
+    """Agent run summary embedded in PRDetailRow."""
+
+    id: str
+    role: str
+    status: str
+    branch: str | None
+    issue_number: int | None
+    spawned_at: str
+    last_activity_at: str | None
+
+
+class PRDetailRow(TypedDict):
+    """Full detail dict from get_pr_detail."""
+
+    number: int
+    title: str
+    state: str
+    head_ref: str | None
+    labels: list[str]
+    closes_issue_number: int | None
+    merged_at: str | None
+    first_seen_at: str
+    last_synced_at: str
+    linked_issue: LinkedIssueRow | None
+    agent_runs: list[PRAgentRunRow]
+
+
+class AllPRRow(TypedDict):
+    """One row from get_all_prs."""
+
+    number: int
+    title: str
+    state: str
+    head_ref: str | None
+    labels: list[str]
+    closes_issue_number: int | None
+    merged_at: str | None
+    last_synced_at: str
+
+
+class WaveAgentRow(TypedDict):
+    """One agent entry inside a WaveRow."""
+
+    id: str
+    role: str
+    status: str
+    issue_number: int | None
+    pr_number: int | None
+    branch: str | None
+    batch_id: str | None
+    worktree_path: str | None
+    cognitive_arch: None
+    message_count: int
+
+
+class WaveRow(TypedDict):
+    """One wave from get_waves_from_db."""
+
+    batch_id: str
+    started_at: float
+    ended_at: float | None
+    issues_worked: list[int]
+    prs_opened: int
+    prs_merged: int
+    estimated_tokens: int
+    estimated_cost_usd: float
+    agents: list[WaveAgentRow]
+
+
+class ConductorHistoryRow(TypedDict):
+    """One entry from get_conductor_history."""
+
+    wave_id: str
+    worktree: str
+    host_worktree: str
+    started_at: str
+    status: str
+
+
+class PhasedIssueRow(TypedDict):
+    """One issue entry inside a PhaseGroupRow."""
+
+    number: int
+    title: str
+    state: str
+    url: str
+    labels: list[str]
+
+
+class PhaseGroupRow(TypedDict):
+    """One phase bucket from get_issues_grouped_by_phase."""
+
+    label: str
+    issues: list[PhasedIssueRow]
+    locked: bool
+    complete: bool
+    depends_on: list[str]
+
+
+class RunForIssueRow(TypedDict):
+    """Most-recent run entry from get_runs_for_issue_numbers."""
+
+    id: str
+    role: str
+    status: str
+    pr_number: int | None
+    branch: str | None
+    spawned_at: str
+    last_activity_at: str | None
+
+
+class PendingLaunchRow(TypedDict):
+    """One pending launch from get_pending_launches."""
+
+    run_id: str
+    issue_number: int | None
+    role: str
+    branch: str | None
+    worktree_path: str | None
+    host_worktree_path: str | None
+    batch_id: str | None
+    spawned_at: str
+
+
+class AgentEventRow(TypedDict):
+    """One structured event from get_agent_events_tail.
+
+    ``payload`` is the raw JSON string stored in the DB — callers must
+    parse it with ``json.loads`` if they need the structured payload.
+    """
+
+    id: int
+    event_type: str
+    payload: str
+    recorded_at: str
+
+
+class AgentThoughtRow(TypedDict):
+    """One transcript message from get_agent_thoughts_tail."""
+
+    seq: int
+    role: str
+    content: str
+    recorded_at: str
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +332,7 @@ async def get_board_issues(
     label: str | None = None,
     include_claimed: bool = False,
     limit: int = 50,
-) -> list[dict[str, Any]]:
+) -> list[BoardIssueRow]:
     """Return open issues from ``ac_issues``, optionally filtered by phase label.
 
     Returns dicts shaped like the ``gh`` CLI JSON output so existing templates
@@ -61,22 +354,22 @@ async def get_board_issues(
             result = await session.execute(stmt)
             rows = result.scalars().all()
 
-        issues: list[dict[str, Any]] = []
+        issues: list[BoardIssueRow] = []
         for row in rows:
             labels = json.loads(row.labels_json)
             is_claimed = "agent:wip" in labels
             if not include_claimed and is_claimed:
                 continue
             issues.append(
-                {
-                    "number": row.github_number,
-                    "title": row.title,
-                    "state": row.state,
-                    "labels": [{"name": n} for n in labels],
-                    "claimed": is_claimed,
-                    "phase_label": row.phase_label,
-                    "last_synced_at": row.last_synced_at.isoformat(),
-                }
+                BoardIssueRow(
+                    number=row.github_number,
+                    title=row.title,
+                    state=row.state,
+                    labels=[LabelEntry(name=n) for n in labels],
+                    claimed=is_claimed,
+                    phase_label=row.phase_label,
+                    last_synced_at=row.last_synced_at.isoformat(),
+                )
             )
         return issues
     except Exception as exc:
@@ -117,7 +410,7 @@ async def get_board_counts(
 async def get_pipeline_trend(
     hours: int = 24,
     limit: int = 500,
-) -> list[dict[str, Any]]:
+) -> list[PipelineTrendRow]:
     """Return recent pipeline snapshots for trend charts.
 
     Each dict has: ``polled_at`` (ISO string), ``active_label``,
@@ -134,14 +427,14 @@ async def get_pipeline_trend(
             rows = result.scalars().all()
 
         return [
-            {
-                "polled_at": row.polled_at.isoformat(),
-                "active_label": row.active_label,
-                "issues_open": row.issues_open,
-                "prs_open": row.prs_open,
-                "agents_active": row.agents_active,
-                "alert_count": len(json.loads(row.alerts_json)),
-            }
+            PipelineTrendRow(
+                polled_at=row.polled_at.isoformat(),
+                active_label=row.active_label,
+                issues_open=row.issues_open,
+                prs_open=row.prs_open,
+                agents_active=row.agents_active,
+                alert_count=len(json.loads(row.alerts_json)),
+            )
             for row in reversed(rows)  # chronological order for charts
         ]
     except Exception as exc:
@@ -157,7 +450,7 @@ async def get_pipeline_trend(
 async def get_agent_run_history(
     limit: int = 100,
     status: str | None = None,
-) -> list[dict[str, Any]]:
+) -> list[AgentRunRow]:
     """Return recent agent runs from ``ac_agent_runs``, newest first."""
     try:
         async with get_session() as session:
@@ -172,26 +465,26 @@ async def get_agent_run_history(
             rows = result.scalars().all()
 
         return [
-            {
-                "id": row.id,
-                "wave_id": row.wave_id,
-                "issue_number": row.issue_number,
-                "pr_number": row.pr_number,
-                "branch": row.branch,
-                "worktree_path": row.worktree_path,
-                "role": row.role,
-                "status": row.status,
-                "attempt_number": row.attempt_number,
-                "spawn_mode": row.spawn_mode,
-                "batch_id": row.batch_id,
-                "spawned_at": row.spawned_at.isoformat(),
-                "last_activity_at": (
+            AgentRunRow(
+                id=row.id,
+                wave_id=row.wave_id,
+                issue_number=row.issue_number,
+                pr_number=row.pr_number,
+                branch=row.branch,
+                worktree_path=row.worktree_path,
+                role=row.role,
+                status=row.status,
+                attempt_number=row.attempt_number,
+                spawn_mode=row.spawn_mode,
+                batch_id=row.batch_id,
+                spawned_at=row.spawned_at.isoformat(),
+                last_activity_at=(
                     row.last_activity_at.isoformat() if row.last_activity_at else None
                 ),
-                "completed_at": (
+                completed_at=(
                     row.completed_at.isoformat() if row.completed_at else None
                 ),
-            }
+            )
             for row in rows
         ]
     except Exception as exc:
@@ -201,7 +494,7 @@ async def get_agent_run_history(
 
 async def get_agent_run_detail(
     run_id: str,
-) -> dict[str, Any] | None:
+) -> AgentRunDetail | None:
     """Return a single agent run with its transcript messages.
 
     ``run_id`` is the worktree basename (e.g. ``issue-732``), which is the
@@ -223,28 +516,28 @@ async def get_agent_run_detail(
             )
             messages = msg_result.scalars().all()
 
-        return {
-            "id": run.id,
-            "issue_number": run.issue_number,
-            "pr_number": run.pr_number,
-            "branch": run.branch,
-            "role": run.role,
-            "status": run.status,
-            "spawned_at": run.spawned_at.isoformat(),
-            "last_activity_at": (
+        return AgentRunDetail(
+            id=run.id,
+            issue_number=run.issue_number,
+            pr_number=run.pr_number,
+            branch=run.branch,
+            role=run.role,
+            status=run.status,
+            spawned_at=run.spawned_at.isoformat(),
+            last_activity_at=(
                 run.last_activity_at.isoformat() if run.last_activity_at else None
             ),
-            "messages": [
-                {
-                    "role": m.role,
-                    "content": m.content,
-                    "tool_name": m.tool_name,
-                    "sequence_index": m.sequence_index,
-                    "recorded_at": m.recorded_at.isoformat(),
-                }
+            messages=[
+                AgentMessageRow(
+                    role=m.role,
+                    content=m.content,
+                    tool_name=m.tool_name,
+                    sequence_index=m.sequence_index,
+                    recorded_at=m.recorded_at.isoformat(),
+                )
                 for m in messages
             ],
-        }
+        )
     except Exception as exc:
         logger.warning("⚠️  get_agent_run_detail DB query failed (non-fatal): %s", exc)
         return None
@@ -255,7 +548,7 @@ async def get_agent_run_detail(
 # ---------------------------------------------------------------------------
 
 
-async def get_open_prs_db(repo: str, limit: int = 50) -> list[dict[str, Any]]:
+async def get_open_prs_db(repo: str, limit: int = 50) -> list[OpenPRRow]:
     """Return open PRs from ``ac_pull_requests``."""
     try:
         async with get_session() as session:
@@ -267,13 +560,13 @@ async def get_open_prs_db(repo: str, limit: int = 50) -> list[dict[str, Any]]:
             )
             rows = result.scalars().all()
         return [
-            {
-                "number": row.github_number,
-                "title": row.title,
-                "state": row.state,
-                "headRefName": row.head_ref,
-                "labels": [{"name": n} for n in json.loads(row.labels_json)],
-            }
+            OpenPRRow(
+                number=row.github_number,
+                title=row.title,
+                state=row.state,
+                headRefName=row.head_ref,
+                labels=[LabelEntry(name=n) for n in json.loads(row.labels_json)],
+            )
             for row in rows
         ]
     except Exception as exc:
@@ -289,7 +582,7 @@ async def get_open_prs_db(repo: str, limit: int = 50) -> list[dict[str, Any]]:
 async def get_issue_detail(
     repo: str,
     number: int,
-) -> dict[str, Any] | None:
+) -> IssueDetailRow | None:
     """Return full detail for a single issue from ``ac_issues``.
 
     Includes linked PR (via ``closes_issue_number``) and all agent runs
@@ -324,40 +617,40 @@ async def get_issue_detail(
             runs = runs_result.scalars().all()
 
         labels = json.loads(issue.labels_json)
-        return {
-            "number": issue.github_number,
-            "title": issue.title,
-            "body": issue.body or "",
-            "state": issue.state,
-            "labels": labels,
-            "phase_label": issue.phase_label,
-            "claimed": "agent:wip" in labels,
-            "first_seen_at": issue.first_seen_at.isoformat(),
-            "last_synced_at": issue.last_synced_at.isoformat(),
-            "closed_at": issue.closed_at.isoformat() if issue.closed_at else None,
-            "linked_prs": [
-                {
-                    "number": pr.github_number,
-                    "title": pr.title,
-                    "state": pr.state,
-                    "head_ref": pr.head_ref,
-                    "merged_at": pr.merged_at.isoformat() if pr.merged_at else None,
-                }
+        return IssueDetailRow(
+            number=issue.github_number,
+            title=issue.title,
+            body=issue.body or "",
+            state=issue.state,
+            labels=labels,
+            phase_label=issue.phase_label,
+            claimed="agent:wip" in labels,
+            first_seen_at=issue.first_seen_at.isoformat(),
+            last_synced_at=issue.last_synced_at.isoformat(),
+            closed_at=issue.closed_at.isoformat() if issue.closed_at else None,
+            linked_prs=[
+                LinkedPRRow(
+                    number=pr.github_number,
+                    title=pr.title,
+                    state=pr.state,
+                    head_ref=pr.head_ref,
+                    merged_at=pr.merged_at.isoformat() if pr.merged_at else None,
+                )
                 for pr in linked_prs
             ],
-            "agent_runs": [
-                {
-                    "id": r.id,
-                    "role": r.role,
-                    "status": r.status,
-                    "branch": r.branch,
-                    "pr_number": r.pr_number,
-                    "spawned_at": r.spawned_at.isoformat(),
-                    "last_activity_at": r.last_activity_at.isoformat() if r.last_activity_at else None,
-                }
+            agent_runs=[
+                IssueAgentRunRow(
+                    id=r.id,
+                    role=r.role,
+                    status=r.status,
+                    branch=r.branch,
+                    pr_number=r.pr_number,
+                    spawned_at=r.spawned_at.isoformat(),
+                    last_activity_at=r.last_activity_at.isoformat() if r.last_activity_at else None,
+                )
                 for r in runs
             ],
-        }
+        )
     except Exception as exc:
         logger.warning("⚠️  get_issue_detail DB query failed (non-fatal): %s", exc)
         return None
@@ -367,7 +660,7 @@ async def get_all_issues(
     repo: str,
     state: str | None = None,
     limit: int = 200,
-) -> list[dict[str, Any]]:
+) -> list[AllIssueRow]:
     """Return issues from ``ac_issues``, optionally filtered by state."""
     try:
         async with get_session() as session:
@@ -382,15 +675,15 @@ async def get_all_issues(
             result = await session.execute(stmt)
             rows = result.scalars().all()
         return [
-            {
-                "number": row.github_number,
-                "title": row.title,
-                "state": row.state,
-                "labels": json.loads(row.labels_json),
-                "phase_label": row.phase_label,
-                "closed_at": row.closed_at.isoformat() if row.closed_at else None,
-                "last_synced_at": row.last_synced_at.isoformat(),
-            }
+            AllIssueRow(
+                number=row.github_number,
+                title=row.title,
+                state=row.state,
+                labels=json.loads(row.labels_json),
+                phase_label=row.phase_label,
+                closed_at=row.closed_at.isoformat() if row.closed_at else None,
+                last_synced_at=row.last_synced_at.isoformat(),
+            )
             for row in rows
         ]
     except Exception as exc:
@@ -406,7 +699,7 @@ async def get_all_issues(
 async def get_pr_detail(
     repo: str,
     number: int,
-) -> dict[str, Any] | None:
+) -> PRDetailRow | None:
     """Return full detail for a single PR from ``ac_pull_requests``.
 
     Includes linked issue and agent runs that worked on this PR.
@@ -443,34 +736,34 @@ async def get_pr_detail(
             runs = runs_result.scalars().all()
 
         labels = json.loads(pr.labels_json)
-        return {
-            "number": pr.github_number,
-            "title": pr.title,
-            "state": pr.state,
-            "head_ref": pr.head_ref,
-            "labels": labels,
-            "closes_issue_number": pr.closes_issue_number,
-            "merged_at": pr.merged_at.isoformat() if pr.merged_at else None,
-            "first_seen_at": pr.first_seen_at.isoformat(),
-            "last_synced_at": pr.last_synced_at.isoformat(),
-            "linked_issue": {
-                "number": issue.github_number,
-                "title": issue.title,
-                "state": issue.state,
-            } if issue else None,
-            "agent_runs": [
-                {
-                    "id": r.id,
-                    "role": r.role,
-                    "status": r.status,
-                    "branch": r.branch,
-                    "issue_number": r.issue_number,
-                    "spawned_at": r.spawned_at.isoformat(),
-                    "last_activity_at": r.last_activity_at.isoformat() if r.last_activity_at else None,
-                }
+        return PRDetailRow(
+            number=pr.github_number,
+            title=pr.title,
+            state=pr.state,
+            head_ref=pr.head_ref,
+            labels=labels,
+            closes_issue_number=pr.closes_issue_number,
+            merged_at=pr.merged_at.isoformat() if pr.merged_at else None,
+            first_seen_at=pr.first_seen_at.isoformat(),
+            last_synced_at=pr.last_synced_at.isoformat(),
+            linked_issue=LinkedIssueRow(
+                number=issue.github_number,
+                title=issue.title,
+                state=issue.state,
+            ) if issue else None,
+            agent_runs=[
+                PRAgentRunRow(
+                    id=r.id,
+                    role=r.role,
+                    status=r.status,
+                    branch=r.branch,
+                    issue_number=r.issue_number,
+                    spawned_at=r.spawned_at.isoformat(),
+                    last_activity_at=r.last_activity_at.isoformat() if r.last_activity_at else None,
+                )
                 for r in runs
             ],
-        }
+        )
     except Exception as exc:
         logger.warning("⚠️  get_pr_detail DB query failed (non-fatal): %s", exc)
         return None
@@ -480,7 +773,7 @@ async def get_all_prs(
     repo: str,
     state: str | None = None,
     limit: int = 200,
-) -> list[dict[str, Any]]:
+) -> list[AllPRRow]:
     """Return PRs from ``ac_pull_requests``, optionally filtered by state."""
     try:
         async with get_session() as session:
@@ -495,16 +788,16 @@ async def get_all_prs(
             result = await session.execute(stmt)
             rows = result.scalars().all()
         return [
-            {
-                "number": row.github_number,
-                "title": row.title,
-                "state": row.state,
-                "head_ref": row.head_ref,
-                "labels": json.loads(row.labels_json),
-                "closes_issue_number": row.closes_issue_number,
-                "merged_at": row.merged_at.isoformat() if row.merged_at else None,
-                "last_synced_at": row.last_synced_at.isoformat(),
-            }
+            AllPRRow(
+                number=row.github_number,
+                title=row.title,
+                state=row.state,
+                head_ref=row.head_ref,
+                labels=json.loads(row.labels_json),
+                closes_issue_number=row.closes_issue_number,
+                merged_at=row.merged_at.isoformat() if row.merged_at else None,
+                last_synced_at=row.last_synced_at.isoformat(),
+            )
             for row in rows
         ]
     except Exception as exc:
@@ -517,7 +810,7 @@ async def get_all_prs(
 # ---------------------------------------------------------------------------
 
 
-async def get_waves_from_db(limit: int = 100) -> list[dict[str, Any]]:
+async def get_waves_from_db(limit: int = 100) -> list[WaveRow]:
     """Return agent runs grouped by batch_id as wave-shaped dicts.
 
     Used by ``telemetry.aggregate_waves()`` when no ``.agent-task`` files exist
@@ -540,12 +833,12 @@ async def get_waves_from_db(limit: int = 100) -> list[dict[str, Any]]:
             rows = result.scalars().all()
 
         # Group by batch_id.
-        groups: dict[str, list[Any]] = {}
+        groups: dict[str, list[ACAgentRun]] = {}
         for row in rows:
             bid = row.batch_id or row.id  # lone runs get their own key
             groups.setdefault(bid, []).append(row)
 
-        waves: list[dict[str, Any]] = []
+        waves: list[WaveRow] = []
         for batch_id, members in groups.items():
             issues_worked = sorted(
                 {r.issue_number for r in members if r.issue_number is not None}
@@ -558,34 +851,34 @@ async def get_waves_from_db(limit: int = 100) -> list[dict[str, Any]]:
                 else None
             )
 
-            agents = [
-                {
-                    "id": r.id,
-                    "role": r.role,
-                    "status": r.status,
-                    "issue_number": r.issue_number,
-                    "pr_number": r.pr_number,
-                    "branch": r.branch,
-                    "batch_id": r.batch_id,
-                    "worktree_path": r.worktree_path,
-                    "cognitive_arch": None,
-                    "message_count": 0,
-                }
+            agents: list[WaveAgentRow] = [
+                WaveAgentRow(
+                    id=r.id,
+                    role=r.role,
+                    status=r.status,
+                    issue_number=r.issue_number,
+                    pr_number=r.pr_number,
+                    branch=r.branch,
+                    batch_id=r.batch_id,
+                    worktree_path=r.worktree_path,
+                    cognitive_arch=None,
+                    message_count=0,
+                )
                 for r in members
             ]
 
             waves.append(
-                {
-                    "batch_id": batch_id,
-                    "started_at": started_ts,
-                    "ended_at": ended_ts,
-                    "issues_worked": issues_worked,
-                    "prs_opened": prs_opened,
-                    "prs_merged": 0,
-                    "estimated_tokens": 0,
-                    "estimated_cost_usd": 0.0,
-                    "agents": agents,
-                }
+                WaveRow(
+                    batch_id=batch_id,
+                    started_at=started_ts,
+                    ended_at=ended_ts,
+                    issues_worked=issues_worked,
+                    prs_opened=prs_opened,
+                    prs_merged=0,
+                    estimated_tokens=0,
+                    estimated_cost_usd=0.0,
+                    agents=agents,
+                )
             )
 
         # Most recent first.
@@ -648,7 +941,7 @@ async def get_conductor_history(
     limit: int = 5,
     worktrees_dir: Path | None = None,
     host_worktrees_dir: Path | None = None,
-) -> list[dict[str, Any]]:
+) -> list[ConductorHistoryRow]:
     """Return the last *limit* conductor spawns with current active/completed status.
 
     Status is ``"active"`` when the worktree directory still exists on disk and
@@ -673,18 +966,18 @@ async def get_conductor_history(
             result = await session.execute(stmt)
             waves = result.scalars().all()
 
-        entries: list[dict[str, Any]] = []
+        entries: list[ConductorHistoryRow] = []
         for wave in waves:
             worktree = Path(wt_dir) / wave.id
             host_worktree = Path(host_wt_dir) / wave.id
             entries.append(
-                {
-                    "wave_id": wave.id,
-                    "worktree": str(worktree),
-                    "host_worktree": str(host_worktree),
-                    "started_at": wave.started_at.strftime("%Y-%m-%d %H:%M UTC"),
-                    "status": "active" if worktree.exists() else "completed",
-                }
+                ConductorHistoryRow(
+                    wave_id=wave.id,
+                    worktree=str(worktree),
+                    host_worktree=str(host_worktree),
+                    started_at=wave.started_at.strftime("%Y-%m-%d %H:%M UTC"),
+                    status="active" if worktree.exists() else "completed",
+                )
             )
         return entries
     except Exception as exc:
@@ -792,7 +1085,7 @@ def _compute_locked(
 async def get_issues_grouped_by_phase(
     repo: str,
     initiative: str | None = None,
-) -> list[dict[str, Any]]:
+) -> list[PhaseGroupRow]:
     """Return issues grouped by phase, ordered phase-0..3.
 
     When *initiative* is supplied the result is scoped to that initiative:
@@ -826,7 +1119,7 @@ async def get_issues_grouped_by_phase(
         # initiative) over the legacy phase_label column (which was set from
         # the pipeline's active_label at poll time and is often wrong or None
         # for issues created outside the active pipeline window).
-        groups: dict[str, list[dict[str, Any]]] = {}
+        groups: dict[str, list[PhasedIssueRow]] = {}
         for row in rows:
             issue_labels: list[str] = json.loads(row.labels_json or "[]")
 
@@ -844,13 +1137,13 @@ async def get_issues_grouped_by_phase(
                 continue
 
             groups.setdefault(phase_key, []).append(
-                {
-                    "number": row.github_number,
-                    "title": row.title,
-                    "state": row.state,
-                    "url": f"https://github.com/{repo}/issues/{row.github_number}",
-                    "labels": issue_labels,
-                }
+                PhasedIssueRow(
+                    number=row.github_number,
+                    title=row.title,
+                    state=row.state,
+                    url=f"https://github.com/{repo}/issues/{row.github_number}",
+                    labels=issue_labels,
+                )
             )
 
         # Load the phase dependency graph for this initiative.
@@ -867,20 +1160,20 @@ async def get_issues_grouped_by_phase(
             if bool(issues) and all(i["state"] == "closed" for i in issues):
                 complete_phases.add(phase)
 
-        ordered: list[dict[str, Any]] = []
+        ordered: list[PhaseGroupRow] = []
         for phase in _PHASE_ORDER:
             issues = groups.pop(phase, [])
             complete = phase in complete_phases
             deps = phase_deps.get(phase, [])
             locked = _compute_locked(phase, deps, complete_phases)
             ordered.append(
-                {
-                    "label": phase,
-                    "issues": issues,
-                    "locked": locked,
-                    "complete": complete,
-                    "depends_on": deps,
-                }
+                PhaseGroupRow(
+                    label=phase,
+                    issues=issues,
+                    locked=locked,
+                    complete=complete,
+                    depends_on=deps,
+                )
             )
 
         if not initiative:
@@ -888,13 +1181,13 @@ async def get_issues_grouped_by_phase(
             for label, issues in groups.items():
                 complete = bool(issues) and all(i["state"] == "closed" for i in issues)
                 ordered.append(
-                    {
-                        "label": label,
-                        "issues": issues,
-                        "locked": False,
-                        "complete": complete,
-                        "depends_on": [],
-                    }
+                    PhaseGroupRow(
+                        label=label,
+                        issues=issues,
+                        locked=False,
+                        complete=complete,
+                        depends_on=[],
+                    )
                 )
 
         return ordered
@@ -905,7 +1198,7 @@ async def get_issues_grouped_by_phase(
 
 async def get_runs_for_issue_numbers(
     issue_numbers: list[int],
-) -> dict[int, dict[str, Any]]:
+) -> dict[int, RunForIssueRow]:
     """Return the most-recent agent run keyed by issue number.
 
     Only issue numbers that have at least one run are included in the result.
@@ -923,29 +1216,29 @@ async def get_runs_for_issue_numbers(
             rows = result.scalars().all()
 
         seen: set[int] = set()
-        out: dict[int, dict[str, Any]] = {}
+        out: dict[int, RunForIssueRow] = {}
         for row in rows:
             if row.issue_number is None or row.issue_number in seen:
                 continue
             seen.add(row.issue_number)
-            out[row.issue_number] = {
-                "id": row.id,
-                "role": row.role,
-                "status": row.status,
-                "pr_number": row.pr_number,
-                "branch": row.branch,
-                "spawned_at": row.spawned_at.isoformat(),
-                "last_activity_at": (
+            out[row.issue_number] = RunForIssueRow(
+                id=row.id,
+                role=row.role,
+                status=row.status,
+                pr_number=row.pr_number,
+                branch=row.branch,
+                spawned_at=row.spawned_at.isoformat(),
+                last_activity_at=(
                     row.last_activity_at.isoformat() if row.last_activity_at else None
                 ),
-            }
+            )
         return out
     except Exception as exc:
         logger.warning("⚠️  get_runs_for_issue_numbers DB query failed (non-fatal): %s", exc)
         return {}
 
 
-async def get_pending_launches() -> list[dict[str, Any]]:
+async def get_pending_launches() -> list[PendingLaunchRow]:
     """Return all agent runs with ``status='pending_launch'``, oldest first.
 
     Each dict contains everything the coordinator needs to claim the run and
@@ -973,7 +1266,7 @@ async def get_pending_launches() -> list[dict[str, Any]]:
                     row.id, row.status, row.role, row.spawn_mode,
                 )
 
-        launches: list[dict[str, Any]] = []
+        launches: list[PendingLaunchRow] = []
         for row in rows:
             # host_worktree is stashed in spawn_mode as JSON by persist_agent_run_dispatch
             host_worktree: str | None = None
@@ -987,16 +1280,16 @@ async def get_pending_launches() -> list[dict[str, Any]]:
                         row.id, parse_exc,
                     )
             launches.append(
-                {
-                    "run_id": row.id,
-                    "issue_number": row.issue_number,
-                    "role": row.role,
-                    "branch": row.branch,
-                    "worktree_path": row.worktree_path,
-                    "host_worktree_path": host_worktree,
-                    "batch_id": row.batch_id,
-                    "spawned_at": row.spawned_at.isoformat(),
-                }
+                PendingLaunchRow(
+                    run_id=row.id,
+                    issue_number=row.issue_number,
+                    role=row.role,
+                    branch=row.branch,
+                    worktree_path=row.worktree_path,
+                    host_worktree_path=host_worktree,
+                    batch_id=row.batch_id,
+                    spawned_at=row.spawned_at.isoformat(),
+                )
             )
         logger.warning("🗄️  get_pending_launches: returning %d launch(es)", len(launches))
         return launches
@@ -1008,7 +1301,7 @@ async def get_pending_launches() -> list[dict[str, Any]]:
 async def get_agent_events_tail(
     run_id: str,
     after_id: int = 0,
-) -> list[dict[str, Any]]:
+) -> list[AgentEventRow]:
     """Return MCP-reported events for *run_id* with ``id > after_id``.
 
     Used by the inspector SSE stream to incrementally push new events.
@@ -1027,12 +1320,12 @@ async def get_agent_events_tail(
             rows = result.scalars().all()
 
         return [
-            {
-                "id": row.id,
-                "event_type": row.event_type,
-                "payload": json.loads(row.payload or "{}"),
-                "recorded_at": row.recorded_at.isoformat(),
-            }
+            AgentEventRow(
+                id=row.id,
+                event_type=row.event_type,
+                payload=row.payload or "{}",
+                recorded_at=row.recorded_at.isoformat(),
+            )
             for row in rows
         ]
     except Exception as exc:
@@ -1044,7 +1337,7 @@ async def get_agent_thoughts_tail(
     run_id: str,
     after_seq: int = -1,
     roles: tuple[str, ...] = ("thinking", "assistant"),
-) -> list[dict[str, Any]]:
+) -> list[AgentThoughtRow]:
     """Return transcript messages for *run_id* with ``sequence_index > after_seq``.
 
     Defaults to thinking + assistant messages — the raw chain-of-thought stream
@@ -1065,12 +1358,12 @@ async def get_agent_thoughts_tail(
             rows = result.scalars().all()
 
         return [
-            {
-                "seq": row.sequence_index,
-                "role": row.role,
-                "content": row.content or "",
-                "recorded_at": row.recorded_at.isoformat(),
-            }
+            AgentThoughtRow(
+                seq=row.sequence_index,
+                role=row.role,
+                content=row.content or "",
+                recorded_at=row.recorded_at.isoformat(),
+            )
             for row in rows
         ]
     except Exception as exc:

@@ -69,8 +69,9 @@ def _schema_to_fields(
     """Flatten a JSON Schema object into a list of field descriptors."""
     resolved = _resolve_schema(schema_root, schema, depth)
     props: dict[str, object] = {}
-    if isinstance(resolved.get("properties"), dict):
-        props = resolved["properties"]  # type: ignore[assignment]
+    props_raw = resolved.get("properties")
+    if isinstance(props_raw, dict):
+        props = props_raw
     required_raw = resolved.get("required", [])
     required_set: set[str] = set(required_raw) if isinstance(required_raw, list) else set()
     fields: list[dict[str, object]] = []
@@ -113,7 +114,8 @@ def _build_api_groups(
     Every endpoint dict carries the full set of fields Swagger UI exposes:
     deprecated, operationId, per-response content-type and schema fields.
     """
-    paths: dict[str, object] = schema_root.get("paths", {})  # type: ignore[assignment]
+    paths_raw = schema_root.get("paths")
+    paths: dict[str, object] = paths_raw if isinstance(paths_raw, dict) else {}
 
     tag_order: list[str] = list(_API_TAG_META)
     buckets: dict[str, list[dict[str, object]]] = {t: [] for t in tag_order}
@@ -244,7 +246,8 @@ async def api_reference(request: Request) -> HTMLResponse:
     template receives clean structured data with no schema logic inside.
     """
     schema: dict[str, object] = request.app.openapi()
-    info: dict[str, object] = schema.get("info", {})  # type: ignore[assignment]
+    info_raw = schema.get("info")
+    info: dict[str, object] = info_raw if isinstance(info_raw, dict) else {}
     return _TEMPLATES.TemplateResponse(
         request,
         "api_reference.html",
