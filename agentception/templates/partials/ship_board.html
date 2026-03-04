@@ -1,0 +1,52 @@
+{% if not groups %}
+<div class="build-phase build-phase--empty">
+  <div class="build-phase__header">
+    <span class="build-phase__icon">○</span>
+    <span class="build-phase__label">No PRs found</span>
+    {% if initiative or batch %}
+    <span class="build-phase__progress build-phase__progress--empty">
+      no PRs match
+      {% if initiative %}initiative {{ initiative }}{% endif %}
+      {% if batch %}batch {{ batch }}{% endif %}
+    </span>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% for group in groups %}
+{% set open_count   = group.prs | selectattr("state", "equalto", "open")   | list | length %}
+{% set merged_count = group.prs | selectattr("state", "equalto", "merged") | list | length %}
+{% set total_count  = group.prs | length %}
+
+<div class="build-phase
+  {%- if total_count > 0 and open_count == 0 %} build-phase--complete
+  {%- elif not group.prs %} build-phase--empty
+  {%- else %} build-phase--active
+  {%- endif %}"
+  x-data="{ open: {{ 'true' if group.prs else 'false' }} }"
+>
+
+  <div class="build-phase__header" @click="open = !open">
+    <span class="build-phase__icon">
+      {%- if total_count > 0 and open_count == 0 %}✅{%- elif not group.prs %}○{%- else %}🔓{%- endif %}
+    </span>
+    <span class="build-phase__label">{{ group.label }}</span>
+    {% if total_count > 0 %}
+    <span class="build-phase__progress">{{ merged_count }}&thinsp;/&thinsp;{{ total_count }} merged</span>
+    {% else %}
+    <span class="build-phase__progress build-phase__progress--empty">no PRs</span>
+    {% endif %}
+    <span class="build-phase__chevron" :class="{ 'build-phase__chevron--open': open }">›</span>
+  </div>
+
+  {% if group.prs %}
+  <ul class="build-phase__issues" x-show="open">
+    {% for pr in group.prs %}
+    {% include "partials/ship_card.html" %}
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+</div>
+{% endfor %}
