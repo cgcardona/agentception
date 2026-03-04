@@ -25,6 +25,7 @@ start a phase-1 issue until all phase-0 issues are closed.
 
 import asyncio
 import logging
+import uuid
 from collections.abc import AsyncGenerator
 from typing import TypedDict
 
@@ -75,11 +76,22 @@ class BlockedEvent(TypedDict):
     blocked_by: list[int]
 
 
+class CreatedIssue(TypedDict):
+    """A single issue returned in the ``done`` SSE event."""
+
+    issue_id: str
+    number: int
+    url: str
+    title: str
+    phase: str
+
+
 class DoneEvent(TypedDict):
     t: str  # "done"
     total: int
     initiative: str
-    issues: list[dict[str, object]]
+    batch_id: str
+    issues: list[CreatedIssue]
 
 
 class FilingErrorEvent(TypedDict):
@@ -210,6 +222,7 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
     and iteration stops.
     """
     repo = _cfg.gh_repo
+    batch_id = f"batch-{uuid.uuid4().hex[:12]}"
     total_issues = sum(len(p.issues) for p in spec.phases)
     id_to_number: dict[str, int] = {}
     id_to_body: dict[str, str] = {
@@ -217,7 +230,7 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
         for phase in spec.phases
         for issue in phase.issues
     }
-    created: list[dict[str, object]] = []
+    created: list[CreatedIssue] = []
 
     yield StartEvent(t="start", total=total_issues, initiative=spec.initiative)
 
@@ -257,13 +270,13 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
                 issue_id,
             )
             created.append(
-                {
-                    "issue_id": issue_id,
-                    "number": number,
-                    "url": url,
-                    "title": title,
-                    "phase": phase.label,
-                }
+                CreatedIssue(
+                    issue_id=issue_id,
+                    number=number,
+                    url=url,
+                    title=title,
+                    phase=phase.label,
+                )
             )
             logger.info("✅ Created #%d — %s (%s)", number, title, phase.label)
             yield IssueEvent(
@@ -330,5 +343,6 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
         t="done",
         total=total_issues,
         initiative=spec.initiative,
+        batch_id=batch_id,
         issues=created,
     )

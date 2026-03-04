@@ -278,9 +278,28 @@
       </template>
     </div>
 
+    {# Batch ID pill — copyable ──────────────────────────────────────────── #}
+    <div class="plan-done-batch" x-show="batchId">
+      <span class="plan-done-batch-label">Batch ID</span>
+      <code class="plan-done-batch-id" x-text="batchId"></code>
+      <button
+        class="plan-done-batch-copy"
+        @click="copyBatchId()"
+        :title="batchIdCopied ? 'Copied!' : 'Copy batch ID'"
+        :aria-label="batchIdCopied ? 'Copied!' : 'Copy batch ID to clipboard'"
+      >
+        <span x-show="!batchIdCopied">📋</span>
+        <span x-show="batchIdCopied">✓</span>
+      </button>
+    </div>
+
     <div class="plan-done-actions">
-      <a href="/org-chart" class="btn btn-primary">View org chart →</a>
-      <button class="btn btn-secondary" @click="reset()">← New plan</button>
+      <a
+        class="btn btn-primary"
+        :href="'/build?initiative=' + encodeURIComponent(result.initiative || initiative)"
+      >Open in Build →</a>
+      <a href="/org-chart" class="btn btn-secondary">View org chart →</a>
+      <button class="btn btn-ghost" @click="reset()">← New plan</button>
     </div>
   </div>
 

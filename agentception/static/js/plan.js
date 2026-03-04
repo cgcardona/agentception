@@ -54,6 +54,10 @@ export function planForm() {
     phaseCount: 0,
     issueCount: 0,
 
+    // ── Done state — batch_id pill ─────────────────────────────────────────
+    batchId: '',
+    batchIdCopied: false,
+
     // ── Filing progress (from /api/plan/file-issues SSE stream) ───────────
     filingProgress: '',     // e.g. "Filing 3 / 8 — phase-1"
     filedIssues: [],        // [{number, url, title, phase}] filled as issues arrive
@@ -346,6 +350,14 @@ export function planForm() {
           total: doneData.total,
           issues: doneData.issues ?? [],
         };
+        this.batchId = doneData.batch_id ?? '';
+        this.initiative = doneData.initiative ?? this.initiative;
+        try {
+          localStorage.setItem('ac_active_batch', this.batchId);
+          localStorage.setItem('ac_active_initiative', this.initiative);
+        } catch (_) {
+          // localStorage may be unavailable in some browser contexts — silent fail.
+        }
         this.step = 'done';
       } catch (err) {
         this.errorMsg = err.message;
@@ -373,7 +385,22 @@ export function planForm() {
       this.filingProgress = '';
       this.filedIssues = [];
       this.result = {};
+      this.batchId = '';
+      this.batchIdCopied = false;
       if (this._editor) this._setEditorValue('');
+    },
+
+    // ── Done state helpers ─────────────────────────────────────────────────
+
+    async copyBatchId() {
+      if (!this.batchId) return;
+      try {
+        await navigator.clipboard.writeText(this.batchId);
+        this.batchIdCopied = true;
+        setTimeout(() => { this.batchIdCopied = false; }, 1500);
+      } catch (_) {
+        // Clipboard permission denied — silent fail.
+      }
     },
 
     // ── Re-run from a previous run ─────────────────────────────────────────
