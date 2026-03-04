@@ -15,6 +15,7 @@ from fastapi import APIRouter
 
 from .ab_testing import router as _ab
 from .agents import router as _agents
+from .health import router as _health
 from .build_ui import router as _build_ui
 from .cognitive_arch import router as _cognitive_arch
 from .api_reference import router as _api_reference
@@ -40,6 +41,7 @@ from ._shared import _find_agent, _TEMPLATES  # noqa: F401
 router = APIRouter(tags=["ui"])
 router.include_router(_plan_ui)   # owns "/" — must be first
 router.include_router(_build_ui)
+router.include_router(_health)
 router.include_router(_overview)
 router.include_router(_agents)
 router.include_router(_telemetry)

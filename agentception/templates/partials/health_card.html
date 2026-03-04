@@ -1,0 +1,43 @@
+{#
+  HTMX partial: System Health card.
+
+  Rendered by GET /ui/health/widget and polled every 10 seconds from the
+  overview dashboard via hx-get/hx-trigger/hx-swap="innerHTML".
+
+  Context:
+    snapshot   — HealthSnapshot model instance
+    is_nominal — bool: True when github_api_latency_ms < 500 AND memory_rss_mb < 512
+    uptime_str — human-readable uptime string (e.g. "2h 14m" or "45s")
+#}
+<div class='health-card__header'>
+  <span class='health-card__title'>System Health</span>
+  <span
+    class='health-status-dot {% if is_nominal %}health-status-dot--nominal{% else %}health-status-dot--elevated{% endif %}'
+    title='{% if is_nominal %}Nominal{% else %}Elevated{% endif %}'
+    aria-label='Status: {% if is_nominal %}nominal{% else %}elevated{% endif %}'
+  ></span>
+</div>
+<div class='health-card__grid'>
+  <div class='health-metric'>
+    <span class='health-metric__label'>Uptime</span>
+    <span class='health-metric__value'>{{ uptime_str }}</span>
+  </div>
+  <div class='health-metric'>
+    <span class='health-metric__label'>Memory RSS</span>
+    <span class='health-metric__value'>{{ "%.1f"|format(snapshot.memory_rss_mb) }} MB</span>
+  </div>
+  <div class='health-metric'>
+    <span class='health-metric__label'>Worktrees</span>
+    <span class='health-metric__value'>{{ snapshot.active_worktree_count }}</span>
+  </div>
+  <div class='health-metric'>
+    <span class='health-metric__label'>GitHub Latency</span>
+    <span class='health-metric__value'>
+      {%- if snapshot.github_api_latency_ms < 0 -%}
+        —
+      {%- else -%}
+        {{ snapshot.github_api_latency_ms | int }} ms
+      {%- endif -%}
+    </span>
+  </div>
+</div>
