@@ -1,0 +1,28 @@
+{
+  "max_eng_vps": 1,
+  "max_qa_vps": 1,
+  "pool_size_per_vp": 4,
+  "active_labels_order": [
+    "ac-ui/0-critical-bugs",
+    "ac-ui/1-design-tokens",
+    "ac-ui/2-data-model",
+    "ac-ui/3-core-pages",
+    "ac-ui/4-controls-intelligence",
+    "ac-ui/5-polish"
+  ],
+  "ab_mode": {
+    "enabled": false,
+    "target_role": "python-developer",
+    "variant_a_file": ".agentception/roles/python-developer.md",
+    "variant_b_file": ".agentception/roles/python-developer-v2.md"
+  },
+  "active_project": "maestro",
+  "projects": [
+    {
+      "name": "maestro",
+      "gh_repo": "cgcardona/maestro",
+      "repo_dir": "/repo",
+      "worktrees_dir": "/worktrees"
+    }
+  ]
+}
