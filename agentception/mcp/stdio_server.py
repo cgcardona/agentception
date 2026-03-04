@@ -39,8 +39,11 @@ def _run() -> None:
             sys.stdout.flush()
             continue
 
-        response = handle_request(request)
-        sys.stdout.write(json.dumps(response) + "\n")
+        maybe_response: dict[str, object] | None = handle_request(request)
+        if maybe_response is None:
+            # JSON-RPC notification — no response on the wire.
+            continue
+        sys.stdout.write(json.dumps(maybe_response) + "\n")
         sys.stdout.flush()
 
 
