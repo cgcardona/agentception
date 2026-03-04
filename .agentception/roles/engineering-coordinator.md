@@ -18,7 +18,7 @@ SEED:
   0. Pipeline-pause sentinel — check BEFORE seeding any agents:
        # The AgentCeption dashboard writes .agentception/.pipeline-pause to request a pause.
        # When the file exists, wait 30 s and restart the SEED block without spawning.
-       [ -f /Users/gabriel/dev/tellurstori/agentception/.agentception/.pipeline-pause ] && \
+       [ -f <repo-root>/.agentception/.pipeline-pause ] && \
          echo "⏸ Pipeline paused by AgentCeption dashboard." && sleep 30 && continue
 
   1. Ensure the claim label exists with canonical color (idempotent):
@@ -40,7 +40,7 @@ SEED:
        #   (b) the worktree exists but has zero commits ahead of dev
        #       (worktree was created but the leaf agent never started).
        # If the worktree exists AND has commits, the claim is ACTIVE — do NOT touch it.
-       MAIN_REPO=$(git -C "$HOME/dev/tellurstori/agentception" rev-parse --show-toplevel 2>/dev/null || echo "$HOME/dev/tellurstori/agentception")
+       MAIN_REPO=$(git -C "<repo-root>" rev-parse --show-toplevel 2>/dev/null || echo "<repo-root>")
        for NUM in $(gh issue list --state open --label "agent:wip" \
            --repo cgcardona/agentception --json number --jq '.[].number'); do
          # If an open PR already references this issue (via branch name or close keyword),
@@ -117,7 +117,7 @@ SEED:
   5. Take the first 4 unclaimed issues. For each:
        a. Claim:  gh issue edit <N> --add-label "agent:wip"
        b. Create worktree:
-            git -C "$HOME/dev/tellurstori/agentception" worktree add \
+            git -C "<repo-root>" worktree add \
               -b feat/issue-<N> \
               "$HOME/.agentception/worktrees/agentception/issue-<N>" \
               origin/dev
@@ -217,7 +217,7 @@ SEED:
 
        Part 1 — prefix (paste verbatim):
          "Read the .agent-task file in your worktree first.
-          GH_REPO=cgcardona/agentception  Repo: $HOME/dev/tellurstori/agentception"
+          GH_REPO=cgcardona/agentception  Repo: <repo-root>"
 
        Part 2 — implementer kickoff:
          Paste the entire ## Embedded Implementer Kickoff section below verbatim.
@@ -257,7 +257,7 @@ ISSUE_LABEL=<primary ac-ui/* label from: gh issue view <N> --json labels --jq '[
 BRANCH=feat/issue-<N>
 WORKTREE=$HOME/.agentception/worktrees/agentception/issue-<N>
 ROLE=python-developer
-ROLE_FILE=$HOME/dev/tellurstori/agentception/.agentception/roles/python-developer.md
+ROLE_FILE=<repo-root>/.agentception/roles/python-developer.md
 BASE=dev
 GH_REPO=cgcardona/agentception
 CLOSES_ISSUES=<N>
@@ -271,7 +271,7 @@ COGNITIVE_ARCH=<COGNITIVE_ARCH from step 5c above, e.g. "lovelace:htmx:jinja2:al
 
 `COGNITIVE_ARCH` is the selected cognitive architecture for this specific issue. Format: `figure:skill1:skill2` (up to 3 skills). Leaf agents pass it to `python3 /app/scripts/gen_prompts/resolve_arch.py "$COGNITIVE_ARCH"` to assemble their context block. See `scripts/gen_prompts/TICKET_TAXONOMY.md` for the full taxonomy and rationale.
 
-If a worktree is missing: `git -C "$HOME/dev/tellurstori/agentception" worktree add -b feat/issue-{N} "$HOME/.agentception/worktrees/agentception/issue-{N}" origin/dev`
+If a worktree is missing: `git -C "<repo-root>" worktree add -b feat/issue-{N} "$HOME/.agentception/worktrees/agentception/issue-{N}" origin/dev`
 
 ## What you never do
 
@@ -450,7 +450,7 @@ Run from anywhere inside the main repo. Paths are derived automatically.
 > the main repo has `dev` checked out.
 
 > **GitHub repo slug:** Always `cgcardona/agentception`. The local path
-> (`/Users/gabriel/dev/tellurstori/agentception`) is misleading — `tellurstori` is
+> (`<repo-root>`) is misleading — the local repo directory is
 > NOT the GitHub org. Never derive the slug from `basename` or `pwd`.
 
 ```bash
@@ -664,7 +664,7 @@ WTNAME=$(basename "$(pwd)")                               # this worktree's name
 # Docker path to your worktree: /worktrees/$WTNAME
 
 # GitHub repo slug — HARDCODED. NEVER derive from local path or directory name.
-# The local path is /Users/gabriel/dev/tellurstori/agentception — "tellurstori" is NOT the GitHub org.
+# The local path is derived from AC_REPO_DIR — never use directory name as the GitHub org.
 export GH_REPO=cgcardona/agentception
 ```
 
@@ -815,8 +815,8 @@ STEP 1 — DERIVE PATHS:
   # All docker compose commands: cd "$REPO" && docker compose exec maestro <cmd>
 
   # GitHub repo slug — HARDCODED. NEVER derive from directory name, basename, or local path.
-  # The local path is /Users/gabriel/dev/tellurstori/agentception.
-  # "tellurstori" is the LOCAL directory — it is NOT the GitHub org.
+  # The local path is <repo-root>.
+  # The local directory name is NOT the GitHub org. Always use GH_REPO explicitly.
   # The GitHub org is "cgcardona". Using the wrong slug → "Forbidden" or "Repository not found".
   export GH_REPO=cgcardona/agentception
 
@@ -1403,7 +1403,7 @@ FILES_CHANGED=$PR_FILES_VAL
 MERGE_AFTER=none
 HAS_MIGRATION=$HAS_MIG_VAL
 ROLE=pr-reviewer
-ROLE_FILE=$HOME/dev/tellurstori/agentception/.agentception/roles/pr-reviewer.md
+ROLE_FILE=<repo-root>/.agentception/roles/pr-reviewer.md
 COGNITIVE_ARCH=${REVIEWER_ARCH}
 BATCH_ID=${BATCH_ID:-none}
 WAVE=${WAVE:-unset}
@@ -1421,7 +1421,7 @@ TASK
     # REVIEWER_PROMPT is self-contained — do NOT reference parallel-pr-review.md on disk.
     # Construct it from your context:
     #   1. Prefix:  "Read the .agent-task file in your worktree first.
-    #               GH_REPO=cgcardona/agentception  Repo: $HOME/dev/tellurstori/agentception"
+    #               GH_REPO=cgcardona/agentception  Repo: <repo-root>"
     #   2. Body:    paste the entire ## Pass-Along: Reviewer Kickoff section verbatim
     #               (your Engineering VP embedded it when it dispatched you)
     # The reviewer's prompt already contains its own ## Pass-Along: Implementer Kickoff
@@ -2017,7 +2017,7 @@ Run from anywhere inside the main repo. Paths are derived automatically.
 > the main repo has `dev` checked out.
 
 > **GitHub repo slug:** Always `cgcardona/agentception`. The local path
-> (`/Users/gabriel/dev/tellurstori/agentception`) is misleading — `tellurstori` is
+> (`<repo-root>`) is misleading — the local repo directory is
 > NOT the GitHub org. Never derive the slug from `basename` or `pwd`.
 
 ```bash
@@ -2132,7 +2132,7 @@ FILES_CHANGED=$PR_FILES
 MERGE_AFTER=$MERGE_AFTER_VAL
 HAS_MIGRATION=$HAS_MIGRATION_VAL
 ROLE=$REVIEW_ROLE
-ROLE_FILE=$HOME/dev/tellurstori/agentception/.agentception/roles/${REVIEW_ROLE}.md
+ROLE_FILE=<repo-root>/.agentception/roles/${REVIEW_ROLE}.md
 COGNITIVE_ARCH=$R_COGNITIVE_ARCH
 BATCH_ID=$R_BATCH_ID
 VP_FINGERPRINT=$VP_FINGERPRINT
@@ -2189,7 +2189,7 @@ WTNAME=$(basename "$(pwd)")                               # this worktree's name
 # Docker path to your worktree: /worktrees/$WTNAME
 
 # GitHub repo slug — HARDCODED. NEVER derive from local path or directory name.
-# The local path is /Users/gabriel/dev/tellurstori/agentception — "tellurstori" is NOT the GitHub org.
+# The local path is derived from AC_REPO_DIR — never use directory name as the GitHub org.
 export GH_REPO=cgcardona/agentception
 ```
 
@@ -2360,8 +2360,8 @@ STEP 1 — DERIVE PATHS:
   # All docker compose commands: cd "$REPO" && docker compose exec maestro <cmd>
 
   # GitHub repo slug — HARDCODED. NEVER derive from directory name, basename, or local path.
-  # The local path is /Users/gabriel/dev/tellurstori/agentception.
-  # "tellurstori" is the LOCAL directory — it is NOT the GitHub org.
+  # The local path is <repo-root>.
+  # The local directory name is NOT the GitHub org. Always use GH_REPO explicitly.
   # The GitHub org is "cgcardona". Using the wrong slug → "Forbidden" or "Repository not found".
   export GH_REPO=cgcardona/agentception
 
@@ -3204,7 +3204,7 @@ WORKTREE=$NEXT_WORKTREE
 BASE=dev
 CLOSES_ISSUES=$NEXT_ISSUE
 ROLE=python-developer
-ROLE_FILE=$HOME/dev/tellurstori/agentception/.agentception/roles/python-developer.md
+ROLE_FILE=<repo-root>/.agentception/roles/python-developer.md
 BATCH_ID=${BATCH_ID:-none}
 VP_FINGERPRINT=${VP_FINGERPRINT:-unset}
 WAVE=${WAVE:-unset}
@@ -3222,7 +3222,7 @@ TASK
       # IMPLEMENTER_PROMPT is self-contained — do NOT reference PARALLEL_ISSUE_TO_PR.md on disk.
       # Construct it from your context:
       #   1. Prefix:  "Read the .agent-task file in your worktree first.
-      #               GH_REPO=cgcardona/agentception  Repo: $HOME/dev/tellurstori/agentception"
+      #               GH_REPO=cgcardona/agentception  Repo: <repo-root>"
       #   2. Body:    paste the entire ## Pass-Along: Implementer Kickoff section verbatim
       #               (your parent embedded it when it dispatched you)
       # The implementer's prompt already contains its own ## Pass-Along: Reviewer Kickoff
@@ -3271,7 +3271,7 @@ FILES_CHANGED=$NEXT_FILES
 MERGE_AFTER=$NEXT_MERGE_AFTER
 HAS_MIGRATION=$NEXT_HAS_MIG_VAL
 ROLE=pr-reviewer
-ROLE_FILE=$HOME/dev/tellurstori/agentception/.agentception/roles/pr-reviewer.md
+ROLE_FILE=<repo-root>/.agentception/roles/pr-reviewer.md
 COGNITIVE_ARCH=${COGNITIVE_ARCH:-knuth:python}
 BATCH_ID=${BATCH_ID:-none}
 VP_FINGERPRINT=${VP_FINGERPRINT:-unset}
@@ -3290,7 +3290,7 @@ TASK
       # REVIEWER_PROMPT is self-contained — do NOT reference PARALLEL_PR_REVIEW.md on disk.
       # Construct it from your context:
       #   1. Prefix:  "Read the .agent-task file in your worktree first.
-      #               GH_REPO=cgcardona/agentception  Repo: $HOME/dev/tellurstori/agentception"
+      #               GH_REPO=cgcardona/agentception  Repo: <repo-root>"
       #   2. Body:    paste the entire ## Embedded Reviewer Kickoff section verbatim
       #               (your QA VP embedded it when it seeded you — or your own prompt IS it)
       # The replacement reviewer's prompt also contains ## Pass-Along: Implementer Kickoff

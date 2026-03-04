@@ -102,9 +102,9 @@ TASK=issue-to-pr          # or pr-review
 ISSUE_NUMBER=423          # issue number (for issue-to-pr)
 PR=485                    # PR number (for pr-review)
 BRANCH=feat/issue-423     # git branch name
-WORKTREE=/Users/gabriel/.agentception/worktrees/agentception/issue-423
+WORKTREE=$HOME/.agentception/worktrees/agentception/issue-423
 ROLE=python-developer     # which cognitive architecture to load
-ROLE_FILE=/Users/gabriel/dev/tellurstori/agentception/.agentception/roles/python-developer.md
+ROLE_FILE=<repo-root>/.agentception/roles/python-developer.md
 BASE=dev
 GH_REPO=cgcardona/agentception
 CLOSES_ISSUES=423         # comma-separated issue numbers to close on merge
@@ -196,11 +196,11 @@ Open two Cursor composer windows or call the Task tool twice simultaneously:
 
 **QA Manager prompt:**
 ```
-You are the QA Manager. Read /Users/gabriel/dev/tellurstori/agentception/.agentception/roles/qa-coordinator.md.
+You are the QA Manager. Read <repo-root>/.agentception/roles/qa-coordinator.md.
 
 Launch one leaf agent per PR using the Task tool. Each agent gets:
 "Read .agent-task at <WORKTREE>/.agent-task, then follow the Kickoff Prompt in
-/Users/gabriel/dev/tellurstori/agentception/.agentception/prompts/parallel-pr-review.md.
+<repo-root>/.agentception/prompts/parallel-pr-review.md.
 Your worktree is <WORKTREE>. GH_REPO=cgcardona/agentception"
 
 Your PRs: [list worktrees]
@@ -208,11 +208,11 @@ Your PRs: [list worktrees]
 
 **Engineering Manager prompt:**
 ```
-You are the Engineering Manager. Read /Users/gabriel/dev/tellurstori/agentception/.agentception/roles/engineering-coordinator.md.
+You are the Engineering Manager. Read <repo-root>/.agentception/roles/engineering-coordinator.md.
 
 Launch one leaf agent per issue using the Task tool. Each agent gets:
 "Read .agent-task at <WORKTREE>/.agent-task, then follow the Kickoff Prompt in
-/Users/gabriel/dev/tellurstori/agentception/.agentception/prompts/parallel-issue-to-pr.md.
+<repo-root>/.agentception/prompts/parallel-issue-to-pr.md.
 Your worktree is <WORKTREE>. GH_REPO=cgcardona/agentception"
 
 Your issues: [list worktrees]
@@ -224,14 +224,14 @@ Serialized (MERGE_AFTER): [note any dependency ordering]
 Use this when you want the pipeline to run end-to-end without manual intervention:
 
 ```
-You are the CTO. Read /Users/gabriel/dev/tellurstori/agentception/.agentception/roles/cto.md.
+You are the CTO. Read <repo-root>/.agentception/roles/cto.md.
 
 Survey the pipeline state with gh issue list and gh pr list.
 Dispatch the Engineering Manager and QA Manager simultaneously using the Task tool.
 Each manager launches leaf agents pointing at the canonical prompts — not inline instructions.
 Continue until gh issue list --state open returns 0 results and gh pr list --state open returns 0 results.
 GH_REPO=cgcardona/agentception
-Repo: /Users/gabriel/dev/tellurstori/agentception
+Repo: <repo-root>
 ```
 
 ---
@@ -272,10 +272,10 @@ This is the ONLY thing you pass to a leaf agent. Do not add anything.
 ```
 Read the `.agent-task` file at `<WORKTREE>/.agent-task` to get your full assignment,
 then follow the complete Kickoff Prompt section in
-`/Users/gabriel/dev/tellurstori/agentception/.agentception/prompts/parallel-issue-to-pr.md`.
+`<repo-root>/.agentception/prompts/parallel-issue-to-pr.md`.
 
 Your worktree is `<WORKTREE>`. Work only in that directory.
-Repo root: /Users/gabriel/dev/tellurstori/agentception
+Repo root: <repo-root>
 GH_REPO=cgcardona/agentception
 ```
 
@@ -283,10 +283,10 @@ GH_REPO=cgcardona/agentception
 ```
 Read the `.agent-task` file at `<WORKTREE>/.agent-task` to get your full assignment,
 then follow the complete Kickoff Prompt section in
-`/Users/gabriel/dev/tellurstori/agentception/.agentception/prompts/parallel-pr-review.md`.
+`<repo-root>/.agentception/prompts/parallel-pr-review.md`.
 
 Your worktree is `<WORKTREE>`. Work only in that directory.
-Repo root: /Users/gabriel/dev/tellurstori/agentception
+Repo root: <repo-root>
 GH_REPO=cgcardona/agentception
 ```
 
@@ -331,7 +331,7 @@ gh issue list --label "batch-07" --state open --repo cgcardona/agentception
 git worktree list
 
 # Tail a specific agent's progress (find the terminal file)
-ls ~/.cursor/projects/Users-gabriel-dev-tellurstori-maestro/terminals/
+ls ~/.cursor/projects/<cursor-project-id>/terminals/
 ```
 
 ---

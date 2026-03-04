@@ -607,7 +607,7 @@ gh pr merge <N>   ← without having first output "Grade: X" and "Approved for m
    ```
 
 8. **`GH_REPO` is always `cgcardona/agentception` — hardcoded, never derived.**
-   The local path (e.g. `/Users/<you>/dev/tellurstori/agentception`) contains `tellurstori` which is
+   The local path (e.g. `/Users/<you>`) contains the local repo directory which is
    NOT the GitHub org. Using `gh` without `--repo "$GH_REPO"` or with a derived slug causes
    "Forbidden" / "Repository not found" errors.
    ```bash

@@ -275,7 +275,7 @@ async def test_settings_reads_active_project(tmp_path: Path) -> None:
                 "gh_repo": "cgcardona/maestro",
                 "repo_dir": str(tmp_path),
                 "worktrees_dir": "~/.cursor/worktrees/maestro",
-                "cursor_project_id": "Users-gabriel-dev-tellurstori-maestro",
+                "cursor_project_id": "Users-example-dev-cgcardona-maestro",
                 "active_labels_order": [],
             },
             {

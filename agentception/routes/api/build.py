@@ -51,7 +51,7 @@ class DispatchRequest(BaseModel):
     role: str
     """Role slug from ``agentception/.cursor/roles/`` (e.g. ``python-developer``)."""
     repo: str
-    """``owner/repo`` string (e.g. ``tellurstori/maestro``)."""
+    """``owner/repo`` string (e.g. ``cgcardona/agentception``)."""
 
 
 class DispatchResponse(BaseModel):
