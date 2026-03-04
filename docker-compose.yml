@@ -20,6 +20,9 @@ services:
       AC_REPO_DIR: ${AC_REPO_DIR:-/app}
       AC_WORKTREES_DIR: ${AC_WORKTREES_DIR:-/worktrees}
       AC_OPENROUTER_API_KEY: ${AC_OPENROUTER_API_KEY:-}
+      # gh CLI reads GITHUB_TOKEN when the keychain (macOS) is unavailable inside Docker.
+      # Set AC_GITHUB_TOKEN in .env to a PAT with repo+issues scope.
+      GITHUB_TOKEN: ${AC_GITHUB_TOKEN:-}
     volumes:
       # Mount cursor dir at same absolute path so worktree paths resolve correctly.
       - ${HOME}/.cursor:${HOME}/.cursor
