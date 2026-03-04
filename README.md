@@ -166,6 +166,16 @@ scripts/
 
 ---
 
+## Quick Reference
+
+| Area | Description |
+|------|-------------|
+| **Developer tools** | [`scripts/dev.sh`](scripts/dev.sh) — Convenience wrapper for mypy / test / cover / build / restart / logs / migrate / shell |
+| **Guides** | [Developer workflow](docs/guides/developer-workflow.md) · [Contributing](docs/guides/contributing.md) — Bind-mount loop, verification order, branch protection, PR & commit conventions |
+| **Changelog** | [`CHANGELOG.md`](CHANGELOG.md) — Release history in Keep a Changelog 1.0.0 format |
+
+---
+
 ## Related Projects
 
 - **[cgcardona/agentception](https://github.com/cgcardona/agentception)** — AI music composition backend for the Muse client. AgentCeption was originally co-located here and has been extracted into this standalone repository.
