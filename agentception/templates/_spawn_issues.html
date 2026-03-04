@@ -12,7 +12,7 @@
 {% for iss in issues %}
 <div
   class="spawn-issue-card{% if iss.claimed %} spawn-issue-card--claimed{% endif %}"
-  @click="selectIssue({{ iss | tojson }})"
+  @click='selectIssue({{ iss | tojson }})'
   :class="{
     'spawn-issue-card--selected': selectedIssue?.number === {{ iss.number }},
     'spawn-issue-card--claimed':  {{ 'true' if iss.claimed else 'false' }},
