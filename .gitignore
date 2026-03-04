@@ -42,3 +42,6 @@ logs/
 
 # Alembic
 alembic/versions/__pycache__/
+
+# Agent ephemeral briefing files — never committed
+.agent-task
