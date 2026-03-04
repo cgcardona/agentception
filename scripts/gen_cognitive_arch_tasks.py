@@ -298,7 +298,7 @@ def _record_to_db(
     Intentionally synchronous — this script runs on the host, not inside a
     service, so there's no event loop to await.
     """
-    db_url = os.environ.get("DATABASE_URL") or os.environ.get("AC_DATABASE_URL")
+    db_url = os.environ.get("DATABASE_URL")
     if not db_url:
         return False
 

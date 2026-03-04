@@ -2,13 +2,14 @@ from __future__ import annotations
 
 """AgentCeption service configuration.
 
-All settings are prefixed with ``AC_`` so they never collide with Maestro's
-``STORI_*`` namespace. Defaults work for local development without any env vars set.
+Settings map directly to unprefixed environment variables (e.g. ``GH_REPO``,
+``REPO_DIR``, ``DATABASE_URL``).  Defaults work for local development without
+any env vars set.
 
 When ``pipeline-config.json`` contains a ``projects`` list and an
 ``active_project`` name, the model validator applies the matching project's
 ``gh_repo``, ``repo_dir``, and ``worktrees_dir`` values over the env-var
-defaults.  This is the primary mechanism for multi-repo generalisation (AC-601).
+defaults.  This is the primary mechanism for multi-repo support (AC-601).
 
 :func:`settings.reload` re-applies the active project on demand.  The poller
 calls it at the top of every tick so a project switch via the GUI takes effect
@@ -55,14 +56,14 @@ class AgentCeptionSettings(BaseSettings):
     """Runtime configuration for the AgentCeption dashboard service.
 
     Path settings are resolved in order:
-    1. Environment variables (``AC_REPO_DIR``, ``AC_WORKTREES_DIR``, etc.)
+    1. Environment variables (``REPO_DIR``, ``WORKTREES_DIR``, etc.)
     2. Active project from ``pipeline-config.json`` (overrides env vars when present)
 
     Call :meth:`reload` to pick up a changed ``active_project`` at runtime
     without restarting the service.
     """
 
-    model_config = SettingsConfigDict(env_prefix="AC_")
+    model_config = SettingsConfigDict(env_prefix="")
 
     cursor_projects_dir: Path = Path.home() / ".cursor/projects"
     worktrees_dir: Path = Path.home() / ".agentception/worktrees"
@@ -73,7 +74,7 @@ class AgentCeptionSettings(BaseSettings):
     ``host_worktrees_dir`` is the corresponding path on the developer's machine
     (e.g. ``~/.agentception/worktrees``), used to generate paths that the
     user can open directly in Cursor and that the agent-task file embeds.
-    Set via ``AC_HOST_WORKTREES_DIR`` in docker-compose.override.yml.
+    Set via ``HOST_WORKTREES_DIR`` in docker-compose.override.yml.
     """
     repo_dir: Path = Path.cwd()
     gh_repo: str = "cgcardona/agentception"
@@ -93,13 +94,13 @@ class AgentCeptionSettings(BaseSettings):
     openrouter_api_key: str = ""
     """OpenRouter API key for direct LLM calls (plan phase preview, enrichment).
 
-    Set via ``AC_OPENROUTER_API_KEY`` env var.  When absent the Phase Planner
+    Set via ``OPENROUTER_API_KEY`` env var.  When absent the Phase Planner
     falls back to the keyword-based heuristic classifier — no LLM is required
     for the service to start.
     """
     """Async database URL for AgentCeption's own ac_* tables.
 
-    Set via ``AC_DATABASE_URL`` env var (docker-compose injects this).
+    Set via ``DATABASE_URL`` env var (docker-compose injects this).
     Falls back to a local SQLite file when absent so the service starts
     without Postgres in pure-filesystem dev mode.
     """

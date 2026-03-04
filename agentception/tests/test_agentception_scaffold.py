@@ -43,7 +43,7 @@ def test_settings_loads_defaults() -> None:
     """AgentCeptionSettings must load without errors and expose expected fields.
 
     We do not assert a specific ``worktrees_dir`` path because it is
-    overridden by the ``AC_WORKTREES_DIR`` env var in the container
+    overridden by the ``WORKTREES_DIR`` env var in the container
     (set to ``/worktrees`` in docker-compose.override.yml).  We check only
     that the field is a ``Path`` instance and is non-empty.
     """

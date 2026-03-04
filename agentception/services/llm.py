@@ -22,7 +22,7 @@ Two public entry points:
     Callers map these to their own SSE event format.
 
 The key is read from ``settings.openrouter_api_key`` (env var
-``AC_OPENROUTER_API_KEY``).  A missing key raises ``RuntimeError``.
+``OPENROUTER_API_KEY``).  A missing key raises ``RuntimeError``.
 """
 
 import asyncio
@@ -58,7 +58,7 @@ def _base_headers() -> dict[str, str]:
     api_key = settings.openrouter_api_key
     if not api_key:
         raise RuntimeError(
-            "AC_OPENROUTER_API_KEY is not configured -- "
+            "OPENROUTER_API_KEY is not configured -- "
             "set it in .env and restart the agentception service."
         )
     return {
@@ -111,7 +111,7 @@ async def call_openrouter(
         The raw text string of the model's first completion choice.
 
     Raises:
-        RuntimeError: When ``AC_OPENROUTER_API_KEY`` is not set.
+        RuntimeError: When ``OPENROUTER_API_KEY`` is not set.
         httpx.HTTPStatusError: On non-2xx responses after retries.
         httpx.TimeoutException: When the request exceeds ``_DEFAULT_TIMEOUT``.
     """

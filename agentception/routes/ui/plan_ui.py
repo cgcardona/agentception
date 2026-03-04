@@ -276,7 +276,7 @@ async def plan_preview(body: PlanDraftRequest) -> StreamingResponse:
     Returns ``text/event-stream``.  Each event is a JSON object on a ``data:``
     line.  See module docstring for the full event shape reference.
 
-    When ``AC_OPENROUTER_API_KEY`` is set the LLM path streams tokens in real
+    When ``OPENROUTER_API_KEY`` is set the LLM path streams tokens in real
     time so the browser can show progress.  When the key is absent the heuristic
     fallback emits a single ``done`` event immediately.
     """

@@ -26,13 +26,13 @@ _session_factory: async_sessionmaker[AsyncSession] | None = None
 
 
 def _get_url() -> str:
-    """Read AC_DATABASE_URL from settings; fall back to SQLite for local dev."""
+    """Read DATABASE_URL from settings; fall back to SQLite for local dev."""
     from agentception.config import settings  # local import — avoids circular at module load
 
     url = getattr(settings, "database_url", None)
     if not url:
         url = "sqlite+aiosqlite:///./agentception.db"
-        logger.warning("⚠️  AC_DATABASE_URL not set — using SQLite: %s", url)
+        logger.warning("⚠️  DATABASE_URL not set — using SQLite: %s", url)
     return url
 
 

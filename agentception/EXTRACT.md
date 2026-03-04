@@ -98,8 +98,8 @@ After extraction, `pipeline-config.json` references in the new repo need updatin
 3. Set the env var or rely on the config:
 
 ```bash
-export AC_GH_REPO=YOUR_GITHUB_USERNAME/agentception
-export AC_REPO_DIR=/path/to/your/agentception
+export GH_REPO=YOUR_GITHUB_USERNAME/agentception
+export REPO_DIR=/path/to/your/agentception
 agentception
 ```
 

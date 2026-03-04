@@ -46,7 +46,7 @@ def test_gh_base_url_contains_repo_slug() -> None:
 def test_no_hardcoded_cgcardona_maestro_in_globals() -> None:
     """Template globals must not contain a literal ``cgcardona/maestro`` that bypasses settings.
 
-    If ``settings.gh_repo`` is overridden (e.g. via ``AC_GH_REPO`` env var), the globals
+    If ``settings.gh_repo`` is overridden (e.g. via ``GH_REPO`` env var), the globals
     must reflect the override — they must never be a static string burned in at import time
     independently of settings.
     """

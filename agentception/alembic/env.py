@@ -22,13 +22,13 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 # Resolve the database URL from the environment.
-# AC_DATABASE_URL is the canonical name; fall back to DATABASE_URL if unset
+# DATABASE_URL is the canonical name; fall back to DATABASE_URL if unset
 # so the agentception container can share the maestro Postgres credentials
 # without duplicating the secret.
-_db_url: str = os.environ.get("AC_DATABASE_URL") or os.environ.get("DATABASE_URL") or ""
+_db_url: str = os.environ.get("DATABASE_URL") or os.environ.get("DATABASE_URL") or ""
 if not _db_url:
     raise RuntimeError(
-        "Set AC_DATABASE_URL (or DATABASE_URL) before running AgentCeption migrations."
+        "Set DATABASE_URL (or DATABASE_URL) before running AgentCeption migrations."
     )
 
 # Alembic's sync engine needs a sync driver — strip async dialect markers.

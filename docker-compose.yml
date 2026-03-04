@@ -13,16 +13,16 @@ services:
       - "127.0.0.1:10003:10003"
     environment:
       HOME: ${HOME}
-      # Database: inject via .env (AC_DATABASE_URL=postgresql+asyncpg://...)
-      AC_DATABASE_URL: "postgresql+asyncpg://agentception:${DB_PASSWORD}@postgres:5432/agentception"
+      # Database: inject via .env (DATABASE_URL=postgresql+asyncpg://...)
+      DATABASE_URL: "postgresql+asyncpg://agentception:${DB_PASSWORD}@postgres:5432/agentception"
       # gh CLI / git repo settings — override via .env or docker-compose.override.yml
-      AC_GH_REPO: ${AC_GH_REPO:-cgcardona/agentception}
-      AC_REPO_DIR: ${AC_REPO_DIR:-/app}
-      AC_WORKTREES_DIR: ${AC_WORKTREES_DIR:-/worktrees}
-      AC_OPENROUTER_API_KEY: ${AC_OPENROUTER_API_KEY:-}
+      GH_REPO: ${GH_REPO:-cgcardona/agentception}
+      REPO_DIR: ${REPO_DIR:-/app}
+      WORKTREES_DIR: ${WORKTREES_DIR:-/worktrees}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       # gh CLI reads GITHUB_TOKEN when the keychain (macOS) is unavailable inside Docker.
-      # Set AC_GITHUB_TOKEN in .env to a PAT with repo+issues scope.
-      GITHUB_TOKEN: ${AC_GITHUB_TOKEN:-}
+      # Set GITHUB_TOKEN in .env to a PAT with repo+issues scope.
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
     volumes:
       # Mount cursor dir at same absolute path so worktree paths resolve correctly.
       - ${HOME}/.cursor:${HOME}/.cursor

@@ -373,7 +373,7 @@ WTNAME=$(basename "$(pwd)")                               # this worktree's name
 # Docker path to your worktree: /worktrees/$WTNAME
 
 # GitHub repo slug — HARDCODED. NEVER derive from local path or directory name.
-# The local path is derived from AC_REPO_DIR — never use directory name as the GitHub org.
+# The local path is derived from REPO_DIR — never use directory name as the GitHub org.
 export GH_REPO=cgcardona/agentception
 ```
 

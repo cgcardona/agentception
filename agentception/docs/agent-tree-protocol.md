@@ -62,7 +62,7 @@ PARENT_RUN_ID = ""                  # empty for root; set by parent for all othe
 
 # ── Callbacks ─────────────────────────────────────────────────────────────────
 AC_URL        = "http://localhost:10003"
-# ROLE_FILE is written by AgentCeption from AC_REPO_DIR + .agentception/roles/<role>.md.
+# ROLE_FILE is written by AgentCeption from REPO_DIR + .agentception/roles/<role>.md.
 # Agents read it for role context; the kickoff prompt also embeds the content inline.
 ROLE_FILE     = "<repo-root>/.agentception/roles/cto.md"
 ```
@@ -102,7 +102,7 @@ ROLE_FILE     = "<repo-root>/.agentception/roles/pr-reviewer.md"
 ```
 
 > `<repo-root>` is the absolute path to the cloned repository on the host
-> machine — the value of `AC_REPO_DIR` (defaults to `/app` inside the
+> machine — the value of `REPO_DIR` (defaults to `/app` inside the
 > container). AgentCeption writes the real absolute path when it creates each
 > `.agent-task` file. Never derive this from `pwd` or `basename`.
 

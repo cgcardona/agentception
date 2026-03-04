@@ -152,8 +152,8 @@ pip install -e agentception/   # from repo root, or:
 pip install agentception        # once published to PyPI
 
 # 2. Configure (optional — defaults work for local dev)
-export AC_REPO_DIR=/path/to/your/repo
-export AC_GH_REPO=owner/repo-name
+export REPO_DIR=/path/to/your/repo
+export GH_REPO=owner/repo-name
 
 # 3. Launch
 agentception
@@ -166,20 +166,20 @@ That's it. The dashboard auto-refreshes every 5 seconds.
 
 ## Configuration Reference
 
-AgentCeption is configured via environment variables (prefix `AC_`) or via the `pipeline-config.json` file in your repository's `.cursor/` directory.
+AgentCeption is configured via environment variables or via the `pipeline-config.json` file in your repository's `.cursor/` directory.
 
 ### Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `AC_REPO_DIR` | Current working directory | Absolute path to the repository root |
-| `AC_WORKTREES_DIR` | `~/.agentception/worktrees/maestro` | Directory containing agent git worktrees |
-| `AC_CURSOR_PROJECTS_DIR` | `~/.cursor/projects` | Cursor projects directory (for transcript reading) |
-| `AC_GH_REPO` | `cgcardona/maestro` | GitHub repository slug (`owner/repo`) |
-| `AC_POLL_INTERVAL_SECONDS` | `5` | How often the poller refreshes state |
-| `AC_GITHUB_CACHE_SECONDS` | `10` | TTL for GitHub API response cache |
-| `AC_HOST` | `0.0.0.0` | Bind host for the uvicorn server |
-| `AC_PORT` | `7777` | Bind port for the uvicorn server |
+| `REPO_DIR` | Current working directory | Absolute path to the repository root |
+| `WORKTREES_DIR` | `~/.agentception/worktrees/maestro` | Directory containing agent git worktrees |
+| `CURSOR_PROJECTS_DIR` | `~/.cursor/projects` | Cursor projects directory (for transcript reading) |
+| `GH_REPO` | `cgcardona/maestro` | GitHub repository slug (`owner/repo`) |
+| `POLL_INTERVAL_SECONDS` | `5` | How often the poller refreshes state |
+| `GITHUB_CACHE_SECONDS` | `10` | TTL for GitHub API response cache |
+| `HOST` | `0.0.0.0` | Bind host for the uvicorn server |
+| `PORT` | `7777` | Bind port for the uvicorn server |
 
 ### `pipeline-config.json` Schema
 
@@ -269,7 +269,7 @@ curl -X POST http://localhost:7777/api/templates/import \
 1. Copy `.cursor/pipeline-config.json` from this repo to your target repo, updating `gh_repo`, `repo_dir`, and `worktrees_dir`.
 2. Create GitHub issue labels matching your `active_labels_order` entries.
 3. Create role files at `.cursor/roles/<role-name>.md`.
-4. Launch AgentCeption with `AC_REPO_DIR=/path/to/new-repo agentception`.
+4. Launch AgentCeption with `REPO_DIR=/path/to/new-repo agentception`.
 
 ---
 

@@ -274,7 +274,7 @@ async def _do_spawn(body: SpawnRequest) -> SpawnResult:
         phase_label = ""
 
     # Compute the host-side worktree path for display to the user.
-    # host_worktrees_dir is ~/.agentception/worktrees/maestro (set via AC_HOST_WORKTREES_DIR).
+    # host_worktrees_dir is ~/.agentception/worktrees/maestro (set via HOST_WORKTREES_DIR).
     host_worktree_path = settings.host_worktrees_dir / f"issue-{issue_number}"
 
     agent_task_content = _build_agent_task(

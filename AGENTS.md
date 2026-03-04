@@ -96,7 +96,7 @@ agentception/
   mcp/             → MCP server and transport
   static/          → Compiled JS/CSS bundles (never edit bundles directly)
   templates/       → Jinja2 HTML templates
-  config.py        → Pydantic Settings (AC_* env vars)
+  config.py        → Pydantic Settings (env vars)
   models.py        → Pydantic domain models (PlanSpec, PlanIssue, etc.)
 
 scripts/

@@ -41,7 +41,7 @@ def ac_dir(self) -> Path:
     return self.repo_dir / ".agentception"
 ```
 
-`repo_dir` defaults to `Path.cwd()` and is overridden by the `AC_REPO_DIR`
+`repo_dir` defaults to `Path.cwd()` and is overridden by the `REPO_DIR`
 environment variable or by the active project entry in `pipeline-config.json`.
 
 **All code that needs a path inside `.agentception/` must use `settings.ac_dir`.**
@@ -58,19 +58,19 @@ services:
     volumes:
       - ./.agentception:/app/.agentception
     environment:
-      AC_REPO_DIR: /app
+      REPO_DIR: /app
 ```
 
-With `AC_REPO_DIR=/app`, `settings.ac_dir` resolves to `/app/.agentception`,
+With `REPO_DIR=/app`, `settings.ac_dir` resolves to `/app/.agentception`,
 which matches the bind-mount target.
 
 ## Development vs. production
 
-| Context | `AC_REPO_DIR` | `settings.ac_dir` |
+| Context | `REPO_DIR` | `settings.ac_dir` |
 |---------|---------------|-------------------|
 | Docker container | `/app` | `/app/.agentception` |
 | Host (default) | `$PWD` (repo root) | `<repo>/.agentception` |
-| Override | Set `AC_REPO_DIR` | `$AC_REPO_DIR/.agentception` |
+| Override | Set `REPO_DIR` | `$REPO_DIR/.agentception` |
 
 The live runtime copy that persists across restarts lives at
 `$HOME/.agentception` on the developer's machine. The repo copy here is the
