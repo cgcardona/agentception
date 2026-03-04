@@ -1,0 +1,24 @@
+# docker-compose.ci.yml — GitHub Actions override
+# Override the base docker-compose.yml for CI environments:
+#   - Strips host-specific bind mounts (cursor dir, gh auth, dev bind mount)
+#   - Sets CI-safe environment defaults
+#   - No port conflicts needed — runner is ephemeral
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.ci.yml build
+#   docker compose -f docker-compose.yml -f docker-compose.ci.yml run --rm agentception <cmd>
+services:
+  agentception:
+    environment:
+      HOME: /root
+      AC_REPO_DIR: /app
+      AC_WORKTREES_DIR: /tmp/agentception-worktrees
+      AC_GH_REPO: ${AC_GH_REPO:-cgcardona/agentception}
+      AC_OPENROUTER_API_KEY: ${AC_OPENROUTER_API_KEY:-}
+      AC_GITHUB_TOKEN: ${AC_GITHUB_TOKEN:-}
+    # volumes: [] does NOT work in Compose v2 to clear the base list.
+    # Instead we remap to paths that exist unconditionally in any runner:
+    volumes:
+      - /tmp/ci-cursor:/root/.cursor
+      - /tmp/ci-gh:/root/.config/gh
+      - ./:/app

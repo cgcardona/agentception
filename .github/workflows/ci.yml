@@ -1,0 +1,124 @@
+# CI workflow for cgcardona/agentception
+# Runs on every PR targeting main and on pushes to main.
+# Jobs run in dependency order: typecheck → (ratchet + test) → smoke
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  # Docker Compose reads DB_PASSWORD from the environment.
+  # A throwaway value is fine for CI — the database is ephemeral per-run.
+  DB_PASSWORD: ci_test_password_ephemeral
+
+jobs:
+  # ── 1. Type-checking ─────────────────────────────────────────────────────
+  typecheck:
+    name: mypy (strict)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build agentception image
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml build agentception
+
+      - name: Run mypy --strict on agentception/ and tests/
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml \
+            run --rm agentception \
+            mypy agentception/ tests/
+
+  # ── 2. Typing ratchet ────────────────────────────────────────────────────
+  typing-ratchet:
+    name: Typing ratchet (max-any 10)
+    runs-on: ubuntu-latest
+    needs: typecheck
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build agentception image
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml build agentception
+
+      - name: Enforce Any ceiling
+        # tools/typing_audit.py counts Any-ish patterns.
+        # --max-any 10 matches the ratchet ceiling agreed in AGENTS.md.
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml \
+            run --rm agentception \
+            python tools/typing_audit.py --dirs agentception/ tests/ --max-any 10
+
+  # ── 3. Test suite ─────────────────────────────────────────────────────────
+  test:
+    name: pytest
+    runs-on: ubuntu-latest
+    needs: typecheck
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start postgres (required by DB-backed tests)
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml \
+            up -d postgres
+          # Wait until postgres is healthy (up to 60 s)
+          for i in $(seq 1 12); do
+            docker compose -f docker-compose.yml -f docker-compose.ci.yml \
+              exec -T postgres pg_isready -U agentception -d agentception && break
+            sleep 5
+          done
+
+      - name: Build agentception image
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml build agentception
+
+      - name: Run migrations
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml \
+            run --rm agentception \
+            alembic -c agentception/alembic.ini upgrade head
+
+      - name: Run test suite
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml \
+            run --rm agentception \
+            pytest tests/ -v --tb=short
+
+      - name: Tear down
+        if: always()
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
+
+  # ── 4. Smoke test ─────────────────────────────────────────────────────────
+  smoke:
+    name: Smoke test (GET /health)
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start full stack and wait for health
+        # --wait blocks until all services pass their healthcheck or times out.
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml \
+            up -d --wait --timeout 120
+
+      - name: Run migrations
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml \
+            exec -T agentception \
+            alembic -c agentception/alembic.ini upgrade head
+
+      - name: Probe /health endpoint
+        run: curl -f --retry 5 --retry-delay 3 http://localhost:10003/health
+
+      - name: Probe dashboard root
+        run: curl -f --retry 3 --retry-delay 2 http://localhost:10003/
+
+      - name: Tear down
+        if: always()
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
