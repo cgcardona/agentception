@@ -37,7 +37,7 @@
   <ul class="build-phase__issues" x-show="open">
     {% for issue in group.issues %}
     {% set run = issue.run %}
-    {% set is_running = run and run.status in ('implementing', 'pending_launch', 'IMPLEMENTING', 'PENDING_LAUNCH') %}
+    {% set is_running = run and run.agent_status in ('implementing', 'pending_launch') %}
     <li class="build-issue
       {%- if issue.state == 'closed' %} build-issue--closed
       {%- elif is_running %} build-issue--active build-issue--running
@@ -69,12 +69,24 @@
         {% if run %}
         <div class="build-issue__run">
           <span class="build-issue__role">{{ run.role }}</span>
-          <span class="build-issue__status build-issue__status--{{ run.status | lower }}">{{ run.status }}</span>
+          <span class="build-issue__status build-issue__status--{{ run.agent_status }}">{{ run.agent_status }}</span>
           {% if run.pr_number %}
           <a class="build-issue__pr" href="https://github.com/{{ repo }}/pull/{{ run.pr_number }}"
              target="_blank" rel="noopener" @click.stop>PR&thinsp;#{{ run.pr_number }}</a>
           {% endif %}
         </div>
+        {% if run.current_step %}
+        <p class="build-issue__step">{{ run.current_step }}</p>
+        {% endif %}
+        {% if run.steps_completed > 0 %}
+        <div class="build-issue__progress">
+          {% if run.steps_total %}
+          <div class="build-issue__progress-bar"
+               style="width: {{ (run.steps_completed / run.steps_total * 100) | int }}%"></div>
+          {% endif %}
+          <span class="build-issue__step-count">{{ run.steps_completed }} step{{ 's' if run.steps_completed != 1 else '' }}</span>
+        </div>
+        {% endif %}
         {% elif not group.locked and issue.state == 'open' %}
         <button class="build-issue__assign-btn"
                 @click.stop='$dispatch("open-dispatch", {{ issue | tojson }})'>Assign →</button>
