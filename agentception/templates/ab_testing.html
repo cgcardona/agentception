@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+
+{% block title %}AgentCeption — A/B Testing{% endblock %}
+
+{% block content %}
+{#
+  A/B role variant comparison dashboard (AC-505).
+  Two side-by-side cards compare Variant A (even-second BATCH_ID) against
+  Variant B (odd-second BATCH_ID) across: PRs opened, PRs merged, merge rate,
+  average reviewer grade, and batch count.  A winner badge and banner appear
+  when one variant's merge rate clearly outperforms the other.  Below the
+  cards is a batch breakdown table listing each batch and its assigned variant.
+#}
+
+{# ── Page header ───────────────────────────────────────────────────────────── #}
+<header class="ab-page-header">
+  <h1 class="ab-page-title">A/B Role Variant Comparison</h1>
+  <p class="ab-page-subtitle">
+    Comparing agent outcomes across two role prompt variants.
+    <strong>Variant A</strong> = even-second BATCH_ID &nbsp;·&nbsp;
+    <strong>Variant B</strong> = odd-second BATCH_ID.
+  </p>
+</header>
+
+{# ── Error banner ──────────────────────────────────────────────────────────── #}
+{% if error %}
+<div class="ab-error-banner" role="alert">
+  <p>⚠️ {{ error }}</p>
+</div>
+{% endif %}
+
+{# ── Comparison cards ──────────────────────────────────────────────────────── #}
+{% if variant_a and variant_b %}
+
+<div class="ab-comparison-grid">
+
+  {# ── Variant A card ──────────────────────────────────────────────────────── #}
+  <div class="ab-variant-card{% if winner == 'A' %} ab-variant-card--winner{% endif %}">
+
+    {% if winner == "A" %}
+    <span class="ab-winner-badge">🏆 Winner</span>
+    {% endif %}
+
+    <h2 class="ab-variant-title">
+      Variant A
+      {% if winner == "A" %}<span class="ab-variant-title-check">✓</span>{% endif %}
+    </h2>
+
+    {% if variant_a.role_sha %}
+    <p class="ab-variant-sha">SHA: {{ variant_a.role_sha[:12] }}</p>
+    {% endif %}
+
+    <table class="ab-metrics-table">
+      <tbody>
+        <tr>
+          <td>Batches</td>
+          <td>{{ variant_a.batch_ids | length }}</td>
+        </tr>
+        <tr>
+          <td>PRs opened</td>
+          <td>{{ variant_a.prs_opened }}</td>
+        </tr>
+        <tr>
+          <td>PRs merged</td>
+          <td>{{ variant_a.prs_merged }}</td>
+        </tr>
+        <tr>
+          <td>Merge rate</td>
+          <td>
+            {% if variant_a.merge_rate > 0 %}
+            {{ "%.0f%%" | format(variant_a.merge_rate * 100) }}
+            {% else %}
+            <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
+          <td>Avg grade</td>
+          <td>
+            {% if variant_a.avg_grade %}
+            <span class="badge
+              {%- if variant_a.avg_grade == 'A' %} badge--green
+              {%- elif variant_a.avg_grade == 'B' %} badge--blue
+              {%- elif variant_a.avg_grade in ('D', 'F') %} badge--red
+              {%- else %} badge--grey
+              {%- endif %}">
+              {{ variant_a.avg_grade }}
+            </span>
+            {% else %}
+            <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  {# ── Variant B card ──────────────────────────────────────────────────────── #}
+  <div class="ab-variant-card{% if winner == 'B' %} ab-variant-card--winner{% endif %}">
+
+    {% if winner == "B" %}
+    <span class="ab-winner-badge">🏆 Winner</span>
+    {% endif %}
+
+    <h2 class="ab-variant-title">
+      Variant B
+      {% if winner == "B" %}<span class="ab-variant-title-check">✓</span>{% endif %}
+    </h2>
+
+    {% if variant_b.role_sha %}
+    <p class="ab-variant-sha">SHA: {{ variant_b.role_sha[:12] }}</p>
+    {% endif %}
+
+    <table class="ab-metrics-table">
+      <tbody>
+        <tr>
+          <td>Batches</td>
+          <td>{{ variant_b.batch_ids | length }}</td>
+        </tr>
+        <tr>
+          <td>PRs opened</td>
+          <td>{{ variant_b.prs_opened }}</td>
+        </tr>
+        <tr>
+          <td>PRs merged</td>
+          <td>{{ variant_b.prs_merged }}</td>
+        </tr>
+        <tr>
+          <td>Merge rate</td>
+          <td>
+            {% if variant_b.merge_rate > 0 %}
+            {{ "%.0f%%" | format(variant_b.merge_rate * 100) }}
+            {% else %}
+            <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
+          <td>Avg grade</td>
+          <td>
+            {% if variant_b.avg_grade %}
+            <span class="badge
+              {%- if variant_b.avg_grade == 'A' %} badge--green
+              {%- elif variant_b.avg_grade == 'B' %} badge--blue
+              {%- elif variant_b.avg_grade in ('D', 'F') %} badge--red
+              {%- else %} badge--grey
+              {%- endif %}">
+              {{ variant_b.avg_grade }}
+            </span>
+            {% else %}
+            <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>{# /ab-comparison-grid #}
+
+{# ── Winner banner ─────────────────────────────────────────────────────────── #}
+{% if winner %}
+<div class="ab-winner-banner" role="status">
+  🏆
+  <span>Variant {{ winner }} leads on merge rate</span>
+  <span class="ab-winner-banner-label">— run more waves to increase confidence</span>
+</div>
+{% else %}
+<p class="ab-tie-note">
+  No clear winner yet — variants are tied or there is insufficient data.
+</p>
+{% endif %}
+
+{# ── Batch breakdown ───────────────────────────────────────────────────────── #}
+{% if variant_a.batch_ids or variant_b.batch_ids %}
+<section class="ab-batch-section">
+  <h2 class="ab-batch-section-title">Batch Breakdown</h2>
+  <div class="ab-batch-table-wrapper">
+    <table class="ab-batch-table">
+      <thead>
+        <tr>
+          <th>Batch ID</th>
+          <th>Variant</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for batch_id in variant_a.batch_ids %}
+        <tr>
+          <td class="ab-batch-id">{{ batch_id }}</td>
+          <td><span class="badge badge--blue">A</span></td>
+        </tr>
+        {% endfor %}
+        {% for batch_id in variant_b.batch_ids %}
+        <tr>
+          <td class="ab-batch-id">{{ batch_id }}</td>
+          <td><span class="badge badge--grey">B</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% else %}
+<div class="ab-empty-state">
+  <span class="ab-empty-icon">📭</span>
+  <p class="ab-empty-title">No batch data yet</p>
+  <p class="ab-empty-body">
+    Batches appear once agents run with A/B mode enabled. Each wave is
+    automatically assigned to Variant A or B based on its BATCH_ID timestamp.
+  </p>
+  <a href="/config" class="ab-empty-link">Configure A/B mode →</a>
+</div>
+{% endif %}
+
+{% else %}
+{# ── No results: empty state ───────────────────────────────────────────────── #}
+{% if not error %}
+<div class="ab-empty-state">
+  <span class="ab-empty-icon">🧪</span>
+  <p class="ab-empty-title">A/B mode is not active</p>
+  <p class="ab-empty-body">
+    Enable A/B mode in the pipeline config and run at least one wave to start
+    collecting comparison data.
+  </p>
+  <a href="/config" class="ab-empty-link">Open Pipeline Config →</a>
+</div>
+{% endif %}
+{% endif %}
+
+{# ── Config callout (always visible) ──────────────────────────────────────── #}
+<div class="ab-config-callout">
+  <span>A/B mode is configured in the pipeline config under the <strong>A/B Testing</strong> section.</span>
+  <a href="/config">Manage config →</a>
+</div>
+
+{% endblock %}

@@ -1,0 +1,35 @@
+{#
+  HTMX partial for PR reviews.
+  Rendered by GET /api/prs/{number}/reviews
+  and injected into #reviews-area via hx-swap="innerHTML".
+
+  Context: reviews — list of {author, state, body, submitted_at}
+#}
+{% if reviews %}
+<div class="card" style="padding:0;overflow:hidden;">
+  {% for r in reviews %}
+  <div style="padding:0.75rem 1rem;{% if not loop.last %}border-bottom:1px solid var(--border);{% endif %}">
+    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.35rem;">
+      <strong style="font-size:0.85rem;">{{ r.author }}</strong>
+      <span class="badge
+        {%- if r.state == 'APPROVED' %} badge--green
+        {%- elif r.state == 'CHANGES_REQUESTED' %} badge--red
+        {%- elif r.state == 'COMMENTED' %} badge--blue
+        {%- else %} badge--grey{% endif %}">
+        {{ r.state }}
+      </span>
+      <span style="font-size:0.75rem;color:var(--text-muted);">
+        {{ r.submitted_at[:10] if r.submitted_at else '' }}
+      </span>
+    </div>
+    {% if r.body %}
+    <pre style="white-space:pre-wrap;word-break:break-word;font-family:inherit;font-size:0.82rem;color:var(--text-muted);margin:0;">{{ r.body }}</pre>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% elif error %}
+<div class="card"><p class="text-muted" style="color:var(--danger);">⚠️ {{ error }}</p></div>
+{% else %}
+<div class="card"><p class="text-muted empty-state">No reviews yet.</p></div>
+{% endif %}

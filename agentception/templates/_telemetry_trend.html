@@ -1,0 +1,10 @@
+{#
+  HTMX partial — refreshes the pipeline trend JSON blob on the telemetry page.
+
+  Target: #telemetry-trend-data (hx-swap="outerHTML")
+  After swap: caller calls window.telemetry.refreshTrendData() via hx-on::after-swap
+
+  Context:
+    trend_json  str — JSON-serialised list of ACPipelineSnapshot row dicts
+#}
+<script type="application/json" id="telemetry-trend-data">{{ trend_json | safe }}</script>

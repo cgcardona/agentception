@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block title %}AgentCeption — Issue #{{ issue.number }}{% endblock %}
+
+{% block content %}
+{# ── Breadcrumb ──────────────────────────────────────────────────────────── #}
+<nav class="breadcrumb" aria-label="Breadcrumb">
+  <a href="/">← Overview</a>
+  <span class="breadcrumb-sep">/</span>
+  <a href="/issues">Issues</a>
+  <span class="breadcrumb-sep">/</span>
+  <span class="breadcrumb-current">#{{ issue.number }}</span>
+</nav>
+
+{# ── Issue header ─────────────────────────────────────────────────────────── #}
+<div class="card mt-2">
+  <div style="display:flex;align-items:flex-start;gap:0.75rem;flex-wrap:wrap;">
+    <span class="badge {% if issue.state == 'open' %}badge--green{% else %}badge--grey{% endif %}"
+          style="flex-shrink:0;margin-top:0.2rem;">
+      {{ issue.state }}
+    </span>
+    <h1 style="font-size:1.15rem;font-weight:600;margin:0;flex:1;">
+      #{{ issue.number }} — {{ issue.title }}
+    </h1>
+  </div>
+
+  {# Labels #}
+  {% if issue.labels %}
+  <div style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-top:0.75rem;">
+    {% for lbl in issue.labels %}
+    <span class="badge badge--purple" style="font-size:0.7rem;">{{ lbl }}</span>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="meta-chip-row" style="margin-top:0.75rem;display:flex;gap:0.75rem;flex-wrap:wrap;">
+    {% if issue.phase_label %}
+    <span class="meta-chip">
+      <span class="meta-label">Phase</span>
+      <span class="meta-value">{{ issue.phase_label }}</span>
+    </span>
+    {% endif %}
+    {% if issue.claimed %}
+    <span class="badge badge--yellow">agent:wip</span>
+    {% endif %}
+    <span class="meta-chip">
+      <span class="meta-label">Synced</span>
+      <span class="meta-value">{{ issue.last_synced_at[:19].replace("T"," ") }}</span>
+    </span>
+    <a href="{{ gh_base_url }}/issues/{{ issue.number }}" target="_blank" rel="noopener"
+       class="btn btn-secondary" style="font-size:0.8rem;padding:0.25rem 0.6rem;">
+      View on GitHub ↗
+    </a>
+  </div>
+</div>
+
+{# ── Body (markdown body from DB) ────────────────────────────────────────── #}
+{% if issue.body %}
+<section class="card mt-2">
+  <h2 class="section-title" style="margin-bottom:0.75rem;">Description</h2>
+  <pre class="message-text" style="white-space:pre-wrap;word-break:break-word;font-family:inherit;font-size:0.88rem;line-height:1.6;">{{ issue.body }}</pre>
+</section>
+{% endif %}
+
+{# ── Two-column: linked PRs + agent runs ─────────────────────────────────── #}
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem;" class="detail-columns">
+
+  {# Linked PRs #}
+  <section>
+    <h2 class="section-title" style="margin-bottom:0.5rem;">Linked Pull Requests</h2>
+    {% if issue.linked_prs %}
+    <div class="card" style="padding:0;overflow:hidden;">
+      <table class="telemetry-table" style="width:100%;margin:0;">
+        <thead><tr><th>#</th><th>Title</th><th>State</th><th>Branch</th></tr></thead>
+        <tbody>
+          {% for pr in issue.linked_prs %}
+          <tr>
+            <td><a href="/prs/{{ pr.number }}" class="text-primary">#{{ pr.number }}</a></td>
+            <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+              <a href="{{ gh_base_url }}/pull/{{ pr.number }}" target="_blank" rel="noopener">{{ pr.title }}</a>
+            </td>
+            <td>
+              <span class="badge {% if pr.state == 'open' %}badge--green{% elif pr.state == 'merged' %}badge--purple{% else %}badge--grey{% endif %}">
+                {{ pr.state }}
+              </span>
+            </td>
+            <td><code style="font-size:0.75rem;">{{ pr.head_ref or '—' }}</code></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="card"><p class="text-muted empty-state">No linked pull requests.</p></div>
+    {% endif %}
+  </section>
+
+  {# Agent runs #}
+  <section>
+    <h2 class="section-title" style="margin-bottom:0.5rem;">Agent Runs</h2>
+    {% if issue.agent_runs %}
+    <div class="card" style="padding:0;overflow:hidden;">
+      <table class="telemetry-table" style="width:100%;margin:0;">
+        <thead><tr><th>Role</th><th>Status</th><th>PR</th><th>Spawned</th></tr></thead>
+        <tbody>
+          {% for run in issue.agent_runs %}
+          <tr>
+            <td>
+              <a href="/agents/{{ run.id }}" style="font-size:0.82rem;">{{ run.role }}</a>
+            </td>
+            <td>
+              <span class="run-status-badge run-status-badge--{{ run.status }}">{{ run.status }}</span>
+            </td>
+            <td>
+              {% if run.pr_number %}
+              <a href="/prs/{{ run.pr_number }}">#{{ run.pr_number }}</a>
+              {% else %}—{% endif %}
+            </td>
+            <td style="font-size:0.75rem;color:var(--text-muted);">
+              {{ run.spawned_at[:10] }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="card"><p class="text-muted empty-state">No agent runs recorded.</p></div>
+    {% endif %}
+  </section>
+</div>
+
+{# ── Comments (lazy-loaded via HTMX) ─────────────────────────────────────── #}
+<section class="mt-2">
+  <h2 class="section-title" style="margin-bottom:0.5rem;">Comments</h2>
+  <div id="comments-area"
+       hx-get="/api/issues/{{ issue.number }}/comments"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <div class="card"><p class="text-muted empty-state">Loading comments…</p></div>
+  </div>
+</section>
+
+{% endblock %}

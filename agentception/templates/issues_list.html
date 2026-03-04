@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block title %}AgentCeption — Issues{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Issues</h1>
+    {% if issues %}
+    <p class="page-subtitle">
+      {{ issues|length }} issue{{ 's' if issues|length != 1 }} — Postgres cache
+      &nbsp;·&nbsp;
+      <a href="https://github.com/{{ gh_repo }}/issues" target="_blank" rel="noopener">view on GitHub ↗</a>
+    </p>
+    {% endif %}
+  </div>
+  <div class="filter-group">
+    <a href="/issues?state=open"   class="btn btn-sm {% if state == 'open' %}btn-primary{% else %}btn-secondary{% endif %}">Open</a>
+    <a href="/issues?state=closed" class="btn btn-sm {% if state == 'closed' %}btn-primary{% else %}btn-secondary{% endif %}">Closed</a>
+    <a href="/issues"              class="btn btn-sm {% if not state %}btn-primary{% else %}btn-secondary{% endif %}">All</a>
+  </div>
+</div>
+
+{% if issues %}
+<div class="card" style="padding:0;overflow:hidden;">
+  <table class="telemetry-table" style="width:100%;margin:0;">
+    <thead>
+      <tr>
+        <th style="width:3.5rem;">#</th>
+        <th>Title</th>
+        <th style="width:5.5rem;">State</th>
+        <th style="width:8rem;">Phase</th>
+        <th>Labels</th>
+        <th style="width:7rem;">{{ 'Closed' if state == 'closed' else 'Synced' }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for issue in issues %}
+      <tr>
+        <td>
+          <a href="/issues/{{ issue.number }}">#{{ issue.number }}</a>
+        </td>
+        <td style="max-width:360px;">
+          <a href="/issues/{{ issue.number }}" style="color:var(--text-primary);font-family:var(--font-sans);">{{ issue.title }}</a>
+        </td>
+        <td>
+          <span class="badge {% if issue.state == 'open' %}badge--green{% else %}badge--grey{% endif %}">
+            {{ issue.state }}
+          </span>
+        </td>
+        <td>
+          {% if issue.phase_label %}
+          <span class="label-chip label-chip--small">{{ issue.phase_label }}</span>
+          {% else %}
+          <span class="text-muted" style="font-size:0.75rem;">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% for lbl in issue.labels[:4] %}
+            {% if lbl != issue.phase_label %}
+            <span class="badge badge--blue" style="font-size:0.55rem;margin:0.1rem 0.1rem 0 0;">{{ lbl }}</span>
+            {% endif %}
+          {% endfor %}
+        </td>
+        <td style="font-size:0.75rem;color:var(--text-muted);font-variant-numeric:tabular-nums;">
+          {% if issue.closed_at %}{{ issue.closed_at[:10] }}
+          {% else %}{{ issue.last_synced_at[:10] }}{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="card empty-state">
+  <p>No issues found{% if state %} with state "{{ state }}"{% endif %}.</p>
+  <p class="text-sm mt-1">The poller syncs every few seconds.</p>
+</div>
+{% endif %}
+
+{% endblock %}

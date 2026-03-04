@@ -1,0 +1,774 @@
+/* ═══ Pipeline Config Page ═══════════════════════════════════════════════════ */
+
+/* ── Page header ─────────────────────────────────────────────────────────── */
+
+.cfg-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.cfg-page-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 0.2rem;
+}
+
+.cfg-page-subtitle {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.cfg-save-stamp {
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  align-self: flex-start;
+  margin-top: 0.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Two-column layout ───────────────────────────────────────────────────── */
+
+.cfg-layout {
+  display: grid;
+  grid-template-columns: 188px 1fr;
+  grid-template-rows: 1fr auto;
+  gap: 0;
+  height: calc(100vh - 9rem);
+  min-height: 400px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+}
+
+/* ── Sidebar tab navigation ──────────────────────────────────────────────── */
+
+.cfg-sidebar {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border-right: 1px solid var(--border-default);
+  padding: 0.75rem 0;
+  gap: 0.125rem;
+}
+
+.cfg-sidebar-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding: 0.25rem 1rem 0.5rem;
+}
+
+.cfg-tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.6rem 1rem;
+  background: transparent;
+  border: none;
+  border-left: 2px solid transparent;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  text-align: left;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.cfg-tab-btn:hover {
+  background: rgba(139, 92, 246, 0.06);
+  color: var(--text-primary);
+}
+
+.cfg-tab-btn.active {
+  background: rgba(139, 92, 246, 0.1);
+  border-left-color: var(--accent);
+  color: var(--accent-bright);
+  font-weight: 600;
+}
+
+.cfg-tab-icon {
+  font-size: 0.9rem;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.cfg-tab-badge {
+  margin-left: auto;
+  font-size: 0.65rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-full);
+  background: var(--accent-glow);
+  color: var(--accent-bright);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.cfg-tab-badge.on {
+  background: var(--success-dim);
+  color: var(--success);
+}
+
+/* ── Content area ────────────────────────────────────────────────────────── */
+
+.cfg-content {
+  grid-column: 2;
+  grid-row: 1;
+  overflow-y: auto;
+  padding: 1.5rem 2rem;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-default) transparent;
+}
+
+.cfg-content::-webkit-scrollbar { width: 5px; }
+.cfg-content::-webkit-scrollbar-track { background: transparent; }
+.cfg-content::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: var(--radius-full);
+}
+
+/* ── Panel sections ──────────────────────────────────────────────────────── */
+
+.cfg-panel-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin: 0 0 1.25rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.cfg-section {
+  margin-bottom: 2rem;
+}
+
+.cfg-section-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0 0 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ── Allocation sliders ──────────────────────────────────────────────────── */
+
+.cfg-slider-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.cfg-slider-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem 1rem;
+  align-items: center;
+}
+
+.cfg-slider-label {
+  font-size: 0.84rem;
+  color: var(--text-primary);
+  font-weight: 500;
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.cfg-slider-hint {
+  font-size: 0.73rem;
+  color: var(--text-faint);
+  grid-column: 1;
+  grid-row: 2;
+  margin-top: -0.25rem;
+}
+
+.cfg-slider-value {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  width: 2.5rem;
+  text-align: center;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--accent-bright);
+  font-family: var(--font-mono);
+  background: var(--accent-glow);
+  border-radius: var(--radius-sm);
+  padding: 0.15rem 0;
+  transition: transform 0.1s;
+}
+
+.cfg-slider-value.pulse {
+  transform: scale(1.15);
+}
+
+.cfg-slider-input {
+  grid-column: 1;
+  grid-row: 3;
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+  height: 4px;
+  margin-top: 0.35rem;
+}
+
+/* ── Capacity meter ──────────────────────────────────────────────────────── */
+
+.cfg-capacity-card {
+  margin-top: 1.75rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+}
+
+.cfg-capacity-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.75rem;
+}
+
+.cfg-capacity-label {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.cfg-capacity-total {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.cfg-capacity-total span {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  font-family: var(--font-sans);
+  margin-left: 0.3rem;
+}
+
+.cfg-capacity-bar {
+  height: 10px;
+  border-radius: var(--radius-full);
+  background: var(--bg-overlay);
+  overflow: hidden;
+  display: flex;
+  gap: 2px;
+}
+
+.cfg-capacity-bar-eng {
+  height: 100%;
+  background: var(--grad-accent);
+  border-radius: var(--radius-full) 0 0 var(--radius-full);
+  transition: width 0.3s ease;
+  min-width: 0;
+}
+
+.cfg-capacity-bar-qa {
+  height: 100%;
+  background: var(--grad-warm);
+  border-radius: 0 var(--radius-full) var(--radius-full) 0;
+  transition: width 0.3s ease;
+  min-width: 0;
+}
+
+.cfg-capacity-legend {
+  display: flex;
+  gap: 1.25rem;
+  margin-top: 0.6rem;
+}
+
+.cfg-capacity-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.cfg-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.cfg-legend-dot.eng { background: var(--accent); }
+.cfg-legend-dot.qa  { background: var(--warning); }
+
+/* ── Labels panel ────────────────────────────────────────────────────────── */
+
+.cfg-label-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  min-height: 2rem;
+}
+
+.cfg-label-empty {
+  padding: 1.5rem;
+  text-align: center;
+  font-size: 0.82rem;
+  color: var(--text-faint);
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.cfg-label-item {
+  display: grid;
+  grid-template-columns: 1.75rem 1.5rem 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.6rem;
+  cursor: grab;
+  user-select: none;
+  transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
+
+  &:active { cursor: grabbing; }
+
+  &.drag-over {
+    border-color: var(--accent);
+    background: var(--accent-glow);
+    box-shadow: 0 0 0 1px var(--accent-dim);
+  }
+}
+
+.cfg-label-position {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  text-align: center;
+  background: var(--bg-overlay);
+  border-radius: var(--radius-xs);
+  padding: 0.1rem 0.3rem;
+}
+
+.cfg-drag-handle {
+  font-size: 0.85rem;
+  color: var(--text-faint);
+  text-align: center;
+  line-height: 1;
+  opacity: 0.6;
+  transition: opacity 0.1s;
+
+  .cfg-label-item:hover & { opacity: 1; }
+}
+
+.cfg-label-text {
+  font-size: 0.8rem;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  word-break: break-all;
+  min-width: 0;
+}
+
+.cfg-btn-remove {
+  background: transparent;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.35rem;
+  border-radius: var(--radius-xs);
+  line-height: 1;
+  transition: color 0.12s, background 0.12s;
+  flex-shrink: 0;
+
+  &:hover {
+    color: var(--danger);
+    background: var(--danger-dim);
+  }
+}
+
+.cfg-label-add-row {
+  display: flex;
+  gap: 0.5rem;
+
+  input[type="text"] {
+    flex: 1;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 0.82rem;
+    font-family: var(--font-mono);
+    padding: 0.4rem 0.7rem;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+
+    &::placeholder { color: var(--text-faint); }
+
+    &:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-glow);
+    }
+  }
+}
+
+/* ── A/B Testing panel ───────────────────────────────────────────────────── */
+
+.cfg-ab-callout {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  background: var(--info-dim);
+  border: 1px solid var(--info-border);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.cfg-ab-callout-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+  margin-top: 0.05rem;
+}
+
+.cfg-ab-callout-text {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.cfg-ab-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  padding: 1rem 1.25rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius);
+  transition: border-color 0.2s;
+
+  &.ab-active {
+    border-color: var(--success-border);
+    background: var(--success-dim);
+  }
+}
+
+.cfg-ab-toggle-label {
+  flex: 1;
+}
+
+.cfg-ab-toggle-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 0.15rem;
+}
+
+.cfg-ab-toggle-desc {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* Accessible pill toggle */
+.cfg-toggle-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+
+  input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+}
+
+.cfg-toggle-track {
+  width: 44px;
+  height: 24px;
+  border-radius: var(--radius-full);
+  background: var(--bg-overlay);
+  border: 1px solid var(--border-default);
+  transition: background 0.2s, border-color 0.2s;
+  position: relative;
+
+  .cfg-toggle-switch input:checked + & {
+    background: var(--success);
+    border-color: var(--success);
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    transition: transform 0.2s, background 0.2s;
+  }
+
+  .cfg-toggle-switch input:checked + &::after {
+    transform: translateX(20px);
+    background: #fff;
+  }
+}
+
+.cfg-ab-status {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+
+  &.on  { background: var(--success-dim); color: var(--success); border: 1px solid var(--success-border); }
+  &.off { background: var(--bg-overlay); color: var(--text-faint); border: 1px solid var(--border-subtle); }
+}
+
+.cfg-ab-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.cfg-ab-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.cfg-field-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.03em;
+}
+
+.cfg-field-hint {
+  font-size: 0.7rem;
+  color: var(--text-faint);
+}
+
+.cfg-text-input {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  font-family: var(--font-mono);
+  padding: 0.45rem 0.75rem;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  width: 100%;
+  box-sizing: border-box;
+
+  &::placeholder { color: var(--text-faint); }
+
+  &:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-glow);
+  }
+}
+
+/* ── Projects panel ──────────────────────────────────────────────────────── */
+
+.cfg-projects-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.cfg-project-empty {
+  padding: 2rem;
+  text-align: center;
+  font-size: 0.82rem;
+  color: var(--text-faint);
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius);
+}
+
+.cfg-project-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-left: 3px solid transparent;
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+
+  &.active {
+    border-left-color: var(--accent);
+    box-shadow: var(--shadow-glow);
+    background: rgba(139, 92, 246, 0.04);
+  }
+}
+
+.cfg-project-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.cfg-project-name {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.cfg-active-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--accent-glow);
+  color: var(--accent-bright);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.cfg-project-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.cfg-project-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  background: var(--bg-overlay);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  padding: 0.18rem 0.5rem;
+
+  .chip-icon {
+    font-size: 0.7rem;
+    opacity: 0.7;
+  }
+}
+
+.cfg-project-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.cfg-project-cursor-id {
+  font-size: 0.7rem;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+}
+
+.cfg-switch-toast {
+  font-size: 0.78rem;
+  color: var(--success);
+  min-height: 1em;
+}
+
+/* ── Sticky save footer ──────────────────────────────────────────────────── */
+
+.cfg-footer {
+  grid-column: 2;
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.875rem 2rem;
+  background: var(--bg-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border-default);
+}
+
+.cfg-toast {
+  font-size: 0.82rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: var(--radius-sm);
+  min-height: 1.6rem;
+  display: flex;
+  align-items: center;
+
+  &.ok  { background: var(--success-dim); color: var(--success); border: 1px solid var(--success-border); }
+  &.err { background: var(--danger-dim);  color: var(--danger);  border: 1px solid var(--danger-border); }
+}
+
+.cfg-footer-spacer { flex: 1; }
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+
+@media (max-width: 680px) {
+  .cfg-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
+    height: auto;
+    min-height: unset;
+  }
+
+  .cfg-sidebar {
+    grid-column: 1;
+    grid-row: 1;
+    flex-direction: row;
+    border-right: none;
+    border-bottom: 1px solid var(--border-default);
+    padding: 0.5rem;
+    overflow-x: auto;
+  }
+
+  .cfg-sidebar-label { display: none; }
+
+  .cfg-tab-btn {
+    border-left: none;
+    border-bottom: 2px solid transparent;
+    padding: 0.4rem 0.75rem;
+    white-space: nowrap;
+    font-size: 0.78rem;
+
+    &.active { border-left-color: transparent; border-bottom-color: var(--accent); }
+  }
+
+  .cfg-content {
+    grid-column: 1;
+    grid-row: 2;
+    padding: 1rem;
+  }
+
+  .cfg-footer {
+    grid-column: 1;
+    grid-row: 3;
+  }
+}

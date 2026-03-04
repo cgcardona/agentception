@@ -1,0 +1,40 @@
+{#
+  HTMX partial — issue card list for spawn Mission Control.
+
+  Swapped into #spawn-issue-list by hx-get="/agents/spawn/issues".
+  Alpine bindings (x-text, @click, :class) are re-evaluated automatically
+  after HTMX swaps because Alpine uses MutationObserver-based init.
+
+  Context:
+    issues  list[dict] — same shape as spawn.html (number, title, phase_label, claimed)
+#}
+{% if issues %}
+{% for iss in issues %}
+<div
+  class="spawn-issue-card{% if iss.claimed %} spawn-issue-card--claimed{% endif %}"
+  @click="selectIssue({{ iss | tojson }})"
+  :class="{
+    'spawn-issue-card--selected': selectedIssue?.number === {{ iss.number }},
+    'spawn-issue-card--claimed':  {{ 'true' if iss.claimed else 'false' }},
+  }"
+  role="option"
+  :aria-selected="selectedIssue?.number === {{ iss.number }}"
+  title="{{ iss.title | e }}{% if iss.claimed %} (agent:wip){% endif %}"
+>
+  <span class="spawn-issue-num">#{{ iss.number }}</span>
+  <div class="spawn-issue-body">
+    <div class="spawn-issue-title">{{ iss.title }}</div>
+    <div class="spawn-issue-meta">
+      {% if iss.phase_label %}
+      <span class="spawn-issue-phase">{{ iss.phase_label }}</span>
+      {% endif %}
+      {% if iss.claimed %}
+      <span class="spawn-issue-wip">wip</span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% else %}
+<div class="spawn-issue-empty">No open issues found.</div>
+{% endif %}

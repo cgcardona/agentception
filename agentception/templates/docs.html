@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}Agentception — Docs: {{ label }}{% endblock %}
+
+{% block content %}
+
+{# ── Breadcrumb ──────────────────────────────────────────────────────────── #}
+<nav class="breadcrumb" aria-label="Breadcrumb">
+  <a href="/">← Overview</a>
+  <span class="breadcrumb-sep">/</span>
+  <a href="/docs">Docs</a>
+  <span class="breadcrumb-sep">/</span>
+  <span class="breadcrumb-current">{{ label }}</span>
+</nav>
+
+{#
+  Alpine component: tracks which slug is "active" in the sidebar.
+  After every HTMX settle event (triggered by sidebar link clicks),
+  read the current pathname and update `activeSlug` accordingly.
+  This keeps the sidebar highlight in sync without a full page reload.
+#}
+<div
+  class="docs-layout"
+  x-data="{
+    activeSlug: '{{ slug }}',
+    init() {
+      window.addEventListener('htmx:afterSettle', () => {
+        const m = location.pathname.match(/\/docs\/([^/]+)/);
+        if (m) this.activeSlug = m[1];
+      });
+    }
+  }"
+>
+
+  {# ── Sidebar: document index ─────────────────────────────────────────── #}
+  <nav class="docs-sidebar card" aria-label="Documents">
+    <h2 class="docs-sidebar-heading">Documents</h2>
+    <ul class="docs-sidebar-list">
+      {% for doc in available_docs %}
+      <li>
+        <a
+          href="/docs/{{ doc.slug }}"
+          class="docs-sidebar-link"
+          :class="activeSlug === '{{ doc.slug }}' ? 'docs-sidebar-link--active' : ''"
+          hx-get="/docs/{{ doc.slug }}/content"
+          hx-target="#docs-content"
+          hx-swap="innerHTML"
+          hx-push-url="/docs/{{ doc.slug }}"
+        >{{ doc.label }}</a>
+      </li>
+      {% endfor %}
+    </ul>
+  </nav>
+
+  {# ── Main: rendered doc content ───────────────────────────────────────── #}
+  <section id="docs-content" class="docs-content card">
+    {% include "_doc_content.html" %}
+  </section>
+
+</div>
+{% endblock %}

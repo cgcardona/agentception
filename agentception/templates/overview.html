@@ -1,0 +1,962 @@
+{% extends "base.html" %}
+
+{% block title %}Agentception — The Singularity Is Here{% endblock %}
+
+{# ─────────────────────────────────────────────────────────────────────────────
+   JINJA MACROS
+   Defined here (outside blocks) so they can be called from {% block content %}.
+
+   agent_header(v, simplified)
+     Renders the collapsed header row for one agent card.
+     v          — Alpine loop variable name ("agent" or "child")
+     simplified — True for child cards (no persona avatar / role stack)
+
+   agent_body(v, simplified)
+     Renders the expanded body panel for one agent card.
+     v          — Alpine loop variable name
+     simplified — True for child cards (no arch panel, no worktree row)
+───────────────────────────────────────────────────────────────────────────── #}
+
+{% macro agent_header(v, simplified=False) %}
+<div class="agent-card__header" @click="toggle({{ v }}.id)">
+
+  <span
+    class="agent-pulse"
+    :class="'agent-pulse--' + {{ v }}.status"
+    x-show="isActive({{ v }}.status)"
+  ></span>
+
+  {% if not simplified %}
+  <div
+    class="card-persona-avatar"
+    :class="'card-persona-avatar--' + parseArch({{ v }}.cognitive_arch).archetypeKey"
+    :title="parseArch({{ v }}.cognitive_arch).displayName"
+  >
+    <span x-text="parseArch({{ v }}.cognitive_arch).emoji"></span>
+  </div>
+
+  <div class="agent-role-stack">
+    <span class="agent-role-name" x-text="formatRole({{ v }}.role)"></span>
+    <span
+      class="agent-persona-sub"
+      x-show="{{ v }}.cognitive_arch"
+      x-text="parseArch({{ v }}.cognitive_arch).displayName"
+    ></span>
+  </div>
+  {% endif %}
+
+  <span
+    class="status-badge"
+    :class="'status-badge--' + {{ v }}.status"
+    x-text="{{ v }}.status"
+  ></span>
+
+  {% if simplified %}
+  <span class="agent-role-name" x-text="formatRole({{ v }}.role)"></span>
+  {% endif %}
+
+  <a
+    x-show="{{ v }}.issue_number != null"
+    :href="GH_BASE_URL + '/issues/' + {{ v }}.issue_number"
+    class="agent-meta-chip agent-meta-chip--issue"
+    target="_blank" rel="noopener noreferrer"
+    @click.stop
+  >#<span x-text="{{ v }}.issue_number"></span></a>
+
+  <a
+    x-show="{{ v }}.pr_number != null"
+    :href="GH_BASE_URL + '/pull/' + {{ v }}.pr_number"
+    class="agent-meta-chip agent-meta-chip--pr"
+    target="_blank" rel="noopener noreferrer"
+    @click.stop
+  >PR&nbsp;#<span x-text="{{ v }}.pr_number"></span></a>
+
+  <code
+    class="agent-branch-chip text-muted"
+    x-show="{{ v }}.branch"
+    x-text="{{ v }}.branch"
+  ></code>
+
+  <span class="agent-meta text-muted" x-show="{{ v }}.message_count > 0">
+    <span x-text="{{ v }}.message_count"></span> msgs
+  </span>
+
+  <span
+    class="agent-meta text-muted"
+    x-show="{{ v }}.last_activity_mtime > 0"
+    x-text="relativeTime({{ v }}.last_activity_mtime)"
+  ></span>
+
+  <span
+    class="agent-card__chevron"
+    :class="{ 'agent-card__chevron--open': expanded }"
+  >›</span>
+
+  <button
+    class="btn-kill-inline"
+    x-show="{{ v }}.worktree_path != null && ['implementing','reviewing','stale'].includes({{ v }}.status)"
+    @click.stop="$dispatch('open-kill-modal', {id: {{ v }}.id, issue: {{ v }}.issue_number})"
+    title="Kill agent"
+    aria-label="Kill agent"
+  >✕</button>
+
+</div>
+{% endmacro %}
+
+
+{% macro agent_body(v, simplified=False) %}
+<div class="agent-card__body" x-show="expanded" x-transition>
+
+  {# Transcript feed #}
+  <div class="transcript-feed">
+    <div x-show="transcriptLoading" class="transcript-loading">Loading transcript…</div>
+    <div x-show="transcriptError" class="transcript-error" x-text="transcriptError"></div>
+
+    <template x-for="(msg, idx) in transcript" :key="idx">
+      <div class="transcript-msg" :class="'transcript-msg--' + msg.role">
+        <span class="transcript-msg__icon" x-text="msg.role === 'user' ? '🧑' : '🤖'"></span>
+        <div class="transcript-msg__body">
+          <div class="transcript-msg__role" x-text="msg.role"></div>
+          <div class="transcript-msg__text" x-text="truncate(msg.text, 500)"></div>
+        </div>
+      </div>
+    </template>
+
+    <div
+      class="transcript-thinking"
+      x-show="isActive({{ v }}.status) && !transcriptLoading"
+    >
+      <span class="transcript-thinking__dot"></span>
+      <span>Agent is working…</span>
+    </div>
+
+    <div
+      x-show="!transcriptLoading && !transcriptError && transcript.length === 0 && !isActive({{ v }}.status)"
+      class="transcript-empty"
+    >No transcript recorded yet.</div>
+  </div>
+
+  {% if not simplified %}
+  {# Cognitive architecture mini-panel #}
+  <template x-if="{{ v }}.cognitive_arch">
+    <div class="card-arch-panel">
+      <div class="card-arch-panel__header">
+        <span x-text="parseArch({{ v }}.cognitive_arch).emoji"></span>
+        <strong x-text="parseArch({{ v }}.cognitive_arch).displayName"></strong>
+        <span
+          class="card-arch-panel__archetype"
+          x-show="parseArch({{ v }}.cognitive_arch).archetype"
+          x-text="parseArch({{ v }}.cognitive_arch).archetype"
+        ></span>
+      </div>
+      <template x-if="parseArch({{ v }}.cognitive_arch).skillDomains.length > 0">
+        <div class="card-arch-panel__skills">
+          <template x-for="skill in parseArch({{ v }}.cognitive_arch).skillDomains" :key="skill">
+            <span class="cog-skill-tag cog-skill-tag--sm" x-text="skill.replace(/_/g, ' ')"></span>
+          </template>
+        </div>
+      </template>
+      <a
+        :href="'/cognitive-arch/' + encodeURIComponent({{ v }}.cognitive_arch)"
+        class="card-arch-panel__link"
+        @click.stop
+      >View Architecture →</a>
+    </div>
+  </template>
+  {% endif %}
+
+  {# Task details #}
+  <div class="agent-task-details">
+    <div class="agent-task-details__title">Task Details</div>
+    <div class="agent-task-grid">
+      <span class="agent-task-grid__key">Branch</span>
+      <span class="agent-task-grid__value" x-text="{{ v }}.branch || '—'"></span>
+      <span class="agent-task-grid__key">Batch</span>
+      <span class="agent-task-grid__value" x-text="{{ v }}.batch_id || '—'"></span>
+      {% if not simplified %}
+      <span class="agent-task-grid__key">Worktree</span>
+      <span class="agent-task-grid__value" x-text="{{ v }}.worktree_path || '—'"></span>
+      {% endif %}
+      <span class="agent-task-grid__key">Messages</span>
+      <span class="agent-task-grid__value" x-text="{{ v }}.message_count || 0"></span>
+    </div>
+  </div>
+
+  {# Quick actions #}
+  <div class="agent-card-actions">
+    {% if not simplified %}
+    <a
+      x-show="{{ v }}.issue_number"
+      :href="GH_BASE_URL + '/issues/' + {{ v }}.issue_number"
+      target="_blank" rel="noopener noreferrer"
+      class="btn btn-sm btn-secondary"
+      @click.stop
+    >View Issue ↗</a>
+    {% endif %}
+    <a
+      x-show="{{ v }}.pr_number"
+      :href="GH_BASE_URL + '/pull/' + {{ v }}.pr_number"
+      target="_blank" rel="noopener noreferrer"
+      class="btn btn-sm btn-secondary"
+      @click.stop
+    >View PR ↗</a>
+    {% if not simplified %}
+    <a
+      x-show="{{ v }}.cognitive_arch"
+      :href="'/cognitive-arch/' + encodeURIComponent({{ v }}.cognitive_arch)"
+      class="btn btn-sm btn-secondary"
+      @click.stop
+      x-text="parseArch({{ v }}.cognitive_arch).emoji + ' Architecture'"
+    ></a>
+    {% endif %}
+    <a
+      :href="'/agents/' + {{ v }}.id"
+      class="btn btn-sm btn-secondary"
+      @click.stop
+    >Full Detail →</a>
+  </div>
+
+</div>
+{% endmacro %}
+
+
+{% block content %}
+{#
+  Root Alpine scope: pipelineDashboard.
+  GH_BASE_URL is read from data-gh-base-url in connect() — no inline <script> needed.
+  All child components access GH_BASE_URL through Alpine's scope chain.
+#}
+<div
+  x-data='pipelineDashboard({{ state.model_dump() | tojson }})'
+  x-init="connect()"
+  data-gh-base-url="{{ gh_base_url }}"
+  @phase-switching.window="boardLoading = true"
+  @open-kill-modal.window="openKillModal($event.detail.id, $event.detail.issue)"
+  @keydown.escape.window="closeKillModal()"
+  x-cloak
+>
+
+  {# ── Run Conductor panel — own Alpine scope, listens for dispatch ──────── #}
+  <div
+    x-data='runConductorPanel({{ active_phase_label | tojson }}, {{ all_phase_labels | tojson }}, {{ active_org | tojson }})'
+    x-init="init()"
+    @open-run-conductor-modal.window="open = true; fetchHistory()"
+    @keydown.escape.window="if (open) dismiss()"
+  >
+    <div
+      class="modal-backdrop"
+      x-show="open"
+      x-cloak
+      x-transition.opacity
+      @click.self="dismiss()"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="run-conductor-modal-title"
+    >
+      <div class="modal-box">
+        <h2 class="modal-title" id="run-conductor-modal-title">🎼 Run Conductor</h2>
+
+        <template x-if="!result && !launching && !error">
+          <div>
+            <p class="modal-body">
+              Spawn a conductor agent for the active phase. The conductor will
+              orchestrate sub-agents across all unclaimed issues without manual
+              intervention per-issue.
+            </p>
+            <template x-if="activeLabel">
+              <p class="text-muted mt-1" style="font-size:0.9rem;">
+                Phase: <span class="label-chip label-chip--active" x-text="activeLabel"></span>
+                <template x-if="activeOrg">
+                  &nbsp;· Org: <code x-text="activeOrg"></code>
+                </template>
+              </p>
+            </template>
+            <template x-if="!activeLabel">
+              <p class="text-muted mt-1">No active phase configured — set <code>active_labels_order</code> in pipeline-config.json.</p>
+            </template>
+            <div class="modal-actions">
+              <button class="btn btn-secondary" @click="dismiss()">Cancel</button>
+              <button
+                class="btn btn-primary"
+                @click="launch()"
+                :disabled="!activeLabel"
+              >Run Conductor</button>
+            </div>
+          </div>
+        </template>
+
+        <template x-if="launching">
+          <div class="flex-row gap-1 mt-1" style="align-items:center;">
+            <span class="agent-pulse agent-pulse--implementing"></span>
+            <span class="text-muted">Spawning conductor worktree…</span>
+          </div>
+        </template>
+
+        <template x-if="result && !launching">
+          <div>
+            <p class="text-success mt-1">✅ Conductor ready — open the folder in Cursor to start.</p>
+            <div class="flex-row gap-1 mt-1" style="align-items:center;flex-wrap:wrap;">
+              <code style="font-size:0.8rem;word-break:break-all;" x-text="result.host_worktree"></code>
+              <button
+                class="btn btn-secondary"
+                style="padding:2px 8px;font-size:0.8rem;"
+                @click="copyPath(result.host_worktree)"
+                x-text="copied ? '✅ Copied!' : '📋 Copy path'"
+              ></button>
+            </div>
+            <p class="text-muted mt-1" style="font-size:0.85rem;">
+              Open this folder in Cursor — the conductor will start automatically.
+            </p>
+            <p class="mt-1" style="font-size:0.85rem;">
+              <a href="/agents" class="btn btn-sm btn-secondary">Monitor agents →</a>
+            </p>
+            <div class="modal-actions">
+              <button class="btn btn-secondary" @click="dismiss()">Close</button>
+            </div>
+          </div>
+        </template>
+
+        <template x-if="error && !launching">
+          <div>
+            <div class="alert-banner mt-1" role="alert">
+              <span>❌</span>
+              <span x-text="error"></span>
+            </div>
+            <div class="modal-actions">
+              <button class="btn btn-secondary" @click="dismiss()">Close</button>
+              <button class="btn btn-primary" @click="error = null; result = null">Try Again</button>
+            </div>
+          </div>
+        </template>
+
+        {# ── History section ─────────────────────────────────────────────── #}
+        <template x-if="history.length > 0">
+          <div class="mt-2" style="border-top:1px solid var(--border);padding-top:0.75rem;">
+            <button
+              class="btn btn-sm btn-secondary"
+              style="font-size:0.8rem;margin-bottom:0.5rem;"
+              @click="historyOpen = !historyOpen"
+              x-text="historyOpen ? '▾ Hide history' : '▸ Show last ' + history.length + ' conductor' + (history.length === 1 ? '' : 's')"
+            ></button>
+            <template x-if="historyOpen">
+              <div>
+                <template x-for="entry in history" :key="entry.wave_id">
+                  <div style="margin-bottom:0.5rem;padding:0.4rem 0.5rem;background:var(--bg-secondary);border-radius:4px;font-size:0.8rem;">
+                    <div class="flex-row gap-1" style="align-items:center;flex-wrap:wrap;">
+                      <span
+                        class="badge"
+                        :class="entry.status === 'active' ? 'badge--green' : 'badge--dim'"
+                        x-text="entry.status"
+                      ></span>
+                      <code style="word-break:break-all;flex:1;" x-text="entry.host_worktree"></code>
+                      <button
+                        class="btn btn-sm btn-secondary"
+                        style="padding:1px 6px;font-size:0.75rem;"
+                        @click="copyPath(entry.host_worktree)"
+                      >📋</button>
+                    </div>
+                    <div class="text-muted" style="margin-top:0.2rem;" x-text="entry.started_at"></div>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+        </template>
+
+      </div>
+    </div>
+  </div>
+
+  {# ── Conductor modal — own Alpine scope, listens for dispatch ──────────── #}
+  <div
+    x-data='conductorModal({{ state.model_dump() | tojson }})'
+    @open-conductor-modal.window="open = true"
+    @keydown.escape.window="if (open) dismiss()"
+  >
+    <div
+      class="modal-backdrop"
+      x-show="open"
+      x-cloak
+      x-transition.opacity
+      @click.self="dismiss()"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="conductor-modal-title"
+    >
+      <div class="modal-box">
+        <h2 class="modal-title" id="conductor-modal-title">🚀 Launch Wave</h2>
+
+        <template x-if="!result && !launching">
+          <div>
+            <p class="modal-body">
+              Select phases to run the conductor against. A conductor agent will
+              spawn sub-agents for every unclaimed issue in each selected phase.
+            </p>
+
+            <div class="mt-1">
+              <template x-if="state.active_label">
+                <label class="flex-row gap-1" style="align-items:center;cursor:pointer;">
+                  <input
+                    type="checkbox"
+                    :value="state.active_label"
+                    x-model="selectedPhases"
+                  />
+                  <span x-text="state.active_label"></span>
+                  <span class="label-chip label-chip--active" style="font-size:0.7rem;">active</span>
+                </label>
+              </template>
+              <template x-if="!state.active_label">
+                <p class="text-muted">No active phase — set active_labels_order in pipeline-config.json.</p>
+              </template>
+            </div>
+
+            <p class="text-muted mt-1" style="font-size:0.85rem;">
+              Estimated parallelism:
+              <strong x-text="estimatedAgents()"></strong>
+              agent<span x-text="estimatedAgents() === 1 ? '' : 's'"></span> will be spawned.
+            </p>
+
+            <div class="modal-actions">
+              <button class="btn btn-secondary" @click="dismiss()">Cancel</button>
+              <button
+                class="btn btn-primary"
+                @click="launchConductor()"
+                :disabled="selectedPhases.length === 0"
+              >
+                Confirm Launch
+              </button>
+            </div>
+          </div>
+        </template>
+
+        <template x-if="launching">
+          <div class="flex-row gap-1 mt-1" style="align-items:center;">
+            <span class="agent-pulse agent-pulse--implementing"></span>
+            <span class="text-muted">Launching conductor…</span>
+          </div>
+        </template>
+
+        <template x-if="result && !launching">
+          <div>
+            <p class="text-success mt-1">✅ Conductor ready — open in Cursor to start.</p>
+            <div class="flex-row gap-1 mt-1" style="align-items:center;flex-wrap:wrap;">
+              <code style="font-size:0.8rem;word-break:break-all;" x-text="result.host_worktree"></code>
+              <button class="btn btn-secondary" style="padding:2px 8px;font-size:0.8rem;" @click="copyPath()">Copy</button>
+            </div>
+            <p class="text-muted mt-1" style="font-size:0.8rem;">
+              Branch: <code x-text="result.branch"></code>
+            </p>
+            <div class="modal-actions">
+              <button class="btn btn-secondary" @click="dismiss()">Close</button>
+            </div>
+          </div>
+        </template>
+
+        <template x-if="error && !launching">
+          <div>
+            <div class="alert-banner mt-1" role="alert">
+              <span>❌</span>
+              <span x-text="error"></span>
+            </div>
+            <div class="modal-actions">
+              <button class="btn btn-secondary" @click="dismiss()">Close</button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+
+  {# ── Kill modal — global, lives at root scope ──────────────────────────── #}
+  <div
+    class="modal-backdrop"
+    x-show="killModal.show"
+    x-cloak
+    x-transition.opacity
+    @click.self="closeKillModal()"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="kill-modal-title"
+  >
+    <div class="modal-box">
+      <h2 class="modal-title" id="kill-modal-title">Kill agent?</h2>
+      <p class="modal-body">
+        Removes the agent's work environment.
+        <template x-if="killModal.issueNumber">
+          <span>Issue <strong x-text="'#' + killModal.issueNumber"></strong> will be available for re-claim.</span>
+        </template>
+      </p>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" @click="closeKillModal()" :disabled="killModal.killing">Cancel</button>
+        <button
+          class="btn btn-danger"
+          @click="confirmKill()"
+          :disabled="killModal.killing"
+          x-text="killModal.killing ? 'Killing…' : 'Confirm Kill'"
+        ></button>
+      </div>
+    </div>
+  </div>
+
+  {# ── Pipeline summary bar ──────────────────────────────────────────────── #}
+  <div class="pipeline-summary-bar" role="status" aria-label="Pipeline summary">
+
+    <div
+      class="phase-switcher"
+      x-data='phaseSwitcher(
+        {{ active_phase_label | tojson }},
+        {{ all_phase_labels | tojson }},
+        {{ label_is_pinned | tojson }}
+      )'
+      @keydown.escape.window="open = false"
+      @click.outside="open = false"
+    >
+      <button class="phase-switcher__trigger" @click="open = !open" :aria-expanded="open">
+        <span class="phase-switcher__icon">⎇</span>
+        <span class="phase-switcher__current" x-text="current ?? '—'"></span>
+        <span class="phase-switcher__pin" x-show="pinned" title="Manually pinned — click Auto to release">📌</span>
+        <span class="phase-switcher__caret">▾</span>
+      </button>
+
+      <div class="phase-switcher__dropdown" x-show="open" x-transition x-cloak>
+        <div class="phase-switcher__header">Switch phase</div>
+
+        <button
+          class="phase-switcher__option"
+          :class="!pinned ? 'phase-switcher__option--active' : ''"
+          @click="selectAuto()"
+        >
+          <span class="phase-switcher__option-check" x-text="!pinned ? '✓' : ''"></span>
+          <span>Auto <span class="phase-switcher__auto-hint" x-text="!pinned && current ? '(' + current + ')' : ''"></span></span>
+        </button>
+
+        <div class="phase-switcher__divider"></div>
+
+        {% for lbl in all_phase_labels %}
+        <button
+          class="phase-switcher__option"
+          :class='pinned && current === {{ lbl | tojson }} ? "phase-switcher__option--active" : ""'
+          @click='selectLabel({{ lbl | tojson }})'
+        >
+          <span class="phase-switcher__option-check" x-text='pinned && current === {{ lbl | tojson }} ? "✓" : ""'></span>
+          <span>{{ lbl }}</span>
+        </button>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="summary-item">
+      <span class="summary-label">Issues</span>
+      <span class="summary-value" x-text="state.issues_open"></span>
+    </div>
+    <div class="summary-item">
+      <span class="summary-label">PRs</span>
+      <span class="summary-value" x-text="state.prs_open"></span>
+    </div>
+    <div class="summary-item">
+      <span class="summary-label">Active</span>
+      <span class="summary-value summary-value--active" x-text="state.agents.length"></span>
+    </div>
+    <div class="summary-item">
+      <span class="summary-label">Merged</span>
+      <span class="summary-value summary-value--accent" x-text="state.merged_prs_count ?? 0"></span>
+    </div>
+    <div class="summary-item">
+      <span class="summary-label">Closed</span>
+      <span class="summary-value summary-value--accent" x-text="state.closed_issues_count ?? 0"></span>
+    </div>
+    <div
+      class="summary-item"
+      :class="[
+        (state.stale_branches || []).length > 0 ? 'summary-item--warn' : 'summary-item--dim',
+        (state.stale_branches || []).length > 0 && !sweeping ? 'summary-item--clickable' : ''
+      ]"
+      x-data="sweepControl()"
+      @click="(state.stale_branches || []).length > 0 && !sweeping && sweep()"
+      :title="(state.stale_branches || []).length > 0 ? (sweeping ? 'Sweeping…' : 'Click to delete stale branches') : ''"
+    >
+      <span class="summary-label" x-text="sweeping ? 'Sweeping…' : 'Stale'"></span>
+      <span class="summary-value" x-text="(state.stale_branches || []).length"></span>
+    </div>
+    <div class="summary-item">
+      <span class="summary-label">Msgs</span>
+      <span class="summary-value summary-value--accent" x-text="totalMsgCount()"></span>
+    </div>
+
+    <div
+      class="poller-right"
+      id="pipeline-control"
+      x-data="pipelineControl({{ poller_paused | tojson }})"
+    >
+      <div class="poller-polled">
+        <span class="poller-polled__label">Polled</span>
+        <span class="poller-polled__value" x-text="relativeTime(state.polled_at)"></span>
+      </div>
+      <button
+        class="poller-btn"
+        @click="toggle()"
+        :title="paused ? 'Resume poller' : 'Pause poller'"
+        :aria-pressed="paused"
+      >
+        <span
+          class="poller-dot"
+          :class="paused ? 'poller-dot--paused' : (connected ? 'poller-dot--live' : 'poller-dot--warn')"
+        ></span>
+        <span
+          class="poller-btn__label"
+          x-text="paused ? 'Paused' : (connected ? 'Live' : '…')"
+        ></span>
+      </button>
+    </div>
+
+  </div>{# /.pipeline-summary-bar #}
+
+  {# ── Scaling advisor ───────────────────────────────────────────────────── #}
+  <div
+    x-data='scalingAdvisor({{ scaling_advice | tojson }})'
+    x-show="!dismissed && recommendation !== null && recommendation.action !== 'no_change'"
+    x-cloak
+    class="alert-banner alert-banner--info"
+    role="status"
+    aria-label="Scaling recommendation"
+  >
+    <span>💡</span>
+    <span x-text="recommendation ? recommendation.reason : ''"></span>
+    <button
+      class="btn btn-sm btn-primary"
+      @click="apply()"
+      :disabled="applying"
+      x-text="applying ? 'Applying…' : 'Apply'"
+      aria-label="Apply scaling recommendation"
+    ></button>
+    <button
+      class="btn btn-sm btn-secondary"
+      @click="dismissed = true"
+      aria-label="Dismiss scaling recommendation"
+    >Dismiss</button>
+    <span x-show="applyError" class="text-danger" x-text="applyError"></span>
+  </div>
+
+  {# ── Pipeline paused banner (server-rendered, shown once) ─────────────── #}
+  {% if poller_paused %}
+  <div class="alert-banner alert-banner--warning" role="status" aria-label="Pipeline paused">
+    <span>⏸️</span>
+    <span>Pipeline paused</span>
+  </div>
+  {% endif %}
+
+  {# ── Generic alert banners (SSE-driven, top-level only) ───────────────── #}
+  <template x-for="alert in state.alerts" :key="alert">
+    <div class="alert-banner" role="alert">
+      <span>⚠️</span>
+      <span x-text="alert"></span>
+    </div>
+  </template>
+
+  {# ── PR violation banners ──────────────────────────────────────────────── #}
+  <div x-data='prViolations({{ pr_violations | tojson }})'>
+    <template x-for="v in violations" :key="v.pr_number">
+      <div class="alert-banner alert-banner--violation" role="alert">
+        <span>🚫</span>
+        <span>
+          Out-of-order PR
+          <strong x-text="'#' + v.pr_number"></strong>
+          <em x-text="v.pr_title"></em>
+          — expected <code x-text="v.expected_label"></code>,
+          got <code x-text="v.actual_label"></code>
+        </span>
+        <button
+          class="btn btn-danger btn-sm"
+          @click="closeViolation(v.pr_number)"
+          :disabled="closing === v.pr_number"
+          x-text="closing === v.pr_number ? 'Closing…' : 'Close PR'"
+          aria-label="Close out-of-order PR"
+        ></button>
+      </div>
+    </template>
+  </div>
+
+  {# ── Phase gate control panel ──────────────────────────────────────────── #}
+  {% include 'partials/phase_lanes.html' %}
+
+  {# ── Two-column layout ─────────────────────────────────────────────────── #}
+  <div class="overview-columns">
+
+    {# ── Left: Agent Tree ──────────────────────────────────────────────── #}
+    <section class="agent-tree-container" aria-label="Agent tree">
+      <h2 class="section-title">Agent Tree</h2>
+
+      <div id="tree">
+
+        <div x-show="state.agents.length === 0" class="empty-state text-muted">
+          <p>The pipeline is idle.</p>
+          <p class="text-sm mt-1">Start a wave or spawn an agent to begin.</p>
+        </div>
+
+        {# Root agent cards #}
+        <template x-for="agent in state.agents" :key="agent.id">
+          <div
+            class="agent-row"
+            :class="'agent-row--status-' + agent.status"
+            x-data="agentCard()"
+            x-effect="checkRefresh(agent, agent.message_count)"
+          >
+            {{ agent_header('agent') }}
+            {{ agent_body('agent') }}
+
+            {# Child agents #}
+            <template x-if="agent.children && agent.children.length > 0">
+              <div class="agent-children">
+                <template x-for="child in agent.children" :key="child.id">
+                  <div
+                    class="agent-row agent-row--child"
+                    :class="'agent-row--status-' + child.status"
+                    x-data="agentCard()"
+                    x-effect="checkRefresh(child, child.message_count)"
+                  >
+                    {{ agent_header('child', simplified=True) }}
+                    {{ agent_body('child', simplified=True) }}
+                  </div>
+                </template>
+              </div>
+            </template>
+
+          </div>
+        </template>
+
+      </div>
+    </section>
+
+    {# ── Right: GitHub Board ────────────────────────────────────────────── #}
+    <aside class="github-board" aria-label="GitHub board">
+      <h2 class="section-title">GitHub Board</h2>
+
+      {# Wave control card #}
+      <div class="card wave-control-card" x-data="waveControl()" x-init="init()">
+        <div class="wave-control-header">
+          <div>
+            <div class="wave-phase-label">
+              <template x-if="state.active_label">
+                <span class="label-chip label-chip--active" x-text="state.active_label"></span>
+              </template>
+              <template x-if="!state.active_label">
+                <span class="label-chip label-chip--none">No active phase</span>
+              </template>
+            </div>
+            <div class="wave-phase-stats">
+              <template x-if="state.active_label">
+                <span class="text-muted">
+                  <span x-text="unclaimedCount()"></span> unclaimed
+                  <span class="board-stats-sep">·</span>
+                  <span x-text="claimedCount()"></span> claimed
+                  <span class="board-stats-sep">·</span>
+                  <span x-text="state.board_issues ? state.board_issues.length : 0"></span> total
+                </span>
+              </template>
+              <template x-if="!state.active_label">
+                <span class="text-muted">Set active_labels_order in pipeline-config.json</span>
+              </template>
+            </div>
+          </div>
+
+          <div class="flex-row gap-1" style="flex-wrap:wrap;">
+            <template x-if="state.active_label && unclaimedCount() > 0">
+              <button
+                class="btn btn-primary btn-wave-start"
+                @click="startWave()"
+                :disabled="launching"
+                x-text="launching ? 'Launching…' : 'Start Wave'"
+                :title="'Spawn agents for all unclaimed issues in ' + state.active_label"
+                aria-label="Start pipeline wave"
+              ></button>
+            </template>
+            <button
+              class="btn btn-secondary"
+              :disabled="state.agents && state.agents.length > 0"
+              @click="$dispatch('open-conductor-modal')"
+              :title="state.agents && state.agents.length > 0 ? 'Cannot launch while agents are active' : 'Launch a conductor agent across selected phases'"
+              aria-label="Launch conductor wave"
+            >🚀 Launch Wave</button>
+            <button
+              class="btn btn-secondary"
+              style="font-size:0.85rem;"
+              @click="$dispatch('open-run-conductor-modal')"
+              title="Spawn a conductor agent for the active phase"
+              aria-label="Run conductor agent"
+            >🎼 Run Conductor</button>
+          </div>
+          <template x-if="state.active_label && state.board_issues && state.board_issues.length > 0 && unclaimedCount() === 0">
+            <span class="badge badge--green">All claimed ✓</span>
+          </template>
+          <template x-if="state.active_label && (!state.board_issues || state.board_issues.length === 0)">
+            <span class="text-muted board-syncing">Syncing…</span>
+          </template>
+        </div>
+
+        <template x-if="waveResult">
+          <div class="wave-result mt-1">
+            <p class="text-success">
+              ✅ Wave launched —
+              <strong x-text="waveResult.spawned.length"></strong>
+              agent<span x-text="waveResult.spawned.length === 1 ? '' : 's'"></span>
+              claimed. Agent tree updates automatically.
+            </p>
+            <template x-for="s in waveResult.spawned" :key="s.spawned">
+              <div class="wave-worktree-row">
+                <span class="wave-issue-num">#<span x-text="s.spawned"></span></span>
+                <code class="wave-branch" x-text="s.branch"></code>
+              </div>
+            </template>
+            <template x-if="waveResult.skipped.length > 0">
+              <p class="text-muted mt-1">
+                ⏭ <span x-text="waveResult.skipped.length"></span> skipped (already claimed or worktree exists).
+              </p>
+            </template>
+          </div>
+        </template>
+
+        <template x-if="waveError">
+          <div class="alert-banner mt-1" role="alert">
+            <span>❌</span>
+            <span x-text="waveError"></span>
+          </div>
+        </template>
+
+        <div class="board-stats mt-1">
+          <span class="text-muted">
+            <span x-text="state.issues_open"></span> open (all labels)
+          </span>
+          <span class="board-stats-sep">·</span>
+          <span class="text-muted">
+            <span x-text="state.prs_open"></span> PRs open
+          </span>
+        </div>
+      </div>
+
+      {# Pending Approval #}
+      {% if state.pending_approval %}
+      <div class="mt-2">
+        <h3 class="section-subtitle">Pending Approval</h3>
+        <div
+          id="approval-queue-container"
+          hx-get="/api/issues/approval-queue"
+          hx-trigger="load, every 10s"
+          hx-swap="innerHTML"
+        >
+          {% include 'partials/approval_queue.html' %}
+        </div>
+      </div>
+      {% endif %}
+
+      {# Stale claims #}
+      <div x-show="state.stale_claims && state.stale_claims.length > 0" class="mt-2">
+        <h3 class="section-subtitle">Stale Claims</h3>
+        <template x-for="claim in state.stale_claims" :key="claim.issue_number">
+          <div class="stale-claim-card" x-data="staleClaimCard(claim)">
+            <div class="stale-claim-header">
+              <span class="stale-claim-number">#<span x-text="claim.issue_number"></span></span>
+              <span class="stale-claim-title" x-text="claim.issue_title"></span>
+            </div>
+            <div class="stale-claim-path text-muted" x-text="claim.worktree_path"></div>
+            <div class="stale-claim-actions">
+              <button
+                class="btn btn-sm btn-warning"
+                x-show="!confirming && !clearing"
+                @click="confirming = true"
+              >Clear Label</button>
+              <span x-show="confirming && !clearing" class="stale-claim-confirm">
+                Remove <code>agent:wip</code> from #<span x-text="claim.issue_number"></span>?
+                <button class="btn btn-sm btn-secondary" @click="confirming = false">Cancel</button>
+                <button class="btn btn-sm btn-danger" @click="clear(claim.issue_number)">Confirm</button>
+              </span>
+              <span x-show="clearing" class="text-muted">Clearing…</span>
+              <span x-show="cleared" class="text-success">✅ Cleared</span>
+              <span x-show="error" class="text-danger" x-text="error"></span>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      {# Open issues board #}
+      <div x-show="boardLoading" class="board-spinner mt-2">
+        <div class="board-spinner__ring"></div>
+        <span>Switching phase…</span>
+      </div>
+
+      {# Open issues — grouped by batch (phase_label), server-rendered sections #}
+      <div x-show="!boardLoading">
+        {% if grouped_board_issues %}
+          {% for batch_label, batch_issues in grouped_board_issues %}
+          <section class="batch-group mt-2">
+            <h3 class="batch-heading">
+              {{ batch_label }}
+              <span class="badge badge-count">{{ batch_issues | length }}</span>
+            </h3>
+            <div class="issue-grid">
+              {% for issue in batch_issues %}
+              <div
+                class="issue-card"
+                id="issue-card-{{ issue.number }}"
+                x-data="issueCard({{ issue.number }})"
+              >
+                <div class="issue-card-header">
+                  <a
+                    class="issue-card-number"
+                    href="{{ gh_base_url }}/issues/{{ issue.number }}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >#{{ issue.number }}</a>
+                  <span class="issue-card-title">{{ issue.title }}</span>
+                </div>
+                {% if issue.labels %}
+                <div class="issue-card-labels">
+                  {% for lbl in issue.labels %}
+                  <span class="label-chip label-chip--small">{{ lbl }}</span>
+                  {% endfor %}
+                </div>
+                {% endif %}
+                <div class="issue-card-status">
+                  <template x-if="!agentForIssue({{ issue.number }})">
+                    <span class="issue-status-badge issue-status-badge--available">Available</span>
+                  </template>
+                  <template x-if="agentForIssue({{ issue.number }}) && agentForIssue({{ issue.number }}).pr_number">
+                    <a
+                      :href="GH_BASE_URL + '/pull/' + agentForIssue({{ issue.number }}).pr_number"
+                      class="issue-status-badge issue-status-badge--pr"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >PR #<span x-text="agentForIssue({{ issue.number }}).pr_number"></span> open ↗</a>
+                  </template>
+                  <template x-if="agentForIssue({{ issue.number }}) && !agentForIssue({{ issue.number }}).pr_number">
+                    <span class="issue-status-badge issue-status-badge--implementing">Implementing</span>
+                  </template>
+                </div>
+                <div class="issue-card-actions">
+                  <button
+                    class="btn btn-sm btn-secondary"
+                    @click="analyze()"
+                    :disabled="analyzing"
+                    x-text="analyzing ? 'Analyzing…' : 'Analyze'"
+                    :aria-label="'Analyze issue #{{ issue.number }}'"
+                  ></button>
+                </div>
+                <div x-show="analyzeError" class="text-danger text-sm mt-1" x-text="analyzeError"></div>
+                <div x-show="analysisHtml" x-html="analysisHtml" class="issue-analysis-result"></div>
+              </div>
+              {% endfor %}
+            </div>
+          </section>
+          {% endfor %}
+        {% else %}
+        <div class="mt-2 text-muted empty-state">
+          <p>No open unclaimed issues in the active phase.</p>
+          <p class="text-sm mt-1">The board updates live every 5 seconds via SSE.</p>
+        </div>
+        {% endif %}
+      </div>
+
+    </aside>
+
+  </div>{# /.overview-columns #}
+</div>{# /pipelineDashboard #}
+{% endblock %}

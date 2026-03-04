@@ -1,0 +1,88 @@
+services:
+  # ==========================================================================
+  # AgentCeption — multi-agent orchestration dashboard
+  # Port 10003 avoids collision with maestro (10001) and storpheus (10002).
+  # ==========================================================================
+  agentception:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agentception-app
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:10003:10003"
+    environment:
+      HOME: ${HOME}
+      # Database: inject via .env (AC_DATABASE_URL=postgresql+asyncpg://...)
+      AC_DATABASE_URL: "postgresql+asyncpg://agentception:${DB_PASSWORD}@postgres:5432/agentception"
+      # gh CLI / git repo settings — override via .env or docker-compose.override.yml
+      AC_GH_REPO: ${AC_GH_REPO:-cgcardona/agentception}
+      AC_REPO_DIR: ${AC_REPO_DIR:-/Users/gabriel/dev/tellurstori/agentception}
+      AC_WORKTREES_DIR: ${AC_WORKTREES_DIR:-/Users/gabriel/.agentception/worktrees/agentception}
+      AC_OPENROUTER_API_KEY: ${AC_OPENROUTER_API_KEY:-}
+    volumes:
+      # Mount cursor dir at same absolute path so worktree paths resolve correctly.
+      - ${HOME}/.cursor:${HOME}/.cursor
+      # gh CLI auth (read-only)
+      - ${HOME}/.config/gh:${HOME}/.config/gh:ro
+      # Repo itself (for git operations)
+      - ./:/app
+    networks:
+      - agentception-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:10003/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ==========================================================================
+  # Postgres — persistent store for runs, phases, issues, and agent metadata
+  # ==========================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: agentception-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: agentception
+      POSTGRES_USER: agentception
+      # REQUIRED: Set DB_PASSWORD in .env (e.g. openssl rand -hex 16). No default for security.
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - agentception-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentception -d agentception"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "127.0.0.1:5433:5432"
+
+  # ==========================================================================
+  # Qdrant — vector store for semantic search over agent transcripts / docs
+  # ==========================================================================
+  qdrant:
+    image: qdrant/qdrant:v1.7.4
+    container_name: agentception-qdrant
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - agentception-net
+    ports:
+      - "127.0.0.1:6335:6333"
+      - "127.0.0.1:6336:6334"
+
+volumes:
+  postgres_data:
+    name: agentception-postgres-data
+  qdrant_data:
+    name: agentception-qdrant-data
+
+networks:
+  agentception-net:
+    name: agentception-net

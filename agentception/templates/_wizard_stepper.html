@@ -1,0 +1,72 @@
+{#
+  _wizard_stepper.html — persistent top-level 1-2-3 wizard stepper.
+
+  Context variables:
+    state  — WizardState Pydantic model (or dict) with step1/step2/step3 fields.
+             Each step has:
+               step1: {complete: bool, summary: str}
+               step2: {complete: bool, summary: str}
+               step3: {active: bool, summary: str}
+
+  Rendered inline inside base.html between the topnav and main content, and
+  also returned as an HTMX partial by GET /api/wizard/state when HX-Request
+  header is present (for HTMX polling every 10 s).
+#}
+<nav class="wizard-stepper"
+     aria-label="Guided workflow"
+     id="wizard-stepper"
+     hx-get="/api/wizard/state"
+     hx-trigger="every 10s"
+     hx-target="#wizard-stepper"
+     hx-swap="outerHTML">
+
+  {# ── Step 1: Plan (Brain Dump) ───────────────────────────────────────── #}
+  <a href="/brain-dump"
+     class="wizard-step {% if state.step1.complete %}wizard-step--complete{% else %}wizard-step--active{% endif %}"
+     aria-label="Step 1: Plan{% if state.step1.complete %} (complete){% endif %}">
+    <span class="wizard-step__number">
+      {% if state.step1.complete %}
+        <span aria-hidden="true">✓</span>
+      {% else %}
+        1
+      {% endif %}
+    </span>
+    <span class="wizard-step__label">Plan</span>
+    {% if state.step1.summary %}
+      <span class="wizard-step__summary">{{ state.step1.summary }}</span>
+    {% endif %}
+  </a>
+
+  <span class="wizard-stepper__arrow" aria-hidden="true">→</span>
+
+  {# ── Step 2: Build (Org Chart) ───────────────────────────────────────── #}
+  <a href="/org-chart"
+     class="wizard-step {% if state.step2.complete %}wizard-step--complete{% elif state.step1.complete %}wizard-step--active{% else %}wizard-step--future{% endif %}"
+     aria-label="Step 2: Build{% if state.step2.complete %} (complete){% endif %}">
+    <span class="wizard-step__number">
+      {% if state.step2.complete %}
+        <span aria-hidden="true">✓</span>
+      {% else %}
+        2
+      {% endif %}
+    </span>
+    <span class="wizard-step__label">Build</span>
+    {% if state.step2.summary %}
+      <span class="wizard-step__summary">{{ state.step2.summary }}</span>
+    {% endif %}
+  </a>
+
+  <span class="wizard-stepper__arrow" aria-hidden="true">→</span>
+
+  {# ── Step 3: Ship (Launch Wave / Controls) ───────────────────────────── #}
+  <a href="/controls"
+     class="wizard-step {% if state.step3.active %}wizard-step--active{% else %}wizard-step--future{% endif %}"
+     aria-label="Step 3: Ship{% if state.step3.active %} (active){% endif %}">
+    <span class="wizard-step__number">3</span>
+    <span class="wizard-step__label">Ship</span>
+    {% if state.step3.summary %}
+      <span class="wizard-step__summary">{{ state.step3.summary }}</span>
+    {% endif %}
+  </a>
+
+</nav>

@@ -1,0 +1,162 @@
+{#
+  HTMX partial — rendered by GET /roles/{slug}/detail
+  Swapped into #cas-detail-panel when a role row is clicked.
+
+  Alpine component: roleDetail(slug, fileExists, personasJson)
+    - Tabs: Personas | Composer
+    - Persona selection and apply-to-composer
+    - Composer: figure picker, atom overrides, skill domains, COGNITIVE_ARCH preview
+    - "View / Edit Prompt" button dispatches `role-load` to wake the Monaco panel
+
+  Performance: NO automatic editor load on init(). The user must explicitly click
+  "View / Edit Prompt" to trigger Monaco — this eliminates the freeze on role click.
+#}
+<div
+  x-data='roleDetail({{ slug | tojson }}, {{ role.file_exists | tojson }}, {{ personas_json | tojson }})'
+  x-init="init()"
+  class="cas-detail"
+>
+
+  {# ── Role header ──────────────────────────────────────────────────────────── #}
+  <div class="cas-detail__header">
+    <div class="cas-detail__title-row">
+      <h2 class="cas-detail__title">{{ role.title }}</h2>
+      <div class="cas-detail__chips">
+        <span class="cas-chip cas-chip--{{ 'spawnable' if role.spawnable else 'draft' }}">
+          {{ 'leaf agent' if role.spawnable else 'coordinator' }}
+        </span>
+        {% if role.file_exists %}
+        <span class="cas-chip cas-chip--exists">prompt ✓</span>
+        {% else %}
+        <span class="cas-chip cas-chip--missing">no prompt</span>
+        {% endif %}
+        <span class="cas-chip">{{ role.category | replace("_", " ") }}</span>
+      </div>
+    </div>
+    <p class="cas-detail__desc">{{ role.description }}</p>
+    {% if role.file_exists %}
+    <button
+      class="btn btn-secondary cas-edit-btn"
+      @click="loadInEditor()"
+      type="button"
+    >✏ View / Edit Prompt</button>
+    {% endif %}
+  </div>
+
+  {# ── Tab bar ──────────────────────────────────────────────────────────────── #}
+  <div class="cas-tabs" role="tablist">
+    <button
+      class="cas-tab"
+      :class="activeTab === 'personas' && 'cas-tab--active'"
+      @click="activeTab = 'personas'"
+      role="tab"
+      :aria-selected="activeTab === 'personas'"
+      type="button"
+    >
+      Personas
+      <span class="cas-tab__count">{{ personas | length }}</span>
+    </button>
+    <button
+      class="cas-tab"
+      :class="activeTab === 'composer' && 'cas-tab--active'"
+      @click="activeTab = 'composer'"
+      role="tab"
+      :aria-selected="activeTab === 'composer'"
+      type="button"
+    >Primitive Composer</button>
+  </div>
+
+  {# ── Personas tab ─────────────────────────────────────────────────────────── #}
+  <div class="cas-tab-panel" x-show="activeTab === 'personas'" x-cloak>
+    {% if personas %}
+    <div class="cas-persona-grid">
+      {% for p in personas %}
+      <div
+        class="cas-persona-card"
+        :class="selectedPersonaId === '{{ p.id }}' && 'cas-persona-card--selected'"
+        @click="selectedPersonaId = '{{ p.id }}'"
+        role="button"
+        tabindex="0"
+      >
+        <div class="cas-persona-card__name">{{ p.display_name }}</div>
+        <div class="cas-persona-card__archetype">{{ p.extends | replace("_", " ") }}</div>
+        <div class="cas-persona-card__desc">{{ p.description }}</div>
+        <button
+          class="cas-persona-card__apply"
+          @click.stop="applyPersona('{{ p.id }}')"
+          type="button"
+        >Apply to Composer →</button>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="cas-empty">No compatible personas defined for this role.</p>
+    {% endif %}
+  </div>
+
+  {# ── Composer tab ─────────────────────────────────────────────────────────── #}
+  <div class="cas-tab-panel cas-composer" x-show="activeTab === 'composer'" x-cloak>
+
+    {# Figure picker #}
+    <div class="cas-composer__section">
+      <div class="cas-composer__section-title">Base Persona (Figure)</div>
+      <div class="cas-composer__row">
+        <label class="cas-composer__label">Figure</label>
+        <select class="cas-composer__select" x-model="figure">
+          <option value="">— none (archetype only) —</option>
+          {% for p in all_personas %}
+          <option value="{{ p.id }}">{{ p.display_name }} · {{ p.extends | replace("_", " ") }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    {# Atom overrides #}
+    <div class="cas-composer__section">
+      <div class="cas-composer__section-title">Atom Overrides</div>
+      {% for atom in atoms %}
+      <div class="cas-composer__row">
+        <label class="cas-composer__label" title="{{ atom.description }}">
+          {{ atom.dimension | replace("_", " ") }}
+        </label>
+        <select class="cas-composer__select" x-model="atomOverrides['{{ atom.dimension }}']">
+          <option value="">— inherit from figure —</option>
+          {% for v in atom.values %}
+          <option value="{{ v.id }}" title="{{ v.description }}">{{ v.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endfor %}
+    </div>
+
+    {# Skill domains #}
+    <div class="cas-composer__section">
+      <div class="cas-composer__section-title">Skill Domains <span class="cas-composer__hint">(up to 3)</span></div>
+      <div class="cas-skill-grid">
+        {% for s in skill_domains %}
+        <label class="cas-skill-chip">
+          <input
+            type="checkbox"
+            value="{{ s }}"
+            x-model="skills"
+            :disabled="skills.length >= 3 && !skills.includes('{{ s }}')"
+          >
+          {{ s }}
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# COGNITIVE_ARCH preview #}
+    <div class="cas-composer__section">
+      <div class="cas-composer__section-title">COGNITIVE_ARCH string</div>
+      <div class="cas-arch-preview" x-text="copied ? '✅ Copied!' : archPreview"></div>
+      <div class="cas-composer__actions">
+        <button class="btn btn-primary" @click="copyArchString()" type="button">Copy</button>
+        <button class="btn btn-secondary" @click="resetComposer()" type="button">Reset</button>
+      </div>
+    </div>
+
+  </div>{# /.composer tab #}
+
+</div>{# /.cas-detail #}

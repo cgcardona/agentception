@@ -1,0 +1,270 @@
+{% extends "base.html" %}
+{% block title %}Mission Control — AgentCeption{% endblock %}
+
+{% block content %}
+<div class="build-layout"
+     x-data='buildPage({{ role_groups | tojson }})'
+     @inspect-issue.window="onInspect($event.detail)"
+     @open-dispatch.window="openDispatch($event.detail)"
+     @open-label-dispatch.window="openLabelDispatch($event.detail)"
+>
+
+  {# ── page header ─────────────────────────────────────────────────────── #}
+  <header class="build-header">
+    <div class="build-header__left">
+      <h1 class="build-header__title">⚡ Mission Control</h1>
+      <span class="build-header__repo">{{ repo }}</span>
+    </div>
+    <div class="build-header__right">
+      <span class="build-header__stat">{{ total_issues }} issues</span>
+      <span class="build-header__live" title="Board refreshes every 10 s">● LIVE</span>
+    </div>
+  </header>
+
+  {# ── initiative tab strip ─────────────────────────────────────────────── #}
+  {% if initiatives %}
+  <nav class="build-initiative-tabs" aria-label="Initiatives">
+    {% for ini in initiatives %}
+    <a class="build-initiative-tab{% if ini == initiative %} build-initiative-tab--active{% endif %}"
+       href="/build?initiative={{ ini }}">
+      {{ ini }}
+    </a>
+    {% endfor %}
+  </nav>
+  {% endif %}
+
+  {# ── two-column layout: board + inspector ─────────────────────────────── #}
+  <div class="build-columns">
+
+    {# ── left: phase board ─────────────────────────────────────────────── #}
+    <section class="build-board"
+             hx-get="/build/board?initiative={{ initiative }}"
+             hx-trigger="load, every 10s"
+             hx-swap="innerHTML"
+    >
+      {% include "_build_board.html" %}
+    </section>
+
+    {# ── right: inspector panel ─────────────────────────────────────────── #}
+    <aside class="build-inspector">
+
+      {# empty state #}
+      <template x-if="!activeIssue">
+        <div class="build-inspector__empty">
+          <div class="build-inspector__empty-icon">🛰</div>
+          <p class="build-inspector__empty-title">Mission Control Idle</p>
+          <p class="build-inspector__empty-sub">Select an issue to inspect agent runs, live logs, and reasoning traces.</p>
+        </div>
+      </template>
+
+      {# issue selected #}
+      <template x-if="activeIssue">
+        <div class="build-inspector__content">
+
+          <div class="build-inspector__toolbar">
+            <div class="build-inspector__toolbar-left">
+              <a class="build-inspector__num" :href="activeIssue.url" target="_blank" rel="noopener"
+                 x-text="'#' + activeIssue.number"></a>
+              <span class="build-inspector__title" x-text="activeIssue.title"></span>
+            </div>
+            <button class="build-inspector__close" @click="clearInspect()">✕</button>
+          </div>
+
+          {# run info or dispatch prompt #}
+          <template x-if="activeIssue.run">
+            <div class="build-inspector__run-meta">
+              <span class="build-inspector__run-role" x-text="activeIssue.run.role"></span>
+              <span class="build-inspector__run-status"
+                    :class="'build-inspector__run-status--' + activeIssue.run.status.toLowerCase()"
+                    x-text="activeIssue.run.status"></span>
+              <span class="build-inspector__run-since"
+                    x-text="'since ' + fmtTime(activeIssue.run.spawned_at)"></span>
+              <template x-if="activeIssue.run.pr_number">
+                <a class="build-inspector__pr-link"
+                   :href="'https://github.com/' + repo + '/pull/' + activeIssue.run.pr_number"
+                   target="_blank" rel="noopener"
+                   x-text="'PR #' + activeIssue.run.pr_number"></a>
+              </template>
+            </div>
+          </template>
+
+          <template x-if="!activeIssue.run">
+            <div class="build-inspector__no-agent">
+              <p>No agent assigned yet.</p>
+              <button class="btn btn-primary"
+                      @click="openDispatch(activeIssue)">Assign agent →</button>
+            </div>
+          </template>
+
+          {# structured events timeline #}
+          <div class="build-inspector__timeline" x-show="events.length > 0">
+            <h4 class="build-inspector__section-label">Timeline</h4>
+            <ul class="build-timeline">
+              <template x-for="ev in events" :key="ev.id">
+                <li class="build-timeline__item"
+                    :class="'build-timeline__item--' + ev.event_type">
+                  <span class="build-timeline__icon" x-text="eventIcon(ev.event_type)"></span>
+                  <div class="build-timeline__body">
+                    <span class="build-timeline__type" x-text="ev.event_type.replace('_', ' ')"></span>
+                    <span class="build-timeline__detail" x-text="eventDetail(ev)"></span>
+                    <span class="build-timeline__time" x-text="fmtTime(ev.recorded_at)"></span>
+                  </div>
+                </li>
+              </template>
+            </ul>
+          </div>
+
+          {# raw chain-of-thought #}
+          <div class="build-inspector__cot" x-show="thoughts.length > 0">
+            <h4 class="build-inspector__section-label">Chain of thought</h4>
+            <div class="build-cot" x-ref="cotScroll">
+              <template x-for="(t, idx) in thoughts" :key="idx">
+                <p class="build-cot__entry"
+                   :class="'build-cot__entry--' + t.role"
+                   x-text="t.content"></p>
+              </template>
+            </div>
+          </div>
+
+          <template x-if="activeIssue.run && !streamOpen">
+            <p class="build-inspector__stream-status">⚪ Stream disconnected</p>
+          </template>
+          <template x-if="activeIssue.run && streamOpen">
+            <p class="build-inspector__stream-status build-inspector__stream-status--live">
+              🟢 Live
+            </p>
+          </template>
+
+        </div>
+      </template>
+    </aside>
+  </div>{# /.build-columns #}
+
+  {# ── dispatch modal ──────────────────────────────────────────────────── #}
+  <div class="build-modal-backdrop" x-show="dispatchOpen" x-transition @click.self="dispatchOpen = false">
+    <div class="build-modal" @click.stop>
+
+      <div class="build-modal__header">
+        <h3 class="build-modal__title">Assign agent</h3>
+        <button class="build-modal__close" @click="dispatchOpen = false">✕</button>
+      </div>
+
+      <template x-if="dispatchIssue">
+        <div class="build-modal__body">
+          <p class="build-modal__issue-label">
+            <strong x-text="'#' + dispatchIssue.number"></strong>
+            <span x-text="dispatchIssue.title"></span>
+          </p>
+
+          <label class="build-modal__label">Role</label>
+          <select class="build-modal__select" x-model="dispatchRole">
+            <template x-for="[group, roles] in Object.entries(roleGroups)" :key="group">
+              <optgroup :label="group">
+                <template x-for="role in roles" :key="role">
+                  <option :value="role" x-text="role"></option>
+                </template>
+              </optgroup>
+            </template>
+          </select>
+
+          <template x-if="dispatchError">
+            <p class="build-modal__error" x-text="dispatchError"></p>
+          </template>
+
+          <template x-if="dispatchSuccess">
+            <div class="build-modal__success">
+              <p>⏳ Queued for launch</p>
+              <p class="build-modal__success-hint">
+                Issue <strong x-text="'#' + dispatchIssue.number"></strong>
+                is ready with role <strong x-text="dispatchResult.role ?? dispatchRole"></strong>.
+              </p>
+              <p class="build-modal__success-hint">
+                Paste the <strong>Dispatcher prompt</strong> into Cursor to launch it
+                along with any other queued issues.
+              </p>
+              <pre class="build-modal__prompt-hint" x-text="'Worktree: ' + dispatchResult.host_worktree"></pre>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <div class="build-modal__footer">
+        <button class="btn btn-secondary" @click="dispatchOpen = false">Cancel</button>
+        <button class="btn btn-primary"
+                :disabled="dispatching || dispatchSuccess"
+                @click="submitDispatch()">
+          <span x-show="!dispatching">Assign →</span>
+          <span x-show="dispatching">Creating worktree…</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  {# ── label-dispatch modal (phase-level / manager launch) ─────────────── #}
+  <div class="build-modal-backdrop" x-show="labelDispatchOpen" x-transition @click.self="labelDispatchOpen = false">
+    <div class="build-modal" @click.stop>
+
+      <div class="build-modal__header">
+        <h3 class="build-modal__title">Launch agent tree</h3>
+        <button class="build-modal__close" @click="labelDispatchOpen = false">✕</button>
+      </div>
+
+      <div class="build-modal__body">
+        <p class="build-modal__issue-label">
+          <strong>Label: </strong>
+          <span class="build-modal__label-badge" x-text="labelDispatchLabel"></span>
+        </p>
+
+        <label class="build-modal__label">Entry point (tier)</label>
+        <div class="build-modal__tier-list">
+          <template x-for="(opt, idx) in labelDispatchTiers" :key="opt.role">
+            <label class="build-modal__tier-opt" :class="{ 'build-modal__tier-opt--active': labelDispatchTierIdx === idx }">
+              <input type="radio" name="labelDispatchTier" :value="idx" x-model.number="labelDispatchTierIdx" />
+              <span x-text="opt.label"></span>
+            </label>
+          </template>
+        </div>
+
+        <template x-if="labelDispatchError">
+          <p class="build-modal__error" x-text="labelDispatchError"></p>
+        </template>
+
+        <template x-if="labelDispatchSuccess">
+          <div class="build-modal__success">
+            <p>⏳ Queued for launch</p>
+            <p class="build-modal__success-hint">
+              Run ID: <code x-text="labelDispatchResult.run_id ?? ''"></code>
+            </p>
+            <p class="build-modal__success-hint" style="margin-top:0.5rem">
+              To launch the agent tree, copy the Dispatcher prompt and paste it
+              into a <strong>new Cursor chat</strong>:
+            </p>
+            <button class="build-modal__copy-btn"
+                    @click="copyDispatcherPrompt()"
+                    x-text="dispatcherCopied ? '✅ Copied!' : '📋 Copy Dispatcher Prompt'">
+            </button>
+            <p class="build-modal__success-hint" style="opacity:0.55;font-size:0.7rem">
+              Prompt lives at <code>.cursor/agentception-dispatcher.md</code>
+            </p>
+          </div>
+        </template>
+      </div>
+
+      <div class="build-modal__footer">
+        <button class="btn btn-secondary" @click="labelDispatchOpen = false">Cancel</button>
+        <button class="btn btn-primary"
+                :disabled="labelDispatching || labelDispatchSuccess"
+                @click="submitLabelDispatch()">
+          <span x-show="!labelDispatching">Launch →</span>
+          <span x-show="labelDispatching">Queuing…</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+</div>{# /.build-layout #}
+
+<script>
+  window._buildRepo = {{ repo | tojson }};
+</script>
+{% endblock %}

@@ -1,0 +1,63 @@
+{#
+  Partial: Org preset card list — rendered by both the full page (included via
+  `{% include %}`) and the `POST /api/org/select-preset` HTMX swap so the
+  active card updates without a full-page reload.
+
+  Context:
+    presets      — list[dict] from org-presets.yaml
+    active_org_id — str | None — the currently active preset id
+#}
+<div class="org-preset-list" id="org-preset-list">
+  {% for preset in presets %}
+  <form
+    class="org-preset-card {% if preset.id == active_org_id %}org-preset-card--active{% endif %}"
+    hx-post="/api/org/select-preset"
+    hx-target="#org-preset-list"
+    hx-swap="outerHTML"
+    hx-vals='{"preset_id": {{ preset.id | tojson }}}'
+    aria-label="Select {{ preset.name }} preset"
+  >
+    <div class="org-preset-card__header">
+      <span class="org-preset-card__name">{{ preset.name }}</span>
+      {% if preset.id == active_org_id %}
+      <span class="badge badge--success org-preset-card__badge">Active</span>
+      {% endif %}
+    </div>
+    <p class="org-preset-card__desc text-muted">{{ preset.description }}</p>
+
+    {% if preset.tiers %}
+    <div class="org-preset-card__tiers">
+      {% if preset.tiers.leadership %}
+      <div class="org-preset-card__tier">
+        <span class="org-preset-card__tier-label">Leadership</span>
+        <div class="org-preset-card__roles">
+          {% for role in preset.tiers.leadership %}
+          <span class="tag">{{ role }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% if preset.tiers.workers %}
+      <div class="org-preset-card__tier">
+        <span class="org-preset-card__tier-label">Workers</span>
+        <div class="org-preset-card__roles">
+          {% for role in preset.tiers.workers %}
+          <span class="tag">{{ role }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <button
+      type="submit"
+      class="btn {% if preset.id == active_org_id %}btn--secondary{% else %}btn--primary{% endif %} org-preset-card__btn"
+    >
+      {% if preset.id == active_org_id %}Selected{% else %}Select{% endif %}
+    </button>
+  </form>
+  {% else %}
+  <p class="text-muted">No presets defined in <code>org-presets.yaml</code>.</p>
+  {% endfor %}
+</div>

@@ -1,0 +1,50 @@
+{#
+  HTMX partial: human approval gate queue.
+
+  Context (list view — GET /api/issues/approval-queue):
+    issues   — list of open issue dicts {number, title, labels, body, state}
+    approved — False
+
+  Context (post-approve swap — POST /api/issues/{number}/approve):
+    approved     — True
+    issue_number — the just-approved issue number
+
+  The POST handler swaps this fragment with hx-swap="outerHTML" on the
+  closest .approval-card element, replacing the card with a success badge.
+#}
+{% if approved %}
+  {# Post-approve swap: card replaced by a compact success badge #}
+  <div class="approval-card approval-card--approved">
+    <span class="badge badge-success">✅ Approved — Issue #{{ issue_number }}</span>
+  </div>
+{% elif issues %}
+  {% for issue in issues %}
+  <div class="approval-card" id="approval-card-{{ issue.number }}">
+    <div class="approval-card-header">
+      <span class="approval-card-number">#{{ issue.number }}</span>
+      <span class="approval-card-title">{{ issue.title }}</span>
+    </div>
+    {% if issue.labels %}
+    <div class="approval-card-labels">
+      {% for lbl in issue.labels %}
+        {% if lbl is mapping %}
+        <span class="label-chip label-chip--small">{{ lbl.name }}</span>
+        {% else %}
+        <span class="label-chip label-chip--small">{{ lbl }}</span>
+        {% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+    <div class="approval-card-actions">
+      <button
+        class="btn btn-sm btn-success"
+        hx-post="/api/issues/{{ issue.number }}/approve"
+        hx-swap="outerHTML"
+        hx-target="closest .approval-card"
+      >✅ Approve</button>
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+  <p class="text-muted empty-state">No issues pending approval.</p>
+{% endif %}

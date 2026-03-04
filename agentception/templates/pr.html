@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}AgentCeption — PR #{{ pr.number }}{% endblock %}
+
+{% block content %}
+{# ── Breadcrumb ──────────────────────────────────────────────────────────── #}
+<nav class="breadcrumb" aria-label="Breadcrumb">
+  <a href="/">← Overview</a>
+  <span class="breadcrumb-sep">/</span>
+  <a href="/prs">Pull Requests</a>
+  <span class="breadcrumb-sep">/</span>
+  <span class="breadcrumb-current">#{{ pr.number }}</span>
+</nav>
+
+{# ── PR header ────────────────────────────────────────────────────────────── #}
+<div class="card mt-2">
+  <div style="display:flex;align-items:flex-start;gap:0.75rem;flex-wrap:wrap;">
+    <span class="badge {% if pr.state == 'open' %}badge--green{% elif pr.state == 'merged' %}badge--purple{% else %}badge--grey{% endif %}"
+          style="flex-shrink:0;margin-top:0.2rem;">
+      {{ pr.state }}
+    </span>
+    <h1 style="font-size:1.15rem;font-weight:600;margin:0;flex:1;">
+      #{{ pr.number }} — {{ pr.title }}
+    </h1>
+  </div>
+
+  {% if pr.labels %}
+  <div style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-top:0.75rem;">
+    {% for lbl in pr.labels %}
+    <span class="badge badge--purple" style="font-size:0.7rem;">{{ lbl }}</span>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div style="margin-top:0.75rem;display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center;">
+    {% if pr.head_ref %}
+    <span class="meta-chip">
+      <span class="meta-label">Branch</span>
+      <code class="meta-value">{{ pr.head_ref }}</code>
+    </span>
+    {% endif %}
+    {% if pr.merged_at %}
+    <span class="meta-chip">
+      <span class="meta-label">Merged</span>
+      <span class="meta-value">{{ pr.merged_at[:10] }}</span>
+    </span>
+    {% endif %}
+    {% if pr.linked_issue %}
+    <span class="meta-chip">
+      <span class="meta-label">Closes</span>
+      <a href="/issues/{{ pr.linked_issue.number }}" class="meta-value">
+        #{{ pr.linked_issue.number }}
+      </a>
+    </span>
+    {% endif %}
+    <a href="{{ gh_base_url }}/pull/{{ pr.number }}" target="_blank" rel="noopener"
+       class="btn btn-secondary" style="font-size:0.8rem;padding:0.25rem 0.6rem;">
+      View on GitHub ↗
+    </a>
+  </div>
+</div>
+
+{# ── CI Checks + Reviews (lazy-loaded) ───────────────────────────────────── #}
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem;">
+
+  <section>
+    <h2 class="section-title" style="margin-bottom:0.5rem;">CI Checks</h2>
+    <div id="checks-area"
+         hx-get="/api/prs/{{ pr.number }}/checks"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+      <div class="card"><p class="text-muted empty-state">Loading CI checks…</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="section-title" style="margin-bottom:0.5rem;">Reviews</h2>
+    <div id="reviews-area"
+         hx-get="/api/prs/{{ pr.number }}/reviews"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+      <div class="card"><p class="text-muted empty-state">Loading reviews…</p></div>
+    </div>
+  </section>
+</div>
+
+{# ── Agent runs ───────────────────────────────────────────────────────────── #}
+<section class="mt-2">
+  <h2 class="section-title" style="margin-bottom:0.5rem;">Agent Runs</h2>
+  {% if pr.agent_runs %}
+  <div class="card" style="padding:0;overflow:hidden;">
+    <table class="telemetry-table" style="width:100%;margin:0;">
+      <thead><tr><th>Role</th><th>Status</th><th>Issue</th><th>Spawned</th></tr></thead>
+      <tbody>
+        {% for run in pr.agent_runs %}
+        <tr>
+          <td><a href="/agents/{{ run.id }}" style="font-size:0.82rem;">{{ run.role }}</a></td>
+          <td>
+            <span class="run-status-badge run-status-badge--{{ run.status }}">{{ run.status }}</span>
+          </td>
+          <td>
+            {% if run.issue_number %}<a href="/issues/{{ run.issue_number }}">#{{ run.issue_number }}</a>{% else %}—{% endif %}
+          </td>
+          <td style="font-size:0.75rem;color:var(--text-muted);">{{ run.spawned_at[:10] }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card"><p class="text-muted empty-state">No agent runs recorded for this PR.</p></div>
+  {% endif %}
+</section>
+
+{% endblock %}

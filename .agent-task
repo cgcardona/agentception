@@ -1,0 +1,13 @@
+TASK=issue-to-pr
+ISSUE_NUMBER=963
+ISSUE_LABEL=phase-1
+BRANCH=feat/issue-963
+WORKTREE=/Users/gabriel/.agentception/worktrees/agentception/issue-963
+ROLE=python-developer
+BASE=main
+GH_REPO=cgcardona/agentception
+SOURCE_REPO=cgcardona/maestro
+MAESTRO_LOCAL=/Users/gabriel/dev/tellurstori/maestro
+CLOSES_ISSUES=963
+BATCH_ID=eng-20260304T163919Z-2cc2
+COGNITIVE_ARCH=ritchie:devops

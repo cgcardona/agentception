@@ -1,0 +1,222 @@
+/* ═══════════════════════════════════════════════════════════════
+   Controls hub page
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Page header ─────────────────────────────────────────────── */
+.controls-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.controls-page-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.controls-page-subtitle {
+  margin-top: 0.25rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+/* ── Pipeline status pill ─────────────────────────────────────── */
+.controls-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  flex-shrink: 0;
+  border: 1px solid;
+}
+
+.controls-status-pill--running {
+  background: var(--success-dim);
+  border-color: var(--success-border);
+  color: var(--success);
+}
+
+.controls-status-pill--paused {
+  background: var(--warning-dim);
+  border-color: var(--warning-border);
+  color: var(--warning);
+}
+
+.controls-status-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* ── Action grid ─────────────────────────────────────────────── */
+.controls-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+@media (max-width: 800px) {
+  .controls-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Control card ────────────────────────────────────────────── */
+.controls-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.controls-card-icon {
+  font-size: 1.75rem;
+  line-height: 1;
+}
+
+.controls-card-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.controls-card-desc {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  line-height: 1.55;
+  margin: 0;
+}
+
+.controls-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.controls-card-state {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ── HTMX loading spinner ─────────────────────────────────────── */
+.controls-spinner {
+  font-size: 1rem;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.htmx-request .controls-spinner,
+.controls-spinner.htmx-indicator { opacity: 1; }
+
+/* ── Kill form ───────────────────────────────────────────────── */
+.controls-kill-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.controls-kill-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.controls-select {
+  flex: 1;
+  min-width: 0;
+  padding: 0.35rem 0.6rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  appearance: none;
+}
+
+.controls-select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-color: var(--accent);
+}
+
+.controls-kill-result,
+.controls-poll-result {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  min-height: 1.2em;
+}
+
+/* ── Kill history table ──────────────────────────────────────── */
+.controls-history {
+  margin-top: 1rem;
+}
+
+.controls-history-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0 0 0.75rem;
+}
+
+.controls-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.controls-history-table th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  padding: 0.3rem 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.controls-history-table td {
+  padding: 0.45rem 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+
+.controls-history-table tr:last-child td {
+  border-bottom: none;
+}
+
+.controls-history-table tr:hover td {
+  background: var(--bg-elevated);
+}
+
+.controls-history-link {
+  color: var(--accent-bright);
+  text-decoration: none;
+}
+
+.controls-history-link:hover {
+  text-decoration: underline;
+}
