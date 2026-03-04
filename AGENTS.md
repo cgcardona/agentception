@@ -152,7 +152,7 @@ This codebase is read and modified by humans and agents alike. Strong, explicit 
 | Layer | Command | Threshold |
 |-------|---------|-----------|
 | Local | `docker compose exec agentception mypy agentception/ tests/` | strict, 0 errors |
-| Typing ratchet | `python tools/typing_audit.py --dirs agentception/ tests/ --max-any 0` | blocks commit |
+| Typing ceiling | `python tools/typing_audit.py --dirs agentception/ tests/ --max-any 0` | blocks commit |
 | CI | `python -m mypy agentception/` | blocks PR merge |
 
 ### Jinja2 + Alpine.js / HTMX: always single-quote attributes containing `tojson`

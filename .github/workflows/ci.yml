@@ -1,6 +1,6 @@
 # CI workflow for cgcardona/agentception
 # Runs on every PR targeting main and on pushes to main.
-# Jobs run in dependency order: typecheck → (ratchet + test) → smoke
+# Jobs run in dependency order: typecheck → (typing-ceiling + test) → smoke
 name: CI
 
 on:
@@ -32,9 +32,9 @@ jobs:
             run --rm agentception \
             mypy agentception/ tests/
 
-  # ── 2. Typing ratchet ────────────────────────────────────────────────────
-  typing-ratchet:
-    name: Typing ratchet (max-any 10)
+  # ── 2. Typing ceiling ────────────────────────────────────────────────────
+  typing-ceiling:
+    name: Typing ceiling (zero Any)
     runs-on: ubuntu-latest
     needs: typecheck
     steps:
@@ -44,13 +44,13 @@ jobs:
         run: |
           docker compose -f docker-compose.yml -f docker-compose.ci.yml build agentception
 
-      - name: Enforce Any ceiling
-        # tools/typing_audit.py counts Any-ish patterns.
-        # --max-any 10 matches the ratchet ceiling agreed in AGENTS.md.
+      - name: Enforce zero-Any ceiling
+        # tools/typing_audit.py counts Any-ish patterns and fails if count > threshold.
+        # --max-any 0 means no Any is tolerated at all.
         run: |
           docker compose -f docker-compose.yml -f docker-compose.ci.yml \
             run --rm agentception \
-            python tools/typing_audit.py --dirs agentception/ tests/ --max-any 10
+            python tools/typing_audit.py --dirs agentception/ tests/ --max-any 0
 
   # ── 3. Test suite ─────────────────────────────────────────────────────────
   test:
