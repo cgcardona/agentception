@@ -11,7 +11,6 @@ when they finish.
 All four functions are async — they write to ``ac_agent_events`` via the
 persist layer and return a lightweight ack dict.
 """
-from __future__ import annotations
 
 import logging
 

@@ -14,7 +14,6 @@ Typical usage::
     print(recommendation.action)       # "increase_pool"
     print(recommendation.confidence)   # "high"
 """
-from __future__ import annotations
 
 import logging
 from statistics import mean

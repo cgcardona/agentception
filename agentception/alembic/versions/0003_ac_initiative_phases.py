@@ -14,7 +14,6 @@ Revision ID: ac0003
 Revises: ac0002
 Create Date: 2026-03-04
 """
-from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op

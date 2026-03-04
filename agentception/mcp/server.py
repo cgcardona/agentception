@@ -19,7 +19,6 @@ Error handling follows the JSON-RPC 2.0 specification:
 
 Boundary constraint: zero imports from maestro, muse, kly, or storpheus.
 """
-from __future__ import annotations
 
 import json
 import logging

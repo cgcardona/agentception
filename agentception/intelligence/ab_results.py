@@ -18,7 +18,6 @@ Typical call site (route handler)::
 
     variant_a, variant_b = await compute_ab_results()
 """
-from __future__ import annotations
 
 import logging
 import re

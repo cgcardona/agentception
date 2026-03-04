@@ -14,7 +14,6 @@ background polling, no filesystem reads.
 Run targeted:
     docker compose exec agentception pytest agentception/tests/test_agentception_ui_agent.py -v
 """
-from __future__ import annotations
 
 import time
 from collections.abc import Generator

@@ -10,7 +10,6 @@ refactoring.
 Run targeted:
     pytest agentception/tests/test_dag_resize.py -v
 """
-from __future__ import annotations
 
 import pathlib
 

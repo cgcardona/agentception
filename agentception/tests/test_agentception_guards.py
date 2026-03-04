@@ -15,7 +15,6 @@ Coverage:
 Run targeted:
     pytest agentception/tests/test_agentception_guards.py -v
 """
-from __future__ import annotations
 
 from pathlib import Path
 from unittest.mock import AsyncMock, patch

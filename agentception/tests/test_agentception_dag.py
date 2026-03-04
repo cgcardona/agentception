@@ -8,7 +8,6 @@ Covers:
 - GET /dag  — HTML page (dag_page_returns_200, d3_cdn)
 - GET /api/dag — JSON endpoint (returns nodes and edges)
 """
-from __future__ import annotations
 
 from collections.abc import Generator
 from unittest.mock import AsyncMock, patch

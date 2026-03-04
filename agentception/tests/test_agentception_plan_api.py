@@ -22,7 +22,6 @@ do not require a live git repository or network access.
 
 Boundary: zero imports from maestro/, muse/, kly/, or storpheus/.
 """
-from __future__ import annotations
 
 import json
 import uuid

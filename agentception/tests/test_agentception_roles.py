@@ -17,7 +17,6 @@ Covers:
 Run targeted:
     pytest agentception/tests/test_agentception_roles.py -v
 """
-from __future__ import annotations
 
 from collections.abc import Generator
 from pathlib import Path

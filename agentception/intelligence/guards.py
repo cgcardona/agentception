@@ -21,7 +21,6 @@ Public API:
 - ``detect_out_of_order_prs()``— main detection coroutine; called by poller
                                   and the /api/intelligence/pr-violations route
 """
-from __future__ import annotations
 
 import logging
 import re

@@ -9,7 +9,6 @@ Covers:
 - test_import_detects_conflicts
 - API endpoint integration tests (export, import, list, download)
 """
-from __future__ import annotations
 
 import io
 import json

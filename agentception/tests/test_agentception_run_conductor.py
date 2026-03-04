@@ -11,7 +11,6 @@ Covers:
 Run targeted:
     pytest agentception/tests/test_agentception_run_conductor.py -v
 """
-from __future__ import annotations
 
 import datetime
 from collections.abc import Generator

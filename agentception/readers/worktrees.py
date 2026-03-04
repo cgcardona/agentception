@@ -9,7 +9,6 @@ This is the primary filesystem signal for the poller — it tells the dashboard
 which agents are actively working and what they are working on. Combine with
 transcript data for richer status information.
 """
-from __future__ import annotations
 
 import asyncio
 import logging

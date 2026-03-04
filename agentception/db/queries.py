@@ -6,7 +6,6 @@ All functions return plain dicts / lists so callers (routes, poller) have
 zero dependency on SQLAlchemy internals.  Swallows DB errors and returns
 empty results so a database outage degrades gracefully to in-memory state.
 """
-from __future__ import annotations
 
 import json
 import logging

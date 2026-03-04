@@ -11,7 +11,6 @@ Covers:
 Run targeted:
     pytest agentception/tests/test_agentception_ui_telemetry.py -v
 """
-from __future__ import annotations
 
 import time
 from collections.abc import Generator

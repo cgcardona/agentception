@@ -12,7 +12,6 @@ Why a separate router?
 - Prefix ``/api/control`` signals to callers that these are write operations,
   not reads.
 """
-from __future__ import annotations
 
 import asyncio
 import json

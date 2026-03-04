@@ -10,7 +10,6 @@ old ``ui.py`` module.
 ``app.py`` does ``from agentception.routes.ui import router as ui_router`` — that
 import path continues to work unchanged.
 """
-from __future__ import annotations
 
 from fastapi import APIRouter
 

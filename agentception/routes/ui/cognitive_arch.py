@@ -14,7 +14,6 @@ This route is intentionally decoupled from the persona-resolution logic in
 *all* entries including ones that would fail persona resolution (e.g. draft
 figures without a complete ``prompt_injection`` block).
 """
-from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field

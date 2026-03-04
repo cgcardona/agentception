@@ -6,7 +6,6 @@ These types are the shared contract between the background poller, the API
 routes, and the frontend templates. Keep them flat — no nested Pydantic
 models that reference external services.
 """
-from __future__ import annotations
 
 import logging
 from enum import Enum

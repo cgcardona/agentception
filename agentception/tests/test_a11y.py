@@ -9,7 +9,6 @@ Verifies that structural a11y requirements are present in the rendered HTML:
 Run targeted:
     pytest agentception/tests/test_a11y.py -v
 """
-from __future__ import annotations
 
 import pathlib
 

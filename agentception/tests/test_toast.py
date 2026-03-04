@@ -9,7 +9,6 @@ Verifies:
 Run targeted:
     pytest agentception/tests/test_toast.py -v
 """
-from __future__ import annotations
 
 import json
 from collections.abc import Generator

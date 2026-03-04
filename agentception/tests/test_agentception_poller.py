@@ -12,7 +12,6 @@ Coverage:
 Run targeted:
     pytest agentception/tests/test_agentception_poller.py -v
 """
-from __future__ import annotations
 
 import asyncio
 import time

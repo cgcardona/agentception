@@ -21,7 +21,6 @@ records provenance (name, version, created_at, gh_repo, file list).
 Exported archives are stored under ``~/.agentception/templates/`` so they
 persist across service restarts and are accessible from the UI.
 """
-from __future__ import annotations
 
 import io
 import json

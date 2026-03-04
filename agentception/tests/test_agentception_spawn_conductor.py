@@ -9,7 +9,6 @@ side-effects beyond the tmp_path sandbox.
 Run targeted:
     pytest agentception/tests/test_agentception_spawn_conductor.py -v
 """
-from __future__ import annotations
 
 from collections.abc import Generator
 from pathlib import Path

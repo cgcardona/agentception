@@ -8,7 +8,6 @@ Covers:
 - GET /api/config returns current config
 - PUT /api/config validates schema and persists changes
 """
-from __future__ import annotations
 
 import json
 from pathlib import Path

@@ -10,4 +10,3 @@ problems that require human intervention. Guards reason about the *state* of
 the pipeline and produce actionable signals, unlike the readers (data access)
 or routes (HTTP handlers).
 """
-from __future__ import annotations

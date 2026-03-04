@@ -13,7 +13,6 @@ Public API:
     list_git_stash()           → stash entries
     get_worktree_detail(slug)  → on-demand detail: commits, diff-stat, task file
 """
-from __future__ import annotations
 
 import asyncio
 import logging

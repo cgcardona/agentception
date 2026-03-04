@@ -8,7 +8,6 @@ hand-maintained frozenset, and that the set stays in sync with the YAML file.
 Run targeted:
     pytest agentception/tests/test_agentception_models.py -v
 """
-from __future__ import annotations
 
 from pathlib import Path
 

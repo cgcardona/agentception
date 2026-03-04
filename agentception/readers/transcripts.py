@@ -16,7 +16,6 @@ Public API:
     extract_pr_urls()             → all GitHub PR URLs found in messages
     index_transcripts()           → metadata list for the browser list view
 """
-from __future__ import annotations
 
 import json
 import logging

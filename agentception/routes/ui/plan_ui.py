@@ -24,7 +24,6 @@ on a ``data:`` line followed by ``\\n\\n``.  Event shapes::
 The browser accumulates ``chunk`` texts, shows them live, then on ``done``
 loads the canonical validated YAML into the Monaco editor.
 """
-from __future__ import annotations
 
 import json
 import logging

@@ -13,7 +13,6 @@ ACRoleVersion       — insert-if-not-exists on role file content hash.
 All writes are wrapped in a single ``try/except`` so a DB outage never takes
 down the poller — the dashboard degrades gracefully to filesystem-only mode.
 """
-from __future__ import annotations
 
 import asyncio
 import datetime

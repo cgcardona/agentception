@@ -36,7 +36,6 @@ ACTaskRun
     when the task file is generated; updated to completed/failed when the
     agent commits or times out.  Physical task file deleted on completion.
 """
-from __future__ import annotations
 
 import datetime
 

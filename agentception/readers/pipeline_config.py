@@ -11,7 +11,6 @@ The dashboard exposes GET/PUT ``/api/config`` routes (see
 ``agentception/routes/api.py``) so operators can adjust allocation without
 restarting the service.
 """
-from __future__ import annotations
 
 import json
 from pathlib import Path
