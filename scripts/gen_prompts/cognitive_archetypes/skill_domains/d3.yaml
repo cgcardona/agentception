@@ -1,0 +1,113 @@
+# Skill Domain: D3.js Visualization
+id: d3
+display_name: "D3.js / SVG Visualization"
+description: |
+  Data-driven SVG visualizations using D3.js loaded from CDN. Used for the
+  AgentCeption dependency DAG force-directed graph and any future chart needs.
+
+prompt_fragment: |
+  ## Skill Domain: D3.js / SVG Visualization
+
+  You are building an interactive SVG visualization with D3.js loaded from CDN.
+  The visualization lives inside a Jinja2 template served by FastAPI.
+
+  ### CDN Load Pattern
+
+  ```html
+  <!-- In base.html or the specific page template -->
+  <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+  ```
+
+  Always load from CDN — never bundle. Use D3 v7 (latest stable).
+
+  ### Force-Directed Graph Pattern
+
+  ```javascript
+  // Initialize with data from inline JSON (injected by Jinja2 at render time)
+  const graphData = {{ graph_json | tojson }};  // {nodes: [...], links: [...]}
+
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+
+  const svg = d3.select("#dag-container")
+    .append("svg")
+    .attr("width", width)
+    .attr("height", height);
+
+  // Arrow marker for directed edges
+  svg.append("defs").append("marker")
+    .attr("id", "arrowhead")
+    .attr("markerWidth", 10).attr("markerHeight", 7)
+    .attr("refX", 10).attr("refY", 3.5).attr("orient", "auto")
+    .append("polygon").attr("points", "0 0, 10 3.5, 0 7");
+
+  const simulation = d3.forceSimulation(graphData.nodes)
+    .force("link", d3.forceLink(graphData.links).id(d => d.id).distance(80))
+    .force("charge", d3.forceManyBody().strength(-300))
+    .force("center", d3.forceCenter(width / 2, height / 2));
+
+  const link = svg.selectAll(".link")
+    .data(graphData.links).enter().append("line")
+    .attr("class", "link").attr("marker-end", "url(#arrowhead)");
+
+  const node = svg.selectAll(".node")
+    .data(graphData.nodes).enter().append("g")
+    .attr("class", "node")
+    .call(d3.drag()
+      .on("start", dragStarted)
+      .on("drag", dragged)
+      .on("end", dragEnded));
+
+  node.append("circle").attr("r", 20).attr("fill", d => phaseColor(d.label));
+  node.append("text").text(d => `#${d.id}`).attr("text-anchor", "middle").attr("dy", 4);
+  node.on("click", (event, d) => window.location.href = `/agents/${d.id}`);
+
+  simulation.on("tick", () => {
+    link.attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+        .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+    node.attr("transform", d => `translate(${d.x},${d.y})`);
+  });
+  ```
+
+  ### Data Shape (from FastAPI endpoint)
+
+  ```python
+  # FastAPI returns this; Jinja2 inlines it with | tojson
+  @router.get("/api/dag")
+  async def dag_data() -> dict:
+      return {
+          "nodes": [{"id": 614, "label": "agentception/0-scaffold", "status": "closed"}],
+          "links": [{"source": 610, "target": 614}],
+      }
+  ```
+
+  ### Zoom and Pan
+
+  ```javascript
+  const zoom = d3.zoom().scaleExtent([0.3, 3]).on("zoom", (event) => {
+    svg.select("g.everything").attr("transform", event.transform);
+  });
+  svg.call(zoom);
+  ```
+
+  ### Quality Standards
+
+  - Inline JSON via Jinja2 `| tojson` — never a separate fetch on load.
+  - Graph is responsive: recalculates `width`/`height` on window resize.
+  - Accessible: nodes have `title` elements with full issue title.
+  - Click target is the whole node `<g>`, not just the circle.
+  - Zoom reset button always present.
+
+review_checklist: |
+  - .data() joins are keyed — no anonymous join causing O(n²) DOM thrash
+  - enter/exit/merge pattern is complete — no orphaned DOM nodes
+  - Force simulation is stopped (simulation.stop()) on component unmount
+  - SVG has viewBox — no hardcoded width/height that breaks on resize
+  - D3 CDN version matches d3@7.x reference; not mixed with older pinned version
+  - Nodes have <title> elements for accessibility
+  - Zoom reset button present; click target is the full <g> node not just the circle
+  - Graph data is inlined via Jinja2 | tojson — no extra fetch on load
+
+quality_gates:
+  linter: 'docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"'
+  test_runner: "docker compose exec agentception pytest agentception/tests/ -v -k dag"

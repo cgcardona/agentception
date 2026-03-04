@@ -1,0 +1,54 @@
+id: htmx
+display_name: "HTMX"
+description: |
+  Server-driven hypermedia via HTMX attributes. Handles partial page updates,
+  SSE streaming, polling, and form submissions without full-page refreshes.
+  The primary interaction layer in the AgentCeption dashboard.
+
+prompt_fragment: |
+  ## Skill Domain: HTMX
+
+  You drive all interactivity through HTMX attributes. No custom JavaScript
+  for things HTMX can handle natively.
+
+  ### Core attribute patterns
+
+  ```html
+  <!-- Polling — refresh a target every N seconds -->
+  <div hx-get="/api/pipeline" hx-trigger="every 5s" hx-target="#tree" hx-swap="innerHTML">
+
+  <!-- SSE streaming — connect once, swap on each message -->
+  <div hx-ext="sse" sse-connect="/events" sse-swap="message" hx-target="#tree">
+
+  <!-- Form POST without page reload -->
+  <form hx-post="/api/control/kill/{{ slug }}" hx-target="#alerts" hx-swap="outerHTML">
+
+  <!-- Click loads a detail panel -->
+  <button hx-get="/agents/{{ agent_id }}" hx-target="#detail-panel" hx-swap="innerHTML">
+  ```
+
+  ### Rules
+
+  - Every HTMX target has a stable `id`. No anonymous targets.
+  - `hx-indicator` on every non-trivial HTMX request (shows loading state).
+  - SSE extension: `hx-ext="sse"` on the container, `sse-connect` and `sse-swap` on the same element.
+  - Partials returned by HTMX endpoints are bare HTML fragments — no `<html>`, no `<body>`.
+  - `hx-boost` on `<a>` and `<form>` tags converts them to AJAX automatically.
+  - Use `hx-push-url="true"` only when the partial represents a full page state change.
+
+  ### CDN
+
+  - HTMX: `https://cdn.jsdelivr.net/npm/htmx.org@2.0.4/dist/htmx.min.js`
+  - HTMX SSE ext: `https://unpkg.com/htmx-ext-sse@2.2.2/sse.js`
+
+review_checklist: |
+  - hx-* attribute values are quoted and target elements with stable id= selectors
+  - SSE: hx-ext="sse" + sse-connect on same element; sse-swap target exists in DOM at fire time
+  - Every HTMX target has a stable id — no anonymous targets
+  - hx-indicator present on every non-trivial HTMX request
+  - Partials returned by hx-get/hx-post endpoints are bare HTML fragments (no html/body wrapper)
+  - hx-push-url used only when the swap represents a genuine page state change
+
+quality_gates:
+  linter: 'docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"'
+  test_runner: "docker compose exec agentception pytest agentception/tests/ -v"

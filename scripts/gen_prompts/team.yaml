@@ -1,0 +1,258 @@
+# team.yaml — Declarative agent org chart for the Maestro pipeline.
+#
+# This file defines the cognitive architecture assigned to each role in the
+# agent hierarchy. It is read by generate.py (for validation) and by
+# resolve_arch.py (at agent runtime) to assemble the live context block.
+#
+# COGNITIVE_ARCH string format (used in .agent-task and dispatch prompts):
+#   figures:skill1:skill2:...
+#
+#   - figures: comma-separated figure ids (for blends), colon-separates from skills
+#   - skills:  colon-separated atomic skill domain ids, up to max_skills
+#
+# Examples:
+#   dijkstra:python                        — single figure + one skill
+#   lovelace:htmx:jinja2:alpine         — single figure + three skills
+#   lovelace,shannon:htmx:jinja2:d3     — two-figure blend + three skills
+#   the_guardian:python:fastapi            — archetype only + two skills
+
+org:
+  c_suite:
+    ceo:
+      # Steve Jobs: product taste, simplicity, "insanely great."
+      # The CEO sets vision and culture; never writes code.
+      figures: [steve_jobs]
+      archetype: the_visionary
+      skills: []
+      cognitive_arch: "steve_jobs"
+
+    cto:
+      # von Neumann: systematic, architectural, throughput-obsessed.
+      # The CTO is the top-level orchestrator — no skill domains.
+      figures: [von_neumann]
+      archetype: the_architect
+      atom_overrides:
+        cognitive_rhythm: burst
+      skills: []
+      cognitive_arch: "von_neumann"
+
+    cpo:
+      # Lovelace: visionary, sees what the machine could become.
+      figures: [lovelace]
+      archetype: the_visionary
+      skills: []
+      cognitive_arch: "lovelace"
+
+    cfo:
+      # von Neumann: quantitative, systematic, cross-domain.
+      figures: [von_neumann]
+      archetype: the_scholar
+      skills: []
+      cognitive_arch: "von_neumann"
+
+    ciso:
+      # Bruce Schneier: threat model first, security theater last.
+      figures: [bruce_schneier]
+      archetype: the_guardian
+      skills: []
+      cognitive_arch: "bruce_schneier"
+
+    cdo:
+      # Shannon: information theory, signal/noise, data strategy.
+      figures: [shannon]
+      archetype: the_architect
+      skills: []
+      cognitive_arch: "shannon"
+
+    cmo:
+      # Steve Jobs: clarity of message, narrative, simplicity.
+      figures: [steve_jobs]
+      archetype: the_visionary
+      skills: []
+      cognitive_arch: "steve_jobs"
+
+    coo:
+      # Jeff Bezos: operational discipline, Day 1, working backwards.
+      figures: [jeff_bezos]
+      archetype: the_operator
+      skills: []
+      cognitive_arch: "jeff_bezos"
+
+  vp:
+    engineering:
+      # Hamming: error-correcting, pragmatic, reliability-focused.
+      # The Engineering VP seeds leaf agents and routes work.
+      figures: [hamming]
+      archetype: the_pragmatist
+      skills: []
+      cognitive_arch: "hamming"
+
+    qa:
+      # Dijkstra: proof-oriented, uncompromising on correctness.
+      # The QA VP orchestrates PR reviewers.
+      figures: [dijkstra]
+      archetype: the_guardian
+      skills: []
+      cognitive_arch: "dijkstra"
+
+    product:
+      figures: [steve_jobs]
+      archetype: the_visionary
+      skills: []
+      cognitive_arch: "steve_jobs"
+
+    design:
+      figures: [lovelace]
+      archetype: the_visionary
+      skills: []
+      cognitive_arch: "lovelace"
+
+    data:
+      figures: [shannon]
+      archetype: the_architect
+      skills: []
+      cognitive_arch: "shannon"
+
+    security:
+      figures: [bruce_schneier]
+      archetype: the_guardian
+      skills: []
+      cognitive_arch: "bruce_schneier"
+
+    infrastructure:
+      figures: [ritchie]
+      archetype: the_operator
+      skills: []
+      cognitive_arch: "ritchie"
+
+    mobile:
+      figures: [lovelace]
+      archetype: the_visionary
+      skills: []
+      cognitive_arch: "lovelace"
+
+    platform:
+      figures: [ritchie]
+      archetype: the_architect
+      skills: []
+      cognitive_arch: "ritchie"
+
+    ml:
+      figures: [yann_lecun]
+      archetype: the_visionary
+      skills: []
+      cognitive_arch: "yann_lecun"
+
+  leaf:
+    # Leaf agents are dynamically assigned by the Engineering VP based on the
+    # issue content. The VP selects one or more figures and up to max_skills
+    # skill domains, then writes the assembled COGNITIVE_ARCH to .agent-task.
+    selection: dynamic
+
+    # Original historical figures
+    figure_pool:
+      - lovelace         # elegant, human-centered, detail-oriented
+      - feynman          # first-principles, curious, visual thinker
+      - turing           # algorithmic, formal, abstract
+      - shannon          # information theory, compression, signaling
+      - hopper           # pragmatic, compiler mindset, close to hardware
+      - dijkstra         # correctness, proof, structured programming
+      - von_neumann      # architecture, systematic, throughput
+      - hamming          # reliability, error correction, pragmatism
+      - mccarthy         # functional, recursive, expressive
+      - ritchie          # systems, minimalist, close to metal
+      - knuth            # precision, aesthetics, performance
+      # New tech industry figures
+      - guido_van_rossum # Pythonic, readability, batteries included
+      - linus_torvalds   # kernel discipline, minimal abstractions
+      - bjarne_stroustrup # principled design, zero-overhead abstraction
+      - martin_fowler    # refactoring, patterns, evolutionary architecture
+      - kent_beck        # TDD, simple design, XP
+      - andrej_karpathy  # build from scratch, inspect data, practical ML
+      - bruce_schneier   # threat modeling, security-by-default
+      - margaret_hamilton # mission-critical, reliability, correctness
+      - werner_vogels    # distributed systems, fail-always, observability
+
+    archetype_pool:
+      - the_architect   # big-picture, system design
+      - the_guardian    # quality, correctness, gates
+      - the_pragmatist  # delivery, trade-offs, "ship it"
+      - the_mentor      # clarity, documentation, pairing
+      - the_operator    # reliability, runbooks, on-call mindset
+      - the_hacker      # experimental, fast iteration, creative
+      - the_scholar     # research, depth, literature
+      - the_visionary   # innovation, long arcs, product sense
+
+    skill_pool:
+      # Backend
+      - python
+      - fastapi
+      - postgresql
+      # Frontend / UI
+      - htmx
+      - jinja2
+      - alpine
+      - javascript
+      - d3
+      - monaco
+      # Infrastructure
+      - devops
+      # Domain-specific
+      - midi
+      - llm
+
+    max_skills: 3   # cap prevents context bloat
+
+  reviewers:
+    # PR reviewers are assigned by the QA VP based on the PR content.
+    # Same pools and rules as leaf agents — different task file, same format.
+    selection: dynamic
+    figure_pool:
+      - dijkstra    # preferred for correctness-heavy PRs
+      - turing
+      - shannon
+      - lovelace
+      - knuth
+      - hopper
+      - feynman
+    skill_pool:
+      - python
+      - fastapi
+      - postgresql
+      - htmx
+      - jinja2
+      - alpine
+      - javascript
+      - d3
+      - monaco
+      - devops
+      - midi
+      - llm
+    max_skills: 3
+
+# Heuristics used by the Engineering VP and QA VP to select skill domains.
+# First matching rule wins. Skills are joined with ':' in COGNITIVE_ARCH.
+heuristics:
+  - keywords: [htmx, hx-, partial, sse, hypermedia]
+    skills: [htmx]
+  - keywords: [jinja2, template, "{% extends", "{% block"]
+    skills: [jinja2]
+  - keywords: [alpine, x-data, x-show, x-bind]
+    skills: [alpine]
+  - keywords: [d3, d3.js, chart, visualization, svg]
+    skills: [d3, javascript]
+  - keywords: [monaco, code editor, codemirror]
+    skills: [monaco]
+  - keywords: [fastapi, router, APIRouter, Depends]
+    skills: [fastapi, python]
+  - keywords: [postgres, postgresql, alembic, migration, sqlalchemy]
+    skills: [postgresql, python]
+  - keywords: [midi, audio, music]
+    skills: [midi, python]
+  - keywords: [ml, ai, model, inference, huggingface, gradio]
+    skills: [llm, python]
+  - keywords: [docker, compose, nginx, deployment, ci, github actions]
+    skills: [devops]
+  - keywords: [javascript, fetch, dom, browser]
+    skills: [javascript]
+  - default_skills: [python]

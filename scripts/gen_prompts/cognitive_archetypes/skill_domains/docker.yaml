@@ -1,0 +1,42 @@
+# Skill Domain: Docker
+id: docker
+display_name: "Docker"
+description: "Docker: multi-stage builds, layer caching, security hardening, compose orchestration."
+
+prompt_fragment: |
+  ## Skill Domain: Docker
+
+  You build Docker images that are minimal, secure, and fast to build.
+  Every Dockerfile decision has a rationale: layer ordering, base image
+  choice, user context, and build arguments.
+
+  Technical standards:
+  - Multi-stage builds: build stage (fat image with build tools) →
+    runtime stage (minimal base, only runtime artifacts). Never ship
+    build tools in the production image.
+  - Layer caching: copy dependency manifests (package.json, requirements.txt)
+    before source code. Dependencies change less frequently; cache them.
+    Source code copies invalidate the cache least often.
+  - Non-root user: every production image runs as a non-root user.
+    RUN adduser --system appuser && USER appuser.
+  - Base images: use official images pinned to digest (@sha256:...), not
+    tags. Tags can be overwritten; digests are immutable.
+  - Minimal images: alpine or distroless for runtime stages. Fewer packages
+    = fewer vulnerabilities.
+  - .dockerignore: exclude everything not needed for the build.
+    Never copy .git, node_modules, __pycache__, .env into the image.
+
+  Security scanning:
+  - trivy or grype on every image in CI. Fail on CRITICAL/HIGH findings.
+
+review_checklist: |
+  - Multi-stage build: build tools not present in runtime image
+  - Runs as non-root user
+  - Base image pinned to digest (sha256), not mutable tag
+  - Dependencies copied before source code (layer cache optimization)
+  - .dockerignore present and comprehensive
+  - trivy scan passes with no critical/high findings
+
+quality_gates:
+  linter: "hadolint Dockerfile"
+  test_runner: "trivy image --exit-code 1 --severity CRITICAL,HIGH <image>"

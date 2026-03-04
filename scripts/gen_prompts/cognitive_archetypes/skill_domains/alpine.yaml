@@ -1,0 +1,66 @@
+id: alpine
+display_name: "Alpine.js"
+description: |
+  Lightweight client-side reactivity via Alpine.js directives. Handles
+  local UI state (toggles, dropdowns, tab selection) without a heavy
+  framework. Works alongside HTMX — each handles its own layer.
+
+prompt_fragment: |
+  ## Skill Domain: Alpine.js
+
+  Alpine.js owns local, ephemeral UI state. HTMX owns server communication.
+  Never blur the boundary: Alpine does not fetch data; HTMX does not track toggles.
+
+  ### Core directives
+
+  ```html
+  <!-- Declare scope -->
+  <div x-data="{ open: false, tab: 'logs' }">
+
+    <!-- Toggle -->
+    <button @click="open = !open">Toggle</button>
+    <div x-show="open" x-transition>Hidden until open</div>
+
+    <!-- Conditional class -->
+    <button :class="tab === 'logs' ? 'active' : ''" @click="tab = 'logs'">Logs</button>
+
+    <!-- Text binding -->
+    <span x-text="open ? 'Hide' : 'Show'"></span>
+
+    <!-- Loop (static data only — dynamic data comes from HTMX) -->
+    <template x-for="item in items" :key="item.id">
+      <div x-text="item.label"></div>
+    </template>
+
+  </div>
+  ```
+
+  ### Scope rules
+
+  - `x-data` is scoped to its element and children — never assume cross-scope access.
+  - For shared state, use `Alpine.store('name', { … })` and access via `$store.name`.
+  - Keep data schemas minimal: only UI state, never server state.
+  - `x-init` runs once on mount — use for one-time initialization, not data fetching.
+
+  ### CDN
+
+  - Alpine.js: `https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js` (defer)
+
+  ### Rules
+
+  - Alpine handles UI state only. Server data comes from HTMX or SSE.
+  - `x-data` scopes are self-contained. Don't reach up the DOM tree to parent scopes.
+  - Use `$store` for state shared across distant components.
+  - Never put Alpine state that needs to survive a full HTMX swap — reinitialize in `x-init`.
+
+review_checklist: |
+  - x-data scope is self-contained — no cross-scope DOM traversal
+  - Shared state uses Alpine.store, not window globals or DOM attribute hacks
+  - x-for loops use :key with a stable unique identifier
+  - Alpine only manages UI state — no fetch() or XHR inside Alpine handlers
+  - x-init used only for initialization, not ongoing polling
+  - After HTMX swaps, Alpine re-initializes correctly (no stale x-data references)
+
+quality_gates:
+  linter: 'docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"'
+  test_runner: "docker compose exec agentception pytest agentception/tests/ -v"

@@ -1,0 +1,42 @@
+# Skill Domain: Next.js
+id: nextjs
+display_name: "Next.js / React Server Components"
+description: "Next.js 14+: App Router, RSC, streaming, edge runtime, ISR."
+
+prompt_fragment: |
+  ## Skill Domain: Next.js (App Router)
+
+  You build Next.js 14+ applications with the App Router and React
+  Server Components. Server Components run on the server — they can
+  directly access databases, file systems, and secrets without an API
+  layer. Client Components are the exception, not the default.
+
+  Technical standards:
+  - Server Components (async) for data fetching and rendering.
+    Client Components ('use client') only for interactivity: event handlers,
+    browser APIs, stateful hooks. Push 'use client' as far down the tree as possible.
+  - Data fetching: fetch() with Next.js caching semantics (cache: 'force-cache',
+    revalidate: 60). Parallel fetching with Promise.all; sequential only when necessary.
+  - Streaming: loading.tsx for automatic Suspense boundaries. Use Suspense manually
+    for fine-grained streaming of expensive sub-trees.
+  - Route handlers (app/api): for webhooks, form actions, and third-party callbacks.
+    Prefer Server Actions for mutations triggered by user interaction.
+  - Metadata: export const metadata for static; export const generateMetadata
+    for dynamic. Every page has title, description, and og:image.
+
+  TypeScript:
+  - Strict TypeScript throughout. Page and Layout props types from Next.js
+    (PageProps, LayoutProps) — never define them manually.
+
+review_checklist: |
+  - 'use client' pushed as far down the tree as possible
+  - All data fetching in Server Components; no client-side useEffect+fetch
+  - Parallel data fetching with Promise.all where data is independent
+  - loading.tsx present for every route segment with slow data
+  - Metadata exported from every page (title, description)
+  - No fetch() in Client Components; use Server Actions or Route Handlers
+
+quality_gates:
+  linter: "next lint && tsc --noEmit"
+  formatter: "prettier --check ."
+  test_runner: "jest && playwright test"

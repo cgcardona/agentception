@@ -1,0 +1,42 @@
+# Skill Domain: C# / .NET
+id: csharp
+display_name: "C# / .NET"
+description: "Modern C# with .NET 8+: async/await, LINQ, nullable reference types, minimal APIs."
+
+prompt_fragment: |
+  ## Skill Domain: C# / .NET
+
+  You write modern C# (.NET 8+) with nullable reference types enabled.
+  async/await everywhere for I/O. LINQ for data transformation.
+  Minimal APIs or ASP.NET Core for HTTP services.
+
+  Technical standards:
+  - Nullable reference types: <Nullable>enable</Nullable> in every project.
+    No nullable warning suppressions without justification.
+  - async/await: all I/O is async. ConfigureAwait(false) in library code.
+    ValueTask<T> for hot paths where allocation matters.
+  - Records for immutable data types (DTOs, value objects).
+    init-only setters for semi-mutable objects.
+  - LINQ: query syntax for complex joins, method syntax for transformations.
+    Do not materialize large sequences unnecessarily (IEnumerable vs IQueryable).
+  - Minimal APIs for simple HTTP services. ASP.NET Core MVC for complex,
+    controller-heavy applications.
+  - Dependency injection via Microsoft.Extensions.DependencyInjection:
+    constructor injection, scoped lifetimes, keyed services.
+
+  Entity Framework:
+  - EF Core with code-first migrations. AsNoTracking() for read-only queries.
+    Split queries for complex includes. Never lazy loading in production.
+
+review_checklist: |
+  - Nullable reference types enabled; no ! (null-forgiving) without comment
+  - All I/O methods are async; no .Result or .Wait() blocking async code
+  - Records used for immutable data; classes for entities with identity
+  - AsNoTracking() on EF read-only queries
+  - ConfigureAwait(false) in all library project async methods
+  - No LINQ operations that materialize large sequences before filtering
+
+quality_gates:
+  linter: "dotnet-format --verify-no-changes && Roslynator analyze"
+  formatter: "dotnet-format"
+  test_runner: "dotnet test"

@@ -1,0 +1,43 @@
+# Skill Domain: GraphQL
+id: graphql
+display_name: "GraphQL"
+description: "GraphQL API design: schema-first, DataLoader for N+1, subscriptions, federation."
+
+prompt_fragment: |
+  ## Skill Domain: GraphQL
+
+  You design GraphQL APIs schema-first. The schema is the contract
+  between client and server. Every type, query, mutation, and subscription
+  must be designed with the client's consumption patterns in mind.
+
+  Technical standards:
+  - Schema-first: define the .graphql schema before implementing resolvers.
+    Use type-generation (graphql-codegen) to produce TypeScript types from schema.
+  - DataLoader for every batched resource: never resolve a field by making
+    individual database calls per-object. DataLoader batches and deduplicates.
+    N+1 in GraphQL is silent, insidious, and catastrophic at scale.
+  - Pagination: use cursor-based pagination (Relay spec) for all list fields
+    that can grow unboundedly. Never use offset pagination for large datasets.
+  - Mutations: every mutation returns a payload type with the mutated object
+    and an errors array. Never return null for a mutation that fails — return
+    the error in the payload.
+  - Subscriptions: use WebSocket transport (graphql-ws). Back subscriptions
+    with an event stream (Redis pub/sub, Postgres LISTEN/NOTIFY).
+
+  Security:
+  - Query depth limiting + complexity analysis. Reject queries over threshold.
+  - Disable introspection in production environments.
+  - Field-level authorization in resolvers; never in schema.
+
+review_checklist: |
+  - Every list field uses cursor-based pagination
+  - DataLoader used for every field that queries related resources
+  - Mutations return payload types with errors array
+  - Query depth and complexity limits configured
+  - Introspection disabled in production
+  - Schema changes are backward-compatible; no field removals without deprecation
+
+quality_gates:
+  linter: "graphql-inspector validate schema.graphql"
+  formatter: "prettier --check '**/*.graphql'"
+  test_runner: "jest --testPathPattern=graphql"

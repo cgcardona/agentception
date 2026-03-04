@@ -1,0 +1,45 @@
+# Skill Domain: Terraform
+id: terraform
+display_name: "Terraform / Infrastructure as Code"
+description: "Terraform: modular IaC, state management, security scanning, GitOps pipelines."
+
+prompt_fragment: |
+  ## Skill Domain: Terraform
+
+  You write Terraform that is modular, tested, and safe to apply
+  automatically. Infrastructure is code: it has the same standards
+  as application code — version control, code review, automated testing,
+  and automated deployment.
+
+  Technical standards:
+  - Modules for every reusable infrastructure pattern. Root modules
+    compose leaf modules. No resource blocks in root modules.
+  - Remote state in S3 + DynamoDB (AWS) or GCS + Cloud Storage (GCP).
+    State locking to prevent concurrent applies. Never local state in teams.
+  - Variables typed, described, and validated. Sensitive variables
+    marked sensitive = true. Outputs documented.
+  - Required_providers version-pinned. Provider versions locked in .terraform.lock.hcl.
+  - terraform plan before every apply. Plan reviewed in CI before merge.
+    Auto-apply only after plan approval.
+
+  Security:
+  - checkov or tfsec on every pull request. Zero critical/high findings.
+  - Least-privilege IAM roles; no admin roles for automation.
+  - Encryption enabled on every resource that supports it.
+
+  Naming:
+  - Resource names: {environment}-{service}-{resource-type}.
+    Tags: environment, team, cost-center, terraform = "true".
+
+review_checklist: |
+  - All resources in modules; no bare resources in root module
+  - State stored remotely with locking enabled
+  - All variables typed and described; sensitive variables marked
+  - checkov scan passes with no critical/high findings
+  - terraform validate passes
+  - Plan reviewed before auto-apply is enabled
+
+quality_gates:
+  linter: "terraform validate && checkov -d . --quiet"
+  formatter: "terraform fmt -check -recursive"
+  test_runner: "terratest (go test ./test/...)"

@@ -1,0 +1,42 @@
+# Skill Domain: TypeScript
+id: typescript
+display_name: "TypeScript"
+description: "Full-stack TypeScript: strict mode, type-driven design, Node.js and browser targets."
+
+prompt_fragment: |
+  ## Skill Domain: TypeScript
+
+  You write TypeScript in strict mode. Types are the design document.
+  Write the types before the implementation; let the compiler verify
+  the design as you build.
+
+  Technical standards:
+  - tsconfig.json: strict: true, noUncheckedIndexedAccess: true,
+    exactOptionalPropertyTypes: true. No exceptions.
+  - No any: use unknown for untrusted input; cast only after narrowing.
+    Prefer generics over any. Zero suppressions without a comment.
+  - Discriminated unions for sum types; exhaustiveness checking with
+    a never-assert in every switch default.
+  - Type predicates and assertion functions for runtime narrowing.
+  - Template literal types and mapped types for advanced type-level logic.
+  - Zod (or equivalent) at every external boundary: HTTP inputs, file reads,
+    environment variables. Type the runtime, not just the compile time.
+
+  Module conventions:
+  - ES modules everywhere. No commonjs require() in new code.
+  - Barrel files (index.ts) for public APIs; keep private internals unexported.
+  - Path aliases via tsconfig paths for cleaner imports.
+
+review_checklist: |
+  - No any, no @ts-ignore without a reason comment
+  - All external inputs validated at runtime with a schema (Zod or equivalent)
+  - Discriminated unions + exhaustiveness check for every conditional type
+  - Async functions return Promise<T> explicitly; no implicit any returns
+  - No implicit undefined in object accesses (noUncheckedIndexedAccess)
+  - tsc --noEmit passes with zero errors
+  - ESLint with @typescript-eslint/recommended passes
+
+quality_gates:
+  linter: "tsc --noEmit && eslint ."
+  formatter: "prettier --check ."
+  test_runner: "jest"

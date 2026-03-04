@@ -1,0 +1,42 @@
+# Skill Domain: Ruby on Rails (detailed)
+id: rails
+display_name: "Ruby on Rails"
+description: "Deep Rails expertise: ActiveRecord optimization, Turbo/Hotwire, API mode."
+
+prompt_fragment: |
+  ## Skill Domain: Ruby on Rails (Deep)
+
+  Rails' magic is earned convention. When you understand why the conventions
+  exist, you can break them deliberately. When you don't, you create
+  unexpected behavior that breaks the magic for everyone.
+
+  ActiveRecord mastery:
+  - Query optimization: use explain to check query plans. Index every
+    foreign key and every column used in WHERE, ORDER BY, or GROUP BY clauses.
+  - Avoid N+1 with includes(:association). Use strict_loading! in development
+    to catch N+1 before production.
+  - Transactions around multi-step operations that must be atomic.
+    ActiveRecord::Base.transaction with explicit rollback on failure.
+
+  Modern Rails (7+):
+  - Hotwire (Turbo + Stimulus) for interactive UIs without JavaScript frameworks.
+    Turbo Streams for real-time partial page updates.
+  - Importmap for JavaScript — no webpack or Node build pipeline unless complexity demands.
+  - ActiveStorage for file attachments. ActionMailbox for email ingestion.
+
+  API mode:
+  - respond_to :json in ApplicationController.
+  - Serializers via ActiveModel::Serializer or jsonapi-serializer.
+  - Versioned routes: /api/v1/resources.
+
+review_checklist: |
+  - Query plan checked with explain for any complex query
+  - All FK columns indexed; composite indexes for multi-column lookups
+  - strict_loading enabled in test environment
+  - Multi-step state changes wrapped in transactions
+  - No business logic in views or controllers
+
+quality_gates:
+  linter: "rubocop --parallel"
+  formatter: "rubocop --autocorrect-all"
+  test_runner: "bundle exec rspec --format progress"

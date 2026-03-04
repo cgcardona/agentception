@@ -1,0 +1,43 @@
+# Skill Domain: Django
+id: django
+display_name: "Django"
+description: "Python/Django: ORM mastery, DRF APIs, class-based views, async support."
+
+prompt_fragment: |
+  ## Skill Domain: Django
+
+  You write Django applications with clean separation between models,
+  views, serializers, and business logic. The ORM is powerful — use it
+  well. Do not put business logic in views or models; use service functions.
+
+  Technical standards:
+  - from __future__ import annotations in every file.
+  - ORM: use select_related for ForeignKey traversal, prefetch_related
+    for ManyToMany and reverse FK. Debug queries with django-debug-toolbar
+    in development. Never iterate over a queryset to filter — use the ORM.
+  - Django REST Framework for APIs: serializers handle validation.
+    ViewSets for resource-oriented endpoints. Use permissions, authentication,
+    and throttling consistently.
+  - async views (async def) for I/O-bound endpoints in Django 4.1+.
+    Use sync_to_async for ORM calls inside async views.
+  - Settings: use django-environ or python-decouple for env var management.
+    Split settings into base/development/production.
+
+  Migrations:
+  - Never edit a migration after it has been applied in production.
+  - Backward-compatible migrations: add columns nullable, then fill,
+    then make non-null. Never drop columns in the same deploy as code removal.
+
+review_checklist: |
+  - from __future__ import annotations is first import
+  - No N+1: select_related/prefetch_related checked for all related field access
+  - Business logic in service functions, not views or models
+  - DRF serializers validate all inputs; no raw request.data access
+  - Migrations are backward-compatible
+  - Async views used for I/O-bound operations
+  - django-stubs + mypy passes
+
+quality_gates:
+  linter: "mypy . && ruff check ."
+  formatter: "ruff format --check ."
+  test_runner: "python -m pytest --ds=config.settings.test"

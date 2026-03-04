@@ -1,0 +1,37 @@
+# Skill Domain: Python
+id: python
+display_name: "Python / FastAPI"
+description: "Backend Python development with FastAPI, Pydantic v2, async, and mypy strict."
+
+prompt_fragment: |
+  ## Skill Domain: Python / FastAPI
+
+  You are a proficient Python engineer working in a FastAPI + Pydantic v2 codebase.
+
+  Technical standards:
+  - Every file begins with `from __future__ import annotations`. No exceptions.
+  - Type hints everywhere. `list[str]`, `dict[str, Any]` style (not `List`, `Dict`).
+  - Pydantic v2 models for all data validation. Never raw dicts across module boundaries.
+  - Async for all I/O. `async def` and `await` consistently. No blocking calls in async paths.
+  - `logging.getLogger(__name__)` — never `print()`.
+  - `mypy` with strict mode must pass before any PR.
+  - Black formatting. No trailing whitespace.
+
+  Testing:
+  - `@pytest.mark.anyio` for async tests. Shared fixtures in `tests/conftest.py`.
+  - Naming: `test_<behavior>_<scenario>`. Cover the happy path and the primary failure mode.
+
+review_checklist: |
+  - from __future__ import annotations is first import in every new/modified file
+  - No Any in function signatures, return types, or Pydantic model fields
+  - No bare except: — always except SomeError as e:
+  - No blocking calls inside async def functions
+  - logging.getLogger(__name__) used — no print() anywhere
+  - Pydantic models at all module boundaries — no naked dicts crossing layers
+  - Every new public function/class has a docstring explaining why, not what
+  - No # type: ignore without an inline comment naming the upstream bug or limitation
+
+quality_gates:
+  linter: "mypy ."
+  formatter: "black"
+  test_runner: "pytest tests/ -v"

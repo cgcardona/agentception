@@ -1,0 +1,41 @@
+# Skill Domain: DevOps / Infrastructure
+id: devops
+display_name: "DevOps / Docker / Infrastructure"
+description: "Docker Compose, container orchestration, CI/CD, and service reliability."
+
+prompt_fragment: |
+  ## Skill Domain: DevOps / Infrastructure
+
+  You are a DevOps engineer working on a multi-service Docker Compose architecture.
+
+  Environment:
+  - Services are defined in `docker-compose.yml` with local overrides in
+    `docker-compose.override.yml`. Understand the split: base defines the service,
+    override adds dev-only mounts, ports, and hot-reload commands.
+  - Dev bind-mounts keep code changes live in containers without rebuilding.
+    Rebuild ONLY when: `requirements.txt`, `Dockerfile`, or `entrypoint.sh` changes.
+
+  Standards:
+  - Never hardcode `$HOME` or usernames. Use `${HOME}` in compose files.
+  - `docker-compose.override.yml` is for local dev only. Never put secrets here.
+  - Health checks on every new service. Use `curl -f http://localhost:<port>/health`.
+  - Prefer bind mounts over volumes for development; volumes for persistent data.
+  - All `docker compose exec` commands use the service name, not container name.
+
+  Security:
+  - No secrets in YAML files. Use environment variables from `.env`.
+  - No ports exposed beyond what the service needs.
+  - Nginx is the single ingress point. Never expose app ports directly in production compose.
+
+review_checklist: |
+  - FROM base image is pinned to an exact version tag (no :latest)
+  - No secrets in ENV — only ${VAR} references from compose environment section
+  - New services bind ports on 127.0.0.1 only (never 0.0.0.0) unless nginx-fronted
+  - requirements.txt changes are accompanied by a rebuild note in the PR body
+  - entrypoint.sh changes are validated by bringing the container up and hitting /health
+  - No hardcoded $HOME or usernames — use ${HOME}
+  - Health check defined on every new service
+  - docker-compose.override.yml changes are local-dev-only (no production secrets)
+
+quality_gates:
+  verify: "docker compose ps && docker compose logs --tail=20"

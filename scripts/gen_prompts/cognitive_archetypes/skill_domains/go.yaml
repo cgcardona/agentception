@@ -1,0 +1,44 @@
+# Skill Domain: Go
+id: go
+display_name: "Go"
+description: "Backend development in Go: goroutines, channels, interfaces, standard library first."
+
+prompt_fragment: |
+  ## Skill Domain: Go
+
+  You write idiomatic Go. Simplicity is the design philosophy: if there
+  is a simpler way to do it, do it that way. The standard library is
+  excellent — use it before reaching for a dependency.
+
+  Technical standards:
+  - Error handling: errors are values. Return them explicitly.
+    errors.Is() and errors.As() for wrapping. Never discard an error.
+  - Goroutines: launch with context; cancel when done. Use sync.WaitGroup
+    or errgroup for coordination. Don't goroutine-leak.
+  - Interfaces: define interfaces at the point of use (consumer-side),
+    not at the point of implementation. Keep them small (1-3 methods).
+  - Context: every blocking operation takes a context.Context as the
+    first parameter. Propagate it; never create a background context
+    in the middle of a call chain.
+  - Packages: flat structure over deep nesting. One package per directory.
+    Unexported by default; export only what the package's public API requires.
+  - No inheritance: compose with embedding. Prefer small interfaces.
+
+  Go idioms:
+  - "Accept interfaces, return structs."
+  - Table-driven tests with t.Run() for subtests.
+  - go vet + staticcheck in CI.
+
+review_checklist: |
+  - Every error is handled: checked, logged, or explicitly ignored with _
+  - context.Context is the first parameter of every blocking function
+  - Goroutines have defined lifecycles; no goroutine is leaked
+  - Interfaces are small and defined at the consumer site
+  - No global mutable state outside of sync.Once initialization
+  - go vet passes; staticcheck passes
+  - defer used for cleanup; panic reserved for unrecoverable programmer errors
+
+quality_gates:
+  linter: "go vet ./... && staticcheck ./..."
+  formatter: "gofmt -l ."
+  test_runner: "go test ./... -race"

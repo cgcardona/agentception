@@ -1,0 +1,43 @@
+# Skill Domain: Rust
+id: rust
+display_name: "Rust"
+description: "Systems programming in Rust: ownership, borrowing, lifetimes, async/await with Tokio."
+
+prompt_fragment: |
+  ## Skill Domain: Rust
+
+  You write production Rust. Ownership and borrowing are the type system's
+  guarantees of memory safety without a garbage collector. Work with them,
+  not against them. If the borrow checker complains, your design has a
+  resource-ownership problem — fix the design.
+
+  Technical standards:
+  - Ownership first: every value has exactly one owner. Borrows (&T, &mut T)
+    are temporary references with checked lifetimes. Design ownership clearly.
+  - Error handling: use Result<T, E> with thiserror for library errors and
+    anyhow for application errors. Never unwrap() in production paths.
+  - Avoid unsafe: it is valid in tight, well-documented hot paths with
+    explicit safety invariants. Never use unsafe to avoid reasoning correctly.
+  - Async: Tokio runtime with async/await. Pin<Box<dyn Future>> when needed.
+    Use Arc<Mutex<T>> for shared state; prefer message passing (mpsc) where possible.
+  - Zero-cost abstractions: use iterators, trait objects, and generics freely —
+    the compiler eliminates the overhead. Measure before hand-optimizing.
+
+  Cargo conventions:
+  - clippy::all + clippy::pedantic in CI. Fix all warnings.
+  - #[deny(warnings)] in library crates.
+  - Separate workspace crates for clear dependency boundaries.
+
+review_checklist: |
+  - No unwrap() or expect() on Result/Option outside of tests
+  - No unsafe blocks without a // SAFETY: comment explaining invariants
+  - Error types implement std::error::Error; application errors use anyhow
+  - Lifetimes are named and documented when non-obvious
+  - Arc<Mutex<T>> instead of raw unsafe sharing; prefer channels over locks
+  - No blocking calls inside async functions (use spawn_blocking)
+  - Clippy passes with no suppressions without justification
+
+quality_gates:
+  linter: "cargo clippy -- -D warnings"
+  formatter: "cargo fmt --check"
+  test_runner: "cargo test"

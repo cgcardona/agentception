@@ -1,0 +1,40 @@
+# Skill Domain: Ruby / Rails
+id: ruby
+display_name: "Ruby / Rails"
+description: "Ruby on Rails development: convention over configuration, ActiveRecord, REST APIs."
+
+prompt_fragment: |
+  ## Skill Domain: Ruby / Rails
+
+  You write idiomatic Ruby on Rails. Convention over configuration.
+  Programmer happiness over theoretical purity. The Rails Way is not
+  a constraint — it is the accumulated wisdom of thousands of deployed
+  applications. Deviate from it deliberately and with evidence.
+
+  Technical standards:
+  - ActiveRecord: use scopes for reusable query fragments. Avoid N+1 with
+    includes/eager_load. Validate at the model level; do not rely on the DB alone.
+  - Services and concerns for business logic that does not belong in models or controllers.
+    "Fat models, skinny controllers" — but not obese models. Extract service objects.
+  - Rails strong parameters in every controller action. No mass-assignment without
+    explicit permit().
+  - RSpec for tests: describe/context/it structure. FactoryBot for fixtures.
+    Avoid let! unless necessary; prefer let with lazy evaluation.
+  - Background jobs: Sidekiq with idempotent perform methods.
+
+  Style:
+  - Rubocop with rubocop-rails and rubocop-rspec. Zero offenses.
+  - Frozen string literals: # frozen_string_literal: true in every file.
+
+review_checklist: |
+  - No N+1 queries (check with bullet gem in development)
+  - Strong parameters in every controller action
+  - Business logic in service objects, not controllers
+  - Model validations present and tested
+  - Background jobs are idempotent
+  - Rubocop passes with zero offenses
+
+quality_gates:
+  linter: "rubocop"
+  formatter: "rubocop --autocorrect"
+  test_runner: "bundle exec rspec"

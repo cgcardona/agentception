@@ -1,0 +1,144 @@
+# Skill Domain: Monaco Editor
+id: monaco
+display_name: "Monaco Editor (CDN)"
+description: |
+  In-browser code editor (the same engine as VS Code) loaded from CDN.
+  Used for the AgentCeption role studio — live editing of Markdown/YAML files.
+
+prompt_fragment: |
+  ## Skill Domain: Monaco Editor (CDN)
+
+  You are integrating Monaco Editor into a Jinja2/HTMX page. Monaco is loaded
+  from CDN using the AMD loader pattern (required by Monaco's module system).
+
+  ### CDN Load Pattern (AMD — required by Monaco)
+
+  ```html
+  <!-- In the page template (NOT in base.html — Monaco is heavy) -->
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.0/min/vs/loader.js"></script>
+  <script>
+    require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.0/min/vs' } });
+    require(['vs/editor/editor.main'], function () {
+      window._editor = monaco.editor.create(document.getElementById('editor-container'), {
+        value: '',
+        language: 'markdown',   // or 'yaml' for cognitive archetype files
+        theme: 'vs-dark',
+        automaticLayout: true,  // REQUIRED — resizes with container
+        minimap: { enabled: false },
+        wordWrap: 'on',
+        scrollBeyondLastLine: false,
+      });
+    });
+  </script>
+  ```
+
+  Use `monaco-editor@0.52.0` — do not use a newer untested version.
+
+  ### Loading File Content into Monaco
+
+  ```javascript
+  // Called when a file is selected in the sidebar
+  async function loadFile(slug) {
+    const res = await fetch(`/api/roles/${slug}`);
+    const data = await res.json();   // {slug, content, language, path}
+    window._editor.setValue(data.content);
+    // Set language based on file extension
+    const lang = data.path.endsWith('.yaml') ? 'yaml' : 'markdown';
+    monaco.editor.setModelLanguage(window._editor.getModel(), lang);
+    document.getElementById('current-file').textContent = data.path;
+  }
+  ```
+
+  ### Saving Back to the Server
+
+  ```javascript
+  async function saveFile(slug) {
+    const content = window._editor.getValue();
+    const res = await fetch(`/api/roles/${slug}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    if (!res.ok) {
+      document.getElementById('save-status').textContent = '❌ Save failed';
+      return;
+    }
+    document.getElementById('save-status').textContent = '✅ Saved';
+  }
+  ```
+
+  ### Keyboard Shortcut: Cmd+S / Ctrl+S to Save
+
+  ```javascript
+  require(['vs/editor/editor.main'], function () {
+    const editor = monaco.editor.create(...);
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+      saveFile(currentSlug);
+    });
+  });
+  ```
+
+  ### Layout Pattern
+
+  ```html
+  <div class="roles-layout">
+    <!-- Sidebar: file list (pure HTML, HTMX to load content) -->
+    <aside class="roles-sidebar">
+      {% for role in roles %}
+      <button class="role-item" onclick="loadFile('{{ role.slug }}')">
+        {{ role.name }}
+        <span class="line-count">{{ role.line_count }}L</span>
+      </button>
+      {% endfor %}
+    </aside>
+
+    <!-- Editor: full-height Monaco container -->
+    <div class="editor-area">
+      <div class="editor-toolbar">
+        <span id="current-file" class="breadcrumb">No file loaded</span>
+        <span id="save-status"></span>
+        <button onclick="saveFile(currentSlug)">Save</button>
+      </div>
+      <div id="editor-container" style="height: calc(100vh - 60px);"></div>
+    </div>
+  </div>
+  ```
+
+  ### FastAPI Backend Endpoints
+
+  ```python
+  @router.get("/api/roles/{slug}")
+  async def get_role(slug: str) -> dict:
+      path = resolve_role_path(slug)   # validates slug, no path traversal
+      return {"slug": slug, "content": path.read_text(), "path": str(path)}
+
+  @router.put("/api/roles/{slug}")
+  async def put_role(slug: str, body: RoleWriteRequest) -> dict:
+      path = resolve_role_path(slug)
+      path.write_text(body.content)
+      return {"slug": slug, "saved": True}
+  ```
+
+  Never allow path traversal in `resolve_role_path` — validate against an allowlist
+  of known role file paths.
+
+  ### Quality Standards
+
+  - `automaticLayout: true` is mandatory — Monaco must resize with its container.
+  - Never expose `resolve_role_path` to arbitrary paths. Allowlist only.
+  - Save button is disabled (greyed) when no file is loaded.
+  - Test the PUT endpoint to ensure it round-trips content correctly.
+
+review_checklist: |
+  - automaticLayout: true is set — Monaco must resize with its container
+  - editor.dispose() called on component unmount; model disposed alongside editor
+  - require.config paths match the CDN URL used (monaco-editor@0.52.0)
+  - resolve_role_path validates against an allowlist — no path traversal possible
+  - Save button is disabled when no file is loaded
+  - PUT endpoint round-trips content correctly (test exists)
+  - Monaco loaded in page template only, not in base.html (it's heavy)
+  - Cmd+S / Ctrl+S keyboard shortcut wired to save
+
+quality_gates:
+  linter: 'docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"'
+  test_runner: "docker compose exec agentception pytest agentception/tests/ -v -k roles"

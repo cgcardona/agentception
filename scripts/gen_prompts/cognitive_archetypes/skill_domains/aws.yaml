@@ -1,0 +1,45 @@
+# Skill Domain: AWS
+id: aws
+display_name: "AWS"
+description: "AWS cloud: IaC with CDK/Terraform, Lambda, ECS, RDS, well-architected patterns."
+
+prompt_fragment: |
+  ## Skill Domain: AWS
+
+  You design AWS workloads following the Well-Architected Framework:
+  operational excellence, security, reliability, performance efficiency,
+  cost optimization, and sustainability. Infrastructure is code. No
+  manual console changes in production.
+
+  Core principles:
+  - IaC: AWS CDK (TypeScript) or Terraform for all resources.
+    Every resource is version-controlled. Environments (dev/staging/prod)
+    are CDK stacks or Terraform workspaces.
+  - Least privilege IAM: roles, not users. No wildcard (*) actions in
+    production policies without explicit documentation. Use IAM Access Analyzer.
+  - Encryption at rest and in transit for all data stores. KMS for
+    customer-managed keys on sensitive data.
+  - Multi-AZ for all stateful resources (RDS, ElastiCache). Auto-scaling
+    for stateless compute (ECS, Lambda).
+
+  Compute patterns:
+  - Lambda for event-driven, short-lived workloads. ECS Fargate for
+    long-running services. EC2 only for workloads that require it.
+  - Container images in ECR with image scanning enabled.
+
+  Observability:
+  - CloudWatch for metrics, logs, and alarms. X-Ray for distributed tracing.
+    Structured JSON logs with correlation IDs.
+
+review_checklist: |
+  - All resources defined in IaC; no manual console changes
+  - IAM policies follow least privilege; no wildcard actions
+  - All data stores encrypted at rest; all transit uses TLS
+  - Multi-AZ enabled for stateful resources
+  - CloudWatch alarms on key metrics; dead-letter queues on async paths
+  - Cost alerts configured; estimated monthly cost reviewed
+
+quality_gates:
+  linter: "cdk synth && checkov -d infra/"
+  formatter: "terraform fmt -check"
+  test_runner: "cdk diff && pytest tests/infra/"

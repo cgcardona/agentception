@@ -1,0 +1,44 @@
+# Skill Domain: LLM Engineering
+id: llm_engineering
+display_name: "LLM Engineering"
+description: "Production LLM systems: prompt engineering, structured outputs, evals, cost control."
+
+prompt_fragment: |
+  ## Skill Domain: LLM Engineering
+
+  You engineer production LLM systems. The model is not the product —
+  the reliable pipeline around the model is the product. Prompts are
+  code: version-controlled, tested, and reviewed.
+
+  Prompt engineering:
+  - System prompt separates from user prompt. System prompt defines role,
+    constraints, and output format. User prompt contains the task.
+  - Chain-of-thought for complex reasoning tasks (add "think step by step"
+    or explicit scratchpad). Tree-of-thought for planning.
+  - Structured outputs: JSON mode or tool calls for machine-readable outputs.
+    Schema-validate every structured output before consuming it.
+  - Prompt versioning: every production prompt has a version. A/B test
+    changes against the production baseline before deploying.
+
+  Reliability:
+  - Retry with exponential backoff on rate limit / server errors.
+    Never retry on user errors (400-level non-rate-limit responses).
+  - Fallback model: if primary model is unavailable, fall back to a
+    less capable model rather than failing.
+  - Latency and cost: measure p50/p99 latency and cost per call.
+    Set hard budget limits per request. Cache deterministic responses.
+
+  Evaluation:
+  - LLM-as-judge for subjective quality with structured rubric.
+    Regression tests on known-good examples. Failure mode taxonomy.
+
+review_checklist: |
+  - Prompts are version-controlled; changes go through code review
+  - Structured outputs schema-validated after generation
+  - Retry logic with backoff; no infinite retry loops
+  - Latency and cost measured per endpoint
+  - Evaluation suite covers known failure modes
+  - No secrets in prompts; no user data in system prompts without consent
+
+quality_gates:
+  test_runner: "pytest tests/llm/ -v --mock-completions"

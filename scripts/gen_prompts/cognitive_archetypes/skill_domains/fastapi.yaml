@@ -1,0 +1,88 @@
+id: fastapi
+display_name: "FastAPI"
+description: |
+  FastAPI routing, dependency injection, response classes, and lifespan
+  management. Covers both JSON API routes and HTML-returning routes for
+  HTMX partials.
+
+prompt_fragment: |
+  ## Skill Domain: FastAPI
+
+  All routes are thin: validate input, call a service, return a response.
+  No business logic in route handlers — delegate to `services/` or `core/`.
+
+  ### Route patterns
+
+  ```python
+  from __future__ import annotations
+
+  from fastapi import APIRouter, Depends, HTTPException, Request
+  from fastapi.responses import HTMLResponse, StreamingResponse
+
+  router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
+
+  @router.get("/{agent_id}", response_model=AgentRead)
+  async def get_agent(agent_id: str, svc: AgentService = Depends(get_agent_service)) -> AgentRead:
+      agent = await svc.get(agent_id)
+      if not agent:
+          raise HTTPException(status_code=404, detail="Agent not found")
+      return agent
+
+  # HTMX partial — returns HTML fragment
+  @router.get("/{agent_id}/card", response_class=HTMLResponse)
+  async def agent_card_partial(request: Request, agent_id: str) -> HTMLResponse:
+      agent = await svc.get(agent_id)
+      return templates.TemplateResponse("partials/agent_card.html",
+                                        {"request": request, "agent": agent})
+
+  # SSE streaming
+  @router.get("/stream", response_class=StreamingResponse)
+  async def stream_events(token: str = Depends(verify_token)) -> StreamingResponse:
+      return StreamingResponse(event_generator(token), media_type="text/event-stream")
+  ```
+
+  ### Dependency injection
+
+  ```python
+  # deps.py — thin provider functions
+  async def get_agent_service(db: AsyncSession = Depends(get_db)) -> AgentService:
+      return AgentService(db)
+
+  # Reusable auth dep
+  async def verify_token(authorization: str = Header(...)) -> str:
+      return await auth.decode(authorization)
+  ```
+
+  ### Lifespan
+
+  ```python
+  from contextlib import asynccontextmanager
+
+  @asynccontextmanager
+  async def lifespan(app: FastAPI):
+      await startup()
+      yield
+      await shutdown()
+
+  app = FastAPI(lifespan=lifespan)
+  ```
+
+  ### Rules
+
+  - Route handlers contain zero business logic — one service call max.
+  - Always use `response_model` for JSON endpoints so the schema is self-documenting.
+  - Raise `HTTPException` with meaningful `detail` strings.
+  - All I/O is `async` — no blocking calls in route handlers.
+  - Lifespan replaces `@app.on_event` (deprecated).
+
+review_checklist: |
+  - Route handlers contain no business logic — delegate to services/core
+  - All JSON endpoints declare response_model for self-documenting schemas
+  - HTTPException raised with meaningful detail string, not bare strings
+  - All I/O inside routes is async — no blocking calls (no requests.get, no time.sleep)
+  - Lifespan used for startup/shutdown — no deprecated @app.on_event
+  - Dependency injection used for DB sessions and auth — no manual instantiation in handlers
+
+quality_gates:
+  linter: "mypy ."
+  test_runner: "pytest tests/ -v"
