@@ -2,7 +2,9 @@
 
 [![CI](https://github.com/cgcardona/agentception/actions/workflows/ci.yml/badge.svg)](https://github.com/cgcardona/agentception/actions/workflows/ci.yml)
 
-> *The singularity is here. The only question is whether you're ready to meet it.*
+> *The Singularity is here.*
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
 
