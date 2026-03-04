@@ -114,6 +114,12 @@ def _call_request(
     }
 
 
+def _unwrap(resp: dict[str, object] | None) -> dict[str, object]:
+    """Assert that handle_request returned a response (not a notification None) and narrow the type."""
+    assert resp is not None, "handle_request returned None — expected a response dict"
+    return resp
+
+
 def _make_process(stdout: bytes, returncode: int = 0, stderr: bytes = b"") -> MagicMock:
     """Build a mock asyncio.subprocess.Process."""
     proc = MagicMock()
@@ -444,14 +450,14 @@ def test_call_tool_unknown_returns_error() -> None:
 
 def test_handle_request_tools_list_success() -> None:
     """handle_request tools/list returns a success response with result."""
-    resp = handle_request(_list_request())
+    resp = _unwrap(handle_request(_list_request()))
     assert "result" in resp
     assert "error" not in resp
 
 
 def test_handle_request_tools_list_result_has_tools_key() -> None:
     """handle_request tools/list result contains a 'tools' list."""
-    resp = handle_request(_list_request())
+    resp = _unwrap(handle_request(_list_request()))
     result = resp.get("result")
     assert isinstance(result, dict)
     assert "tools" in result
@@ -462,13 +468,13 @@ def test_handle_request_tools_list_result_has_tools_key() -> None:
 
 def test_handle_request_tools_list_preserves_request_id() -> None:
     """handle_request tools/list echoes back the integer request id."""
-    resp = handle_request(_list_request(req_id=42))
+    resp = _unwrap(handle_request(_list_request(req_id=42)))
     assert resp["id"] == 42
 
 
 def test_handle_request_tools_list_string_id() -> None:
     """handle_request works with string request IDs."""
-    resp = handle_request(_list_request(req_id="abc-123"))
+    resp = _unwrap(handle_request(_list_request(req_id="abc-123")))
     assert resp["id"] == "abc-123"
 
 
@@ -479,16 +485,16 @@ def test_handle_request_tools_list_string_id() -> None:
 
 def test_handle_request_tools_call_plan_get_schema() -> None:
     """handle_request tools/call plan_get_schema returns success result."""
-    resp = handle_request(_call_request("plan_get_schema", {}))
+    resp = _unwrap(handle_request(_call_request("plan_get_schema", {})))
     assert "result" in resp
     assert "error" not in resp
 
 
 def test_handle_request_tools_call_plan_validate_spec_valid() -> None:
     """handle_request tools/call plan_validate_spec with valid spec succeeds."""
-    resp = handle_request(
+    resp = _unwrap(handle_request(
         _call_request("plan_validate_spec", {"spec_json": _minimal_plan_spec_json()})
-    )
+    ))
     assert "result" in resp
     result = resp.get("result")
     assert isinstance(result, dict)
@@ -497,7 +503,7 @@ def test_handle_request_tools_call_plan_validate_spec_valid() -> None:
 
 def test_handle_request_tools_call_plan_validate_spec_invalid() -> None:
     """handle_request tools/call plan_validate_spec with bad spec returns isError=True."""
-    resp = handle_request(_call_request("plan_validate_spec", {"spec_json": "{bad}"}))
+    resp = _unwrap(handle_request(_call_request("plan_validate_spec", {"spec_json": "{bad}"})))
     assert "result" in resp
     result = resp.get("result")
     assert isinstance(result, dict)
@@ -511,7 +517,7 @@ def test_handle_request_tools_call_plan_validate_spec_invalid() -> None:
 
 def test_handle_request_wrong_jsonrpc_version() -> None:
     """handle_request returns INVALID_REQUEST for wrong jsonrpc version."""
-    resp = handle_request({"jsonrpc": "1.0", "id": 1, "method": "tools/list"})
+    resp = _unwrap(handle_request({"jsonrpc": "1.0", "id": 1, "method": "tools/list"}))
     assert "error" in resp
     error = resp["error"]
     assert isinstance(error, dict)
@@ -520,7 +526,7 @@ def test_handle_request_wrong_jsonrpc_version() -> None:
 
 def test_handle_request_missing_jsonrpc_field() -> None:
     """handle_request returns INVALID_REQUEST when jsonrpc is absent."""
-    resp = handle_request({"id": 1, "method": "tools/list"})
+    resp = _unwrap(handle_request({"id": 1, "method": "tools/list"}))
     assert "error" in resp
     error = resp["error"]
     assert isinstance(error, dict)
@@ -529,7 +535,7 @@ def test_handle_request_missing_jsonrpc_field() -> None:
 
 def test_handle_request_missing_method() -> None:
     """handle_request returns INVALID_REQUEST when method is absent."""
-    resp = handle_request({"jsonrpc": "2.0", "id": 1})
+    resp = _unwrap(handle_request({"jsonrpc": "2.0", "id": 1}))
     assert "error" in resp
     error = resp["error"]
     assert isinstance(error, dict)
@@ -538,7 +544,7 @@ def test_handle_request_missing_method() -> None:
 
 def test_handle_request_unknown_method() -> None:
     """handle_request returns METHOD_NOT_FOUND for an unregistered method."""
-    resp = handle_request({"jsonrpc": "2.0", "id": 1, "method": "tools/unknown"})
+    resp = _unwrap(handle_request({"jsonrpc": "2.0", "id": 1, "method": "tools/unknown"}))
     assert "error" in resp
     error = resp["error"]
     assert isinstance(error, dict)
@@ -547,7 +553,7 @@ def test_handle_request_unknown_method() -> None:
 
 def test_handle_request_tools_call_missing_params() -> None:
     """handle_request returns INVALID_PARAMS when params is missing for tools/call."""
-    resp = handle_request({"jsonrpc": "2.0", "id": 1, "method": "tools/call"})
+    resp = _unwrap(handle_request({"jsonrpc": "2.0", "id": 1, "method": "tools/call"}))
     assert "error" in resp
     error = resp["error"]
     assert isinstance(error, dict)
@@ -556,9 +562,9 @@ def test_handle_request_tools_call_missing_params() -> None:
 
 def test_handle_request_tools_call_missing_name() -> None:
     """handle_request returns INVALID_PARAMS when params.name is missing."""
-    resp = handle_request(
+    resp = _unwrap(handle_request(
         {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"arguments": {}}}
-    )
+    ))
     assert "error" in resp
     error = resp["error"]
     assert isinstance(error, dict)
@@ -567,7 +573,7 @@ def test_handle_request_tools_call_missing_name() -> None:
 
 def test_handle_request_null_id_is_preserved() -> None:
     """handle_request preserves id=null (None) per JSON-RPC 2.0 spec."""
-    resp = handle_request({"jsonrpc": "2.0", "id": None, "method": "tools/list"})
+    resp = _unwrap(handle_request({"jsonrpc": "2.0", "id": None, "method": "tools/list"}))
     assert resp["id"] is None
 
 
