@@ -136,8 +136,8 @@ WORKTREE=<path>               ← variable assignment
 ENTRY=<value>                 ← variable assignment
 FOLLOW_UP_URL=<value>         ← B-grade follow-up issue URL
 ISSUE_URL=<value>             ← captured issue URL in scripts
-GH_REPO=cgcardona/maestro     ← hardcoded repo slug — NEVER derive from local path
-export GH_REPO=cgcardona/maestro
+GH_REPO=cgcardona/agentception     ← hardcoded repo slug — NEVER derive from local path
+export GH_REPO=cgcardona/agentception
 ```
 
 ### Shell — Variable assignments from command substitution (task-file parsing)
@@ -602,10 +602,10 @@ gh pr merge <N>   ← without having first output "Grade: X" and "Approved for m
    | while read ISSUE_NUM; do gh issue close "$ISSUE_NUM" ...; done
    ```
 
-8. **`GH_REPO` is always `cgcardona/maestro` — hardcoded, never derived.**
-   The local path (e.g. `/Users/<you>/dev/tellurstori/maestro`) contains `tellurstori` which is
+8. **`GH_REPO` is always `cgcardona/agentception` — hardcoded, never derived.**
+   The local path (e.g. `/Users/<you>/dev/tellurstori/agentception`) contains `tellurstori` which is
    NOT the GitHub org. Using `gh` without `--repo "$GH_REPO"` or with a derived slug causes
    "Forbidden" / "Repository not found" errors.
    ```bash
-   export GH_REPO=cgcardona/maestro   # always set this first; all gh commands inherit it
+   export GH_REPO=cgcardona/agentception   # always set this first; all gh commands inherit it
    ```

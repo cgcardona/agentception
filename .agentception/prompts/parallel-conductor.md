@@ -88,7 +88,7 @@ PRTREES="$HOME/.agentception/worktrees/$(basename "$REPO")"
 mkdir -p "$PRTREES"
 cd "$REPO"
 
-export GH_REPO=cgcardona/maestro
+export GH_REPO=cgcardona/agentception
 
 # Snapshot dev tip
 DEV_SHA=$(git rev-parse dev)
@@ -136,7 +136,7 @@ STEP 0 — READ YOUR TASK FILE:
   cat .agent-task
 
   Parse all KEY=value fields:
-    GH_REPO                → GitHub repo slug (always cgcardona/maestro)
+    GH_REPO                → GitHub repo slug (always cgcardona/agentception)
     PHASE_FILTER           → restrict to one phase, or empty for all
     MAX_ISSUES_PER_DISPATCH → cap on parallel ISSUE_TO_PR agents (safety valve)
     MAX_PRS_PER_DISPATCH   → cap on parallel PR_REVIEW agents (safety valve)
@@ -144,7 +144,7 @@ STEP 0 — READ YOUR TASK FILE:
 
   Export:
     export GH_REPO=$(grep "^GH_REPO=" .agent-task | cut -d= -f2)
-    export GH_REPO=${GH_REPO:-cgcardona/maestro}
+    export GH_REPO=${GH_REPO:-cgcardona/agentception}
     PHASE_FILTER=$(grep "^PHASE_FILTER=" .agent-task | cut -d= -f2)
     ATTEMPT_N=$(grep "^ATTEMPT_N=" .agent-task | cut -d= -f2)
 
@@ -518,7 +518,7 @@ Report: pipeline state table (open issues by phase, open PRs, reminder URL if cr
 Run this once to add the `conductor-reminder` label before the first conductor run.
 
 ```bash
-export GH_REPO=cgcardona/maestro
+export GH_REPO=cgcardona/agentception
 
 gh label create "conductor-reminder" \
   --repo "$GH_REPO" \
@@ -559,5 +559,5 @@ These are patterns from real multi-agent systems. The conductor addresses each:
 REPO=$(git rev-parse --show-toplevel)
 git -C "$REPO" fetch origin && git -C "$REPO" merge origin/dev
 git worktree list
-gh issue list --repo cgcardona/maestro --label "conductor-reminder" --state open
+gh issue list --repo cgcardona/agentception --label "conductor-reminder" --state open
 ```

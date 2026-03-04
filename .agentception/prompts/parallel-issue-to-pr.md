@@ -158,8 +158,8 @@ Run from anywhere inside the main repo. Paths are derived automatically.
 > `dev` directly. This prevents the "dev is already used by worktree" error when
 > the main repo has `dev` checked out.
 
-> **GitHub repo slug:** Always `cgcardona/maestro`. The local path
-> (`/Users/gabriel/dev/tellurstori/maestro`) is misleading — `tellurstori` is
+> **GitHub repo slug:** Always `cgcardona/agentception`. The local path
+> (`/Users/gabriel/dev/tellurstori/agentception`) is misleading — `tellurstori` is
 > NOT the GitHub org. Never derive the slug from `basename` or `pwd`.
 
 ```bash
@@ -168,7 +168,7 @@ PRTREES="$HOME/.agentception/worktrees/$(basename "$REPO")"
 mkdir -p "$PRTREES"
 cd "$REPO"
 
-GH_REPO=cgcardona/maestro
+GH_REPO=cgcardona/agentception
 
 git config rerere.enabled true || true
 
@@ -373,15 +373,15 @@ WTNAME=$(basename "$(pwd)")                               # this worktree's name
 # Docker path to your worktree: /worktrees/$WTNAME
 
 # GitHub repo slug — HARDCODED. NEVER derive from local path or directory name.
-# The local path is /Users/gabriel/dev/tellurstori/maestro — "tellurstori" is NOT the GitHub org.
-export GH_REPO=cgcardona/maestro
+# The local path is /Users/gabriel/dev/tellurstori/agentception — "tellurstori" is NOT the GitHub org.
+export GH_REPO=cgcardona/agentception
 ```
 
 | Item | Value |
 |------|-------|
 | Your worktree root | current directory (contains `.agent-task`) |
 | Main repo (local path) | first entry of `git worktree list` |
-| GitHub repo slug | `cgcardona/maestro` — always hardcoded, never derived |
+| GitHub repo slug | `cgcardona/agentception` — always hardcoded, never derived |
 | Docker compose location | main repo |
 | Your worktree inside Docker | `/worktrees/$WTNAME` |
 
@@ -461,7 +461,7 @@ STEP 0 — READ YOUR TASK FILE:
 
   Export for all subsequent commands:
     export GH_REPO=$(grep "^GH_REPO=" .agent-task | cut -d= -f2)
-    export GH_REPO=${GH_REPO:-cgcardona/maestro}
+    export GH_REPO=${GH_REPO:-cgcardona/agentception}
     N=$(grep "^ISSUE_NUMBER=" .agent-task | cut -d= -f2)
     ATTEMPT_N=$(grep "^ATTEMPT_N=" .agent-task | cut -d= -f2)
     BATCH_ID=$(grep "^BATCH_ID=" .agent-task | cut -d= -f2)
@@ -524,10 +524,10 @@ STEP 1 — DERIVE PATHS:
   # All docker compose commands: cd "$REPO" && docker compose exec maestro <cmd>
 
   # GitHub repo slug — HARDCODED. NEVER derive from directory name, basename, or local path.
-  # The local path is /Users/gabriel/dev/tellurstori/maestro.
+  # The local path is /Users/gabriel/dev/tellurstori/agentception.
   # "tellurstori" is the LOCAL directory — it is NOT the GitHub org.
   # The GitHub org is "cgcardona". Using the wrong slug → "Forbidden" or "Repository not found".
-  export GH_REPO=cgcardona/maestro
+  export GH_REPO=cgcardona/agentception
 
   # ⚠️  VALIDATION — run this immediately to catch slug errors early:
   gh repo view "$GH_REPO" --json name --jq '.name'
@@ -1080,7 +1080,7 @@ STEP 6 — SPAWN A QA REVIEWER FOR YOUR OWN PR (run this before self-destructing
 
   if [ -n "$MY_PR" ] && [ "$MY_PR" != "null" ]; then
     # Create a fresh review worktree at the PR branch tip.
-    REVIEW_WORKTREE="$HOME/.agentception/worktrees/maestro/pr-$MY_PR"
+    REVIEW_WORKTREE="$HOME/.agentception/worktrees/agentception/pr-$MY_PR"
     git -C "$REPO" worktree add "$REVIEW_WORKTREE" "origin/$MY_BRANCH"
     # ⚠️  Do NOT add agent:wip here. The reviewer claims the label itself in STEP 3
     # after passing the idempotency gate. Adding it here causes stale labels when the
@@ -1100,10 +1100,10 @@ STEP 6 — SPAWN A QA REVIEWER FOR YOUR OWN PR (run this before self-destructing
     [ "$HAS_MIG" -gt 0 ] && HAS_MIG_VAL=true || HAS_MIG_VAL=false
     cat > "$REVIEW_WORKTREE/.agent-task" <<TASK
 WORKFLOW=pr-review
-GH_REPO=cgcardona/maestro
+GH_REPO=cgcardona/agentception
 PR_NUMBER=$MY_PR
 PR_TITLE=$PR_TITLE_VAL
-PR_URL=https://github.com/cgcardona/maestro/pull/$MY_PR
+PR_URL=https://github.com/cgcardona/agentception/pull/$MY_PR
 PR_BRANCH=$MY_BRANCH
 WORKTREE=$REVIEW_WORKTREE
 BASE=dev
@@ -1112,7 +1112,7 @@ FILES_CHANGED=$PR_FILES_VAL
 MERGE_AFTER=none
 HAS_MIGRATION=$HAS_MIG_VAL
 ROLE=pr-reviewer
-ROLE_FILE=$HOME/dev/tellurstori/maestro/.agentception/roles/pr-reviewer.md
+ROLE_FILE=$HOME/dev/tellurstori/agentception/.agentception/roles/pr-reviewer.md
 COGNITIVE_ARCH=${REVIEWER_ARCH}
 BATCH_ID=${BATCH_ID:-none}
 WAVE=${WAVE:-unset}
@@ -1130,7 +1130,7 @@ TASK
     # REVIEWER_PROMPT is self-contained — do NOT reference parallel-pr-review.md on disk.
     # Construct it from your context:
     #   1. Prefix:  "Read the .agent-task file in your worktree first.
-    #               GH_REPO=cgcardona/maestro  Repo: $HOME/dev/tellurstori/maestro"
+    #               GH_REPO=cgcardona/agentception  Repo: $HOME/dev/tellurstori/agentception"
     #   2. Body:    paste the entire ## Pass-Along: Reviewer Kickoff section verbatim
     #               (your Engineering VP embedded it when it dispatched you)
     # The reviewer's prompt already contains its own ## Pass-Along: Implementer Kickoff
@@ -1167,7 +1167,7 @@ Run this before touching the Setup script:
 
 ```bash
 # List every open issue for the current phase — this IS your candidate pool.
-GH_REPO=cgcardona/maestro   # ← single place to change if the repo slug ever changes
+GH_REPO=cgcardona/agentception   # ← single place to change if the repo slug ever changes
 gh issue list \
   --repo "$GH_REPO" \
   --label "phase-1" \
@@ -1189,7 +1189,7 @@ From the label audit output, choose issues that satisfy **both** criteria in
 candidate's body to identify affected files:
 
 ```bash
-GH_REPO=cgcardona/maestro   # ← single place to change if the repo slug ever changes
+GH_REPO=cgcardona/agentception   # ← single place to change if the repo slug ever changes
 gh issue view <N> --repo "$GH_REPO" --json body,title
 ```
 
@@ -1271,7 +1271,7 @@ Run this after all PRs in the batch are **merged** (not just opened):
 ```bash
 PHASE_LABEL="phase-1"   # match the label used in Setup
 
-GH_REPO=cgcardona/maestro   # ← single place to change if the repo slug ever changes
+GH_REPO=cgcardona/agentception   # ← single place to change if the repo slug ever changes
 
 REMAINING=$(gh issue list \
   --repo "$GH_REPO" \
@@ -1304,7 +1304,7 @@ fi
 ### 2 — PR audit
 
 ```bash
-GH_REPO=cgcardona/maestro   # ← single place to change if the repo slug ever changes
+GH_REPO=cgcardona/agentception   # ← single place to change if the repo slug ever changes
 gh pr list --repo "$GH_REPO" --state open
 ```
 

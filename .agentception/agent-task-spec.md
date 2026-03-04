@@ -372,7 +372,7 @@ role = "python-developer"
 cognitive_arch = "turing:python"
 
 [repo]
-gh_repo = "cgcardona/maestro"
+gh_repo = "cgcardona/agentception"
 base = "dev"
 
 [pipeline]
@@ -386,7 +386,7 @@ sub_agents = false
 [target]
 issue_number = 872
 issue_title = "POST /api/plan/draft — accept brain dump, dispatch to Cursor via .agent-task"
-issue_url = "https://github.com/cgcardona/maestro/issues/872"
+issue_url = "https://github.com/cgcardona/agentception/issues/872"
 phase_label = "plan-step-v2/2-api-endpoints"
 all_labels = ["enhancement", "ac-workflow/5-plan-step-v2", "plan-step-v2/2-api-endpoints"]
 depends_on = [870, 871]
@@ -418,7 +418,7 @@ role = "python-developer"
 cognitive_arch = "turing:python"
 
 [repo]
-gh_repo = "cgcardona/maestro"
+gh_repo = "cgcardona/agentception"
 base = "dev"
 
 [pipeline]

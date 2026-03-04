@@ -16,11 +16,11 @@
     "variant_a_file": ".agentception/roles/python-developer.md",
     "variant_b_file": ".agentception/roles/python-developer-v2.md"
   },
-  "active_project": "maestro",
+  "active_project": "agentception",
   "projects": [
     {
-      "name": "maestro",
-      "gh_repo": "cgcardona/maestro",
+      "name": "agentception",
+      "gh_repo": "cgcardona/agentception",
       "repo_dir": "/repo",
       "worktrees_dir": "/worktrees"
     }

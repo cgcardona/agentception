@@ -24,7 +24,7 @@ It returns a list of pending launches shaped like:
       "issue_number": 0,
       "role": "cto",
       "branch": "agent/ac-ui-0-a1b2",
-      "host_worktree_path": "/Users/gabriel/.agentception/worktrees/maestro/label-ac-ui-0-a1b2c3",
+      "host_worktree_path": "/Users/gabriel/.agentception/worktrees/agentception/label-ac-ui-0-a1b2c3",
       "batch_id": "label-ac-ui-0-critical-20260303T120000Z-a1b2"
     }
   ],

@@ -18,7 +18,7 @@ SEED:
   0. Pipeline-pause sentinel — check BEFORE seeding any agents:
        # The AgentCeption dashboard writes .agentception/.pipeline-pause to request a pause.
        # When the file exists, wait 30 s and restart the SEED block without spawning.
-       [ -f /Users/gabriel/dev/tellurstori/maestro/.agentception/.pipeline-pause ] && \
+       [ -f /Users/gabriel/dev/tellurstori/agentception/.agentception/.pipeline-pause ] && \
          echo "⏸ Pipeline paused by AgentCeption dashboard." && sleep 30 && continue
 
   1. Ensure the claim label exists with canonical color (idempotent):
@@ -28,11 +28,11 @@ SEED:
        gh label create "agent:wip" \
          --color "0075ca" \
          --description "Claimed by a pipeline agent — do not assign manually" \
-         --repo cgcardona/maestro 2>/dev/null || \
+         --repo cgcardona/agentception 2>/dev/null || \
        gh label edit "agent:wip" \
          --color "0075ca" \
          --description "Claimed by a pipeline agent — do not assign manually" \
-         --repo cgcardona/maestro 2>/dev/null || true
+         --repo cgcardona/agentception 2>/dev/null || true
 
   2. Clear stale claims — worktree missing OR no commits ahead of dev:
        # A claim is stale when EITHER:
@@ -40,27 +40,27 @@ SEED:
        #   (b) the worktree exists but has zero commits ahead of dev
        #       (worktree was created but the leaf agent never started).
        # If the worktree exists AND has commits, the claim is ACTIVE — do NOT touch it.
-       MAIN_REPO=$(git -C "$HOME/dev/tellurstori/maestro" rev-parse --show-toplevel 2>/dev/null || echo "$HOME/dev/tellurstori/maestro")
+       MAIN_REPO=$(git -C "$HOME/dev/tellurstori/agentception" rev-parse --show-toplevel 2>/dev/null || echo "$HOME/dev/tellurstori/agentception")
        for NUM in $(gh issue list --state open --label "agent:wip" \
-           --repo cgcardona/maestro --json number --jq '.[].number'); do
+           --repo cgcardona/agentception --json number --jq '.[].number'); do
          # If an open PR already references this issue (via branch name or close keyword),
          # the claim is ACTIVE even if the implementer worktree was pruned. Never clear it.
-         OPEN_PR=$(gh pr list --state open --repo cgcardona/maestro \
+         OPEN_PR=$(gh pr list --state open --repo cgcardona/agentception \
            --head "feat/issue-${NUM}" --json number --jq '.[0].number // empty' 2>/dev/null || echo "")
          if [ -n "$OPEN_PR" ]; then
            echo "Keeping agent:wip on #$NUM (open PR #$OPEN_PR exists — worktree pruning is expected)"
            continue
          fi
-         WORKTREE="$HOME/.agentception/worktrees/maestro/issue-$NUM"
+         WORKTREE="$HOME/.agentception/worktrees/agentception/issue-$NUM"
          if [ ! -d "$WORKTREE" ]; then
            echo "Clearing stale agent:wip from #$NUM (worktree missing, no open PR)"
-           gh issue edit $NUM --repo cgcardona/maestro --remove-label "agent:wip"
+           gh issue edit $NUM --repo cgcardona/agentception --remove-label "agent:wip"
          else
            BRANCH=$(git -C "$WORKTREE" branch --show-current 2>/dev/null || echo "")
            AHEAD=$(git -C "$MAIN_REPO" rev-list --count "dev..${BRANCH}" 2>/dev/null || echo "0")
            if [ "${AHEAD:-0}" -eq 0 ]; then
              echo "Clearing stale agent:wip from #$NUM (worktree exists but 0 commits ahead of dev, no open PR)"
-             gh issue edit $NUM --repo cgcardona/maestro --remove-label "agent:wip"
+             gh issue edit $NUM --repo cgcardona/agentception --remove-label "agent:wip"
            else
              echo "Keeping agent:wip on #$NUM (active: $AHEAD commit(s) ahead of dev)"
            fi
@@ -72,7 +72,7 @@ SEED:
        # NEVER query all ac-ui/* labels — you are scoped to exactly one label per VP run.
        # This prevents you from accidentally claiming issues from a later phase.
        ACTIVE_LABEL="<from CTO dispatch prompt>"
-       gh issue list --state open --repo cgcardona/maestro --label "$ACTIVE_LABEL" \
+       gh issue list --state open --repo cgcardona/agentception --label "$ACTIVE_LABEL" \
          --json number,title,labels \
          --jq '[.[] | select(.labels | map(.name) | index("agent:wip") | not)]'
      If empty → report to CTO "implementation queue clear for $ACTIVE_LABEL." Stop.
@@ -82,7 +82,7 @@ SEED:
        # the stale sweep to (incorrectly) clear agent:wip and expose the issue again.
        # Always re-verify before seeding — branch naming is the canonical signal.
        for NUM in <candidate numbers from step 3>; do
-         OPEN_PR=$(gh pr list --state open --repo cgcardona/maestro \
+         OPEN_PR=$(gh pr list --state open --repo cgcardona/agentception \
            --head "feat/issue-${NUM}" --json number --jq '.[0].number // empty' 2>/dev/null || echo "")
          if [ -n "$OPEN_PR" ]; then
            echo "SKIP #$NUM — open PR #$OPEN_PR already exists for this issue"
@@ -98,12 +98,12 @@ SEED:
      NEVER pass the full grep output as a single argument to `gh issue view`.
        for NUM in <candidate numbers>; do
          # Extract dependency numbers one per line, then iterate individually.
-         DEPS=$(gh issue view $NUM --repo cgcardona/maestro --json body \
+         DEPS=$(gh issue view $NUM --repo cgcardona/agentception --json body \
            --jq '.body' | grep -oE 'Depends on[^#]*#[0-9]+' | grep -oE '[0-9]+')
          ALL_MET=true
          while IFS= read -r dep; do
            [ -z "$dep" ] && continue
-           STATE=$(gh issue view "$dep" --repo cgcardona/maestro --json state --jq '.state' 2>/dev/null || echo "UNKNOWN")
+           STATE=$(gh issue view "$dep" --repo cgcardona/agentception --json state --jq '.state' 2>/dev/null || echo "UNKNOWN")
            [ "$STATE" != "CLOSED" ] && ALL_MET=false && break
          done <<< "$DEPS"
          [ "$ALL_MET" = "true" ] && echo "SEED $NUM" || echo "SKIP $NUM (deps unmet)"
@@ -117,9 +117,9 @@ SEED:
   5. Take the first 4 unclaimed issues. For each:
        a. Claim:  gh issue edit <N> --add-label "agent:wip"
        b. Create worktree:
-            git -C "$HOME/dev/tellurstori/maestro" worktree add \
+            git -C "$HOME/dev/tellurstori/agentception" worktree add \
               -b feat/issue-<N> \
-              "$HOME/.agentception/worktrees/maestro/issue-<N>" \
+              "$HOME/.agentception/worktrees/agentception/issue-<N>" \
               origin/dev
        c. Select the cognitive architecture for this specific issue:
 
@@ -128,7 +128,7 @@ SEED:
           domain and personality for its task — not just a generic Python engineer.
 
           ```bash
-          ISSUE_BODY="$(gh issue view <N> --repo cgcardona/maestro --json body -q .body)"
+          ISSUE_BODY="$(gh issue view <N> --repo cgcardona/agentception --json body -q .body)"
 
           # --- Skill domains (colon-separated, up to 3, first-match-wins per layer) ---
           # Layer 1: specialised UI skills
@@ -210,14 +210,14 @@ SEED:
 
   6. Launch all 4 as leaf agents simultaneously — one Task call per issue,
      all in a single message:
-       Task(prompt=LEAF_PROMPT, worktree="~/.agentception/worktrees/maestro/issue-<N>")
+       Task(prompt=LEAF_PROMPT, worktree="~/.agentception/worktrees/agentception/issue-<N>")
 
      LEAF_PROMPT is self-contained — do NOT reference PARALLEL_ISSUE_TO_PR.md on disk.
      Construct it as follows:
 
        Part 1 — prefix (paste verbatim):
          "Read the .agent-task file in your worktree first.
-          GH_REPO=cgcardona/maestro  Repo: $HOME/dev/tellurstori/maestro"
+          GH_REPO=cgcardona/agentception  Repo: $HOME/dev/tellurstori/agentception"
 
        Part 2 — implementer kickoff:
          Paste the entire ## Embedded Implementer Kickoff section below verbatim.
@@ -246,7 +246,7 @@ SEED:
 
 ## Worktree convention
 
-Worktrees live at: `$HOME/.agentception/worktrees/maestro/issue-{N}/`
+Worktrees live at: `$HOME/.agentception/worktrees/agentception/issue-{N}/`
 
 `.agent-task` format (include ALL fields — leaf agents read these):
 
@@ -255,11 +255,11 @@ TASK=issue-to-pr
 ISSUE_NUMBER=<N>
 ISSUE_LABEL=<primary ac-ui/* label from: gh issue view <N> --json labels --jq '[.labels[].name | select(startswith("ac-ui/"))] | first'>
 BRANCH=feat/issue-<N>
-WORKTREE=$HOME/.agentception/worktrees/maestro/issue-<N>
+WORKTREE=$HOME/.agentception/worktrees/agentception/issue-<N>
 ROLE=python-developer
-ROLE_FILE=$HOME/dev/tellurstori/maestro/.agentception/roles/python-developer.md
+ROLE_FILE=$HOME/dev/tellurstori/agentception/.agentception/roles/python-developer.md
 BASE=dev
-GH_REPO=cgcardona/maestro
+GH_REPO=cgcardona/agentception
 CLOSES_ISSUES=<N>
 BATCH_ID=<BATCH_ID>
 VP_FINGERPRINT=<VP_FINGERPRINT>
@@ -271,7 +271,7 @@ COGNITIVE_ARCH=<COGNITIVE_ARCH from step 5c above, e.g. "lovelace:htmx:jinja2:al
 
 `COGNITIVE_ARCH` is the selected cognitive architecture for this specific issue. Format: `figure:skill1:skill2` (up to 3 skills). Leaf agents pass it to `python3 /app/scripts/gen_prompts/resolve_arch.py "$COGNITIVE_ARCH"` to assemble their context block. See `scripts/gen_prompts/TICKET_TAXONOMY.md` for the full taxonomy and rationale.
 
-If a worktree is missing: `git -C "$HOME/dev/tellurstori/maestro" worktree add -b feat/issue-{N} "$HOME/.agentception/worktrees/maestro/issue-{N}" origin/dev`
+If a worktree is missing: `git -C "$HOME/dev/tellurstori/agentception" worktree add -b feat/issue-{N} "$HOME/.agentception/worktrees/agentception/issue-{N}" origin/dev`
 
 ## What you never do
 
@@ -449,8 +449,8 @@ Run from anywhere inside the main repo. Paths are derived automatically.
 > `dev` directly. This prevents the "dev is already used by worktree" error when
 > the main repo has `dev` checked out.
 
-> **GitHub repo slug:** Always `cgcardona/maestro`. The local path
-> (`/Users/gabriel/dev/tellurstori/maestro`) is misleading — `tellurstori` is
+> **GitHub repo slug:** Always `cgcardona/agentception`. The local path
+> (`/Users/gabriel/dev/tellurstori/agentception`) is misleading — `tellurstori` is
 > NOT the GitHub org. Never derive the slug from `basename` or `pwd`.
 
 ```bash
@@ -459,7 +459,7 @@ PRTREES="$HOME/.agentception/worktrees/$(basename "$REPO")"
 mkdir -p "$PRTREES"
 cd "$REPO"
 
-GH_REPO=cgcardona/maestro
+GH_REPO=cgcardona/agentception
 
 git config rerere.enabled true || true
 
@@ -664,15 +664,15 @@ WTNAME=$(basename "$(pwd)")                               # this worktree's name
 # Docker path to your worktree: /worktrees/$WTNAME
 
 # GitHub repo slug — HARDCODED. NEVER derive from local path or directory name.
-# The local path is /Users/gabriel/dev/tellurstori/maestro — "tellurstori" is NOT the GitHub org.
-export GH_REPO=cgcardona/maestro
+# The local path is /Users/gabriel/dev/tellurstori/agentception — "tellurstori" is NOT the GitHub org.
+export GH_REPO=cgcardona/agentception
 ```
 
 | Item | Value |
 |------|-------|
 | Your worktree root | current directory (contains `.agent-task`) |
 | Main repo (local path) | first entry of `git worktree list` |
-| GitHub repo slug | `cgcardona/maestro` — always hardcoded, never derived |
+| GitHub repo slug | `cgcardona/agentception` — always hardcoded, never derived |
 | Docker compose location | main repo |
 | Your worktree inside Docker | `/worktrees/$WTNAME` |
 
@@ -752,7 +752,7 @@ STEP 0 — READ YOUR TASK FILE:
 
   Export for all subsequent commands:
     export GH_REPO=$(grep "^GH_REPO=" .agent-task | cut -d= -f2)
-    export GH_REPO=${GH_REPO:-cgcardona/maestro}
+    export GH_REPO=${GH_REPO:-cgcardona/agentception}
     N=$(grep "^ISSUE_NUMBER=" .agent-task | cut -d= -f2)
     ATTEMPT_N=$(grep "^ATTEMPT_N=" .agent-task | cut -d= -f2)
     BATCH_ID=$(grep "^BATCH_ID=" .agent-task | cut -d= -f2)
@@ -815,10 +815,10 @@ STEP 1 — DERIVE PATHS:
   # All docker compose commands: cd "$REPO" && docker compose exec maestro <cmd>
 
   # GitHub repo slug — HARDCODED. NEVER derive from directory name, basename, or local path.
-  # The local path is /Users/gabriel/dev/tellurstori/maestro.
+  # The local path is /Users/gabriel/dev/tellurstori/agentception.
   # "tellurstori" is the LOCAL directory — it is NOT the GitHub org.
   # The GitHub org is "cgcardona". Using the wrong slug → "Forbidden" or "Repository not found".
-  export GH_REPO=cgcardona/maestro
+  export GH_REPO=cgcardona/agentception
 
   # ⚠️  VALIDATION — run this immediately to catch slug errors early:
   gh repo view "$GH_REPO" --json name --jq '.name'
@@ -1371,7 +1371,7 @@ STEP 6 — SPAWN A QA REVIEWER FOR YOUR OWN PR (run this before self-destructing
 
   if [ -n "$MY_PR" ] && [ "$MY_PR" != "null" ]; then
     # Create a fresh review worktree at the PR branch tip.
-    REVIEW_WORKTREE="$HOME/.agentception/worktrees/maestro/pr-$MY_PR"
+    REVIEW_WORKTREE="$HOME/.agentception/worktrees/agentception/pr-$MY_PR"
     git -C "$REPO" worktree add "$REVIEW_WORKTREE" "origin/$MY_BRANCH"
     # ⚠️  Do NOT add agent:wip here. The reviewer claims the label itself in STEP 3
     # after passing the idempotency gate. Adding it here causes stale labels when the
@@ -1391,10 +1391,10 @@ STEP 6 — SPAWN A QA REVIEWER FOR YOUR OWN PR (run this before self-destructing
     [ "$HAS_MIG" -gt 0 ] && HAS_MIG_VAL=true || HAS_MIG_VAL=false
     cat > "$REVIEW_WORKTREE/.agent-task" <<TASK
 WORKFLOW=pr-review
-GH_REPO=cgcardona/maestro
+GH_REPO=cgcardona/agentception
 PR_NUMBER=$MY_PR
 PR_TITLE=$PR_TITLE_VAL
-PR_URL=https://github.com/cgcardona/maestro/pull/$MY_PR
+PR_URL=https://github.com/cgcardona/agentception/pull/$MY_PR
 PR_BRANCH=$MY_BRANCH
 WORKTREE=$REVIEW_WORKTREE
 BASE=dev
@@ -1403,7 +1403,7 @@ FILES_CHANGED=$PR_FILES_VAL
 MERGE_AFTER=none
 HAS_MIGRATION=$HAS_MIG_VAL
 ROLE=pr-reviewer
-ROLE_FILE=$HOME/dev/tellurstori/maestro/.agentception/roles/pr-reviewer.md
+ROLE_FILE=$HOME/dev/tellurstori/agentception/.agentception/roles/pr-reviewer.md
 COGNITIVE_ARCH=${REVIEWER_ARCH}
 BATCH_ID=${BATCH_ID:-none}
 WAVE=${WAVE:-unset}
@@ -1421,7 +1421,7 @@ TASK
     # REVIEWER_PROMPT is self-contained — do NOT reference parallel-pr-review.md on disk.
     # Construct it from your context:
     #   1. Prefix:  "Read the .agent-task file in your worktree first.
-    #               GH_REPO=cgcardona/maestro  Repo: $HOME/dev/tellurstori/maestro"
+    #               GH_REPO=cgcardona/agentception  Repo: $HOME/dev/tellurstori/agentception"
     #   2. Body:    paste the entire ## Pass-Along: Reviewer Kickoff section verbatim
     #               (your Engineering VP embedded it when it dispatched you)
     # The reviewer's prompt already contains its own ## Pass-Along: Implementer Kickoff
@@ -1458,7 +1458,7 @@ Run this before touching the Setup script:
 
 ```bash
 # List every open issue for the current phase — this IS your candidate pool.
-GH_REPO=cgcardona/maestro   # ← single place to change if the repo slug ever changes
+GH_REPO=cgcardona/agentception   # ← single place to change if the repo slug ever changes
 gh issue list \
   --repo "$GH_REPO" \
   --label "phase-1" \
@@ -1480,7 +1480,7 @@ From the label audit output, choose issues that satisfy **both** criteria in
 candidate's body to identify affected files:
 
 ```bash
-GH_REPO=cgcardona/maestro   # ← single place to change if the repo slug ever changes
+GH_REPO=cgcardona/agentception   # ← single place to change if the repo slug ever changes
 gh issue view <N> --repo "$GH_REPO" --json body,title
 ```
 
@@ -1562,7 +1562,7 @@ Run this after all PRs in the batch are **merged** (not just opened):
 ```bash
 PHASE_LABEL="phase-1"   # match the label used in Setup
 
-GH_REPO=cgcardona/maestro   # ← single place to change if the repo slug ever changes
+GH_REPO=cgcardona/agentception   # ← single place to change if the repo slug ever changes
 
 REMAINING=$(gh issue list \
   --repo "$GH_REPO" \
@@ -1595,7 +1595,7 @@ fi
 ### 2 — PR audit
 
 ```bash
-GH_REPO=cgcardona/maestro   # ← single place to change if the repo slug ever changes
+GH_REPO=cgcardona/agentception   # ← single place to change if the repo slug ever changes
 gh pr list --repo "$GH_REPO" --state open
 ```
 
@@ -2016,13 +2016,13 @@ Run from anywhere inside the main repo. Paths are derived automatically.
 > `dev` directly. This prevents the "dev is already used by worktree" error when
 > the main repo has `dev` checked out.
 
-> **GitHub repo slug:** Always `cgcardona/maestro`. The local path
-> (`/Users/gabriel/dev/tellurstori/maestro`) is misleading — `tellurstori` is
+> **GitHub repo slug:** Always `cgcardona/agentception`. The local path
+> (`/Users/gabriel/dev/tellurstori/agentception`) is misleading — `tellurstori` is
 > NOT the GitHub org. Never derive the slug from `basename` or `pwd`.
 
 ```bash
 REPO=$(git rev-parse --show-toplevel)
-GH_REPO=cgcardona/maestro
+GH_REPO=cgcardona/agentception
 PRTREES="$HOME/.agentception/worktrees/$(basename "$REPO")"
 mkdir -p "$PRTREES"
 cd "$REPO"
@@ -2132,7 +2132,7 @@ FILES_CHANGED=$PR_FILES
 MERGE_AFTER=$MERGE_AFTER_VAL
 HAS_MIGRATION=$HAS_MIGRATION_VAL
 ROLE=$REVIEW_ROLE
-ROLE_FILE=$HOME/dev/tellurstori/maestro/.agentception/roles/${REVIEW_ROLE}.md
+ROLE_FILE=$HOME/dev/tellurstori/agentception/.agentception/roles/${REVIEW_ROLE}.md
 COGNITIVE_ARCH=$R_COGNITIVE_ARCH
 BATCH_ID=$R_BATCH_ID
 VP_FINGERPRINT=$VP_FINGERPRINT
@@ -2189,15 +2189,15 @@ WTNAME=$(basename "$(pwd)")                               # this worktree's name
 # Docker path to your worktree: /worktrees/$WTNAME
 
 # GitHub repo slug — HARDCODED. NEVER derive from local path or directory name.
-# The local path is /Users/gabriel/dev/tellurstori/maestro — "tellurstori" is NOT the GitHub org.
-export GH_REPO=cgcardona/maestro
+# The local path is /Users/gabriel/dev/tellurstori/agentception — "tellurstori" is NOT the GitHub org.
+export GH_REPO=cgcardona/agentception
 ```
 
 | Item | Value |
 |------|-------|
 | Your worktree root | current directory (contains `.agent-task`) |
 | Main repo (local path) | first entry of `git worktree list` |
-| GitHub repo slug | `cgcardona/maestro` — always hardcoded, never derived |
+| GitHub repo slug | `cgcardona/agentception` — always hardcoded, never derived |
 | Docker compose location | main repo |
 | Your worktree inside Docker | `/worktrees/$WTNAME` |
 
@@ -2284,7 +2284,7 @@ STEP 0 — READ YOUR TASK FILE:
 
   Export for all subsequent commands:
     export GH_REPO=$(grep "^GH_REPO=" .agent-task | cut -d= -f2)
-    export GH_REPO=${GH_REPO:-cgcardona/maestro}
+    export GH_REPO=${GH_REPO:-cgcardona/agentception}
     N=$(grep "^PR_NUMBER=" .agent-task | cut -d= -f2)
     BRANCH=$(grep "^PR_BRANCH=" .agent-task | cut -d= -f2)
     MERGE_AFTER=$(grep "^MERGE_AFTER=" .agent-task | cut -d= -f2)
@@ -2360,10 +2360,10 @@ STEP 1 — DERIVE PATHS:
   # All docker compose commands: cd "$REPO" && docker compose exec maestro <cmd>
 
   # GitHub repo slug — HARDCODED. NEVER derive from directory name, basename, or local path.
-  # The local path is /Users/gabriel/dev/tellurstori/maestro.
+  # The local path is /Users/gabriel/dev/tellurstori/agentception.
   # "tellurstori" is the LOCAL directory — it is NOT the GitHub org.
   # The GitHub org is "cgcardona". Using the wrong slug → "Forbidden" or "Repository not found".
-  export GH_REPO=cgcardona/maestro
+  export GH_REPO=cgcardona/agentception
 
   # ⚠️  VALIDATION — run this immediately to catch slug errors early:
   gh repo view "$GH_REPO" --json name --jq '.name'
@@ -3185,7 +3185,7 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
     fi
 
     if [ -n "$NEXT_ISSUE" ]; then
-      NEXT_WORKTREE="$HOME/.agentception/worktrees/maestro/issue-$NEXT_ISSUE"
+      NEXT_WORKTREE="$HOME/.agentception/worktrees/agentception/issue-$NEXT_ISSUE"
       git -C "$REPO" worktree add -b "feat/issue-$NEXT_ISSUE" "$NEXT_WORKTREE" origin/dev
       # Add label only after worktree is confirmed created — prevents permanent lock on creation failure
       gh issue edit "$NEXT_ISSUE" --repo "$GH_REPO" --add-label "agent:wip" 2>/dev/null || true
@@ -3196,7 +3196,7 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
 
       cat > "$NEXT_WORKTREE/.agent-task" <<TASK
 WORKFLOW=issue-to-pr
-GH_REPO=cgcardona/maestro
+GH_REPO=cgcardona/agentception
 ISSUE_NUMBER=$NEXT_ISSUE
 ISSUE_LABEL=$NEXT_ISSUE_LABEL
 BRANCH=feat/issue-$NEXT_ISSUE
@@ -3204,7 +3204,7 @@ WORKTREE=$NEXT_WORKTREE
 BASE=dev
 CLOSES_ISSUES=$NEXT_ISSUE
 ROLE=python-developer
-ROLE_FILE=$HOME/dev/tellurstori/maestro/.agentception/roles/python-developer.md
+ROLE_FILE=$HOME/dev/tellurstori/agentception/.agentception/roles/python-developer.md
 BATCH_ID=${BATCH_ID:-none}
 VP_FINGERPRINT=${VP_FINGERPRINT:-unset}
 WAVE=${WAVE:-unset}
@@ -3222,7 +3222,7 @@ TASK
       # IMPLEMENTER_PROMPT is self-contained — do NOT reference PARALLEL_ISSUE_TO_PR.md on disk.
       # Construct it from your context:
       #   1. Prefix:  "Read the .agent-task file in your worktree first.
-      #               GH_REPO=cgcardona/maestro  Repo: $HOME/dev/tellurstori/maestro"
+      #               GH_REPO=cgcardona/agentception  Repo: $HOME/dev/tellurstori/agentception"
       #   2. Body:    paste the entire ## Pass-Along: Implementer Kickoff section verbatim
       #               (your parent embedded it when it dispatched you)
       # The implementer's prompt already contains its own ## Pass-Along: Reviewer Kickoff
@@ -3243,7 +3243,7 @@ TASK
 
     if [ -n "$NEXT_PR" ]; then
       NEXT_BRANCH=$(gh pr view "$NEXT_PR" --repo "$GH_REPO" --json headRefName --jq .headRefName)
-      NEXT_WORKTREE="$HOME/.agentception/worktrees/maestro/pr-$NEXT_PR"
+      NEXT_WORKTREE="$HOME/.agentception/worktrees/agentception/pr-$NEXT_PR"
       git -C "$REPO" worktree add "$NEXT_WORKTREE" "origin/$NEXT_BRANCH"
       # ⚠️  Do NOT add agent:wip here. The reviewer claims the label itself in STEP 3
       # after passing the idempotency gate. Adding it here causes stale labels when the
@@ -3259,10 +3259,10 @@ TASK
       [ "$NEXT_HAS_MIG" -gt 0 ] && NEXT_HAS_MIG_VAL=true || NEXT_HAS_MIG_VAL=false
       cat > "$NEXT_WORKTREE/.agent-task" <<TASK
 WORKFLOW=pr-review
-GH_REPO=cgcardona/maestro
+GH_REPO=cgcardona/agentception
 PR_NUMBER=$NEXT_PR
 PR_TITLE=$NEXT_PR_TITLE
-PR_URL=https://github.com/cgcardona/maestro/pull/$NEXT_PR
+PR_URL=https://github.com/cgcardona/agentception/pull/$NEXT_PR
 PR_BRANCH=$NEXT_BRANCH
 WORKTREE=$NEXT_WORKTREE
 BASE=dev
@@ -3271,7 +3271,7 @@ FILES_CHANGED=$NEXT_FILES
 MERGE_AFTER=$NEXT_MERGE_AFTER
 HAS_MIGRATION=$NEXT_HAS_MIG_VAL
 ROLE=pr-reviewer
-ROLE_FILE=$HOME/dev/tellurstori/maestro/.agentception/roles/pr-reviewer.md
+ROLE_FILE=$HOME/dev/tellurstori/agentception/.agentception/roles/pr-reviewer.md
 COGNITIVE_ARCH=${COGNITIVE_ARCH:-knuth:python}
 BATCH_ID=${BATCH_ID:-none}
 VP_FINGERPRINT=${VP_FINGERPRINT:-unset}
@@ -3290,7 +3290,7 @@ TASK
       # REVIEWER_PROMPT is self-contained — do NOT reference PARALLEL_PR_REVIEW.md on disk.
       # Construct it from your context:
       #   1. Prefix:  "Read the .agent-task file in your worktree first.
-      #               GH_REPO=cgcardona/maestro  Repo: $HOME/dev/tellurstori/maestro"
+      #               GH_REPO=cgcardona/agentception  Repo: $HOME/dev/tellurstori/agentception"
       #   2. Body:    paste the entire ## Embedded Reviewer Kickoff section verbatim
       #               (your QA VP embedded it when it seeded you — or your own prompt IS it)
       # The replacement reviewer's prompt also contains ## Pass-Along: Implementer Kickoff
@@ -3507,7 +3507,7 @@ Before checking out the PR branch, record the pre-existing mypy state on `dev`:
 ```bash
 N=$(grep "^PR_NUMBER=" .agent-task | cut -d= -f2)
 GH_REPO=$(grep "^GH_REPO=" .agent-task | cut -d= -f2)
-GH_REPO=${GH_REPO:-cgcardona/maestro}
+GH_REPO=${GH_REPO:-cgcardona/agentception}
 WTNAME=$(basename "$(pwd)")
 # Live lookup — ALL_ISSUE_LABELS is not written to reviewer .agent-task files
 IS_AC=$(gh pr view "$N" --repo "$GH_REPO" --json labels \

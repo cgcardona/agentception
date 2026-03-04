@@ -124,7 +124,7 @@ REQUIRED_OUTPUT=issue_urls
 ON_BLOCK=stop
 
 # ── Environment ───────────────────────────────────────────────────────────────
-GH_REPO=cgcardona/maestro
+GH_REPO=cgcardona/agentception
 ```
 
 ### Free-form content (after the key=value header)
@@ -180,7 +180,7 @@ echo "   Output → $PLAN_FILE"
 # The Phase Planner produces a JSON document of this shape:
 # {
 #   "label_prefix": "ac-ui",       # prefix for all phase labels
-#   "gh_repo": "cgcardona/maestro",
+#   "gh_repo": "cgcardona/agentception",
 #   "phases": [
 #     {
 #       "id": 0,
@@ -245,7 +245,7 @@ Run this before the Setup script. It ensures every label in every
 previous naming schemes that would pollute autocomplete.
 
 ```bash
-export GH_REPO=cgcardona/maestro
+export GH_REPO=cgcardona/agentception
 PLAN_FILE="<path from Phase Planner output>"
 
 # ── 1. Create phase labels from the plan ──────────────────────────────────────
@@ -289,14 +289,14 @@ gh label list --repo "$GH_REPO" --limit 100 \
 Run from anywhere inside the main repo. Paths are derived automatically.
 **The `.agent-task` files must be fully pre-filled before launching agents.**
 
-> **GitHub repo slug:** Always `cgcardona/maestro`. Never derive from local path.
+> **GitHub repo slug:** Always `cgcardona/agentception`. Never derive from local path.
 
 ```bash
 REPO=$(git rev-parse --show-toplevel)
 PRTREES="$HOME/.agentception/worktrees/$(basename "$REPO")"
 mkdir -p "$PRTREES"
 cd "$REPO"
-GH_REPO=cgcardona/maestro
+GH_REPO=cgcardona/agentception
 DEV_SHA=$(git rev-parse dev)
 PLAN_FILE="<path from Phase Planner output>"
 
@@ -376,12 +376,12 @@ earlier phases to create their issues (so real #N numbers are known).**
 
 ```python
 # Phase 0 and any other dep-free phases launch immediately in parallel:
-Task(worktree="~/.agentception/worktrees/maestro/bugs-phase-0", prompt=KICKOFF_PROMPT)
-Task(worktree="~/.agentception/worktrees/maestro/bugs-phase-1", prompt=KICKOFF_PROMPT)
+Task(worktree="~/.agentception/worktrees/agentception/bugs-phase-0", prompt=KICKOFF_PROMPT)
+Task(worktree="~/.agentception/worktrees/agentception/bugs-phase-1", prompt=KICKOFF_PROMPT)
 
 # After phase 0 and 1 issues are created, update phase 2+ task files with real #N,
 # then launch phase 2+ agents:
-Task(worktree="~/.agentception/worktrees/maestro/bugs-phase-2", prompt=KICKOFF_PROMPT)
+Task(worktree="~/.agentception/worktrees/agentception/bugs-phase-2", prompt=KICKOFF_PROMPT)
 # ... and so on
 ```
 
@@ -394,14 +394,14 @@ Task(worktree="~/.agentception/worktrees/maestro/bugs-phase-2", prompt=KICKOFF_P
 ```bash
 REPO=$(git worktree list | head -1 | awk '{print $1}')
 export GH_REPO=$(grep "^GH_REPO=" .agent-task | cut -d= -f2)
-export GH_REPO=${GH_REPO:-cgcardona/maestro}
+export GH_REPO=${GH_REPO:-cgcardona/agentception}
 ```
 
 | Item | Value |
 |------|-------|
 | Your worktree root | current directory (contains `.agent-task`) |
 | Main repo (local path) | first entry of `git worktree list` |
-| GitHub repo slug | read from `.agent-task` GH_REPO field — always `cgcardona/maestro` |
+| GitHub repo slug | read from `.agent-task` GH_REPO field — always `cgcardona/agentception` |
 | GitHub CLI | `gh` — already authenticated |
 
 **No Docker needed.** Issues are created via `gh issue create` — no code
@@ -420,7 +420,7 @@ STEP 0 — READ YOUR TASK FILE:
   Parse these fields from the header (KEY=value lines):
     WORKFLOW                — must be "bugs-to-issues"
     BATCH_NUM               — your phase number
-    GH_REPO                 — GitHub repo slug (cgcardona/maestro)
+    GH_REPO                 — GitHub repo slug (cgcardona/agentception)
     PHASE_LABEL             — the phase label to apply to every issue
     LABELS_TO_APPLY         — comma-separated list of ALL labels for every issue
     PHASE_DEPENDS_ON_ISSUES — upstream issue numbers (already resolved to #N)
@@ -586,11 +586,11 @@ and the resolved upstream #N cross-links written. An empty URL list is a failure
 
 ```bash
 # 1. Verify every issue has correct labels
-gh issue list --repo cgcardona/maestro --label "ac-ui/0-foundation" \
+gh issue list --repo cgcardona/agentception --label "ac-ui/0-foundation" \
   --json number,title,labels --jq '.[] | "#\(.number) \(.title)"'
 
 # 2. Verify dependency text in issue bodies
-gh issue list --repo cgcardona/maestro --state open \
+gh issue list --repo cgcardona/agentception --state open \
   --json number,title,body \
   --jq '.[] | select(.body | contains("Depends on")) | "#\(.number) \(.title)"'
 
@@ -600,7 +600,7 @@ git worktree list  # should show only main repo
 
 # 4. Issues are immediately available for parallel-issue-to-pr.md
 # Dispatch by phase label (foundational phases first):
-gh issue list --repo cgcardona/maestro --label "ac-ui/0-foundation" \
+gh issue list --repo cgcardona/agentception --label "ac-ui/0-foundation" \
   --state open --json number,title,url
 ```
 

@@ -48,7 +48,7 @@ Before checking out the PR branch, record the pre-existing mypy state on `dev`:
 ```bash
 N=$(grep "^PR_NUMBER=" .agent-task | cut -d= -f2)
 GH_REPO=$(grep "^GH_REPO=" .agent-task | cut -d= -f2)
-GH_REPO=${GH_REPO:-cgcardona/maestro}
+GH_REPO=${GH_REPO:-cgcardona/agentception}
 WTNAME=$(basename "$(pwd)")
 # Live lookup — ALL_ISSUE_LABELS is not written to reviewer .agent-task files
 IS_AC=$(gh pr view "$N" --repo "$GH_REPO" --json labels \

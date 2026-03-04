@@ -87,8 +87,8 @@ agent. The pool stays at N concurrent workers continuously until the queue drain
 
 | Location | What it is |
 |----------|-----------|
-| `~/.agentception/worktrees/maestro/issue-{N}/` | Git worktree for each issue |
-| `~/.agentception/worktrees/maestro/pr-{N}/` | Git worktree for each PR review |
+| `~/.agentception/worktrees/agentception/issue-{N}/` | Git worktree for each issue |
+| `~/.agentception/worktrees/agentception/pr-{N}/` | Git worktree for each PR review |
 | `<worktree>/.agent-task` | Plain-text task file — the agent's single source of truth |
 
 ---
@@ -102,11 +102,11 @@ TASK=issue-to-pr          # or pr-review
 ISSUE_NUMBER=423          # issue number (for issue-to-pr)
 PR=485                    # PR number (for pr-review)
 BRANCH=feat/issue-423     # git branch name
-WORKTREE=/Users/gabriel/.agentception/worktrees/maestro/issue-423
+WORKTREE=/Users/gabriel/.agentception/worktrees/agentception/issue-423
 ROLE=python-developer     # which cognitive architecture to load
-ROLE_FILE=/Users/gabriel/dev/tellurstori/maestro/.agentception/roles/python-developer.md
+ROLE_FILE=/Users/gabriel/dev/tellurstori/agentception/.agentception/roles/python-developer.md
 BASE=dev
-GH_REPO=cgcardona/maestro
+GH_REPO=cgcardona/agentception
 CLOSES_ISSUES=423         # comma-separated issue numbers to close on merge
 MERGE_AFTER=none          # or: issue number whose PR must merge first
 CONFLICT_RISK=none        # none | low | high — informs agent behavior
@@ -151,7 +151,7 @@ Lets you answer: *"Which specific agent opened this PR / merged this PR?"*
 git log --all --grep="Maestro-Batch: eng-20260301T053412Z-a7f2"
 
 # Find the PR opened by a specific agent session:
-gh pr list --repo cgcardona/maestro --state all --search "eng-20260301T053412Z-a7f2"
+gh pr list --repo cgcardona/agentception --state all --search "eng-20260301T053412Z-a7f2"
 
 # Find which batch a commit came from:
 git show <sha> | grep "Maestro-"
@@ -165,8 +165,8 @@ git show <sha> | grep "Maestro-"
 
 ```bash
 # What's open?
-gh issue list --state open --label "batch-NN" --repo cgcardona/maestro
-gh pr list --base dev --state open --repo cgcardona/maestro
+gh issue list --state open --label "batch-NN" --repo cgcardona/agentception
+gh pr list --base dev --state open --repo cgcardona/agentception
 
 # What's in flight?
 git worktree list
@@ -176,11 +176,11 @@ git worktree list
 
 ```bash
 # For each issue to implement:
-git worktree add -b feat/issue-{N} ~/.agentception/worktrees/maestro/issue-{N} origin/dev
+git worktree add -b feat/issue-{N} ~/.agentception/worktrees/agentception/issue-{N} origin/dev
 
 # For each PR to review (checkout the PR's branch):
 BRANCH=$(gh pr view {N} --json headRefName --jq '.headRefName')
-git worktree add ~/.agentception/worktrees/maestro/pr-{N} origin/$BRANCH
+git worktree add ~/.agentception/worktrees/agentception/pr-{N} origin/$BRANCH
 ```
 
 ### Step 3 — Write `.agent-task` files
@@ -196,24 +196,24 @@ Open two Cursor composer windows or call the Task tool twice simultaneously:
 
 **QA Manager prompt:**
 ```
-You are the QA Manager. Read /Users/gabriel/dev/tellurstori/maestro/.agentception/roles/qa-coordinator.md.
+You are the QA Manager. Read /Users/gabriel/dev/tellurstori/agentception/.agentception/roles/qa-coordinator.md.
 
 Launch one leaf agent per PR using the Task tool. Each agent gets:
 "Read .agent-task at <WORKTREE>/.agent-task, then follow the Kickoff Prompt in
-/Users/gabriel/dev/tellurstori/maestro/.agentception/prompts/parallel-pr-review.md.
-Your worktree is <WORKTREE>. GH_REPO=cgcardona/maestro"
+/Users/gabriel/dev/tellurstori/agentception/.agentception/prompts/parallel-pr-review.md.
+Your worktree is <WORKTREE>. GH_REPO=cgcardona/agentception"
 
 Your PRs: [list worktrees]
 ```
 
 **Engineering Manager prompt:**
 ```
-You are the Engineering Manager. Read /Users/gabriel/dev/tellurstori/maestro/.agentception/roles/engineering-coordinator.md.
+You are the Engineering Manager. Read /Users/gabriel/dev/tellurstori/agentception/.agentception/roles/engineering-coordinator.md.
 
 Launch one leaf agent per issue using the Task tool. Each agent gets:
 "Read .agent-task at <WORKTREE>/.agent-task, then follow the Kickoff Prompt in
-/Users/gabriel/dev/tellurstori/maestro/.agentception/prompts/parallel-issue-to-pr.md.
-Your worktree is <WORKTREE>. GH_REPO=cgcardona/maestro"
+/Users/gabriel/dev/tellurstori/agentception/.agentception/prompts/parallel-issue-to-pr.md.
+Your worktree is <WORKTREE>. GH_REPO=cgcardona/agentception"
 
 Your issues: [list worktrees]
 Serialized (MERGE_AFTER): [note any dependency ordering]
@@ -224,14 +224,14 @@ Serialized (MERGE_AFTER): [note any dependency ordering]
 Use this when you want the pipeline to run end-to-end without manual intervention:
 
 ```
-You are the CTO. Read /Users/gabriel/dev/tellurstori/maestro/.agentception/roles/cto.md.
+You are the CTO. Read /Users/gabriel/dev/tellurstori/agentception/.agentception/roles/cto.md.
 
 Survey the pipeline state with gh issue list and gh pr list.
 Dispatch the Engineering Manager and QA Manager simultaneously using the Task tool.
 Each manager launches leaf agents pointing at the canonical prompts — not inline instructions.
 Continue until gh issue list --state open returns 0 results and gh pr list --state open returns 0 results.
-GH_REPO=cgcardona/maestro
-Repo: /Users/gabriel/dev/tellurstori/maestro
+GH_REPO=cgcardona/agentception
+Repo: /Users/gabriel/dev/tellurstori/agentception
 ```
 
 ---
@@ -272,22 +272,22 @@ This is the ONLY thing you pass to a leaf agent. Do not add anything.
 ```
 Read the `.agent-task` file at `<WORKTREE>/.agent-task` to get your full assignment,
 then follow the complete Kickoff Prompt section in
-`/Users/gabriel/dev/tellurstori/maestro/.agentception/prompts/parallel-issue-to-pr.md`.
+`/Users/gabriel/dev/tellurstori/agentception/.agentception/prompts/parallel-issue-to-pr.md`.
 
 Your worktree is `<WORKTREE>`. Work only in that directory.
-Repo root: /Users/gabriel/dev/tellurstori/maestro
-GH_REPO=cgcardona/maestro
+Repo root: /Users/gabriel/dev/tellurstori/agentception
+GH_REPO=cgcardona/agentception
 ```
 
 **For review:**
 ```
 Read the `.agent-task` file at `<WORKTREE>/.agent-task` to get your full assignment,
 then follow the complete Kickoff Prompt section in
-`/Users/gabriel/dev/tellurstori/maestro/.agentception/prompts/parallel-pr-review.md`.
+`/Users/gabriel/dev/tellurstori/agentception/.agentception/prompts/parallel-pr-review.md`.
 
 Your worktree is `<WORKTREE>`. Work only in that directory.
-Repo root: /Users/gabriel/dev/tellurstori/maestro
-GH_REPO=cgcardona/maestro
+Repo root: /Users/gabriel/dev/tellurstori/agentception
+GH_REPO=cgcardona/agentception
 ```
 
 That is the complete prompt. The canonical file has everything else.
@@ -322,10 +322,10 @@ That is the complete prompt. The canonical file has everything else.
 
 ```bash
 # Check open PRs
-gh pr list --base dev --state open --repo cgcardona/maestro
+gh pr list --base dev --state open --repo cgcardona/agentception
 
 # Check open issues remaining in a batch
-gh issue list --label "batch-07" --state open --repo cgcardona/maestro
+gh issue list --label "batch-07" --state open --repo cgcardona/agentception
 
 # Check worktrees in flight
 git worktree list
@@ -340,7 +340,7 @@ ls ~/.cursor/projects/Users-gabriel-dev-tellurstori-maestro/terminals/
 
 If an agent crashes mid-task:
 
-1. Check if its PR was opened: `gh pr list --state open --repo cgcardona/maestro`
+1. Check if its PR was opened: `gh pr list --state open --repo cgcardona/agentception`
 2. Check if its worktree still exists: `git worktree list`
 3. If worktree exists + no PR: re-launch the leaf agent with the same prompt
 4. If worktree missing + PR open: create a review worktree and assign a reviewer
