@@ -36,8 +36,22 @@ async def build_get_pending_launches() -> dict[str, object]:
     whatever role was assigned. A leaf worker runs directly; a manager
     (VP, CTO) reads its role file and spawns its own children.
     """
+    logger.warning("🔍 build_get_pending_launches: querying DB for pending launches")
     launches = await get_pending_launches()
-    logger.info("✅ build_get_pending_launches: %d pending", len(launches))
+    logger.warning(
+        "🔍 build_get_pending_launches: got %d row(s) from DB",
+        len(launches),
+    )
+    for i, launch in enumerate(launches):
+        logger.warning(
+            "🔍   [%d] run_id=%r role=%r status=pending_launch "
+            "host_worktree_path=%r branch=%r",
+            i,
+            launch.get("run_id"),
+            launch.get("role"),
+            launch.get("host_worktree_path"),
+            launch.get("branch"),
+        )
     return {"pending": launches, "count": len(launches)}
 
 

@@ -157,7 +157,7 @@ export GH_REPO=owner/repo-name
 
 # 3. Launch
 agentception
-# → http://localhost:7777
+# → http://localhost:10003
 ```
 
 That's it. The dashboard auto-refreshes every 5 seconds.
@@ -179,7 +179,7 @@ AgentCeption is configured via environment variables or via the `pipeline-config
 | `POLL_INTERVAL_SECONDS` | `5` | How often the poller refreshes state |
 | `GITHUB_CACHE_SECONDS` | `10` | TTL for GitHub API response cache |
 | `HOST` | `0.0.0.0` | Bind host for the uvicorn server |
-| `PORT` | `7777` | Bind port for the uvicorn server |
+| `PORT` | `10003` | Bind port for the uvicorn server |
 
 ### `pipeline-config.json` Schema
 
@@ -255,7 +255,7 @@ AgentCeption ships with a **pipeline template** that you can import into any Git
 # Settings → Templates → Import
 
 # Or via the API:
-curl -X POST http://localhost:7777/api/templates/import \
+curl -X POST http://localhost:10003/api/templates/import \
   -H "Content-Type: application/json" \
   -d '{
     "template_name": "standard-6-phase",

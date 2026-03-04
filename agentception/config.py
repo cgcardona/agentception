@@ -88,6 +88,14 @@ class AgentCeptionSettings(BaseSettings):
         to the IDE.
         """
         return self.repo_dir / ".agentception"
+    ac_url: str = "http://localhost:10003"
+    """Base URL at which the AgentCeption service is reachable from the host.
+
+    Embedded in ``.agent-task`` files and in the Dispatcher prompt so that
+    spawned agents can POST lifecycle events back via curl.  Defaults to the
+    standard local port; override via ``AC_URL`` env var in production or
+    when running behind a reverse proxy.
+    """
     poll_interval_seconds: int = 5
     github_cache_seconds: int = 10
     database_url: str | None = None

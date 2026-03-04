@@ -271,15 +271,18 @@ async def _upsert_prs(
 # ---------------------------------------------------------------------------
 
 
-_ACTIVE_STATUSES = {"implementing", "reviewing", "stale", "pending_launch"}
-"""Statuses that indicate a run is expected to have a live worktree.
+_ACTIVE_STATUSES = {"implementing", "reviewing", "stale"}
+"""Statuses that indicate a run has a live, poller-visible worktree.
 
 Runs in these states that are absent from the current poller tick are
-orphaned (worktree was removed without a clean status transition) and
-must be flipped to ``unknown`` so the UI does not show phantom agents.
+orphaned (the worktree was removed without a clean status transition)
+and are flipped to ``unknown`` so the UI does not show phantom agents.
 
-``pending_launch`` is included so that dispatch-created runs are not
-swept to ``unknown`` before the coordinator picks them up.
+``pending_launch`` is intentionally excluded: pending runs live only in
+the DB (the Dispatcher hasn't claimed them yet) and have no poller
+presence.  Including them in the sweep would immediately flip them to
+``unknown`` before the Dispatcher ever reads them.  The only valid
+transition out of ``pending_launch`` is via the acknowledge endpoint.
 """
 
 
@@ -321,8 +324,10 @@ async def _upsert_agent_runs(
                 )
             )
         else:
-            # Never overwrite a pending_launch status from the poller — only
-            # the acknowledge endpoint may advance that transition.
+            # Never overwrite pending_launch — only the Dispatcher's acknowledge
+            # endpoint may transition out of that state.  The poller can see the
+            # worktree on disk and would clobber it with "stale" otherwise, which
+            # would drain the queue before the Dispatcher ever reads it.
             if existing.status != "pending_launch":
                 existing.status = agent.status.value
             existing.pr_number = agent.pr_number
@@ -460,6 +465,12 @@ async def persist_agent_run_dispatch(
     """
     import json as _json
 
+    spawn_mode_json = _json.dumps({"host_worktree": host_worktree_path})
+    logger.warning(
+        "💾 persist_agent_run_dispatch: run_id=%r role=%r worktree_path=%r "
+        "host_worktree_path=%r spawn_mode=%r",
+        run_id, role, worktree_path, host_worktree_path, spawn_mode_json,
+    )
     try:
         async with get_session() as session:
             result = await session.execute(
@@ -467,10 +478,19 @@ async def persist_agent_run_dispatch(
             )
             existing = result.scalar_one_or_none()
             if existing is not None:
-                # Already exists (re-dispatch after worktree removed). Reset.
+                logger.warning(
+                    "💾 persist_agent_run_dispatch: run_id=%r already exists (status=%r) — re-arming to pending_launch",
+                    run_id, existing.status,
+                )
+                # Already exists (re-dispatch or orphan sweep reset). Re-arm.
                 existing.status = "pending_launch"
+                existing.spawn_mode = spawn_mode_json
                 existing.last_activity_at = _now()
             else:
+                logger.warning(
+                    "💾 persist_agent_run_dispatch: run_id=%r is new — inserting with status=pending_launch",
+                    run_id,
+                )
                 session.add(
                     ACAgentRun(
                         id=run_id,
@@ -482,16 +502,16 @@ async def persist_agent_run_dispatch(
                         role=role,
                         status="pending_launch",
                         attempt_number=0,
-                        spawn_mode=_json.dumps({"host_worktree": host_worktree_path}),
+                        spawn_mode=spawn_mode_json,
                         batch_id=batch_id,
                         spawned_at=_now(),
                         last_activity_at=_now(),
                     )
                 )
             await session.commit()
-        logger.info("✅ persist_agent_run_dispatch: run_id=%s issue=%d", run_id, issue_number)
+        logger.warning("✅ persist_agent_run_dispatch: committed — run_id=%r is pending_launch", run_id)
     except Exception as exc:
-        logger.warning("⚠️  persist_agent_run_dispatch failed (non-fatal): %s", exc)
+        logger.warning("❌ persist_agent_run_dispatch FAILED: %s", exc, exc_info=True)
 
 
 async def acknowledge_agent_run(run_id: str) -> bool:
