@@ -6,7 +6,6 @@ All tests call the synchronous _analyze_body helper directly so no event loop,
 GitHub CLI, or network access is required.  The async analyze_issue function is
 covered by an integration smoke-test that is skipped in CI.
 """
-from __future__ import annotations
 
 import pytest
 

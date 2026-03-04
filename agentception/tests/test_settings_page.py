@@ -10,7 +10,6 @@ Covers:
 Run targeted:
     pytest agentception/tests/test_settings_page.py -v
 """
-from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 

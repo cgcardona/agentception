@@ -10,7 +10,6 @@ The test suite verifies:
   - A gh failure during issue creation yields an error event and halts.
   - A gh failure during body edit is non-fatal (logged, iteration continues).
 """
-from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from typing import Any

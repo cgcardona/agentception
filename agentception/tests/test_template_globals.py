@@ -9,7 +9,6 @@ source of truth for the GitHub repo slug.
 Run targeted:
     docker compose exec agentception pytest agentception/tests/test_template_globals.py -v
 """
-from __future__ import annotations
 
 from agentception.config import settings
 from agentception.routes.ui._shared import _TEMPLATES

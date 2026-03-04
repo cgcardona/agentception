@@ -10,7 +10,6 @@ JSON-RPC 2.0 error codes (JSONRPC_ERR_*) are defined as module-level
 constants rather than an Enum so they remain plain ``int`` values that
 serialise to JSON without adaptation.
 """
-from __future__ import annotations
 
 from typing import TypedDict
 

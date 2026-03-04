@@ -17,7 +17,6 @@ Why a dedicated router?
 - ``/api/intelligence/`` signals to callers that these endpoints act on
   machine-detected anomalies rather than direct user operations.
 """
-from __future__ import annotations
 
 import logging
 

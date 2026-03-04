@@ -9,7 +9,6 @@ filesystem side-effects.
 Run targeted:
     pytest agentception/tests/test_agentception_spawn.py -v
 """
-from __future__ import annotations
 
 import asyncio
 from collections.abc import Generator

@@ -16,7 +16,6 @@ Coverage:
 Run targeted:
     pytest agentception/tests/test_agentception_scaling.py -v
 """
-from __future__ import annotations
 
 import time
 from unittest.mock import AsyncMock, patch

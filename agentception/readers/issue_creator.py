@@ -22,7 +22,6 @@ Labels applied to every issue
 The phase label acts as the execution gate: agents (or humans) know not to
 start a phase-1 issue until all phase-0 issues are closed.
 """
-from __future__ import annotations
 
 import asyncio
 import logging

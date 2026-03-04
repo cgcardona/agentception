@@ -5,7 +5,6 @@ from __future__ import annotations
 Intentionally isolated from ``maestro.db.database.Base`` so that this package
 can be extracted to its own service without touching the Maestro codebase.
 """
-from __future__ import annotations
 
 from sqlalchemy.orm import DeclarativeBase
 

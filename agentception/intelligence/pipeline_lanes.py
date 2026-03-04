@@ -21,7 +21,6 @@ Given ``labels = [L0, L1, L2, ...]``:
 - ``ready``   — phase has open issues AND **all** upstream phases are done.
   Work can begin here.
 """
-from __future__ import annotations
 
 import logging
 

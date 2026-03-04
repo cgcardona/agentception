@@ -8,7 +8,6 @@ This module is the single source of truth for:
 - ``_find_agent`` / ``_issue_is_claimed``: also re-exported from the package
   ``__init__`` so that api.py imports keep working without circular dependencies.
 """
-from __future__ import annotations
 
 import datetime
 import logging

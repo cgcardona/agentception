@@ -6,7 +6,6 @@ These tests verify that the agentception/ package is fully self-contained and
 ready for extraction into a standalone repository.  They must all pass before
 any extraction attempt.
 """
-from __future__ import annotations
 
 import re
 import tomllib

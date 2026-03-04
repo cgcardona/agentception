@@ -12,7 +12,6 @@ Covers:
 Run targeted:
     docker compose exec agentception pytest agentception/tests/test_agentception_ab_mode.py -v
 """
-from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 

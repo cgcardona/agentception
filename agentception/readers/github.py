@@ -17,7 +17,6 @@ Usage::
     issues = await get_open_issues(label="agentception/0-scaffold")
     label  = await get_active_label()
 """
-from __future__ import annotations
 
 import asyncio
 import json

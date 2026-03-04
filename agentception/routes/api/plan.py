@@ -37,7 +37,6 @@ Steps:
 
 Boundary: zero imports from maestro/, muse/, kly/, or storpheus/.
 """
-from __future__ import annotations
 
 import asyncio
 import json

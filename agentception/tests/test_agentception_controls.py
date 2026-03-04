@@ -13,7 +13,6 @@ so they never touch the real repository filesystem.
 Run targeted:
     pytest agentception/tests/test_agentception_controls.py -v
 """
-from __future__ import annotations
 
 import importlib
 from collections.abc import Generator

@@ -8,7 +8,6 @@ HTML fragment with analysis results for a single GitHub issue.
 Run targeted:
     pytest agentception/tests/test_agentception_analyze_partial.py -v
 """
-from __future__ import annotations
 
 from collections.abc import Generator
 from unittest.mock import AsyncMock, patch

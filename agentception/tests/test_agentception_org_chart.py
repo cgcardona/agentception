@@ -17,7 +17,6 @@ Covers:
 Run targeted:
     docker compose exec agentception pytest agentception/tests/test_agentception_org_chart.py -v
 """
-from __future__ import annotations
 
 import json
 import tempfile

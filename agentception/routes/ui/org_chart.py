@@ -24,7 +24,6 @@ Preset definitions are loaded from ``org-presets.yaml`` at the repo root.
 Role list and phase assignments are persisted to ``pipeline-config.json``
 under the ``active_org_roles`` key so they survive page reloads.
 """
-from __future__ import annotations
 
 import json
 import logging

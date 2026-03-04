@@ -7,7 +7,6 @@ Verifies that the cognitive architecture browser route:
 - Renders figure and skill-domain data into the page
 - Degrades gracefully when the YAML directories are absent
 """
-from __future__ import annotations
 
 import textwrap
 from collections.abc import Generator

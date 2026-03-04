@@ -10,7 +10,6 @@ Operators can override this by calling :func:`set_pin` with any label string.
 The override is cleared by :func:`clear_pin` or on process restart — it is
 intentionally not persisted so a restart always returns to automatic mode.
 """
-from __future__ import annotations
 
 _pin: str | None = None
 

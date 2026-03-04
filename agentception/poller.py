@@ -14,7 +14,6 @@ Public surface used by API routes:
 Public surface used by ``app.py`` lifespan:
 - ``polling_loop()``  — the long-running background coroutine
 """
-from __future__ import annotations
 
 import asyncio
 import dataclasses
