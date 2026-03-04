@@ -142,7 +142,8 @@ code {
 
 .layout {
   display: grid;
-  grid-template-rows: auto 1fr;
+  /* nav / batch-bar (optional, zero height when hidden) / main */
+  grid-template-rows: auto auto 1fr;
   min-height: 100vh;
 }
 
