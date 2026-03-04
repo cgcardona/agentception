@@ -36,6 +36,7 @@ from agentception.db.queries import (
     get_issues_grouped_by_phase,
     get_runs_for_issue_numbers,
 )
+from agentception.readers.pipeline_config import read_pipeline_config
 from ._shared import _TEMPLATES
 
 
@@ -102,6 +103,26 @@ def _available_roles() -> dict[str, list[str]]:
 
 
 # ---------------------------------------------------------------------------
+# Phase-order helper
+# ---------------------------------------------------------------------------
+
+
+async def _phase_order() -> list[str] | None:
+    """Return the configured phase label order from pipeline-config.json.
+
+    Returns ``None`` when the config is absent or unreadable so that
+    ``get_issues_grouped_by_phase`` falls back to its built-in default
+    (``["phase-0".."phase-3"]``) rather than rendering an empty board.
+    """
+    try:
+        cfg = await read_pipeline_config()
+        return cfg.active_labels_order if cfg.active_labels_order else None
+    except Exception as exc:
+        logger.warning("⚠️ Could not read pipeline config for build board: %s", exc)
+        return None
+
+
+# ---------------------------------------------------------------------------
 # /build — full Mission Control page
 # ---------------------------------------------------------------------------
 
@@ -127,7 +148,9 @@ async def build_page(
             url=f"/build?initiative={initiatives[0]}", status_code=302
         )
 
-    groups = await get_issues_grouped_by_phase(repo, initiative=initiative)
+    groups = await get_issues_grouped_by_phase(
+        repo, initiative=initiative, phase_order=await _phase_order()
+    )
 
     all_issue_numbers = [i["number"] for g in groups for i in g["issues"]]
     runs = await get_runs_for_issue_numbers(all_issue_numbers)
@@ -179,7 +202,9 @@ async def build_board_partial(
 ) -> HTMLResponse:
     """Return the phase-grouped board as an HTML partial for HTMX polling."""
     repo = settings.gh_repo
-    groups = await get_issues_grouped_by_phase(repo, initiative=initiative)
+    groups = await get_issues_grouped_by_phase(
+        repo, initiative=initiative, phase_order=await _phase_order()
+    )
 
     all_issue_numbers = [i["number"] for g in groups for i in g["issues"]]
     runs = await get_runs_for_issue_numbers(all_issue_numbers)

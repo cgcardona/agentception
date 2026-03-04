@@ -94,39 +94,39 @@ def _make_pipeline_cfg(labels: list[str]) -> object:
 def test_overview_returns_200_with_phase_lanes(
     client: TestClient, state_with_lanes: PipelineState, labels: list[str]
 ) -> None:
-    """GET / must return HTTP 200 even when phase lanes are populated."""
+    """GET /overview must return HTTP 200 even when phase lanes are populated."""
     mock_cfg = AsyncMock(return_value=_make_pipeline_cfg(labels))
     with (
         patch("agentception.routes.ui.overview.get_state", return_value=state_with_lanes),
         patch("agentception.routes.ui.overview.read_pipeline_config", mock_cfg),
     ):
-        response = client.get("/")
+        response = client.get("/overview")
     assert response.status_code == 200
 
 
 def test_overview_contains_phase_lanes_section(
     client: TestClient, state_with_lanes: PipelineState, labels: list[str]
 ) -> None:
-    """GET / HTML must include the phase-lanes CSS class when lanes are computed."""
+    """GET /overview HTML must include the phase-lanes CSS class when lanes are computed."""
     mock_cfg = AsyncMock(return_value=_make_pipeline_cfg(labels))
     with (
         patch("agentception.routes.ui.overview.get_state", return_value=state_with_lanes),
         patch("agentception.routes.ui.overview.read_pipeline_config", mock_cfg),
     ):
-        response = client.get("/")
+        response = client.get("/overview")
     assert "phase-lanes" in response.text
 
 
 def test_overview_phase_lanes_show_label_names(
     client: TestClient, state_with_lanes: PipelineState, labels: list[str]
 ) -> None:
-    """GET / HTML must render the phase label names inside the lane strip."""
+    """GET /overview HTML must render the phase label names inside the lane strip."""
     mock_cfg = AsyncMock(return_value=_make_pipeline_cfg(labels))
     with (
         patch("agentception.routes.ui.overview.get_state", return_value=state_with_lanes),
         patch("agentception.routes.ui.overview.read_pipeline_config", mock_cfg),
     ):
-        response = client.get("/")
+        response = client.get("/overview")
     for lbl in labels:
         assert lbl in response.text
 
@@ -134,20 +134,20 @@ def test_overview_phase_lanes_show_label_names(
 def test_overview_phase_lanes_gate_badges_present(
     client: TestClient, state_with_lanes: PipelineState, labels: list[str]
 ) -> None:
-    """GET / HTML must include at least one phase-gate-badge element."""
+    """GET /overview HTML must include at least one phase-gate-badge element."""
     mock_cfg = AsyncMock(return_value=_make_pipeline_cfg(labels))
     with (
         patch("agentception.routes.ui.overview.get_state", return_value=state_with_lanes),
         patch("agentception.routes.ui.overview.read_pipeline_config", mock_cfg),
     ):
-        response = client.get("/")
+        response = client.get("/overview")
     assert "phase-gate-badge" in response.text
 
 
 def test_overview_waiting_lane_shows_blocker_link(
     client: TestClient, state_with_lanes: PipelineState, labels: list[str]
 ) -> None:
-    """GET / HTML must render blocker issue links for waiting-status lanes.
+    """GET /overview HTML must render blocker issue links for waiting-status lanes.
 
     Phase ac-ui/1-design-tokens has open issues while ac-ui/0-critical-bugs
     also has open issues, so it must be gated (waiting) and show blockers.
@@ -157,7 +157,7 @@ def test_overview_waiting_lane_shows_blocker_link(
         patch("agentception.routes.ui.overview.get_state", return_value=state_with_lanes),
         patch("agentception.routes.ui.overview.read_pipeline_config", mock_cfg),
     ):
-        response = client.get("/")
+        response = client.get("/overview")
     # The blocker links point to upstream phase issues (#10 or #11).
     assert "blocker-link" in response.text or "#10" in response.text or "#11" in response.text
 
