@@ -76,12 +76,22 @@ class BlockedEvent(TypedDict):
     blocked_by: list[int]
 
 
+class CreatedIssue(TypedDict):
+    """A single issue returned in the ``done`` SSE event."""
+
+    issue_id: str
+    number: int
+    url: str
+    title: str
+    phase: str
+
+
 class DoneEvent(TypedDict):
     t: str  # "done"
     total: int
     initiative: str
     batch_id: str
-    issues: list[dict[str, object]]
+    issues: list[CreatedIssue]
 
 
 class FilingErrorEvent(TypedDict):
@@ -220,7 +230,7 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
         for phase in spec.phases
         for issue in phase.issues
     }
-    created: list[dict[str, object]] = []
+    created: list[CreatedIssue] = []
 
     yield StartEvent(t="start", total=total_issues, initiative=spec.initiative)
 
@@ -260,13 +270,13 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
                 issue_id,
             )
             created.append(
-                {
-                    "issue_id": issue_id,
-                    "number": number,
-                    "url": url,
-                    "title": title,
-                    "phase": phase.label,
-                }
+                CreatedIssue(
+                    issue_id=issue_id,
+                    number=number,
+                    url=url,
+                    title=title,
+                    phase=phase.label,
+                )
             )
             logger.info("✅ Created #%d — %s (%s)", number, title, phase.label)
             yield IssueEvent(
