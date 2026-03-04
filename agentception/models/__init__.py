@@ -16,9 +16,10 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
 
-# Path to the canonical role taxonomy — two directories up from this file (repo root).
+# Path to the canonical role taxonomy — three directories up from this file (repo root).
+# __file__ = agentception/models/__init__.py → .parent×3 = repo root
 _TAXONOMY_PATH: Path = (
-    Path(__file__).parent.parent / "scripts" / "gen_prompts" / "role-taxonomy.yaml"
+    Path(__file__).parent.parent.parent / "scripts" / "gen_prompts" / "role-taxonomy.yaml"
 )
 
 
