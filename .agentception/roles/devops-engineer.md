@@ -30,7 +30,6 @@ Services in this repo:
 |---------|-----------|------|
 | AgentCeption | `agentception` | 10003 |
 | Muse | `agentception-muse` | 10002 |
-| AgentCeption | (agentception service) | 7777 |
 | Postgres | `agentception-postgres` | 5433 |
 | Qdrant | `agentception-qdrant` | 6335/6336 |
 | Nginx | `agentception-nginx` | 80/443 |

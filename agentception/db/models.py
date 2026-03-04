@@ -115,8 +115,8 @@ class ACAgentRun(Base):
     """IMPLEMENTING | REVIEWING | DONE | STALE | UNKNOWN"""
 
     attempt_number: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    spawn_mode: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    """chain | wave | manual"""
+    spawn_mode: Mapped[str | None] = mapped_column(Text, nullable=True)
+    """JSON blob written by persist_agent_run_dispatch: {"host_worktree": "/path/..."}."""
 
     batch_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
 

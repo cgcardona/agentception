@@ -602,3 +602,106 @@ def handle_request(
         JSONRPC_ERR_METHOD_NOT_FOUND,
         f"Method not found: {method!r}",
     ))
+
+
+async def handle_request_async(
+    raw: dict[str, object],
+) -> dict[str, object] | None:
+    """Async variant of :func:`handle_request` — routes ``tools/call`` through
+    :func:`call_tool_async` so that async tools (all build tools and
+    ``plan_get_labels`` / ``plan_spawn_coordinator``) are awaited correctly.
+
+    The stdio transport must use this function instead of
+    :func:`handle_request`; the sync version hard-returns an error for every
+    async tool.
+
+    Returns ``None`` for JSON-RPC notifications (no ``id`` field).
+    Never raises.
+    """
+    _raw_id: object = raw.get("id")
+    request_id: int | str | None = (
+        _raw_id if isinstance(_raw_id, (int, str)) else None
+    )
+
+    jsonrpc = raw.get("jsonrpc")
+    if jsonrpc != "2.0":
+        return cast(dict[str, object], _make_error_response(
+            request_id,
+            JSONRPC_ERR_INVALID_REQUEST,
+            "jsonrpc must be '2.0'",
+        ))
+
+    method = raw.get("method")
+    if not isinstance(method, str):
+        return cast(dict[str, object], _make_error_response(
+            request_id,
+            JSONRPC_ERR_INVALID_REQUEST,
+            "method must be a string",
+        ))
+
+    logger.debug("🔧 handle_request_async: method=%r id=%r", method, request_id)
+
+    if method == "initialize":
+        result: dict[str, object] = {
+            "protocolVersion": _MCP_PROTOCOL_VERSION,
+            "capabilities": {"tools": {}},
+            "serverInfo": _SERVER_INFO,
+        }
+        return cast(dict[str, object], _make_success_response(request_id, result))
+
+    if method == "initialized":
+        logger.debug("✅ MCP initialized notification received")
+        return None
+
+    if method == "tools/list":
+        tools = list_tools()
+        return cast(dict[str, object], _make_success_response(request_id, {"tools": tools}))
+
+    if method == "tools/call":
+        params = raw.get("params")
+        if not isinstance(params, dict):
+            return cast(dict[str, object], _make_error_response(
+                request_id,
+                JSONRPC_ERR_INVALID_PARAMS,
+                "params must be an object for tools/call",
+            ))
+
+        tool_name = params.get("name")
+        if not isinstance(tool_name, str):
+            return cast(dict[str, object], _make_error_response(
+                request_id,
+                JSONRPC_ERR_INVALID_PARAMS,
+                "params.name must be a string",
+            ))
+
+        arguments_raw = params.get("arguments", {})
+        if not isinstance(arguments_raw, dict):
+            return cast(dict[str, object], _make_error_response(
+                request_id,
+                JSONRPC_ERR_INVALID_PARAMS,
+                "params.arguments must be an object",
+            ))
+
+        arguments: dict[str, object] = {k: v for k, v in arguments_raw.items()}
+
+        try:
+            tool_result = await call_tool_async(tool_name, arguments)
+        except Exception as exc:
+            logger.error(
+                "❌ handle_request_async: internal error in call_tool_async — %s",
+                exc,
+                exc_info=True,
+            )
+            return cast(dict[str, object], _make_error_response(
+                request_id,
+                JSONRPC_ERR_INTERNAL_ERROR,
+                f"Internal error: {exc}",
+            ))
+
+        return cast(dict[str, object], _make_success_response(request_id, tool_result))
+
+    return cast(dict[str, object], _make_error_response(
+        request_id,
+        JSONRPC_ERR_METHOD_NOT_FOUND,
+        f"Method not found: {method!r}",
+    ))

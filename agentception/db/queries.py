@@ -956,14 +956,22 @@ async def get_pending_launches() -> list[dict[str, Any]]:
     """
     import json as _json
 
+    logger.warning("🗄️  get_pending_launches: opening DB session")
     try:
         async with get_session() as session:
+            logger.warning("🗄️  get_pending_launches: executing SELECT WHERE status='pending_launch'")
             result = await session.execute(
                 select(ACAgentRun)
                 .where(ACAgentRun.status == "pending_launch")
                 .order_by(ACAgentRun.spawned_at.asc())
             )
             rows = result.scalars().all()
+            logger.warning("🗄️  get_pending_launches: query returned %d raw row(s)", len(rows))
+            for row in rows:
+                logger.warning(
+                    "🗄️    raw row: id=%r status=%r role=%r spawn_mode=%r",
+                    row.id, row.status, row.role, row.spawn_mode,
+                )
 
         launches: list[dict[str, Any]] = []
         for row in rows:
@@ -973,8 +981,11 @@ async def get_pending_launches() -> list[dict[str, Any]]:
                 try:
                     meta = _json.loads(row.spawn_mode)
                     host_worktree = meta.get("host_worktree")
-                except (ValueError, AttributeError):
-                    pass
+                except (ValueError, AttributeError) as parse_exc:
+                    logger.warning(
+                        "⚠️  get_pending_launches: could not parse spawn_mode for %r: %s",
+                        row.id, parse_exc,
+                    )
             launches.append(
                 {
                     "run_id": row.id,
@@ -987,9 +998,10 @@ async def get_pending_launches() -> list[dict[str, Any]]:
                     "spawned_at": row.spawned_at.isoformat(),
                 }
             )
+        logger.warning("🗄️  get_pending_launches: returning %d launch(es)", len(launches))
         return launches
     except Exception as exc:
-        logger.warning("⚠️  get_pending_launches DB query failed (non-fatal): %s", exc)
+        logger.warning("❌ get_pending_launches DB query FAILED: %s", exc, exc_info=True)
         return []
 
 

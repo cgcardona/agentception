@@ -19,6 +19,10 @@ services:
       GH_REPO: ${GH_REPO:-cgcardona/agentception}
       REPO_DIR: ${REPO_DIR:-/app}
       WORKTREES_DIR: ${WORKTREES_DIR:-/worktrees}
+      # Host-side path written into .agent-task files so spawned Cursor agents
+      # (running on the host) can find the worktree at the same path the container
+      # created it.  Must match the left-hand side of the worktrees volume mount below.
+      HOST_WORKTREES_DIR: ${HOST_WORKTREES_DIR:-${HOME}/.agentception/worktrees/agentception}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       # gh CLI reads GITHUB_TOKEN when the keychain (macOS) is unavailable inside Docker.
       # Set GITHUB_TOKEN in .env to a PAT with repo+issues scope.
@@ -30,6 +34,10 @@ services:
       - ${HOME}/.config/gh:${HOME}/.config/gh:ro
       # Repo itself (for git operations)
       - ./:/app
+      # Agent worktrees: bind-mount the host directory into the container so that
+      # git worktrees created inside the container are immediately visible to Cursor
+      # agents running on the host at the same absolute path.
+      - ${HOME}/.agentception/worktrees/agentception:/worktrees
     networks:
       - agentception-net
     depends_on:
