@@ -9,13 +9,13 @@ symbol is ``router``).
 ``app.py`` does ``from agentception.routes.api import router as api_router`` — that
 import path continues to work unchanged.
 """
-from __future__ import annotations
 
 from fastapi import APIRouter
 
 from .build import router as _build
 from .config import router as _config
 from .control import router as _control
+from .health import router as _health
 from .intelligence import router as _intelligence
 from .issues import router as _issues
 from .pipeline import router as _pipeline
@@ -29,6 +29,7 @@ router.include_router(_build)
 router.include_router(_pipeline)
 router.include_router(_control)
 router.include_router(_config)
+router.include_router(_health)
 router.include_router(_intelligence)
 router.include_router(_telemetry)
 router.include_router(_worktrees)

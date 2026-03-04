@@ -8,7 +8,6 @@ All tests use temporary directories — no dependency on live ~/.cursor/projects
 Run targeted:
     pytest agentception/tests/test_agentception_transcripts.py -v
 """
-from __future__ import annotations
 
 import json
 from pathlib import Path

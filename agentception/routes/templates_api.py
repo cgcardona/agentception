@@ -12,7 +12,6 @@ Endpoints:
 - ``GET /api/templates`` — list previously exported templates
 - ``GET /api/templates/{filename}`` — download a stored template archive
 """
-from __future__ import annotations
 
 import logging
 

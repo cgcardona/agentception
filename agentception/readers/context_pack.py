@@ -18,7 +18,6 @@ at the top of the user prompt before passing to the LLM.
 All fetches are best-effort — a GitHub error returns an empty pack rather
 than failing the plan request.
 """
-from __future__ import annotations
 
 import logging
 

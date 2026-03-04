@@ -12,7 +12,6 @@ The board shows all issues grouped by phase with live PR/agent-run status.
 The inspector panel streams events from ``ac_agent_events`` and thinking
 messages from ``ac_agent_messages`` for a selected agent run.
 """
-from __future__ import annotations
 
 import asyncio
 import json

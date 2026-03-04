@@ -11,7 +11,6 @@ Covers the three acceptance criteria from issue #638:
 Run targeted:
     docker compose exec agentception pytest agentception/tests/test_agentception_ab_results.py -v
 """
-from __future__ import annotations
 
 from collections.abc import Generator
 from unittest.mock import AsyncMock, patch

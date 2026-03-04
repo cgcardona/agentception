@@ -11,7 +11,6 @@ Invariants verified:
 - Empty phases raises ValueError.
 - Invalid parallel_groups (dep within group) raises ValidationError.
 """
-from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError

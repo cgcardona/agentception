@@ -15,7 +15,6 @@ Also exposes the cognitive architecture meta-API:
 - ``GET /api/roles/personas`` — all figure YAMLs as structured JSON for the GUI
 - ``GET /api/roles/atoms`` — all atom dimension YAMLs for the primitive composer
 """
-from __future__ import annotations
 
 import asyncio
 import logging

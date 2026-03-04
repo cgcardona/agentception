@@ -13,7 +13,6 @@ data to display.
 
 Consumed by ``GET /api/telemetry/waves`` and future timeline UI components.
 """
-from __future__ import annotations
 
 import asyncio
 import logging

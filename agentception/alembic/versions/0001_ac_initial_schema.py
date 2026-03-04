@@ -10,7 +10,6 @@ Revision ID: ac0001
 Revises:
 Create Date: 2026-03-02
 """
-from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op

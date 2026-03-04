@@ -10,7 +10,6 @@ Verifies:
 Run targeted:
     pytest agentception/tests/test_agents_page.py -v
 """
-from __future__ import annotations
 
 from collections.abc import Generator
 

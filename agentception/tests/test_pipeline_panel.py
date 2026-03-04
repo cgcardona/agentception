@@ -12,7 +12,6 @@ Covers:
 Run targeted:
     pytest agentception/tests/test_pipeline_panel.py -v
 """
-from __future__ import annotations
 
 import time
 from collections.abc import Generator

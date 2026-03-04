@@ -8,7 +8,6 @@ Covers the four acceptance criteria from issue #620:
 - ended_at is None when any worktree in the batch is still active
 - Empty worktree list returns empty waves
 """
-from __future__ import annotations
 
 import os
 from pathlib import Path

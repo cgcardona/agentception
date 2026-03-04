@@ -18,7 +18,6 @@ network, no filesystem side-effects, no DB required.
 Run targeted:
     pytest agentception/tests/test_agentception_wizard.py -v
 """
-from __future__ import annotations
 
 import datetime
 import json

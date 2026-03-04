@@ -32,7 +32,6 @@ increments the version label (v1, v2, …). The ``batch_index`` embedded in
 ``get_version_for_batch`` matches the batch-ID timestamp prefix against the
 history to determine which version was active when the batch ran.
 """
-from __future__ import annotations
 
 import asyncio
 import logging

@@ -20,4 +20,3 @@ Additional standalone routers (control, intelligence, roles, templates_api)
 are registered directly from their own modules and are not part of these
 two sub-packages.
 """
-from __future__ import annotations

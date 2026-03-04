@@ -15,4 +15,3 @@ Public surface:
 
 Boundary constraint: zero imports from maestro, muse, kly, or storpheus.
 """
-from __future__ import annotations

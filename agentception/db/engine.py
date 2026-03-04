@@ -8,7 +8,6 @@ look consistent while remaining fully independent — no cross-imports.
 Schema is owned by Alembic (``agentception/alembic/``).  This module only
 creates the engine and session factory; it never calls ``CREATE TABLE``.
 """
-from __future__ import annotations
 
 import logging
 from collections.abc import AsyncGenerator

@@ -24,7 +24,6 @@ Two public entry points:
 The key is read from ``settings.openrouter_api_key`` (env var
 ``AC_OPENROUTER_API_KEY``).  A missing key raises ``RuntimeError``.
 """
-from __future__ import annotations
 
 import asyncio
 import json

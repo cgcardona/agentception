@@ -9,7 +9,6 @@ Contains:
 - ``_resolve_cognitive_arch``: derives COGNITIVE_ARCH string from issue body.
 - ``_issue_is_claimed_api``: checks ``agent:wip`` label presence.
 """
-from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path

@@ -17,7 +17,6 @@ Three audiences:
 
 See ``agentception/docs/agent-tree-protocol.md`` for the full tier spec.
 """
-from __future__ import annotations
 
 import asyncio
 import logging

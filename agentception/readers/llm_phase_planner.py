@@ -20,7 +20,6 @@ loop is entirely self-contained.  MCP enters only after the user approves the
 YAML and a coordinator worktree is spawned -- the coordinator agent (in Cursor)
 calls ``plan_get_labels()`` and similar tools as it files GitHub issues.
 """
-from __future__ import annotations
 
 import json
 import logging

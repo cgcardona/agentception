@@ -12,7 +12,6 @@ Covers:
 Run targeted:
     pytest agentception/tests/test_agentception_ui_plan.py -v
 """
-from __future__ import annotations
 
 import textwrap
 from collections.abc import Generator

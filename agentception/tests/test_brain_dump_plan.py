@@ -14,7 +14,6 @@ Covers:
 Run targeted:
     docker compose exec agentception pytest agentception/tests/test_brain_dump_plan.py -v
 """
-from __future__ import annotations
 
 from collections.abc import Generator
 

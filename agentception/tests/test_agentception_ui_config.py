@@ -14,7 +14,6 @@ tests remain independent of the on-disk pipeline-config.json.
 Run targeted:
     pytest agentception/tests/test_agentception_ui_config.py -v
 """
-from __future__ import annotations
 
 from collections.abc import Generator
 from unittest.mock import AsyncMock, patch

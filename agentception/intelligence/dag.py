@@ -16,7 +16,6 @@ Typical usage::
     for (src, dst) in dag.edges:
         print(f"#{src} depends on #{dst}")
 """
-from __future__ import annotations
 
 import logging
 

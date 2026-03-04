@@ -8,7 +8,6 @@ All tests are synchronous — no live GitHub calls, no background polling.
 Run targeted:
     pytest agentception/tests/test_agentception_ui_overview.py -v
 """
-from __future__ import annotations
 
 import time
 from collections.abc import Generator

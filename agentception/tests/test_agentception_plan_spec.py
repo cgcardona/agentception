@@ -9,7 +9,6 @@ These tests verify:
 - from_yaml() rejects malformed YAML strings.
 - Empty phases / empty issues lists are rejected.
 """
-from __future__ import annotations
 
 import textwrap
 

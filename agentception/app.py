@@ -14,7 +14,6 @@ Architecture:
 - HTML pages are rendered via Jinja2 from ``agentception/templates/``.
 - JSON API routes live in ``agentception/routes/``.
 """
-from __future__ import annotations
 
 import asyncio
 import logging

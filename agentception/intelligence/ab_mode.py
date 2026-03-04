@@ -29,7 +29,6 @@ Typical call site (Engineering VP SEED)::
         default_role_file=".cursor/roles/python-developer.md",
     )
 """
-from __future__ import annotations
 
 import logging
 import re

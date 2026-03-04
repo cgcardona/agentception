@@ -20,7 +20,6 @@ Phase definitions (load-bearing order):
 
 Empty or whitespace-only dumps raise a ``ValueError``.
 """
-from __future__ import annotations
 
 import re
 

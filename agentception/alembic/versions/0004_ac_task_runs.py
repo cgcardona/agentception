@@ -6,7 +6,6 @@ Revision ID: 0004
 Revises: 0003
 Create Date: 2026-03-03
 """
-from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op

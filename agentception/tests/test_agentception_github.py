@@ -10,7 +10,6 @@ module level gives complete control over return values and exit codes.
 Run targeted:
     pytest agentception/tests/test_agentception_github.py -v
 """
-from __future__ import annotations
 
 import asyncio
 import json

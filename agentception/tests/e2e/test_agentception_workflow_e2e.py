@@ -16,7 +16,6 @@ Workflow under test:
 Run targeted:
     docker compose exec agentception pytest agentception/tests/e2e/test_agentception_workflow_e2e.py -v -m e2e
 """
-from __future__ import annotations
 
 import logging
 from collections.abc import Generator

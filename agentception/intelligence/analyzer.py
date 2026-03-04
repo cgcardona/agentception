@@ -15,7 +15,6 @@ Typical usage::
     print(analysis.recommended_role)   # "python-developer"
     print(analysis.parallelism)        # "safe"
 """
-from __future__ import annotations
 
 import re
 from typing import Literal
