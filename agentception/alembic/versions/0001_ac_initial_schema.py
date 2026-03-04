@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """ac initial schema
 
 THIS IS THE ONLY MIGRATION for AgentCeption during the monorepo phase.

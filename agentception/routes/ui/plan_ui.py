@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """UI routes: Plan page and its API endpoints.
 
 Endpoints

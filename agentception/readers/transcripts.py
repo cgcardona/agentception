@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Transcript reader for AgentCeption (AC-003).
 
 Walks ``~/.cursor/projects/.../agent-transcripts/`` to build the parent/child

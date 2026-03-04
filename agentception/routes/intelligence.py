@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Intelligence-layer API routes for the AgentCeption dashboard.
 
 Provides action endpoints for anomalies detected by

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Smoke tests confirming the ResizeObserver feature is present in dag.js and
 survives esbuild bundling into the compiled app.js.
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """E2E smoke test harness — brain dump → issues → conductor spawn (AC-836).
 
 Exercises the full 1-2-3 AgentCeption workflow end-to-end with all GitHub

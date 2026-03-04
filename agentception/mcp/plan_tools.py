@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """AgentCeption MCP plan tools — schema inspection, validation, and coordinator spawn.
 
 Provides five MCP-exposed functions:

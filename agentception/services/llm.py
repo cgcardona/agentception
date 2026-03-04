@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Async OpenRouter client for AgentCeption's direct LLM calls.
 
 Patterns adopted from maestro/core/llm_client.py:

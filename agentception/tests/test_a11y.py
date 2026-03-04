@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Accessibility (a11y) smoke tests for AgentCeption templates.
 
 Verifies that structural a11y requirements are present in the rendered HTML:

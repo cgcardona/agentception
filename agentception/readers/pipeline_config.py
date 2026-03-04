@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Pipeline configuration reader/writer for AgentCeption.
 
 The canonical source of truth for pipeline allocation parameters is

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for the org-chart page, builder API, and D3 tree endpoint.
 
 Covers:

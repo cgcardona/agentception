@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """AgentCeption database package.
 
 Self-contained: own Base, engine, session factory, and Alembic migration tree.

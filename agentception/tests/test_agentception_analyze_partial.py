@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for the analyze partial endpoint (AC-406).
 
 Covers ``POST /api/analyze/issue/{number}/partial`` which returns an HTMX

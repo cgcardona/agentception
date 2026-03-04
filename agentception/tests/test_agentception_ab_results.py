@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for A/B results dashboard computation and route (AC-505).
 
 Covers the three acceptance criteria from issue #638:

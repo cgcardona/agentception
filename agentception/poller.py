@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """AgentCeption background poller — pipeline state aggregation and SSE broadcast.
 
 This module owns the single shared ``PipelineState`` that the dashboard

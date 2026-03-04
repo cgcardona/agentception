@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Protocol TypedDicts for the AgentCeption MCP layer.
 
 All types defined here are self-contained — zero imports from maestro,

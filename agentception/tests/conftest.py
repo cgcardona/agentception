@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """conftest.py for agentception tests.
 
 Deliberately minimal — no maestro imports, no Postgres, no Qdrant, no Redis.

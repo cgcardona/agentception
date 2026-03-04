@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for the wizard stepper endpoint (issue #834).
 
 Covers:

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """API route: wizard stepper state endpoint.
 
 Implements GET /api/wizard/state which returns the three-step guided-flow

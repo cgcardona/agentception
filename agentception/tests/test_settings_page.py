@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for the AgentCeption settings page and auth-check partial.
 
 Covers:

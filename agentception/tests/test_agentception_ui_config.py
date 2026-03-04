@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for the AgentCeption pipeline config UI page (AC-305).
 
 Covers:

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Declarative base for all AgentCeption ORM models.
 
 Intentionally isolated from ``maestro.db.database.Base`` so that this package

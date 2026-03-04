@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for the AgentCeption pipeline overview UI (AC-006).
 
 Covers the ``GET /`` overview page and the ``GET /api/pipeline`` JSON endpoint.

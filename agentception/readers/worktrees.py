@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Worktree reader for AgentCeption.
 
 Scans ``~/.agentception/worktrees/maestro/`` for active git worktrees and parses

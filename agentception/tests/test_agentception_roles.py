@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for the Role file reader/writer API (AC-301/303) and Role Studio UI (AC-302/303).
 
 Covers:

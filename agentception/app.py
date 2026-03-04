@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """AgentCeption FastAPI application factory.
 
 Entry point: ``uvicorn agentception.app:app --port 7777 --reload``

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Pipeline guard functions for the AgentCeption intelligence layer.
 
 Contains two families of guards:

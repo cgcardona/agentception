@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Self-containment regression tests for agentception extraction readiness.
 
 These tests verify that the agentception/ package is fully self-contained and

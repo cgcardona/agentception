@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for the AgentCeption telemetry UI page (AC-203, #743).
 
 Covers:

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for agentception/poller.py (AC-005).
 
 Coverage:

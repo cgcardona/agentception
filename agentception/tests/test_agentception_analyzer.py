@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for agentception.intelligence.analyzer.
 
 All tests call the synchronous _analyze_body helper directly so no event loop,

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Ticket analyzer for AgentCeption.
 
 Parses an issue body and returns structured recommendations used by the

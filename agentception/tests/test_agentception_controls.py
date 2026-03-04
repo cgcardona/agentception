@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for the AgentCeption pipeline pause/resume control endpoints (AC-102).
 
 Covers:

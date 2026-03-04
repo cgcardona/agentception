@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Domain models for the AgentCeption dashboard.
 
 These types are the shared contract between the background poller, the API

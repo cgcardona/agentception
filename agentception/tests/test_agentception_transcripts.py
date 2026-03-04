@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for agentception/readers/transcripts.py (AC-003).
 
 Covers JSONL parsing, role/status heuristics, and AgentNode tree construction.

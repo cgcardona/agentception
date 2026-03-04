@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """A/B mode role-file selector for the Engineering VP (AC-504).
 
 When A/B mode is enabled in ``pipeline-config.json``, successive batches

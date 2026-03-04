@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """In-memory active-label pin for the AgentCeption poller.
 
 By default the active label is determined automatically by scanning open

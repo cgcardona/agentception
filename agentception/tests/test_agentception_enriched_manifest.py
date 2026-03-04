@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for EnrichedIssue, EnrichedPhase, and EnrichedManifest Pydantic models (AC-868).
 
 Invariants verified:

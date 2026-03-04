@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """AgentCeption ORM models — all tables use the ``ac_`` prefix.
 
 Entity hierarchy

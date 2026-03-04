@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Control-plane routes for the AgentCeption dashboard.
 
 These endpoints perform destructive agent operations (kill, future: pause/spawn).

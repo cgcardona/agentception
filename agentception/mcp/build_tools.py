@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """AgentCeption MCP tools for the Build phase.
 
 These four tools are called by running agents to push structured lifecycle

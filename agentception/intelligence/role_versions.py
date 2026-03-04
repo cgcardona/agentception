@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Role version tracking for AgentCeption (AC-503).
 
 Maintains ``.cursor/role-versions.json`` — a persistent ledger that records

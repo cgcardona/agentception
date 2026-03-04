@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Auto-scaling advisor for the AgentCeption pipeline.
 
 Evaluates current pipeline state against wave history to produce actionable

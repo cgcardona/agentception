@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for the "Run Conductor" feature (Issue #835).
 
 Covers:

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """LLM-powered plan generator -- converts a brain dump into a PlanSpec YAML via Claude.
 
 Two public entry points:

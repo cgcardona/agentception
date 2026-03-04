@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for agentception/intelligence/guards.py (AC-403, AC-404).
 
 Coverage:

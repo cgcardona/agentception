@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for the AgentCeption dependency DAG builder and UI/API routes.
 
 Covers:

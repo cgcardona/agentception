@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Intelligence layer for AgentCeption.
 
 Provides ticket analysis, dependency DAG construction, and role-inference

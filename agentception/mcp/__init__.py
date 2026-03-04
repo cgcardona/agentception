@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """AgentCeption MCP package.
 
 Provides Model Context Protocol (JSON-RPC 2.0) tool definitions and

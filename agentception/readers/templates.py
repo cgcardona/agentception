@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Template export and import logic for AC-602.
 
 A *template* is a versioned ``.tar.gz`` archive of the pipeline configuration

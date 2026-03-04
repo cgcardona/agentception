@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for Jinja2 template globals injected by agentception/routes/ui/_shared.py.
 
 Verifies that ``gh_repo`` and ``gh_base_url`` are registered on ``_TEMPLATES.env.globals``

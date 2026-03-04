@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for agentception/readers/github.py.
 
 All GitHub interactions are mocked via ``unittest.mock.AsyncMock`` and

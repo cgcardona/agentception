@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Lightweight GitHub context pack for plan generation (Step 1.A).
 
 Fetches just enough repository context to help Claude avoid duplicating

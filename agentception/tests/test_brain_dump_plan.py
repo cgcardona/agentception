@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for POST /api/brain-dump/plan and the phase_planner reader (issue-825).
 
 Covers:

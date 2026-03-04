@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for the global toast notification system (issue #744).
 
 Verifies:

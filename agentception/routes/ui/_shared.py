@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Shared helpers, constants, and the Jinja2 template singleton for all UI routes.
 
 This module is the single source of truth for:

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """ac_initiative_phases — phase dependency graph per initiative
 
 Stores the DAG of phase dependencies that was declared in the PlanSpec

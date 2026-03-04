@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Dependency DAG builder for the AgentCeption intelligence layer.
 
 Parses every open issue body for ``Depends on #NNN`` patterns and assembles

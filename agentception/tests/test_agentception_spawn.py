@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for the manual spawn endpoint and issue-picker UI (AC-103).
 
 Covers POST /api/control/spawn and GET /control/spawn.

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for the Plan UI routes.
 
 Covers:

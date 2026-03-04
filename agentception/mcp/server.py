@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """AgentCeption MCP JSON-RPC 2.0 server.
 
 Implements a minimal but spec-compliant JSON-RPC 2.0 dispatcher for the

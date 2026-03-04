@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """ac_agent_events — structured MCP callback events per agent run
 
 Stores events that agents push via the build_report_* MCP tools.

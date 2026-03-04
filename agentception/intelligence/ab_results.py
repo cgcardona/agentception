@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """A/B results dashboard computation for AgentCeption (AC-505).
 
 Aggregates pipeline wave data and correlates each wave with an A/B role

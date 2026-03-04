@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """JSON API routes sub-package — replaces the monolithic ``routes/api.py``.
 
 Each domain module owns a focused set of endpoints.  This ``__init__`` assembles

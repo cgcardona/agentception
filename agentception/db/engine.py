@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Async SQLAlchemy engine, session factory, and lifecycle helpers for AgentCeption.
 
 Intentionally mirrors the pattern in ``maestro/db/database.py`` so both services

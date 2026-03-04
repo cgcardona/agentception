@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """DB persistence layer called by the AgentCeption poller after each tick.
 
 Strategy per entity type

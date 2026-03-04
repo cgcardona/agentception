@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for the AgentCeption agent detail UI and API endpoints (AC-007).
 
 Covers:

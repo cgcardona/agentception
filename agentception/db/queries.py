@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Read-only query helpers for AgentCeption's Postgres data store.
 
 All functions return plain dicts / lists so callers (routes, poller) have

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for PlanSpec, PlanPhase, and PlanIssue Pydantic models (AC-867).
 
 These tests verify:

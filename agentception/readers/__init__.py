@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Readers sub-package for AgentCeption.
 
 Each reader is responsible for collecting raw data from a specific source

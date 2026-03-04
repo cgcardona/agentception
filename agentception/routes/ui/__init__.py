@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """UI routes sub-package — replaces the monolithic ``routes/ui.py``.
 
 Each domain module owns a focused set of route handlers and imports only what

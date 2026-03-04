@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for role version tracking (AC-503).
 
 Covers:

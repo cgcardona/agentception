@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """AgentCeption service configuration.
 
 All settings are prefixed with ``AC_`` so they never collide with Maestro's

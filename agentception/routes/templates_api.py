@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Template export / import API routes (AC-602).
 
 These endpoints let users package the current pipeline configuration as a

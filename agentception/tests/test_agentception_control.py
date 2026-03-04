@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for the AgentCeption kill control-plane endpoint (AC-101).
 
 Tests cover:

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Phase gate computation for the pipeline control panel.
 
 Computes gate status (waiting / ready / done) for each phase label in order,

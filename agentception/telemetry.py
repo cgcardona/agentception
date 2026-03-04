@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Wave aggregation layer for the AgentCeption telemetry pipeline.
 
 Groups all ``.agent-task`` files by their ``BATCH_ID`` prefix and builds

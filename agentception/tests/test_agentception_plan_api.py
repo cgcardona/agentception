@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for POST /api/plan/draft (issue #872) and POST /api/plan/launch (issue #873).
 
 POST /api/plan/draft covers:

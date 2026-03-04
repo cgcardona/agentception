@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Role file reader/writer API for the Role Studio editor (AC-301/303).
 
 Exposes all managed ``.cursor/roles/*.md`` and ``.cursor/PARALLEL_*.md`` files

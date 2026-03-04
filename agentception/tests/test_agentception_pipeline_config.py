@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for pipeline-config.json reader/writer and API endpoints.
 
 Covers:

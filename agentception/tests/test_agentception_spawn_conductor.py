@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for POST /api/control/spawn-conductor (AC-832).
 
 Covers the happy path, all documented error paths, and task-file content.

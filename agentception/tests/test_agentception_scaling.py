@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for agentception/intelligence/scaling.py and apply endpoint (AC-501 / AC-502).
 
 Coverage:

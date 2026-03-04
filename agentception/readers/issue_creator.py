@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Create GitHub issues directly from a PlanSpec using the gh CLI.
 
 This is the Step 1.B execution layer.  It takes the validated PlanSpec YAML

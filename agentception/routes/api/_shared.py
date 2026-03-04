@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Shared helpers and constants for all JSON API routes.
 
 Contains:

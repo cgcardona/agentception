@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for AC-602: template export/import.
 
 Covers:

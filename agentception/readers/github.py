@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """GitHub data reader for AgentCeption.
 
 All GitHub data flows through this module via ``gh`` CLI subprocess calls.

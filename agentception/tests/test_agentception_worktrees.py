@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for agentception/readers/worktrees.py (AC-002).
 
 Verifies that the worktree reader correctly discovers active agent worktrees

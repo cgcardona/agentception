@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """UI routes: Org Chart page with preset org picker, interactive builder, and D3 tree.
 
 Provides:

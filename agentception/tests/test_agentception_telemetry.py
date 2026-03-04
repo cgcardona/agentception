@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for the wave aggregation telemetry layer.
 
 Covers the four acceptance criteria from issue #620:

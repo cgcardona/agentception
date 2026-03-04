@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """UI routes: cognitive architecture catalog (GET /cognitive-arch).
 
 Reads all figure and skill-domain YAML files from the

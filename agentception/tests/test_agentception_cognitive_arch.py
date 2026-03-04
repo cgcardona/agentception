@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for GET /cognitive-arch (issue #823).
 
 Verifies that the cognitive architecture browser route:

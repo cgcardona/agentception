@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for the AgentCeption scaffold (AC-001).
 
 These tests verify the foundational service plumbing — settings, models, and

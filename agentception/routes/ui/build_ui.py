@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """UI routes: Build / Mission Control page.
 
 Endpoints

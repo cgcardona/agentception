@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Git repository data reader for AgentCeption.
 
 Reads live git state (branches, worktrees, stash) from the mounted repo

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for agentception/models.py — VALID_ROLES taxonomy sync (issue #822).
 
 Verifies that ``VALID_ROLES`` is derived from the role taxonomy rather than a

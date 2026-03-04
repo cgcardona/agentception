@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """add ac_task_runs table
 
 Revision ID: 0004

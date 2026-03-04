@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Phase Planner — heuristic analysis of a brain-dump into sequenced phases.
 
 This module implements Step -1 of the coordinator workflow without requiring a

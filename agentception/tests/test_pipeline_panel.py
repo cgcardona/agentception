@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for the phase-gate control panel (issue #831).
 
 Covers:

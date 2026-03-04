@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for agentception.readers.issue_creator.
 
 All tests mock the gh subprocess so no real GitHub API calls are made.

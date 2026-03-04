@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for A/B mode role-file selection (AC-504).
 
 Covers:

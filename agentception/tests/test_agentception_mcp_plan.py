@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for the AgentCeption MCP layer — plan schema, validation, label context,
 manifest validation, and coordinator spawn (AC-870 + AC-871).
 

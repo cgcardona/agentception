@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for the agents page live polling additions (issue #739).
 
 Verifies:
