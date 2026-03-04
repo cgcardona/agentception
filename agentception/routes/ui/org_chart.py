@@ -28,7 +28,7 @@ under the ``active_org_roles`` key so they survive page reloads.
 import json
 import logging
 from pathlib import Path
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, TypedDict
 
 import yaml
 from fastapi import APIRouter, Form, HTTPException
@@ -42,6 +42,69 @@ from ._shared import _TEMPLATES
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# TypedDicts for org chart data shapes
+# ---------------------------------------------------------------------------
+
+
+class RoleEntry(TypedDict):
+    """A single role entry stored in pipeline-config.json's active_org_roles list."""
+
+    slug: str
+    assigned_phases: list[str]
+
+
+class AnnotatedRoleEntry(TypedDict):
+    """RoleEntry enriched with tier metadata for the builder panel template."""
+
+    slug: str
+    assigned_phases: list[str]
+    tier: str
+    phase_assignable: bool
+
+
+class PipelineConfig(TypedDict, total=False):
+    """Partial view of pipeline-config.json — only keys this module reads/writes."""
+
+    active_org: str
+    active_org_roles: list[RoleEntry]
+    active_labels_order: list[str]
+
+
+class OrgPresetTiers(TypedDict):
+    """Tier slugs inside an org preset definition."""
+
+    leadership: list[str]
+    workers: list[str]
+
+
+class OrgPreset(TypedDict):
+    """One preset from org-presets.yaml."""
+
+    id: str
+    name: str
+    description: str
+    tiers: OrgPresetTiers
+
+
+class TierEntry(TypedDict):
+    """One tier entry returned by the /api/org/taxonomy endpoint."""
+
+    label: str
+    roles: list[str]
+
+
+class BuilderContext(TypedDict):
+    """Template context dict for the org builder right panel partials."""
+
+    active_org_roles: list[AnnotatedRoleEntry]
+    phases: list[str]
+    taxonomy: dict[str, list[str]]
+    tier_labels: dict[str, str]
+    active_org_id: str | None
+
 
 # ---------------------------------------------------------------------------
 # File paths
@@ -133,9 +196,9 @@ class _RoleIndexEntry(TypedDict):
 # ---------------------------------------------------------------------------
 
 
-def _make_role_entry(slug: str) -> dict[str, Any]:
+def _make_role_entry(slug: str) -> RoleEntry:
     """Create a fresh role entry dict with an empty assigned_phases list."""
-    return {"slug": slug, "assigned_phases": []}
+    return RoleEntry(slug=slug, assigned_phases=[])
 
 
 # ---------------------------------------------------------------------------
@@ -143,20 +206,43 @@ def _make_role_entry(slug: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _read_pipeline_config() -> dict[str, Any]:
-    """Read pipeline-config.json, returning an empty dict on any error."""
+def _read_pipeline_config() -> PipelineConfig:
+    """Read pipeline-config.json, returning an empty config on any error."""
     path = _pipeline_config_path()
     if not path.exists():
-        return {}
+        return PipelineConfig()
     try:
         raw: object = json.loads(path.read_text(encoding="utf-8"))
-        return raw if isinstance(raw, dict) else {}
+        if not isinstance(raw, dict):
+            return PipelineConfig()
+        config = PipelineConfig()
+        active_org = raw.get("active_org")
+        if isinstance(active_org, str):
+            config["active_org"] = active_org
+        active_labels = raw.get("active_labels_order")
+        if isinstance(active_labels, list):
+            config["active_labels_order"] = [s for s in active_labels if isinstance(s, str)]
+        raw_roles = raw.get("active_org_roles")
+        if isinstance(raw_roles, list):
+            roles: list[RoleEntry] = []
+            for item in raw_roles:
+                if isinstance(item, dict):
+                    slug = item.get("slug")
+                    if isinstance(slug, str) and slug:
+                        phases_raw = item.get("assigned_phases", [])
+                        phases: list[str] = [
+                            str(p) for p in (phases_raw if isinstance(phases_raw, list) else [])
+                            if isinstance(p, str)
+                        ]
+                        roles.append(RoleEntry(slug=slug, assigned_phases=phases))
+            config["active_org_roles"] = roles
+        return config
     except Exception as exc:
         logger.warning("⚠️ Could not read pipeline-config.json: %s", exc)
-        return {}
+        return PipelineConfig()
 
 
-def _write_pipeline_config(data: dict[str, Any]) -> None:
+def _write_pipeline_config(data: PipelineConfig) -> None:
     """Persist *data* back to pipeline-config.json atomically via a rename."""
     path = _pipeline_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -165,7 +251,7 @@ def _write_pipeline_config(data: dict[str, Any]) -> None:
     tmp.rename(path)
 
 
-def _read_active_org_roles(config: dict[str, Any]) -> list[dict[str, Any]]:
+def _read_active_org_roles(config: PipelineConfig) -> list[RoleEntry]:
     """Extract and validate the ``active_org_roles`` list from *config*.
 
     Returns an empty list when the key is missing or malformed.  Each entry
@@ -174,7 +260,7 @@ def _read_active_org_roles(config: dict[str, Any]) -> list[dict[str, Any]]:
     raw: object = config.get("active_org_roles", [])
     if not isinstance(raw, list):
         return []
-    result: list[dict[str, Any]] = []
+    result: list[RoleEntry] = []
     for item in raw:
         if not isinstance(item, dict):
             continue
@@ -184,11 +270,11 @@ def _read_active_org_roles(config: dict[str, Any]) -> list[dict[str, Any]]:
         phases: object = item.get("assigned_phases", [])
         if not isinstance(phases, list):
             phases = []
-        result.append({"slug": slug, "assigned_phases": list(phases)})
+        result.append(RoleEntry(slug=slug, assigned_phases=list(phases)))
     return result
 
 
-def _read_phases(config: dict[str, Any]) -> list[str]:
+def _read_phases(config: PipelineConfig) -> list[str]:
     """Return phase label strings from *config*'s ``active_labels_order`` list."""
     raw: object = config.get("active_labels_order", [])
     if not isinstance(raw, list):
@@ -201,7 +287,7 @@ def _read_phases(config: dict[str, Any]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _load_presets() -> list[dict[str, Any]]:
+def _load_presets() -> list[OrgPreset]:
     """Read and parse org-presets.yaml, returning the ``presets`` list.
 
     Returns an empty list if the file is missing or malformed so the UI
@@ -214,60 +300,60 @@ def _load_presets() -> list[dict[str, Any]]:
         presets: object = raw.get("presets", [])
         if not isinstance(presets, list):
             return []
-        return [p for p in presets if isinstance(p, dict)]
+        result: list[OrgPreset] = []
+        for p in presets:
+            if not isinstance(p, dict):
+                continue
+            pid = p.get("id", "")
+            tiers_raw = p.get("tiers", {})
+            tiers: OrgPresetTiers = OrgPresetTiers(
+                leadership=[str(s) for s in tiers_raw.get("leadership", [])] if isinstance(tiers_raw, dict) else [],
+                workers=[str(s) for s in tiers_raw.get("workers", [])] if isinstance(tiers_raw, dict) else [],
+            )
+            result.append(OrgPreset(
+                id=str(pid),
+                name=str(p.get("name", pid)),
+                description=str(p.get("description", "")),
+                tiers=tiers,
+            ))
+        return result
     except Exception as exc:
         logger.warning("⚠️ Could not load org-presets.yaml: %s", exc)
         return []
 
 
-def _save_preset(name: str, roles: list[dict[str, Any]]) -> str:
+def _save_preset(name: str, roles: list[RoleEntry]) -> str:
     """Append a new preset to org-presets.yaml and return its generated slug.
 
     The slug is derived from the name by lowercasing and replacing spaces with
     hyphens.  If a preset with the same slug already exists it is overwritten.
     """
     slug = name.lower().replace(" ", "-")
-    try:
-        raw_text = _PRESETS_PATH.read_text(encoding="utf-8")
-        raw: object = yaml.safe_load(raw_text)
-        if not isinstance(raw, dict):
-            raw = {}
-        raw_dict: dict[str, Any] = raw
-    except Exception:
-        raw_dict = {}
-
-    presets: object = raw_dict.get("presets", [])
-    if not isinstance(presets, list):
-        presets = []
-    preset_list: list[dict[str, Any]] = [
-        p for p in presets if isinstance(p, dict) and p.get("id") != slug
-    ]
+    existing_presets = _load_presets()
+    kept: list[OrgPreset] = [p for p in existing_presets if p["id"] != slug]
 
     # Build tiers from the roles list.
     leadership: list[str] = []
     workers: list[str] = []
     for entry in roles:
-        role_slug: object = entry.get("slug")
-        if not isinstance(role_slug, str):
-            continue
-        tier = _tier_for_slug(role_slug)
+        tier = _tier_for_slug(entry["slug"])
         if tier in ("c_suite", "vp"):
-            leadership.append(role_slug)
+            leadership.append(entry["slug"])
         else:
-            workers.append(role_slug)
+            workers.append(entry["slug"])
 
-    new_preset: dict[str, Any] = {
-        "id": slug,
-        "name": name,
-        "description": f"Custom org template with {len(roles)} role(s).",
-        "tiers": {"leadership": leadership, "workers": workers},
-    }
-    preset_list.append(new_preset)
-    raw_dict["presets"] = preset_list
+    new_preset = OrgPreset(
+        id=slug,
+        name=name,
+        description=f"Custom org template with {len(roles)} role(s).",
+        tiers=OrgPresetTiers(leadership=leadership, workers=workers),
+    )
+    kept.append(new_preset)
 
+    presets_doc = {"presets": [dict(p) for p in kept]}
     tmp = _PRESETS_PATH.with_suffix(".tmp")
     tmp.write_text(
-        yaml.dump(raw_dict, default_flow_style=False, allow_unicode=True),
+        yaml.dump(presets_doc, default_flow_style=False, allow_unicode=True),
         encoding="utf-8",
     )
     tmp.rename(_PRESETS_PATH)
@@ -323,34 +409,34 @@ def _load_taxonomy_role_index() -> dict[str, _RoleIndexEntry]:
 
 
 def _builder_context(
-    config: dict[str, Any],
+    config: PipelineConfig,
     *,
     active_org_id: str | None = None,
-) -> dict[str, Any]:
+) -> BuilderContext:
     """Return the shared context dict for the builder panel partials."""
     active_org_roles = _read_active_org_roles(config)
     phases = _read_phases(config)
 
     # Annotate each role entry with its tier so templates can branch.
-    annotated: list[dict[str, Any]] = []
+    annotated: list[AnnotatedRoleEntry] = []
     for entry in active_org_roles:
         tier = _tier_for_slug(entry["slug"])
         annotated.append(
-            {
-                "slug": entry["slug"],
-                "assigned_phases": entry["assigned_phases"],
-                "tier": tier,
-                "phase_assignable": tier in _PHASE_ASSIGNABLE_TIERS,
-            }
+            AnnotatedRoleEntry(
+                slug=entry["slug"],
+                assigned_phases=entry["assigned_phases"],
+                tier=tier,
+                phase_assignable=tier in _PHASE_ASSIGNABLE_TIERS,
+            )
         )
 
-    return {
-        "active_org_roles": annotated,
-        "phases": phases,
-        "taxonomy": ROLE_TAXONOMY,
-        "tier_labels": TIER_LABELS,
-        "active_org_id": active_org_id,
-    }
+    return BuilderContext(
+        active_org_roles=annotated,
+        phases=phases,
+        taxonomy=ROLE_TAXONOMY,
+        tier_labels=TIER_LABELS,
+        active_org_id=active_org_id,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -398,7 +484,7 @@ async def org_tree() -> JSONResponse:
         raise HTTPException(status_code=404, detail="No active org selected. Choose a preset first.")
 
     presets = _load_presets()
-    preset = next((p for p in presets if p.get("id") == active_org), None)
+    preset = next((p for p in presets if p["id"] == active_org), None)
     if preset is None:
         raise HTTPException(status_code=404, detail=f"Active preset {active_org!r} not found in org-presets.yaml")
 
@@ -409,29 +495,25 @@ async def org_tree() -> JSONResponse:
             slug,
             _RoleIndexEntry(tier="Worker", compatible_figures=[], label=slug, title=slug),
         )
-        figures: list[str] = meta.get("compatible_figures", [])
         return OrgTreeRole(
             slug=slug,
-            name=meta.get("label", slug),
-            tier=meta.get("tier", "Worker"),
+            name=meta["label"],
+            tier=meta["tier"],
             assigned_phases=[],
-            figures=figures[:2],
+            figures=meta["compatible_figures"][:2],
         )
 
-    tiers_raw: object = preset.get("tiers", {})
-    if not isinstance(tiers_raw, dict):
-        tiers_raw = {}
-
+    preset_tiers = preset["tiers"]
     tier_children: list[OrgTreeNode] = []
-    tier_display = {"leadership": "Leadership", "workers": "Workers"}
-    for tier_key in ("leadership", "workers"):
-        slugs: object = tiers_raw.get(tier_key, [])
-        if not isinstance(slugs, list):
-            continue
+    for tier_key, slugs in (
+        ("leadership", preset_tiers["leadership"]),
+        ("workers", preset_tiers["workers"]),
+    ):
         roles = [_make_role(str(s)) for s in slugs]
+        tier_display_name = "Leadership" if tier_key == "leadership" else "Workers"
         tier_children.append(
             OrgTreeNode(
-                name=tier_display.get(tier_key, tier_key.title()),
+                name=tier_display_name,
                 id=tier_key,
                 tier=tier_key,
                 roles=roles,
@@ -440,7 +522,7 @@ async def org_tree() -> JSONResponse:
         )
 
     root = OrgTreeNode(
-        name=str(preset.get("name", active_org)),
+        name=preset["name"],
         id=active_org,
         tier="org",
         roles=[],
@@ -464,7 +546,7 @@ async def select_preset(
     Returns HTTP 422 when *preset_id* does not match any known preset.
     """
     presets = _load_presets()
-    preset_ids = {p["id"] for p in presets if "id" in p}
+    preset_ids = {p["id"] for p in presets}
 
     if preset_id not in preset_ids:
         logger.warning("⚠️ Unknown preset_id requested: %s", preset_id)
@@ -503,8 +585,8 @@ async def roles_taxonomy() -> JSONResponse:
           }
         }
     """
-    tiers: dict[str, dict[str, Any]] = {
-        tier: {"label": TIER_LABELS[tier], "roles": roles}
+    tiers: dict[str, TierEntry] = {
+        tier: TierEntry(label=TIER_LABELS[tier], roles=roles)
         for tier, roles in ROLE_TAXONOMY.items()
     }
     return JSONResponse({"tiers": tiers})
@@ -543,10 +625,17 @@ async def add_role(
     else:
         logger.info("ℹ️ Role %r already present — skipping duplicate", slug)
 
+    ctx = _builder_context(config)
     return _TEMPLATES.TemplateResponse(
         request,
         "_org_role_list.html",
-        _builder_context(config),
+        {
+            "active_org_roles": ctx["active_org_roles"],
+            "phases": ctx["phases"],
+            "taxonomy": ctx["taxonomy"],
+            "tier_labels": ctx["tier_labels"],
+            "active_org_id": ctx["active_org_id"],
+        },
     )
 
 
@@ -573,10 +662,17 @@ async def remove_role(
             logger.error("❌ Failed to write pipeline-config.json: %s", exc)
             raise HTTPException(status_code=500, detail="Failed to remove role") from exc
 
+    ctx = _builder_context(config)
     return _TEMPLATES.TemplateResponse(
         request,
         "_org_role_list.html",
-        _builder_context(config),
+        {
+            "active_org_roles": ctx["active_org_roles"],
+            "phases": ctx["phases"],
+            "taxonomy": ctx["taxonomy"],
+            "tier_labels": ctx["tier_labels"],
+            "active_org_id": ctx["active_org_id"],
+        },
     )
 
 
@@ -621,10 +717,17 @@ async def update_role_phases(
         logger.error("❌ Failed to write pipeline-config.json: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to update phases") from exc
 
+    ctx = _builder_context(config)
     return _TEMPLATES.TemplateResponse(
         request,
         "_org_role_list.html",
-        _builder_context(config),
+        {
+            "active_org_roles": ctx["active_org_roles"],
+            "phases": ctx["phases"],
+            "taxonomy": ctx["taxonomy"],
+            "tier_labels": ctx["tier_labels"],
+            "active_org_id": ctx["active_org_id"],
+        },
     )
 
 

@@ -89,14 +89,14 @@ def _md_to_html(text: str) -> str:
     - ``tables``       — GFM-style tables
     """
     import re
-    import markdown as _md  # type: ignore[import-untyped]
+    import markdown as _md
     from markupsafe import Markup
 
     # Insert a blank line before bullet/numbered list items that follow a
     # non-blank line so the Markdown parser recognises them as a list block.
     text = re.sub(r"([^\n])\n([ \t]*(?:[-*+]|\d+\.) )", r"\1\n\n\2", text)
 
-    result = _md.markdown(
+    result: str = _md.markdown(
         text,
         extensions=["fenced_code", "tables"],
         output_format="html",

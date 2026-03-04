@@ -12,7 +12,7 @@ The test suite verifies:
 """
 
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import TypeGuard
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -21,11 +21,32 @@ from agentception.models import PlanIssue, PlanPhase, PlanSpec
 from agentception.readers.issue_creator import (
     DoneEvent,
     FilingErrorEvent,
+    IssueFileEvent,
     IssueEvent,
     LabelEvent,
     StartEvent,
     file_issues,
 )
+
+
+def _is_start(e: IssueFileEvent) -> TypeGuard[StartEvent]:
+    return e["t"] == "start"
+
+
+def _is_label(e: IssueFileEvent) -> TypeGuard[LabelEvent]:
+    return e["t"] == "label"
+
+
+def _is_issue(e: IssueFileEvent) -> TypeGuard[IssueEvent]:
+    return e["t"] == "issue"
+
+
+def _is_done(e: IssueFileEvent) -> TypeGuard[DoneEvent]:
+    return e["t"] == "done"
+
+
+def _is_error(e: IssueFileEvent) -> TypeGuard[FilingErrorEvent]:
+    return e["t"] == "error"
 
 
 # ---------------------------------------------------------------------------
@@ -86,7 +107,7 @@ def _issue_url(number: int) -> bytes:
     return f"https://github.com/test/repo/issues/{number}\n".encode()
 
 
-async def _collect(gen: AsyncIterator[Any]) -> list[Any]:
+async def _collect(gen: AsyncIterator[IssueFileEvent]) -> list[IssueFileEvent]:
     """Drain an async generator into a list."""
     return [event async for event in gen]
 
@@ -110,8 +131,8 @@ async def test_file_issues_emits_start_event() -> None:
     ):
         events = await _collect(file_issues(spec))
 
-    assert events[0]["t"] == "start"
-    start: StartEvent = events[0]
+    assert _is_start(events[0])
+    start = events[0]
     assert start["total"] == 2
     assert start["initiative"] == "test-initiative"
 
@@ -130,9 +151,9 @@ async def test_file_issues_emits_label_event() -> None:
     ):
         events = await _collect(file_issues(spec))
 
-    label_events = [e for e in events if e["t"] == "label"]
+    label_events = [e for e in events if _is_label(e)]
     assert label_events, "Expected at least one 'label' event"
-    label: LabelEvent = label_events[0]
+    label = label_events[0]
     assert isinstance(label["text"], str) and label["text"]
 
 
@@ -153,7 +174,7 @@ async def test_file_issues_emits_issue_events_for_each_issue() -> None:
     ):
         events = await _collect(file_issues(spec))
 
-    issue_events = [e for e in events if e["t"] == "issue"]
+    issue_events = [e for e in events if _is_issue(e)]
     assert len(issue_events) == 2
     numbers = {e["number"] for e in issue_events}
     assert len(numbers) == 2, "Each issue should get a distinct GitHub number"
@@ -176,8 +197,8 @@ async def test_file_issues_emits_done_event_last() -> None:
     ):
         events = await _collect(file_issues(spec))
 
-    assert events[-1]["t"] == "done"
-    done: DoneEvent = events[-1]
+    assert _is_done(events[-1])
+    done = events[-1]
     assert done["total"] == 2
     assert done["initiative"] == "test-initiative"
     assert len(done["issues"]) == 2
@@ -270,13 +291,13 @@ async def test_file_issues_yields_error_on_label_failure() -> None:
     ):
         events = await _collect(file_issues(spec))
 
-    assert events[0]["t"] == "start"
-    assert events[1]["t"] == "label"
-    assert events[2]["t"] == "error"
-    error: FilingErrorEvent = events[2]
+    assert _is_start(events[0])
+    assert _is_label(events[1])
+    assert _is_error(events[2])
+    error = events[2]
     assert "rate limited" in error["detail"]
     # No issue events should have been emitted.
-    assert all(e["t"] != "issue" for e in events)
+    assert not any(_is_issue(e) for e in events)
 
 
 @pytest.mark.anyio
@@ -295,6 +316,6 @@ async def test_file_issues_yields_error_on_create_failure() -> None:
     ):
         events = await _collect(file_issues(spec))
 
-    error_events = [e for e in events if e["t"] == "error"]
+    error_events = [e for e in events if _is_error(e)]
     assert error_events, "Expected an error event after gh issue create failure"
     assert "gh issue create failed" in error_events[0]["detail"]

@@ -58,7 +58,7 @@ show_error_codes = true
 
 # Third-party stubs are not always available
 [[tool.mypy.overrides]]
-module = ["sqlalchemy.*", "alembic.*", "asyncpg.*", "aiosqlite.*"]
+module = ["sqlalchemy.*", "alembic.*", "asyncpg.*", "aiosqlite.*", "markdown"]
 ignore_missing_imports = true
 
 # pytest decorators are untyped by design
