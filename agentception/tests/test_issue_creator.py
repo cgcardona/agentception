@@ -111,7 +111,7 @@ async def test_file_issues_emits_start_event() -> None:
         events = await _collect(file_issues(spec))
 
     assert events[0]["t"] == "start"
-    start: StartEvent = events[0]  # type: ignore[assignment]
+    start: StartEvent = events[0]
     assert start["total"] == 2
     assert start["initiative"] == "test-initiative"
 
@@ -132,7 +132,7 @@ async def test_file_issues_emits_label_event() -> None:
 
     label_events = [e for e in events if e["t"] == "label"]
     assert label_events, "Expected at least one 'label' event"
-    label: LabelEvent = label_events[0]  # type: ignore[assignment]
+    label: LabelEvent = label_events[0]
     assert isinstance(label["text"], str) and label["text"]
 
 
@@ -177,7 +177,7 @@ async def test_file_issues_emits_done_event_last() -> None:
         events = await _collect(file_issues(spec))
 
     assert events[-1]["t"] == "done"
-    done: DoneEvent = events[-1]  # type: ignore[assignment]
+    done: DoneEvent = events[-1]
     assert done["total"] == 2
     assert done["initiative"] == "test-initiative"
     assert len(done["issues"]) == 2
@@ -273,7 +273,7 @@ async def test_file_issues_yields_error_on_label_failure() -> None:
     assert events[0]["t"] == "start"
     assert events[1]["t"] == "label"
     assert events[2]["t"] == "error"
-    error: FilingErrorEvent = events[2]  # type: ignore[assignment]
+    error: FilingErrorEvent = events[2]
     assert "rate limited" in error["detail"]
     # No issue events should have been emitted.
     assert all(e["t"] != "issue" for e in events)

@@ -39,10 +39,10 @@ def _make_analysis(
     return IssueAnalysis(
         number=number,
         dependencies=dependencies or [],
-        parallelism=parallelism,  # type: ignore[arg-type]
-        conflict_risk=conflict_risk,  # type: ignore[arg-type]
+        parallelism=parallelism,
+        conflict_risk=conflict_risk,
         modifies_files=modifies_files or [],
-        recommended_role=recommended_role,  # type: ignore[arg-type]
+        recommended_role=recommended_role,
         recommended_merge_after=recommended_merge_after,
     )
 

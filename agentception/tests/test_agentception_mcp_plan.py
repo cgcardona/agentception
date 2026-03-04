@@ -626,7 +626,9 @@ async def test_plan_get_labels_filters_non_dict_items() -> None:
     labels = result["labels"]
     assert isinstance(labels, list)
     assert len(labels) == 1
-    assert labels[0]["name"] == "valid"  # type: ignore[index]
+    first_label = labels[0]
+    assert isinstance(first_label, dict)
+    assert first_label["name"] == "valid"
 
 
 # ---------------------------------------------------------------------------
@@ -679,9 +681,11 @@ def test_plan_validate_manifest_computed_fields_authoritative() -> None:
 def test_plan_validate_manifest_multi_issue_total() -> None:
     """total_issues reflects actual number of issues across all phases."""
     manifest = _minimal_manifest_dict()
-    phase = manifest["phases"][0]  # type: ignore[index]
+    phases = manifest["phases"]
+    assert isinstance(phases, list)
+    phase = phases[0]
     assert isinstance(phase, dict)
-    issue_list = phase["issues"]  # type: ignore[index]
+    issue_list = phase["issues"]
     assert isinstance(issue_list, list)
     issue_list.append({
         "title": "Second issue",
@@ -694,7 +698,7 @@ def test_plan_validate_manifest_multi_issue_total() -> None:
         "tests_required": ["test_second"],
         "docs_required": [],
     })
-    phase["parallel_groups"] = [["Bootstrap repo", "Second issue"]]  # type: ignore[index]
+    phase["parallel_groups"] = [["Bootstrap repo", "Second issue"]]
     result = plan_validate_manifest(json.dumps(manifest))
     assert result.get("valid") is True
     assert result.get("total_issues") == 2

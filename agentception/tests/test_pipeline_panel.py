@@ -210,7 +210,7 @@ def test_compute_phase_lanes_blockers_point_to_upstream(labels: list[str]) -> No
     assert waiting_lane["gate_status"] == "waiting"
     raw_blockers = waiting_lane["blockers"]
     assert isinstance(raw_blockers, list)
-    blocker_numbers = [b["number"] for b in raw_blockers]  # type: ignore[index]  # PhaseLane is dict[str,object]; "blockers" value is typed object
+    blocker_numbers = [b["number"] for b in raw_blockers]
     assert 10 in blocker_numbers
 
 

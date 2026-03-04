@@ -30,7 +30,7 @@ import logging
 from pathlib import Path
 from typing import Annotated, Any, TypedDict
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 from fastapi import APIRouter, Form, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.requests import Request
@@ -232,7 +232,7 @@ def _save_preset(name: str, roles: list[dict[str, Any]]) -> str:
         raw: object = yaml.safe_load(raw_text)
         if not isinstance(raw, dict):
             raw = {}
-        raw_dict: dict[str, Any] = raw  # type: ignore[assignment]
+        raw_dict: dict[str, Any] = raw
     except Exception:
         raw_dict = {}
 
