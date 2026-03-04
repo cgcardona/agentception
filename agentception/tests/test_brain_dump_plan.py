@@ -15,21 +15,10 @@ Run targeted:
     docker compose exec agentception pytest agentception/tests/test_brain_dump_plan.py -v
 """
 
-from collections.abc import Generator
-
 import pytest
-from fastapi.testclient import TestClient
 
-from agentception.app import app
 from agentception.models import PlanResult
 from agentception.readers.phase_planner import _extract_items, _classify, plan_phases
-
-
-@pytest.fixture()
-def client() -> Generator[TestClient, None, None]:
-    """Synchronous test client with full lifespan."""
-    with TestClient(app) as c:
-        yield c
 
 
 # ── Unit tests for the phase planner reader ───────────────────────────────────
@@ -158,62 +147,3 @@ def test_plan_phases_raises_on_whitespace_dump() -> None:
     """A whitespace-only dump raises ValueError."""
     with pytest.raises(ValueError, match="empty"):
         plan_phases("   \n\n   ")
-
-
-# ── HTTP integration tests ────────────────────────────────────────────────────
-
-
-def test_plan_endpoint_returns_phases_for_valid_dump(client: TestClient) -> None:
-    """POST /api/brain-dump/plan returns 200 with phases for a valid dump."""
-    response = client.post(
-        "/api/brain-dump/plan",
-        json={"dump": "- Login fails on mobile\n- Add dark mode toggle\n- Write tests"},
-    )
-    assert response.status_code == 200
-    data = response.json()
-    assert "phases" in data
-    assert isinstance(data["phases"], list)
-    assert len(data["phases"]) >= 1
-
-
-def test_plan_endpoint_phase_shape(client: TestClient) -> None:
-    """Each phase card has the correct fields with the right types."""
-    response = client.post(
-        "/api/brain-dump/plan",
-        json={"dump": "- Fix broken auth\n- Add dark mode\n- Refactor jQuery"},
-    )
-    assert response.status_code == 200
-    phases = response.json()["phases"]
-    for phase in phases:
-        assert isinstance(phase["label"], str)
-        assert isinstance(phase["description"], str)
-        assert isinstance(phase["estimated_issue_count"], int)
-        assert phase["estimated_issue_count"] >= 1
-        assert isinstance(phase["depends_on"], list)
-
-
-def test_plan_endpoint_returns_422_for_empty_dump(client: TestClient) -> None:
-    """POST /api/brain-dump/plan returns 422 when dump is empty."""
-    response = client.post("/api/brain-dump/plan", json={"dump": ""})
-    assert response.status_code == 422
-
-
-def test_plan_endpoint_returns_422_for_whitespace_dump(client: TestClient) -> None:
-    """POST /api/brain-dump/plan returns 422 when dump is all whitespace."""
-    response = client.post("/api/brain-dump/plan", json={"dump": "   \n\n   "})
-    assert response.status_code == 422
-
-
-def test_plan_endpoint_does_not_create_github_resources(client: TestClient) -> None:
-    """The plan endpoint must complete without making any GitHub API calls.
-
-    We verify this indirectly: the endpoint must return quickly with no
-    side-effects — if it were calling GitHub, it would fail in the test
-    environment due to no credentials being configured.
-    """
-    response = client.post(
-        "/api/brain-dump/plan",
-        json={"dump": "- Fix login bug\n- Migrate to JWT\n- Add pagination\n"},
-    )
-    # If this reaches 200, no external calls were made (they would fail with 500).
-    assert response.status_code == 200

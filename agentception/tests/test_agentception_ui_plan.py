@@ -171,3 +171,16 @@ def test_plan_run_text_not_found(client: TestClient, tmp_path: Path) -> None:
     with patch("agentception.config.settings", fake_settings):
         resp = client.get("/api/plan/plan-99991231-999999/plan-text")
     assert resp.status_code == 404
+
+
+def test_plan_page_done_state_has_batch_pill_and_build_link(client: TestClient) -> None:
+    """GET /plan must render the batch_id pill and 'Open in Build' link in the done state."""
+    resp = client.get("/plan")
+    assert resp.status_code == 200
+    # Batch pill elements — present in the done state section.
+    assert "plan-done-batch" in resp.text
+    assert "plan-done-batch-id" in resp.text
+    assert "copyBatchId" in resp.text
+    # 'Open in Build →' anchor with correct URL pattern.
+    assert "Open in Build" in resp.text
+    assert "/build?initiative=" in resp.text

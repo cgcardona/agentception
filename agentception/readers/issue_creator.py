@@ -25,6 +25,7 @@ start a phase-1 issue until all phase-0 issues are closed.
 
 import asyncio
 import logging
+import uuid
 from collections.abc import AsyncGenerator
 from typing import TypedDict
 
@@ -79,6 +80,7 @@ class DoneEvent(TypedDict):
     t: str  # "done"
     total: int
     initiative: str
+    batch_id: str
     issues: list[dict[str, object]]
 
 
@@ -210,6 +212,7 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
     and iteration stops.
     """
     repo = _cfg.gh_repo
+    batch_id = f"batch-{uuid.uuid4().hex[:12]}"
     total_issues = sum(len(p.issues) for p in spec.phases)
     id_to_number: dict[str, int] = {}
     id_to_body: dict[str, str] = {
@@ -330,5 +333,6 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
         t="done",
         total=total_issues,
         initiative=spec.initiative,
+        batch_id=batch_id,
         issues=created,
     )
