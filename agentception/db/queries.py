@@ -1085,17 +1085,25 @@ def _compute_locked(
 async def get_issues_grouped_by_phase(
     repo: str,
     initiative: str | None = None,
+    phase_order: list[str] | None = None,
 ) -> list[PhaseGroupRow]:
-    """Return issues grouped by phase, ordered phase-0..3.
+    """Return issues grouped by phase, ordered according to *phase_order*.
+
+    *phase_order* is the caller-supplied list of phase label strings that
+    defines which phases appear in the result and in what order.  When
+    omitted it falls back to ``_PHASE_ORDER`` (``["phase-0".."phase-3"]``)
+    for backward compatibility.  Pass ``settings.active_labels_order`` from
+    ``pipeline-config.json`` to make the Build board reflect the project
+    configuration rather than the hard-coded default.
 
     When *initiative* is supplied the result is scoped to that initiative:
     - Only issues carrying that initiative label are included.
-    - All four phases are always present in the result (even if empty) so
-      the UI can render the full gate structure.
+    - Every phase in *phase_order* is present in the result (even if empty)
+      so the UI can render the full gate structure.
     - No ``"unphased"`` bucket is emitted.
 
     When *initiative* is ``None`` the legacy behaviour is preserved:
-    phase-0..3 first, then remaining label buckets, then ``"unphased"``.
+    configured phases first, then remaining label buckets, then ``"unphased"``.
 
     Each group dict contains:
     - ``label``    — phase label string
@@ -1105,6 +1113,7 @@ async def get_issues_grouped_by_phase(
 
     Falls back to ``[]`` on DB error.
     """
+    effective_phase_order: list[str] = phase_order if phase_order else _PHASE_ORDER
     try:
         async with get_session() as session:
             result = await session.execute(
@@ -1155,13 +1164,13 @@ async def get_issues_grouped_by_phase(
         # Build ordered list; compute complete set first so we can evaluate
         # deps in a single pass.
         complete_phases: set[str] = set()
-        for phase in _PHASE_ORDER:
+        for phase in effective_phase_order:
             issues = groups.get(phase, [])
             if bool(issues) and all(i["state"] == "closed" for i in issues):
                 complete_phases.add(phase)
 
         ordered: list[PhaseGroupRow] = []
-        for phase in _PHASE_ORDER:
+        for phase in effective_phase_order:
             issues = groups.pop(phase, [])
             complete = phase in complete_phases
             deps = phase_deps.get(phase, [])
