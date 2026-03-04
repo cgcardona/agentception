@@ -35,7 +35,7 @@ When uncertain: (1) preserve existing patterns, (2) prefer smaller changes over 
 
 ## Code standards
 
-- **Every Python file** starts with `from __future__ import annotations`. No exceptions.
+- **Every Python file** has `from __future__ import annotations` as the first import, immediately after the module docstring (if present). A module docstring may precede it — nothing else may. No exceptions.
 - Black formatting. Type hints everywhere — 100% coverage, no untyped functions or parameters. `list[...]`/`dict[...]` style (never `List`, `Dict`, `Optional`).
 - **Mypy before tests — always.** Run `docker compose exec agentception mypy <path>` on every Python file you create or modify. Fix all type errors before running tests.
 - Async for all I/O. `logging.getLogger(__name__)` — never `print()`. `AC_*` env vars via `agentception/config.py`.

@@ -118,7 +118,7 @@ scripts/
 
 ## Code Generation Rules
 
-- **Every Python file** must start with `from __future__ import annotations` as the first import. No exceptions.
+- **Every Python file** must have `from __future__ import annotations` as the first import, immediately after the module docstring (if present). A module docstring may precede it — no other code may. No exceptions.
 - **Type everything, 100%.** No untyped function parameters, no untyped return values. Use `list[X]`, `dict[K, V]`, `tuple[A, B]`, `X | None` — never `Optional[X]`, never bare `list` or `dict`.
 - **Mypy before tests — always, without exception.** Run `docker compose exec agentception mypy agentception/ tests/` on every Python file you create or modify before running the test suite. Fix all type errors first.
 - **Editing existing files:** Only modify necessary sections. Preserve formatting, structure, and surrounding code.
