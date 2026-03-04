@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "agentception": {
+      "url": "http://localhost:10003/mcp",
+      "autoApprove": ["*"]
+    }
+  }
+}
