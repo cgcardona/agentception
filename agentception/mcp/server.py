@@ -7,6 +7,8 @@ AgentCeption MCP tool layer.  The dispatcher is synchronous and stateless —
 it handles exactly one request per call to :func:`handle_request`.
 
 Supported methods:
+  ``initialize``  — MCP protocol handshake (returns server capabilities)
+  ``initialized`` — MCP notification (no response; acknowledged silently)
   ``tools/list``  — returns all registered :class:`~agentception.mcp.types.ACToolDef`
   ``tools/call``  — dispatches to the named tool function
 
@@ -51,6 +53,12 @@ from agentception.mcp.types import (
 )
 
 logger = logging.getLogger(__name__)
+
+#: MCP protocol version this server implements.
+_MCP_PROTOCOL_VERSION = "2024-11-05"
+
+#: Server identity advertised in the ``initialize`` response.
+_SERVER_INFO: dict[str, object] = {"name": "agentception", "version": "1.0.0"}
 
 # ---------------------------------------------------------------------------
 # Tool registry
@@ -483,7 +491,7 @@ async def call_tool_async(
 
 def handle_request(
     raw: dict[str, object],
-) -> dict[str, object]:
+) -> dict[str, object] | None:
     """Dispatch a JSON-RPC 2.0 request dict and return a response dict.
 
     This is the single entry point for the MCP layer.  The caller is
@@ -491,13 +499,17 @@ def handle_request(
     this function handles everything from field extraction through to
     building the response envelope.
 
+    Returns ``None`` for JSON-RPC notifications (messages with no ``id``
+    field, such as ``initialized``) — the caller must not write anything to
+    the wire for a ``None`` return value.
+
     Args:
         raw: A ``dict[str, object]`` parsed from a JSON-RPC 2.0 request body.
 
     Returns:
-        Either a :class:`~agentception.mcp.types.JsonRpcSuccessResponse` or
-        a :class:`~agentception.mcp.types.JsonRpcErrorResponse`.  The caller
-        should serialise the return value back to JSON for the wire.
+        A :class:`~agentception.mcp.types.JsonRpcSuccessResponse`,
+        a :class:`~agentception.mcp.types.JsonRpcErrorResponse`, or ``None``
+        for notifications that require no response.
 
     Never raises.
     """
@@ -523,6 +535,24 @@ def handle_request(
         ))
 
     logger.debug("🔧 handle_request: method=%r id=%r", method, request_id)
+
+    # ── MCP lifecycle handshake ──────────────────────────────────────────────
+
+    if method == "initialize":
+        # Respond with our protocol version and tool capability declaration.
+        result: dict[str, object] = {
+            "protocolVersion": _MCP_PROTOCOL_VERSION,
+            "capabilities": {"tools": {}},
+            "serverInfo": _SERVER_INFO,
+        }
+        return cast(dict[str, object], _make_success_response(request_id, result))
+
+    if method == "initialized":
+        # JSON-RPC notification — no id, no response required.
+        logger.debug("✅ MCP initialized notification received")
+        return None
+
+    # ── Tool methods ─────────────────────────────────────────────────────────
 
     if method == "tools/list":
         tools = list_tools()
