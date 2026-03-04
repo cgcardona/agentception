@@ -7,6 +7,7 @@ zero dependency on SQLAlchemy internals.  Swallows DB errors and returns
 empty results so a database outage degrades gracefully to in-memory state.
 """
 
+import datetime
 import json
 import logging
 from pathlib import Path
@@ -305,15 +306,46 @@ class PhaseGroupRow(TypedDict):
 
 
 class RunForIssueRow(TypedDict):
-    """Most-recent run entry from get_runs_for_issue_numbers."""
+    """Most-recent run entry from get_runs_for_issue_numbers.
+
+    ``agent_status`` is a normalized, stale-aware status string suitable for
+    CSS class suffixes: ``implementing`` | ``reviewing`` | ``done`` | ``stale``
+    | ``unknown`` | other DB values lower-cased.  A run is ``stale`` when its
+    status is active but ``last_activity_at`` is older than
+    ``_STALE_THRESHOLD_SECONDS``.
+    """
 
     id: str
     role: str
     status: str
+    agent_status: str
     pr_number: int | None
     branch: str | None
     spawned_at: str
     last_activity_at: str | None
+    current_step: str | None
+    steps_completed: int
+    steps_total: int | None
+
+
+# ---------------------------------------------------------------------------
+# Step-data helpers — used internally by get_runs_for_issue_numbers
+# ---------------------------------------------------------------------------
+
+#: A run in an active status with no event newer than this is marked "stale".
+_STALE_THRESHOLD_SECONDS: int = 1800  # 30 minutes
+
+#: Statuses considered "active" for staleness detection.
+_ACTIVE_STATUSES: frozenset[str] = frozenset(
+    {"implementing", "pending_launch", "reviewing"}
+)
+
+
+class _RunStepData(TypedDict):
+    """Internal shape returned by ``_get_step_data_for_runs``."""
+
+    current_step: str | None
+    steps_completed: int
 
 
 class PendingLaunchRow(TypedDict):
@@ -1236,10 +1268,95 @@ async def get_issues_grouped_by_phase(
         return []
 
 
+def _compute_agent_status(
+    status: str,
+    last_activity_at: datetime.datetime | None,
+) -> str:
+    """Return a normalized, stale-aware status string for the build card badge.
+
+    Maps DB status values to lower-case display strings and promotes active
+    runs to ``"stale"`` when ``last_activity_at`` is older than
+    ``_STALE_THRESHOLD_SECONDS``.
+    """
+    normalized = status.lower()
+    if normalized in _ACTIVE_STATUSES and last_activity_at is not None:
+        now = datetime.datetime.now(tz=datetime.timezone.utc)
+        # Ensure comparison works regardless of timezone-awareness.
+        if last_activity_at.tzinfo is None:
+            last_activity_at = last_activity_at.replace(tzinfo=datetime.timezone.utc)
+        age_seconds = (now - last_activity_at).total_seconds()
+        if age_seconds > _STALE_THRESHOLD_SECONDS:
+            return "stale"
+    return normalized
+
+
+async def _get_step_data_for_runs(run_ids: list[str]) -> dict[str, _RunStepData]:
+    """Return step-event summary keyed by run_id.
+
+    Queries ``ac_agent_events`` for ``step_start`` events and returns, per run:
+
+    * ``current_step`` — step name from the most-recent event's JSON payload
+      (``{"step": "<name>"}``); ``None`` if no events exist or payload is malformed.
+    * ``steps_completed`` — total count of ``step_start`` events for the run.
+
+    Falls back to ``{}`` on DB error (non-fatal).
+    """
+    if not run_ids:
+        return {}
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(
+                    ACAgentEvent.agent_run_id,
+                    ACAgentEvent.id,
+                    ACAgentEvent.payload,
+                )
+                .where(
+                    ACAgentEvent.agent_run_id.in_(run_ids),
+                    ACAgentEvent.event_type == "step_start",
+                )
+                .order_by(ACAgentEvent.agent_run_id, ACAgentEvent.id)
+            )
+            raw_rows = result.all()
+
+        # Group payloads by run_id (rows ordered by id ASC → last is latest).
+        grouped: dict[str, list[str]] = {}
+        for agent_run_id, _id, payload in raw_rows:
+            if agent_run_id is None:
+                continue
+            grouped.setdefault(agent_run_id, []).append(payload or "{}")
+
+        out: dict[str, _RunStepData] = {}
+        for rid, payloads in grouped.items():
+            try:
+                latest_payload = json.loads(payloads[-1])
+                step_raw = latest_payload.get("step")
+                current_step: str | None = (
+                    step_raw if isinstance(step_raw, str) else None
+                )
+            except (ValueError, AttributeError):
+                current_step = None
+            out[rid] = _RunStepData(
+                current_step=current_step,
+                steps_completed=len(payloads),
+            )
+        return out
+    except Exception as exc:
+        logger.warning("⚠️  _get_step_data_for_runs DB query failed (non-fatal): %s", exc)
+        return {}
+
+
 async def get_runs_for_issue_numbers(
     issue_numbers: list[int],
 ) -> dict[int, RunForIssueRow]:
     """Return the most-recent agent run keyed by issue number.
+
+    Enriches each run with:
+
+    * ``agent_status`` — normalized + stale-aware status string.
+    * ``current_step`` — step name from the most-recent ``step_start`` event.
+    * ``steps_completed`` — count of ``step_start`` events for the run.
+    * ``steps_total`` — always ``None``; the DB does not track planned step count.
 
     Only issue numbers that have at least one run are included in the result.
     Falls back to ``{}`` on DB error.
@@ -1256,21 +1373,34 @@ async def get_runs_for_issue_numbers(
             rows = result.scalars().all()
 
         seen: set[int] = set()
-        out: dict[int, RunForIssueRow] = {}
+        most_recent: dict[int, ACAgentRun] = {}
         for row in rows:
             if row.issue_number is None or row.issue_number in seen:
                 continue
             seen.add(row.issue_number)
-            out[row.issue_number] = RunForIssueRow(
+            most_recent[row.issue_number] = row
+
+        # Fetch step-event data in a single query for all selected runs.
+        run_ids = [r.id for r in most_recent.values()]
+        step_data = await _get_step_data_for_runs(run_ids)
+
+        out: dict[int, RunForIssueRow] = {}
+        for issue_num, row in most_recent.items():
+            sd = step_data.get(row.id, _RunStepData(current_step=None, steps_completed=0))
+            out[issue_num] = RunForIssueRow(
                 id=row.id,
                 role=row.role,
                 status=row.status,
+                agent_status=_compute_agent_status(row.status, row.last_activity_at),
                 pr_number=row.pr_number,
                 branch=row.branch,
                 spawned_at=row.spawned_at.isoformat(),
                 last_activity_at=(
                     row.last_activity_at.isoformat() if row.last_activity_at else None
                 ),
+                current_step=sd["current_step"],
+                steps_completed=sd["steps_completed"],
+                steps_total=None,
             )
         return out
     except Exception as exc:

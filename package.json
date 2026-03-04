@@ -1,0 +1,19 @@
+{
+  "name": "agentception-frontend",
+  "version": "1.0.0",
+  "description": "AgentCeption frontend build toolchain",
+  "private": true,
+  "scripts": {
+    "build:js": "esbuild agentception/static/js/app.js --bundle --format=iife --minify --outfile=agentception/static/app.js",
+    "build:css": "sass --style=compressed --no-source-map agentception/static/scss/app.scss agentception/static/app.css",
+    "build": "npm run build:js && npm run build:css"
+  },
+  "devDependencies": {
+    "@codemirror/commands": "*",
+    "@codemirror/lang-yaml": "*",
+    "@codemirror/state": "*",
+    "@codemirror/theme-one-dark": "*",
+    "@codemirror/view": "*",
+    "esbuild": "^0.27.3"
+  }
+}

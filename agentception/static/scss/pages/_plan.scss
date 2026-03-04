@@ -488,4 +488,45 @@
   white-space: nowrap;
 }
 
-.plan-done-actions { display: flex; justify-content: center; gap: .75rem; }
+// Batch ID pill — shown in done state so the user can copy and navigate.
+.plan-done-batch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  margin: 0 auto 1.5rem;
+  padding: .5rem .9rem;
+  background: var(--bg-secondary, #1a1a2e);
+  border: 1px solid var(--border, #2a2a3e);
+  border-radius: 8px;
+  max-width: fit-content;
+}
+
+.plan-done-batch-label {
+  font-size: .7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--text-muted, #666);
+}
+
+.plan-done-batch-id {
+  font-family: monospace;
+  font-size: .875rem;
+  color: var(--accent-bright, #a78bfa);
+}
+
+.plan-done-batch-copy {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 .2rem;
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--text-secondary, #999);
+  transition: color .15s;
+
+  &:hover { color: var(--text-primary, #e5e5e5); }
+}
+
+.plan-done-actions { display: flex; justify-content: center; gap: .75rem; flex-wrap: wrap; }

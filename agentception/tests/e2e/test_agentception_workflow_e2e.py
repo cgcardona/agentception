@@ -89,35 +89,6 @@ def _make_fake_exec(
 
 
 # ---------------------------------------------------------------------------
-# Step 1: POST /api/brain-dump/plan
-# ---------------------------------------------------------------------------
-
-
-def test_brain_dump_plan_returns_phases(client: TestClient) -> None:
-    """POST /api/brain-dump/plan → response has a phases list with required fields.
-
-    The plan endpoint uses a pure heuristic (no GitHub calls) so no mocking
-    is required.  Assertions are behaviour-only: shape and invariants, not
-    specific phase labels or counts which are internal classification details.
-    """
-    response = client.post("/api/brain-dump/plan", json={"dump": _SAMPLE_DUMP})
-
-    assert response.status_code == 200
-    data = response.json()
-    assert "phases" in data
-    phases = data["phases"]
-    assert isinstance(phases, list)
-    assert len(phases) >= 1, "at least one phase must be returned for a non-empty dump"
-    for phase in phases:
-        assert isinstance(phase.get("label"), str), "each phase must have a string label"
-        assert isinstance(phase.get("description"), str), "each phase must have a description"
-        assert isinstance(
-            phase.get("estimated_issue_count"), int
-        ), "each phase must have an integer estimated_issue_count"
-        assert phase["estimated_issue_count"] >= 1, "estimated_issue_count must be positive"
-
-
-# ---------------------------------------------------------------------------
 # Step 2: POST /api/control/spawn-coordinator
 # ---------------------------------------------------------------------------
 

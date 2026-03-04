@@ -202,6 +202,7 @@ async def test_file_issues_emits_done_event_last() -> None:
     assert done["total"] == 2
     assert done["initiative"] == "test-initiative"
     assert len(done["issues"]) == 2
+    assert isinstance(done["batch_id"], str) and done["batch_id"]
 
 
 # ---------------------------------------------------------------------------

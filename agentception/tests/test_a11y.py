@@ -162,15 +162,69 @@ def test_config_panels_have_aria_labelledby() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Brain Dump — horizontal step indicator (issue #827)
+# Plan — horizontal step indicator
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Batch context bar — base.html structural requirements (issue #80)
+# ---------------------------------------------------------------------------
+
+
+def test_base_has_batch_bar_element() -> None:
+    """base.html must include the persistent batch context bar div."""
+    content = _read("base.html")
+    assert 'class="batch-bar"' in content, (
+        "base.html is missing the .batch-bar persistent context strip"
+    )
+
+
+def test_base_batch_bar_uses_alpine_component() -> None:
+    """The batch bar must be wired to the batchBar() Alpine component."""
+    content = _read("base.html")
+    assert 'x-data="batchBar()"' in content, (
+        "base.html batch bar is missing x-data=\"batchBar()\""
+    )
+
+
+def test_base_batch_bar_hidden_when_empty() -> None:
+    """The batch bar must use x-show=\"batchId\" to hide when no batch is active."""
+    content = _read("base.html")
+    assert 'x-show="batchId"' in content, (
+        'base.html batch bar is missing x-show="batchId" guard'
+    )
+
+
+def test_base_batch_bar_has_dismiss_button() -> None:
+    """The batch bar must include a dismiss (✕) button."""
+    content = _read("base.html")
+    assert 'batch-bar__dismiss' in content, (
+        "base.html batch bar is missing the .batch-bar__dismiss button"
+    )
+    assert 'dismiss()' in content, (
+        "base.html batch bar dismiss button is missing @click=\"dismiss()\" handler"
+    )
+
+
+def test_base_batch_bar_has_nav_links() -> None:
+    """The batch bar must expose Plan, Build, and Ship navigation links."""
+    content = _read("base.html")
+    assert "batch-bar__link" in content, (
+        "base.html batch bar is missing .batch-bar__link navigation anchors"
+    )
+    assert "'/build?initiative='" in content, (
+        "base.html batch bar Build link is missing ?initiative= param"
+    )
+    assert "'/ship?batch='" in content, (
+        "base.html batch bar Ship link is missing ?batch= param"
+    )
 
 
 def test_plan_stepper_present() -> None:
     """plan.html must include the horizontal step indicator nav element."""
     content = _read("plan.html")
-    assert 'class="bd-stepper"' in content, (
-        "plan.html is missing the .bd-stepper nav element"
+    assert 'class="plan-stepper"' in content, (
+        "plan.html is missing the .plan-stepper nav element"
     )
 
 
@@ -183,22 +237,22 @@ def test_plan_stepper_has_aria_label() -> None:
 
 
 def test_plan_stepper_has_four_steps() -> None:
-    """The stepper must render exactly four step labels: Plan, Preview, Running, Done."""
+    """The stepper must render step labels: Write, Review, Done."""
     content = _read("plan.html")
-    for label in ("Plan", "Preview", "Running", "Done"):
+    for label in ("Write", "Review", "Done"):
         assert f">{label}<" in content, (
             f"plan.html stepper is missing step label '{label}'"
         )
 
 
 def test_plan_stepper_driven_by_step_var() -> None:
-    """Stepper classes must reference the existing Alpine 'step' variable, not new state."""
+    """Stepper classes must reference the Alpine 'step' variable with the correct state names."""
     content = _read("plan.html")
-    assert "step === 'input'" in content, (
-        "plan.html stepper must use the existing Alpine 'step' variable"
+    assert "step === 'write'" in content, (
+        "plan.html stepper must use the 'write' step state"
     )
-    assert "step === 'loading'" in content, (
-        "plan.html stepper must reference 'loading' state"
+    assert "step === 'generating'" in content, (
+        "plan.html stepper must reference 'generating' state"
     )
     assert "step === 'done'" in content, (
         "plan.html stepper must reference 'done' state"

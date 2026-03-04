@@ -411,9 +411,9 @@
 
 .build-issue__footer {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.3rem;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
 }
 
 .build-issue__run {
@@ -463,6 +463,40 @@
     color: var(--warning);
     border: 1px solid var(--warning-border);
   }
+}
+
+.build-issue__step {
+  font-size: 0.6rem;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  margin: 0.15rem 0 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.build-issue__progress {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.2rem;
+  width: 100%;
+}
+
+.build-issue__progress-bar {
+  height: 3px;
+  background: var(--accent-bright);
+  border-radius: 2px;
+  flex-shrink: 0;
+  min-width: 2px;
+}
+
+.build-issue__step-count {
+  font-size: 0.55rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  white-space: nowrap;
 }
 
 .build-issue__pr {
