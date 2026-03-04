@@ -1,0 +1,65 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// Agentception — Design System Root
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// This file is the single entry point compiled by Dart Sass into
+// agentception/static/app.css (the file served to the browser).
+//
+// Structure
+// ─────────
+//   _foundation.scss   Design tokens, reset, base typography, layout, nav, cards
+//   _shared.scss        Alert banners, section headings, status badges
+//   _components.scss    Buttons, agent cards, transcript feed, badges, modal, utils
+//
+//   pages/
+//     _overview.scss    Pipeline summary bar, phase switcher, poller, org tree,
+//                       GitHub board, wave control, issue cards
+//     _agent-detail.scss  Agent detail page, 2-col layout, task table, transcript,
+//                         cognitive architecture hero panels
+//     _spawn.scss       Mission Control spawn page
+//     _telemetry.scss   Telemetry D3 dashboard
+//     _issues.scss      Issues list page, run history table, board spinner
+//     _worktrees.scss   Agent Sandboxes / worktrees page
+//     _docs.scss        Docs page (Markdown prose rendering)
+//     _transcripts.scss Transcripts page, scrollbar, media queries
+//     _plan.scss        Plan page
+//     _roles.scss       Cognitive Architecture Studio
+//     _agents.scss      Agents list page
+//     _config.scss      Pipeline Config page
+//     _templates.scss   Templates (export / import / sandbox) page
+//     _toast.scss       Global toast notification overlay (Alpine + HX-Trigger)
+//
+// Compilation
+// ───────────
+//   Dev:   sass --watch agentception/static/scss/app.scss agentception/static/app.css
+//   Build: sass --style=compressed agentception/static/scss/app.scss agentception/static/app.css
+//
+// Never edit app.css directly — it is a generated file.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── Global foundation (loaded on every page) ──────────────────────────────
+@use 'foundation';
+@use 'shared';
+@use 'components';
+
+// ── Page-specific styles ──────────────────────────────────────────────────
+@use 'pages/overview';
+@use 'pages/agent-detail';
+@use 'pages/spawn';
+@use 'pages/telemetry';
+@use 'pages/issues';
+@use 'pages/worktrees';
+@use 'pages/docs';
+@use 'pages/transcripts';
+@use 'pages/plan';
+@use 'pages/build';
+@use 'pages/roles';
+@use 'pages/agents';
+@use 'pages/config';
+@use 'pages/dag';
+@use 'pages/templates';
+@use 'pages/ab-testing';
+@use 'pages/controls';
+@use 'pages/toast';
+@use 'pages/org-chart';
+@use 'pages/pipeline';

@@ -1,0 +1,62 @@
+{#
+  HTMX partial — Plan recent runs sidebar section.
+
+  This template owns the #bd-recent-runs wrapper div, including HTMX attributes,
+  so that outerHTML swaps after a successful submit keep re-triggering functional.
+
+  Included inline on first load via plan.html {% include %}.
+  The /plan/recent-runs endpoint returns this same template so HTMX
+  replaces the entire div (outerHTML) and the refreshed version is identical
+  in structure, preserving Alpine bindings on the parent scope.
+
+  Each card shows:
+    - Run timestamp and optional initiative label
+    - Item count (lines parsed from PLAN_DUMP block)
+    - Preview of the first plan line
+    - "View DAG" link to /dag?batch=<batch_id>
+    - "Re-run →" button — calls reRun(slug) on the parent Alpine component
+#}
+<div
+  id="bd-recent-runs"
+  hx-get="/plan/recent-runs"
+  hx-trigger="refresh"
+  hx-swap="outerHTML"
+>
+{% if recent_plans %}
+<p class="bd-funnel-heading">Recent runs</p>
+<div class="bd-history">
+  {% for run in recent_plans %}
+  <div class="bd-history-card">
+    <div class="bd-history-meta">
+      <span class="bd-history-ts">{{ run.ts }}</span>
+      {% if run.label_prefix %}
+      <span class="bd-history-prefix">{{ run.label_prefix }}</span>
+      {% endif %}
+      {% if run.item_count and run.item_count != "—" %}
+      <span class="bd-history-count" title="Items in plan">{{ run.item_count }} items</span>
+      {% endif %}
+    </div>
+    <p class="bd-history-preview">{{ run.preview or '(no preview)' }}</p>
+    <div class="bd-history-links">
+      <a
+        href="/dag?batch={{ run.batch_id | urlencode }}"
+        class="bd-history-link"
+        title="View execution DAG for this run"
+      >View DAG ↗</a>
+      <a
+        href="https://github.com/{{ gh_repo }}/issues"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="bd-history-link"
+      >Issues ↗</a>
+      <button
+        class="bd-rerun-btn"
+        @click='reRun({{ run.slug | tojson }})'
+        title="Load this plan into the editor"
+      >Re-run →</button>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+</div>

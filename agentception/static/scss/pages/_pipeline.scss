@@ -1,0 +1,166 @@
+/* ══════════════════════════════════════════════════════════════
+   Phase Gate Control Panel — kanban lane strip
+   ══════════════════════════════════════════════════════════════
+
+   Layout: horizontal scrollable row of lane cards, one per phase.
+   Each card carries a coloured dot, the phase name, a gate badge,
+   open/total counts, agent count, and (for waiting phases) a short
+   list of blocker issue links.
+
+   Gate modifier classes:
+     .phase-lane--done     muted, greyed out
+     .phase-lane--ready    accented / highlighted
+     .phase-lane--waiting  warning tint
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── Section wrapper ───────────────────────────────────────── */
+
+.phase-lanes-section {
+  margin-bottom: 1.25rem;
+}
+
+/* ── Horizontal scroll container ───────────────────────────── */
+
+.phase-lanes {
+  display: flex;
+  flex-direction: row;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-default) transparent;
+
+  &::-webkit-scrollbar {
+    height: 4px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: var(--border-default);
+    border-radius: 2px;
+  }
+}
+
+/* ── Individual lane card ───────────────────────────────────── */
+
+.phase-lane {
+  flex: 0 0 220px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius);
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  transition: border-color 0.15s, box-shadow 0.15s;
+
+  &--ready {
+    border-color: var(--success-border);
+    box-shadow: 0 0 0 1px var(--success-border), inset 0 0 20px var(--success-dim);
+  }
+
+  &--waiting {
+    border-color: var(--warning-border);
+    box-shadow: 0 0 0 1px var(--warning-border), inset 0 0 20px var(--warning-dim);
+  }
+
+  &--done {
+    opacity: 0.55;
+  }
+}
+
+/* ── Lane header row ────────────────────────────────────────── */
+
+.phase-lane__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.phase-label-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.phase-lane__name {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Gate badge ─────────────────────────────────────────────── */
+
+.phase-gate-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex-shrink: 0;
+
+  &--ready {
+    background: var(--success-dim);
+    color: var(--success);
+    border: 1px solid var(--success-border);
+  }
+
+  &--waiting {
+    background: var(--warning-dim);
+    color: var(--warning);
+    border: 1px solid var(--warning-border);
+  }
+
+  &--done {
+    background: var(--bg-elevated);
+    color: var(--text-muted);
+    border: 1px solid var(--border-subtle);
+  }
+}
+
+/* ── Stats row ──────────────────────────────────────────────── */
+
+.phase-lane__stats {
+  display: flex;
+  gap: 0.6rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+/* ── Blocker list ───────────────────────────────────────────── */
+
+.phase-lane__blockers {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.1rem;
+}
+
+.blockers-label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--warning);
+  margin: 0;
+}
+
+.blocker-link {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+
+  &:hover {
+    color: var(--accent-bright);
+    text-decoration: underline;
+  }
+}

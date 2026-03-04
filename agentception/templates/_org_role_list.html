@@ -1,0 +1,69 @@
+{#
+  Partial: Active org role cards — rendered by the builder endpoints that
+  add, remove, or update phase assignments.
+
+  Context:
+    active_org_roles — list of annotated role dicts:
+        slug             str   — role identifier
+        assigned_phases  list  — currently assigned phase labels
+        tier             str   — "c_suite" | "vp" | "worker"
+        phase_assignable bool  — True for c_suite and vp tiers
+    phases     — list[str] — available phase label strings
+    tier_labels — dict[str, str] — tier key → human label
+#}
+<div id="org-role-list" class="org-role-list">
+  {% if active_org_roles %}
+    {% for role in active_org_roles %}
+    <div class="org-role-card org-role-card--{{ role.tier }}">
+      <div class="org-role-card__header">
+        <span class="org-role-card__slug">{{ role.slug }}</span>
+        <span class="badge badge--outline org-role-card__tier-badge">
+          {{ tier_labels.get(role.tier, role.tier) }}
+        </span>
+        <button
+          class="org-role-card__remove btn btn--ghost btn--sm"
+          hx-delete='/api/org/roles/{{ role.slug }}'
+          hx-target="#org-role-list"
+          hx-swap="outerHTML"
+          hx-confirm="Remove {{ role.slug }} from the active org?"
+          aria-label="Remove {{ role.slug }}"
+          title="Remove role"
+        >✕</button>
+      </div>
+
+      {% if role.phase_assignable and phases %}
+      <form
+        class="org-role-card__phases"
+        hx-post='/api/org/roles/{{ role.slug }}/phases'
+        hx-target="#org-role-list"
+        hx-swap="outerHTML"
+        hx-trigger="change"
+      >
+        <label class="org-role-card__phase-label text-muted">Assigned phases</label>
+        <div class="org-role-card__phase-options">
+          {% for phase in phases %}
+          <label class="org-phase-option">
+            <input
+              type="checkbox"
+              name="phases"
+              value="{{ phase }}"
+              {% if phase in role.assigned_phases %}checked{% endif %}
+            >
+            <span class="org-phase-option__name">{{ phase }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </form>
+      {% elif role.phase_assignable and not phases %}
+      <p class="text-muted org-role-card__no-phases">
+        No phases configured in <code>pipeline-config.json</code>.
+      </p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  {% else %}
+  <div class="org-role-list__empty">
+    <p class="text-muted">No roles added yet. Use the dropdown above to add roles.</p>
+  </div>
+  {% endif %}
+</div>

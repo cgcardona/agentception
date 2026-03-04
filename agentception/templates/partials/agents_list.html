@@ -1,0 +1,98 @@
+{#
+  HTMX partial — live agents grid fragment.
+  Rendered by GET /partials/agents and injected into #agents-live-inner
+  via hx-swap="innerHTML" every 15 s.
+
+  Context:
+    agents — list of {node, persona, elapsed, is_stale_idle} dicts
+             (same shape as agents_list() view enrichment)
+
+  Intentionally has NO base layout, NO nav, NO Alpine x-data root.
+  The Alpine root (agentsPage) lives on the outer .agents-page div and
+  must not be replaced — this fragment only swaps the server-rendered
+  live agent cards so Alpine filter state is fully preserved.
+#}
+{% if not agents %}
+<div class="agents-empty card">
+  <div class="agents-empty__icon">🤖</div>
+  <div class="agents-empty__title">No agents running</div>
+  <p class="agents-empty__body">
+    The pipeline is idle. Agents appear here when worktrees with
+    <code>.agent-task</code> files are active.
+  </p>
+  <a href="/agents/spawn" class="btn btn-primary mt-1">Spawn an agent</a>
+</div>
+{% else %}
+<div class="agents-live-grid">
+  {% for item in agents %}
+  {% set node = item.node %}
+  {% set persona = item.persona %}
+  {% set elapsed = item.elapsed %}
+  {% set is_stale_idle = item.is_stale_idle %}
+  <a
+    href="/agents/{{ node.id }}"
+    class="agent-live-card agent-live-card--{{ node.status.value }}{% if is_stale_idle %} agent-live-card--stale-idle{% endif %}"
+    title="{{ node.role }}"
+  >
+    <div class="agent-live-avatar agent-live-avatar--{{ persona.archetype | replace('the_','') if persona.archetype else 'default' }}">
+      <span>{{ persona.archetype_emoji }}</span>
+    </div>
+
+    <div class="agent-live-body">
+      <div class="agent-live-top">
+        <span class="status-badge status-badge--{{ node.status.value }}">{{ node.status.value }}</span>
+        {% if node.status.value in ['implementing', 'reviewing'] %}
+        <span class="agent-pulse agent-pulse--{{ node.status.value }}"></span>
+        {% endif %}
+        {% if is_stale_idle %}
+        <span class="agent-live-stale-badge">idle</span>
+        {% endif %}
+      </div>
+
+      <div class="agent-live-role">{{ node.role | replace('-', ' ') | title }}</div>
+      <div class="agent-live-persona">{{ persona.display_name }}</div>
+
+      <div class="agent-live-chips">
+        {% if node.issue_number %}
+        <span class="agent-meta-chip agent-meta-chip--issue">#{{ node.issue_number }}</span>
+        {% endif %}
+        {% if node.pr_number %}
+        <span class="agent-meta-chip agent-meta-chip--pr">PR #{{ node.pr_number }}</span>
+        {% endif %}
+        {% if node.branch %}
+        <code class="agent-live-branch">{{ node.branch | truncate(26, True, '…') }}</code>
+        {% endif %}
+      </div>
+
+      <div class="agent-live-footer">
+        {% if elapsed %}
+        <span class="agent-live-elapsed">{{ elapsed }}</span>
+        {% endif %}
+        {% if node.message_count %}
+        <span class="text-muted" style="font-size:0.68rem">{{ node.message_count }} msgs</span>
+        {% endif %}
+        {% if node.children %}
+        <span class="text-muted" style="font-size:0.68rem">{{ node.children | length }} child{{ 'ren' if node.children | length != 1 }}</span>
+        {% endif %}
+        {% if node.worktree_path %}
+        <a
+          href="/worktrees"
+          class="agent-sandbox-link"
+          @click.prevent.stop="window.location='/worktrees'"
+          title="View in Agent Sandboxes"
+        >sandbox ↗</a>
+        {% endif %}
+        {% if persona.raw %}
+        <a
+          href="/cognitive-arch/{{ persona.raw | urlencode }}"
+          class="agent-arch-link"
+          @click.prevent.stop="window.location='/cognitive-arch/{{ persona.raw }}'"
+          title="View cognitive architecture"
+        >{{ persona.archetype_emoji }}</a>
+        {% endif %}
+      </div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}

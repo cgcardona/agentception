@@ -1,0 +1,22 @@
+{#
+  HTMX partial for issue comments.
+  Rendered by GET /api/issues/{number}/comments
+  and injected into #comments-area via hx-swap="innerHTML".
+
+  Context: comments — list of {id, author, body, created_at}
+#}
+{% if comments %}
+<div class="card" style="padding:0;overflow:hidden;">
+  {% for c in comments %}
+  <div style="padding:0.75rem 1rem;{% if not loop.last %}border-bottom:1px solid var(--border);{% endif %}">
+    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem;">
+      <strong style="font-size:0.85rem;">{{ c.author }}</strong>
+      <span style="font-size:0.75rem;color:var(--text-muted);">{{ c.created_at[:10] if c.created_at else '' }}</span>
+    </div>
+    <pre style="white-space:pre-wrap;word-break:break-word;font-family:inherit;font-size:0.82rem;color:var(--text-muted);margin:0;">{{ c.body or '' }}</pre>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card"><p class="text-muted empty-state">No comments yet.</p></div>
+{% endif %}

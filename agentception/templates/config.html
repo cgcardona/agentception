@@ -1,0 +1,403 @@
+{% extends "base.html" %}
+
+{% block title %}Pipeline Config — AgentCeption{% endblock %}
+
+{% block content %}
+
+{# ── Page header ──────────────────────────────────────────────────────────── #}
+<div class="cfg-page-header">
+  <div>
+    <h1 class="cfg-page-title">Pipeline Config</h1>
+    <p class="cfg-page-subtitle">Tune allocation, label queue, A/B testing, and project targeting.</p>
+  </div>
+  <span class="cfg-save-stamp"
+        x-text="savedAt ? 'Saved at ' + savedAt : ''"
+        x-show="savedAt"
+        style="display:none"></span>
+</div>
+
+{# ── Main layout: sidebar tabs + content + sticky footer ─────────────────── #}
+<div class="cfg-layout"
+     x-data="configPanel()"
+     data-config='{{ config.model_dump() | tojson if config else "{}" }}'
+     x-init="init()">
+
+  {# ── Sidebar tab navigation ─────────────────────────────────────────────── #}
+  <nav class="cfg-sidebar" aria-label="Config sections">
+    <span class="cfg-sidebar-label">Settings</span>
+
+    <button class="cfg-tab-btn"
+            id="tab-btn-allocation"
+            :class="{ active: activeTab === 'allocation' }"
+            @click="setTab('allocation')"
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === 'allocation'"
+            aria-controls="panel-allocation">
+      <span class="cfg-tab-icon">⚡</span>
+      Allocation
+    </button>
+
+    <button class="cfg-tab-btn"
+            id="tab-btn-labels"
+            :class="{ active: activeTab === 'labels' }"
+            @click="setTab('labels')"
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === 'labels'"
+            aria-controls="panel-labels">
+      <span class="cfg-tab-icon">🏷</span>
+      Labels
+      <span class="cfg-tab-badge"
+            x-text="config.active_labels_order.length"
+            x-show="config.active_labels_order.length > 0"></span>
+    </button>
+
+    <button class="cfg-tab-btn"
+            id="tab-btn-ab"
+            :class="{ active: activeTab === 'ab' }"
+            @click="setTab('ab')"
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === 'ab'"
+            aria-controls="panel-ab">
+      <span class="cfg-tab-icon">🔬</span>
+      A/B Testing
+      <span class="cfg-tab-badge on"
+            x-show="config.ab_mode && config.ab_mode.enabled">ON</span>
+    </button>
+
+    <button class="cfg-tab-btn"
+            id="tab-btn-projects"
+            :class="{ active: activeTab === 'projects' }"
+            @click="setTab('projects')"
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === 'projects'"
+            aria-controls="panel-projects">
+      <span class="cfg-tab-icon">📂</span>
+      Projects
+      <span class="cfg-tab-badge"
+            x-text="config.projects.length"
+            x-show="config.projects.length > 0"></span>
+    </button>
+  </nav>
+
+  {# ── Content area ───────────────────────────────────────────────────────── #}
+  <div class="cfg-content">
+
+    {# ════════ Allocation Panel ════════ #}
+    <section id="panel-allocation"
+             role="tabpanel"
+             aria-labelledby="tab-btn-allocation"
+             x-show="activeTab === 'allocation'"
+             x-transition:enter="transition ease-out duration-150"
+             x-transition:enter-start="opacity-0"
+             x-transition:enter-end="opacity-100">
+
+      <h2 class="cfg-panel-title">Allocation</h2>
+
+      <div class="cfg-slider-group">
+
+        <div class="cfg-slider-row">
+          <label class="cfg-slider-label" for="slider-eng-vps">Engineering VPs</label>
+          <p class="cfg-slider-hint">Parallel engineering VP agents in the pipeline</p>
+          <input id="slider-eng-vps"
+                 class="cfg-slider-input"
+                 type="range" min="1" max="8" step="1"
+                 x-model.number="config.max_eng_vps"
+                 aria-label="Max Engineering VPs" />
+          <span class="cfg-slider-value" x-text="config.max_eng_vps"></span>
+        </div>
+
+        <div class="cfg-slider-row">
+          <label class="cfg-slider-label" for="slider-qa-vps">QA VPs</label>
+          <p class="cfg-slider-hint">Parallel QA VP agents in the pipeline</p>
+          <input id="slider-qa-vps"
+                 class="cfg-slider-input"
+                 type="range" min="1" max="4" step="1"
+                 x-model.number="config.max_qa_vps"
+                 aria-label="Max QA VPs" />
+          <span class="cfg-slider-value" x-text="config.max_qa_vps"></span>
+        </div>
+
+        <div class="cfg-slider-row">
+          <label class="cfg-slider-label" for="slider-pool-size">Pool size per VP</label>
+          <p class="cfg-slider-hint">Worker agents assigned to each VP</p>
+          <input id="slider-pool-size"
+                 class="cfg-slider-input"
+                 type="range" min="1" max="20" step="1"
+                 x-model.number="config.pool_size_per_vp"
+                 aria-label="Pool size per VP" />
+          <span class="cfg-slider-value" x-text="config.pool_size_per_vp"></span>
+        </div>
+
+      </div>
+
+      {# ── Capacity meter card ─────────────────────────────────────────────── #}
+      <div class="cfg-capacity-card">
+        <div class="cfg-capacity-header">
+          <span class="cfg-capacity-label">Total agent slots</span>
+          <span class="cfg-capacity-total">
+            <span x-text="totalAgents"></span>
+            <span>agents</span>
+          </span>
+        </div>
+
+        <div class="cfg-capacity-bar" role="meter"
+             :aria-valuenow="totalAgents"
+             aria-valuemin="0"
+             :aria-valuemax="totalAgents"
+             aria-label="Agent slot allocation">
+          <div class="cfg-capacity-bar-eng"
+               :style="'width:' + engPct + '%'"
+               :title="engSlots + ' engineering slots'"></div>
+          <div class="cfg-capacity-bar-qa"
+               :style="'width:' + qaPct + '%'"
+               :title="qaSlots + ' QA slots'"></div>
+        </div>
+
+        <div class="cfg-capacity-legend">
+          <span class="cfg-capacity-legend-item">
+            <span class="cfg-legend-dot eng"></span>
+            <span x-text="engSlots + ' engineering'"></span>
+          </span>
+          <span class="cfg-capacity-legend-item">
+            <span class="cfg-legend-dot qa"></span>
+            <span x-text="qaSlots + ' QA'"></span>
+          </span>
+        </div>
+      </div>
+    </section>
+
+    {# ════════ Labels Panel ════════ #}
+    <section id="panel-labels"
+             role="tabpanel"
+             aria-labelledby="tab-btn-labels"
+             x-show="activeTab === 'labels'"
+             x-transition:enter="transition ease-out duration-150"
+             x-transition:enter-start="opacity-0"
+             x-transition:enter-end="opacity-100">
+
+      <h2 class="cfg-panel-title">Label Queue</h2>
+
+      <ul class="cfg-label-list"
+          id="cfg-label-list"
+          aria-label="Active labels in priority order">
+
+        <template x-if="config.active_labels_order.length === 0">
+          <li class="cfg-label-empty">
+            No labels configured — add one below.
+          </li>
+        </template>
+
+        <template x-for="(label, idx) in config.active_labels_order" :key="label">
+          <li class="cfg-label-item"
+              draggable="true"
+              :data-idx="idx"
+              @dragstart="onDragStart($event, idx)"
+              @dragover.prevent="onDragOver($event)"
+              @dragleave="onDragLeave($event)"
+              @drop.prevent="onDrop($event, idx)"
+              @dragend="onDragEnd()">
+            <span class="cfg-label-position" x-text="idx + 1" aria-hidden="true"></span>
+            <span class="cfg-drag-handle" aria-hidden="true">⠿</span>
+            <span class="cfg-label-text" x-text="label"></span>
+            <button class="cfg-btn-remove"
+                    type="button"
+                    :aria-label="'Remove label ' + label"
+                    @click="removeLabel(idx)">✕</button>
+          </li>
+        </template>
+      </ul>
+
+      <div class="cfg-label-add-row">
+        <input id="cfg-new-label"
+               type="text"
+               placeholder="e.g. agentception/7-new-phase"
+               x-model.trim="newLabel"
+               @keydown.enter="addLabel()"
+               aria-label="New label name" />
+        <button class="btn btn-secondary"
+                type="button"
+                @click="addLabel()">Add label</button>
+      </div>
+    </section>
+
+    {# ════════ A/B Testing Panel ════════ #}
+    <section id="panel-ab"
+             role="tabpanel"
+             aria-labelledby="tab-btn-ab"
+             x-show="activeTab === 'ab'"
+             x-transition:enter="transition ease-out duration-150"
+             x-transition:enter-start="opacity-0"
+             x-transition:enter-end="opacity-100">
+
+      <h2 class="cfg-panel-title">A/B Testing</h2>
+
+      <div class="cfg-ab-callout">
+        <span class="cfg-ab-callout-icon">ℹ️</span>
+        <p class="cfg-ab-callout-text">
+          When enabled, the Engineering VP alternates between two role files for the
+          target role — Variant A on even batch seconds, Variant B on odd — so successive
+          batches see different prompts while everything else stays constant.
+        </p>
+      </div>
+
+      {# ── Enable/disable toggle ─────────────────────────────────────────── #}
+      <div class="cfg-ab-toggle-row" :class="{ 'ab-active': config.ab_mode && config.ab_mode.enabled }">
+        <div class="cfg-ab-toggle-label">
+          <p class="cfg-ab-toggle-title">A/B mode</p>
+          <p class="cfg-ab-toggle-desc">Alternate role files across consecutive batches</p>
+        </div>
+
+        <span class="cfg-ab-status"
+              :class="config.ab_mode && config.ab_mode.enabled ? 'on' : 'off'"
+              x-text="config.ab_mode && config.ab_mode.enabled ? 'Active' : 'Inactive'"></span>
+
+        <label class="cfg-toggle-switch" :aria-label="'A/B mode ' + (config.ab_mode && config.ab_mode.enabled ? 'on' : 'off')">
+          <input type="checkbox"
+                 x-model="config.ab_mode.enabled"
+                 @change="ensureAbMode()"
+                 role="switch"
+                 :aria-checked="config.ab_mode && config.ab_mode.enabled" />
+          <span class="cfg-toggle-track"></span>
+        </label>
+      </div>
+
+      {# ── Conditional fields ────────────────────────────────────────────── #}
+      <div class="cfg-ab-fields"
+           x-show="config.ab_mode && config.ab_mode.enabled"
+           x-transition>
+
+        <div class="cfg-ab-field">
+          <label class="cfg-field-label" for="ab-target-role">Target Role</label>
+          <p class="cfg-field-hint">The role slug that will be split (e.g. <code>python-developer</code>)</p>
+          <input id="ab-target-role"
+                 class="cfg-text-input"
+                 type="text"
+                 placeholder="e.g. python-developer"
+                 x-model.trim="config.ab_mode.target_role"
+                 aria-label="A/B target role" />
+        </div>
+
+        <div class="cfg-ab-field">
+          <label class="cfg-field-label" for="ab-variant-a">Variant A File</label>
+          <p class="cfg-field-hint">Path relative to repo root (e.g. <code>.cursor/roles/python-developer.md</code>)</p>
+          <input id="ab-variant-a"
+                 class="cfg-text-input"
+                 type="text"
+                 placeholder=".cursor/roles/python-developer.md"
+                 x-model.trim="config.ab_mode.variant_a_file"
+                 aria-label="Variant A file path" />
+        </div>
+
+        <div class="cfg-ab-field">
+          <label class="cfg-field-label" for="ab-variant-b">Variant B File</label>
+          <p class="cfg-field-hint">Alternate role file shown on odd-second batches</p>
+          <input id="ab-variant-b"
+                 class="cfg-text-input"
+                 type="text"
+                 placeholder=".cursor/roles/python-developer-v2.md"
+                 x-model.trim="config.ab_mode.variant_b_file"
+                 aria-label="Variant B file path" />
+        </div>
+      </div>
+    </section>
+
+    {# ════════ Projects Panel ════════ #}
+    <section id="panel-projects"
+             role="tabpanel"
+             aria-labelledby="tab-btn-projects"
+             x-show="activeTab === 'projects'"
+             x-transition:enter="transition ease-out duration-150"
+             x-transition:enter-start="opacity-0"
+             x-transition:enter-end="opacity-100">
+
+      <h2 class="cfg-panel-title">Projects</h2>
+
+      <div id="project-toast"
+           class="cfg-switch-toast"
+           aria-live="polite"></div>
+
+      <div class="cfg-projects-list">
+
+        <template x-if="config.projects.length === 0">
+          <div class="cfg-project-empty">
+            No projects configured in <code>pipeline-config.json</code>.
+          </div>
+        </template>
+
+        <template x-for="project in config.projects" :key="project.name">
+          <div class="cfg-project-card"
+               :class="{ active: config.active_project === project.name }">
+
+            <div class="cfg-project-header">
+              <span class="cfg-project-name" x-text="project.name"></span>
+              <span class="cfg-active-badge"
+                    x-show="config.active_project === project.name">Active</span>
+            </div>
+
+            <div class="cfg-project-chips">
+              <span class="cfg-project-chip">
+                <span class="chip-icon">🐙</span>
+                <span x-text="project.gh_repo"></span>
+              </span>
+              <span class="cfg-project-chip" x-show="project.repo_dir">
+                <span class="chip-icon">📁</span>
+                <span x-text="project.repo_dir"></span>
+              </span>
+              <span class="cfg-project-chip" x-show="project.worktrees_dir">
+                <span class="chip-icon">🌳</span>
+                <span x-text="project.worktrees_dir"></span>
+              </span>
+            </div>
+
+            <div class="cfg-project-footer">
+              <span class="cfg-project-cursor-id"
+                    x-show="project.cursor_project_id"
+                    x-text="'cursor: ' + project.cursor_project_id"></span>
+              <button class="btn btn-secondary btn-sm"
+                      type="button"
+                      :disabled="config.active_project === project.name || projectSaving === project.name"
+                      @click="switchProject(project.name)"
+                      x-text="projectSaving === project.name ? 'Switching…' : config.active_project === project.name ? 'Active' : 'Switch to'">
+              </button>
+            </div>
+
+          </div>
+        </template>
+      </div>
+    </section>
+
+  </div>{# end .cfg-content #}
+
+  {# ── Sticky footer ──────────────────────────────────────────────────────── #}
+  <footer class="cfg-footer" role="contentinfo">
+    <button class="btn btn-secondary"
+            type="button"
+            :disabled="!isDirty || saving"
+            @click="cancel()">Discard</button>
+
+    <button class="btn btn-primary"
+            id="btn-save-config"
+            type="button"
+            :disabled="saving"
+            @click="save()"
+            x-text="saving ? 'Saving…' : 'Save changes'">Save changes</button>
+
+    <span class="cfg-footer-spacer"></span>
+
+    <span class="cfg-toast"
+          :class="toast.cls"
+          x-show="toast.msg"
+          x-text="toast.msg"
+          role="status"
+          aria-live="polite"
+          style="display:none"></span>
+  </footer>
+
+</div>{# end .cfg-layout #}
+
+{# configPanel() lives in /static/app.js #}
+{% endblock %}

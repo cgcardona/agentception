@@ -1,0 +1,60 @@
+{#
+  Phase gate control panel — horizontal scrollable kanban lane strip.
+
+  Context variables (injected by the overview route):
+    phase_lanes  list[dict]  — one entry per active phase label, each with:
+      label       str   — phase label name
+      color       str   — hex colour for the dot
+      open_count  int   — open issues in this phase
+      total_count int   — same as open_count (board data only covers open)
+      agent_count int   — agents currently working issues in this phase
+      gate_status str   — "waiting" | "ready" | "done"
+      blockers    list  — [{number, title}] from the first upstream blocker
+#}
+{% if phase_lanes %}
+<section class="phase-lanes-section" aria-label="Phase gate status">
+  <h2 class="section-title">Pipeline Gates</h2>
+  <div class="phase-lanes">
+    {% for lane in phase_lanes %}
+    <div class="phase-lane phase-lane--{{ lane.gate_status }}">
+
+      <div class="phase-lane__header">
+        <span
+          class="phase-label-dot"
+          style="background:{{ lane.color }}"
+          aria-hidden="true"
+        ></span>
+        <span class="phase-lane__name">{{ lane.label }}</span>
+        <span class="phase-gate-badge phase-gate-badge--{{ lane.gate_status }}">
+          {% if lane.gate_status == 'waiting' %}🔒 Waiting
+          {% elif lane.gate_status == 'ready' %}🟢 Ready
+          {% else %}✅ Done{% endif %}
+        </span>
+      </div>
+
+      <div class="phase-lane__stats">
+        <span>{{ lane.open_count }}/{{ lane.total_count }} open</span>
+        {% if lane.agent_count %}
+        <span>{{ lane.agent_count }} agent{% if lane.agent_count != 1 %}s{% endif %}</span>
+        {% endif %}
+      </div>
+
+      {% if lane.blockers %}
+      <div class="phase-lane__blockers">
+        <p class="blockers-label">Waiting on:</p>
+        {% for b in lane.blockers[:3] %}
+        <a
+          href="https://github.com/cgcardona/maestro/issues/{{ b.number }}"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="blocker-link"
+        >#{{ b.number }} {{ b.title | truncate(40) }}</a>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}

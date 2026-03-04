@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}AgentCeption — Cognitive Architecture Browser{% endblock %}
+
+{% block content %}
+
+{# ── Page header ─────────────────────────────────────────────────────────── #}
+<div class="page-header mt-2">
+  <h1 class="page-title">Cognitive Architecture Browser</h1>
+  <p class="page-subtitle text-muted">
+    {{ figures | length }} figures &bull; {{ skill_domains | length }} skill domains
+  </p>
+</div>
+
+{# ── Named Figures ────────────────────────────────────────────────────────── #}
+<section class="mt-2" aria-label="Named cognitive figures">
+  <h2 class="section-title">Named Figures</h2>
+
+  {% if figures %}
+  <div class="card-grid">
+    {% for fig in figures %}
+    <div class="card cog-figure-card">
+      <div class="cog-figure-card__header">
+        <span class="cog-figure-card__name">{{ fig.display_name }}</span>
+        <code class="cog-figure-card__id">{{ fig.id }}</code>
+      </div>
+
+      {% if fig.description %}
+      <p class="cog-figure-card__desc text-muted">{{ fig.description | truncate(200) }}</p>
+      {% endif %}
+
+      {% if fig.compatible_skill_domains %}
+      <div class="cog-figure-card__skills">
+        {% for skill in fig.compatible_skill_domains %}
+        <span class="cog-skill-tag">{{ skill | replace('_', ' ') | title }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card">
+    <p class="text-muted">No figure YAML files found in <code>scripts/gen_prompts/cognitive_archetypes/figures/</code>.</p>
+  </div>
+  {% endif %}
+</section>
+
+{# ── Skill Domains ────────────────────────────────────────────────────────── #}
+<section class="mt-2" aria-label="Skill domains">
+  <h2 class="section-title">Skill Domains</h2>
+
+  {% if skill_domains %}
+  <div class="card-grid">
+    {% for domain in skill_domains %}
+    <div class="card cog-domain-card">
+      <div class="cog-domain-card__header">
+        <span class="cog-domain-card__name">{{ domain.display_name }}</span>
+        <code class="cog-domain-card__id">{{ domain.id }}</code>
+      </div>
+
+      {% if domain.description %}
+      <p class="cog-domain-card__desc text-muted">{{ domain.description | truncate(200) }}</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card">
+    <p class="text-muted">No skill-domain YAML files found in <code>scripts/gen_prompts/cognitive_archetypes/skill_domains/</code>.</p>
+  </div>
+  {% endif %}
+</section>
+
+{% endblock %}

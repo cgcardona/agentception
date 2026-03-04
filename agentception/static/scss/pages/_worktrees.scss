@@ -1,0 +1,518 @@
+/* ── Agent Sandboxes page (worktrees) ─────────────────────────── */
+
+/* Page header */
+.env-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 2rem;
+  gap: 1rem;
+}
+
+.env-page-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 0.375rem;
+}
+
+.env-page-subtitle {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  margin: 0;
+  max-width: 58ch;
+}
+
+.env-page-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+
+.env-page-count {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1;
+}
+
+.env-page-count-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+/*
+  Tree container.
+
+  Layout: the vertical trunk line is a ::before pseudo-element on .env-tree.
+  It runs from below the trunk node dot to the bottom of the last branch.
+  Each .env-branch draws an L-shaped connector to that trunk via its own
+  ::before (horizontal) and the trunk line (vertical, shared).
+*/
+.env-tree {
+  position: relative;
+  padding-left: 1.5rem;         /* room for trunk line + connector arms */
+}
+
+/* Vertical trunk line */
+.env-tree::before {
+  content: '';
+  position: absolute;
+  left: 0.5rem;                 /* centre of the trunk dot */
+  top: 1.5rem;                  /* start below the trunk dot */
+  bottom: 1.75rem;              /* stop above the last branch connector */
+  width: 2px;
+  background: linear-gradient(
+    to bottom,
+    var(--accent) 0%,
+    rgba(124, 58, 237, 0.3) 70%,
+    transparent 100%
+  );
+  border-radius: 1px;
+}
+
+/* ── Trunk node (base environment) ───────────────────────────── */
+
+.env-trunk-node {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+  position: relative;
+  z-index: 1;
+}
+
+.env-trunk-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 3px solid var(--bg-base);
+  box-shadow: 0 0 0 2px var(--accent);
+  flex-shrink: 0;
+  margin-left: -0.125rem;       /* nudge to centre on trunk line */
+}
+
+.env-trunk-info {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex-wrap: wrap;
+}
+
+.env-trunk-branch {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.env-trunk-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 0.15em 0.5em;
+}
+
+.env-trunk-sha {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.env-trunk-commit {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40ch;
+}
+
+/* ── Branch item ──────────────────────────────────────────────── */
+
+.env-branch {
+  position: relative;
+  margin-bottom: 0.875rem;
+  transition: opacity 0.25s, transform 0.25s;
+}
+
+/* Horizontal arm from trunk to branch origin dot */
+.env-branch::before {
+  content: '';
+  position: absolute;
+  left: -1rem;                  /* from trunk line */
+  top: 1.125rem;                /* align with branch origin dot */
+  width: 1rem;
+  height: 2px;
+  background: rgba(124, 58, 237, 0.5);
+}
+
+/* Last branch: visually terminate trunk line here */
+.env-branch--last::after {
+  content: '';
+  position: absolute;
+  left: -1.0625rem;
+  top: 1.0625rem;
+  width: 8px;
+  height: 8px;
+  border-left: 2px solid rgba(124, 58, 237, 0.5);
+  border-bottom: 2px solid rgba(124, 58, 237, 0.5);
+  border-radius: 0 0 0 3px;
+}
+
+/* Branch origin dot — sits at the junction of trunk arm and branch content */
+.env-branch-origin-dot {
+  position: absolute;
+  left: -1.3125rem;
+  top: 0.8125rem;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bg-base);
+  border: 2px solid var(--accent);
+  z-index: 1;
+}
+
+.env-branch--open .env-branch-origin-dot {
+  background: var(--accent);
+}
+
+/* The clickable head row */
+.env-branch-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.env-branch-head:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-hover, var(--bg-surface));
+}
+
+.env-branch--open .env-branch-head {
+  border-color: var(--accent);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  background: rgba(124, 58, 237, 0.04);
+}
+
+/* Right side of branch head — name + actions */
+.env-branch-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.env-branch-top {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* Badges */
+.env-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.2em 0.55em;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.env-badge--issue  { background: rgba(124, 58, 237, 0.15); color: var(--accent); }
+.env-badge--custom { background: rgba(59, 130, 246, 0.15);  color: #60a5fa; }
+
+.env-lock {
+  font-size: 0.7rem;
+  opacity: 0.55;
+  flex-shrink: 0;
+}
+
+.env-branch-name {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+/* Actions cluster — pushed to right */
+.env-branch-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.env-age {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.env-gh-link {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  padding: 0.15em 0.5em;
+  border: 1px solid rgba(124, 58, 237, 0.3);
+  border-radius: 4px;
+  transition: background 0.12s;
+  flex-shrink: 0;
+}
+
+.env-gh-link:hover { background: rgba(124, 58, 237, 0.12); }
+
+.env-delete {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.env-branch-head:hover .env-delete { opacity: 1; }
+
+.env-chevron {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  transition: transform 0.2s;
+  display: inline-block;
+}
+
+.env-chevron--open { transform: rotate(180deg); }
+
+/* HEAD commit preview row */
+.env-branch-commit-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.375rem;
+  font-size: 0.775rem;
+  color: var(--text-muted);
+}
+
+.env-sha {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.7rem;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.env-commit-msg {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Expandable body ──────────────────────────────────────────── */
+
+.env-branch-body {
+  background: var(--bg-base);
+  border: 1px solid var(--accent);
+  border-top: none;
+  border-bottom-left-radius: var(--radius);
+  border-bottom-right-radius: var(--radius);
+  overflow: hidden;
+}
+
+.env-detail {
+  padding: 1.25rem 1.5rem;
+}
+
+.env-detail-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  padding: 0.5rem 0;
+}
+
+@keyframes env-spin {
+  to { transform: rotate(360deg); }
+}
+
+.env-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border-subtle);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: env-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+/* ── Commit chain (within expanded detail) ────────────────────── */
+
+.env-commit-section,
+.env-diff-section,
+.env-task-section {
+  margin-bottom: 1.5rem;
+}
+
+.env-commit-section:last-child,
+.env-diff-section:last-child,
+.env-task-section:last-child {
+  margin-bottom: 0;
+}
+
+.env-detail-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 0 0 0.75rem;
+}
+
+.env-detail-meta {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.75rem;
+}
+
+.env-detail-empty {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  font-style: italic;
+  margin: 0;
+}
+
+/* Vertical dot chain of commits */
+.env-commit-chain {
+  display: flex;
+  flex-direction: column;
+}
+
+.env-commit-node {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+/* Spine: dot + connecting line below it */
+.env-commit-spine {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  width: 14px;
+}
+
+.env-commit-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bg-base);
+  border: 2px solid rgba(124, 58, 237, 0.5);
+  flex-shrink: 0;
+  margin-top: 0.2rem;
+}
+
+.env-commit-dot--head {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.2);
+}
+
+/* Vertical connector between dots */
+.env-commit-line {
+  width: 2px;
+  flex: 1;
+  min-height: 1.25rem;
+  background: rgba(124, 58, 237, 0.25);
+  margin: 0.15rem 0;
+}
+
+/* Commit label */
+.env-commit-body {
+  display: flex;
+  align-items: baseline;
+  gap: 0.625rem;
+  padding: 0.05rem 0 0.875rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.env-commit-sha {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.7rem;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.env-head-tag {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  background: rgba(124, 58, 237, 0.12);
+  border: 1px solid rgba(124, 58, 237, 0.3);
+  border-radius: 3px;
+  padding: 0.1em 0.4em;
+  flex-shrink: 0;
+}
+
+/* Diff stat + task file */
+.env-diff-stat,
+.env-task-file {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78rem;
+  line-height: 1.65;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+  margin: 0;
+  white-space: pre;
+}
+
+.env-task-file {
+  max-height: 280px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Empty state */
+.env-empty {
+  padding: 2.5rem 1.5rem;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.env-empty p { margin: 0.25rem 0; }
+.env-empty a { color: var(--accent); }
+
+

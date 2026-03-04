@@ -1,0 +1,288 @@
+{% extends "base.html" %}
+{% block content %}
+
+{#
+  Plan — Step 1.A + 1.B
+  ─────────────────────────────────────────────────────────────────────────────
+  Three states managed by Alpine (planForm in plan.js):
+    write    — textarea input, seeds, submit
+    review   — Monaco YAML editor, editable, validate + launch
+    done     — success summary, batch ID, next steps
+
+  No right sidebar. The coordinator pipeline happens after Submit — it's not
+  a UI step, so we don't show it here.
+
+  JS     : plan.js  →  planForm()
+  CSS    : app.css  §  Plan
+  ─────────────────────────────────────────────────────────────────────────────
+#}
+
+<div
+  class="plan-page"
+  x-data="planForm()"
+  x-init="init()"
+>
+
+  {# ── Progress indicator ──────────────────────────────────────────────── #}
+  <nav class="plan-stepper" aria-label="Progress">
+    <div class="plan-step"
+         :class="step === 'write' || step === 'generating' ? 'plan-step--active' : 'plan-step--done'"
+         :aria-current='step === "write" || step === "generating" ? "step" : "false"'>
+      <span class="plan-step-bubble">
+        <span class="plan-step-check" x-show="step !== 'write' && step !== 'generating'" aria-hidden="true">✓</span>
+        <span class="plan-step-num"   x-show="step === 'write' || step === 'generating'" aria-hidden="true">1</span>
+      </span>
+      <span class="plan-step-label">Write</span>
+    </div>
+
+    <div class="plan-step-conn" :class="{'plan-step-conn--lit': step === 'review' || step === 'launching' || step === 'done'}" aria-hidden="true"></div>
+
+    <div class="plan-step"
+         :class="step === 'review' || step === 'launching' ? 'plan-step--active'
+               : step === 'done' ? 'plan-step--done'
+               : 'plan-step--future'"
+         :aria-current='step === "review" || step === "launching" ? "step" : "false"'>
+      <span class="plan-step-bubble">
+        <span class="plan-step-check" x-show="step === 'done'" aria-hidden="true">✓</span>
+        <span class="plan-step-num"   x-show="step !== 'done'" aria-hidden="true">2</span>
+      </span>
+      <span class="plan-step-label">Review</span>
+    </div>
+
+    <div class="plan-step-conn" :class="{'plan-step-conn--lit': step === 'done'}" aria-hidden="true"></div>
+
+    <div class="plan-step"
+         :class="step === 'done' ? 'plan-step--active' : 'plan-step--future'"
+         :aria-current='step === "done" ? "step" : "false"'>
+      <span class="plan-step-bubble">
+        <span class="plan-step-num" aria-hidden="true">3</span>
+      </span>
+      <span class="plan-step-label">Done</span>
+    </div>
+  </nav>
+
+  {# ══════════════════════════════════════════════════════════════════════
+     WRITE state — free-form text input
+     ══════════════════════════════════════════════════════════════════════ #}
+  <div class="plan-write" x-show="step === 'write'" x-transition.opacity>
+
+    <h1 class="plan-title">Messy thoughts → shipped work.</h1>
+    <p class="plan-sub">Dump everything — bugs, features, ideas, debt. Claude will structure it into phased GitHub issues.</p>
+
+    <div class="plan-textarea-wrap" :class="{'plan-textarea-wrap--focused': focused}">
+      <textarea
+        id="plan-text"
+        class="plan-textarea"
+        x-model="text"
+        x-ref="textarea"
+        @focus="focused = true"
+        @blur="focused = false"
+        @input="autoGrow($refs.textarea)"
+        @keydown.meta.enter.prevent="submit()"
+        placeholder="e.g.&#10;- Fix the flaky login test when DB is slow&#10;- Migrate auth middleware to JWT&#10;- Add dark mode toggle&#10;- CSV export breaks for reports over 10k rows&#10;- Refactor legacy jQuery to Alpine.js&#10;..."
+        :disabled="submitting"
+        spellcheck="true"
+      ></textarea>
+
+      <div class="plan-textarea-toolbar">
+        <button class="plan-toolbar-btn" @click="pasteClipboard()" :disabled="submitting" title="Paste from clipboard">
+          📋 Paste
+        </button>
+        <button
+          class="plan-toolbar-btn"
+          @click="text = ''; $nextTick(() => autoGrow($refs.textarea))"
+          x-show="text.length > 0"
+          :disabled="submitting"
+        >
+          ✕ Clear
+        </button>
+        <span class="plan-char-count" x-show="text.trim().length > 0" x-text="text.trim().split('\n').filter(l => l.trim()).length + ' lines'"></span>
+      </div>
+    </div>
+
+    {# Seed chips #}
+    <div class="plan-seeds">
+      <span class="plan-seeds-label">Try:</span>
+      {% for seed in seeds %}
+      <button
+        class="plan-seed-chip"
+        data-text="{{ seed.text }}"
+        @click="appendSeed($el.dataset.text)"
+        :disabled="submitting"
+      >{{ seed.label }}</button>
+      {% endfor %}
+    </div>
+
+    {# Options — initiative label override #}
+    <div class="plan-options-row">
+      <button class="plan-options-btn" @click="showOptions = !showOptions">
+        <span x-text="showOptions ? '▾' : '▸'"></span>
+        <span>Options</span>
+        <span class="plan-options-badge" x-show="labelPrefix" x-text="labelPrefix"></span>
+      </button>
+
+      <div class="plan-options-fields" x-show="showOptions">
+        <label class="plan-label-sm" for="plan-prefix">
+          Initiative name <span class="plan-optional">(optional — Claude infers one if blank)</span>
+        </label>
+        <div class="plan-prefix-row">
+          <input
+            id="plan-prefix"
+            class="plan-input"
+            type="text"
+            x-model="labelPrefix"
+            placeholder="e.g. auth-rewrite"
+            :disabled="submitting"
+            maxlength="40"
+          />
+        </div>
+      </div>
+    </div>
+
+    <div class="plan-submit-row">
+      <button
+        class="btn btn-primary plan-submit-btn"
+        @click="submit()"
+        :disabled="submitting || !text.trim()"
+      >
+        Generate plan →
+      </button>
+      <kbd class="plan-kbd">⌘ ↵</kbd>
+    </div>
+
+    <div class="plan-error" x-show="errorMsg" x-transition>
+      <span x-text="errorMsg"></span>
+    </div>
+
+  </div>
+
+  {# ══════════════════════════════════════════════════════════════════════
+     GENERATING state — spinner while LLM works
+     ══════════════════════════════════════════════════════════════════════ #}
+  <div class="plan-generating" x-show="step === 'generating'">
+    <div class="plan-gen-header">
+      <div class="plan-spinner"></div>
+      <div>
+        <p class="plan-generating-text" x-text="loadingMsg || 'Amplifying your intelligence…'"></p>
+        <p class="plan-generating-sub">Building your plan — review and edit before anything is created.</p>
+      </div>
+      <button class="plan-cancel-btn" @click="cancel()">Cancel</button>
+    </div>
+
+    {# Live YAML output — fills as content tokens arrive #}
+    <div class="plan-stream-wrap" x-show="streamingText" x-transition.opacity>
+      <pre
+        class="plan-stream-pre"
+        x-ref="streamDisplay"
+        x-text="streamingText"
+        aria-live="polite"
+        aria-label="Plan generation output"
+      ></pre>
+    </div>
+  </div>
+
+  {# ══════════════════════════════════════════════════════════════════════
+     REVIEW state — Monaco YAML editor
+     ══════════════════════════════════════════════════════════════════════ #}
+  <div class="plan-review" x-show="step === 'review' || step === 'launching'">
+
+    <div class="plan-review-header">
+      <div>
+        <h2 class="plan-review-title">Review your plan</h2>
+        <p class="plan-review-meta">
+          <span x-text="initiative"></span> ·
+          <span x-text="phaseCount"></span> phases ·
+          <span x-text="issueCount"></span> issues
+        </p>
+      </div>
+      <div class="plan-review-actions">
+        <button
+          class="btn btn-secondary"
+          @click="editPlan()"
+          :disabled="step === 'launching'"
+        >← Edit</button>
+        <button
+          class="btn btn-primary"
+          @click="launch()"
+          :disabled="step === 'launching' || !yamlValid"
+        >
+          <span x-show="step !== 'launching'">Launch →</span>
+          <span x-show="step === 'launching'">Filing…</span>
+        </button>
+      </div>
+    </div>
+
+    <p class="plan-review-sub">
+      Edit the YAML below if needed — fix titles, move issues between phases, adjust dependencies.
+      When it looks right, click <strong>Launch</strong> to create the GitHub issues.
+    </p>
+
+    {# Validation strip #}
+    <div class="plan-yaml-validation"
+         :class="yamlValid ? 'plan-yaml-validation--ok' : 'plan-yaml-validation--error'"
+         x-show="yamlValidationMsg">
+      <span x-text="yamlValidationMsg"></span>
+    </div>
+
+    {# Monaco editor container #}
+    <div x-ref="yamlEditor" class="plan-yaml-editor"></div>
+
+    {# Filing progress strip — only visible during launching state #}
+    <div class="plan-filing-progress" x-show="step === 'launching' && filingProgress" x-transition.opacity>
+      <div class="plan-spinner plan-spinner--sm"></div>
+      <span x-text="filingProgress"></span>
+    </div>
+
+    <div class="plan-error" x-show="errorMsg" x-transition>
+      <span x-text="errorMsg"></span>
+    </div>
+
+  </div>
+
+  {# ══════════════════════════════════════════════════════════════════════
+     DONE state — issues filed, links shown
+     ══════════════════════════════════════════════════════════════════════ #}
+  <div class="plan-done" x-show="step === 'done'" x-transition.opacity>
+    <div class="plan-done-badge">🚀</div>
+    <h2 class="plan-done-title">Issues filed</h2>
+    <p class="plan-done-sub">
+      <strong x-text="result.total || filedIssues.length"></strong> GitHub issues created
+      for initiative <strong x-text="result.initiative || initiative"></strong>.
+      Phase labels gate execution — engineers start on phase&#8209;0 first.
+    </p>
+
+    {# Per-phase issue links #}
+    <div class="plan-done-issues">
+      <template x-for="phase in ['phase-0','phase-1','phase-2','phase-3']" :key="phase">
+        <div
+          class="plan-done-phase"
+          x-show="filedIssues.some(i => i.phase === phase)"
+        >
+          <h3 class="plan-done-phase-label" x-text="phase"></h3>
+          <ul class="plan-done-issue-list">
+            <template x-for="issue in filedIssues.filter(i => i.phase === phase)" :key="issue.number">
+              <li class="plan-done-issue-item">
+                <a
+                  class="plan-done-issue-link"
+                  :href="issue.url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <span class="plan-done-issue-num" x-text="'#' + issue.number"></span>
+                  <span class="plan-done-issue-title" x-text="issue.title"></span>
+                </a>
+              </li>
+            </template>
+          </ul>
+        </div>
+      </template>
+    </div>
+
+    <div class="plan-done-actions">
+      <a href="/org-chart" class="btn btn-primary">View org chart →</a>
+      <button class="btn btn-secondary" @click="reset()">← New plan</button>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

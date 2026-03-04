@@ -1,0 +1,192 @@
+/* ═══ Org Chart Page ═════════════════════════════════════════════════════════ */
+
+/* ── Two-column page layout ─────────────────────────────────────────────── */
+
+.org-chart-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: var(--space-4);
+  align-items: start;
+  min-height: calc(100vh - 140px);
+
+  @media (max-width: 768px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Left panel: preset picker ───────────────────────────────────────────── */
+
+.org-chart-left {
+  position: sticky;
+  top: var(--space-4);
+}
+
+/* ── Right panel: tree + builder shell ───────────────────────────────────── */
+
+.org-chart-right {
+  min-height: 0;
+}
+
+.org-right-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* ── D3 tree sub-panel ───────────────────────────────────────────────────── */
+
+.org-tree-panel {
+  position: relative;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  min-height: 520px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.org-tree-svg {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+
+.org-tree-placeholder {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-align: center;
+  padding: var(--space-4);
+  margin: 0;
+}
+
+/* ── Tooltip ─────────────────────────────────────────────────────────────── */
+
+.org-tree-tooltip {
+  display: none;
+  position: absolute;
+  z-index: 100;
+  background: var(--bg-overlay, #0f172a);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  padding: 8px 12px;
+  pointer-events: none;
+  font-size: 0.75rem;
+  max-width: 220px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.org-tooltip-name {
+  display: block;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.org-tooltip-tier {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.org-tooltip-figs {
+  display: block;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ── Builder sub-panel (reserved for #829) ───────────────────────────────── */
+
+.org-builder-panel {
+  /* Populated by org_chart.js from issue #829 — empty for now */
+  min-height: 0;
+}
+
+/* ── Preset cards ────────────────────────────────────────────────────────── */
+
+.org-preset-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.org-preset-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  padding: var(--space-3);
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  text-align: left;
+  width: 100%;
+
+  &:hover {
+    border-color: var(--border-hover, #475569);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  }
+
+  &--active {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+  }
+}
+
+.org-preset-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-1);
+}
+
+.org-preset-card__name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.org-preset-card__badge {
+  font-size: 0.7rem;
+}
+
+.org-preset-card__desc {
+  font-size: 0.78rem;
+  margin: 0 0 var(--space-2);
+  line-height: 1.4;
+}
+
+.org-preset-card__tiers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+
+.org-preset-card__tier {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
+.org-preset-card__tier-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  min-width: 72px;
+  padding-top: 2px;
+}
+
+.org-preset-card__roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.org-preset-card__btn {
+  width: 100%;
+  font-size: 0.8rem;
+  padding: 6px 12px;
+}

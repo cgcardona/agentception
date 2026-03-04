@@ -1,0 +1,309 @@
+/* ═══ A/B Role Variant Comparison Page ══════════════════════════════════════ */
+
+/* ── Page header ─────────────────────────────────────────────────────────── */
+
+.ab-page-header {
+  margin-bottom: 1.5rem;
+}
+
+.ab-page-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 0.35rem;
+}
+
+.ab-page-subtitle {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.55;
+}
+
+/* ── Error banner ─────────────────────────────────────────────────────────── */
+
+.ab-error-banner {
+  border-left: 3px solid var(--danger);
+  background: var(--danger-dim);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+
+  p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+  }
+}
+
+/* ── Comparison grid ─────────────────────────────────────────────────────── */
+
+.ab-comparison-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-top: 1rem;
+
+  @media (max-width: 640px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Variant card ─────────────────────────────────────────────────────────── */
+
+.ab-variant-card {
+  position: relative;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  transition: border-color 0.2s;
+
+  &--winner {
+    border-color: var(--success-border);
+    background: linear-gradient(
+      160deg,
+      var(--bg-surface) 70%,
+      rgba(16, 217, 160, 0.04) 100%
+    );
+    box-shadow: 0 0 0 1px var(--success-border), var(--shadow-sm);
+  }
+}
+
+/* ── Winner badge (absolute top-right) ──────────────────────────────────── */
+
+.ab-winner-badge {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  background: var(--success-dim);
+  border: 1px solid var(--success-border);
+  color: var(--success);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-full);
+}
+
+/* ── Card header ─────────────────────────────────────────────────────────── */
+
+.ab-variant-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 0.75rem;
+  padding-right: 5rem; /* leave room for winner badge */
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.ab-variant-title-check {
+  color: var(--success);
+  font-size: 0.9em;
+}
+
+.ab-variant-sha {
+  font-family: var(--font-mono);
+  font-size: 0.775rem;
+  color: var(--text-muted);
+  margin: 0 0 0.75rem;
+}
+
+/* ── Metrics table ───────────────────────────────────────────────────────── */
+
+.ab-metrics-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+
+  td {
+    padding: 0.45rem 0;
+    vertical-align: middle;
+
+    &:first-child {
+      color: var(--text-muted);
+      padding-right: 1rem;
+      width: 50%;
+    }
+
+    &:last-child {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+  }
+
+  tr + tr td {
+    border-top: 1px solid var(--border-subtle);
+  }
+}
+
+/* ── Tie / no-winner note ───────────────────────────────────────────────── */
+
+.ab-tie-note {
+  text-align: center;
+  font-style: italic;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin-top: 1rem;
+}
+
+/* ── Winner banner (full-width below cards) ─────────────────────────────── */
+
+.ab-winner-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: var(--success-dim);
+  border: 1px solid var(--success-border);
+  border-radius: var(--radius);
+  padding: 0.65rem 1rem;
+  margin-top: 1rem;
+  font-size: 0.875rem;
+  color: var(--success);
+  font-weight: 600;
+}
+
+.ab-winner-banner-label {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+/* ── Batch breakdown section ─────────────────────────────────────────────── */
+
+.ab-batch-section {
+  margin-top: 1.5rem;
+}
+
+.ab-batch-section-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 0.75rem;
+}
+
+.ab-batch-table-wrapper {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.ab-batch-table {
+  width: 100%;
+  margin: 0;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+
+  th {
+    background: var(--bg-elevated);
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 0.5rem 0.875rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border-default);
+  }
+
+  td {
+    padding: 0.45rem 0.875rem;
+    color: var(--text-secondary);
+    vertical-align: middle;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  tbody tr:hover td {
+    background: var(--bg-elevated);
+  }
+}
+
+.ab-batch-id {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+
+.ab-empty-state {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius);
+  padding: 2.5rem 2rem;
+  text-align: center;
+  margin-top: 1rem;
+}
+
+.ab-empty-icon {
+  font-size: 2rem;
+  margin-bottom: 0.75rem;
+  display: block;
+  opacity: 0.5;
+}
+
+.ab-empty-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0 0 0.4rem;
+}
+
+.ab-empty-body {
+  font-size: 0.825rem;
+  color: var(--text-muted);
+  max-width: 36ch;
+  margin: 0 auto 1rem;
+  line-height: 1.6;
+}
+
+.ab-empty-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--accent-bright);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 0.3rem 0.7rem;
+  transition: border-color 0.15s, color 0.15s;
+
+  &:hover {
+    border-color: var(--accent);
+    color: #fff;
+  }
+}
+
+/* ── Config callout ──────────────────────────────────────────────────────── */
+
+.ab-config-callout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  margin-top: 1.25rem;
+  font-size: 0.825rem;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+
+  a {
+    color: var(--accent-bright);
+    font-weight: 500;
+    white-space: nowrap;
+
+    &:hover {
+      color: #fff;
+    }
+  }
+}

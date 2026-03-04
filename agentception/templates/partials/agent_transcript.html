@@ -1,0 +1,32 @@
+{# HTMX partial — transcript message list only.
+   Returned by GET /partials/agents/{agent_id}/transcript every 8 s.
+   Replaces innerHTML of #transcript-section — no page layout wrapper. #}
+{% if messages %}
+<div class="transcript-container" id="transcript">
+  {% for msg in messages %}
+  <div
+    class="message message--{{ msg.role }}"
+    x-data='{ "expanded": {{ loop.last | tojson }} }'
+  >
+    <div class="message-role">{{ msg.role }}</div>
+    <div
+      class="message-body"
+      :class="expanded ? 'message-body--expanded' : 'message-body--collapsed'"
+      @click="expanded = !expanded"
+    >
+      <pre class="message-text">{{ msg.text if msg.text is defined else msg.content }}</pre>
+    </div>
+    <button
+      class="message-expand-btn"
+      @click.stop="expanded = !expanded"
+      aria-label="Toggle full message"
+      x-text="expanded ? '▲ Collapse' : '▼ Expand'"
+    ></button>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card">
+  <p class="text-muted empty-state">No transcript available for this agent.</p>
+</div>
+{% endif %}

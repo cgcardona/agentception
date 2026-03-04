@@ -1,0 +1,294 @@
+{% extends "base.html" %}
+
+{% block title %}AgentCeption — Telemetry{% endblock %}
+
+{% block content %}
+{#
+  Telemetry D3 Dashboard — Jinja/HTMX/Alpine architecture.
+
+  Data injection:
+    - waves_json  → <script type="application/json" id="telemetry-waves-data">
+    - trend_json  → <script type="application/json" id="telemetry-trend-data">
+  D3 reads them directly; no data lives in x-data attributes.
+
+  Tab controller:   x-data="telemetryDash()" (app.js)
+  D3 rendering:     window.telemetry.render*() (telemetry.js, loaded below)
+  Trend refresh:    hx-get="/htmx/telemetry/trend" → _telemetry_trend.html
+#}
+
+{# ── Embedded JSON blobs for D3 ──────────────────────────────────────────── #}
+<script type="application/json" id="telemetry-waves-data">{{ waves_json | safe }}</script>
+<script type="application/json" id="telemetry-trend-data">{{ trend_json | safe }}</script>
+
+{# ── KPI bar ─────────────────────────────────────────────────────────────── #}
+<div class="pipeline-summary-bar" role="status" aria-label="Telemetry summary">
+  <div class="summary-item">
+    <span class="summary-label">Waves run</span>
+    <span class="summary-value">{{ total_waves }}</span>
+  </div>
+  <div class="summary-item">
+    <span class="summary-label">Issues worked</span>
+    <span class="summary-value">{{ total_issues }}</span>
+  </div>
+  <div class="summary-item">
+    <span class="summary-label">Est. cost</span>
+    <span class="summary-value">${{ "%.4f" | format(total_cost_usd) }}</span>
+  </div>
+  <div class="summary-item">
+    <span class="summary-label">All-time agents</span>
+    <span class="summary-value">{{ total_agents }}</span>
+  </div>
+  {% if role_counts %}
+  <div class="summary-item">
+    <span class="summary-label">Top role</span>
+    <span class="summary-value" style="font-size:0.85rem;">
+      {{ role_counts | dictsort(by='value', reverse=true) | first | first }}
+    </span>
+  </div>
+  {% endif %}
+</div>
+
+{# ── Tab strip + D3 dashboard (Alpine controller) ────────────────────────── #}
+<div x-data="telemetryDash()" class="mt-2">
+
+  {# Tab strip #}
+  <div class="telemetry-tab-strip" role="tablist" aria-label="Chart view">
+    {% set tabs = [
+      ('Gantt',       'Timeline'),
+      ('CostArea',    'Cost'),
+      ('Trend',       'Pipeline Trend'),
+      ('Donut',       'Roles'),
+      ('Scatter',     'Performance'),
+      ('StackedBar',  'Status'),
+      ('Histogram',   'Messages'),
+    ] %}
+    {% for tab_id, tab_label in tabs %}
+    <button
+      class="telemetry-tab"
+      :class="{ 'telemetry-tab--active': activeTab === '{{ tab_id }}' }"
+      @click="switchTab('{{ tab_id }}')"
+      role="tab"
+      :aria-selected="activeTab === '{{ tab_id }}'"
+    >{{ tab_label }}</button>
+    {% endfor %}
+
+    {# Trend refresh button — only shows when trend tab is active #}
+    <button
+      class="telemetry-refresh"
+      x-show="activeTab === 'Trend'"
+      x-cloak
+      hx-get="/htmx/telemetry/trend"
+      hx-target="#telemetry-trend-data"
+      hx-swap="outerHTML"
+      hx-on::after-swap="window.telemetry && window.telemetry.refreshTrendData()"
+      title="Refresh trend data"
+      aria-label="Refresh trend data"
+      style="margin-left: 0.5rem; align-self: center;"
+    >↻ Refresh</button>
+  </div>
+
+  {# ── 2-column dashboard layout ─────────────────────────────────────────── #}
+  <div class="telemetry-layout mt-2">
+
+    {# LEFT — main chart (tab-driven) #}
+    <div>
+      <div class="card telemetry-chart-main" style="padding:0;" id="chart-main"
+           x-effect="$nextTick(() => window.telemetry && window.telemetry['render' + activeTab] && window.telemetry['render' + activeTab]())">
+        <div class="telemetry-empty">Loading chart…</div>
+      </div>
+    </div>
+
+    {# RIGHT — always-visible sidebar charts #}
+    <div class="telemetry-sidebar">
+
+      {# Role Donut #}
+      <div class="card telemetry-sidebar-chart" style="height:200px;padding:0;">
+        <div class="telemetry-chart-label" style="padding:0.5rem 0.75rem 0;">Agent Roles</div>
+        <div id="chart-donut" style="height:172px;"></div>
+      </div>
+
+      {# Status Stacked Bar #}
+      <div class="card telemetry-sidebar-chart" style="height:200px;padding:0;">
+        <div class="telemetry-chart-label" style="padding:0.5rem 0.75rem 0;">Agent Status / Wave</div>
+        <div id="chart-stackedbar" style="height:172px;"></div>
+      </div>
+
+      {# Message Histogram #}
+      <div class="card telemetry-sidebar-chart" style="height:200px;padding:0;">
+        <div class="telemetry-chart-label" style="padding:0.5rem 0.75rem 0;">Message Distribution</div>
+        <div id="chart-histogram" style="height:172px;"></div>
+      </div>
+
+
+    </div>
+  </div>
+
+</div>{# end x-data="telemetryDash()" #}
+
+{# ── Wave History Table ───────────────────────────────────────────────────── #}
+<section class="mt-3" aria-label="Wave history table">
+  <h2 class="section-title">
+    Wave History
+    <span class="badge badge-count">{{ waves | length }}</span>
+  </h2>
+
+  {% if not waves %}
+  <div class="card">
+    <p class="text-muted empty-state">No wave history yet — waves appear once agents start running.</p>
+  </div>
+  {% else %}
+  {#
+    Alpine waveTable() component — reads wave data from the embedded JSON blob
+    (#telemetry-waves-data) and drives sorting, date filtering, and CSV export
+    entirely client-side.  No server round-trip required.
+  #}
+  <div x-data='waveTable()'>
+
+    {# ── Controls: date range filter + CSV export ─────────────────────────── #}
+    <div class="telemetry-controls">
+      <div class="telemetry-controls__filters">
+        <label class="telemetry-filter-label">
+          From
+          <input type="date" x-model="startDate" class="telemetry-date-input" aria-label="Filter from date">
+        </label>
+        <label class="telemetry-filter-label">
+          To
+          <input type="date" x-model="endDate" class="telemetry-date-input" aria-label="Filter to date">
+        </label>
+        <button
+          x-show="startDate || endDate"
+          x-cloak
+          @click="startDate = ''; endDate = ''"
+          class="btn btn-secondary telemetry-clear-btn"
+          aria-label="Clear date filter"
+        >Clear</button>
+      </div>
+      <button @click="exportCSV()" class="btn btn-secondary telemetry-export-btn">
+        ↓ Export CSV
+      </button>
+    </div>
+
+    {# ── Sortable wave table ───────────────────────────────────────────────── #}
+    <div class="telemetry-table-wrap card">
+      <table class="telemetry-table" role="table">
+        <thead>
+          <tr>
+            <th class="telemetry-th telemetry-th--sortable" @click="setSort('batch_id')" role="columnheader" :aria-sort="sortCol === 'batch_id' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'">
+              Batch ID <span class="telemetry-sort-icon" x-text="sortIndicator('batch_id')"></span>
+            </th>
+            <th class="telemetry-th telemetry-th--sortable" @click="setSort('started_at')" role="columnheader" :aria-sort="sortCol === 'started_at' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'">
+              Start <span class="telemetry-sort-icon" x-text="sortIndicator('started_at')"></span>
+            </th>
+            <th class="telemetry-th telemetry-th--sortable" @click="setSort('duration')" role="columnheader" :aria-sort="sortCol === 'duration' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'">
+              Duration <span class="telemetry-sort-icon" x-text="sortIndicator('duration')"></span>
+            </th>
+            <th class="telemetry-th">Issues</th>
+            <th class="telemetry-th">PRs opened</th>
+            <th class="telemetry-th">Est. tokens</th>
+            <th class="telemetry-th telemetry-th--sortable" @click="setSort('cost_usd')" role="columnheader" :aria-sort="sortCol === 'cost_usd' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'">
+              Est. cost <span class="telemetry-sort-icon" x-text="sortIndicator('cost_usd')"></span>
+            </th>
+            <th class="telemetry-th telemetry-th--sortable" @click="setSort('agent_count')" role="columnheader" :aria-sort="sortCol === 'agent_count' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'">
+              Agents <span class="telemetry-sort-icon" x-text="sortIndicator('agent_count')"></span>
+            </th>
+            <th class="telemetry-th"></th>
+          </tr>
+        </thead>
+
+        {# One <tbody> per wave so x-for can yield a main row + an agent sub-row. #}
+        <template x-for='wave in sortedRows' :key='wave.batch_id'>
+          <tbody>
+            <tr class="telemetry-row">
+
+              <td class="telemetry-td telemetry-td--batch">
+                <code class="telemetry-batch-id" x-text="wave.batch_id"></code>
+              </td>
+
+              <td class="telemetry-td text-muted" x-text="formatTs(wave.started_at)"></td>
+
+              <td class="telemetry-td text-muted">
+                <span x-show="wave.ended_at == null" class="text-warning">active</span>
+                <span x-show="wave.ended_at != null" x-text="Math.round(wave.ended_at - wave.started_at) + 's'"></span>
+              </td>
+
+              <td class="telemetry-td">
+                <span class="text-muted" x-text="wave.issues_worked && wave.issues_worked.length ? wave.issues_worked.join(', ') : '—'"></span>
+              </td>
+
+              <td class="telemetry-td text-muted" x-text="wave.prs_opened"></td>
+              <td class="telemetry-td text-muted" x-text="formatNumber(wave.estimated_tokens)"></td>
+              <td class="telemetry-td text-muted" x-text="'$' + (wave.estimated_cost_usd || 0).toFixed(4)"></td>
+              <td class="telemetry-td text-muted" x-text="(wave.agents || []).length"></td>
+
+              <td class="telemetry-td">
+                <template x-if="wave.agents && wave.agents.length">
+                  <button
+                    class="btn btn-secondary telemetry-expand-btn"
+                    @click="toggleRow(wave.batch_id)"
+                    :aria-expanded="isExpanded(wave.batch_id).toString()"
+                    aria-label="Toggle agent details"
+                    x-text="isExpanded(wave.batch_id) ? 'Hide' : 'Agents (' + wave.agents.length + ')'"
+                  ></button>
+                </template>
+              </td>
+            </tr>
+
+            {# Agent details sub-row — hidden until the expand button is clicked. #}
+            <tr x-show="isExpanded(wave.batch_id)" x-cloak class="telemetry-agents-row">
+              <td colspan="9" class="telemetry-agents-cell">
+                <div class="telemetry-agents-list">
+                  <template x-for='agent in wave.agents' :key='agent.id'>
+                    <div class="telemetry-agent-item">
+                      <span :class="'status-badge status-badge--' + agent.status" x-text="agent.status"></span>
+                      <a :href="'/agents/' + agent.id" class="telemetry-agent-role" x-text="agent.role"></a>
+                      <template x-if="agent.issue_number != null">
+                        <span class="agent-meta" x-text="'#' + agent.issue_number"></span>
+                      </template>
+                      <template x-if="agent.pr_number != null">
+                        <span class="agent-meta" x-text="'PR ' + agent.pr_number"></span>
+                      </template>
+                      <template x-if="agent.branch">
+                        <span class="agent-meta text-muted" x-text="agent.branch"></span>
+                      </template>
+                      <span class="agent-meta text-muted" x-text="agent.message_count + ' msgs'"></span>
+                      <template x-if="agent.cognitive_arch">
+                        <span class="agent-meta text-muted" x-text="agent.cognitive_arch"></span>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </template>
+      </table>
+    </div>
+
+    {# Shown when the date filter reduces visible rows to zero. #}
+    <div x-show="sortedRows.length === 0" x-cloak class="card mt-1">
+      <p class="text-muted empty-state">No waves match the current filter — adjust the date range.</p>
+    </div>
+
+  </div>{# end x-data='waveTable()' #}
+  {% endif %}
+</section>
+
+{% endblock %}
+
+{% block extra_scripts %}
+{# D3 v7 — loaded only on /telemetry, not in base.html #}
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script src="/static/telemetry.js"></script>
+<script>
+  // Trigger initial D3 renders after page load.
+  // Tab-driven main chart starts with Gantt (renderGantt → #chart-main).
+  // Sidebar charts always render into their dedicated containers.
+  document.addEventListener('DOMContentLoaded', function () {
+    if (!window.telemetry) return;
+    window.telemetry.renderTrend();                        // main chart (initial tab = Pipeline Trend)
+    window.telemetry.renderDonut('chart-donut');           // sidebar: role donut
+    window.telemetry.renderStackedBar('chart-stackedbar'); // sidebar: status bars
+    window.telemetry.renderHistogram('chart-histogram');   // sidebar: message histogram
+  });
+</script>
+{% endblock %}

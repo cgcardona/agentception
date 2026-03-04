@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+
+{% block title %}Org Chart — Agentception{% endblock %}
+
+{# Load org_chart.js synchronously (no defer) so orgRoleSearch is available
+   before Alpine initialises — Alpine's CDN script is deferred and runs after. #}
+{# D3 must load before org_chart_tree.js initialises (issue #830). #}
+{% block head %}
+<script src="/static/js/org_chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"
+        integrity="sha256-8glLv2FBs1lyLE/kVOtsSw8OQswQzHr5IfwVj864ZTk="
+        crossorigin="anonymous"></script>
+<script type="module">
+  import { initOrgChartTree } from '/static/js/org_chart_tree.js';
+  document.addEventListener('DOMContentLoaded', () => initOrgChartTree());
+  {# Re-render tree whenever the active preset changes (HTMX swaps the left panel) #}
+  document.addEventListener('htmx:afterSwap', (ev) => {
+    if (ev.detail.target && ev.detail.target.id === 'org-preset-list') {
+      initOrgChartTree();
+    }
+  });
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Org Chart</h1>
+  <p class="page-subtitle text-muted">
+    Choose a preset org topology or build a custom one using the role builder.
+    The active org governs which agent roles the pipeline spawns.
+  </p>
+</div>
+
+<div class="org-chart-layout">
+
+  {# ── Left panel: preset org picker ──────────────────────────────────────── #}
+  <section class="org-chart-left" aria-label="Preset org configurations">
+    <h2 class="panel-title">Preset Configurations</h2>
+    {% include "_org_preset_list.html" %}
+  </section>
+
+  {# ── Right panel: interactive role builder + D3 tree ──────────────────────
+     #org-builder-panel: role builder from issue #829
+     #org-tree-panel:    D3 tree from issue #830
+  #}
+  <section class="org-chart-right" aria-label="Org chart builder">
+    <div id="org-right-panel" class="org-right-panel">
+
+      {# ── Builder panel (issue #829) ────────────────────────────────────── #}
+      <div id="org-builder-panel">
+
+        <h2 class="panel-title">Role Builder</h2>
+
+        {# ── Add Role searchable dropdown — Alpine component ─────────────────
+           taxonomy: dict[tier_key -> list[slug]]
+           Single-quoted x-data attribute because tojson emits double-quoted JSON.
+        #}
+        <div
+          class="org-add-role"
+          x-data='orgRoleSearch({{ taxonomy | tojson }}, {{ tier_labels | tojson }})'
+        >
+          <div class="org-add-role__control">
+            <input
+              type="text"
+              class="org-add-role__search input"
+              placeholder="Search and add a role…"
+              x-model="query"
+              @focus="open = true"
+              @click.outside="open = false; query = ''"
+              @keydown.escape="open = false; query = ''"
+              @keydown.enter.prevent="pickFirst()"
+              aria-label="Search roles"
+              autocomplete="off"
+            >
+            <span class="org-add-role__chevron" aria-hidden="true">▾</span>
+          </div>
+
+          <div
+            class="org-add-role__dropdown"
+            x-show="open && (query.length > 0 || alwaysOpen)"
+            x-cloak
+            role="listbox"
+            aria-label="Available roles"
+          >
+            <template x-if="filtered.length === 0">
+              <p class="org-add-role__no-results text-muted">No matching roles.</p>
+            </template>
+            <template x-for="group in filtered" :key="group.tier">
+              <div class="org-add-role__group" role="group" :aria-label="group.label">
+                <div class="org-add-role__group-label text-muted" x-text="group.label"></div>
+                <template x-for="slug in group.roles" :key="slug">
+                  <button
+                    type="button"
+                    class="org-add-role__option"
+                    x-text="slug"
+                    role="option"
+                    @click="pick(slug)"
+                  ></button>
+                </template>
+              </div>
+            </template>
+          </div>
+
+          {# Hidden form — HTMX posts this when Alpine calls pick(slug). #}
+          <form
+            id="org-add-role-form"
+            hx-post="/api/org/roles/add"
+            hx-target="#org-role-list"
+            hx-swap="outerHTML"
+            style="display:none"
+            aria-hidden="true"
+          >
+            <input type="hidden" name="slug" id="org-add-role-slug">
+          </form>
+        </div>
+
+        {# ── Role list — HTMX swap target ────────────────────────────────── #}
+        {% include "_org_role_list.html" %}
+
+        {# ── Save as template ────────────────────────────────────────────── #}
+        <div class="org-save-template" x-data="{ showForm: false, name: '' }">
+          <button
+            type="button"
+            class="btn btn--secondary"
+            @click="showForm = !showForm"
+            x-text="showForm ? 'Cancel' : 'Save as template…'"
+          ></button>
+
+          <form
+            class="org-save-template__form"
+            x-show="showForm"
+            x-cloak
+            hx-post="/api/org/templates"
+            hx-target="#org-preset-list"
+            hx-swap="outerHTML"
+            @htmx:after-request="if (event.detail.successful) { showForm = false; name = ''; }"
+          >
+            <input
+              type="text"
+              name="name"
+              class="input org-save-template__input"
+              placeholder="Template name…"
+              x-model="name"
+              required
+              aria-label="Template name"
+            >
+            <button
+              type="submit"
+              class="btn btn--primary"
+              :disabled="!name.trim()"
+            >Save</button>
+          </form>
+        </div>
+
+      </div>{# /org-builder-panel #}
+
+      {# ── D3 tree panel (issue #830) ────────────────────────────────────── #}
+      <div id="org-tree-panel" class="org-tree-panel">
+        <p class="org-tree-placeholder">Loading org tree…</p>
+      </div>
+
+      {# Tooltip overlay for role nodes #}
+      <div id="org-tree-tooltip" class="org-tree-tooltip" role="tooltip"></div>
+
+    </div>
+  </section>
+
+</div>
+{% endblock %}

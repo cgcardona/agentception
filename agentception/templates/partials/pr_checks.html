@@ -1,0 +1,52 @@
+{#
+  HTMX partial for PR CI checks.
+  Rendered by GET /api/prs/{number}/checks
+  and injected into #checks-area via hx-swap="innerHTML".
+
+  Context: checks — list of {name, state, conclusion, url}
+#}
+{% if checks %}
+<div class="card" style="padding:0;overflow:hidden;">
+  <table class="telemetry-table" style="width:100%;margin:0;">
+    <thead><tr><th>Check</th><th>Status</th><th>Result</th></tr></thead>
+    <tbody>
+      {% for c in checks %}
+      <tr>
+        <td style="font-size:0.82rem;">
+          {% if c.url %}
+          <a href="{{ c.url }}" target="_blank" rel="noopener">{{ c.name }}</a>
+          {% else %}
+          {{ c.name }}
+          {% endif %}
+        </td>
+        <td>
+          <span class="badge
+            {%- if c.state == 'completed' %} badge--green
+            {%- elif c.state == 'in_progress' %} badge--yellow
+            {%- else %} badge--grey{% endif %}">
+            {{ c.state }}
+          </span>
+        </td>
+        <td>
+          {% if c.conclusion %}
+          <span class="badge
+            {%- if c.conclusion == 'success' %} badge--green
+            {%- elif c.conclusion in ('failure', 'timed_out') %} badge--red
+            {%- elif c.conclusion == 'skipped' %} badge--grey
+            {%- else %} badge--yellow{% endif %}">
+            {{ c.conclusion }}
+          </span>
+          {% else %}
+          <span class="text-muted">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% elif error %}
+<div class="card"><p class="text-muted" style="color:var(--danger);">⚠️ {{ error }}</p></div>
+{% else %}
+<div class="card"><p class="text-muted empty-state">No CI checks found for this PR.</p></div>
+{% endif %}
