@@ -506,11 +506,11 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
             id=str(db_run.get("id", agent_id)),
             role=str(db_run.get("role", "unknown")),
             status=synth_status,
-            issue_number=db_run.get("issue_number"),  # type: ignore[arg-type]
-            pr_number=db_run.get("pr_number"),  # type: ignore[arg-type]
-            branch=db_run.get("branch"),  # type: ignore[arg-type]
-            batch_id=db_run.get("batch_id"),  # type: ignore[arg-type]
-            worktree_path=db_run.get("worktree_path"),  # type: ignore[arg-type]
+            issue_number=db_run.get("issue_number"),
+            pr_number=db_run.get("pr_number"),
+            branch=db_run.get("branch"),
+            batch_id=db_run.get("batch_id"),
+            worktree_path=db_run.get("worktree_path"),
         )
 
     # Filesystem transcript takes priority — it's the live Cursor session.

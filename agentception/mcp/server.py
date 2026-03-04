@@ -501,10 +501,10 @@ def handle_request(
 
     Never raises.
     """
-    request_id: int | str | None = raw.get("id")  # type: ignore[assignment]
-    # Narrow: id must be int | str | None per spec; cast safely.
-    if not isinstance(request_id, (int, str, type(None))):
-        request_id = None
+    _raw_id: object = raw.get("id")
+    request_id: int | str | None = (
+        _raw_id if isinstance(_raw_id, (int, str)) else None
+    )
 
     jsonrpc = raw.get("jsonrpc")
     if jsonrpc != "2.0":
