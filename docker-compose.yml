@@ -17,8 +17,8 @@ services:
       AC_DATABASE_URL: "postgresql+asyncpg://agentception:${DB_PASSWORD}@postgres:5432/agentception"
       # gh CLI / git repo settings — override via .env or docker-compose.override.yml
       AC_GH_REPO: ${AC_GH_REPO:-cgcardona/agentception}
-      AC_REPO_DIR: ${AC_REPO_DIR:-/Users/gabriel/dev/tellurstori/agentception}
-      AC_WORKTREES_DIR: ${AC_WORKTREES_DIR:-/Users/gabriel/.agentception/worktrees/agentception}
+      AC_REPO_DIR: ${AC_REPO_DIR:-/app}
+      AC_WORKTREES_DIR: ${AC_WORKTREES_DIR:-/worktrees}
       AC_OPENROUTER_API_KEY: ${AC_OPENROUTER_API_KEY:-}
     volumes:
       # Mount cursor dir at same absolute path so worktree paths resolve correctly.
