@@ -731,6 +731,16 @@
     <aside class="github-board" aria-label="GitHub board">
       <h2 class="section-title">GitHub Board</h2>
 
+      {# System Health card — HTMX-polled every 10 s, no page reload needed #}
+      <div
+        class="health-card"
+        hx-get="/ui/health/widget"
+        hx-trigger="load, every 10s"
+        hx-swap="innerHTML"
+        aria-label="System health"
+        aria-live="polite"
+      ></div>
+
       {# Wave control card #}
       <div class="card wave-control-card" x-data="waveControl()" x-init="init()">
         <div class="wave-control-header">
