@@ -1,0 +1,110 @@
+# AgentCeption — Agent Rules
+
+## Identity
+
+AgentCeption — multi-agent orchestration system for AI-powered development workflows. Tagline: "the infinite machine behind the machines."
+
+- **Entry points:** `GET /` (Build dashboard), MCP tools (Cursor/Claude). Same engine, same pipeline.
+- **Stack:** Python 3.11+, FastAPI, Jinja2, HTMX, Alpine.js, SCSS, Pydantic v2, SQLAlchemy (async), Alembic. Fully async.
+- **Models:** `anthropic/claude-sonnet-4.6` and `anthropic/claude-opus-4.6` via OpenRouter. No others.
+- **Version:** Single source of truth in `pyproject.toml`.
+
+## Agent scope
+
+You may: implement features, fix bugs, refactor, extend architecture, add tests, update docs.
+You may NOT: introduce new frameworks/dependencies without justification, redesign architecture unless requested, weaken security, skip tests.
+When uncertain: (1) preserve existing patterns, (2) prefer smaller changes over rewrites, (3) choose correct over simple, (4) document assumptions, (5) ask the user.
+
+## Architecture (do not weaken)
+
+- **Layers:** Routes (thin) → Services → Models. Never collapse.
+- **Planning pipeline:** Phase 1A (LLM → PlanSpec YAML) → Phase 1B (human review) → Issue creation → Agent dispatch.
+- **Org tree dispatch:** CTO → VP → Engineer. Each tier receives the correct label scope and cognitive-architecture context.
+- **No deprecated APIs:** Remove dead code on sight. No fallbacks for old API shapes.
+
+## Execution
+
+- **Docker-first:** Never run Python on the host. `docker compose exec agentception <cmd>`.
+- **Dev bind mounts are active.** `docker-compose.override.yml` bind-mounts `agentception/`, `tests/`, `scripts/`, and `pyproject.toml` into the container. Host file edits are **instantly visible** inside the container — no rebuild needed for code changes. Only rebuild (`docker compose build agentception && docker compose up -d`) when you change `requirements.txt`, `Dockerfile`, or `entrypoint.sh`.
+- **Verification order: mypy → tests → docs.** Always run mypy first. Fix type errors before running tests so you only need one test pass.
+- **Mypy:** `docker compose exec agentception mypy agentception/ tests/` — must be clean before any commit.
+- **Typing ratchet:** `python tools/typing_audit.py --dirs agentception/ tests/ --max-any 10`. Never raise the ceiling without justification.
+- **Tests:** Run individual files yourself; user runs full suite. Regression test for every bug fix: `test_<what_broke>_<fixed_behavior>`.
+- **Show full output:** Never truncate, pipe through `head`/`tail`, or hide shell output.
+- **After tests pass:** Update affected docs, then commit — don't wait to be asked.
+
+## Code standards
+
+- **Every Python file** starts with `from __future__ import annotations`. No exceptions.
+- Black formatting. Type hints everywhere — 100% coverage, no untyped functions or parameters. `list[...]`/`dict[...]` style. No `# type: ignore` without a reason comment explaining why.
+- **Mypy before tests — always.** Run `docker compose exec agentception mypy <path>` on every Python file you create or modify. Fix all type errors before running tests.
+- **`Any` is a last resort.** Prefer `object`, `TypedDict`, or a Pydantic `BaseModel`. Every `Any` counts against the ratchet; never suppress the ratchet.
+- Async for all I/O. `logging.getLogger(__name__)` — never `print()`. `AC_*` env vars via `agentception/config.py`.
+- Sparse logs with emoji prefixes (❌ error, ⚠️ warning, ✅ success). No noise.
+- Docstrings on public modules/classes/functions. "Why" over "what." Update docs in the same commit as code changes.
+
+## Testing
+
+- Naming: `test_<behavior>_<scenario>`. Shared fixtures in `tests/conftest.py`. `@pytest.mark.anyio` for async.
+- Coverage: `docker compose exec agentception sh -c "export COVERAGE_FILE=/tmp/.coverage && python -m coverage run -m pytest tests/ -v && python -m coverage report --fail-under=80 --show-missing"`
+
+## JS / CSS build discipline
+
+The browser loads **compiled bundles**, not source files directly:
+
+| Source | Bundle | Build command |
+|--------|--------|---------------|
+| `agentception/static/js/**/*.js` | `agentception/static/app.js` | `npm run build:js` |
+| `agentception/static/scss/**/*.scss` | `agentception/static/app.css` | `npm run build:css` |
+| both | both | `npm run build` |
+
+**Rules:**
+- After editing any `.js` file under `static/js/`, run `npm run build:js` before committing.
+- After editing any `.scss` file under `static/scss/`, run `npm run build:css` before committing.
+- When in doubt, run `npm run build` (does both).
+- Never commit source changes to `static/js/` or `static/scss/` without a matching update to the bundle. A stale bundle is a silent runtime bug.
+
+## Anti-patterns (never do these)
+
+- **No legacy, no deprecated, no backwards compatibility.** Remove dead code, dead fields, dead endpoints on sight. Never add fallback paths for old API shapes.
+- Business logic in route handlers. Global mutable state outside designated stores.
+- Hardcoded model IDs, secrets, or URLs outside config.
+- Tests on live APIs without skip guards. `sleep()` in tests. Asserting implementation details instead of behavior.
+- `print()` for diagnostics. Committing ephemeral scripts.
+- Adding pip dependencies without updating `requirements.txt`. Running Python on the host.
+- **Jinja2 `tojson` inside double-quoted HTML attributes.** `tojson` emits double-quoted JSON strings; wrapping them in a double-quoted attribute truncates the value at the first `"`. **Always use single-quoted HTML attributes when the value contains `tojson` output.** This applies to `x-data`, `x-text`, `:class`, `@click`, and any other Alpine.js or HTMX directive. Example — correct: `x-data='fn({{ val | tojson }})'`; wrong: `x-data="fn({{ val | tojson }})"`. We introduced this bug three times before codifying this rule.
+
+## Doc locations
+
+| Topic | File |
+|-------|------|
+| Setup/deploy | `docs/guides/setup.md` |
+| MCP integration | `docs/guides/integrate.md` |
+| API reference | `docs/reference/api.md` |
+| Architecture | `docs/reference/architecture.md` |
+| Cognitive arch | `docs/reference/cognitive-arch.md` |
+| Testing | `docs/guides/testing.md` |
+| Security | `docs/guides/security.md` |
+
+## Services
+
+| Service | Container | Port |
+|---------|-----------|------|
+| AgentCeption | `agentception` | 10003 |
+| Postgres | `agentception-postgres` | 5433 |
+| Qdrant | `agentception-qdrant` | 6335/6336 |
+
+## Quick reference
+
+| Area | Code | Tests |
+|------|------|-------|
+| Config | `agentception/config.py` | `tests/test_config.py` |
+| Planning | `agentception/readers/llm_phase_planner.py` | `tests/test_llm_phase_planner.py` |
+| Issue creation | `agentception/readers/issue_creator.py` | `tests/test_issue_creator.py` |
+| Dispatch | `agentception/readers/worktrees.py` | `tests/test_worktrees.py` |
+| Models | `agentception/models.py` | `tests/test_models.py` |
+| DB persist | `agentception/db/persist.py` | `tests/test_persist.py` |
+| DB queries | `agentception/db/queries.py` | `tests/test_queries.py` |
+| Routes — Build | `agentception/routes/api/build.py` | `tests/test_build.py` |
+| Routes — UI | `agentception/routes/ui/` | `tests/test_ui.py` |
+| Cognitive arch | `scripts/gen_prompts/resolve_arch.py` | `tests/test_resolve_arch.py` |
