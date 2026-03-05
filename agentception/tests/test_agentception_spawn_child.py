@@ -92,6 +92,7 @@ def _make_task(**overrides: object) -> str:
         run_id="test-run-123",
         role="engineering-coordinator",
         node_type="coordinator",
+        logical_tier=None,
         scope_type="label",
         scope_value="ac-workflow",
         gh_repo="owner/repo",
@@ -126,6 +127,29 @@ def test_build_child_task_does_not_contain_tier_field() -> None:
     lines = task.splitlines()
     tier_lines = [ln for ln in lines if ln.startswith("TIER=")]
     assert tier_lines == [], f"Unexpected TIER= lines: {tier_lines}"
+
+
+def test_build_child_task_logical_tier_written_when_provided() -> None:
+    """LOGICAL_TIER= is written to the .agent-task when logical_tier is supplied."""
+    task = _make_task(logical_tier="qa")
+    assert "LOGICAL_TIER=qa" in task
+
+
+def test_build_child_task_logical_tier_absent_when_none() -> None:
+    """LOGICAL_TIER= must not appear at all when logical_tier is None."""
+    task = _make_task(logical_tier=None)
+    lt_lines = [ln for ln in task.splitlines() if ln.startswith("LOGICAL_TIER=")]
+    assert lt_lines == [], f"Unexpected LOGICAL_TIER= lines: {lt_lines}"
+
+
+def test_build_child_task_node_type_and_logical_tier_are_separate() -> None:
+    """NODE_TYPE and LOGICAL_TIER are written as two independent lines."""
+    task = _make_task(node_type="leaf", logical_tier="qa")
+    assert "NODE_TYPE=leaf" in task
+    assert "LOGICAL_TIER=qa" in task
+    # Structural type must not bleed into org domain
+    assert "NODE_TYPE=qa" not in task
+    assert "LOGICAL_TIER=leaf" not in task
 
 
 def test_build_child_task_leaf_node_type() -> None:
@@ -419,6 +443,7 @@ def test_spawn_child_result_to_dict_all_keys() -> None:
         host_worktree_path="/host/path",
         worktree_path="/container/path",
         node_type="coordinator",
+        logical_tier="engineering",
         role="engineering-coordinator",
         cognitive_arch="von_neumann:python",
         agent_task_path="/container/path/.agent-task",
@@ -428,9 +453,29 @@ def test_spawn_child_result_to_dict_all_keys() -> None:
     d = result.to_dict()
     assert d["run_id"] == "coord-abc"
     assert d["node_type"] == "coordinator"
+    assert d["logical_tier"] == "engineering"
     assert d["cognitive_arch"] == "von_neumann:python"
     assert d["scope_type"] == "label"
     assert "tier" not in d, "to_dict must not expose the old 'tier' key"
+
+
+def test_spawn_child_result_to_dict_logical_tier_none() -> None:
+    """logical_tier=None is preserved in to_dict (not silently dropped)."""
+    result = SpawnChildResult(
+        run_id="leaf-abc",
+        host_worktree_path="/host/path",
+        worktree_path="/container/path",
+        node_type="leaf",
+        logical_tier=None,
+        role="python-developer",
+        cognitive_arch="guido:python",
+        agent_task_path="/container/path/.agent-task",
+        scope_type="issue",
+        scope_value="42",
+    )
+    d = result.to_dict()
+    assert d["node_type"] == "leaf"
+    assert d["logical_tier"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -507,6 +552,7 @@ def test_spawn_child_endpoint_happy_path(client: TestClient) -> None:
         host_worktree_path="/host/worktrees/coord-ac-workflow-abc123",
         worktree_path="/worktrees/coord-ac-workflow-abc123",
         node_type="coordinator",
+        logical_tier="engineering",
         role="engineering-coordinator",
         cognitive_arch="von_neumann:python",
         agent_task_path="/worktrees/coord-ac-workflow-abc123/.agent-task",
@@ -523,6 +569,7 @@ def test_spawn_child_endpoint_happy_path(client: TestClient) -> None:
                 "parent_run_id": "label-cto-abc123",
                 "role": "engineering-coordinator",
                 "node_type": "coordinator",
+                "logical_tier": "engineering",
                 "scope_type": "label",
                 "scope_value": "ac-workflow",
                 "gh_repo": "owner/repo",
@@ -532,6 +579,7 @@ def test_spawn_child_endpoint_happy_path(client: TestClient) -> None:
     data = response.json()
     assert data["run_id"] == "coord-ac-workflow-abc123"
     assert data["node_type"] == "coordinator"
+    assert data["logical_tier"] == "engineering"
     assert "tier" not in data, "Response must not contain old 'tier' key"
     assert data["cognitive_arch"] == "von_neumann:python"
     assert data["status"] == "implementing"

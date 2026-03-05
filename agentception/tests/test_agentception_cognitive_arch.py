@@ -28,7 +28,7 @@ from agentception.routes.ui.cognitive_arch import (
 _ARCH_PATH = Path("scripts") / "gen_prompts" / "cognitive_archetypes"
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def client() -> Generator[TestClient, None, None]:
     """Synchronous test client that handles lifespan correctly."""
     with TestClient(app) as c:

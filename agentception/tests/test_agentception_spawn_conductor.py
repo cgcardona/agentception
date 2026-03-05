@@ -20,7 +20,7 @@ from fastapi.testclient import TestClient
 from agentception.app import app
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def client() -> Generator[TestClient, None, None]:
     """Synchronous test client with full lifespan."""
     with TestClient(app) as c:

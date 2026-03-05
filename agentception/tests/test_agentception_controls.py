@@ -25,20 +25,30 @@ from fastapi.testclient import TestClient
 from agentception.app import app
 
 
-@pytest.fixture()
-def client(tmp_path: Path) -> Generator[TestClient, None, None]:
-    """Test client with a temporary repo_dir so sentinel writes stay isolated."""
-    # Patch _SENTINEL in the api.control sub-module to point into tmp_path.
-    sentinel = tmp_path / ".pipeline-pause"
+@pytest.fixture(scope="module")
+def client(tmp_path_factory: pytest.TempPathFactory) -> Generator[TestClient, None, None]:
+    """Test client with a temporary repo_dir so sentinel writes stay isolated.
+
+    Module-scoped to avoid repeated TestClient lifespan startup/teardown which
+    accumulates orphaned asyncio child-watcher threads (asyncio-waitpid-N) that
+    eventually cause the event loop cleanup to hang.  Each test re-patches
+    _SENTINEL to its own function-scoped tmp_path, so isolation is preserved.
+    """
+    sentinel = tmp_path_factory.mktemp("client") / ".pipeline-pause"
     with patch("agentception.routes.api.control._SENTINEL", sentinel):
         with TestClient(app) as c:
             yield c
 
 
-@pytest.fixture()
-def client_paused(tmp_path: Path) -> Generator[TestClient, None, None]:
-    """Test client with the sentinel file pre-created (pipeline already paused)."""
-    sentinel = tmp_path / ".pipeline-pause"
+@pytest.fixture(scope="module")
+def client_paused(tmp_path_factory: pytest.TempPathFactory) -> Generator[TestClient, None, None]:
+    """Test client with the sentinel file pre-created (pipeline already paused).
+
+    Module-scoped for the same reasons as ``client``.  Tests that need the
+    sentinel to exist at their own tmp_path must call ``sentinel.touch()``
+    themselves before asserting — they all re-patch _SENTINEL anyway.
+    """
+    sentinel = tmp_path_factory.mktemp("client_paused") / ".pipeline-pause"
     sentinel.touch()
     with patch("agentception.routes.api.control._SENTINEL", sentinel):
         with TestClient(app) as c:
@@ -82,6 +92,7 @@ def test_pause_idempotent(tmp_path: Path, client_paused: TestClient) -> None:
 def test_resume_deletes_sentinel_file(tmp_path: Path, client_paused: TestClient) -> None:
     """POST /api/control/resume must remove the sentinel file when it exists."""
     sentinel = tmp_path / ".pipeline-pause"
+    sentinel.touch()  # each test owns its sentinel; re-patch below directs the route here
     assert sentinel.exists(), "Sentinel must exist before resume"
     with patch("agentception.routes.api.control._SENTINEL", sentinel):
         response = client_paused.post("/api/control/resume")
@@ -124,6 +135,7 @@ def test_status_reflects_sentinel_state_running(tmp_path: Path, client: TestClie
 def test_status_reflects_sentinel_state_paused(tmp_path: Path, client_paused: TestClient) -> None:
     """GET /api/control/status must return {paused: true} when sentinel is present."""
     sentinel = tmp_path / ".pipeline-pause"
+    sentinel.touch()  # each test owns its sentinel; re-patch below directs the route here
     assert sentinel.exists()
     with patch("agentception.routes.api.control._SENTINEL", sentinel):
         response = client_paused.get("/api/control/status")

@@ -32,7 +32,7 @@ from agentception.telemetry import WaveSummary
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def client() -> Generator[TestClient, None, None]:
     """Synchronous test client wrapping the AgentCeption FastAPI app."""
     with TestClient(app) as c:

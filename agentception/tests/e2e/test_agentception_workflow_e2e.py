@@ -48,7 +48,7 @@ _SAMPLE_DUMP = (
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def client() -> Generator[TestClient, None, None]:
     """Synchronous test client with full lifespan."""
     with TestClient(app) as c:

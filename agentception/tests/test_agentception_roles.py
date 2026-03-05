@@ -29,7 +29,7 @@ from agentception.app import app
 from agentception.models import RoleMeta
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def client() -> Generator[TestClient, None, None]:
     """Synchronous test client that handles lifespan correctly."""
     with TestClient(app) as c:

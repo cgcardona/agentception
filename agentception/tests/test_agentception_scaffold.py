@@ -19,7 +19,7 @@ from agentception.config import AgentCeptionSettings
 from agentception.models import AgentNode, AgentStatus, PipelineState, TaskFile
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def client() -> Generator[TestClient, None, None]:
     """Synchronous test client that handles lifespan correctly."""
     with TestClient(app) as c:

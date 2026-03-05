@@ -29,7 +29,7 @@ _MOCK_SNAPSHOT = HealthSnapshot(
 )
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def client() -> Generator[TestClient, None, None]:
     """Synchronous test client with lifespan handled."""
     with TestClient(app) as c:

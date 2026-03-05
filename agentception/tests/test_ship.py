@@ -30,13 +30,13 @@ from agentception.db.queries import ShipPhaseGroupRow, ShipPRRow
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def client() -> Generator[TestClient, None, None]:
     with TestClient(app, follow_redirects=False) as c:
         yield c
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def client_follow() -> Generator[TestClient, None, None]:
     """Client that follows redirects — needed for redirect-to-initiative tests."""
     with TestClient(app, follow_redirects=True) as c:
