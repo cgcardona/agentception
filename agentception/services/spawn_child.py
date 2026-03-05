@@ -48,7 +48,7 @@ from typing import Literal
 
 from agentception.config import settings
 from agentception.db.persist import acknowledge_agent_run, persist_agent_run_dispatch
-from agentception.routes.api._shared import _resolve_cognitive_arch
+from agentception.services.cognitive_arch import _resolve_cognitive_arch
 
 logger = logging.getLogger(__name__)
 

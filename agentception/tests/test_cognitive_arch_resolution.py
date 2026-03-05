@@ -15,7 +15,7 @@ import pytest
 
 from agentception.models import PlanIssue
 from agentception.readers.issue_creator import _embed_skills
-from agentception.routes.api._shared import (
+from agentception.services.cognitive_arch import (
     ROLE_DEFAULT_FIGURE,
     _derive_skills_from_body,
     _extract_skills_from_body,
