@@ -146,7 +146,9 @@ def _build_task_file(fields: dict[str, str], worktree_path: Path) -> TaskFile:
         "required_output": fields.get("REQUIRED_OUTPUT"),
         "on_block": fields.get("ON_BLOCK"),
         "cognitive_arch": fields.get("COGNITIVE_ARCH"),
-        "logical_tier": fields.get("LOGICAL_TIER"),
+        # NODE_TYPE is the canonical field written by new code; LOGICAL_TIER is the
+        # legacy alias written by old .agent-task files and preserved for backward compat.
+        "logical_tier": fields.get("NODE_TYPE") or fields.get("LOGICAL_TIER"),
         "parent_run_id": fields.get("PARENT_RUN_ID") or None,
     }
     cleaned = {k: v for k, v in raw.items() if v is not None}

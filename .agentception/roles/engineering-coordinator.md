@@ -1337,7 +1337,7 @@ SPAWN_SUB_AGENTS=false
 ATTEMPT_N=0
 REQUIRED_OUTPUT=grade,merge_status,pr_url
 ON_BLOCK=stop
-LOGICAL_TIER=reviewer
+NODE_TYPE=leaf
 PARENT_RUN_ID=${RUN_ID:-}
 TASK
 
