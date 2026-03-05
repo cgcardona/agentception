@@ -66,23 +66,23 @@ def populated_state() -> PipelineState:
 
 
 def test_overview_returns_200(client: TestClient, empty_state: PipelineState) -> None:
-    """GET / must return HTTP 200 even when no agents are active."""
+    """GET /overview must return HTTP 200 even when no agents are active."""
     with patch("agentception.routes.ui.overview.get_state", return_value=empty_state):
-        response = client.get("/")
+        response = client.get("/overview")
     assert response.status_code == 200
 
 
 def test_overview_contains_tree_element(client: TestClient, empty_state: PipelineState) -> None:
-    """GET / response HTML must contain a ``#tree`` element for Alpine.js to target."""
+    """GET /overview response HTML must contain a ``#tree`` element for Alpine.js to target."""
     with patch("agentception.routes.ui.overview.get_state", return_value=empty_state):
-        response = client.get("/")
+        response = client.get("/overview")
     assert 'id="tree"' in response.text
 
 
 def test_overview_sse_connect_attribute(client: TestClient, empty_state: PipelineState) -> None:
-    """GET / HTML must load app.js, which wires the EventSource to /events."""
+    """GET /overview HTML must load app.js, which wires the EventSource to /events."""
     with patch("agentception.routes.ui.overview.get_state", return_value=empty_state):
-        response = client.get("/")
+        response = client.get("/overview")
     # EventSource logic lives in app.js; verify the script is loaded and
     # the pipelineDashboard x-data binding is present in the HTML.
     assert "/static/app.js" in response.text
@@ -90,16 +90,16 @@ def test_overview_sse_connect_attribute(client: TestClient, empty_state: Pipelin
 
 
 def test_overview_contains_summary_bar(client: TestClient, empty_state: PipelineState) -> None:
-    """GET / HTML must include the pipeline summary bar."""
+    """GET /overview HTML must include the pipeline summary bar."""
     with patch("agentception.routes.ui.overview.get_state", return_value=empty_state):
-        response = client.get("/")
+        response = client.get("/overview")
     assert "pipeline-summary-bar" in response.text
 
 
 def test_overview_renders_when_no_state(client: TestClient) -> None:
-    """GET / must render without error when the poller hasn't ticked yet (get_state returns None)."""
+    """GET /overview must render without error when the poller hasn't ticked yet (get_state returns None)."""
     with patch("agentception.routes.ui.overview.get_state", return_value=None):
-        response = client.get("/")
+        response = client.get("/overview")
     assert response.status_code == 200
     assert "Agentception" in response.text
 
@@ -107,18 +107,18 @@ def test_overview_renders_when_no_state(client: TestClient) -> None:
 def test_overview_alert_banner_present(
     client: TestClient, populated_state: PipelineState
 ) -> None:
-    """GET / HTML must include the alert-banner CSS class when alerts are non-empty."""
+    """GET /overview HTML must include the alert-banner CSS class when alerts are non-empty."""
     with patch("agentception.routes.ui.overview.get_state", return_value=populated_state):
-        response = client.get("/")
+        response = client.get("/overview")
     assert "alert-banner" in response.text
 
 
 def test_overview_status_badge_classes_in_html(
     client: TestClient, populated_state: PipelineState
 ) -> None:
-    """GET / HTML must include status-badge CSS classes for the Alpine.js template."""
+    """GET /overview HTML must include status-badge CSS classes for the Alpine.js template."""
     with patch("agentception.routes.ui.overview.get_state", return_value=populated_state):
-        response = client.get("/")
+        response = client.get("/overview")
     assert "status-badge" in response.text
 
 
@@ -188,9 +188,9 @@ def two_batch_state() -> PipelineState:
 def test_overview_groups_by_batch(
     client: TestClient, two_batch_state: PipelineState
 ) -> None:
-    """GET / HTML must render one batch-group section per distinct phase_label."""
+    """GET /overview HTML must render one batch-group section per distinct phase_label."""
     with patch("agentception.routes.ui.overview.get_state", return_value=two_batch_state):
-        response = client.get("/")
+        response = client.get("/overview")
     assert response.status_code == 200
     assert response.text.count('class="batch-group') == 2
 
@@ -211,6 +211,6 @@ def test_overview_alert_rendered_once(
         patch("agentception.routes.ui.overview.get_state", return_value=empty_state),
         patch("pathlib.Path.exists", return_value=True),
     ):
-        response = client.get("/")
+        response = client.get("/overview")
     assert response.status_code == 200
     assert response.text.count("<span>Pipeline paused</span>") == 1

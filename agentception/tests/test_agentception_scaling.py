@@ -457,7 +457,7 @@ def test_banner_hidden_when_dismissed_markup_present() -> None:
 
     with patch("agentception.routes.ui.overview.get_state", return_value=state):
         with TestClient(app) as client:
-            response = client.get("/")
+            response = client.get("/overview")
 
     assert response.status_code == 200
     html = response.text

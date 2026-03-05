@@ -227,14 +227,14 @@ def test_overview_page_renders_without_active_org(client: TestClient) -> None:
         return original_exists(self)
 
     with patch.object(_Path, "exists", _fake_exists):
-        response = client.get("/")
+        response = client.get("/overview")
     # Accept 200 or a redirect — the important thing is no 500.
     assert response.status_code in (200, 302, 307)
 
 
 def test_overview_exposes_run_conductor_button(client: TestClient) -> None:
-    """GET / must include the 'Run Conductor' button markup in the response."""
-    response = client.get("/")
+    """GET /overview must include the 'Run Conductor' button markup in the response."""
+    response = client.get("/overview")
     assert response.status_code == 200
     assert "Run Conductor" in response.text
     assert "open-run-conductor-modal" in response.text
