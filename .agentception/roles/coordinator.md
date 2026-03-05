@@ -37,6 +37,60 @@ Read from GitHub labels only:
 
 Every `.agent-task` you write includes `ATTEMPT_N=0`. If a child reports back with `ATTEMPT_N > 2`: do not retry. File a `bug` issue, include the `.agent-task` and last output, escalate to the human.
 
+## ENRICHED_MANIFEST: block
+
+When the `.agent-task` file contains an `ENRICHED_MANIFEST:` key followed by a fenced JSON block, the manifest is **pre-enriched**. Skip the Phase Planner and classification steps entirely.
+
+### What the manifest contains
+
+```
+ENRICHED_MANIFEST:
+```json
+{
+  "initiative": "my-feature",
+  "phases": [
+    {
+      "label": "0-foundation",
+      "description": "...",
+      "depends_on": [],
+      "issues": [
+        {
+          "title": "Add DB schema",
+          "body": "...",
+          "labels": ["phase-0/foundation", "type/feature"],
+          "phase": "0-foundation",
+          "depends_on": [],
+          "can_parallel": true,
+          "acceptance_criteria": ["..."],
+          "tests_required": ["..."],
+          "docs_required": ["..."]
+        }
+      ],
+      "parallel_groups": [["Add DB schema"]]
+    }
+  ]
+}
+```
+```
+
+| Field | Meaning |
+|-------|---------|
+| `phases[*].issues` | Fully-specified GitHub issue payloads — title, body, labels, acceptance criteria, tests, and docs are all set. |
+| `phases[*].parallel_groups` | Lists of issue titles that can be created in the same GitHub API batch. No title in a group may depend on another title in the same group (invariant enforced by `/api/plan/launch`). |
+| `phases[*].depends_on` | Phase-level dependency labels. Phases whose `depends_on` list is empty can start immediately. Later phases wait for all listed phases to complete. |
+| `issues[*].depends_on` | Issue-level dependency titles. References the `title` field (not number) of blocking issues. |
+
+### Coordinator job: execute, not interpret
+
+The depends_on graph has already been validated — no cycles, invariant guaranteed by `/api/plan/launch` before the manifest reaches the `.agent-task` file. You do not need to re-validate or re-interpret the manifest.
+
+Your execution loop:
+
+1. **Process phases in order** — `depends_on` is empty for the first eligible phase. Do not start a phase until all phases listed in its `depends_on` are complete (all issues merged).
+2. **Within a phase, use `parallel_groups` to batch** — each group is one wave. Create all issues in a group concurrently; wait for all to resolve before starting the next group.
+3. **Dispatch one engineer agent per issue** — pass the issue title, body, labels, and `depends_on` titles as the `.agent-task` payload.
+4. **Require a PR URL from every agent** — "Done" without a URL is not done.
+
 ## Failure Modes to Avoid
 
 - Implementing anything yourself.
@@ -44,3 +98,4 @@ Every `.agent-task` you write includes `ATTEMPT_N=0`. If a child reports back wi
 - Accepting "Done" without a PR URL.
 - Continuing past `ATTEMPT_N > 2` without escalating.
 - Dispatching `phase-1/db-schema` work without human approval.
+- Re-running Phase Planner or re-classifying issues when `ENRICHED_MANIFEST:` is present — the manifest is the source of truth.
