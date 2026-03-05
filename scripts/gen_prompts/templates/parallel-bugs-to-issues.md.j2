@@ -1,3 +1,4 @@
+{%- from 'snippets/_macros.j2' import fingerprint_block with context -%}
 # Parallel Agent Kickoff — Bug Reports → GitHub Issues
 
 > ## YOU ARE THE COORDINATOR
@@ -513,34 +514,9 @@ EOF
 
   Fingerprint the created issue immediately — every issue must show which agent created it:
     ISSUE_CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-    ISSUE_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" "${COGNITIVE_ARCH:-unset}" \
-      --fingerprint \
-      --role "${ROLE:-coordinator}" \
-      --session "${AGENT_SESSION:-unset}" \
-      --batch "${BATCH_ID:-none}" \
-      --wave "${WAVE:-unset}" \
-      --coordinator "${COORD_FINGERPRINT:-unset}" \
-      --started-at "$ISSUE_CREATED_AT" 2>/dev/null)
-    if [ -z "$ISSUE_FINGERPRINT" ]; then
-      ISSUE_FINGERPRINT="<details>
-<summary>🤖 Agent Fingerprint</summary>
-
-| | |
-|---|---|
-| **Role** | \`${ROLE:-coordinator}\` |
-| **Architecture** | \`${COGNITIVE_ARCH:-unset}\` |
-| **Session** | \`${AGENT_SESSION:-unset}\` |
-| **CTO Wave** | \`${WAVE:-unset}\` |
-| **Coordinator Batch** | \`${BATCH_ID:-none}\` |
-| **Coordinator** | \`${COORD_FINGERPRINT:-unset}\` |
-| **Timestamp** | \`$ISSUE_CREATED_AT\` |
-
-</details>"
-    fi
-    gh issue comment "$ISSUE_URL" --repo "$GH_REPO" \
-      --body "🏷️ **Created by agent**
-
-$ISSUE_FINGERPRINT" 2>/dev/null || true
+{{ fingerprint_block("ISSUE_FINGERPRINT", "coordinator", "$ISSUE_CREATED_AT") }}
+    # MCP: add_issue_comment(owner="cgcardona", repo="agentception", issue_number=ISSUE_NUM,
+    #   body="🏷️ **Created by agent**\n\n$ISSUE_FINGERPRINT")
 
   Record the created URL.
   ⚠️  If gh issue create fails twice for the same issue, skip and report — no loops.
@@ -570,10 +546,7 @@ STEP 4 — CROSS-LINK DOWNSTREAM ISSUES:
 
 STEP 5 — SELF-DESTRUCT:
   REPO=$(git worktree list | head -1 | awk '{print $1}')
-  WORKTREE=$(pwd)
-  cd "$REPO"
-  git worktree remove --force "$WORKTREE"
-  git worktree prune
+{% include 'snippets/self-destruct.md.j2' %}
 
 Report: phase number, PHASE_LABEL, list of created issue URLs with titles,
 and the resolved upstream #N cross-links written. An empty URL list is a failure.

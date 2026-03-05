@@ -1,3 +1,4 @@
+{%- from 'snippets/_macros.j2' import fingerprint_block with context -%}
 # Parallel Agent Kickoff — Issue → PR
 
 > ## YOU ARE THE COORDINATOR
@@ -23,37 +24,7 @@
 
 ---
 
-## Why `.agent-task` files unlock more than 4 parallel agents
-
-The Task tool can launch multiple agents from a single coordinator message.
-Each agent reads its own `.agent-task` file, so the coordinator does not
-need to pass any content as prompt text — just the worktree path and the
-kickoff prompt. This means you can launch 10, 20, or 50 agents in one message:
-
-```python
-# All launched simultaneously — no 4-agent limit
-Task(worktree="/path/to/issue-402", prompt=KICKOFF_PROMPT)
-Task(worktree="/path/to/issue-403", prompt=KICKOFF_PROMPT)
-Task(worktree="/path/to/issue-407", prompt=KICKOFF_PROMPT)
-Task(worktree="/path/to/issue-411", prompt=KICKOFF_PROMPT)
-Task(worktree="/path/to/issue-405", prompt=KICKOFF_PROMPT)
-# ... as many as you have worktrees
-```
-
-**Nested orchestration:** An agent whose `.agent-task` contains
-`SPAWN_SUB_AGENTS=true` acts as a sub-coordinator: it creates its own
-sub-worktrees with sub-task files and launches leaf agents. This creates
-a tree of unlimited depth and width.
-
-See `parallel-bugs-to-issues.md` → "Agent Task File Reference" for the
-full field reference including nested orchestration patterns.
-
----
-
-Each sub-agent gets its own ephemeral worktree. Worktrees are created at kickoff,
-named by issue number, and **deleted by the sub-agent when its job is done**.
-The branch and PR live on GitHub regardless — the local worktree is just a
-working directory.
+{% include 'snippets/why-agent-task.md.j2' %}
 
 ---
 
@@ -336,105 +307,11 @@ rooted in each `issue-<N>` directory.
 
 ---
 
-## ⛔ DOCKER-FIRST — NON-NEGOTIABLE
-
-**NEVER run `python`, `python3`, `mypy`, or `pytest` directly on the host.**
-Every command that touches Python must go through Docker:
-
-```bash
-# CORRECT — always use worktree-scoped paths
-cd "$REPO" && docker compose exec agentception sh -c \
-  "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/"
-cd "$REPO" && docker compose exec agentception sh -c \
-  "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
-
-# WRONG — runs mypy on main repo code, not your feature branch changes
-cd "$REPO" && docker compose exec agentception mypy agentception/ tests/
-
-# WRONG — will fail with "No module named mypy" (you are on the host)
-python3 -m mypy ...
-mypy ...
-pytest ...
-```
-
-If you see "No module named X", you are on the host. Stop. Use `docker compose exec`.
-
----
-
-## Environment (agents read this first)
-
-**You are running inside a Cursor worktree.** Your working directory is NOT the main repo.
-
-```bash
-# Derive paths — run these at the start of your session
-REPO=$(git worktree list | head -1 | awk '{print $1}')   # local filesystem path to main repo
-WTNAME=$(basename "$(pwd)")                               # this worktree's name
-# Docker path to your worktree: /worktrees/$WTNAME
-
-# GitHub repo slug — HARDCODED. NEVER derive from local path or directory name.
-# The local path is derived from REPO_DIR — never use directory name as the GitHub org.
-export GH_REPO={{ gh_repo }}
-```
-
-| Item | Value |
-|------|-------|
-| Your worktree root | current directory (contains `.agent-task`) |
-| Main repo (local path) | first entry of `git worktree list` |
-| GitHub repo slug | `{{ gh_repo }}` — always hardcoded, never derived |
-| Docker compose location | main repo |
-| Your worktree inside Docker | `/worktrees/$WTNAME` |
-
-**All `docker compose exec` commands must be run from the main repo:**
-```bash
-cd "$REPO" && docker compose exec agentception <cmd>
-```
-
-### Docker sees your worktree directly — no file copying needed
-
-`docker-compose.override.yml` bind-mounts the entire worktrees directory into
-the container. After creating your feature branch, your worktree's code is
-**immediately live inside the container at `/worktrees/$WTNAME/`**:
-
-```bash
-REPO=$(git worktree list | head -1 | awk '{print $1}')
-WTNAME=$(basename "$(pwd)")
-
-# Detect codebase from issue label in .agent-task
+{% include 'snippets/docker-first.md.j2' %}
+{% set is_ac_detection_code %}# Detect codebase from issue label in .agent-task
 ISSUE_LABEL=$(grep "^ISSUE_LABEL=" .agent-task 2>/dev/null | cut -d= -f2 || echo "")
-IS_AC=$(echo "$ISSUE_LABEL" | grep -c "^{{ active_label_prefix }}" || true)
-
-# mypy — route by codebase (both codebases are independent; never cross-run)
-if [ "$IS_AC" -gt 0 ]; then
-  cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
-else
-  cd "$REPO" && docker compose exec agentception sh -c \
-    "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/"
-fi
-
-# pytest — route by codebase
-if [ "$IS_AC" -gt 0 ]; then
-  cd "$REPO" && docker compose exec agentception pytest agentception/tests/test_<module>.py -v
-else
-  cd "$REPO" && docker compose exec agentception sh -c \
-    "PYTHONPATH=/worktrees/$WTNAME pytest /worktrees/$WTNAME/tests/path/to/test_file.py -v"
-fi
-```
-
-**⚠️ NEVER copy files into the main repo** for testing purposes. That pollutes
-the `dev` branch with uncommitted changes.
-
-> **Alembic exception:** `alembic revision --autogenerate` must run from the main repo
-> because it needs a live DB connection. After generating, immediately `git mv` the
-> migration file into your worktree and delete the copy from the main repo.
-
-### Command policy
-
-Consult `.cursor/agent-command-policy.md` for the full tier list. Summary:
-- **Green (auto-allow):** `ls`, `git status/log/diff/fetch`, `gh pr view`, `mypy`, `pytest`, `rg`
-- **Yellow (review before running):** `docker compose build`, `rm <single file>`, `git rebase`
-- **Red (never):** `rm -rf`, `git push --force`, `git push origin dev`, `docker system prune`
-
----
+IS_AC=$(echo "$ISSUE_LABEL" | grep -c "^{{ active_label_prefix }}" || true){% endset %}
+{% include 'snippets/environment-setup.md.j2' %}
 
 ## Kickoff Prompt
 
@@ -529,60 +406,29 @@ STEP 1 — DERIVE PATHS:
   export GH_REPO={{ gh_repo }}
 
   # ⚠️  VALIDATION — run this immediately to catch slug errors early:
-  gh repo view "$GH_REPO" --json name --jq '.name'
-  # Expected output: agentception
-  # If you see an error → GH_REPO is wrong. Stop and fix it before continuing.
-
-  # All gh commands inherit $GH_REPO automatically. You may also pass --repo "$GH_REPO" explicitly.
+  # MCP: github_list_issues(state="open") → if it errors, GH_REPO is wrong. Stop and fix.
 
 STEP 2 — CHECK CANONICAL STATE BEFORE DOING ANY WORK:
   ⚠️  Query GitHub first. Do NOT create a branch, write a file, or run mypy until
   you have confirmed no prior work exists. This is the idempotency gate.
 
   # Mark issue as in-progress so the conductor and other agents see it's claimed.
-  gh issue edit <N> --repo "$GH_REPO" --add-label "status/in-progress" 2>/dev/null || true
+  # MCP: github_add_label(issue_number=N, label="status/in-progress")
 
   # Leave an audit trail: which cognitive identity claimed this issue.
   AGENT_SESSION="eng-$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%04x' $RANDOM)"
   CLAIMED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-  CLAIM_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" "${COGNITIVE_ARCH:-unset}" \
-    --fingerprint \
-    --role "${ROLE:-python-developer}" \
-    --session "$AGENT_SESSION" \
-    --batch "${BATCH_ID:-none}" \
-    --wave "${WAVE:-unset}" \
-    --coordinator "${COORD_FINGERPRINT:-unset}" \
-    --started-at "$CLAIMED_AT" 2>/dev/null)
-  # Fallback: if resolve_arch.py is unavailable or returned nothing, build the table in shell.
-  # This ensures a consistent <details> table appears even when Python/PyYAML is absent.
-  # ⚠️  Row labels MUST match render_fingerprint() exactly — this is the single source of truth.
-  if [ -z "$CLAIM_FINGERPRINT" ]; then
-    CLAIM_FINGERPRINT="<details>
-<summary>🤖 Agent Fingerprint</summary>
-
-| | |
-|---|---|
-| **Role** | \`${ROLE:-python-developer}\` |
-| **Architecture** | \`${COGNITIVE_ARCH:-unset}\` |
-| **Session** | \`${AGENT_SESSION:-unset}\` |
-| **CTO Wave** | \`${WAVE:-unset}\` |
-| **Coordinator Batch** | \`${BATCH_ID:-none}\` |
-| **Coordinator** | \`${COORD_FINGERPRINT:-unset}\` |
-| **Timestamp** | \`$(date -u '+%Y-%m-%dT%H:%M:%SZ')\` |
-
-</details>"
-  fi
-  gh issue comment <N> --repo "$GH_REPO" \
-    --body "🔖 **Claimed by agent**
-
-$CLAIM_FINGERPRINT" 2>/dev/null || true
+{{ fingerprint_block("CLAIM_FINGERPRINT", "python-developer", "$CLAIMED_AT") }}
+  # MCP: add_issue_comment(owner="cgcardona", repo="agentception", issue_number=N,
+  #   body="🔖 **Claimed by agent**\n\n$CLAIM_FINGERPRINT")
 
   # 0. Is the issue itself already closed? (fastest exit — check this FIRST)
-  ISSUE_STATE=$(gh issue view <N> --json state --jq '.state')
+  # MCP: github_get_issue(issue_number=N) → .state
+  ISSUE_STATE=<github_get_issue(N).state>
   if [ "$ISSUE_STATE" = "CLOSED" ]; then
     echo "⚠️  Issue #<N> is already CLOSED on GitHub. No work needed."
-    gh issue edit <N> --repo "$GH_REPO" --remove-label "status/in-progress" 2>/dev/null || true
-    gh issue edit <N> --repo "$GH_REPO" --remove-label "{{ claim_label }}" 2>/dev/null || true
+    # MCP: github_remove_label(issue_number=N, label="status/in-progress")
+    # MCP: github_remove_label(issue_number=N, label="{{ claim_label }}")
     WORKTREE=$(pwd)
     cd "$REPO"
     git worktree remove --force "$WORKTREE"
@@ -591,7 +437,8 @@ $CLAIM_FINGERPRINT" 2>/dev/null || true
   fi
 
   # 1. Is there already an open or merged PR that closes this issue?
-  gh pr list --search "closes #<N>" --state all --json number,url,state,headRefName
+  # MCP: search_pull_requests(q="repo:{{ gh_repo }} closes:#<N>", state="all")
+  # → returns list of {number, url, state, headRefName}
 
   # 2. Is there already a branch for this issue in the remote?
   git ls-remote origin | grep -i "issue-<N>\|fix/.*<N>\|feat/.*<N>"
@@ -615,15 +462,15 @@ $CLAIM_FINGERPRINT" 2>/dev/null || true
   └──────────────────────────────────────────────────────────────────────────┘
 
   Self-destruct when stopping early:
-    gh issue edit <N> --repo "$GH_REPO" --remove-label "status/in-progress" 2>/dev/null || true
-    gh issue edit <N> --repo "$GH_REPO" --remove-label "{{ claim_label }}" 2>/dev/null || true
+    # MCP: github_remove_label(issue_number=N, label="status/in-progress")
+    # MCP: github_remove_label(issue_number=N, label="{{ claim_label }}")
     WORKTREE=$(pwd)
     cd "$REPO"
     git worktree remove --force "$WORKTREE"
     git worktree prune
 
   ⚠️  MERGED PR + OPEN ISSUE = REVERT SCENARIO — never auto-close:
-    If gh pr list finds a merged PR but the issue is still OPEN, a human
+    If search_pull_requests finds a merged PR but the issue is still OPEN, a human
     explicitly reopened the issue after the PR was reverted. Your job is to
     re-implement the work from scratch. Proceed to STEP 3. Do NOT close the issue.
 
@@ -635,9 +482,7 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
   # Read DEPENDS_ON from .agent-task. If set, verify those PRs/issues are merged
   # before implementing — your code may import from them at runtime.
   #
-  # ⚠️  DEPENDS_ON is a comma-separated list (e.g. "614,615"). NEVER pass the raw
-  # string to `gh issue view` — always split on commas and iterate each number.
-  # Passing "614,615" as a single argument produces: invalid issue format: "614\n615"
+  # ⚠️  DEPENDS_ON is a comma-separated list (e.g. "614,615"). Iterate each number separately.
   DEPENDS_ON_RAW=$(grep "^DEPENDS_ON=" .agent-task | cut -d= -f2)
   if [ -n "$DEPENDS_ON_RAW" ] && [ "$DEPENDS_ON_RAW" != "none" ]; then
     echo "ℹ️  DEPENDS_ON: $DEPENDS_ON_RAW"
@@ -647,8 +492,9 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
     for DEP in "${DEP_NUMS[@]}"; do
       DEP=$(echo "$DEP" | tr -d '[:space:]')
       [ -z "$DEP" ] && continue
-      DEP_STATE=$(gh issue view "$DEP" --repo "$GH_REPO" --json state --jq '.state' 2>/dev/null || echo "UNKNOWN")
-      DEP_REASON=$(gh issue view "$DEP" --repo "$GH_REPO" --json stateReason --jq '.stateReason' 2>/dev/null || echo "UNKNOWN")
+      # MCP: github_get_issue(issue_number=DEP) → .state and .stateReason
+      DEP_STATE=<github_get_issue(DEP).state>
+      DEP_REASON=<github_get_issue(DEP).stateReason>
       if [ "$DEP_STATE" != "CLOSED" ] || [ "$DEP_REASON" != "COMPLETED" ]; then
         echo "⚠️  Dependency #$DEP is $DEP_STATE (reason=$DEP_REASON) — not yet merged to dev. Note in PR body."
         ALL_DEPS_MET=false
@@ -664,8 +510,8 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
       echo "   B) If the dependency's code IS required (e.g. imports a module that doesn't exist yet)"
       echo "      → clean abort: remove agent:wip, remove this worktree, and skip this issue."
       echo "      CLEAN ABORT sequence:"
-      echo "        gh issue edit $N --repo \"\$GH_REPO\" --remove-label \"{{ claim_label }}\" 2>/dev/null || true"
-      echo "        gh issue edit $N --repo \"\$GH_REPO\" --remove-label \"status/in-progress\" 2>/dev/null || true"
+      echo "        MCP: github_remove_label(issue_number=N, label=\"{{ claim_label }}\")"
+      echo "        MCP: github_remove_label(issue_number=N, label=\"status/in-progress\")"
       echo "        cd \"\$REPO\""
       echo "        git worktree remove --force \"\$WORKTREE\""
       echo "        git worktree prune"
@@ -841,165 +687,24 @@ AgentCeption-Session: $AGENT_SESSION"
   agentception/muse/api/routes/__init__.py NEVER conflicts (auto-discovery).
   app.py, muse-vcs.md, type-contracts.md use union merge (.gitattributes).
 
-  ── CONFLICT PLAYBOOK (reference this immediately when git reports conflicts) ──
-  │                                                                              │
-  │ STEP A — See what conflicted (one command):                                 │
-  │   git status | grep "^UU"                                                   │
-  │                                                                              │
-  │ STEP A.5 — UNIVERSAL TRIAGE (run for EVERY conflict before step B):        │
-  │                                                                              │
-  │   Peek at the conflict shape for each file:                                 │
-  │     git diff --diff-filter=U -- <file> | grep -A6 "^<<<<<<<"               │
-  │                                                                              │
-  │   Apply the FIRST matching rule — stop as soon as one matches:             │
-  │                                                                              │
-  │   RULE 0 ─ ONE SIDE EMPTY (most common in parallel batches):               │
-  │   ┌──────────────────────────────────────────────────────────────────────┐  │
-  │   │  <<<<<<< HEAD                                                        │  │
-  │   │  (blank / whitespace only)        ← this side is empty              │  │
-  │   │  =======                                                             │  │
-  │   │  <real content>                   ← this side has content           │  │
-  │   │  >>>>>>> origin/dev                                                  │  │
-  │   │  — OR the reverse (HEAD has content, origin/dev is blank/stub).     │  │
-  │   │                                                                      │  │
-  │   │  Action: TAKE the non-empty side. Remove markers. Done.             │  │
-  │   │  This is always safe. The empty side is a base-file placeholder,   │  │
-  │   │  NOT intentionally deleted content. No further analysis needed.     │  │
-  │   │  Do NOT open the file to "verify" — just take the non-empty side.  │  │
-  │   └──────────────────────────────────────────────────────────────────────┘  │
-  │                                                                              │
-  │   RULE 1 ─ BOTH SIDES IDENTICAL:                                            │
-  │     Keep either side, remove markers. Done.                                │
-  │                                                                              │
-  │   RULE 2 ─ KNOWN ADDITIVE FILE → apply the file-specific rule in STEP B:  │
-  │     muse_cli/app.py  •  muse-vcs.md  •  type-contracts.md                 │
-  │                                                                              │
-  │   RULE 3 ─ ALL OTHER FILES (judgment conflict):                             │
-  │     Preserve dev's version PLUS your additions.                            │
-  │     Semantically incompatible → STOP and report to user. Never guess.     │
-  │                                                                              │
-  │ STEP B — For each conflicted file NOT resolved by STEP A.5 (Rules 0–1):   │
-  │                                                                              │
-  │ ┌─ agentception/muse/cli/app.py ─────────────────────────────────────────────┐  │
-  │ │ Each parallel agent adds exactly one app.add_typer() line.            │  │
-  │ │ Pattern:                                                               │  │
-  │ │   <<<<<<< HEAD                                                         │  │
-  │ │   app.add_typer(foo_app, name="foo", ...)                              │  │
-  │ │   =======                                                              │  │
-  │ │   app.add_typer(bar_app, name="bar", ...)                              │  │
-  │ │   >>>>>>> origin/dev                                                   │  │
-  │ │ Rule: KEEP BOTH LINES. Remove markers. Never drop a line.             │  │
-  │ │ Verify: grep -c "add_typer" agentception/muse/cli/app.py                   │  │
-  │ │   count must equal the total number of registered sub-apps            │  │
-  │ └───────────────────────────────────────────────────────────────────────┘  │
-  │                                                                              │
-  │ ┌─ docs/architecture/muse-vcs.md ───────────────────────────────────────┐  │
-  │ │ Count markers first:                                                   │  │
-  │ │   grep -c "^<<<<<" docs/architecture/muse-vcs.md                      │  │
-  │ │ That is how many conflict blocks you must resolve.                     │  │
-  │ │                                                                        │  │
-  │ │ Pattern A — both sides have a real ## section:                        │  │
-  │ │   Rule: KEEP BOTH sections, sorted alphabetically by command name.    │  │
-  │ │                                                                        │  │
-  │ │ Pattern B — one side is empty or a blank stub:                        │  │
-  │ │   Rule: KEEP the non-empty side entirely. Discard the empty side.    │  │
-  │ │                                                                        │  │
-  │ │ Pattern C — both sides edited the SAME section differently:           │  │
-  │ │   Rule: keep the more complete / accurate version.                    │  │
-  │ │                                                                        │  │
-  │ │ Final check (must return empty):                                       │  │
-  │ │   grep -n "<<<<<<\|=======\|>>>>>>>" docs/architecture/muse-vcs.md   │  │
-  │ └───────────────────────────────────────────────────────────────────────┘  │
-  │                                                                              │
-  │ ┌─ docs/reference/type-contracts.md ────────────────────────────────────┐  │
-  │ │ Rule: KEEP ALL entries from BOTH sides. Remove markers.              │  │
-  │ │ Final check: grep -n "<<<<<<\|=======\|>>>>>>>" docs/reference/type-contracts.md │
-  │ └───────────────────────────────────────────────────────────────────────┘  │
-  │                                                                              │
-  │ ┌─ Any other file (JUDGMENT CONFLICTS) ─────────────────────────────────┐  │
-  │ │ • Preserve dev's version PLUS your additions.                        │  │
-  │ │ • If dev already contains your feature → stop and self-destruct.     │  │
-  │ │ • If semantically incompatible → stop, report to user.              │  │
-  │ └───────────────────────────────────────────────────────────────────────┘  │
-  │                                                                              │
-  │ STEP C — After resolving ALL files:                                         │
-  │   git add <resolved-files>                                                  │
-  │   git commit -m "chore: resolve merge conflicts with origin/dev"            │
-  │                                                                              │
-  │ STEP D — Verify clean (no markers anywhere):                                │
-  │   git diff --check    ← must return nothing                                 │
-  │                                                                              │
-  │ STEP E — Re-run mypy only if Python files were in conflict:                 │
-  │   app.py changed → run mypy. Markdown-only conflicts → skip mypy.          │
-  │   agentception: docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"   │
-  │   agentception: docker compose exec agentception sh -c "... mypy ..."           │
-  │   Re-run targeted tests only if logic files changed.                        │
-  │                                                                              │
-  │ STEP F — Advanced diagnostics if needed:                                    │
-  │   git log --oneline origin/dev...HEAD  ← commits this branch adds          │
-  │   git diff origin/dev...HEAD           ← full delta vs dev                 │
-  │   git show origin/dev:path/to/file     ← see dev's version of a file       │
-  └──────────────────────────────────────────────────────────────────────────────
+{% set conflict_additions_phrase = "your additions" %}
+{% include 'snippets/conflict-playbook.md.j2' %}
 
 STEP 5 — PUSH & CREATE PR:
   git push origin feat/<short-description>
 
   # Compute PR fingerprint before the heredoc so errors don't pollute the PR body.
   PR_CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-  PR_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" "${COGNITIVE_ARCH:-unset}" \
-    --fingerprint \
-    --role "${ROLE:-python-developer}" \
-    --session "${AGENT_SESSION:-unset}" \
-    --batch "${BATCH_ID:-none}" \
-    --wave "${WAVE:-unset}" \
-    --coordinator "${COORD_FINGERPRINT:-unset}" \
-    --started-at "$PR_CREATED_AT" 2>/dev/null)
-  # Fallback: match render_fingerprint() rows exactly.
-  if [ -z "$PR_FINGERPRINT" ]; then
-    PR_FINGERPRINT="<details>
-<summary>🤖 Agent Fingerprint</summary>
+{{ fingerprint_block("PR_FINGERPRINT", "python-developer", "$PR_CREATED_AT") }}
 
-| | |
-|---|---|
-| **Role** | \`${ROLE:-python-developer}\` |
-| **Architecture** | \`${COGNITIVE_ARCH:-unset}\` |
-| **Session** | \`${AGENT_SESSION:-unset}\` |
-| **CTO Wave** | \`${WAVE:-unset}\` |
-| **Coordinator Batch** | \`${BATCH_ID:-none}\` |
-| **Coordinator** | \`${COORD_FINGERPRINT:-unset}\` |
-| **Timestamp** | \`$PR_CREATED_AT\` |
-
-</details>"
-  fi
-
-  gh pr create \
-    --base dev \
-    --head feat/<short-description> \
-    --title "feat: <issue title>" \
-    --body "$(cat <<EOF
-  ## Summary
-  Closes #${N} — <one-line description>.
-
-  ## Root Cause / Motivation
-  <What was wrong or missing and why>
-
-  ## Solution
-  <What was changed and why this approach>
-
-  ## Verification
-  - [ ] mypy clean
-  - [ ] Tests pass
-  - [ ] Docs updated
-
-  ---
-  $PR_FINGERPRINT
-  EOF
-  )"
+  # MCP: create_pull_request(owner="cgcardona", repo="agentception",
+  #   title="feat: <issue title>", base="dev", head="feat/<short-description>",
+  #   body="## Summary\nCloses #${N} — <one-line description>.\n\n## Root Cause / Motivation\n<What was wrong or missing and why>\n\n## Solution\n<What was changed and why this approach>\n\n## Verification\n- [ ] mypy clean\n- [ ] Tests pass\n- [ ] Docs updated\n\n---\n$PR_FINGERPRINT")
+  # → returns {number: MY_PR_NUM, url: PR_URL, ...}
 
   # Write the new PR number back to .agent-task so the chain can use it for MERGE_AFTER.
   MY_BRANCH=$(git -C "$WORKTREE" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-  MY_PR_NUM=$(gh pr list --repo "$GH_REPO" --head "$MY_BRANCH" --state open \
-    --json number --jq '.[0].number // empty' 2>/dev/null || echo "")
+  MY_PR_NUM=<pr number from create_pull_request result>
   if [ -n "$MY_PR_NUM" ]; then
     sed -i '' "s/^LINKED_PR=.*/LINKED_PR=$MY_PR_NUM/" .agent-task 2>/dev/null || true
     echo "✅ LINKED_PR=$MY_PR_NUM written back to .agent-task"
@@ -1013,58 +718,21 @@ STEP 5 — PUSH & CREATE PR:
   # Post fingerprint comment on the issue so it's traceable even if the claim
   # step was skipped (e.g. issue opened manually rather than claimed from pool).
   # Reuse $PR_CREATED_AT so "Implemented" timestamp matches the PR creation moment.
-  IMPL_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" "${COGNITIVE_ARCH:-unset}" \
-    --fingerprint \
-    --role "${ROLE:-python-developer}" \
-    --session "${AGENT_SESSION:-unset}" \
-    --batch "${BATCH_ID:-none}" \
-    --wave "${WAVE:-unset}" \
-    --coordinator "${COORD_FINGERPRINT:-unset}" \
-    --started-at "${PR_CREATED_AT:-$(date -u '+%Y-%m-%dT%H:%M:%SZ')}" 2>/dev/null)
-  if [ -z "$IMPL_FINGERPRINT" ]; then
-    IMPL_FINGERPRINT="<details>
-<summary>🤖 Agent Fingerprint</summary>
-
-| | |
-|---|---|
-| **Role** | \`${ROLE:-python-developer}\` |
-| **Architecture** | \`${COGNITIVE_ARCH:-unset}\` |
-| **Session** | \`${AGENT_SESSION:-unset}\` |
-| **CTO Wave** | \`${WAVE:-unset}\` |
-| **Coordinator Batch** | \`${BATCH_ID:-none}\` |
-| **Coordinator** | \`${COORD_FINGERPRINT:-unset}\` |
-| **Timestamp** | \`${PR_CREATED_AT:-$(date -u '+%Y-%m-%dT%H:%M:%SZ')}\` |
-
-</details>"
-  fi
-  gh issue comment <N> --repo "$GH_REPO" \
-    --body "🤖 **Implemented by agent** — PR #${MY_PR_NUM:-?}
-
-$IMPL_FINGERPRINT" 2>/dev/null || true
+{{ fingerprint_block("IMPL_FINGERPRINT", "python-developer", "$PR_CREATED_AT") }}
+  # MCP: add_issue_comment(owner="cgcardona", repo="agentception", issue_number=N,
+  #   body="🤖 **Implemented by agent** — PR #${MY_PR_NUM:-?}\n\n$IMPL_FINGERPRINT")
 
   # Transition status label: in-progress → pr-open
-  gh issue edit <N> --repo "$GH_REPO" \
-    --remove-label "status/in-progress" 2>/dev/null || true
-  gh issue edit <N> --repo "$GH_REPO" \
-    --add-label "status/pr-open" 2>/dev/null || true
+  # MCP: github_remove_label(issue_number=N, label="status/in-progress")
+  # MCP: github_add_label(issue_number=N, label="status/pr-open")
 
-  ⚠️  VERIFY AUTO-CLOSE LINKAGE — run immediately after gh pr create:
+  ⚠️  VERIFY AUTO-CLOSE LINKAGE — verify immediately after PR creation:
   # GitHub auto-closes issue #<N> when the PR is merged ONLY if "Closes #<N>"
   # appears verbatim in the PR body. Verify now so you don't leave a ghost issue.
-
-  PR_BODY=$(gh pr list \
-    --repo "$GH_REPO" \
-    --head feat/<short-description> \
-    --json body \
-    --jq '.[0].body')
-
-  echo "$PR_BODY" | grep -i "closes #<N>"
-  # Expected output: a line containing "Closes #<N>"
-  # If grep returns nothing → the PR body is missing the close keyword.
-  # Fix immediately:
-  #   gh pr edit feat/<short-description> --body "$(echo "$PR_BODY")
-  #
-  # Closes #<N>"
+  # MCP: github_get_pr(pr_number=MY_PR_NUM) → .body
+  # Check: result.body must contain "Closes #<N>" (case-insensitive)
+  # If missing → MCP: update_pull_request(owner=..., repo=..., pullNumber=MY_PR_NUM,
+  #                      body=<existing body + "\n\nCloses #<N>">)
 
 STEP 6 — SPAWN A QA REVIEWER FOR YOUR OWN PR (run this before self-destructing):
 
@@ -1091,10 +759,11 @@ STEP 6 — SPAWN A QA REVIEWER FOR YOUR OWN PR (run this before self-destructing
     # resolve_arch.py will switch to --mode reviewer to load the checklist instead of
     # the implementer fragments.
     REVIEWER_ARCH="${COGNITIVE_ARCH:-knuth:python}"
-    PR_TITLE_VAL=$(gh pr view "$MY_PR" --repo "$GH_REPO" --json title --jq '.title' 2>/dev/null || echo "")
+    # MCP: github_get_pr(pr_number=MY_PR) → use .title, .body, .headRefName
+    PR_TITLE_VAL=<github_get_pr(MY_PR).title>
+    # gh pr diff still needed for file list — no MCP equivalent for diff content
     PR_FILES_VAL=$(gh pr diff "$MY_PR" --repo "$GH_REPO" --name-only 2>/dev/null | tr '\n' ',' | sed 's/,$//')
-    CLOSES_VAL=$(gh pr view "$MY_PR" --repo "$GH_REPO" --json body --jq '.body' 2>/dev/null \
-      | grep -oE '[Cc]loses?\s+#[0-9]+' | grep -oE '[0-9]+' | tr '\n' ',' | sed 's/,$//')
+    CLOSES_VAL=<parse "Closes #NNN" from github_get_pr(MY_PR).body, join with commas>
     HAS_MIG=$(echo "$PR_FILES_VAL" | grep -c "alembic/versions/" || echo 0)
     [ "$HAS_MIG" -gt 0 ] && HAS_MIG_VAL=true || HAS_MIG_VAL=false
     cat > "$REVIEW_WORKTREE/.agent-task" <<TASK
@@ -1139,10 +808,7 @@ TASK
   fi
 
 STEP 7 — SELF-DESTRUCT (always run this after STEP 6, whether or not a replacement was spawned):
-  WORKTREE=$(pwd)
-  cd "$REPO"
-  git worktree remove --force "$WORKTREE"
-  git worktree prune
+{% include 'snippets/self-destruct.md.j2' %}
 
 ⚠️  NEVER copy files to the main repo for testing.
 ⚠️  NEVER start implementation without completing STEP 2. Skipping the check
@@ -1164,15 +830,10 @@ any protocol changes requiring handoff.
 The GitHub label is the **single source of truth** for what belongs in a phase.
 Run this before touching the Setup script:
 
-```bash
+```
 # List every open issue for the current phase — this IS your candidate pool.
-GH_REPO={{ gh_repo }}   # ← single place to change if the repo slug ever changes
-gh issue list \
-  --repo "$GH_REPO" \
-  --label "phase-1" \
-  --state open \
-  --json number,title,url \
-  --jq '.[] | "#\(.number)  \(.title)\n  \(.url)"'
+# MCP: github_list_issues(state="open", label="phase-1")
+# → returns [{number, title, url, labels, ...}] — print each as "#N  title\n  url"
 ```
 
 - If the list is **empty** → phase is complete. Do not launch.
@@ -1187,9 +848,8 @@ From the label audit output, choose issues that satisfy **both** criteria in
 **Issue selection** above (foundational first + zero file overlap). Read each
 candidate's body to identify affected files:
 
-```bash
-GH_REPO={{ gh_repo }}   # ← single place to change if the repo slug ever changes
-gh issue view <N> --repo "$GH_REPO" --json body,title
+```
+# MCP: github_get_issue(issue_number=N) → .body and .title
 ```
 
 Confirm no two selected issues share a file. Document your selection in the
@@ -1205,10 +865,14 @@ REPO=$(git rev-parse --show-toplevel)
 cd "$REPO"
 
 echo "=== Files touched by currently open PRs ==="
+# MCP: github_list_prs(state="open") → for each PR:
+#   - .number, .title  (from github_list_prs result)
+#   - files: gh pr diff NUM --name-only (no MCP equivalent for diff content)
 for num in $(gh pr list --state open --json number --jq '.[].number'); do
   files=$(gh pr diff "$num" --name-only 2>/dev/null)
   if [ -n "$files" ]; then
-    title=$(gh pr view "$num" --json title --jq .title 2>/dev/null)
+    # MCP: github_get_pr(pr_number=num) → .title
+    title=$(github_get_pr result .title)
     echo ""
     echo "PR #$num — $title:"
     echo "$files" | sed 's/^/  /'

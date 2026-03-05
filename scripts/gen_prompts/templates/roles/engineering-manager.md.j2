@@ -40,12 +40,14 @@ SEED:
        #       (worktree was created but the leaf agent never started).
        # If the worktree exists AND has commits, the claim is ACTIVE — do NOT touch it.
        MAIN_REPO=$(git -C "<repo-root>" rev-parse --show-toplevel 2>/dev/null || echo "<repo-root>")
-       for NUM in $(gh issue list --state open --label "{{ claim_label }}" \
-           --repo {{ gh_repo }} --json number --jq '.[].number'); do
+
+       # MCP: github_list_issues(state="open", label="{{ claim_label }}")
+       # → returns list of {number, title, labels, ...}; iterate each .number as NUM
+       for NUM in <numbers from github_list_issues result>; do
          # If an open PR already references this issue (via branch name or close keyword),
          # the claim is ACTIVE even if the implementer worktree was pruned. Never clear it.
-         OPEN_PR=$(gh pr list --state open --repo {{ gh_repo }} \
-           --head "feat/issue-${NUM}" --json number --jq '.[0].number // empty' 2>/dev/null || echo "")
+         # MCP: github_list_prs(state="open") → filter where .headRefName == "feat/issue-${NUM}"
+         OPEN_PR=<pr_number from github_list_prs result, or empty>
          if [ -n "$OPEN_PR" ]; then
            echo "Keeping {{ claim_label }} on #$NUM (open PR #$OPEN_PR exists — worktree pruning is expected)"
            continue
@@ -53,13 +55,13 @@ SEED:
          WORKTREE="$HOME/.agentception/worktrees/{{ repo_name }}/issue-$NUM"
          if [ ! -d "$WORKTREE" ]; then
            echo "Clearing stale {{ claim_label }} from #$NUM (worktree missing, no open PR)"
-           gh issue edit $NUM --repo {{ gh_repo }} --remove-label "{{ claim_label }}"
+           # MCP: github_remove_label(issue_number=NUM, label="{{ claim_label }}")
          else
            BRANCH=$(git -C "$WORKTREE" branch --show-current 2>/dev/null || echo "")
            AHEAD=$(git -C "$MAIN_REPO" rev-list --count "dev..${BRANCH}" 2>/dev/null || echo "0")
            if [ "${AHEAD:-0}" -eq 0 ]; then
              echo "Clearing stale {{ claim_label }} from #$NUM (worktree exists but 0 commits ahead of dev, no open PR)"
-             gh issue edit $NUM --repo {{ gh_repo }} --remove-label "{{ claim_label }}"
+             # MCP: github_remove_label(issue_number=NUM, label="{{ claim_label }}")
            else
              echo "Keeping {{ claim_label }} on #$NUM (active: $AHEAD commit(s) ahead of dev)"
            fi
@@ -71,9 +73,8 @@ SEED:
        # NEVER query all {{ active_label_prefix }}* labels — you are scoped to exactly one label per VP run.
        # This prevents you from accidentally claiming issues from a later phase.
        ACTIVE_LABEL="<from CTO dispatch prompt>"
-       gh issue list --state open --repo {{ gh_repo }} --label "$ACTIVE_LABEL" \
-         --json number,title,labels \
-         --jq '[.[] | select(.labels | map(.name) | index("{{ claim_label }}") | not)]'
+       # MCP: github_list_issues(state="open", label="$ACTIVE_LABEL")
+       # → filter result to exclude issues that already have the "{{ claim_label }}" label
      If empty → report to CTO "implementation queue clear for $ACTIVE_LABEL." Stop.
 
   3.5 Open-PR guard — skip issues that already have an open PR:
@@ -81,8 +82,8 @@ SEED:
        # the stale sweep to (incorrectly) clear agent:wip and expose the issue again.
        # Always re-verify before seeding — branch naming is the canonical signal.
        for NUM in <candidate numbers from step 3>; do
-         OPEN_PR=$(gh pr list --state open --repo {{ gh_repo }} \
-           --head "feat/issue-${NUM}" --json number --jq '.[0].number // empty' 2>/dev/null || echo "")
+         # MCP: github_list_prs(state="open") → filter where .headRefName == "feat/issue-${NUM}"
+         OPEN_PR=<pr_number from github_list_prs result, or empty>
          if [ -n "$OPEN_PR" ]; then
            echo "SKIP #$NUM — open PR #$OPEN_PR already exists for this issue"
            # Remove from candidate list
@@ -93,18 +94,16 @@ SEED:
      For each candidate issue, check if its dependencies are met before seeding.
      Parse "Depends on #NNN" from the issue body. If any dep issue is still OPEN → skip.
      Only seed issues whose dependency issues are all CLOSED (i.e. merged).
-     ⚠️  grep produces newline-separated numbers — iterate them one at a time.
-     NEVER pass the full grep output as a single argument to `gh issue view`.
        for NUM in <candidate numbers>; do
-         # Extract dependency numbers one per line, then iterate individually.
-         DEPS=$(gh issue view $NUM --repo {{ gh_repo }} --json body \
-           --jq '.body' | grep -oE 'Depends on[^#]*#[0-9]+' | grep -oE '[0-9]+')
+         # MCP: github_get_issue(issue_number=NUM) → .body
+         # Extract "Depends on #NNN" patterns from .body, iterate each dep number.
+         DEPS=<dep numbers parsed from github_get_issue(NUM).body>
          ALL_MET=true
-         while IFS= read -r dep; do
-           [ -z "$dep" ] && continue
-           STATE=$(gh issue view "$dep" --repo {{ gh_repo }} --json state --jq '.state' 2>/dev/null || echo "UNKNOWN")
+         for dep in $DEPS; do
+           # MCP: github_get_issue(issue_number=dep) → .state
+           STATE=<github_get_issue(dep).state>
            [ "$STATE" != "CLOSED" ] && ALL_MET=false && break
-         done <<< "$DEPS"
+         done
          [ "$ALL_MET" = "true" ] && echo "SEED $NUM" || echo "SKIP $NUM (deps unmet)"
        done
 
@@ -114,7 +113,7 @@ SEED:
        echo "Batch ID:   Coordinator: $COORD_FINGERPRINT"
 
   5. Take the first 4 unclaimed issues. For each:
-       a. Claim:  gh issue edit <N> --add-label "{{ claim_label }}"
+       a. Claim:  MCP: github_add_label(issue_number=N, label="{{ claim_label }}")
        b. Create worktree:
             git -C "<repo-root>" worktree add \
               -b feat/issue-<N> \
@@ -126,8 +125,9 @@ SEED:
           First match wins. This ensures every leaf agent gets the right skill
           domain and personality for its task — not just a generic Python engineer.
 
-          ```bash
-          ISSUE_BODY="$(gh issue view <N> --repo {{ gh_repo }} --json body -q .body)"
+          ```
+          # MCP: github_get_issue(issue_number=N) → use .body as ISSUE_BODY
+          ISSUE_BODY=<github_get_issue(N).body>
 
           # --- Skill domains (colon-separated, up to 3, first-match-wins per layer) ---
           # Layer 1: specialised UI skills

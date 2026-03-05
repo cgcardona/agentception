@@ -1,3 +1,4 @@
+{%- from 'snippets/_macros.j2' import fingerprint_block with context -%}
 # Parallel Agent Conductor — Full Pipeline Orchestration
 
 > ## YOU ARE THE META-ORCHESTRATOR
@@ -444,34 +445,9 @@ $(gh pr list --repo "$GH_REPO" --state open \
 
     # Fingerprint the reminder issue so every conductor run is traceable.
     CONDUCTOR_CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-    CONDUCTOR_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" "${COGNITIVE_ARCH:-unset}" \
-      --fingerprint \
-      --role "${ROLE:-cto}" \
-      --session "${AGENT_SESSION:-unset}" \
-      --batch "${BATCH_ID:-none}" \
-      --wave "${WAVE:-unset}" \
-      --coordinator "none" \
-      --started-at "$CONDUCTOR_CREATED_AT" 2>/dev/null)
-    if [ -z "$CONDUCTOR_FINGERPRINT" ]; then
-      CONDUCTOR_FINGERPRINT="<details>
-<summary>🤖 Agent Fingerprint</summary>
-
-| | |
-|---|---|
-| **Role** | \`${ROLE:-cto}\` |
-| **Architecture** | \`${COGNITIVE_ARCH:-unset}\` |
-| **Session** | \`${AGENT_SESSION:-unset}\` |
-| **CTO Wave** | \`${WAVE:-unset}\` |
-| **Coordinator Batch** | \`${BATCH_ID:-none}\` |
-| **Coordinator** | \`none\` |
-| **Timestamp** | \`$CONDUCTOR_CREATED_AT\` |
-
-</details>"
-    fi
-    gh issue comment "$REMINDER_URL" --repo "$GH_REPO" \
-      --body "🎼 **Created by conductor**
-
-$CONDUCTOR_FINGERPRINT" 2>/dev/null || true
+{{ fingerprint_block("CONDUCTOR_FINGERPRINT", "cto", "$CONDUCTOR_CREATED_AT", "none") }}
+    # MCP: add_issue_comment(owner="cgcardona", repo="agentception", issue_number=REMINDER_NUM,
+    #   body="🎼 **Created by conductor**\n\n$CONDUCTOR_FINGERPRINT")
 
     echo "✅ Reminder created: $REMINDER_URL"
     echo "   Re-run the conductor when coordinators have completed their work."
@@ -501,10 +477,7 @@ STEP 7.5 — POST-WAVE STALE BRANCH CLEANUP:
 
 STEP 8 — SELF-DESTRUCT:
   REPO=$(git worktree list | head -1 | awk '{print $1}')
-  WORKTREE=$(pwd)
-  cd "$REPO"
-  git worktree remove --force "$WORKTREE"
-  git worktree prune
+{% include 'snippets/self-destruct.md.j2' %}
 
 Report: pipeline state table (open issues by phase, open PRs, reminder URL if created).
 ⚠️  "Done" without the pipeline state table is not acceptable.
