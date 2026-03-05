@@ -180,8 +180,8 @@ def test_build_child_task_leaf_node_type() -> None:
 
 def test_build_child_task_coordinator_label_scope_query_hint() -> None:
     task = _make_task(scope_type="label", node_type="coordinator")
-    assert "gh issue list" in task
-    assert "--label 'ac-workflow'" in task
+    assert "github_list_issues" in task
+    assert "label='ac-workflow'" in task
 
 
 def test_build_child_task_issue_scope_includes_issue_fields() -> None:
@@ -196,7 +196,7 @@ def test_build_child_task_issue_scope_includes_issue_fields() -> None:
     assert "ISSUE_NUMBER=42" in task
     assert "ISSUE_TITLE=Fix the thing" in task
     assert "ISSUE_URL=" in task
-    assert "gh issue view 42" in task
+    assert "github_get_issue(number=42)" in task
 
 
 def test_build_child_task_pr_scope_includes_pr_fields() -> None:
@@ -209,14 +209,14 @@ def test_build_child_task_pr_scope_includes_pr_fields() -> None:
     )
     assert "PR_NUMBER=112" in task
     assert "PR_URL=" in task
-    assert "gh pr view 112" in task
+    assert "github_get_pr(number=112)" in task
 
 
 def test_build_child_task_coordinator_includes_both_queries() -> None:
     """A coordinator with label scope should get both issue and PR query hints."""
     task = _make_task(node_type="coordinator", role="cto", scope_type="label", scope_value="ac-workflow")
-    assert "gh issue list" in task
-    assert "gh pr list" in task
+    assert "github_list_issues" in task
+    assert "github_list_prs" in task
 
 
 # ---------------------------------------------------------------------------

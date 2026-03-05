@@ -8,7 +8,7 @@
  *  - dispatch modal     — role selection and POST /api/dispatch/issue (issue-scoped leaf)
  *  - labelDispatch modal — scope-based launch: full initiative / phase / single issue
  *
- * See agentception/docs/agent-tree-protocol.md for the node-type spec.
+ * See docs/agent-tree-protocol.md for the node-type spec.
  */
 
 export function buildPage(roleGroups) {

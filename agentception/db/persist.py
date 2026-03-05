@@ -555,7 +555,7 @@ async def persist_agent_run_dispatch(
 async def acknowledge_agent_run(run_id: str) -> bool:
     """Transition a ``pending_launch`` run to ``implementing``.
 
-    Called by the coordinator agent via ``POST /api/build/acknowledge/{run_id}``
+    Called by the coordinator agent via ``POST /api/runs/{run_id}/acknowledge``
     to atomically claim the run before spawning its Task worker.
 
     Returns ``True`` when the transition succeeded, ``False`` when the run was

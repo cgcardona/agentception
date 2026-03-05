@@ -6,7 +6,7 @@ pending launch queue and spawns the correct agent at the correct level of the tr
 You run once, spawn everything, wait for completion, and exit.
 You do not loop indefinitely. You do not poll. You are not a daemon.
 
-Canonical reference: `agentception/docs/agent-tree-protocol.md`
+Canonical reference: `docs/agent-tree-protocol.md`
 
 ---
 
@@ -67,7 +67,7 @@ For each pending launch (batch up to 3 simultaneously using parallel Task calls)
 ### 3a. Claim the run
 
 ```bash
-curl -s -X POST http://localhost:10003/api/build/acknowledge/{run_id}
+curl -s -X POST http://localhost:10003/api/runs/{run_id}/acknowledge
 ```
 
 This atomically marks the run as `implementing` so no other Dispatcher can
@@ -107,25 +107,22 @@ Step 1: Read your role file:
 Step 2: Read your .agent-task file:
   {host_worktree_path}/.agent-task
 
-Step 3: Run your tier's GitHub queries to discover what needs doing.
+Step 3: Run your tier's GitHub queries via MCP to discover what needs doing.
 
-  executive tier — run BOTH:
-    gh issue list --repo {gh_repo} --label "{scope_value}" --state open \
-      --json number,title,labels,assignees --limit 200
-    gh pr list --repo {gh_repo} --base dev --state open \
-      --json number,title,headRefName,reviewDecision --limit 200
-  Then: spawn engineering-coordinator if issues exist, spawn qa-coordinator if PRs exist.
+  executive tier — call BOTH MCP tools:
+    github_list_issues(label="{scope_value}", state="open")
+    github_list_prs(state="open")
+  Then: spawn engineering-coordinator if open issues exist,
+        spawn qa-coordinator if open PRs exist (cleanup sweep only).
 
-  coordinator tier (engineering-coordinator role) — run:
-    gh issue list --repo {gh_repo} --label "{scope_value}" --state open \
-      --json number,title,labels,assignees --limit 200 | \
-      jq '[.[] | select(.labels[].name != "agent:wip")]'
-  Then: spawn one engineer per issue (max 3 at a time via Task calls).
+  coordinator tier (engineering-coordinator role) — call:
+    github_list_issues(label="{scope_value}", state="open")
+  Filter out any issues already labelled "agent:wip".
+  Then: spawn one engineer per unclaimed issue (max 3 at a time via Task calls).
 
-  coordinator tier (qa-coordinator role) — run:
-    gh pr list --repo {gh_repo} --base dev --state open \
-      --json number,title,headRefName,reviewDecision --limit 200
-  Then: spawn one pr-reviewer per PR (max 3 at a time via Task calls).
+  coordinator tier (qa-coordinator role) — call:
+    github_list_prs(state="open")
+  Then: spawn one pr-reviewer per open PR (max 3 at a time via Task calls).
 
 Step 4: For each child you spawn:
   - Write a .agent-task in a fresh git worktree:
@@ -162,9 +159,9 @@ Step 1: Read your role file:
 Step 2: Read your .agent-task file:
   {host_worktree_path}/.agent-task
 
-Step 3: Read your assigned {scope_type}:
-  gh {scope_type} view {scope_value} --repo {gh_repo} \
-    --json number,title,body,labels{",files,diff" if scope_type == "pr" else ""}
+Step 3: Read your assigned {scope_type} via MCP:
+  engineer  → github_get_issue(number={scope_value})
+  reviewer  → github_get_pr(number={scope_value})
 
 Step 4: Follow your role instructions exactly.
   engineer  → implement the issue in your worktree, open a PR against dev.

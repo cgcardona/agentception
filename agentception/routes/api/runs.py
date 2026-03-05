@@ -16,7 +16,7 @@ Two audiences:
    message to the agent's transcript; ``POST /api/runs/{run_id}/stop``
    marks a run DONE from the inspector panel.
 
-See ``agentception/docs/agent-tree-protocol.md`` for the full tier spec.
+See ``docs/agent-tree-protocol.md`` for the full tier spec.
 """
 
 import asyncio

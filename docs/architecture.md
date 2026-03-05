@@ -217,7 +217,7 @@ phases:
 ## Further Reading
 
 - [Plan Spec format](../agentception/docs/plan-spec.md)
-- [Agent tree protocol](../agentception/docs/agent-tree-protocol.md)
+- [Agent tree protocol](agent-tree-protocol.md)
 - [Cursor agent spawning](../agentception/docs/cursor-agent-spawning.md)
 - [MCP integration guide](guides/mcp.md)
 - [Type contracts reference](reference/type-contracts.md)
