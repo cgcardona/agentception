@@ -131,15 +131,15 @@ def test_initial_migration_creates_core_ac_tables() -> None:
     assert initial_content, "No initial migration found"
 
     expected_tables = [
-        "ac_waves",
-        "ac_agent_runs",
-        "ac_issues",
-        "ac_pull_requests",
+        "waves",
+        "agent_runs",
+        "issues",
+        "pull_requests",
     ]
     for table in expected_tables:
         assert table in initial_content, (
             f"Initial migration does not create expected table '{table}'. "
-            "Ensure 0001_initial covers all core ac_* tables."
+            "Ensure 0001_initial covers all core tables."
         )
 
 

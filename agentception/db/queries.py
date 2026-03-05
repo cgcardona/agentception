@@ -1115,32 +1115,40 @@ _NON_INITIATIVE_LABELS = frozenset(
 
 
 async def get_initiatives(repo: str) -> list[str]:
-    """Return alphabetically sorted initiative labels present in the DB.
+    """Return alphabetically sorted *active* initiative labels present in the DB.
 
     An "initiative" label is any GitHub label attached to an issue that:
     - also carries at least one ``phase-N`` label (new-format issues only)
     - is not itself a ``phase-N`` label
     - is not in ``_NON_INITIATIVE_LABELS``
 
+    Only initiatives with at least one **open** issue are returned.  Fully
+    completed initiatives (all issues closed) are excluded from the tab bar so
+    they don't accumulate noise over time.  They remain accessible by direct URL.
+
     Falls back to ``[]`` on DB error.
     """
     try:
         async with get_session() as session:
             result = await session.execute(
-                select(ACIssue.labels_json).where(ACIssue.repo == repo)
+                select(ACIssue.labels_json, ACIssue.state).where(ACIssue.repo == repo)
             )
-            rows = result.scalars().all()
+            rows = result.all()
 
-        found: set[str] = set()
-        for labels_json_str in rows:
+        # Track which states each initiative label has seen.
+        initiative_states: dict[str, set[str]] = {}
+        for labels_json_str, state in rows:
             labels: list[str] = json.loads(labels_json_str or "[]")
             if not any(lbl.startswith("phase-") for lbl in labels):
                 continue
             for lbl in labels:
                 if not lbl.startswith("phase-") and lbl not in _NON_INITIATIVE_LABELS:
-                    found.add(lbl)
+                    initiative_states.setdefault(lbl, set()).add(state or "open")
 
-        return sorted(found)
+        # Only surface initiatives that still have at least one open issue.
+        return sorted(
+            ini for ini, states in initiative_states.items() if "open" in states
+        )
     except Exception as exc:
         logger.warning("⚠️  get_initiatives DB query failed (non-fatal): %s", exc)
         return []
