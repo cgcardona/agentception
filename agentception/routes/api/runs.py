@@ -36,8 +36,8 @@ from agentception.db.models import ACAgentMessage, ACAgentRun
 from agentception.db.persist import acknowledge_agent_run, persist_agent_event
 from agentception.db.queries import get_agent_run_teardown, get_pending_launches
 from agentception.services.spawn_child import (
-    NodeType,
     SpawnChildError,
+    Tier,
     spawn_child,
 )
 
@@ -97,10 +97,10 @@ class SpawnChildRequest(BaseModel):
 
     role: str
     """Child's role slug (e.g. ``"engineering-coordinator"``, ``"python-developer"``)."""
-    node_type: NodeType
-    """``"coordinator"`` if the child spawns children; ``"leaf"`` if it works one issue/PR."""
-    logical_tier: str | None = None
-    """Organisational domain for UI visualisation (e.g. ``"qa"``, ``"engineering"``)."""
+    tier: Tier
+    """Behavioral execution tier: ``"executive"`` | ``"coordinator"`` | ``"engineer"`` | ``"reviewer"``."""
+    org_domain: str | None = None
+    """Organisational slot for UI hierarchy (``"c-suite"`` | ``"engineering"`` | ``"qa"``)."""
     scope_type: Literal["label", "issue", "pr"]
     """``"label"``, ``"issue"``, or ``"pr"``."""
     scope_value: str
@@ -121,8 +121,8 @@ class SpawnChildResponse(BaseModel):
     run_id: str
     host_worktree_path: str
     worktree_path: str
-    node_type: str
-    logical_tier: str | None = None
+    tier: str
+    org_domain: str | None = None
     role: str
     cognitive_arch: str
     agent_task_path: str
@@ -155,8 +155,8 @@ async def spawn_child_node(
         result = await spawn_child(
             parent_run_id=parent_run_id,
             role=req.role,
-            node_type=req.node_type,
-            logical_tier=req.logical_tier,
+            tier=req.tier,
+            org_domain=req.org_domain,
             scope_type=req.scope_type,
             scope_value=req.scope_value,
             gh_repo=req.gh_repo,

@@ -70,8 +70,8 @@ class EnrichedAgentRunRow(TypedDict):
     duration_str: str
     spawned_fmt: str
     completed_fmt: str
-    node_type: str | None
-    logical_tier: str | None
+    tier: str | None
+    org_domain: str | None
     parent_run_id: str | None
 
 
@@ -186,8 +186,8 @@ async def agents_list(request: Request) -> HTMLResponse:
             duration_str=duration_str,
             spawned_fmt=run["spawned_at"][:16].replace("T", " "),
             completed_fmt=run["completed_at"][:16].replace("T", " ") if run["completed_at"] else "—",
-            node_type=run["node_type"],
-            logical_tier=run["logical_tier"],
+            tier=run["tier"],
+            org_domain=run["org_domain"],
             parent_run_id=run["parent_run_id"],
         ))
 

@@ -82,7 +82,7 @@ class PlanDraftResponse(BaseModel):
 
     ``output_path`` is the absolute path of the YAML file the Cursor agent will
     write when it completes — not the worktree directory.  The AgentCeption
-    poller watches this path and emits a ``task_output_ready`` SSE event when
+    poller watches this path and emits a ``plan_draft_ready`` SSE event when
     the file appears.
     """
 
@@ -115,7 +115,7 @@ async def post_plan_draft(request: PlanDraftRequest) -> PlanDraftResponse:
     task_file_path = worktree_path / ".agent-task"
     # The output file is where the Cursor agent writes the finished PlanSpec YAML.
     # The AgentCeption poller watches *this file* (not the directory) and emits
-    # ``task_output_ready`` when it appears on disk.
+    # ``plan_draft_ready`` when it appears on disk.
     output_file_path = host_worktree_path / ".plan-output.yaml"
 
     logger.info("✅ Plan draft %s — creating worktree at %s", draft_id, worktree_path)
@@ -149,7 +149,7 @@ async def post_plan_draft(request: PlanDraftRequest) -> PlanDraftResponse:
         f"WORKFLOW=plan-spec\n"
         f"DRAFT_ID={draft_id}\n"
         # OUTPUT_PATH must be a file path (not the directory) so the AgentCeption
-        # poller can watch for the file's appearance and emit task_output_ready.
+        # poller can watch for the file's appearance and emit plan_draft_ready.
         f"OUTPUT_PATH={output_file_path}\n"
         f"STATUS=pending\n"
         # Guide the Cursor agent: call plan_get_schema() first to get the PlanSpec

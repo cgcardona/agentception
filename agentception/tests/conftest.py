@@ -11,7 +11,7 @@ Run the full agentception suite:
 """
 
 import asyncio
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
 from unittest.mock import patch
 
 import pytest
@@ -31,13 +31,64 @@ async def _noop_polling_loop() -> None:
         return
 
 
-@pytest.fixture(autouse=True, scope="session")
-def _patch_polling_loop() -> Generator[None, None, None]:
-    """Patch agentception.app.polling_loop for the entire test session.
+async def _noop_init_db() -> None:
+    """No-op replacement for init_db during the test session.
 
-    Scoped to session so a single patch covers every TestClient lifespan
-    startup, regardless of which test file triggers it.  Tests that exercise
-    polling_loop directly import it from agentception.poller and are unaffected.
+    asyncpg connections are bound to the event loop that created them.
+    With pytest-asyncio's function-scoped event loops each async test runs on a
+    fresh loop, so any engine created inside one test's lifespan is orphaned
+    (its connections reference a now-closed loop) by the time the next test's
+    lifespan calls close_db().  This produces the "Loop closed" asyncpg warning
+    and causes dispose() to hang, making the full test suite freeze on the
+    second or third consecutive run.
+
+    The test suite mocks all service-layer functions; no test reaches the real
+    DB.  Making init_db/close_db no-ops is therefore safe and is consistent with
+    the "no Postgres" contract stated in this module's docstring.
     """
-    with patch("agentception.app.polling_loop", _noop_polling_loop):
+
+
+async def _noop_close_db() -> None:
+    """No-op replacement for close_db during the test session."""
+
+
+async def _noop_tick() -> None:
+    """No-op replacement for tick() fired as fire-and-forget background tasks.
+
+    Two route handlers spawn tick() as an unnamed asyncio.create_task:
+    - overview.py  fires tick() (aliased as _poller_tick) on every page load
+    - control.py   fires tick() on /control/trigger-poll
+
+    These fire-and-forget tasks outlive the request and make real GitHub/DB I/O.
+    When pytest-asyncio closes the function-scoped event loop after each async
+    test, any still-pending tick() task is destroyed mid-gather, which causes
+    the "Task was destroyed but it is pending!" warning and intermittently hangs
+    the event-loop teardown for 30+ seconds.
+
+    Patching tick() to a no-op prevents the tasks from being created at all.
+    Tests that exercise tick() directly import it from agentception.poller and
+    are unaffected.
+    """
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _patch_app_lifespan() -> Generator[None, None, None]:
+    """Patch all background-task entry points for the entire test session.
+
+    - polling_loop              → sleeps forever, cancels instantly
+    - init_db / close_db       → no-ops (no asyncpg engine, no event-loop binding)
+    - agentception.poller.tick  → no-op (covers control.py's local import)
+    - overview._poller_tick     → no-op (module-level alias of tick in overview.py)
+
+    Session scope means a single patch set covers every AsyncClient lifespan
+    startup regardless of which test file triggers it.  Tests that import these
+    symbols directly from their source modules are unaffected.
+    """
+    with (
+        patch("agentception.app.polling_loop", _noop_polling_loop),
+        patch("agentception.app.init_db", _noop_init_db),
+        patch("agentception.app.close_db", _noop_close_db),
+        patch("agentception.poller.tick", _noop_tick),
+        patch("agentception.routes.ui.overview._poller_tick", _noop_tick),
+    ):
         yield

@@ -78,10 +78,10 @@
               <span class="build-inspector__run-status"
                     :class="'build-inspector__run-status--' + activeIssue.run.status.toLowerCase()"
                     x-text="activeIssue.run.status"></span>
-              <template x-if="activeIssue.run.node_type">
+              <template x-if="activeIssue.run.tier">
                 <span class="build-issue__tier"
-                      :class="'build-issue__tier--' + activeIssue.run.node_type"
-                      x-text="activeIssue.run.logical_tier || activeIssue.run.node_type"></span>
+                      :class="'build-issue__tier--' + activeIssue.run.tier"
+                      x-text="activeIssue.run.org_domain || activeIssue.run.tier"></span>
               </template>
               <span class="build-inspector__run-since"
                     x-text="'since ' + fmtTime(activeIssue.run.spawned_at)"></span>
@@ -360,7 +360,7 @@
             <p class="build-modal__success-hint">
               Run ID: <code x-text="labelDispatchResult.run_id ?? ''"></code>
               &nbsp;·&nbsp;
-              Node: <code x-text="labelDispatchResult.node_type ?? ''"></code>
+              Tier: <code x-text="labelDispatchResult.tier ?? ''"></code>
               &nbsp;·&nbsp;
               Role: <code x-text="labelDispatchResult.role ?? ''"></code>
             </p>

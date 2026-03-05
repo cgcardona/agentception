@@ -1,14 +1,17 @@
 from __future__ import annotations
 
-"""ac initial schema
+"""AgentCeption — complete initial schema.
 
-THIS IS THE ONLY MIGRATION for AgentCeption during the monorepo phase.
-New ac_* tables are added here directly (upgrade/downgrade pair).
-When AgentCeption is extracted to its own repo, this becomes its migration 0001.
+Single canonical migration that creates all tables in their final form.
+This replaces the historical chain of 12 incremental migrations (0001–0012)
+with one authoritative baseline that is easy to reason about.
 
-Revision ID: ac0001
+Upgrade:  creates all tables and indices.
+Downgrade: drops them all.
+
+Revision ID: 0001
 Revises:
-Create Date: 2026-03-02
+Create Date: 2026-03-05
 """
 
 import sqlalchemy as sa
@@ -21,7 +24,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # ── waves ─────────────────────────────────────────────────────────────
+    # ── waves ──────────────────────────────────────────────────────────────
     op.create_table(
         "waves",
         sa.Column("id", sa.String(128), primary_key=True),
@@ -45,8 +48,16 @@ def upgrade() -> None:
         sa.Column("role", sa.String(128), nullable=False),
         sa.Column("status", sa.String(64), nullable=False),
         sa.Column("attempt_number", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("spawn_mode", sa.String(64), nullable=True),
+        # Text (not VARCHAR) to avoid truncation of JSON spawn_mode blobs.
+        sa.Column("spawn_mode", sa.Text(), nullable=True),
         sa.Column("batch_id", sa.String(128), nullable=True),
+        sa.Column("cognitive_arch", sa.String(256), nullable=True),
+        # tier: behavioral execution role (executive | coordinator | engineer | reviewer)
+        sa.Column("tier", sa.String(64), nullable=True),
+        # org_domain: org-chart slot for UI hierarchy (c-suite | engineering | qa)
+        sa.Column("org_domain", sa.String(64), nullable=True),
+        # parent_run_id: run that spawned this one (spawn-lineage tracking)
+        sa.Column("parent_run_id", sa.String(512), nullable=True),
         sa.Column("spawned_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("last_activity_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
@@ -55,6 +66,9 @@ def upgrade() -> None:
     op.create_index("ix_agent_runs_issue_number", "agent_runs", ["issue_number"])
     op.create_index("ix_agent_runs_pr_number", "agent_runs", ["pr_number"])
     op.create_index("ix_agent_runs_batch_id", "agent_runs", ["batch_id"])
+    op.create_index("ix_agent_runs_tier", "agent_runs", ["tier"])
+    op.create_index("ix_agent_runs_org_domain", "agent_runs", ["org_domain"])
+    op.create_index("ix_agent_runs_parent_run_id", "agent_runs", ["parent_run_id"])
 
     # ── issues ─────────────────────────────────────────────────────────────
     op.create_table(
@@ -66,6 +80,8 @@ def upgrade() -> None:
         sa.Column("state", sa.String(32), nullable=False),
         sa.Column("phase_label", sa.String(256), nullable=True),
         sa.Column("labels_json", sa.Text(), nullable=False, server_default="[]"),
+        # JSON list of issue numbers this issue must wait for before work begins.
+        sa.Column("depends_on_json", sa.Text(), nullable=False, server_default="[]"),
         sa.Column("content_hash", sa.String(64), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("closed_at", sa.DateTime(timezone=True), nullable=True),
@@ -142,8 +158,69 @@ def upgrade() -> None:
         "ix_pipeline_snapshots_polled_at", "pipeline_snapshots", ["polled_at"]
     )
 
+    # ── agent_events ───────────────────────────────────────────────────────
+    op.create_table(
+        "agent_events",
+        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
+        sa.Column(
+            "agent_run_id",
+            sa.String(512),
+            sa.ForeignKey("agent_runs.id"),
+            nullable=True,
+        ),
+        sa.Column("issue_number", sa.Integer(), nullable=True),
+        # step_start | blocker | decision | done
+        sa.Column("event_type", sa.String(64), nullable=False),
+        # JSON dict — schema varies by event_type
+        sa.Column("payload", sa.Text(), nullable=False, server_default="{}"),
+        sa.Column("recorded_at", sa.DateTime(timezone=True), nullable=False),
+    )
+    op.create_index("ix_agent_events_run", "agent_events", ["agent_run_id"])
+    op.create_index("ix_agent_events_issue", "agent_events", ["issue_number"])
+    op.create_index("ix_agent_events_recorded_at", "agent_events", ["recorded_at"])
+
+    # ── initiative_phases ──────────────────────────────────────────────────
+    op.create_table(
+        "initiative_phases",
+        sa.Column("initiative", sa.String(256), nullable=False, primary_key=True),
+        sa.Column("phase_label", sa.String(256), nullable=False, primary_key=True),
+        # 0-indexed display position within the initiative.
+        sa.Column("phase_order", sa.Integer(), nullable=False, server_default="0"),
+        # JSON list of scoped phase label strings this phase waits for.
+        sa.Column("depends_on_json", sa.Text(), nullable=False, server_default="[]"),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    )
+    op.create_index(
+        "ix_initiative_phases_initiative",
+        "initiative_phases",
+        ["initiative"],
+    )
+    op.create_index(
+        "ix_initiative_phases_phase_order",
+        "initiative_phases",
+        ["initiative", "phase_order"],
+    )
+
+    # ── task_runs ──────────────────────────────────────────────────────────
+    op.create_table(
+        "task_runs",
+        sa.Column("id", sa.String(256), primary_key=True),
+        sa.Column("task_type", sa.String(128), nullable=False),
+        sa.Column("branch", sa.String(256), nullable=True),
+        sa.Column("commit_sha", sa.String(40), nullable=True),
+        sa.Column("payload_json", sa.Text(), nullable=False, server_default="{}"),
+        sa.Column("status", sa.String(32), nullable=False, server_default="pending"),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
+    )
+    op.create_index("ix_task_runs_task_type", "task_runs", ["task_type"])
+    op.create_index("ix_task_runs_status", "task_runs", ["status"])
+
 
 def downgrade() -> None:
+    op.drop_table("task_runs")
+    op.drop_table("initiative_phases")
+    op.drop_table("agent_events")
     op.drop_table("pipeline_snapshots")
     op.drop_table("role_versions")
     op.drop_table("agent_messages")
