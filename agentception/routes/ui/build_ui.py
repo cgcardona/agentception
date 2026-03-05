@@ -136,8 +136,7 @@ async def build_page(
 
     When no *initiative* query param is provided, redirects to the first
     available initiative so the board is always scoped.  Falls through to
-    the legacy unscoped view only when the DB has no initiative-labelled
-    issues at all.
+    the unscoped view only when the DB has no initiative-labelled issues at all.
     """
     repo = settings.gh_repo
     initiatives = await get_initiatives(repo)

@@ -59,7 +59,7 @@ logger = logging.getLogger(__name__)
 _MCP_PROTOCOL_VERSION = "2024-11-05"
 
 #: Server identity advertised in the ``initialize`` response.
-_SERVER_INFO: dict[str, object] = {"name": "agentception", "version": "1.0.0"}
+_SERVER_INFO: dict[str, object] = {"name": "agentception", "version": "0.1.1"}
 
 # ---------------------------------------------------------------------------
 # Tool registry

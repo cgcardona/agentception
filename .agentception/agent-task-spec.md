@@ -546,24 +546,6 @@ output.path → TaskFile.output_path
 domain.name → TaskFile.domain
 ```
 
-### Backwards compatibility
-
-Files that still use the old `KEY=value` flat format (v1) are detected by the absence
-of a `[task]` table header. The parser falls back to the legacy line-split parser for
-these files. All newly written files must use TOML (v2). The legacy parser is removed
-once all coordinator prompts are updated to write TOML.
-
-**v1 key → `TaskFile` field mapping for the two lineage fields added in the
-chain-spawn architecture (March 2026):**
-
-```
-LOGICAL_TIER  → TaskFile.logical_tier    # org-chart tier; matches TIER for most agents
-PARENT_RUN_ID → TaskFile.parent_run_id  # run_id of spawning agent; empty for root
-```
-
-These keys are optional in v1 files — the parser returns `None` for either when absent,
-which is valid for any root-tier agent or any file written before the chain-spawn update.
-
 ---
 
 ## Extension Guide

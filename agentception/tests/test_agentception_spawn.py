@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Tests for the manual spawn endpoint and issue-picker UI (AC-103).
 
-Covers POST /api/control/spawn and GET /control/spawn.
+Covers POST /api/control/spawn and GET /agents/spawn.
 All GitHub calls and git operations are mocked — no live network, no
 filesystem side-effects.
 
@@ -237,11 +237,11 @@ def test_spawn_existing_worktree_returns_409(
     assert "already exists" in response.json()["detail"]
 
 
-# ── GET /control/spawn — form renders ────────────────────────────────────────
+# ── GET /agents/spawn — form renders ─────────────────────────────────────────
 
 
 def test_spawn_form_renders_issue_list(client: TestClient) -> None:
-    """GET /control/spawn must embed issue data in the Alpine data-issues attribute.
+    """GET /agents/spawn must embed issue data in the Alpine data-issues attribute.
 
     Issues are rendered client-side by Alpine.js from the JSON in data-issues,
     so we check the JSON payload — not rendered HTML text.
@@ -256,7 +256,7 @@ def test_spawn_form_renders_issue_list(client: TestClient) -> None:
         "agentception.db.queries.get_board_issues",
         new=AsyncMock(return_value=fake_issues),
     ):
-        response = client.get("/control/spawn")
+        response = client.get("/agents/spawn")
 
     assert response.status_code == 200
     html = response.text
@@ -269,12 +269,12 @@ def test_spawn_form_renders_issue_list(client: TestClient) -> None:
 
 
 def test_spawn_form_renders_role_options(client: TestClient) -> None:
-    """GET /control/spawn form must include all valid role options."""
+    """GET /agents/spawn form must include all valid role options."""
     with patch(
         "agentception.db.queries.get_board_issues",
         new=AsyncMock(return_value=[]),
     ):
-        response = client.get("/control/spawn")
+        response = client.get("/agents/spawn")
 
     assert response.status_code == 200
     html = response.text
@@ -283,12 +283,12 @@ def test_spawn_form_renders_role_options(client: TestClient) -> None:
 
 
 def test_spawn_form_renders_empty_state_gracefully(client: TestClient) -> None:
-    """GET /control/spawn must render without error when there are no unclaimed issues."""
+    """GET /agents/spawn must render without error when there are no unclaimed issues."""
     with patch(
         "agentception.db.queries.get_board_issues",
         new=AsyncMock(return_value=[]),
     ):
-        response = client.get("/control/spawn")
+        response = client.get("/agents/spawn")
 
     assert response.status_code == 200
     assert "AgentCeption" in response.text
