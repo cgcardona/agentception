@@ -476,6 +476,14 @@ STEP 2 — CHECK CANONICAL STATE BEFORE DOING ANY WORK:
     cd "$REPO"
     git worktree remove --force "$WORKTREE"
     git worktree prune
+    # Clean up local branch ref (engineer's feat/* branch lives here after worktree removal)
+    git branch -D "$BRANCH" 2>/dev/null || true
+    # For CLOSED (not merged) PRs GitHub does NOT auto-delete the branch — remove it explicitly.
+    # For MERGED PRs GitHub auto-deletes; the push --delete is a safe no-op if already gone.
+    STILL_EXISTS=$(git ls-remote --heads origin "$BRANCH" 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$STILL_EXISTS" -gt 0 ]; then
+      git push origin --delete "$BRANCH" 2>/dev/null || true
+    fi
 
 STEP 3 — CHECKOUT & SYNC (only if STEP 2 shows the PR is open and unreviewed):
 
@@ -913,6 +921,9 @@ STEP 5.5 — MERGE ORDER GATE (sequential chain safety):
         cd "$REPO"
         git worktree remove --force "$WORKTREE"
         git worktree prune
+        # PR is still open (blocked on gate) — do NOT delete the remote branch.
+        # Clean up only the local tracking branch so it doesn't accumulate in main repo.
+        git branch -D "$BRANCH" 2>/dev/null || true
         exit 1
       fi
       sleep 60
