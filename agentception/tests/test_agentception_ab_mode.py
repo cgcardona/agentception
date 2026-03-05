@@ -75,9 +75,8 @@ def test_is_even_batch_unparseable_returns_none() -> None:
 def _make_config(enabled: bool, variant_a: str | None = None, variant_b: str | None = None) -> PipelineConfig:
     """Build a PipelineConfig with the specified A/B mode settings."""
     return PipelineConfig(
-        max_eng_vps=1,
-        max_qa_vps=1,
-        pool_size_per_vp=4,
+        coordinator_limits={"engineering-coordinator": 1, "qa-coordinator": 1},
+        pool_size=4,
         active_labels_order=[],
         ab_mode=AbModeConfig(
             enabled=enabled,

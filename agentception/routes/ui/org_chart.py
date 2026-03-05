@@ -10,7 +10,7 @@ Provides:
 - ``GET /api/org/tree`` — returns the active preset as a hierarchical JSON
   tree consumed by the D3 tree visualization in ``org_chart_tree.js``.
 - ``GET /api/org/taxonomy`` — returns the role taxonomy grouped by tier (org-chart view)
-  (c_suite / vp / worker) for the Add Role dropdown.
+  (c_suite / coordinator / worker) for the Add Role dropdown.
 - ``POST /api/org/roles/add`` — adds a role to the active builder org and
   returns a refreshed role list partial.
 - ``DELETE /api/org/roles/{slug}`` — removes a role from the builder org and
@@ -148,9 +148,9 @@ ROLE_TAXONOMY: dict[str, list[str]] = {
         "cto", "ceo", "coo", "cfo", "cpo", "cmo", "cdo", "ciso",
     ],
     "coordinator": [
-        "engineering-coordinator", "qa-coordinator", "vp-product", "vp-data", "vp-design",
-        "vp-infrastructure", "vp-ml", "vp-mobile", "vp-platform",
-        "vp-security", "coordinator",
+        "engineering-coordinator", "qa-coordinator", "product-coordinator", "data-coordinator", "design-coordinator",
+        "infrastructure-coordinator", "ml-coordinator", "mobile-coordinator", "platform-coordinator",
+        "security-coordinator", "coordinator",
     ],
     "worker": [
         "python-developer", "api-developer", "database-architect",
@@ -166,7 +166,8 @@ ROLE_TAXONOMY: dict[str, list[str]] = {
 }
 
 #: Tiers that get the phase-assignment multiselect on their role card.
-_PHASE_ASSIGNABLE_TIERS: frozenset[str] = frozenset({"c_suite", "vp"})
+#: Includes c_suite and coordinator since both are coordinator-type nodes.
+_PHASE_ASSIGNABLE_TIERS: frozenset[str] = frozenset({"c_suite", "coordinator"})
 
 
 def _tier_for_slug(slug: str) -> str:
@@ -337,7 +338,7 @@ def _save_preset(name: str, roles: list[RoleEntry]) -> str:
     workers: list[str] = []
     for entry in roles:
         tier = _tier_for_slug(entry["slug"])
-        if tier in ("c_suite", "vp"):
+        if tier in ("c_suite", "coordinator"):
             leadership.append(entry["slug"])
         else:
             workers.append(entry["slug"])
@@ -580,7 +581,7 @@ async def roles_taxonomy() -> JSONResponse:
         {
           "tiers": {
             "c_suite":  {"label": "C-Suite",         "roles": ["cto", ...]},
-            "vp":       {"label": "VP / Coordinator", "roles": ["vp-engineering", ...]},
+            "coordinator": {"label": "Coordinator", "roles": ["engineering-coordinator", ...]},
             "worker":   {"label": "Worker",           "roles": ["python-developer", ...]}
           }
         }

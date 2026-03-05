@@ -89,9 +89,8 @@ def _make_pipeline_cfg(labels: list[str]) -> object:
 
     return _PC.model_validate(
         {
-            "max_eng_vps": 1,
-            "max_qa_vps": 1,
-            "pool_size_per_vp": 4,
+            "coordinator_limits": {"engineering-coordinator": 1, "qa-coordinator": 1},
+            "pool_size": 4,
             "active_labels_order": labels,
         }
     )

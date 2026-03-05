@@ -207,16 +207,15 @@ TOOLS: list[ACToolDef] = [
         name="build_spawn_child",
         description=(
             "Create a child agent node in the agent tree. "
-            "Any manager agent (CTO, coordinator, or any future tier) calls this "
-            "to atomically create a worktree, write a .agent-task file with "
-            "COGNITIVE_ARCH and full lineage fields, register a DB record, and "
-            "auto-acknowledge the run. Returns {ok, run_id, host_worktree_path, "
-            "tier, role, cognitive_arch, agent_task_path, scope_type, scope_value}. "
+            "Any coordinator agent calls this to atomically create a worktree, "
+            "write a .agent-task file with NODE_TYPE, COGNITIVE_ARCH, and full "
+            "lineage fields, register a DB record, and auto-acknowledge the run. "
+            "Returns {ok, run_id, host_worktree_path, node_type, role, "
+            "cognitive_arch, agent_task_path, scope_type, scope_value}. "
             "After calling this tool, immediately fire a Task with the briefing: "
             "'Read your .agent-task at {host_worktree_path}/.agent-task and follow "
             "the instructions for your role.' "
-            "This is the canonical way to grow the agent tree at runtime — replaces "
-            "manual worktree creation and shell-embedded .agent-task writing."
+            "This is the canonical way to grow the agent tree at runtime."
         ),
         inputSchema={
             "type": "object",
@@ -229,10 +228,15 @@ TOOLS: list[ACToolDef] = [
                     "type": "string",
                     "description": "Child role slug (e.g. 'engineering-coordinator', 'python-developer').",
                 },
+                "node_type": {
+                    "type": "string",
+                    "enum": ["coordinator", "leaf"],
+                    "description": "'coordinator' if the child surveys a scope and spawns its own children; 'leaf' if it works one issue/PR.",
+                },
                 "scope_type": {
                     "type": "string",
                     "enum": ["label", "issue", "pr"],
-                    "description": "'label' for manager/coordinator nodes, 'issue' for engineer nodes, 'pr' for reviewer nodes.",
+                    "description": "'label' for coordinator nodes, 'issue' for leaf engineer nodes, 'pr' for leaf reviewer nodes.",
                 },
                 "scope_value": {
                     "type": "string",
@@ -256,7 +260,7 @@ TOOLS: list[ACToolDef] = [
                     "description": "Explicit skill list override for COGNITIVE_ARCH (bypasses keyword extraction).",
                 },
             },
-            "required": ["parent_run_id", "role", "scope_type", "scope_value", "gh_repo"],
+            "required": ["parent_run_id", "role", "node_type", "scope_type", "scope_value", "gh_repo"],
             "additionalProperties": False,
         },
     ),
@@ -539,18 +543,20 @@ async def call_tool_async(
     if name == "build_spawn_child":
         parent_run_id = arguments.get("parent_run_id")
         role = arguments.get("role")
+        node_type = arguments.get("node_type")
         scope_type = arguments.get("scope_type")
         scope_value = arguments.get("scope_value")
         gh_repo = arguments.get("gh_repo")
         if (
             not isinstance(parent_run_id, str)
             or not isinstance(role, str)
+            or not isinstance(node_type, str)
             or not isinstance(scope_type, str)
             or not isinstance(scope_value, str)
             or not isinstance(gh_repo, str)
         ):
             err_text = _tool_result_to_text(
-                {"error": "parent_run_id, role, scope_type, scope_value, gh_repo (strings) are required"}
+                {"error": "parent_run_id, role, node_type, scope_type, scope_value, gh_repo (strings) are required"}
             )
             return ACToolResult(
                 content=[ACToolContent(type="text", text=err_text)],
@@ -567,6 +573,7 @@ async def call_tool_async(
         result = await build_spawn_child(
             parent_run_id=parent_run_id,
             role=role,
+            node_type=node_type,
             scope_type=scope_type,
             scope_value=scope_value,
             gh_repo=gh_repo,

@@ -8,9 +8,8 @@
  */
 export function configPanel() {
   const defaults = {
-    max_eng_vps: 1,
-    max_qa_vps: 1,
-    pool_size_per_vp: 4,
+    coordinator_limits: { 'engineering-coordinator': 1, 'qa-coordinator': 1 },
+    pool_size: 4,
     active_labels_order: [],
     ab_mode: { enabled: false, target_role: null, variant_a_file: null, variant_b_file: null },
     projects: [],
@@ -29,13 +28,12 @@ export function configPanel() {
     _dragIdx: null,
 
     // ── Computed capacity ──────────────────────────────────────────────────
+    /** Total leaf agent slots = sum of all coordinator limits × pool_size. */
     get totalAgents() {
-      return (this.config.max_eng_vps + this.config.max_qa_vps) * this.config.pool_size_per_vp;
+      const limits = this.config.coordinator_limits || {};
+      const totalCoordinators = Object.values(limits).reduce((s, v) => s + v, 0);
+      return totalCoordinators * (this.config.pool_size || 1);
     },
-    get engSlots() { return this.config.max_eng_vps * this.config.pool_size_per_vp; },
-    get qaSlots()  { return this.config.max_qa_vps  * this.config.pool_size_per_vp; },
-    get engPct()   { return this.totalAgents ? Math.round(this.engSlots / this.totalAgents * 100) : 50; },
-    get qaPct()    { return this.totalAgents ? Math.round(this.qaSlots  / this.totalAgents * 100) : 50; },
 
     // ── Lifecycle ──────────────────────────────────────────────────────────
     async init() {

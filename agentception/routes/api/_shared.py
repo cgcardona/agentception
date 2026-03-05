@@ -77,14 +77,14 @@ ROLE_DEFAULT_FIGURE: dict[str, str] = {
     "ciso":                      "bruce_schneier",
     "cmo":                       "paul_graham",
     # VP roles
-    "vp-platform":               "patrick_collison",
-    "vp-infrastructure":         "linus_torvalds",
-    "vp-data":                   "shannon",
-    "vp-ml":                     "andrej_karpathy",
-    "vp-design":                 "don_norman",
-    "vp-mobile":                 "wozniak",
-    "vp-security":               "bruce_schneier",
-    "vp-product":                "steve_jobs",
+    "platform-coordinator":               "patrick_collison",
+    "infrastructure-coordinator":         "linus_torvalds",
+    "data-coordinator":                   "shannon",
+    "ml-coordinator":                     "andrej_karpathy",
+    "design-coordinator":                 "don_norman",
+    "mobile-coordinator":                 "wozniak",
+    "security-coordinator":               "bruce_schneier",
+    "product-coordinator":                "steve_jobs",
     # Fallback — generic but capable default
     "data-scientist":            "fei_fei_li",
 }

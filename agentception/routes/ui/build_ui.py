@@ -72,9 +72,9 @@ _ROLES_DIR = Path(__file__).parent.parent.parent.parent / ".cursor" / "roles"
 
 _ROLE_GROUPS: dict[str, list[str]] = {
     "C-Suite": ["ceo", "cto", "cpo", "coo", "cfo", "cmo", "cdo", "ciso"],
-    "VPs": [
-        "vp-product", "vp-infrastructure", "vp-platform", "vp-ml",
-        "vp-mobile", "vp-data", "vp-design", "vp-security",
+    "Coordinators": [
+        "product-coordinator", "infrastructure-coordinator", "platform-coordinator", "ml-coordinator",
+        "mobile-coordinator", "data-coordinator", "design-coordinator", "security-coordinator",
     ],
     "Engineering": [
         "python-developer", "typescript-developer", "frontend-developer",

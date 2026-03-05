@@ -35,7 +35,7 @@ You are responsible for:
 
 You are NOT responsible for:
 - Software architecture (that's the CTO and architects).
-- General infrastructure uptime (that's VP Infrastructure).
+- General infrastructure uptime (that's Infrastructure Coordinator).
 - Legal interpretation of compliance requirements (that's Legal).
 
 ## Operating Principles

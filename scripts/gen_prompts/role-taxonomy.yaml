@@ -251,9 +251,9 @@ levels:
           - postgresql
         file_exists: true
 
-      - slug: vp-product
-        label: "VP Product"
-        title: "VP of Product"
+      - slug: product-coordinator
+        label: "Product Coordinator"
+        title: "Product Coordinator"
         category: product
         description: "Drives roadmap execution, product discovery, and user story quality."
         spawnable: false
@@ -271,9 +271,9 @@ levels:
           - htmx
         file_exists: true
 
-      - slug: vp-design
-        label: "VP Design"
-        title: "VP of Design / UX"
+      - slug: design-coordinator
+        label: "Design Coordinator"
+        title: "Design Coordinator"
         category: design
         description: "Leads design systems, interaction design, accessibility, and user research."
         spawnable: false
@@ -291,9 +291,9 @@ levels:
           - jinja2
         file_exists: true
 
-      - slug: vp-data
-        label: "VP Data"
-        title: "VP of Data & Analytics"
+      - slug: data-coordinator
+        label: "Data Coordinator"
+        title: "Data Coordinator"
         category: data
         description: "Leads data pipelines, business intelligence, and experimentation infrastructure."
         spawnable: false
@@ -312,9 +312,9 @@ levels:
           - llm
         file_exists: true
 
-      - slug: vp-security
-        label: "VP Security"
-        title: "VP of Security"
+      - slug: security-coordinator
+        label: "Security Coordinator"
+        title: "Security Coordinator"
         category: security
         description: "Leads application security, infrastructure hardening, and security audits."
         spawnable: false
@@ -334,9 +334,9 @@ levels:
           - postgresql
         file_exists: true
 
-      - slug: vp-infrastructure
-        label: "VP Infrastructure"
-        title: "VP of Infrastructure / DevOps"
+      - slug: infrastructure-coordinator
+        label: "Infrastructure Coordinator"
+        title: "Infrastructure Coordinator"
         category: infrastructure
         description: "Leads platform reliability, CI/CD pipelines, and cloud infrastructure."
         spawnable: false
@@ -354,9 +354,9 @@ levels:
           - postgresql
         file_exists: true
 
-      - slug: vp-mobile
-        label: "VP Mobile"
-        title: "VP of Mobile"
+      - slug: mobile-coordinator
+        label: "Mobile Coordinator"
+        title: "Mobile Coordinator"
         category: mobile
         description: "Leads iOS and Android strategy, mobile architecture, and platform-specific UX."
         spawnable: false
@@ -372,9 +372,9 @@ levels:
           - devops
         file_exists: true
 
-      - slug: vp-platform
-        label: "VP Platform"
-        title: "VP of Platform Engineering"
+      - slug: platform-coordinator
+        label: "Platform Coordinator"
+        title: "Platform Coordinator"
         category: platform
         description: "Leads internal SDK development, API platform, and developer experience."
         spawnable: false
@@ -398,9 +398,9 @@ levels:
           - devops
         file_exists: true
 
-      - slug: vp-ml
-        label: "VP ML/AI"
-        title: "VP of Machine Learning / AI"
+      - slug: ml-coordinator
+        label: "ML Coordinator"
+        title: "ML Coordinator"
         category: ml_ai
         description: "Leads model lifecycle, training infrastructure, inference optimization, and evaluation."
         spawnable: false
