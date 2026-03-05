@@ -122,6 +122,25 @@ async def _phase_order() -> list[str] | None:
         return None
 
 
+async def _initiative_patterns() -> list[str]:
+    """Return the active project's initiative label patterns from pipeline-config.json.
+
+    Looks up the project whose ``gh_repo`` matches ``settings.gh_repo`` and
+    returns its ``initiative_labels`` list.  Falls back to ``[]`` (which
+    triggers the legacy ``phase-N`` heuristic in ``get_initiatives``) when the
+    config is absent, unreadable, or has no matching project entry.
+    """
+    try:
+        cfg = await read_pipeline_config()
+        for project in cfg.projects:
+            if project.gh_repo == settings.gh_repo:
+                return project.initiative_labels
+        return []
+    except Exception as exc:
+        logger.warning("⚠️ Could not read initiative patterns from pipeline config: %s", exc)
+        return []
+
+
 # ---------------------------------------------------------------------------
 # /build — full Mission Control page
 # ---------------------------------------------------------------------------
@@ -139,7 +158,8 @@ async def build_page(
     the unscoped view only when the DB has no initiative-labelled issues at all.
     """
     repo = settings.gh_repo
-    initiatives = await get_initiatives(repo)
+    patterns = await _initiative_patterns()
+    initiatives = await get_initiatives(repo, initiative_patterns=patterns)
 
     # Auto-select the first initiative when none is specified.
     if not initiative and initiatives:

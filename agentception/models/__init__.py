@@ -133,6 +133,26 @@ class BoardIssue(BaseModel):
     last_synced_at: str | None = None
 
 
+class PlanDraftEvent(BaseModel):
+    """A single plan-draft lifecycle event emitted by the poller.
+
+    Carried in ``PipelineState.plan_draft_events`` so SSE subscribers receive
+    exactly-once delivery: the poller adds the event on the tick it is first
+    detected and deduplicates via an in-memory set so subsequent ticks carry
+    an empty list for the same draft.
+
+    ``event`` is one of ``"plan_draft_ready"`` or ``"plan_draft_timeout"``.
+    ``yaml_text`` is the raw YAML written by the Cursor agent (filled for
+    ``plan_draft_ready``, empty string for ``plan_draft_timeout``).
+    ``output_path`` is the absolute path of the expected output file.
+    """
+
+    event: str
+    draft_id: str
+    yaml_text: str = ""
+    output_path: str
+
+
 class PipelineState(BaseModel):
     """Snapshot of the entire AgentCeption pipeline at a point in time.
 
@@ -149,6 +169,10 @@ class PipelineState(BaseModel):
     ``merged_prs_count`` — PRs merged in the last 24 hours.
     ``stale_branches`` — local git branch names that match feat/issue-N but
     have no corresponding live worktree (leftover from failed/manual runs).
+
+    ``plan_draft_events`` carries new plan-draft lifecycle events for this
+    tick only.  The poller deduplicates across ticks via an in-memory set,
+    so a given draft_id appears at most once in the SSE stream.
     """
 
     active_label: str | None
@@ -163,6 +187,7 @@ class PipelineState(BaseModel):
     merged_prs_count: int = 0
     stale_branches: list[str] = []
     pending_approval: list[dict[str, object]] = []
+    plan_draft_events: list[PlanDraftEvent] = []
 
     @classmethod
     def empty(cls) -> PipelineState:
@@ -187,6 +212,7 @@ class PipelineState(BaseModel):
             merged_prs_count=0,
             stale_branches=[],
             pending_approval=[],
+            plan_draft_events=[],
         )
 
 
@@ -249,6 +275,10 @@ class ProjectConfig(BaseModel):
 
     ``worktrees_dir`` supports ``~`` expansion (e.g. ``~/.agentception/worktrees/agentception``).
     ``cursor_project_id`` is the Cursor project slug used to locate transcript files.
+    ``initiative_labels`` is a list of fnmatch-style glob patterns (e.g. ``"ac-*"``,
+    ``"agentception"``) that identify which GitHub labels are treated as initiative
+    tabs on the Build and Ship boards.  When empty the legacy ``phase-N`` heuristic
+    is used as a fallback.
     """
 
     name: str
@@ -257,6 +287,7 @@ class ProjectConfig(BaseModel):
     worktrees_dir: str
     cursor_project_id: str | None = None
     active_labels_order: list[str] = []
+    initiative_labels: list[str] = []
 
 
 class PipelineConfig(BaseModel):

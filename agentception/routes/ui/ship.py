@@ -21,7 +21,10 @@ from agentception.db.queries import (
     get_initiatives,
     get_prs_grouped_by_phase,
 )
-from agentception.routes.ui.build_ui import agent_stream as _build_agent_stream
+from agentception.routes.ui.build_ui import (
+    _initiative_patterns,
+    agent_stream as _build_agent_stream,
+)
 from ._shared import _TEMPLATES
 
 logger = logging.getLogger(__name__)
@@ -47,7 +50,8 @@ async def ship_page(
     so the board is always scoped.
     """
     repo = settings.gh_repo
-    initiatives = await get_initiatives(repo)
+    patterns = await _initiative_patterns()
+    initiatives = await get_initiatives(repo, initiative_patterns=patterns)
 
     if not initiative and initiatives and not batch:
         return RedirectResponse(

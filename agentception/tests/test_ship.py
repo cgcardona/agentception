@@ -76,6 +76,11 @@ def test_ship_page_redirects_to_first_initiative_when_unscoped(
     """GET /ship without params redirects when initiatives exist."""
     with (
         patch(
+            "agentception.routes.ui.ship._initiative_patterns",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
+        patch(
             "agentception.routes.ui.ship.get_initiatives",
             new_callable=AsyncMock,
             return_value=["my-initiative"],
@@ -97,6 +102,11 @@ def test_ship_page_no_redirect_when_no_initiatives(
     """GET /ship without params does not redirect when there are no initiatives."""
     with (
         patch(
+            "agentception.routes.ui.ship._initiative_patterns",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
+        patch(
             "agentception.routes.ui.ship.get_initiatives",
             new_callable=AsyncMock,
             return_value=[],
@@ -116,6 +126,11 @@ def test_ship_page_with_initiative_returns_200(client_follow: TestClient) -> Non
     """GET /ship?initiative=... returns 200 and renders PR board."""
     groups = _make_groups("phase-1", "phase-2")
     with (
+        patch(
+            "agentception.routes.ui.ship._initiative_patterns",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
         patch(
             "agentception.routes.ui.ship.get_initiatives",
             new_callable=AsyncMock,
@@ -139,6 +154,11 @@ def test_ship_page_with_batch_filter_returns_200(client_follow: TestClient) -> N
     groups = _make_groups("phase-1")
     with (
         patch(
+            "agentception.routes.ui.ship._initiative_patterns",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
+        patch(
             "agentception.routes.ui.ship.get_initiatives",
             new_callable=AsyncMock,
             return_value=["test-initiative"],
@@ -160,6 +180,11 @@ def test_ship_page_pr_count_displayed(client_follow: TestClient) -> None:
     """GET /ship shows the total PR count in the page header."""
     groups = _make_groups("phase-1", "phase-2")
     with (
+        patch(
+            "agentception.routes.ui.ship._initiative_patterns",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
         patch(
             "agentception.routes.ui.ship.get_initiatives",
             new_callable=AsyncMock,

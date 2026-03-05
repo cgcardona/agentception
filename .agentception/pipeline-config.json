@@ -22,7 +22,17 @@
       "name": "agentception",
       "gh_repo": "cgcardona/agentception",
       "repo_dir": "/app",
-      "worktrees_dir": "/worktrees"
+      "worktrees_dir": "/worktrees",
+      "initiative_labels": [
+        "agentception",
+        "ac-build",
+        "ac-plan",
+        "ac-workflow",
+        "ac-reliability",
+        "ac-transcripts",
+        "ac-ship",
+        "test-*"
+      ]
     }
   ]
 }

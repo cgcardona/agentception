@@ -8,6 +8,7 @@ empty results so a database outage degrades gracefully to in-memory state.
 """
 
 import datetime
+import fnmatch
 import json
 import logging
 from pathlib import Path
@@ -1114,20 +1115,29 @@ _NON_INITIATIVE_LABELS = frozenset(
 )
 
 
-async def get_initiatives(repo: str) -> list[str]:
+def _label_matches_patterns(label: str, patterns: list[str]) -> bool:
+    """Return True if *label* matches any of the fnmatch-style *patterns*."""
+    return any(fnmatch.fnmatch(label, pat) for pat in patterns)
+
+
+async def get_initiatives(
+    repo: str,
+    initiative_patterns: list[str] | None = None,
+) -> list[str]:
     """Return alphabetically sorted *active* initiative labels present in the DB.
 
-    An "initiative" label is any GitHub label attached to an issue that:
-    - also carries at least one ``phase-N`` label (new-format issues only)
-    - is not itself a ``phase-N`` label
-    - is not in ``_NON_INITIATIVE_LABELS``
+    When *initiative_patterns* is non-empty, a label is an initiative if it
+    matches any of the fnmatch-style patterns (e.g. ``"ac-*"``, ``"agentception"``).
+    Only labels that appear on at least one **open** issue are returned.
 
-    Only initiatives with at least one **open** issue are returned.  Fully
-    completed initiatives (all issues closed) are excluded from the tab bar so
-    they don't accumulate noise over time.  They remain accessible by direct URL.
+    When *initiative_patterns* is empty or ``None``, falls back to the legacy
+    heuristic: a label is an initiative when it co-exists with a ``phase-N``
+    label on the same issue and is not in ``_NON_INITIATIVE_LABELS``.
 
-    Falls back to ``[]`` on DB error.
+    Fully completed initiatives (all issues closed) are excluded from the tab
+    bar to avoid noise over time.  Falls back to ``[]`` on DB error.
     """
+    patterns: list[str] = initiative_patterns or []
     try:
         async with get_session() as session:
             result = await session.execute(
@@ -1135,15 +1145,25 @@ async def get_initiatives(repo: str) -> list[str]:
             )
             rows = result.all()
 
-        # Track which states each initiative label has seen.
         initiative_states: dict[str, set[str]] = {}
-        for labels_json_str, state in rows:
-            labels: list[str] = json.loads(labels_json_str or "[]")
-            if not any(lbl.startswith("phase-") for lbl in labels):
-                continue
-            for lbl in labels:
-                if not lbl.startswith("phase-") and lbl not in _NON_INITIATIVE_LABELS:
-                    initiative_states.setdefault(lbl, set()).add(state or "open")
+
+        if patterns:
+            # Config-driven path: any label matching a pattern is an initiative.
+            for labels_json_str, state in rows:
+                labels: list[str] = json.loads(labels_json_str or "[]")
+                for lbl in labels:
+                    if _label_matches_patterns(lbl, patterns):
+                        initiative_states.setdefault(lbl, set()).add(state or "open")
+        else:
+            # Legacy heuristic: issue must carry a phase-N label; sibling
+            # labels (not phase-N, not in blocklist) are the initiatives.
+            for labels_json_str, state in rows:
+                labels = json.loads(labels_json_str or "[]")
+                if not any(lbl.startswith("phase-") for lbl in labels):
+                    continue
+                for lbl in labels:
+                    if not lbl.startswith("phase-") and lbl not in _NON_INITIATIVE_LABELS:
+                        initiative_states.setdefault(lbl, set()).add(state or "open")
 
         # Only surface initiatives that still have at least one open issue.
         return sorted(
