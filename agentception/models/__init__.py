@@ -78,6 +78,11 @@ class AgentNode(BaseModel):
 
     Represents one Cursor/Claude agent instance that is either actively working
     or has completed its assigned task. Children are spawned sub-agents.
+
+    ``logical_tier`` is the organisational tier this run reports to regardless
+    of who physically spawned it (executive | coordinator | engineer | reviewer).
+    ``parent_run_id`` is the run_id of the agent that physically spawned this one.
+    Both are used by the UI to build the virtual org chart with inferred nodes.
     """
 
     id: str
@@ -93,6 +98,8 @@ class AgentNode(BaseModel):
     last_activity_mtime: float = 0.0
     children: list[AgentNode] = []
     cognitive_arch: str | None = None
+    logical_tier: str | None = None
+    parent_run_id: str | None = None
 
 
 class StaleClaim(BaseModel):
@@ -208,6 +215,10 @@ class TaskFile(BaseModel):
     required_output: str | None = None
     on_block: str | None = None
     cognitive_arch: str | None = None
+    logical_tier: str | None = None
+    """Organisational tier (executive | coordinator | engineer | reviewer). Added in 0006."""
+    parent_run_id: str | None = None
+    """Run ID of the agent that physically spawned this one. Added in 0006."""
 
 
 class AbModeConfig(BaseModel):
@@ -783,12 +794,19 @@ class PlanIssue(BaseModel):
     of other issues — this avoids silent breakage when titles are edited in
     the review editor.  ``title`` is the issue title; ``body`` is the
     Markdown description.
+
+    ``skills`` is an optional list of skill domain IDs (matching filenames in
+    ``scripts/gen_prompts/cognitive_archetypes/skill_domains/``) that the LLM
+    planner populates at plan time.  These flow through to ``_resolve_cognitive_arch``
+    at agent spawn time as the authoritative ``skills_hint``, replacing the
+    fragile keyword-extraction fallback with planner-provided signal.
     """
 
     id: str
     title: str
     body: str
     depends_on: list[str] = []  # issue IDs, not titles
+    skills: list[str] = []  # skill domain IDs from the cognitive arch catalog
 
 
 class PlanPhase(BaseModel):

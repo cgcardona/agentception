@@ -70,6 +70,8 @@ class EnrichedAgentRunRow(TypedDict):
     duration_str: str
     spawned_fmt: str
     completed_fmt: str
+    logical_tier: str | None
+    parent_run_id: str | None
 
 
 class BatchRow(TypedDict):
@@ -183,6 +185,8 @@ async def agents_list(request: Request) -> HTMLResponse:
             duration_str=duration_str,
             spawned_fmt=run["spawned_at"][:16].replace("T", " "),
             completed_fmt=run["completed_at"][:16].replace("T", " ") if run["completed_at"] else "—",
+            logical_tier=run["logical_tier"],
+            parent_run_id=run["parent_run_id"],
         ))
 
     # ── Group history by batch_id, newest batch first ─────────────────────

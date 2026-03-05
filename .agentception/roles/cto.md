@@ -31,18 +31,20 @@ These are non-negotiable. Every VP and leaf agent inherits them.
 
 ```
 CTO  (you — loops autonomously)
- ├── Engineering VP 1  → seeds 4 leaf engineers (PARALLEL_ISSUE_TO_PR.md)
- │                        each engineer spawns its own replacement on completion
- ├── Engineering VP 2  → seeds 4 leaf engineers (same)
- ├── QA VP 1           → seeds 4 leaf reviewers (PARALLEL_PR_REVIEW.md)
- │                        each reviewer spawns its own replacement on completion
- └── QA VP 2           → seeds 4 leaf reviewers (same)
+ └── Engineering VP  → seeds up to 4 leaf engineers
+                         each engineer implements one issue, opens a PR,
+                         then chain-spawns its own reviewer (LOGICAL_TIER=reviewer)
+                         before self-destructing — no QA VP needed.
+
+                       [cleanup only, when ISSUES==0 AND stale PRs remain]
+                       QA VP  → seeds reviewers for PRs missed by chain-spawn
+                                 (e.g. reviewer crash recovery)
 ```
 
-VPs seed a pool of 4 workers and wait. Workers self-replace — each one spawns
-the next agent for the next unclaimed item before it exits. No batch boundaries.
-No wasted time waiting for the slowest agent before the next one starts.
-The pool stays at 4 concurrent workers continuously until the queue drains.
+VPs seed a pool of 4 workers and wait. Workers self-replace — each engineer
+spawns its own reviewer which spawns the next engineer, keeping dev current
+before any new branch is created. No QA VP runs during active implementation.
+The QA VP is a cleanup sweep only.
 
 ## Your autonomous loop
 
@@ -110,15 +112,21 @@ LOOP:
   2. If ISSUES == 0 AND PRS == 0 → report completion. Stop.
      If ISSUES == 0 AND PRS > 0 → dispatch QA VPs only (drain remaining reviews).
 
-  3. Allocate VP slots — always exactly 1 Eng VP, 1 QA VP max:
+  3. Allocate VP slots — always exactly 1 Eng VP, 0 QA VPs when issues remain:
 
        ┌────────────────────────────────┬──────────┬─────────┐
        │ Condition                      │ Eng VPs  │  QA VPs │
        ├────────────────────────────────┼──────────┼─────────┤
-       │ ISSUES == 0                    │    0     │    1    │  ← drain remaining reviews
-       │ PRS == 0                       │    1     │    0    │  ← pure implementation
-       │ otherwise                      │    1     │    1    │  ← balanced
+       │ ISSUES == 0 AND PRS > 0        │    0     │    1    │  ← cleanup sweep only
+       │ ISSUES > 0                     │    1     │    0    │  ← engineers chain-spawn reviewers
        └────────────────────────────────┴──────────┴─────────┘
+
+     WHY NO QA VP WHEN ISSUES REMAIN: Each engineer chain-spawns its own reviewer
+     immediately after opening a PR (STEP 6 in the Eng VP role). A concurrent QA VP
+     creates a race condition — it runs at seed time when the new PRs don't exist yet,
+     reviews nothing, then exits. All PR review is handled by the self-replacing
+     chain. The QA VP is reserved as a cleanup pass when ALL issues are closed but
+     stale PRs remain (e.g. a chain-spawn reviewer crash).
 
      ⚠️  ALWAYS 1 ENG VP, NEVER MORE: One VP seeds up to 4 engineers and the
      chain self-replaces. Multiple Eng VPs race to claim the same tickets and
@@ -1624,6 +1632,8 @@ SPAWN_SUB_AGENTS=false
 ATTEMPT_N=0
 REQUIRED_OUTPUT=grade,merge_status,pr_url
 ON_BLOCK=stop
+LOGICAL_TIER=reviewer
+PARENT_RUN_ID=${RUN_ID:-}
 TASK
 
     echo "✅ Spawning QA reviewer for PR #$MY_PR (chain mode — reviewer will spawn next engineer)"
@@ -3493,6 +3503,8 @@ SPAWN_SUB_AGENTS=false
 ATTEMPT_N=0
 REQUIRED_OUTPUT=grade,merge_status,pr_url
 ON_BLOCK=stop
+LOGICAL_TIER=reviewer
+PARENT_RUN_ID=${RUN_ID:-}
 TASK
 
       echo "✅ Pool: spawning replacement reviewer for PR #$NEXT_PR"
@@ -5342,6 +5354,8 @@ SPAWN_SUB_AGENTS=false
 ATTEMPT_N=0
 REQUIRED_OUTPUT=grade,merge_status,pr_url
 ON_BLOCK=stop
+LOGICAL_TIER=reviewer
+PARENT_RUN_ID=${RUN_ID:-}
 TASK
 
       echo "✅ Pool: spawning replacement reviewer for PR #$NEXT_PR"
@@ -6733,6 +6747,8 @@ SPAWN_SUB_AGENTS=false
 ATTEMPT_N=0
 REQUIRED_OUTPUT=grade,merge_status,pr_url
 ON_BLOCK=stop
+LOGICAL_TIER=reviewer
+PARENT_RUN_ID=${RUN_ID:-}
 TASK
 
     echo "✅ Spawning QA reviewer for PR #$MY_PR (chain mode — reviewer will spawn next engineer)"
