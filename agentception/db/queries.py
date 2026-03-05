@@ -215,6 +215,37 @@ class AllPRRow(TypedDict):
     last_synced_at: str
 
 
+class ShipReviewerRunRow(TypedDict):
+    """Latest pr-reviewer run attached to a PR on the Ship board."""
+
+    id: str
+    status: str
+    spawned_at: str
+    last_activity_at: str | None
+
+
+class ShipPRRow(TypedDict):
+    """Enriched PR entry for the Ship board."""
+
+    number: int
+    title: str
+    state: str
+    head_ref: str | None
+    url: str
+    labels: list[str]
+    closes_issue_number: int | None
+    merged_at: str | None
+    phase_label: str | None
+    reviewer_run: ShipReviewerRunRow | None
+
+
+class ShipPhaseGroupRow(TypedDict):
+    """PRs grouped by phase label for the Ship board."""
+
+    label: str
+    prs: list[ShipPRRow]
+
+
 class WaveAgentRow(TypedDict):
     """One agent entry inside a WaveRow."""
 
@@ -1469,6 +1500,147 @@ async def get_agent_events_tail(
         ]
     except Exception as exc:
         logger.warning("⚠️  get_agent_events_tail DB query failed (non-fatal): %s", exc)
+        return []
+
+
+async def get_prs_grouped_by_phase(
+    repo: str,
+    initiative: str | None = None,
+    batch_id: str | None = None,
+    limit: int = 200,
+) -> list[ShipPhaseGroupRow]:
+    """Return PRs grouped by phase label for the Ship board.
+
+    Each PR is matched to its closing issue (via ``closes_issue_number``) to
+    determine the phase and initiative membership.  Each PR is enriched with
+    the latest ``pr-reviewer`` agent run.
+
+    When *initiative* is supplied, only PRs whose closing issue (or the PR
+    itself) carries that initiative label are included.
+
+    When *batch_id* is supplied, only PRs associated with agent runs from
+    that batch are included (looked up via ``ac_agent_runs.batch_id``).
+
+    Falls back to ``[]`` on DB error.
+    """
+    try:
+        async with get_session() as session:
+            pr_result = await session.execute(
+                select(ACPullRequest)
+                .where(ACPullRequest.repo == repo)
+                .order_by(ACPullRequest.github_number.desc())
+                .limit(limit)
+            )
+            prs = pr_result.scalars().all()
+
+            issue_result = await session.execute(
+                select(ACIssue).where(ACIssue.repo == repo)
+            )
+            issues: dict[int, ACIssue] = {
+                row.github_number: row for row in issue_result.scalars().all()
+            }
+
+            reviewer_run_result = await session.execute(
+                select(ACAgentRun)
+                .where(ACAgentRun.role == "pr-reviewer")
+                .order_by(ACAgentRun.spawned_at.desc())
+            )
+            all_reviewer_run_rows = reviewer_run_result.scalars().all()
+
+            # Build batch filter sets when batch_id is specified.
+            batch_pr_numbers: set[int] | None = None
+            batch_issue_numbers: set[int] = set()
+            if batch_id:
+                batch_run_result = await session.execute(
+                    select(ACAgentRun).where(ACAgentRun.batch_id == batch_id)
+                )
+                batch_runs = batch_run_result.scalars().all()
+                batch_pr_numbers = set()
+                for run in batch_runs:
+                    if run.pr_number is not None:
+                        batch_pr_numbers.add(run.pr_number)
+                    if run.issue_number is not None:
+                        batch_issue_numbers.add(run.issue_number)
+
+        # Latest reviewer run per PR number (already ordered by spawned_at desc).
+        reviewer_runs: dict[int, ACAgentRun] = {}
+        for run in all_reviewer_run_rows:
+            if run.pr_number is not None and run.pr_number not in reviewer_runs:
+                reviewer_runs[run.pr_number] = run
+
+        # Group PRs by phase.
+        groups: dict[str, list[ShipPRRow]] = {}
+
+        for pr in prs:
+            pr_labels: list[str] = json.loads(pr.labels_json or "[]")
+
+            # Batch filter: include only PRs linked to this batch.
+            if batch_pr_numbers is not None:
+                pr_in_batch = pr.github_number in batch_pr_numbers or (
+                    pr.closes_issue_number is not None
+                    and pr.closes_issue_number in batch_issue_numbers
+                )
+                if not pr_in_batch:
+                    continue
+
+            # Resolve phase and initiative from closing issue when available.
+            phase_label: str | None = None
+            if pr.closes_issue_number is not None:
+                linked_issue = issues.get(pr.closes_issue_number)
+                if linked_issue is not None:
+                    issue_labels: list[str] = json.loads(linked_issue.labels_json or "[]")
+                    if initiative and initiative not in issue_labels:
+                        continue
+                    phase_label = next(
+                        (lbl for lbl in issue_labels if lbl.startswith("phase-")),
+                        None,
+                    ) or linked_issue.phase_label
+                else:
+                    if initiative and initiative not in pr_labels:
+                        continue
+            else:
+                if initiative and initiative not in pr_labels:
+                    continue
+                phase_label = next(
+                    (lbl for lbl in pr_labels if lbl.startswith("phase-")),
+                    None,
+                )
+
+            phase_key = phase_label or "unphased"
+
+            reviewer_run_row = reviewer_runs.get(pr.github_number)
+            ship_pr = ShipPRRow(
+                number=pr.github_number,
+                title=pr.title,
+                state=pr.state,
+                head_ref=pr.head_ref,
+                url=f"https://github.com/{repo}/pull/{pr.github_number}",
+                labels=pr_labels,
+                closes_issue_number=pr.closes_issue_number,
+                merged_at=pr.merged_at.isoformat() if pr.merged_at else None,
+                phase_label=phase_label,
+                reviewer_run=ShipReviewerRunRow(
+                    id=reviewer_run_row.id,
+                    status=reviewer_run_row.status,
+                    spawned_at=reviewer_run_row.spawned_at.isoformat(),
+                    last_activity_at=(
+                        reviewer_run_row.last_activity_at.isoformat()
+                        if reviewer_run_row.last_activity_at
+                        else None
+                    ),
+                ) if reviewer_run_row else None,
+            )
+            groups.setdefault(phase_key, []).append(ship_pr)
+
+        # Emit phases in natural sort order; "unphased" bucket last.
+        result: list[ShipPhaseGroupRow] = []
+        for phase in sorted(k for k in groups if k != "unphased"):
+            result.append(ShipPhaseGroupRow(label=phase, prs=groups[phase]))
+        if "unphased" in groups:
+            result.append(ShipPhaseGroupRow(label="unphased", prs=groups["unphased"]))
+        return result
+    except Exception as exc:
+        logger.warning("⚠️  get_prs_grouped_by_phase DB query failed (non-fatal): %s", exc)
         return []
 
 

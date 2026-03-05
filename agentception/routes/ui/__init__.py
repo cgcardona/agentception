@@ -18,6 +18,7 @@ from .agents import router as _agents
 from .health import router as _health
 from .build_ui import router as _build_ui
 from .cognitive_arch import router as _cognitive_arch
+from .ship import router as _ship
 from .api_reference import router as _api_reference
 from .plan_ui import router as _plan_ui
 from .config import router as _config
@@ -58,3 +59,4 @@ router.include_router(_api_reference)
 router.include_router(_settings)
 router.include_router(_templates_ui)
 router.include_router(_cognitive_arch)
+router.include_router(_ship)
