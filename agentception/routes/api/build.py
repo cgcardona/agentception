@@ -30,7 +30,7 @@ from pydantic import BaseModel
 
 from agentception.config import settings
 from agentception.db.persist import acknowledge_agent_run, persist_agent_event, persist_agent_run_dispatch
-from agentception.db.queries import get_pending_launches
+from agentception.db.queries import get_agent_run_teardown, get_pending_launches
 from agentception.mcp.plan_advance_phase import plan_advance_phase as _plan_advance_phase
 from agentception.routes.api._shared import _resolve_cognitive_arch
 
@@ -543,9 +543,77 @@ async def report_decision(req: DecisionReport) -> dict[str, object]:
     return {"ok": True}
 
 
+async def _teardown_agent_worktree(run_id: str) -> None:
+    """Remove the worktree and delete the remote branch for a completed agent run.
+
+    Called non-blocking from ``report_done`` — errors are logged but never
+    propagated so a cleanup failure cannot break the agent's done response.
+
+    Steps:
+    1. Look up ``worktree_path`` and ``branch`` from ``agent_runs``.
+    2. ``git worktree remove --force <path>`` — removes the checkout directory.
+    3. ``git worktree prune`` — removes stale git internal metadata.
+    4. ``git push origin --delete <branch>`` — removes the remote branch so
+       GitHub does not accumulate stale refs from every completed agent run.
+    """
+    teardown = await get_agent_run_teardown(run_id)
+    if teardown is None:
+        logger.warning("⚠️  _teardown_agent_worktree: no DB row for run_id=%r", run_id)
+        return
+
+    repo_dir = str(settings.repo_dir)
+    worktree_path = teardown["worktree_path"]
+    branch = teardown["branch"]
+
+    # ── 1. Remove the worktree directory ─────────────────────────────────────
+    if worktree_path and Path(worktree_path).exists():
+        rm_proc = await asyncio.create_subprocess_exec(
+            "git", "-C", repo_dir, "worktree", "remove", "--force", worktree_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await rm_proc.communicate()
+        if rm_proc.returncode == 0:
+            logger.info("✅ _teardown: removed worktree %s", worktree_path)
+        else:
+            logger.warning("⚠️  _teardown: worktree remove failed: %s", stderr.decode().strip())
+
+    # ── 2. Prune git metadata ─────────────────────────────────────────────────
+    prune_proc = await asyncio.create_subprocess_exec(
+        "git", "-C", repo_dir, "worktree", "prune",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await prune_proc.communicate()
+
+    # ── 3. Delete the remote branch ───────────────────────────────────────────
+    if branch:
+        push_proc = await asyncio.create_subprocess_exec(
+            "git", "-C", repo_dir, "push", "origin", "--delete", branch,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, push_stderr = await push_proc.communicate()
+        if push_proc.returncode == 0:
+            logger.info("✅ _teardown: deleted remote branch %r", branch)
+        else:
+            # Not a fatal error — branch may have been deleted already by
+            # GitHub's auto-delete-on-merge or a previous teardown attempt.
+            logger.info(
+                "ℹ️  _teardown: remote branch %r not deleted (may already be gone): %s",
+                branch,
+                push_stderr.decode().strip(),
+            )
+
+
 @router.post("/report/done")
 async def report_done(req: DoneReport) -> dict[str, object]:
-    """Agent reports completion and links the PR."""
+    """Agent reports completion, links the PR, and tears down its worktree.
+
+    The worktree removal and remote branch deletion run as a background task
+    so the agent receives an immediate ``{"ok": True}`` response and is not
+    blocked waiting for git operations to complete.
+    """
     await persist_agent_event(
         issue_number=req.issue_number,
         event_type="done",
@@ -555,6 +623,11 @@ async def report_done(req: DoneReport) -> dict[str, object]:
     logger.info(
         "✅ report_done: issue=%d pr_url=%r", req.issue_number, req.pr_url
     )
+    if req.agent_run_id:
+        asyncio.create_task(
+            _teardown_agent_worktree(req.agent_run_id),
+            name=f"teardown-{req.agent_run_id}",
+        )
     return {"ok": True}
 
 

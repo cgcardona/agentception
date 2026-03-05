@@ -107,6 +107,13 @@ class AgentRunDetail(TypedDict):
     messages: list[AgentMessageRow]
 
 
+class AgentRunTeardownRow(TypedDict):
+    """Minimal agent run fields needed to tear down a worktree after completion."""
+
+    worktree_path: str | None
+    branch: str | None
+
+
 class OpenPRRow(TypedDict):
     """One row from get_open_prs_db."""
 
@@ -1702,3 +1709,29 @@ async def get_agent_thoughts_tail(
     except Exception as exc:
         logger.warning("⚠️  get_agent_thoughts_tail DB query failed (non-fatal): %s", exc)
         return []
+
+
+async def get_agent_run_teardown(run_id: str) -> AgentRunTeardownRow | None:
+    """Return the worktree path and branch for a single agent run.
+
+    Used by ``report_done`` to clean up the worktree and remote branch without
+    fetching the full run detail (transcript, messages, etc.).
+    Returns ``None`` when the run does not exist or the DB query fails.
+    """
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun.worktree_path, ACAgentRun.branch).where(
+                    ACAgentRun.id == run_id
+                )
+            )
+            row = result.one_or_none()
+        if row is None:
+            return None
+        return AgentRunTeardownRow(
+            worktree_path=row.worktree_path,
+            branch=row.branch,
+        )
+    except Exception as exc:
+        logger.warning("⚠️  get_agent_run_teardown DB query failed (non-fatal): %s", exc)
+        return None
