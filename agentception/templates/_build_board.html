@@ -101,9 +101,6 @@
       <span class="build-issue__step-count">{{ active_run.steps_completed }} step{{ 's' if active_run.steps_completed != 1 else '' }}</span>
     </div>
     {% endif %}
-    {% elif not group_locked and issue.state == 'open' %}
-    <button class="build-issue__assign-btn"
-            @click.stop='$dispatch("open-dispatch", {{ issue | tojson }})'>Assign →</button>
     {% endif %}
   </div>
 </li>

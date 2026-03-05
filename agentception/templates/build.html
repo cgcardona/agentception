@@ -3,9 +3,8 @@
 
 {% block content %}
 <div class="build-layout"
-     x-data='buildPage({{ role_groups | tojson }})'
+     x-data='buildPage()'
      @inspect-issue.window="onInspect($event.detail)"
-     @open-dispatch.window="openDispatch($event.detail)"
      @open-label-dispatch.window="openLabelDispatch($event.detail)"
 >
 
@@ -96,9 +95,7 @@
 
           <template x-if="!activeIssue.run">
             <div class="build-inspector__no-agent">
-              <p>No agent assigned yet.</p>
-              <button class="btn btn-primary"
-                      @click="openDispatch(activeIssue)">Assign agent →</button>
+              <p>No agent assigned yet. Use the <strong>Launch →</strong> button on the phase row to start an agent wave.</p>
             </div>
           </template>
 
@@ -141,7 +138,7 @@
             </p>
           </template>
 
-          {# ── Agent controls (stop / restart) ────────────────────────────── #}
+          {# ── Agent controls (stop) ───────────────────────────────────────── #}
           <template x-if="activeIssue.run">
             <div class="build-inspector__chat">
               <div class="build-inspector__agent-actions">
@@ -150,10 +147,6 @@
                         @click="stopAgent()">
                   <span x-show="!agentStopping">⏹ Stop</span>
                   <span x-show="agentStopping">Stopping…</span>
-                </button>
-                <button class="build-inspector__restart-btn"
-                        @click="restartAgent()">
-                  ↺ Reassign
                 </button>
               </div>
 
@@ -182,66 +175,6 @@
       </template>
     </aside>
   </div>{# /.build-columns #}
-
-  {# ── dispatch modal ──────────────────────────────────────────────────── #}
-  <div class="build-modal-backdrop" x-show="dispatchOpen" x-transition @click.self="dispatchOpen = false">
-    <div class="build-modal" @click.stop>
-
-      <div class="build-modal__header">
-        <h3 class="build-modal__title">Assign agent</h3>
-        <button class="build-modal__close" @click="dispatchOpen = false">✕</button>
-      </div>
-
-      <template x-if="dispatchIssue">
-        <div class="build-modal__body">
-          <p class="build-modal__issue-label">
-            <strong x-text="'#' + dispatchIssue.number"></strong>
-            <span x-text="dispatchIssue.title"></span>
-          </p>
-
-          <label class="build-modal__label">Role</label>
-          <select class="build-modal__select" x-model="dispatchRole">
-            <template x-for="[group, roles] in Object.entries(roleGroups)" :key="group">
-              <optgroup :label="group">
-                <template x-for="role in roles" :key="role">
-                  <option :value="role" x-text="role"></option>
-                </template>
-              </optgroup>
-            </template>
-          </select>
-
-          <template x-if="dispatchError">
-            <p class="build-modal__error" x-text="dispatchError"></p>
-          </template>
-
-          <template x-if="dispatchSuccess">
-            <div class="build-modal__success">
-              <p>⏳ Queued for launch</p>
-              <p class="build-modal__success-hint">
-                Issue <strong x-text="'#' + dispatchIssue.number"></strong>
-                is ready with role <strong x-text="dispatchResult.role ?? dispatchRole"></strong>.
-              </p>
-              <p class="build-modal__success-hint">
-                Paste the <strong>Dispatcher prompt</strong> into Cursor to launch it
-                along with any other queued issues.
-              </p>
-              <pre class="build-modal__prompt-hint" x-text="'Worktree: ' + dispatchResult.host_worktree"></pre>
-            </div>
-          </template>
-        </div>
-      </template>
-
-      <div class="build-modal__footer">
-        <button class="btn btn-secondary" @click="dispatchOpen = false">Cancel</button>
-        <button class="btn btn-primary"
-                :disabled="dispatching || dispatchSuccess"
-                @click="submitDispatch()">
-          <span x-show="!dispatching">Assign →</span>
-          <span x-show="dispatching">Creating worktree…</span>
-        </button>
-      </div>
-    </div>
-  </div>
 
   {# ── launch modal — scope-based agent wave launch ─────────────────────── #}
   <div class="build-modal-backdrop" x-show="labelDispatchOpen" x-transition @click.self="closeLabelDispatch()">
