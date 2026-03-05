@@ -1246,7 +1246,11 @@ async def get_initiatives(
             for labels_json_str, state, _phase_label in rows:
                 labels: list[str] = json.loads(labels_json_str or "[]")
                 matched_initiatives = [
-                    lbl for lbl in labels if _label_matches_patterns(lbl, patterns)
+                    lbl
+                    for lbl in labels
+                    # Scoped phase labels (e.g. "ac-build/phase-0") are never
+                    # initiatives — the "/" is the canonical separator.
+                    if "/" not in lbl and _label_matches_patterns(lbl, patterns)
                 ]
                 if not matched_initiatives:
                     continue
