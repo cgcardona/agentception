@@ -569,6 +569,14 @@ npm publish / pip publish       ← publishing packages
 gh pr merge <N>   ← without having first output "Grade: X" and "Approved for merge"
 ```
 
+### Closing a PR without a mandatory explanation comment
+```
+gh pr close <N>   ← FORBIDDEN unless gh pr comment with the exact reason runs FIRST.
+                  ← For D/F grade: do NOT close the PR — leave it open for the engineer to fix.
+                  ← The only valid reason to close (not merge) a PR is if it is fundamentally
+                  ← broken and must be re-opened from scratch. Even then, comment first.
+```
+
 ---
 
 ## Hard Rules (apply regardless of tier)
@@ -606,7 +614,24 @@ gh pr merge <N>   ← without having first output "Grade: X" and "Approved for m
    | while read ISSUE_NUM; do gh issue close "$ISSUE_NUM" ...; done
    ```
 
-8. **`GH_REPO` is always `cgcardona/agentception` — hardcoded, never derived.**
+8. **Never run `gh pr close` without first posting a mandatory explanation comment.**
+   An agent-closed PR with no comment is untraceable — it leaves the human with no way to
+   understand what failed or what to do next. The required sequence is:
+   ```bash
+   # ✅ Correct — explain before closing:
+   gh pr comment "$N" --repo "$GH_REPO" --body "❌ Closing PR without merge.
+   Reason: <exact reason — D/F grade, fundamental design flaw, etc.>
+   Grade (if reviewed): <grade>
+   Next steps: <what the engineer or human should do>"
+   gh pr close "$N" --repo "$GH_REPO"
+
+   # ❌ Wrong — silent close, leaves humans with no context:
+   gh pr close "$N" --repo "$GH_REPO"
+   ```
+   **For D/F grade: do NOT close the PR.** Leave it open so the engineer can push fixes
+   to the existing branch. File a GitHub issue describing the failures instead and self-destruct.
+
+9. **`GH_REPO` is always `cgcardona/agentception` — hardcoded, never derived.**
    The local path (e.g. `/Users/<you>`) contains the local repo directory which is
    NOT the GitHub org. Using `gh` without `--repo "$GH_REPO"` or with a derived slug causes
    "Forbidden" / "Repository not found" errors.

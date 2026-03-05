@@ -887,7 +887,18 @@ STEP 5 — REVIEW:
      A       → proceed to STEP 5.5 (merge order gate)
      B       → fix in place per GRADE B protocol above, upgrade to A, then STEP 5.5
      C       → fix in place per GRADE C protocol above, re-grade, then STEP 5.5
-     D or F  → DO NOT merge. File a GitHub issue (bug + batch label). Self-destruct. Report to user.
+     D or F  → DO NOT merge. DO NOT close the PR. Leave it OPEN so the engineer can push fixes.
+               File a GitHub issue (bug + batch label) describing the failures. Self-destruct.
+               Report to user.
+
+  ⚠️  NEVER run `gh pr close` for a D/F grade — a closed PR destroys the branch context and
+  leaves no audit trail. The PR must stay OPEN so the engineer sees it and can iterate.
+  The only time a reviewer may close a PR (not merge it) is if the PR is so fundamentally
+  wrong it must be replaced with a fresh branch — and even then, you MUST post an explanatory
+  comment FIRST:
+    gh pr comment "$N" --repo "$GH_REPO" --body "❌ Closing PR without merge.
+  Reason: <exact reason>  Grade: <grade>  Next steps: <what engineer should do>"
+    gh pr close "$N" --repo "$GH_REPO"
 
 STEP 5.5 — MERGE ORDER GATE (sequential chain safety):
   Read the MERGE_AFTER field from .agent-task:
