@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Tests for the Ship page backend (issue #83).
 
 Covers:
@@ -14,6 +12,8 @@ Covers:
 Run targeted:
     pytest agentception/tests/test_ship.py -v
 """
+
+from __future__ import annotations
 
 from collections.abc import Generator
 from unittest.mock import AsyncMock, patch

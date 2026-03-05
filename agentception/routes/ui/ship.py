@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """UI routes: Ship page — PR-centric deployment view.
 
 Endpoints
@@ -8,6 +6,8 @@ GET  /ship                        — full page (PR board, scoped by batch/initi
 GET  /ship/board                  — HTMX board partial (polled every 10 s)
 GET  /ship/agent/{run_id}/stream  — SSE inspector alias (delegates to build stream)
 """
+
+from __future__ import annotations
 
 import logging
 
@@ -61,9 +61,9 @@ async def ship_page(
     total_prs = sum(len(g["prs"]) for g in groups)
 
     return _TEMPLATES.TemplateResponse(
+        request,
         "ship.html",
         {
-            "request": request,
             "repo": repo,
             "initiative": initiative or "",
             "initiatives": initiatives,
@@ -92,9 +92,9 @@ async def ship_board_partial(
     )
 
     return _TEMPLATES.TemplateResponse(
+        request,
         "partials/ship_board.html",
         {
-            "request": request,
             "groups": groups,
             "repo": repo,
             "initiative": initiative or "",
