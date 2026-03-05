@@ -47,7 +47,7 @@ async def test_read_pipeline_config_returns_defaults_when_file_absent(
 
     assert result.coordinator_limits == _DEFAULTS["coordinator_limits"]
     assert result.pool_size == _DEFAULTS["pool_size"]
-    assert result.active_labels_order == _DEFAULTS["active_labels_order"]
+    assert result.active_labels_order == []
 
 
 @pytest.mark.anyio
@@ -128,7 +128,8 @@ def test_config_api_get_returns_defaults() -> None:
     body = response.json()
     assert body["coordinator_limits"] == _DEFAULTS["coordinator_limits"]
     assert body["pool_size"] == _DEFAULTS["pool_size"]
-    assert body["active_labels_order"] == _DEFAULTS["active_labels_order"]
+    # active_labels_order defaults to [] when not specified in the config file.
+    assert body["active_labels_order"] == []
 
 
 def test_config_api_get_returns_custom_values() -> None:
@@ -203,7 +204,9 @@ def test_pipeline_config_rejects_negative_pool_size() -> None:
 
 def test_config_api_put_rejects_missing_fields() -> None:
     """PUT /api/config returns 422 when required fields are absent."""
-    incomplete = {"coordinator_limits": _COORD_LIMITS}  # missing active_labels_order
+    # pool_size is required (must be > 0); omitting coordinator_limits is fine
+    # (it has a default). But sending an invalid pool_size type triggers 422.
+    incomplete = {"coordinator_limits": _COORD_LIMITS, "pool_size": "bad"}
     response = client.put("/api/config", json=incomplete)
     assert response.status_code == 422
 

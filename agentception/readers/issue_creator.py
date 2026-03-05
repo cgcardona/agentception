@@ -8,7 +8,7 @@ that the user reviewed in the CodeMirror editor and creates real GitHub issues
 
 Execution order
 ---------------
-1. Ensure all required labels exist (phase labels + initiative label).
+1. Ensure all required labels exist (initiative label + scoped phase labels).
 2. Iterate phases in order.  Within each phase, create issues concurrently
    (they have no inter-phase dependency at creation time).
 3. After all issues are created and GitHub numbers are known, edit any issue
@@ -16,11 +16,12 @@ Execution order
 
 Labels applied to every issue
 ------------------------------
-- ``{phase.label}``     e.g. ``phase-0``, ``phase-1``
-- ``{spec.initiative}`` e.g. ``health-ratelimit-dashboard``
+- ``{spec.initiative}``             e.g. ``ac-build``
+- ``{spec.initiative}/{phase.label}`` e.g. ``ac-build/phase-0``
 
-The phase label acts as the execution gate: agents (or humans) know not to
-start a phase-1 issue until all phase-0 issues are closed.
+The scoped phase label acts as the execution gate.  Using the initiative as a
+prefix keeps GitHub labels namespaced per initiative — no global ``phase-N``
+labels are created or expected.
 """
 
 import asyncio
@@ -36,8 +37,10 @@ from agentception.readers.github import ensure_label_exists
 
 logger = logging.getLogger(__name__)
 
-# ── Phase label palette ────────────────────────────────────────────────────
-_PHASE_LABELS: dict[str, tuple[str, str]] = {
+# ── Phase metadata (colour, description) ──────────────────────────────────
+# Keyed by the internal phase identifier (phase-0 … phase-3).
+# GitHub labels are namespaced as ``{initiative}/{phase}`` — no global labels.
+_PHASE_META: dict[str, tuple[str, str]] = {
     "phase-0": ("B60205", "Foundations and critical fixes"),
     "phase-1": ("E4E669", "Infrastructure and core services"),
     "phase-2": ("0075CA", "Features and user-facing work"),
@@ -177,21 +180,23 @@ async def _gh_edit_body(repo: str, number: int, new_body: str) -> None:
 
 
 async def _bootstrap_labels(spec: PlanSpec) -> None:
-    """Ensure all phase labels and the initiative label exist in the repo."""
-    phase_labels_needed = {p.label for p in spec.phases}
+    """Ensure the initiative label and all scoped phase labels exist in the repo.
 
+    Creates ``{initiative}`` and ``{initiative}/phase-N`` for each phase present
+    in the spec.  Labels are namespaced per initiative — no global ``phase-N``
+    labels are created.
+    """
     coros = [
-        ensure_label_exists(label, color, description)
-        for label, (color, description) in _PHASE_LABELS.items()
-        if label in phase_labels_needed
-    ]
-    coros.append(
         ensure_label_exists(
             spec.initiative,
             _INITIATIVE_COLOR,
             f"Initiative: {spec.initiative}",
         )
-    )
+    ]
+    for phase in spec.phases:
+        color, description = _PHASE_META.get(phase.label, ("CCCCCC", phase.label))
+        scoped_label = f"{spec.initiative}/{phase.label}"
+        coros.append(ensure_label_exists(scoped_label, color, description))
     await asyncio.gather(*coros)
 
 
@@ -260,7 +265,7 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
     # ── 2. Issues (concurrent within each phase) ───────────────────────────
     index = 0
     for phase in spec.phases:
-        labels = [phase.label, spec.initiative]
+        labels = [spec.initiative, f"{spec.initiative}/{phase.label}"]
         phase_tasks: list[asyncio.Task[tuple[str, int, str]]] = [
             asyncio.create_task(_create_one(repo, issue, labels))
             for issue in phase.issues
@@ -349,7 +354,10 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
     await persist_initiative_phases(
         initiative=spec.initiative,
         phases=[
-            {"label": p.label, "depends_on": list(p.depends_on)}
+            {
+                "label": f"{spec.initiative}/{p.label}",
+                "depends_on": [f"{spec.initiative}/{d}" for d in p.depends_on],
+            }
             for p in spec.phases
         ],
     )

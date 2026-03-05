@@ -320,3 +320,70 @@ async def test_file_issues_yields_error_on_create_failure() -> None:
     error_events = [e for e in events if _is_error(e)]
     assert error_events, "Expected an error event after gh issue create failure"
     assert "gh issue create failed" in error_events[0]["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Tests: scoped label format (new canonical scheme)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_bootstrap_labels_creates_scoped_phase_labels() -> None:
+    """_bootstrap_labels creates '{initiative}/phase-N' labels, not global 'phase-N'."""
+    spec = _make_spec(initiative="ac-build")
+    created_labels: list[str] = []
+
+    async def fake_ensure(label: str, _color: str, _desc: str) -> None:
+        created_labels.append(label)
+
+    with (
+        patch("agentception.readers.issue_creator.ensure_label_exists", side_effect=fake_ensure),
+        patch(
+            "asyncio.create_subprocess_exec",
+            return_value=_mock_proc(stdout=_issue_url(1)),
+        ),
+    ):
+        await _collect(file_issues(spec))
+
+    # Scoped phase labels must be present.
+    assert "ac-build/phase-0" in created_labels
+    assert "ac-build/phase-1" in created_labels
+    # Global (unscoped) phase labels must NOT be created.
+    assert "phase-0" not in created_labels
+    assert "phase-1" not in created_labels
+    # Initiative label itself must be created.
+    assert "ac-build" in created_labels
+
+
+@pytest.mark.anyio
+async def test_file_issues_uses_scoped_labels_on_gh_create() -> None:
+    """gh issue create is called with [initiative, initiative/phase-N] labels."""
+    spec = _make_spec(initiative="ac-workflow")
+    create_calls: list[list[str]] = []
+    call_count = 0
+
+    def fake_proc(*args: str, **_kwargs: object) -> MagicMock:
+        nonlocal call_count
+        cmd = list(args)
+        if "create" in cmd:
+            call_count += 1
+            create_calls.append(cmd)
+            return _mock_proc(stdout=_issue_url(10 + call_count))
+        return _mock_proc()
+
+    with (
+        patch("agentception.readers.issue_creator.ensure_label_exists", new_callable=AsyncMock),
+        patch("asyncio.create_subprocess_exec", side_effect=fake_proc),
+    ):
+        await _collect(file_issues(spec))
+
+    assert create_calls, "Expected gh issue create calls"
+    for cmd in create_calls:
+        label_args = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--label"]
+        # Each issue gets exactly two labels: initiative + scoped phase.
+        assert "ac-workflow" in label_args, "Initiative label must be present"
+        scoped = [lbl for lbl in label_args if lbl.startswith("ac-workflow/")]
+        assert scoped, "Scoped phase label must be present"
+        # Global phase-N labels must NOT be passed.
+        bare_phase = [lbl for lbl in label_args if lbl.startswith("phase-") and "/" not in lbl]
+        assert bare_phase == [], f"Unexpected global phase label(s): {bare_phase}"

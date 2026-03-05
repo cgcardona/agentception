@@ -1071,7 +1071,7 @@ async def get_conductor_history(
 # ---------------------------------------------------------------------------
 
 
-_PHASE_ORDER = ["phase-0", "phase-1", "phase-2", "phase-3"]
+_SCOPED_PHASE_SUFFIXES = ["phase-0", "phase-1", "phase-2", "phase-3"]
 
 
 async def get_initiative_phase_deps(initiative: str) -> dict[str, list[str]]:
@@ -1230,29 +1230,40 @@ async def get_initiatives(
     try:
         async with get_session() as session:
             result = await session.execute(
-                select(ACIssue.labels_json, ACIssue.state).where(ACIssue.repo == repo)
+                select(ACIssue.labels_json, ACIssue.state, ACIssue.phase_label)
+                .where(ACIssue.repo == repo)
             )
             rows = result.all()
 
         initiative_states: dict[str, set[str]] = {}
 
         if patterns:
-            # Config-driven path: any label matching a pattern is an initiative.
-            for labels_json_str, state in rows:
+            # Config-driven path: a label matching a pattern is an initiative.
+            # Only count issues that would actually be visible in the board —
+            # an issue must have a scoped "{initiative}/phase-N" label; issues
+            # without one are dropped by get_issues_grouped_by_phase and must
+            # not cause a tab to appear.
+            for labels_json_str, state, _phase_label in rows:
                 labels: list[str] = json.loads(labels_json_str or "[]")
-                for lbl in labels:
-                    if _label_matches_patterns(lbl, patterns):
-                        initiative_states.setdefault(lbl, set()).add(state or "open")
-        else:
-            # Legacy heuristic: issue must carry a phase-N label; sibling
-            # labels (not phase-N, not in blocklist) are the initiatives.
-            for labels_json_str, state in rows:
-                labels = json.loads(labels_json_str or "[]")
-                if not any(lbl.startswith("phase-") for lbl in labels):
+                matched_initiatives = [
+                    lbl for lbl in labels if _label_matches_patterns(lbl, patterns)
+                ]
+                if not matched_initiatives:
                     continue
-                for lbl in labels:
-                    if not lbl.startswith("phase-") and lbl not in _NON_INITIATIVE_LABELS:
-                        initiative_states.setdefault(lbl, set()).add(state or "open")
+
+                # Issue must have at least one scoped "{initiative}/phase-N" label.
+                has_scoped_phase = any(
+                    any(lbl.startswith(f"{ini}/") for lbl in labels)
+                    for ini in matched_initiatives
+                )
+                if not has_scoped_phase:
+                    continue  # unphased issue — won't appear in board
+
+                for lbl in matched_initiatives:
+                    initiative_states.setdefault(lbl, set()).add(state or "open")
+        else:
+            # No patterns configured — return nothing (no legacy heuristic).
+            pass
 
         # Only surface initiatives that still have at least one open issue,
         # ordered by their position in initiative_patterns then alphabetically.
@@ -1283,33 +1294,38 @@ async def get_issues_grouped_by_phase(
     initiative: str | None = None,
     phase_order: list[str] | None = None,
 ) -> list[PhaseGroupRow]:
-    """Return issues grouped by phase, ordered according to *phase_order*.
+    """Return issues grouped by scoped phase label, ordered by *phase_order*.
 
-    *phase_order* is the caller-supplied list of phase label strings that
-    defines which phases appear in the result and in what order.  When
-    omitted it falls back to ``_PHASE_ORDER`` (``["phase-0".."phase-3"]``).
-    Pass ``settings.active_labels_order`` from ``pipeline-config.json`` to
-    make the Build board reflect the project configuration rather than the
-    hard-coded default.
+    Every issue is expected to carry exactly two labels:
+    - ``{initiative}``            — the initiative slug
+    - ``{initiative}/phase-{N}``  — the namespaced phase identifier
 
     When *initiative* is supplied the result is scoped to that initiative:
     - Only issues carrying that initiative label are included.
+    - Phase key is detected as the ``{initiative}/phase-N`` label.
     - Every phase in *phase_order* is present in the result (even if empty)
       so the UI can render the full gate structure.
-    - No ``"unphased"`` bucket is emitted.
+    - *phase_order* defaults to ``["{initiative}/phase-0" … "/phase-3"]``.
+    - Issues without a scoped phase label are silently dropped.
 
-    When *initiative* is ``None`` the result spans all issues: configured
-    phases first, then remaining label buckets, then ``"unphased"``.
+    When *initiative* is ``None`` the result spans all issues, grouped by
+    whatever phase-like labels they carry, with no defined ordering.
 
     Each group dict contains:
     - ``label``    — phase label string
     - ``issues``   — list of issue dicts (number, title, state, url, labels)
-    - ``locked``   — True when the preceding phase still has open issues
+    - ``locked``   — True when any declared dependency phase is not complete
     - ``complete`` — True when every issue in this phase is closed
 
     Falls back to ``[]`` on DB error.
     """
-    effective_phase_order: list[str] = phase_order if phase_order else _PHASE_ORDER
+    if initiative and phase_order is None:
+        effective_phase_order: list[str] = [
+            f"{initiative}/{s}" for s in _SCOPED_PHASE_SUFFIXES
+        ]
+    else:
+        effective_phase_order = phase_order or []
+
     try:
         async with get_session() as session:
             result = await session.execute(
@@ -1319,32 +1335,22 @@ async def get_issues_grouped_by_phase(
             )
             rows = result.scalars().all()
 
-        # Group by phase label.
-        # Prefer a generic "phase-N" label (old-style), then an initiative-
-        # scoped "{initiative}/{phase-name}" label (new-style), then
-        # row.phase_label (set at poll time), then "unphased".
         groups: dict[str, list[PhasedIssueRow]] = {}
         for row in rows:
             issue_labels: list[str] = json.loads(row.labels_json or "[]")
 
-            # Initiative filter: skip issues that don't carry this initiative.
+            # Initiative filter: skip issues that don't carry this initiative label.
             if initiative and initiative not in issue_labels:
                 continue
 
+            # Phase key is the scoped "{initiative}/phase-N" label.
             phase_key: str | None = next(
-                (lbl for lbl in issue_labels if lbl.startswith("phase-")),
+                (lbl for lbl in issue_labels if initiative and lbl.startswith(f"{initiative}/")),
                 None,
             )
-            if phase_key is None and initiative:
-                # New-style: "agentception-ux-phase1b-to-phase3/2-ux-impl"
-                phase_key = next(
-                    (lbl for lbl in issue_labels if lbl.startswith(f"{initiative}/")),
-                    None,
-                )
-            phase_key = phase_key or row.phase_label or "unphased"
 
-            # In initiative-scoped mode skip the unphased bucket entirely.
-            if initiative and phase_key == "unphased":
+            # When no scoped phase label is found, drop this issue.
+            if phase_key is None:
                 continue
 
             groups.setdefault(phase_key, []).append(
@@ -1356,14 +1362,6 @@ async def get_issues_grouped_by_phase(
                     labels=issue_labels,
                 )
             )
-
-        # When initiative-scoped, check whether the configured phase_order
-        # actually belongs to this initiative.  If none of the config phases
-        # appear in the groups dict (e.g. config still has ac-ui/* but the
-        # selected initiative is agentception-ux-*), derive the order from
-        # the actual group labels so the board isn't blank.
-        if initiative and not any(p in groups for p in effective_phase_order):
-            effective_phase_order = sorted(groups.keys())
 
         # Load the phase dependency graph for this initiative.
         # Empty dict → no deps stored → all phases unlocked (correct default).
