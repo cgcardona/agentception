@@ -454,6 +454,7 @@ async def persist_agent_run_dispatch(
     batch_id: str,
     host_worktree_path: str,
     cognitive_arch: str | None = None,
+    node_type: str | None = None,
     logical_tier: str | None = None,
     parent_run_id: str | None = None,
 ) -> None:
@@ -471,9 +472,15 @@ async def persist_agent_run_dispatch(
     ``cognitive_arch`` is written to the DB column added in migration 0005 so
     the arch string survives beyond the worktree filesystem lifetime.
 
-    ``logical_tier`` captures where this run sits in the virtual org chart
-    (executive | coordinator | engineer | reviewer), independent of who
-    physically spawned it.  Added in migration 0006.
+    ``node_type`` is the structural position of this agent in the tree:
+    ``"coordinator"`` (surveys scope and spawns children) or ``"leaf"``
+    (works one issue/PR).  Added in migration 0009.
+
+    ``logical_tier`` is the organisational domain for UI visualisation — e.g.
+    ``"qa"``, ``"engineering"``, ``"c-suite"``.  A chain-spawned PR reviewer
+    can have ``node_type="leaf"`` and ``logical_tier="qa"`` even though its
+    ``parent_run_id`` points to an engineering leaf.  Added in migration 0006,
+    repurposed for org domain in migration 0009.
 
     ``parent_run_id`` records the run_id of the agent that spawned this one,
     enabling spawn-lineage tracing in the org chart.  Added in migration 0006.
@@ -486,9 +493,9 @@ async def persist_agent_run_dispatch(
     logger.warning(
         "💾 persist_agent_run_dispatch: run_id=%r role=%r worktree_path=%r "
         "host_worktree_path=%r spawn_mode=%r cognitive_arch=%r "
-        "logical_tier=%r parent_run_id=%r",
+        "node_type=%r logical_tier=%r parent_run_id=%r",
         run_id, role, worktree_path, host_worktree_path, spawn_mode_json,
-        cognitive_arch, logical_tier, parent_run_id,
+        cognitive_arch, node_type, logical_tier, parent_run_id,
     )
     try:
         async with get_session() as session:
@@ -507,6 +514,8 @@ async def persist_agent_run_dispatch(
                 existing.last_activity_at = _now()
                 if cognitive_arch is not None:
                     existing.cognitive_arch = cognitive_arch
+                if node_type is not None:
+                    existing.node_type = node_type
                 if logical_tier is not None:
                     existing.logical_tier = logical_tier
                 if parent_run_id is not None:
@@ -530,6 +539,7 @@ async def persist_agent_run_dispatch(
                         spawn_mode=spawn_mode_json,
                         batch_id=batch_id,
                         cognitive_arch=cognitive_arch,
+                        node_type=node_type,
                         logical_tier=logical_tier,
                         parent_run_id=parent_run_id,
                         spawned_at=_now(),

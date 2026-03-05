@@ -1338,6 +1338,7 @@ ATTEMPT_N=0
 REQUIRED_OUTPUT=grade,merge_status,pr_url
 ON_BLOCK=stop
 NODE_TYPE=leaf
+LOGICAL_TIER=qa
 PARENT_RUN_ID=${RUN_ID:-}
 TASK
 

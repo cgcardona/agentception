@@ -142,6 +142,7 @@ async def build_spawn_child(
     scope_type: str,
     scope_value: str,
     gh_repo: str,
+    logical_tier: str = "",
     issue_body: str = "",
     issue_title: str = "",
     skills_hint: list[str] | None = None,
@@ -150,9 +151,10 @@ async def build_spawn_child(
 
     Any coordinator agent calls this tool to atomically spawn a child.
     The tool creates the worktree, writes the ``.agent-task`` file (with
-    NODE_TYPE, COGNITIVE_ARCH, SCOPE_TYPE, SCOPE_VALUE, PARENT_RUN_ID, and
-    all required fields), registers the DB record, and auto-acknowledges the
-    run so the caller can immediately fire a Task call.
+    NODE_TYPE, LOGICAL_TIER if provided, COGNITIVE_ARCH, SCOPE_TYPE,
+    SCOPE_VALUE, PARENT_RUN_ID, and all required fields), registers the DB
+    record, and auto-acknowledges the run so the caller can immediately fire
+    a Task call.
 
     Args:
         parent_run_id:  ``run_id`` of the calling agent (lineage tracking).
@@ -163,13 +165,18 @@ async def build_spawn_child(
         scope_type:     ``"label"``, ``"issue"``, or ``"pr"``.
         scope_value:    Label string, or issue/PR number as a string.
         gh_repo:        ``"owner/repo"`` string.
+        logical_tier:   Org domain for UI visualisation (e.g. ``"qa"``,
+                        ``"engineering"``, ``"c-suite"``).  Pass ``"qa"`` when
+                        chain-spawning a PR reviewer so the dashboard places it
+                        under the QA branch.  Optional — omit or pass ``""`` to
+                        leave the field unset.
         issue_body:     Issue body for COGNITIVE_ARCH skill extraction.
         issue_title:    Issue title written to ISSUE_TITLE field.
         skills_hint:    Explicit skill override list for COGNITIVE_ARCH.
 
     Returns:
         On success: ``{"ok": True, "run_id": ..., "host_worktree_path": ...,
-                       "node_type": ..., "role": ..., "cognitive_arch": ...}``
+                       "node_type": ..., "logical_tier": ..., "role": ..., "cognitive_arch": ...}``
         On failure: ``{"ok": False, "error": "<reason>"}``
     """
     if node_type == "coordinator":
@@ -188,11 +195,14 @@ async def build_spawn_child(
     else:
         return {"ok": False, "error": f"scope_type must be label/issue/pr, got {scope_type!r}"}
 
+    tier: str | None = logical_tier if logical_tier else None
+
     try:
         result = await spawn_child(
             parent_run_id=parent_run_id,
             role=role,
             node_type=nt,
+            logical_tier=tier,
             scope_type=scope,
             scope_value=scope_value,
             gh_repo=gh_repo,
@@ -205,14 +215,16 @@ async def build_spawn_child(
         return {"ok": False, "error": str(exc)}
 
     logger.info(
-        "✅ build_spawn_child: spawned run_id=%r role=%r node_type=%r scope=%s:%s",
-        result.run_id, result.role, result.node_type, result.scope_type, result.scope_value,
+        "✅ build_spawn_child: spawned run_id=%r role=%r node_type=%r logical_tier=%r scope=%s:%s",
+        result.run_id, result.role, result.node_type, result.logical_tier,
+        result.scope_type, result.scope_value,
     )
     return {
         "ok": True,
         "run_id": result.run_id,
         "host_worktree_path": result.host_worktree_path,
         "node_type": result.node_type,
+        "logical_tier": result.logical_tier,
         "role": result.role,
         "cognitive_arch": result.cognitive_arch,
         "agent_task_path": result.agent_task_path,

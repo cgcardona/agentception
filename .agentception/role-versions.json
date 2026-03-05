@@ -1,7 +1,7 @@
 {
   "versions": {
     "cto": {
-      "current": "v14",
+      "current": "v24",
       "history": [
         {
           "sha": "abcdef1234567890abcdef1234567890abcdef12",
@@ -72,6 +72,56 @@
           "sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
           "label": "v14",
           "timestamp": 1772726507
+        },
+        {
+          "sha": "abcdef1234567890abcdef1234567890abcdef12",
+          "label": "v15",
+          "timestamp": 1772727892
+        },
+        {
+          "sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+          "label": "v16",
+          "timestamp": 1772727892
+        },
+        {
+          "sha": "abcdef1234567890abcdef1234567890abcdef12",
+          "label": "v17",
+          "timestamp": 1772728120
+        },
+        {
+          "sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+          "label": "v18",
+          "timestamp": 1772728120
+        },
+        {
+          "sha": "abcdef1234567890abcdef1234567890abcdef12",
+          "label": "v19",
+          "timestamp": 1772728156
+        },
+        {
+          "sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+          "label": "v20",
+          "timestamp": 1772728156
+        },
+        {
+          "sha": "abcdef1234567890abcdef1234567890abcdef12",
+          "label": "v21",
+          "timestamp": 1772728948
+        },
+        {
+          "sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+          "label": "v22",
+          "timestamp": 1772728948
+        },
+        {
+          "sha": "abcdef1234567890abcdef1234567890abcdef12",
+          "label": "v23",
+          "timestamp": 1772729073
+        },
+        {
+          "sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+          "label": "v24",
+          "timestamp": 1772729073
         }
       ]
     }

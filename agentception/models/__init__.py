@@ -79,10 +79,15 @@ class AgentNode(BaseModel):
     Represents one Cursor/Claude agent instance that is either actively working
     or has completed its assigned task. Children are spawned sub-agents.
 
-    ``logical_tier`` is the structural node type (``coordinator`` | ``leaf``).
-    A coordinator surveys its scope and spawns children; a leaf works one issue/PR.
+    ``node_type`` is the structural position: ``"coordinator"`` (spawns children)
+    or ``"leaf"`` (works one issue/PR).
+
+    ``logical_tier`` is the organisational domain for UI visualisation — e.g.
+    ``"qa"``, ``"engineering"``, ``"c-suite"``.  A chain-spawned PR reviewer will
+    have ``node_type="leaf"`` and ``logical_tier="qa"`` even though its physical
+    ``parent_run_id`` points to an engineering leaf.
+
     ``parent_run_id`` is the run_id of the agent that physically spawned this one.
-    Both are used by the UI to build the virtual org chart with inferred nodes.
     """
 
     id: str
@@ -98,6 +103,7 @@ class AgentNode(BaseModel):
     last_activity_mtime: float = 0.0
     children: list[AgentNode] = []
     cognitive_arch: str | None = None
+    node_type: str | None = None
     logical_tier: str | None = None
     parent_run_id: str | None = None
 
@@ -241,8 +247,11 @@ class TaskFile(BaseModel):
     required_output: str | None = None
     on_block: str | None = None
     cognitive_arch: str | None = None
+    node_type: str | None = None
+    """Structural position in the agent tree (``coordinator`` | ``leaf``). Added in 0009."""
     logical_tier: str | None = None
-    """Node type in the agent tree (``coordinator`` | ``leaf``). Added in 0006, normalised in 0008."""
+    """Organisational domain for UI visualisation (e.g. ``qa``, ``engineering``, ``c-suite``).
+    Added in 0006, repurposed for org domain in 0009."""
     parent_run_id: str | None = None
     """Run ID of the agent that physically spawned this one. Added in 0006."""
 
