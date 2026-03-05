@@ -25,12 +25,13 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 
 from agentception.config import settings
 from agentception.db.persist import acknowledge_agent_run, persist_agent_event, persist_agent_run_dispatch
 from agentception.db.queries import get_pending_launches
+from agentception.mcp.plan_advance_phase import plan_advance_phase as _plan_advance_phase
 from agentception.routes.api._shared import _resolve_cognitive_arch
 
 logger = logging.getLogger(__name__)
@@ -555,3 +556,77 @@ async def report_done(req: DoneReport) -> dict[str, object]:
         "✅ report_done: issue=%d pr_url=%r", req.issue_number, req.pr_url
     )
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Phase gate — advance a phase by unlocking all to_phase issues
+# ---------------------------------------------------------------------------
+
+
+class AdvancePhaseRequest(BaseModel):
+    """Request body for ``POST /api/build/advance-phase``."""
+
+    initiative: str
+    """The initiative label shared by all phase issues (e.g. ``"my-initiative"``)."""
+    from_phase: str
+    """The phase label that must be fully closed (e.g. ``"phase-1"``)."""
+    to_phase: str
+    """The phase label to unlock (e.g. ``"phase-2"``)."""
+
+
+class AdvancePhaseOk(BaseModel):
+    """Successful phase advance — all from_phase issues were closed."""
+
+    advanced: bool
+    unlocked_count: int
+
+
+class AdvancePhaseBlocked(BaseModel):
+    """Blocked phase advance — one or more from_phase issues remain open."""
+
+    advanced: bool
+    error: str
+    open_issues: list[int]
+
+
+@router.post("/advance-phase", response_model=None)
+async def advance_phase(
+    req: AdvancePhaseRequest,
+    response: Response,
+) -> AdvancePhaseOk | AdvancePhaseBlocked:
+    """Advance the phase gate by unlocking all *to_phase* issues.
+
+    Delegates to ``plan_advance_phase()`` which validates the gate condition
+    (all from_phase issues closed) and mutates GitHub labels atomically.
+
+    On success: sets ``HX-Trigger: refreshBoard`` so the Build board partial
+    auto-refreshes in the same HTMX response cycle without a full-page reload.
+
+    Returns:
+        ``AdvancePhaseOk`` when the gate passes and labels are mutated.
+        ``AdvancePhaseBlocked`` when open issues still block the transition.
+    """
+    result = await _plan_advance_phase(req.initiative, req.from_phase, req.to_phase)
+
+    if result.get("advanced") is True:
+        unlocked_raw = result.get("unlocked_count")
+        unlocked_count = unlocked_raw if isinstance(unlocked_raw, int) else 0
+        response.headers["HX-Trigger"] = "refreshBoard"
+        logger.info(
+            "✅ advance_phase: %r → %r, %d issue(s) unlocked",
+            req.from_phase,
+            req.to_phase,
+            unlocked_count,
+        )
+        return AdvancePhaseOk(advanced=True, unlocked_count=unlocked_count)
+
+    error_raw = result.get("error")
+    error_str = error_raw if isinstance(error_raw, str) else "Phase advance blocked."
+    open_raw = result.get("open_issues")
+    open_issues: list[int] = (
+        [i for i in open_raw if isinstance(i, int)]
+        if isinstance(open_raw, list)
+        else []
+    )
+    logger.warning("⚠️ advance_phase: blocked — %s", error_str)
+    return AdvancePhaseBlocked(advanced=False, error=error_str, open_issues=open_issues)
