@@ -421,42 +421,6 @@ class SpawnCoordinatorResult(BaseModel):
     agent_task: str
 
 
-class PlanRequest(BaseModel):
-    """Request body for ``POST /api/brain-dump/plan``.
-
-    ``dump`` is the raw brain-dump text submitted by the user.  The Phase
-    Planner analyses it and groups work items into sequenced phases without
-    creating any GitHub resources.
-    """
-
-    dump: str
-
-
-class PhasePreview(BaseModel):
-    """A single phase in the brain-dump plan preview.
-
-    Each phase groups related work items that can be implemented in parallel.
-    ``depends_on`` lists the labels of phases that must complete before this
-    one can start — the UI renders these as dependency arrows.
-    """
-
-    label: str
-    description: str
-    estimated_issue_count: int
-    depends_on: list[str] = []
-
-
-class PlanResult(BaseModel):
-    """Response for ``POST /api/brain-dump/plan``.
-
-    ``phases`` is ordered: index 0 is the earliest phase (foundation),
-    later entries depend on earlier ones.  The UI shows these as a phase
-    card deck before asking the user to confirm and fire the coordinator.
-    """
-
-    phases: list[PhasePreview]
-
-
 class SwitchProjectRequest(BaseModel):
     """Request body for ``POST /api/config/switch-project``.
 

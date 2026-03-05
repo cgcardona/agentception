@@ -2,16 +2,12 @@ from __future__ import annotations
 
 """LLM-powered plan generator -- converts a brain dump into a PlanSpec YAML via Claude.
 
-Two public entry points:
+Public entry point:
 
 ``generate_plan_yaml(dump)``
     Step 1.A: calls Claude, returns a validated PlanSpec YAML string ready for
     the Monaco editor.  This is the production path when OPENROUTER_API_KEY
     is set.
-
-``plan_phases_llm(dump)``
-    Legacy JSON phase-card path (kept for heuristic fallback in plan_ui.py).
-    Returns a PlanResult with PhasePreview objects.
 
 Architecture note
 -----------------
@@ -21,12 +17,11 @@ YAML and a coordinator worktree is spawned -- the coordinator agent (in Cursor)
 calls ``plan_get_labels()`` and similar tools as it files GitHub issues.
 """
 
-import json
 import logging
 
 import yaml as _yaml
 
-from agentception.models import PhasePreview, PlanResult, PlanSpec
+from agentception.models import PlanSpec
 from agentception.services.llm import call_openrouter
 
 logger = logging.getLogger(__name__)
@@ -54,23 +49,6 @@ _IDENTITY = (
     "**phase-2 -- Features & User-Facing Work**: New capabilities visible to users.\n"
     "**phase-3 -- Polish, Tests & Debt**: Tests, docs, refactors, cleanup.\n\n"
     "Only emit phases that have work. Skip empty phases entirely.\n"
-)
-
-# ---------------------------------------------------------------------------
-# Prompt A -- JSON phase cards (used by plan_phases_llm / heuristic fallback)
-# ---------------------------------------------------------------------------
-
-_SYSTEM_PROMPT = (
-    _IDENTITY
-    + "\n## Output format: JSON phase cards\n\n"
-    "Return ONLY valid JSON -- no explanation, no markdown fences, no preamble:\n\n"
-    '{\n  "phases": [\n    {\n      "label": "phase-0",\n'
-    '      "description": "One sentence: theme for the confirmation card.",\n'
-    '      "estimated_issue_count": 2,\n      "depends_on": []\n    }\n  ]\n}\n\n'
-    "phase labels: ONLY phase-0, phase-1, phase-2, phase-3. No others.\n"
-    "depends_on: list of phase labels that must complete before this one.\n"
-    "estimated_issue_count: distinct GitHub issues, not bullet points.\n"
-    "description: one concise sentence for the human confirmation card.\n"
 )
 
 # ---------------------------------------------------------------------------
@@ -289,61 +267,3 @@ async def generate_plan_yaml(dump: str, label_prefix: str = "") -> str:
     return validated_yaml
 
 
-async def plan_phases_llm(dump: str) -> PlanResult:
-    """Call Claude via OpenRouter to convert a brain dump into a PlanResult.
-
-    Args:
-        dump: Raw plan text from the user.
-
-    Returns:
-        A :class:`~agentception.models.PlanResult` with one or more phases.
-
-    Raises:
-        ValueError: When ``dump`` is empty, the LLM returns invalid JSON, or
-            the response contains no phases.
-        RuntimeError: Propagated from :func:`~agentception.services.llm.call_openrouter`
-            when the API key is missing.
-        httpx.HTTPStatusError: On non-2xx responses from OpenRouter.
-    """
-    dump = dump.strip()
-    if not dump:
-        raise ValueError("Plan text must not be empty.")
-
-    raw = await call_openrouter(dump, system_prompt=_SYSTEM_PROMPT, temperature=0.2)
-    raw = _strip_fences(raw)
-
-    try:
-        data: object = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        logger.error("LLM returned invalid JSON: %s\nRaw: %s", exc, raw[:500])
-        raise ValueError(f"LLM returned invalid JSON: {exc}") from exc
-
-    if not isinstance(data, dict):
-        raise ValueError(f"LLM returned unexpected top-level type: {type(data).__name__}")
-
-    raw_phases: object = data.get("phases", [])
-    if not isinstance(raw_phases, list):
-        raise ValueError(f"LLM 'phases' field is not a list: {type(raw_phases).__name__}")
-
-    phases: list[PhasePreview] = []
-    for item in raw_phases:
-        if not isinstance(item, dict):
-            logger.warning("Skipping non-dict phase entry: %r", item)
-            continue
-        try:
-            phases.append(
-                PhasePreview(
-                    label=str(item["label"]),
-                    description=str(item["description"]),
-                    estimated_issue_count=int(item["estimated_issue_count"]),
-                    depends_on=[str(d) for d in item.get("depends_on", [])],
-                )
-            )
-        except (KeyError, TypeError, ValueError) as exc:
-            logger.warning("Skipping malformed phase entry %r: %s", item, exc)
-
-    if not phases:
-        raise ValueError("LLM returned no valid phases -- check the prompt or input.")
-
-    logger.info("✅ LLM phase plan: %d phases for %d-char dump", len(phases), len(dump))
-    return PlanResult(phases=phases)
