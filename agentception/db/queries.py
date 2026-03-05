@@ -1071,40 +1071,48 @@ async def get_conductor_history(
 # ---------------------------------------------------------------------------
 
 
-_SCOPED_PHASE_SUFFIXES = ["phase-0", "phase-1", "phase-2", "phase-3"]
+class InitiativePhaseMeta(TypedDict):
+    """Metadata for one phase of an initiative, read from ``initiative_phases``."""
+
+    label: str
+    """Scoped phase label, e.g. ``"ac-auth/0-foundation"``."""
+    order: int
+    """0-indexed canonical display position."""
+    depends_on: list[str]
+    """Scoped phase labels that must be complete before this phase unlocks."""
 
 
-async def get_initiative_phase_deps(initiative: str) -> dict[str, list[str]]:
-    """Return the phase dependency graph for an initiative.
+async def get_initiative_phase_meta(initiative: str) -> list[InitiativePhaseMeta]:
+    """Return ordered phase metadata for an initiative from ``initiative_phases``.
 
-    Returns ``{phase_label: [dep_phase_label, ...]}`` — each key is a phase,
-    each value is the list of phases that must be fully closed before this
-    phase is unlocked.
+    Returns rows sorted by ``phase_order ASC`` — this is the canonical display
+    order.  Returns ``[]`` when no rows exist (initiative not yet filed or
+    predates this feature); callers fall back to lexicographic sort in that case.
 
-    Returns ``{}`` (no deps — all phases unlocked) when the initiative has no
-    stored dep graph.  This is the correct default for initiatives created
-    before ``initiative_phases`` was introduced.
-
-    Falls back to ``{}`` on DB error.
+    Falls back to ``[]`` on DB error.
     """
     from agentception.db.models import ACInitiativePhase
 
     try:
         async with get_session() as session:
             result = await session.execute(
-                select(ACInitiativePhase).where(
-                    ACInitiativePhase.initiative == initiative
-                )
+                select(ACInitiativePhase)
+                .where(ACInitiativePhase.initiative == initiative)
+                .order_by(ACInitiativePhase.phase_order)
             )
             rows = result.scalars().all()
 
-        return {
-            row.phase_label: json.loads(row.depends_on_json or "[]")
+        return [
+            InitiativePhaseMeta(
+                label=row.phase_label,
+                order=row.phase_order,
+                depends_on=json.loads(row.depends_on_json or "[]"),
+            )
             for row in rows
-        }
+        ]
     except Exception as exc:
-        logger.warning("⚠️  get_initiative_phase_deps failed (non-fatal): %s", exc)
-        return {}
+        logger.warning("⚠️  get_initiative_phase_meta failed (non-fatal): %s", exc)
+        return []
 
 # Labels that are never themselves initiative names — common GitHub system labels
 # and AgentCeption internal labels.
@@ -1281,14 +1289,13 @@ async def get_initiatives(
 
 
 def _compute_locked(
-    phase_label: str,
     deps: list[str],
     complete_phases: set[str],
 ) -> bool:
     """Return True if any declared dependency is not yet complete.
 
-    When *deps* is empty (no dependency data stored) the phase is always
-    unlocked — the correct default for plans without stored dep graphs.
+    Empty *deps* → always unlocked (no stored dep graph, or phase-0 with no
+    predecessors).
     """
     return any(dep not in complete_phases for dep in deps)
 
@@ -1298,38 +1305,26 @@ async def get_issues_grouped_by_phase(
     initiative: str | None = None,
     phase_order: list[str] | None = None,
 ) -> list[PhaseGroupRow]:
-    """Return issues grouped by scoped phase label, ordered by *phase_order*.
+    """Return issues grouped by scoped phase label in canonical display order.
 
-    Every issue is expected to carry exactly two labels:
-    - ``{initiative}``         — the initiative slug
-    - ``{initiative}/{slug}``  — the namespaced phase identifier (any slug, not
-                                 just ``phase-N``)
+    Every issue is expected to carry two labels:
+    - ``{initiative}``        — the initiative slug
+    - ``{initiative}/{slug}`` — the namespaced phase identifier
 
-    When *initiative* is supplied the result is scoped to that initiative:
-    - Only issues carrying that initiative label are included.
-    - Phase key is detected as the first ``{initiative}/*`` label on the issue.
-    - The effective phase order is determined as follows (highest priority first):
-        1. Explicitly passed *phase_order* argument.
-        2. Discovered dynamically from the actual ``{initiative}/*`` labels on
-           issues in the DB, sorted lexicographically.  This handles any slug
-           convention (``phase-N``, ``0-infra``, ``5-plan-step-v2``, etc.).
-        3. Fallback to ``_SCOPED_PHASE_SUFFIXES`` placeholders when the
-           initiative has no issues yet (so the UI renders an empty skeleton).
-    - Every phase in the effective order is present in the result (even if
-      empty) so the UI can render the full gate structure.
-    - Issues without a scoped phase label are silently dropped.
+    **Ordering priority** (when *initiative* is supplied):
+    1. Explicitly passed *phase_order* list — for callers that know what they want.
+    2. ``initiative_phases.phase_order`` from DB — canonical, written by
+       ``file_issues``.  Returned sorted by ``phase_order ASC``.
+    3. Lexicographic sort of discovered ``{initiative}/*`` labels — correct
+       fallback for plans filed before migration 0010, provided labels follow
+       the ``{N}-{slug}`` convention.
+    4. Empty list — initiative exists but has no issues yet.  The board renders
+       an empty state rather than phantom phase rows.
 
     When *initiative* is ``None`` the result spans all issues, grouped by
-    whatever phase-like labels they carry, with no defined ordering.
+    whatever phase-like labels they carry, with no defined ordering (legacy).
 
-    Each group dict contains:
-    - ``label``      — phase label string
-    - ``issues``     — list of issue dicts (number, title, state, url, labels)
-    - ``locked``     — True when any declared dependency phase is not complete
-    - ``complete``   — True when every issue in this phase is closed
-    - ``depends_on`` — list of dependency phase labels
-
-    Falls back to ``[]`` on DB error.
+    Returns ``[]`` on DB error.
     """
     try:
         async with get_session() as session:
@@ -1348,13 +1343,13 @@ async def get_issues_grouped_by_phase(
             if initiative and initiative not in issue_labels:
                 continue
 
-            # Phase key is the scoped "{initiative}/*" label.
+            # Phase key is the first scoped "{initiative}/*" label on the issue.
             phase_key: str | None = next(
                 (lbl for lbl in issue_labels if initiative and lbl.startswith(f"{initiative}/")),
                 None,
             )
 
-            # When no scoped phase label is found, drop this issue.
+            # Issues with no scoped phase label are silently dropped.
             if phase_key is None:
                 continue
 
@@ -1368,62 +1363,60 @@ async def get_issues_grouped_by_phase(
                 )
             )
 
-        # Load the phase dependency graph for this initiative.
-        # Empty dict → no deps stored → all phases unlocked (correct default).
+        # Determine effective display order and load dep graph.
+        effective_phase_order: list[str]
         phase_deps: dict[str, list[str]] = {}
-        if initiative:
-            phase_deps = await get_initiative_phase_deps(initiative)
 
-        # Determine the effective phase display order.
-        # Priority: explicit arg → discovered from actual labels → placeholder skeleton.
         if phase_order is not None:
-            effective_phase_order: list[str] = phase_order
+            # Caller supplied an explicit ordering — use it as-is.
+            effective_phase_order = phase_order
         elif initiative:
-            if groups:
-                # Derive order from actual {initiative}/* labels on issues.
-                # Lexicographic sort works correctly for both "phase-N" and
-                # "N-slug" conventions because the numeric prefix dominates.
+            meta = await get_initiative_phase_meta(initiative)
+            if meta:
+                # Canonical path: DB has stored order from file_issues.
+                effective_phase_order = [m["label"] for m in meta]
+                phase_deps = {m["label"]: m["depends_on"] for m in meta}
+            elif groups:
+                # Legacy fallback: derive order from actual label names.
+                # Lexicographic sort is correct for the {N}-{slug} convention.
                 effective_phase_order = sorted(groups.keys())
             else:
-                # No issues yet — show a placeholder skeleton so the UI isn't blank.
-                effective_phase_order = [
-                    f"{initiative}/{s}" for s in _SCOPED_PHASE_SUFFIXES
-                ]
+                # Initiative exists but has no issues filed yet.
+                effective_phase_order = []
         else:
             effective_phase_order = []
 
-        # Build ordered list; compute complete set first so we can evaluate
-        # deps in a single pass.
+        # Compute which phases are complete (all their issues closed).
         complete_phases: set[str] = set()
         for phase in effective_phase_order:
-            issues = groups.get(phase, [])
-            if bool(issues) and all(i["state"] == "closed" for i in issues):
+            phase_issues = groups.get(phase, [])
+            if phase_issues and all(i["state"] == "closed" for i in phase_issues):
                 complete_phases.add(phase)
 
         ordered: list[PhaseGroupRow] = []
         for phase in effective_phase_order:
-            issues = groups.pop(phase, [])
-            complete = phase in complete_phases
+            phase_issues = groups.pop(phase, [])
             deps = phase_deps.get(phase, [])
-            locked = _compute_locked(phase, deps, complete_phases)
             ordered.append(
                 PhaseGroupRow(
                     label=phase,
-                    issues=issues,
-                    locked=locked,
-                    complete=complete,
+                    issues=phase_issues,
+                    locked=_compute_locked(deps, complete_phases),
+                    complete=phase in complete_phases,
                     depends_on=deps,
                 )
             )
 
         if not initiative:
-            # Legacy: append remaining label buckets, then unphased.
-            for label, issues in groups.items():
-                complete = bool(issues) and all(i["state"] == "closed" for i in issues)
+            # Legacy: append any remaining label buckets not covered by phase_order.
+            for label, label_issues in groups.items():
+                complete = bool(label_issues) and all(
+                    i["state"] == "closed" for i in label_issues
+                )
                 ordered.append(
                     PhaseGroupRow(
                         label=label,
-                        issues=issues,
+                        issues=label_issues,
                         locked=False,
                         complete=complete,
                         depends_on=[],

@@ -79,15 +79,15 @@ def _make_spec(
         initiative=initiative,
         phases=[
             PlanPhase(
-                label="phase-0",
+                label="0-foundation",
                 description="Foundations",
                 depends_on=[],
                 issues=phase0_issues,
             ),
             PlanPhase(
-                label="phase-1",
+                label="1-features",
                 description="Features",
-                depends_on=["phase-0"],
+                depends_on=["0-foundation"],
                 issues=phase1_issues,
             ),
         ],
@@ -329,7 +329,7 @@ async def test_file_issues_yields_error_on_create_failure() -> None:
 
 @pytest.mark.anyio
 async def test_bootstrap_labels_creates_scoped_phase_labels() -> None:
-    """_bootstrap_labels creates '{initiative}/phase-N' labels, not global 'phase-N'."""
+    """_bootstrap_labels creates '{initiative}/{N}-{slug}' labels, not bare phase labels."""
     spec = _make_spec(initiative="ac-build")
     created_labels: list[str] = []
 
@@ -346,11 +346,11 @@ async def test_bootstrap_labels_creates_scoped_phase_labels() -> None:
         await _collect(file_issues(spec))
 
     # Scoped phase labels must be present.
-    assert "ac-build/phase-0" in created_labels
-    assert "ac-build/phase-1" in created_labels
+    assert "ac-build/0-foundation" in created_labels
+    assert "ac-build/1-features" in created_labels
     # Global (unscoped) phase labels must NOT be created.
-    assert "phase-0" not in created_labels
-    assert "phase-1" not in created_labels
+    assert "0-foundation" not in created_labels
+    assert "1-features" not in created_labels
     # Initiative label itself must be created.
     assert "ac-build" in created_labels
 

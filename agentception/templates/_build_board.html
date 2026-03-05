@@ -1,6 +1,14 @@
+{% if not groups %}
+<div class="build-board__empty">
+  <p class="build-board__empty-message">No phases filed yet.</p>
+  <p class="build-board__empty-hint">Use <strong>Plan</strong> to generate and file issues for this initiative.</p>
+</div>
+{% endif %}
 {% for group in groups %}
 {% set closed_count = group.issues | selectattr("state", "equalto", "closed") | list | length %}
 {% set total_count  = group.issues | length %}
+{# Display just the slug suffix — strip the "{initiative}/" prefix for readability. #}
+{% set phase_slug = group.label.split("/", 1)[1] if "/" in group.label else group.label %}
 
 <div class="build-phase
   {%- if group.complete %} build-phase--complete
@@ -21,7 +29,7 @@
     <span class="build-phase__icon">
       {%- if group.complete %}✅{%- elif group.locked %}🔒{%- elif not group.issues %}○{%- else %}🔓{%- endif %}
     </span>
-    <span class="build-phase__label">{{ group.label }}</span>
+    <span class="build-phase__label">{{ phase_slug }}</span>
     {% if total_count > 0 %}
     <span class="build-phase__progress">{{ closed_count }}&thinsp;/&thinsp;{{ total_count }}</span>
     {% else %}
@@ -38,7 +46,7 @@
             hx-swap="innerHTML"
             hx-indicator=".build-phase__advance-btn--loading"
             @click.stop>
-      Advance to {{ group.label }}
+      Advance to {{ phase_slug }}
     </button>
     {% endif %}
     {% if not group.locked and not group.complete and group.issues and initiative %}

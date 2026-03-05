@@ -188,10 +188,6 @@ def test_build_board_renders_advance_button_when_prev_complete_and_locked(
             "agentception.routes.ui.build_ui.get_runs_for_issue_numbers",
             new=AsyncMock(return_value={}),
         ),
-        patch(
-            "agentception.routes.ui.build_ui._phase_order",
-            new=AsyncMock(return_value=None),
-        ),
     ):
         resp = client.get("/build/board?initiative=my-initiative")
 
@@ -215,10 +211,6 @@ def test_build_board_no_advance_button_when_not_locked(client: TestClient) -> No
         patch(
             "agentception.routes.ui.build_ui.get_runs_for_issue_numbers",
             new=AsyncMock(return_value={}),
-        ),
-        patch(
-            "agentception.routes.ui.build_ui._phase_order",
-            new=AsyncMock(return_value=None),
         ),
     ):
         resp = client.get("/build/board?initiative=my-initiative")
@@ -244,10 +236,6 @@ def test_build_board_no_advance_button_when_prev_not_complete(
             "agentception.routes.ui.build_ui.get_runs_for_issue_numbers",
             new=AsyncMock(return_value={}),
         ),
-        patch(
-            "agentception.routes.ui.build_ui._phase_order",
-            new=AsyncMock(return_value=None),
-        ),
     ):
         resp = client.get("/build/board?initiative=my-initiative")
 
@@ -271,10 +259,6 @@ def test_build_board_no_advance_button_without_initiative(
         patch(
             "agentception.routes.ui.build_ui.get_runs_for_issue_numbers",
             new=AsyncMock(return_value={}),
-        ),
-        patch(
-            "agentception.routes.ui.build_ui._phase_order",
-            new=AsyncMock(return_value=None),
         ),
     ):
         resp = client.get("/build/board")

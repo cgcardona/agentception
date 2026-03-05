@@ -172,8 +172,15 @@ def test_config_save_calls_put_api_valid_payload(client: TestClient) -> None:
 
 
 def test_config_save_calls_put_api_rejects_bad_payload(client: TestClient) -> None:
-    """PUT /api/config returns 422 when required fields are missing."""
-    response = client.put("/api/config", json={"coordinator_limits": {"engineering-coordinator": 2}})
+    """PUT /api/config returns 422 when the body cannot be parsed as PipelineConfig.
+
+    coordinator_limits is a dict[str, int]; sending a string value triggers a 422.
+    (pool_size and active_labels_order have defaults and are not required.)
+    """
+    response = client.put(
+        "/api/config",
+        json={"coordinator_limits": "not-a-dict", "pool_size": 4, "active_labels_order": []},
+    )
     assert response.status_code == 422
 
 

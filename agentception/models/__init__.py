@@ -8,6 +8,7 @@ models that reference external services.
 """
 
 import logging
+import re
 from enum import Enum
 from pathlib import Path
 
@@ -831,13 +832,21 @@ class PlanIssue(BaseModel):
     skills: list[str] = []  # skill domain IDs from the cognitive arch catalog
 
 
+_PHASE_LABEL_RE = re.compile(r"^[0-9]+-[a-z0-9][a-z0-9-]*$")
+
+
 class PlanPhase(BaseModel):
     """A sequenced phase grouping related issues in a PlanSpec.
 
-    ``label`` is a short slug used as the GitHub phase label (e.g.
-    ``"0-foundation"``).  ``description`` is a one-sentence human summary.
-    ``depends_on`` lists labels of phases that must complete before this one
-    starts.  ``issues`` is the ordered list of issues to create.
+    ``label`` must follow the ``{N}-{slug}`` convention — a numeric prefix
+    (the 0-based phase index) followed by a kebab-case semantic descriptor,
+    e.g. ``"0-foundation"``, ``"1-api-layer"``, ``"2-ui"``.  This format
+    makes lexicographic sort a correct ordering fallback while also being
+    human-readable as a GitHub label suffix.
+
+    ``description`` is a one-sentence summary of the phase's gate criterion.
+    ``depends_on`` lists sibling phase labels that must complete first.
+    ``issues`` is the ordered list of issues to create in this phase.
 
     Raises ``ValueError`` if ``issues`` is empty — a phase with no issues
     cannot advance the pipeline.
@@ -847,6 +856,18 @@ class PlanPhase(BaseModel):
     description: str
     depends_on: list[str] = []
     issues: list[PlanIssue]
+
+    @field_validator("label")
+    @classmethod
+    def label_must_follow_n_slug_convention(cls, v: str) -> str:
+        """Enforce the {N}-{slug} label format: digits, hyphen, kebab-case slug."""
+        if not _PHASE_LABEL_RE.match(v):
+            raise ValueError(
+                f"Phase label {v!r} must match '{_PHASE_LABEL_RE.pattern}' "
+                f"(e.g. '0-foundation', '1-api-layer'). "
+                f"The numeric prefix must equal the phase's 0-based list position."
+            )
+        return v
 
     @field_validator("issues")
     @classmethod

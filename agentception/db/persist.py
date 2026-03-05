@@ -19,7 +19,7 @@ import datetime
 import hashlib
 import json
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 from sqlalchemy import select
 
@@ -579,15 +579,25 @@ async def acknowledge_agent_run(run_id: str) -> bool:
         return False
 
 
+class PhaseEntry(TypedDict):
+    """One phase entry for :func:`persist_initiative_phases`."""
+
+    label: str
+    order: int
+    depends_on: list[str]
+
+
 async def persist_initiative_phases(
     initiative: str,
-    phases: list[dict[str, list[str] | str]],
+    phases: list[PhaseEntry],
 ) -> None:
-    """Upsert the phase dependency graph for an initiative.
+    """Upsert the phase DAG and display order for an initiative.
 
     Called by ``file_issues`` after all GitHub issues have been created.
-    Each entry in *phases* must have ``"label": str`` and
-    ``"depends_on": list[str]`` keys matching the ``PlanPhase`` fields.
+    Each entry must have:
+    - ``"label"``      — scoped phase label, e.g. ``"ac-auth/0-foundation"``
+    - ``"order"``      — 0-indexed display position (canonical ordering source)
+    - ``"depends_on"`` — list of scoped phase labels that must complete first
 
     Uses upsert semantics so re-running a plan with the same initiative
     replaces the old dep graph rather than failing with a duplicate key.
@@ -599,9 +609,9 @@ async def persist_initiative_phases(
         now = _now()
         async with get_session() as session:
             for phase in phases:
-                label = str(phase.get("label", ""))
-                raw_deps = phase.get("depends_on", [])
-                depends_on: list[str] = list(raw_deps) if isinstance(raw_deps, list) else []
+                label = phase["label"]
+                order = phase["order"]
+                depends_on = phase["depends_on"]
                 result = await session.execute(
                     select(ACInitiativePhase).where(
                         ACInitiativePhase.initiative == initiative,
@@ -610,12 +620,14 @@ async def persist_initiative_phases(
                 )
                 existing = result.scalar_one_or_none()
                 if existing is not None:
+                    existing.phase_order = order
                     existing.depends_on_json = _json.dumps(depends_on)
                 else:
                     session.add(
                         ACInitiativePhase(
                             initiative=initiative,
                             phase_label=label,
+                            phase_order=order,
                             depends_on_json=_json.dumps(depends_on),
                             created_at=now,
                         )
