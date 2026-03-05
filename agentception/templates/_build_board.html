@@ -188,8 +188,9 @@
       </div>
       {% if group.locked and loop.previtem is defined and loop.previtem.complete and initiative %}
       <button class="build-phase__advance-btn"
-              hx-post="/api/build/advance-phase"
-              hx-vals='{"initiative": {{ initiative | tojson }}, "from_phase": {{ loop.previtem.label | tojson }}, "to_phase": {{ group.label | tojson }}}'
+              hx-post='/api/ship/{{ initiative | urlencode }}/advance'
+              hx-encoding="application/json"
+              hx-vals='{"from_phase": {{ loop.previtem.label | tojson }}, "to_phase": {{ group.label | tojson }}}'
               hx-target="#build-board"
               hx-swap="innerHTML"
               @click.stop>

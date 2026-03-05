@@ -207,16 +207,13 @@ def test_base_batch_bar_has_dismiss_button() -> None:
 
 
 def test_base_batch_bar_has_nav_links() -> None:
-    """The batch bar must expose Plan, Build, and Ship navigation links."""
+    """The batch bar must expose Plan and Ship navigation links."""
     content = _read("base.html")
     assert "batch-bar__link" in content, (
         "base.html batch bar is missing .batch-bar__link navigation anchors"
     )
-    assert "'/build?initiative='" in content, (
-        "base.html batch bar Build link is missing ?initiative= param"
-    )
-    assert "'/ship?batch='" in content, (
-        "base.html batch bar Ship link is missing ?batch= param"
+    assert "'/ship/'" in content, (
+        "base.html batch bar Ship link is missing /ship/ path prefix"
     )
 
 

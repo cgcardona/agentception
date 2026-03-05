@@ -3,9 +3,9 @@
  *
  * Manages:
  *  - activeIssue        — the issue card currently being inspected
- *  - events[]           — structured MCP events from /build/agent/{run_id}/stream
+ *  - events[]           — structured MCP events from /ship/runs/{run_id}/stream
  *  - thoughts[]         — raw CoT messages from the same SSE stream
- *  - dispatch modal     — role selection and POST /api/build/dispatch (issue-scoped leaf)
+ *  - dispatch modal     — role selection and POST /api/dispatch/issue (issue-scoped leaf)
  *  - labelDispatch modal — scope-based launch: full initiative / phase / single issue
  *
  * See agentception/docs/agent-tree-protocol.md for the node-type spec.
@@ -43,11 +43,11 @@ export function buildPage(roleGroups) {
     // Scope selector: 'full_initiative' | 'phase' | 'issue'
     scopeMode: 'full_initiative',
 
-    // Phase picker (populated from /api/build/label-context)
+    // Phase picker (populated from /api/dispatch/context)
     scopePhases: [],
     selectedPhase: '',
 
-    // Issue picker (populated from /api/build/label-context)
+    // Issue picker (populated from /api/dispatch/context)
     scopeIssues: [],
     selectedIssueNumber: null,
 
@@ -127,7 +127,7 @@ export function buildPage(roleGroups) {
       this.chatSending = true;
       this.chatError = null;
       try {
-        const res = await fetch(`/api/build/agent/${encodeURIComponent(runId)}/message`, {
+        const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/message`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content }),
@@ -152,7 +152,7 @@ export function buildPage(roleGroups) {
       const runId = this.activeIssue.run.id;
       this.agentStopping = true;
       try {
-        await fetch(`/api/build/agent/${encodeURIComponent(runId)}/stop`, {
+        await fetch(`/api/runs/${encodeURIComponent(runId)}/stop`, {
           method: 'POST',
         });
         // The 10 s board poll will refresh the card state automatically.
@@ -173,7 +173,7 @@ export function buildPage(roleGroups) {
 
     _openStream(runId) {
       this._closeStream();
-      const src = new EventSource(`/build/agent/${encodeURIComponent(runId)}/stream`);
+      const src = new EventSource(`/ship/runs/${encodeURIComponent(runId)}/stream`);
       this._evtSource = src;
       this.streamOpen = true;
 
@@ -235,7 +235,7 @@ export function buildPage(roleGroups) {
       this.dispatchError = null;
 
       try {
-        const res = await fetch('/api/build/dispatch', {
+        const res = await fetch('/api/dispatch/issue', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -292,7 +292,7 @@ export function buildPage(roleGroups) {
       if (this.labelContextLoaded || this.labelContextLoading) return;
       this.labelContextLoading = true;
       try {
-        const url = `/api/build/label-context?label=${encodeURIComponent(this.labelDispatchLabel)}&repo=${encodeURIComponent(this.repo)}`;
+        const url = `/api/dispatch/context?label=${encodeURIComponent(this.labelDispatchLabel)}&repo=${encodeURIComponent(this.repo)}`;
         const res = await fetch(url);
         if (res.ok) {
           const data = await res.json();
@@ -309,7 +309,7 @@ export function buildPage(roleGroups) {
 
     async copyDispatcherPrompt() {
       try {
-        const res = await fetch('/api/build/dispatcher-prompt');
+        const res = await fetch('/api/dispatch/prompt');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         await navigator.clipboard.writeText(data.content);
@@ -341,7 +341,7 @@ export function buildPage(roleGroups) {
       }
 
       try {
-        const res = await fetch('/api/build/dispatch-label', {
+        const res = await fetch('/api/dispatch/label', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),

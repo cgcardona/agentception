@@ -1,4 +1,6 @@
-"""Tests for POST /api/build/advance-phase endpoint (issue #87).
+from __future__ import annotations
+
+"""Tests for POST /api/ship/{initiative}/advance endpoint.
 
 Coverage:
 - advance_phase: success path returns advanced=True and unlocked_count
@@ -10,8 +12,6 @@ Coverage:
 - build board template: does NOT render button when current phase is not locked
 - build board template: does NOT render button when prev phase is not complete
 """
-
-from __future__ import annotations
 
 from collections.abc import Generator
 from unittest.mock import AsyncMock, patch
@@ -51,12 +51,23 @@ def _blocked_result(open_issues: list[int] | None = None) -> dict[str, object]:
     }
 
 
-def _advance_payload(
-    initiative: str = "my-initiative",
+def _advance_body(
     from_phase: str = "phase-1",
     to_phase: str = "phase-2",
 ) -> dict[str, str]:
-    return {"initiative": initiative, "from_phase": from_phase, "to_phase": to_phase}
+    """Body for advance endpoint — initiative is now in the URL path."""
+    return {"from_phase": from_phase, "to_phase": to_phase}
+
+
+def _mock_issue() -> dict[str, object]:
+    return {
+        "number": 1,
+        "title": "Test issue",
+        "state": "open",
+        "url": "https://github.com/owner/repo/issues/1",
+        "labels": [],
+        "depends_on": [],
+    }
 
 
 def _mock_group(
@@ -68,7 +79,7 @@ def _mock_group(
 ) -> dict[str, object]:
     return {
         "label": label,
-        "issues": issues or [],
+        "issues": issues if issues is not None else [_mock_issue()],
         "locked": locked,
         "complete": complete,
         "depends_on": [],
@@ -76,17 +87,20 @@ def _mock_group(
 
 
 # ---------------------------------------------------------------------------
-# Integration tests — POST /api/build/advance-phase
+# Integration tests — POST /api/ship/{initiative}/advance
 # ---------------------------------------------------------------------------
 
 
 def test_advance_phase_success_returns_advanced_true(client: TestClient) -> None:
-    """POST /api/build/advance-phase returns advanced=True and unlocked_count on success."""
+    """POST /api/ship/{initiative}/advance returns advanced=True and unlocked_count on success."""
     with patch(
-        "agentception.routes.api.build._plan_advance_phase",
+        "agentception.routes.api.ship_api._plan_advance_phase",
         new=AsyncMock(return_value=_ok_result(unlocked_count=3)),
     ):
-        resp = client.post("/api/build/advance-phase", json=_advance_payload())
+        resp = client.post(
+            "/api/ship/my-initiative/advance",
+            json=_advance_body(),
+        )
 
     assert resp.status_code == 200
     body = resp.json()
@@ -97,22 +111,28 @@ def test_advance_phase_success_returns_advanced_true(client: TestClient) -> None
 def test_advance_phase_success_sets_hx_trigger_header(client: TestClient) -> None:
     """Successful advance sets HX-Trigger: refreshBoard header for HTMX board refresh."""
     with patch(
-        "agentception.routes.api.build._plan_advance_phase",
+        "agentception.routes.api.ship_api._plan_advance_phase",
         new=AsyncMock(return_value=_ok_result()),
     ):
-        resp = client.post("/api/build/advance-phase", json=_advance_payload())
+        resp = client.post(
+            "/api/ship/my-initiative/advance",
+            json=_advance_body(),
+        )
 
     assert resp.status_code == 200
     assert resp.headers.get("hx-trigger") == "refreshBoard"
 
 
 def test_advance_phase_blocked_returns_advanced_false(client: TestClient) -> None:
-    """POST /api/build/advance-phase returns advanced=False and open_issues when blocked."""
+    """POST /api/ship/{initiative}/advance returns advanced=False and open_issues when blocked."""
     with patch(
-        "agentception.routes.api.build._plan_advance_phase",
+        "agentception.routes.api.ship_api._plan_advance_phase",
         new=AsyncMock(return_value=_blocked_result([11, 12])),
     ):
-        resp = client.post("/api/build/advance-phase", json=_advance_payload())
+        resp = client.post(
+            "/api/ship/my-initiative/advance",
+            json=_advance_body(),
+        )
 
     assert resp.status_code == 200
     body = resp.json()
@@ -125,29 +145,32 @@ def test_advance_phase_blocked_returns_advanced_false(client: TestClient) -> Non
 def test_advance_phase_blocked_does_not_set_hx_trigger(client: TestClient) -> None:
     """Blocked advance must NOT set HX-Trigger — the board should not refresh spuriously."""
     with patch(
-        "agentception.routes.api.build._plan_advance_phase",
+        "agentception.routes.api.ship_api._plan_advance_phase",
         new=AsyncMock(return_value=_blocked_result()),
     ):
-        resp = client.post("/api/build/advance-phase", json=_advance_payload())
+        resp = client.post(
+            "/api/ship/my-initiative/advance",
+            json=_advance_body(),
+        )
 
     assert resp.status_code == 200
     assert "hx-trigger" not in resp.headers
 
 
-def test_advance_phase_missing_initiative_returns_422(client: TestClient) -> None:
-    """POST /api/build/advance-phase with missing required fields returns 422."""
+def test_advance_phase_missing_from_phase_returns_422(client: TestClient) -> None:
+    """POST /api/ship/{initiative}/advance with missing from_phase returns 422."""
     resp = client.post(
-        "/api/build/advance-phase",
-        json={"from_phase": "phase-1", "to_phase": "phase-2"},
+        "/api/ship/my-initiative/advance",
+        json={"to_phase": "phase-2"},
     )
     assert resp.status_code == 422
 
 
 def test_advance_phase_missing_to_phase_returns_422(client: TestClient) -> None:
-    """POST /api/build/advance-phase with missing to_phase returns 422."""
+    """POST /api/ship/{initiative}/advance with missing to_phase returns 422."""
     resp = client.post(
-        "/api/build/advance-phase",
-        json={"initiative": "my-initiative", "from_phase": "phase-1"},
+        "/api/ship/my-initiative/advance",
+        json={"from_phase": "phase-1"},
     )
     assert resp.status_code == 422
 
@@ -155,12 +178,12 @@ def test_advance_phase_missing_to_phase_returns_422(client: TestClient) -> None:
 def test_advance_phase_delegates_correct_args(client: TestClient) -> None:
     """advance_phase passes initiative, from_phase, to_phase to plan_advance_phase correctly."""
     with patch(
-        "agentception.routes.api.build._plan_advance_phase",
+        "agentception.routes.api.ship_api._plan_advance_phase",
         new=AsyncMock(return_value=_ok_result()),
     ) as mock_fn:
         client.post(
-            "/api/build/advance-phase",
-            json=_advance_payload("x-initiative", "phase-2", "phase-3"),
+            "/api/ship/x-initiative/advance",
+            json=_advance_body("phase-2", "phase-3"),
         )
 
     mock_fn.assert_called_once_with("x-initiative", "phase-2", "phase-3")
@@ -174,7 +197,7 @@ def test_advance_phase_delegates_correct_args(client: TestClient) -> None:
 def test_build_board_renders_advance_button_when_prev_complete_and_locked(
     client: TestClient,
 ) -> None:
-    """GET /build/board renders Advance button when prev phase is complete and next is locked."""
+    """GET /ship/{initiative}/board renders Advance button when prev phase complete and next locked."""
     groups = [
         _mock_group(label="phase-1", locked=False, complete=True),
         _mock_group(label="phase-2", locked=True, complete=False),
@@ -189,16 +212,16 @@ def test_build_board_renders_advance_button_when_prev_complete_and_locked(
             new=AsyncMock(return_value={}),
         ),
     ):
-        resp = client.get("/build/board?initiative=my-initiative")
+        resp = client.get("/ship/my-initiative/board")
 
     assert resp.status_code == 200
-    assert "Advance to phase-2" in resp.text
+    assert "Unlock" in resp.text
     assert "hx-post" in resp.text
-    assert "/api/build/advance-phase" in resp.text
+    assert "/api/ship/my-initiative/advance" in resp.text
 
 
 def test_build_board_no_advance_button_when_not_locked(client: TestClient) -> None:
-    """GET /build/board does NOT render Advance button when the next phase is not locked."""
+    """GET /ship/{initiative}/board does NOT render Advance button when next phase is not locked."""
     groups = [
         _mock_group(label="phase-1", locked=False, complete=True),
         _mock_group(label="phase-2", locked=False, complete=False),
@@ -213,16 +236,16 @@ def test_build_board_no_advance_button_when_not_locked(client: TestClient) -> No
             new=AsyncMock(return_value={}),
         ),
     ):
-        resp = client.get("/build/board?initiative=my-initiative")
+        resp = client.get("/ship/my-initiative/board")
 
     assert resp.status_code == 200
-    assert "Advance to phase-2" not in resp.text
+    assert "Unlock" not in resp.text
 
 
 def test_build_board_no_advance_button_when_prev_not_complete(
     client: TestClient,
 ) -> None:
-    """GET /build/board does NOT render Advance button when the previous phase is not complete."""
+    """GET /ship/{initiative}/board does NOT render Advance when prev phase is not complete."""
     groups = [
         _mock_group(label="phase-1", locked=False, complete=False),
         _mock_group(label="phase-2", locked=True, complete=False),
@@ -237,19 +260,21 @@ def test_build_board_no_advance_button_when_prev_not_complete(
             new=AsyncMock(return_value={}),
         ),
     ):
-        resp = client.get("/build/board?initiative=my-initiative")
+        resp = client.get("/ship/my-initiative/board")
 
     assert resp.status_code == 200
-    assert "Advance to phase-2" not in resp.text
+    assert "Unlock" not in resp.text
 
 
-def test_build_board_no_advance_button_without_initiative(
+def test_build_board_no_advance_button_single_phase(
     client: TestClient,
 ) -> None:
-    """GET /build/board without initiative does NOT render the Advance button."""
+    """GET /ship/{initiative}/board with a single phase does NOT render the Advance button.
+
+    There is no 'previous' phase to check completeness against when only one phase exists.
+    """
     groups = [
         _mock_group(label="phase-1", locked=False, complete=True),
-        _mock_group(label="phase-2", locked=True, complete=False),
     ]
     with (
         patch(
@@ -261,7 +286,7 @@ def test_build_board_no_advance_button_without_initiative(
             new=AsyncMock(return_value={}),
         ),
     ):
-        resp = client.get("/build/board")
+        resp = client.get("/ship/my-initiative/board")
 
     assert resp.status_code == 200
-    assert "advance-phase" not in resp.text
+    assert "Advance" not in resp.text

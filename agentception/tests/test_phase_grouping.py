@@ -31,6 +31,7 @@ def _make_issue(number: int, initiative: str, phase: str, state: str = "open") -
     row.state = state
     row.labels_json = json.dumps([initiative, phase])
     row.phase_label = None
+    row.depends_on_json = "[]"
     return row
 
 

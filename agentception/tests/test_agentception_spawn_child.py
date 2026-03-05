@@ -8,7 +8,7 @@ Covers:
   - spawn_child() happy path (mocked git + DB) for coordinator and leaf.
   - spawn_child() produces NODE_TYPE= (not TIER=) in .agent-task.
   - spawn_child() worktree failure cleanup.
-  - POST /api/build/spawn-child HTTP endpoint (valid, invalid, and propagated errors).
+  - POST /api/runs/{parent_run_id}/children HTTP endpoint (valid, invalid, and propagated errors).
   - build_spawn_child MCP tool (happy path + error cases).
   - Universal tree protocol guarantee: any node can be pruned as a root.
 
@@ -27,6 +27,7 @@ from fastapi.testclient import TestClient
 from agentception.app import app
 from agentception.services.spawn_child import (
     NodeType,
+    ScopeType,
     SpawnChildError,
     SpawnChildResult,
     _build_child_task,
@@ -87,25 +88,44 @@ def test_make_branch_pr() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _make_task(**overrides: object) -> str:
-    defaults: dict[str, object] = dict(
-        run_id="test-run-123",
-        role="engineering-coordinator",
-        node_type="coordinator",
-        logical_tier=None,
-        scope_type="label",
-        scope_value="ac-workflow",
-        gh_repo="owner/repo",
-        branch="agent/ac-workflow-abcd",
-        worktree_path="/worktrees/test-run-123",
-        host_worktree_path="/host/worktrees/test-run-123",
-        batch_id="label-ac-workflow-20260101T000000Z-abcd",
-        parent_run_id="label-cto-111111",
-        cognitive_arch="von_neumann:python",
-        ac_url="http://localhost:10003",
+def _make_task(
+    run_id: str = "test-run-123",
+    role: str = "engineering-coordinator",
+    node_type: NodeType = "coordinator",
+    logical_tier: str | None = None,
+    scope_type: ScopeType = "label",
+    scope_value: str = "ac-workflow",
+    gh_repo: str = "owner/repo",
+    branch: str = "agent/ac-workflow-abcd",
+    worktree_path: str = "/worktrees/test-run-123",
+    host_worktree_path: str = "/host/worktrees/test-run-123",
+    batch_id: str = "label-ac-workflow-20260101T000000Z-abcd",
+    parent_run_id: str = "label-cto-111111",
+    cognitive_arch: str = "von_neumann:python",
+    ac_url: str = "http://localhost:10003",
+    issue_title: str = "",
+    issue_number: int | None = None,
+    pr_number: int | None = None,
+) -> str:
+    return _build_child_task(
+        run_id=run_id,
+        role=role,
+        node_type=node_type,
+        logical_tier=logical_tier,
+        scope_type=scope_type,
+        scope_value=scope_value,
+        gh_repo=gh_repo,
+        branch=branch,
+        worktree_path=worktree_path,
+        host_worktree_path=host_worktree_path,
+        batch_id=batch_id,
+        parent_run_id=parent_run_id,
+        cognitive_arch=cognitive_arch,
+        ac_url=ac_url,
+        issue_title=issue_title,
+        issue_number=issue_number,
+        pr_number=pr_number,
     )
-    defaults.update(overrides)
-    return _build_child_task(**defaults)  # type: ignore[arg-type]
 
 
 def test_build_child_task_required_fields_present() -> None:
@@ -479,16 +499,15 @@ def test_spawn_child_result_to_dict_logical_tier_none() -> None:
 
 
 # ---------------------------------------------------------------------------
-# POST /api/build/spawn-child — HTTP endpoint
+# POST /api/runs/{parent_run_id}/children — HTTP endpoint
 # ---------------------------------------------------------------------------
 
 
 def test_spawn_child_endpoint_invalid_scope_type(client: TestClient) -> None:
     """Invalid scope_type should return HTTP 422."""
     response = client.post(
-        "/api/build/spawn-child",
+        "/api/runs/cto-abc/children",
         json={
-            "parent_run_id": "cto-abc",
             "role": "engineering-coordinator",
             "node_type": "coordinator",
             "scope_type": "invalid",
@@ -502,9 +521,8 @@ def test_spawn_child_endpoint_invalid_scope_type(client: TestClient) -> None:
 def test_spawn_child_endpoint_invalid_node_type(client: TestClient) -> None:
     """Invalid node_type should return HTTP 422."""
     response = client.post(
-        "/api/build/spawn-child",
+        "/api/runs/cto-abc/children",
         json={
-            "parent_run_id": "cto-abc",
             "role": "engineering-coordinator",
             "node_type": "executive",   # old value — must be rejected
             "scope_type": "label",
@@ -518,9 +536,8 @@ def test_spawn_child_endpoint_invalid_node_type(client: TestClient) -> None:
 def test_spawn_child_endpoint_missing_node_type(client: TestClient) -> None:
     """Missing node_type (now required) must return HTTP 422."""
     response = client.post(
-        "/api/build/spawn-child",
+        "/api/runs/cto-abc/children",
         json={
-            "parent_run_id": "cto-abc",
             "role": "engineering-coordinator",
             # node_type missing
             "scope_type": "label",
@@ -533,9 +550,8 @@ def test_spawn_child_endpoint_missing_node_type(client: TestClient) -> None:
 
 def test_spawn_child_endpoint_missing_required_field(client: TestClient) -> None:
     response = client.post(
-        "/api/build/spawn-child",
+        "/api/runs/cto-abc/children",
         json={
-            "parent_run_id": "cto-abc",
             "role": "engineering-coordinator",
             "node_type": "coordinator",
             # scope_type missing
@@ -560,13 +576,12 @@ def test_spawn_child_endpoint_happy_path(client: TestClient) -> None:
         scope_value="ac-workflow",
     )
     with patch(
-        "agentception.routes.api.build.spawn_child",
+        "agentception.routes.api.runs.spawn_child",
         AsyncMock(return_value=mock_result),
     ):
         response = client.post(
-            "/api/build/spawn-child",
+            "/api/runs/label-cto-abc123/children",
             json={
-                "parent_run_id": "label-cto-abc123",
                 "role": "engineering-coordinator",
                 "node_type": "coordinator",
                 "logical_tier": "engineering",
@@ -587,13 +602,12 @@ def test_spawn_child_endpoint_happy_path(client: TestClient) -> None:
 
 def test_spawn_child_endpoint_propagates_spawn_child_error(client: TestClient) -> None:
     with patch(
-        "agentception.routes.api.build.spawn_child",
+        "agentception.routes.api.runs.spawn_child",
         AsyncMock(side_effect=SpawnChildError("git worktree add failed: branch exists")),
     ):
         response = client.post(
-            "/api/build/spawn-child",
+            "/api/runs/cto-abc/children",
             json={
-                "parent_run_id": "cto-abc",
                 "role": "python-developer",
                 "node_type": "leaf",
                 "scope_type": "issue",
@@ -612,7 +626,7 @@ def test_spawn_child_endpoint_propagates_spawn_child_error(client: TestClient) -
 
 def test_any_node_type_produces_valid_task_content() -> None:
     """Every node_type/scope combination must produce a parseable .agent-task."""
-    combos: list[tuple[str, NodeType, str, str]] = [
+    combos: list[tuple[str, NodeType, ScopeType, str]] = [
         ("cto", "coordinator", "label", "ac-workflow"),
         ("engineering-coordinator", "coordinator", "label", "ac-ui/0-bugs"),
         ("qa-coordinator", "coordinator", "label", "ac-ui/0-bugs"),
