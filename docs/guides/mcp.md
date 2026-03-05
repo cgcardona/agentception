@@ -61,27 +61,48 @@ If you also run other MCP servers (e.g. a music composition backend), add them a
 ## MCP Auto-Approval
 
 The repository ships a `.cursor/mcp.json` at the repo root that connects Cursor to the
-AgentCeption HTTP MCP endpoint and auto-approves all tool calls:
+AgentCeption HTTP MCP endpoint. Auto-approval is tiered by risk — read-only and
+observability tools are auto-approved; tools that reach outside the service boundary
+(filing GitHub issues, starting agents, advancing phase gates) always require an explicit
+human confirmation click.
 
 ```json
 {
   "mcpServers": {
     "agentception": {
       "url": "http://localhost:10003/mcp",
-      "autoApprove": ["*"]
+      "autoApprove": [
+        "plan_get_schema",
+        "plan_validate_spec",
+        "plan_get_labels",
+        "plan_validate_manifest",
+        "build_get_pending_launches",
+        "build_report_step",
+        "build_report_blocker",
+        "build_report_decision"
+      ]
     }
   }
 }
 ```
 
+### Tool approval tiers
+
+| Tier | Tools | Rationale |
+|------|-------|-----------|
+| **Green — auto-approved** | `plan_get_schema`, `plan_validate_spec`, `plan_get_labels`, `plan_validate_manifest`, `build_get_pending_launches` | Pure reads or in-memory validation — no external effects. |
+| **Green — auto-approved** | `build_report_step`, `build_report_blocker`, `build_report_decision` | Append-only observability writes to the DB — no external effects, trivially recoverable. |
+| **Yellow — prompt** | `build_report_done` | Changes pipeline run state in the DB; recoverable but worth a confirmation. |
+| **Red — always prompt** | `plan_spawn_coordinator`, `plan_advance_phase` | File real GitHub issues, create git worktrees, and start live agents. These are irreversible side effects that always warrant an explicit human sign-off. |
+
 **What this means for you:**
 
-- After cloning the repo and opening it in Cursor, no manual permission clicks are required.
-- The `autoApprove: ["*"]` setting causes Cursor to approve all AgentCeption MCP tool calls
-  automatically, eliminating the per-session permission dialog.
+- Read-only and reporting tool calls happen without interruption.
+- `plan_spawn_coordinator` and `plan_advance_phase` will always show a Cursor confirmation
+  dialog before executing — this is intentional. A mis-fire on either of these creates
+  real GitHub issues and running agent processes that are hard to undo.
 - The AgentCeption server must be running at `http://localhost:10003` (start it with
-  `docker compose up -d`). Without the server running, Cursor will show the server as
-  unavailable, but no permission dialog will appear.
+  `docker compose up -d`).
 
 This file is committed to the repository so the configuration is version-controlled,
 reviewable in PRs, and reproducible across machines without any manual setup.

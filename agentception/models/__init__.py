@@ -249,6 +249,10 @@ class ProjectConfig(BaseModel):
 
     ``worktrees_dir`` supports ``~`` expansion (e.g. ``~/.agentception/worktrees/agentception``).
     ``cursor_project_id`` is the Cursor project slug used to locate transcript files.
+    ``initiative_labels`` is a list of fnmatch-style glob patterns (e.g. ``"ac-*"``,
+    ``"agentception"``) that identify which GitHub labels are treated as initiative
+    tabs on the Build and Ship boards.  When empty the legacy ``phase-N`` heuristic
+    is used as a fallback.
     """
 
     name: str
@@ -257,6 +261,7 @@ class ProjectConfig(BaseModel):
     worktrees_dir: str
     cursor_project_id: str | None = None
     active_labels_order: list[str] = []
+    initiative_labels: list[str] = []
 
 
 class PipelineConfig(BaseModel):
