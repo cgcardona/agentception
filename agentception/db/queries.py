@@ -319,6 +319,7 @@ class RunForIssueRow(TypedDict):
 
     id: str
     role: str
+    cognitive_arch: str | None
     status: str
     agent_status: str
     pr_number: int | None
@@ -1410,6 +1411,7 @@ async def get_runs_for_issue_numbers(
             out[issue_num] = RunForIssueRow(
                 id=row.id,
                 role=row.role,
+                cognitive_arch=row.cognitive_arch,
                 status=row.status,
                 agent_status=_compute_agent_status(row.status, row.last_activity_at),
                 pr_number=row.pr_number,
