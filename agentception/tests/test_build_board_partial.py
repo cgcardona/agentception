@@ -253,3 +253,121 @@ def test_build_board_partial_no_run_renders_without_error(
     assert "Unassigned issue" in resp.text
     # No run → Assign button should appear instead of a status badge.
     assert "Assign" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Regression: initiative-scoped phase grouping (bug: blank board when config
+# phase_order belongs to a different initiative)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_get_issues_grouped_by_phase_initiative_scoped_labels() -> None:
+    """Issues with '{initiative}/{phase}' labels must appear in phase groups.
+
+    Regression for the bug where the phase_key lookup only matched old-style
+    'phase-N' labels, so initiative-scoped labels like
+    'agentception-ux-phase1b-to-phase3/2-ux-implementation' were lost and the
+    board rendered empty buckets.
+    """
+    from agentception.db.queries import get_issues_grouped_by_phase
+    from agentception.db.models import ACIssue
+    from unittest.mock import AsyncMock, MagicMock, patch
+    import json
+
+    initiative = "agentception-ux-phase1b-to-phase3"
+    phase_a = f"{initiative}/0-critical-bugs"
+    phase_b = f"{initiative}/1-design-tokens"
+
+    def _make_row(number: int, phase: str) -> ACIssue:
+        row = MagicMock(spec=ACIssue)
+        row.github_number = number
+        row.title = f"Issue {number}"
+        row.state = "open"
+        row.labels_json = json.dumps([initiative, phase])
+        row.phase_label = None
+        return row
+
+    mock_rows = [_make_row(1, phase_a), _make_row(2, phase_a), _make_row(3, phase_b)]
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = mock_rows
+
+    with (
+        patch("agentception.db.queries.get_session") as mock_session,
+        patch(
+            "agentception.db.queries.get_initiative_phase_deps",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
+    ):
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_cm)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+        mock_cm.execute = AsyncMock(return_value=mock_result)
+        mock_session.return_value = mock_cm
+
+        # Simulate config phase_order belonging to a DIFFERENT initiative.
+        wrong_phase_order = ["ac-ui/0-critical-bugs", "ac-ui/1-design-tokens"]
+        groups = await get_issues_grouped_by_phase(
+            "cgcardona/agentception",
+            initiative=initiative,
+            phase_order=wrong_phase_order,
+        )
+
+    labels = [g["label"] for g in groups]
+    assert phase_a in labels, f"Expected {phase_a!r} in phase groups, got {labels}"
+    assert phase_b in labels, f"Expected {phase_b!r} in phase groups, got {labels}"
+    issues_in_a = next(g["issues"] for g in groups if g["label"] == phase_a)
+    assert len(issues_in_a) == 2
+    issues_in_b = next(g["issues"] for g in groups if g["label"] == phase_b)
+    assert len(issues_in_b) == 1
+
+
+@pytest.mark.anyio
+async def test_get_issues_grouped_by_phase_phase_key_initiative_prefix() -> None:
+    """phase_key must resolve to '{initiative}/{phase}' when no 'phase-N' label exists.
+
+    Regression: the old lookup only checked lbl.startswith('phase-') so
+    initiative-scoped phase labels were invisible to the grouper.
+    """
+    from agentception.db.queries import get_issues_grouped_by_phase
+    from agentception.db.models import ACIssue
+    from unittest.mock import AsyncMock, MagicMock, patch
+    import json
+
+    initiative = "my-feature"
+    phase = f"{initiative}/0-setup"
+
+    row = MagicMock(spec=ACIssue)
+    row.github_number = 42
+    row.title = "Setup task"
+    row.state = "open"
+    row.labels_json = json.dumps([initiative, phase, "enhancement"])
+    row.phase_label = None
+
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = [row]
+
+    with (
+        patch("agentception.db.queries.get_session") as mock_session,
+        patch(
+            "agentception.db.queries.get_initiative_phase_deps",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
+    ):
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_cm)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+        mock_cm.execute = AsyncMock(return_value=mock_result)
+        mock_session.return_value = mock_cm
+
+        groups = await get_issues_grouped_by_phase(
+            "owner/repo",
+            initiative=initiative,
+            phase_order=None,
+        )
+
+    assert len(groups) == 1
+    assert groups[0]["label"] == phase
+    assert groups[0]["issues"][0]["number"] == 42

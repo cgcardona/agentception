@@ -1193,9 +1193,9 @@ async def get_issues_grouped_by_phase(
             rows = result.scalars().all()
 
         # Group by phase label.
-        # Prefer a "phase-N" GitHub label from labels_json over phase_label
-        # (which was set from the pipeline's active_label at poll time and
-        # may be None for issues created outside the active pipeline window).
+        # Prefer a generic "phase-N" label (old-style), then an initiative-
+        # scoped "{initiative}/{phase-name}" label (new-style), then
+        # row.phase_label (set at poll time), then "unphased".
         groups: dict[str, list[PhasedIssueRow]] = {}
         for row in rows:
             issue_labels: list[str] = json.loads(row.labels_json or "[]")
@@ -1204,10 +1204,17 @@ async def get_issues_grouped_by_phase(
             if initiative and initiative not in issue_labels:
                 continue
 
-            phase_key = next(
+            phase_key: str | None = next(
                 (lbl for lbl in issue_labels if lbl.startswith("phase-")),
                 None,
-            ) or row.phase_label or "unphased"
+            )
+            if phase_key is None and initiative:
+                # New-style: "agentception-ux-phase1b-to-phase3/2-ux-impl"
+                phase_key = next(
+                    (lbl for lbl in issue_labels if lbl.startswith(f"{initiative}/")),
+                    None,
+                )
+            phase_key = phase_key or row.phase_label or "unphased"
 
             # In initiative-scoped mode skip the unphased bucket entirely.
             if initiative and phase_key == "unphased":
@@ -1222,6 +1229,14 @@ async def get_issues_grouped_by_phase(
                     labels=issue_labels,
                 )
             )
+
+        # When initiative-scoped, check whether the configured phase_order
+        # actually belongs to this initiative.  If none of the config phases
+        # appear in the groups dict (e.g. config still has ac-ui/* but the
+        # selected initiative is agentception-ux-*), derive the order from
+        # the actual group labels so the board isn't blank.
+        if initiative and not any(p in groups for p in effective_phase_order):
+            effective_phase_order = sorted(groups.keys())
 
         # Load the phase dependency graph for this initiative.
         # Empty dict → no deps stored → all phases unlocked (correct default).
