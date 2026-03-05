@@ -24,12 +24,14 @@ from agentception.db.queries import get_initiatives
 # ---------------------------------------------------------------------------
 
 
-def _make_row(labels: list[str], state: str = "open") -> tuple[str, str]:
-    """Return a (labels_json, state) tuple as the DB query returns."""
-    return json.dumps(labels), state
+def _make_row(
+    labels: list[str], state: str = "open", phase_label: str | None = None
+) -> tuple[str, str, str | None]:
+    """Return a (labels_json, state, phase_label) tuple as the DB query now returns."""
+    return json.dumps(labels), state, phase_label
 
 
-def _mock_session_context(rows: list[tuple[str, str]]) -> MagicMock:
+def _mock_session_context(rows: list[tuple[str, str, str | None]]) -> MagicMock:
     """Build a mock async context manager whose ``execute`` returns *rows*."""
     result_mock = MagicMock()
     result_mock.all.return_value = rows
@@ -51,17 +53,19 @@ def _mock_session_context(rows: list[tuple[str, str]]) -> MagicMock:
 
 @pytest.mark.anyio
 async def test_get_initiatives_patterns_exact_match() -> None:
-    """Labels that exactly match a pattern are returned as initiatives."""
+    """Labels that exactly match a pattern and have a scoped phase label are returned."""
     rows = [
-        _make_row(["agentception", "ac-build/1-tree-ui"]),
-        _make_row(["ac-plan"]),
+        _make_row(["agentception", "agentception/phase-0"]),
+        _make_row(["ac-plan", "ac-plan/phase-0"]),
+        # This issue's initiative label matches but has no scoped phase label → excluded.
+        _make_row(["ac-build"]),
     ]
     with patch("agentception.db.queries.get_session", _mock_session_context(rows)):
         result = await get_initiatives(
             "owner/repo", initiative_patterns=["agentception", "ac-plan", "ac-build"]
         )
     # Pattern order: agentception(0), ac-plan(1), ac-build(2)
-    # ac-build/1-tree-ui does not match the bare "ac-build" pattern (no wildcard).
+    # ac-build issue has no scoped phase label → not shown.
     assert result == ["agentception", "ac-plan"]
 
 
@@ -69,25 +73,24 @@ async def test_get_initiatives_patterns_exact_match() -> None:
 async def test_get_initiatives_patterns_glob_match() -> None:
     """Glob patterns like ``ac-*`` match multiple initiative labels."""
     rows = [
-        _make_row(["ac-build", "ac-build/1-tree-ui"]),
-        _make_row(["ac-workflow", "ac-workflow/5-plan-step-v2"]),
+        _make_row(["ac-build", "ac-build/phase-0"]),
+        _make_row(["ac-workflow", "ac-workflow/phase-1"]),
+        # ac-reliability has no scoped phase label → excluded from tabs.
         _make_row(["ac-reliability"]),
     ]
     with patch("agentception.db.queries.get_session", _mock_session_context(rows)):
         result = await get_initiatives("owner/repo", initiative_patterns=["ac-*"])
-    # Sub-labels matching "ac-*" are also returned — callers can further filter
-    # if needed, but the pattern contract is: whatever matches is an initiative.
     assert "ac-build" in result
     assert "ac-workflow" in result
-    assert "ac-reliability" in result
+    assert "ac-reliability" not in result
 
 
 @pytest.mark.anyio
 async def test_get_initiatives_patterns_excludes_closed_only() -> None:
     """An initiative only appearing on closed issues is not returned."""
     rows = [
-        _make_row(["ac-build"], state="closed"),
-        _make_row(["ac-plan"], state="open"),
+        _make_row(["ac-build", "ac-build/phase-0"], state="closed"),
+        _make_row(["ac-plan", "ac-plan/phase-0"], state="open"),
     ]
     with patch("agentception.db.queries.get_session", _mock_session_context(rows)):
         result = await get_initiatives("owner/repo", initiative_patterns=["ac-*"])
@@ -97,16 +100,11 @@ async def test_get_initiatives_patterns_excludes_closed_only() -> None:
 
 @pytest.mark.anyio
 async def test_get_initiatives_patterns_returns_sorted() -> None:
-    """Result order mirrors the position of each label's pattern in initiative_patterns.
-
-    The patterns list is the single source of truth for tab order — ac-workflow
-    is at index 2, ac-plan at index 1, ac-build at index 0, so the result
-    preserves that declaration order regardless of DB row order.
-    """
+    """Result order mirrors the position of each label's pattern in initiative_patterns."""
     rows = [
-        _make_row(["ac-workflow"]),
-        _make_row(["ac-build"]),
-        _make_row(["ac-plan"]),
+        _make_row(["ac-workflow", "ac-workflow/phase-0"]),
+        _make_row(["ac-build", "ac-build/phase-0"]),
+        _make_row(["ac-plan", "ac-plan/phase-0"]),
     ]
     with patch("agentception.db.queries.get_session", _mock_session_context(rows)):
         result = await get_initiatives(
@@ -117,45 +115,34 @@ async def test_get_initiatives_patterns_returns_sorted() -> None:
 
 
 @pytest.mark.anyio
-async def test_get_initiatives_empty_patterns_uses_legacy_heuristic() -> None:
-    """When patterns is empty, the phase-N heuristic fires instead."""
+async def test_get_initiatives_unphased_issues_excluded_from_tabs() -> None:
+    """Issues without a scoped phase label are invisible in the board and must not create tabs."""
     rows = [
-        # This issue has a phase-N label → sibling label becomes an initiative.
-        _make_row(["my-project", "phase-0"]),
-        # This issue has no phase-N label → ignored by legacy heuristic.
-        _make_row(["other-project", "ac-build/1-tree-ui"]),
+        # ac-ship has open issues but none with a scoped phase label → no tab.
+        _make_row(["ac-ship"]),
+        _make_row(["ac-ship"], state="open"),
+        # ac-build has a proper scoped phase label → shows as tab.
+        _make_row(["ac-build", "ac-build/phase-0"]),
     ]
     with patch("agentception.db.queries.get_session", _mock_session_context(rows)):
-        result = await get_initiatives("owner/repo", initiative_patterns=[])
-    assert result == ["my-project"]
-    assert "other-project" not in result
+        result = await get_initiatives(
+            "owner/repo", initiative_patterns=["ac-build", "ac-ship"]
+        )
+    assert "ac-build" in result
+    assert "ac-ship" not in result
 
 
 @pytest.mark.anyio
-async def test_get_initiatives_none_patterns_uses_legacy_heuristic() -> None:
-    """When patterns is None (default), the phase-N heuristic fires."""
+async def test_get_initiatives_empty_patterns_returns_empty() -> None:
+    """When patterns is empty/None, no initiatives are returned (legacy heuristic removed)."""
     rows = [
-        _make_row(["my-project", "phase-1"]),
+        _make_row(["ac-build", "ac-build/phase-0"]),
     ]
     with patch("agentception.db.queries.get_session", _mock_session_context(rows)):
-        result = await get_initiatives("owner/repo")
-    assert result == ["my-project"]
-
-
-# ---------------------------------------------------------------------------
-# Legacy heuristic (no patterns)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.anyio
-async def test_get_initiatives_legacy_blocklist_excluded() -> None:
-    """Labels in _NON_INITIATIVE_LABELS are not surfaced even with phase-N present."""
-    rows = [
-        _make_row(["bug", "enhancement", "phase-0"]),
-    ]
-    with patch("agentception.db.queries.get_session", _mock_session_context(rows)):
-        result = await get_initiatives("owner/repo")
-    assert result == []
+        result_empty = await get_initiatives("owner/repo", initiative_patterns=[])
+        result_none = await get_initiatives("owner/repo")
+    assert result_empty == []
+    assert result_none == []
 
 
 @pytest.mark.anyio

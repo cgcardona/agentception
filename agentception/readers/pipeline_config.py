@@ -21,17 +21,9 @@ from agentception.models import PipelineConfig
 # Default values mirror the spec exactly — used when the config file is absent.
 # Kept as a typed dict so tests can inspect individual keys without constructing
 # a full PipelineConfig.
-_DEFAULTS: dict[str, int | dict[str, int] | list[str]] = {
+_DEFAULTS: dict[str, int | dict[str, int]] = {
     "coordinator_limits": {"engineering-coordinator": 1, "qa-coordinator": 1},
     "pool_size": 4,
-    "active_labels_order": [
-        "ac-ui/0-critical-bugs",
-        "ac-ui/1-design-tokens",
-        "ac-ui/2-data-model",
-        "ac-ui/3-core-pages",
-        "ac-ui/4-controls-intelligence",
-        "ac-ui/5-polish",
-    ],
 }
 
 _CONFIG_PATH: Path = settings.ac_dir / "pipeline-config.json"

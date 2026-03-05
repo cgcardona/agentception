@@ -504,10 +504,20 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
     )
 
     if node_type == "coordinator":
-        agent_task += (
-            f"# gh issue list --repo {req.repo} --label '{scope_value}' --state open --json number,title,labels --limit 200\n"
-            f"# gh pr list --repo {req.repo} --base dev --state open --json number,title,headRefName --limit 200\n"
-        )
+        if req.scope == "full_initiative":
+            # Issues carry two labels: the initiative slug and a scoped phase label.
+            # Querying by initiative label returns ALL issues across every phase.
+            # To query a single phase: --label '{scope_value}/phase-0'
+            agent_task += (
+                f"# gh issue list --repo {req.repo} --label '{scope_value}' --state open --json number,title,labels --limit 200\n"
+                f"# gh pr list --repo {req.repo} --base dev --state open --json number,title,headRefName --limit 200\n"
+            )
+        else:
+            # Phase scope: scope_value is already the scoped phase label, e.g. ac-build/phase-0
+            agent_task += (
+                f"# gh issue list --repo {req.repo} --label '{scope_value}' --state open --json number,title,labels --limit 200\n"
+                f"# gh pr list --repo {req.repo} --base dev --state open --json number,title,headRefName --limit 200\n"
+            )
 
     agent_task_path = str(Path(worktree_path) / ".agent-task")
     try:

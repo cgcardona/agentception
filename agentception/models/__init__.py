@@ -286,8 +286,7 @@ class ProjectConfig(BaseModel):
     ``cursor_project_id`` is the Cursor project slug used to locate transcript files.
     ``initiative_labels`` is a list of fnmatch-style glob patterns (e.g. ``"ac-*"``,
     ``"agentception"``) that identify which GitHub labels are treated as initiative
-    tabs on the Build and Ship boards.  When empty the legacy ``phase-N`` heuristic
-    is used as a fallback.
+    tabs on the Build and Ship boards.
     """
 
     name: str
@@ -295,7 +294,6 @@ class ProjectConfig(BaseModel):
     repo_dir: str
     worktrees_dir: str
     cursor_project_id: str | None = None
-    active_labels_order: list[str] = []
     initiative_labels: list[str] = []
 
 
@@ -322,7 +320,13 @@ class PipelineConfig(BaseModel):
         description="Max concurrent instances per coordinator role slug.",
     )
     pool_size: int = Field(default=4, gt=0, description="Leaf agents per coordinator.")
-    active_labels_order: list[str]
+    active_labels_order: list[str] = Field(
+        default=[],
+        description=(
+            "Ordered list of scoped phase labels (e.g. 'ac-build/phase-0') used by the "
+            "poller to auto-advance the active phase.  Empty disables auto-advance."
+        ),
+    )
     ab_mode: AbModeConfig = AbModeConfig()
     projects: list[ProjectConfig] = []
     active_project: str | None = None
