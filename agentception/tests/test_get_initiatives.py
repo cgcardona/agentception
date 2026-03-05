@@ -95,7 +95,11 @@ async def test_get_initiatives_patterns_excludes_closed_only() -> None:
 
 @pytest.mark.anyio
 async def test_get_initiatives_patterns_returns_sorted() -> None:
-    """Result is alphabetically sorted regardless of row order."""
+    """Result is sorted by load-bearing priority order, not alphabetically.
+
+    ac-workflow (index 0) → ac-plan (index 2) → ac-build (index 3) regardless
+    of the order the rows are returned from the DB.
+    """
     rows = [
         _make_row(["ac-workflow"]),
         _make_row(["ac-build"]),
@@ -105,7 +109,7 @@ async def test_get_initiatives_patterns_returns_sorted() -> None:
         result = await get_initiatives(
             "owner/repo", initiative_patterns=["ac-build", "ac-plan", "ac-workflow"]
         )
-    assert result == ["ac-build", "ac-plan", "ac-workflow"]
+    assert result == ["ac-workflow", "ac-plan", "ac-build"]
 
 
 @pytest.mark.anyio

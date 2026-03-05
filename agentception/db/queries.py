@@ -1117,6 +1117,26 @@ _NON_INITIATIVE_LABELS = frozenset(
     }
 )
 
+# Load-bearing order for the initiative tab bar.  Initiatives in this list are
+# sorted by their position; any initiative not listed falls back to
+# alphabetical order after all pinned entries.
+_INITIATIVE_ORDER: list[str] = [
+    "ac-workflow",
+    "ac-reliability",
+    "ac-plan",
+    "ac-build",
+    "ac-ship",
+    "ac-transcripts",
+]
+
+
+def _initiative_sort_key(label: str) -> tuple[int, str]:
+    """Primary key = pinned position (unlisted → len); secondary = alphabetical."""
+    try:
+        return (_INITIATIVE_ORDER.index(label), label)
+    except ValueError:
+        return (len(_INITIATIVE_ORDER), label)
+
 
 def _label_matches_patterns(label: str, patterns: list[str]) -> bool:
     """Return True if *label* matches any of the fnmatch-style *patterns*."""
@@ -1168,9 +1188,11 @@ async def get_initiatives(
                     if not lbl.startswith("phase-") and lbl not in _NON_INITIATIVE_LABELS:
                         initiative_states.setdefault(lbl, set()).add(state or "open")
 
-        # Only surface initiatives that still have at least one open issue.
+        # Only surface initiatives that still have at least one open issue,
+        # ordered by _INITIATIVE_ORDER then alphabetically.
         return sorted(
-            ini for ini, states in initiative_states.items() if "open" in states
+            (ini for ini, states in initiative_states.items() if "open" in states),
+            key=_initiative_sort_key,
         )
     except Exception as exc:
         logger.warning("⚠️  get_initiatives DB query failed (non-fatal): %s", exc)
