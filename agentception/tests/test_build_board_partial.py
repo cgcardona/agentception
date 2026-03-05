@@ -256,6 +256,104 @@ def test_build_board_partial_no_run_renders_without_error(
 
 
 # ---------------------------------------------------------------------------
+# Regression: complete phase — no Launch button, no @click on cards
+# ---------------------------------------------------------------------------
+
+
+def test_build_board_partial_complete_phase_hides_launch_button(
+    client: TestClient,
+) -> None:
+    """GET /build/board must not render a Launch button for a complete phase."""
+    complete_group: list[dict[str, object]] = [
+        {
+            "label": "phase-0",
+            "issues": [
+                {
+                    "number": 10,
+                    "title": "Done issue",
+                    "state": "closed",
+                    "url": "https://github.com/cgcardona/agentception/issues/10",
+                    "labels": ["phase-0"],
+                    "run": None,
+                }
+            ],
+            "locked": False,
+            "complete": True,
+            "depends_on": [],
+        }
+    ]
+    with (
+        patch(
+            "agentception.routes.ui.build_ui.get_issues_grouped_by_phase",
+            new_callable=AsyncMock,
+            return_value=complete_group,
+        ),
+        patch(
+            "agentception.routes.ui.build_ui.get_runs_for_issue_numbers",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
+        patch(
+            "agentception.routes.ui.build_ui._phase_order",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+    ):
+        resp = client.get("/build/board?initiative=my-initiative")
+
+    assert resp.status_code == 200
+    assert "Launch" not in resp.text, "Launch button must not appear on a complete phase"
+
+
+def test_build_board_partial_complete_phase_cards_not_clickable(
+    client: TestClient,
+) -> None:
+    """Issue cards in a complete phase must not have an inspect-issue @click handler."""
+    complete_group: list[dict[str, object]] = [
+        {
+            "label": "phase-0",
+            "issues": [
+                {
+                    "number": 11,
+                    "title": "Completed task",
+                    "state": "closed",
+                    "url": "https://github.com/cgcardona/agentception/issues/11",
+                    "labels": ["phase-0"],
+                    "run": None,
+                }
+            ],
+            "locked": False,
+            "complete": True,
+            "depends_on": [],
+        }
+    ]
+    with (
+        patch(
+            "agentception.routes.ui.build_ui.get_issues_grouped_by_phase",
+            new_callable=AsyncMock,
+            return_value=complete_group,
+        ),
+        patch(
+            "agentception.routes.ui.build_ui.get_runs_for_issue_numbers",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
+        patch(
+            "agentception.routes.ui.build_ui._phase_order",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+    ):
+        resp = client.get("/build/board?initiative=my-initiative")
+
+    assert resp.status_code == 200
+    # The card must carry the done modifier
+    assert "build-issue--done" in resp.text
+    # The inspect-issue dispatch must not be rendered for this card
+    assert "inspect-issue" not in resp.text
+
+
+# ---------------------------------------------------------------------------
 # Regression: initiative-scoped phase grouping (bug: blank board when config
 # phase_order belongs to a different initiative)
 # ---------------------------------------------------------------------------

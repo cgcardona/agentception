@@ -336,6 +336,12 @@
     }
   }
 
+  // Belongs to a fully-complete phase — block all pointer events at the CSS
+  // layer so even un-guarded event listeners cannot fire.
+  &--done {
+    pointer-events: none;
+  }
+
   // Currently selected in inspector
   &--active {
     border-color: var(--accent);

@@ -24,7 +24,7 @@
     {% if group.locked %}
     <span class="build-phase__gate">locked</span>
     {% endif %}
-    {% if not group.locked and group.issues and initiative %}
+    {% if not group.locked and not group.complete and group.issues and initiative %}
     <button class="build-phase__launch-btn"
             @click.stop='$dispatch("open-label-dispatch", { label: {{ initiative | tojson }} })'>
       Launch →
@@ -39,11 +39,14 @@
     {% set run = issue.run %}
     {% set is_running = run and run.agent_status in ('implementing', 'pending_launch') %}
     <li class="build-issue
-      {%- if issue.state == 'closed' %} build-issue--closed
+      {%- if group.complete %} build-issue--closed build-issue--done
+      {%- elif issue.state == 'closed' %} build-issue--closed
       {%- elif is_running %} build-issue--active build-issue--running
       {%- elif run %} build-issue--active
       {%- endif %}"
+      {%- if not group.complete %}
       @click='$dispatch("inspect-issue", {{ issue | tojson }})'
+      {%- endif %}
     >
       <div class="build-issue__header">
         <a class="build-issue__number" href="{{ issue.url }}" target="_blank" rel="noopener" @click.stop>
