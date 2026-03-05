@@ -33,6 +33,7 @@ from agentception.mcp.build_tools import (
     build_report_done,
     build_report_step,
 )
+from agentception.mcp.plan_advance_phase import plan_advance_phase
 from agentception.mcp.plan_tools import (
     plan_get_labels,
     plan_get_schema,
@@ -144,6 +145,44 @@ TOOLS: list[ACToolDef] = [
                 }
             },
             "required": ["manifest_json"],
+            "additionalProperties": False,
+        },
+    ),
+    ACToolDef(
+        name="plan_advance_phase",
+        description=(
+            "Atomically advance a phase gate: verify all from_phase issues for the "
+            "given initiative are closed, then unlock all to_phase issues by removing "
+            "the blocked label and adding the active label. "
+            "Returns {advanced: true, unlocked_count: N} on success or "
+            "{advanced: false, error: str, open_issues: [int, ...]} when open issues remain."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "initiative": {
+                    "type": "string",
+                    "description": (
+                        "The initiative label shared by all phase issues "
+                        "(e.g. 'agentception-ux-phase1b-to-phase3')."
+                    ),
+                },
+                "from_phase": {
+                    "type": "string",
+                    "description": (
+                        "Phase label that must be fully closed before advancing "
+                        "(e.g. 'phase-1')."
+                    ),
+                },
+                "to_phase": {
+                    "type": "string",
+                    "description": (
+                        "Phase label whose issues become active on success "
+                        "(e.g. 'phase-2')."
+                    ),
+                },
+            },
+            "required": ["initiative", "from_phase", "to_phase"],
             "additionalProperties": False,
         },
     ),
@@ -368,6 +407,7 @@ def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
     if name in (
         "plan_get_labels",
         "plan_spawn_coordinator",
+        "plan_advance_phase",
         "build_get_pending_launches",
         "build_report_step",
         "build_report_blocker",
@@ -407,6 +447,29 @@ async def call_tool_async(
     Returns:
         An :class:`~agentception.mcp.types.ACToolResult`.  Never raises.
     """
+    if name == "plan_advance_phase":
+        initiative = arguments.get("initiative")
+        from_phase = arguments.get("from_phase")
+        to_phase = arguments.get("to_phase")
+        if (
+            not isinstance(initiative, str)
+            or not isinstance(from_phase, str)
+            or not isinstance(to_phase, str)
+        ):
+            err_text = _tool_result_to_text(
+                {"error": "initiative, from_phase, and to_phase (strings) are required"}
+            )
+            return ACToolResult(
+                content=[ACToolContent(type="text", text=err_text)],
+                isError=True,
+            )
+        result = await plan_advance_phase(initiative, from_phase, to_phase)
+        is_error = not bool(result.get("advanced", False))
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=is_error,
+        )
+
     if name == "build_get_pending_launches":
         result = await build_get_pending_launches()
         return ACToolResult(
