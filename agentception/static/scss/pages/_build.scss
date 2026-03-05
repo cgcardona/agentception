@@ -99,22 +99,7 @@
     color: var(--success);
     letter-spacing: 0.1em;
     text-transform: uppercase;
-
-    &::before {
-      content: '';
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--success);
-      animation: build-live-pulse 2s ease-in-out infinite;
-      flex-shrink: 0;
-    }
   }
-}
-
-@keyframes build-live-pulse {
-  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(16, 217, 160, 0.5); }
-  60%       { opacity: 0.7; box-shadow: 0 0 0 5px rgba(16, 217, 160, 0); }
 }
 
 // ── Two-column split ──────────────────────────────────────────────────────────
