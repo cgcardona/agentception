@@ -92,6 +92,11 @@ All three should show `running` (postgres and agentception will also show `healt
 
 ## Step 5 — Run database migrations
 
+> **Automatic:** `docker compose up` now runs `alembic upgrade head` before
+> starting the server, so migrations are applied automatically on every
+> container start.  You only need to run this manually when working outside
+> Compose (e.g. in CI or a bare Python environment).
+
 ```bash
 docker compose exec agentception alembic -c agentception/alembic.ini upgrade head
 ```
