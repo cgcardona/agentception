@@ -81,7 +81,7 @@ def test_classify_tech_debt_keywords_return_phase_3() -> None:
     correctly resolve to Phase 1 — they are excluded here so this test focuses
     on unambiguous tech-debt items only.
     """
-    assert _classify("Refactor legacy jQuery to Alpine") == 3
+    assert _classify("Consolidate duplicate fetch helpers into a typed client") == 3
     assert _classify("Consolidate duplicate GitHub fetch helpers") == 3
     assert _classify("Write integration tests for the billing flow") == 3
     assert _classify("Document the public interface contract") == 3
@@ -93,7 +93,7 @@ def test_plan_phases_groups_bugs_and_features() -> None:
         "- Login fails intermittently on mobile\n"
         "- Migrate auth to JWT with refresh tokens\n"
         "- Add dark mode toggle\n"
-        "- Refactor legacy jQuery to Alpine\n"
+        "- Consolidate duplicate fetch helpers into a typed client\n"
     )
     result = plan_phases(dump)
     assert isinstance(result, PlanResult)

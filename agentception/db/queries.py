@@ -79,6 +79,8 @@ class AgentRunRow(TypedDict):
     spawned_at: str
     last_activity_at: str | None
     completed_at: str | None
+    logical_tier: str | None
+    parent_run_id: str | None
 
 
 class AgentMessageRow(TypedDict):
@@ -257,7 +259,7 @@ class WaveAgentRow(TypedDict):
     branch: str | None
     batch_id: str | None
     worktree_path: str | None
-    cognitive_arch: None
+    cognitive_arch: str | None
     message_count: int
 
 
@@ -359,6 +361,8 @@ class PendingLaunchRow(TypedDict):
     host_worktree_path: str | None
     batch_id: str | None
     spawned_at: str
+    logical_tier: str | None
+    parent_run_id: str | None
 
 
 class AgentEventRow(TypedDict):
@@ -547,6 +551,8 @@ async def get_agent_run_history(
                 completed_at=(
                     row.completed_at.isoformat() if row.completed_at else None
                 ),
+                logical_tier=row.logical_tier,
+                parent_run_id=row.parent_run_id,
             )
             for row in rows
         ]
@@ -924,7 +930,7 @@ async def get_waves_from_db(limit: int = 100) -> list[WaveRow]:
                     branch=r.branch,
                     batch_id=r.batch_id,
                     worktree_path=r.worktree_path,
-                    cognitive_arch=None,
+                    cognitive_arch=r.cognitive_arch,
                     message_count=0,
                 )
                 for r in members
@@ -1154,10 +1160,10 @@ async def get_issues_grouped_by_phase(
 
     *phase_order* is the caller-supplied list of phase label strings that
     defines which phases appear in the result and in what order.  When
-    omitted it falls back to ``_PHASE_ORDER`` (``["phase-0".."phase-3"]``)
-    for backward compatibility.  Pass ``settings.active_labels_order`` from
-    ``pipeline-config.json`` to make the Build board reflect the project
-    configuration rather than the hard-coded default.
+    omitted it falls back to ``_PHASE_ORDER`` (``["phase-0".."phase-3"]``).
+    Pass ``settings.active_labels_order`` from ``pipeline-config.json`` to
+    make the Build board reflect the project configuration rather than the
+    hard-coded default.
 
     When *initiative* is supplied the result is scoped to that initiative:
     - Only issues carrying that initiative label are included.
@@ -1165,8 +1171,8 @@ async def get_issues_grouped_by_phase(
       so the UI can render the full gate structure.
     - No ``"unphased"`` bucket is emitted.
 
-    When *initiative* is ``None`` the legacy behaviour is preserved:
-    configured phases first, then remaining label buckets, then ``"unphased"``.
+    When *initiative* is ``None`` the result spans all issues: configured
+    phases first, then remaining label buckets, then ``"unphased"``.
 
     Each group dict contains:
     - ``label``    — phase label string
@@ -1187,10 +1193,9 @@ async def get_issues_grouped_by_phase(
             rows = result.scalars().all()
 
         # Group by phase label.
-        # Prefer a "phase-N" GitHub label from labels_json (works for any
-        # initiative) over the legacy phase_label column (which was set from
-        # the pipeline's active_label at poll time and is often wrong or None
-        # for issues created outside the active pipeline window).
+        # Prefer a "phase-N" GitHub label from labels_json over phase_label
+        # (which was set from the pipeline's active_label at poll time and
+        # may be None for issues created outside the active pipeline window).
         groups: dict[str, list[PhasedIssueRow]] = {}
         for row in rows:
             issue_labels: list[str] = json.loads(row.labels_json or "[]")
@@ -1459,6 +1464,8 @@ async def get_pending_launches() -> list[PendingLaunchRow]:
                     host_worktree_path=host_worktree,
                     batch_id=row.batch_id,
                     spawned_at=row.spawned_at.isoformat(),
+                    logical_tier=row.logical_tier,
+                    parent_run_id=row.parent_run_id,
                 )
             )
         logger.warning("🗄️  get_pending_launches: returning %d launch(es)", len(launches))
