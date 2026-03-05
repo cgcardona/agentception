@@ -40,12 +40,9 @@ logger = logging.getLogger(__name__)
 # ── Phase metadata (colour, description) ──────────────────────────────────
 # Keyed by the internal phase identifier (phase-0 … phase-3).
 # GitHub labels are namespaced as ``{initiative}/{phase}`` — no global labels.
-_PHASE_META: dict[str, tuple[str, str]] = {
-    "phase-0": ("B60205", "Foundations and critical fixes"),
-    "phase-1": ("E4E669", "Infrastructure and core services"),
-    "phase-2": ("0075CA", "Features and user-facing work"),
-    "phase-3": ("CFD3D7", "Polish, tests, and debt"),
-}
+# Phase label colors cycled by position (idx % len) so any number of phases
+# and any slug convention receives a distinct, deterministic GitHub label color.
+_PHASE_PALETTE: list[str] = ["B60205", "E4E669", "0075CA", "CFD3D7"]
 _INITIATIVE_COLOR = "7057FF"
 
 
@@ -182,9 +179,10 @@ async def _gh_edit_body(repo: str, number: int, new_body: str) -> None:
 async def _bootstrap_labels(spec: PlanSpec) -> None:
     """Ensure the initiative label and all scoped phase labels exist in the repo.
 
-    Creates ``{initiative}`` and ``{initiative}/phase-N`` for each phase present
-    in the spec.  Labels are namespaced per initiative — no global ``phase-N``
-    labels are created.
+    Creates ``{initiative}`` and ``{initiative}/{phase.label}`` for each phase.
+    Labels are namespaced per initiative — no bare global labels are created.
+    Phase colors are assigned by position (``_PHASE_PALETTE[idx % len]``) so
+    any slug convention and any number of phases receives a distinct color.
     """
     coros = [
         ensure_label_exists(
@@ -193,10 +191,10 @@ async def _bootstrap_labels(spec: PlanSpec) -> None:
             f"Initiative: {spec.initiative}",
         )
     ]
-    for phase in spec.phases:
-        color, description = _PHASE_META.get(phase.label, ("CCCCCC", phase.label))
+    for idx, phase in enumerate(spec.phases):
+        color = _PHASE_PALETTE[idx % len(_PHASE_PALETTE)]
         scoped_label = f"{spec.initiative}/{phase.label}"
-        coros.append(ensure_label_exists(scoped_label, color, description))
+        coros.append(ensure_label_exists(scoped_label, color, phase.description))
     await asyncio.gather(*coros)
 
 
@@ -348,17 +346,18 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
                 # Non-fatal — log and continue.
                 logger.warning("⚠️ Could not edit #%d for depends_on: %s", our_number, exc)
 
-    # ── 4. Persist phase dependency graph ─────────────────────────────────
-    # Store the DAG so the Build board can show correct locked/unlocked
-    # status for each phase swim lane rather than guessing sequentially.
+    # ── 4. Persist phase DAG and display order ────────────────────────────
+    # Writes phase_order (list index) alongside the dependency graph so the
+    # Build board has a single, explicit source of truth for phase ordering.
     await persist_initiative_phases(
         initiative=spec.initiative,
         phases=[
             {
                 "label": f"{spec.initiative}/{p.label}",
+                "order": idx,
                 "depends_on": [f"{spec.initiative}/{d}" for d in p.depends_on],
             }
-            for p in spec.phases
+            for idx, p in enumerate(spec.phases)
         ],
     )
 

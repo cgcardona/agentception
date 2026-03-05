@@ -185,11 +185,6 @@ def test_build_board_partial_shows_status_badge(client: TestClient) -> None:
             new_callable=AsyncMock,
             return_value={82: _mock_run_dict()},
         ),
-        patch(
-            "agentception.routes.ui.build_ui._phase_order",
-            new_callable=AsyncMock,
-            return_value=None,
-        ),
     ):
         resp = client.get("/build/board?initiative=phase-1")
 
@@ -213,11 +208,6 @@ def test_build_board_partial_shows_current_step(client: TestClient) -> None:
                 82: _mock_run_dict(current_step="Running mypy checks", steps_completed=3)
             },
         ),
-        patch(
-            "agentception.routes.ui.build_ui._phase_order",
-            new_callable=AsyncMock,
-            return_value=None,
-        ),
     ):
         resp = client.get("/build/board?initiative=phase-1")
 
@@ -240,11 +230,6 @@ def test_build_board_partial_no_run_renders_without_error(
             "agentception.routes.ui.build_ui.get_runs_for_issue_numbers",
             new_callable=AsyncMock,
             return_value={},
-        ),
-        patch(
-            "agentception.routes.ui.build_ui._phase_order",
-            new_callable=AsyncMock,
-            return_value=None,
         ),
     ):
         resp = client.get("/build/board?initiative=phase-1")
@@ -293,11 +278,6 @@ def test_build_board_partial_complete_phase_hides_launch_button(
             new_callable=AsyncMock,
             return_value={},
         ),
-        patch(
-            "agentception.routes.ui.build_ui._phase_order",
-            new_callable=AsyncMock,
-            return_value=None,
-        ),
     ):
         resp = client.get("/build/board?initiative=my-initiative")
 
@@ -338,11 +318,6 @@ def test_build_board_partial_complete_phase_cards_not_clickable(
             new_callable=AsyncMock,
             return_value={},
         ),
-        patch(
-            "agentception.routes.ui.build_ui._phase_order",
-            new_callable=AsyncMock,
-            return_value=None,
-        ),
     ):
         resp = client.get("/build/board?initiative=my-initiative")
 
@@ -367,6 +342,10 @@ async def test_get_issues_grouped_by_phase_initiative_scoped_labels() -> None:
     'phase-N' labels, so initiative-scoped labels like
     'agentception-ux-phase1b-to-phase3/2-ux-implementation' were lost and the
     board rendered empty buckets.
+
+    The fix: when no explicit phase_order is passed and no DB rows exist for
+    the initiative, the function falls back to lexicographic sort of the actual
+    {initiative}/* labels found on issues, making all issues visible.
     """
     from agentception.db.queries import get_issues_grouped_by_phase
     from agentception.db.models import ACIssue
@@ -393,9 +372,9 @@ async def test_get_issues_grouped_by_phase_initiative_scoped_labels() -> None:
     with (
         patch("agentception.db.queries.get_session") as mock_session,
         patch(
-            "agentception.db.queries.get_initiative_phase_deps",
+            "agentception.db.queries.get_initiative_phase_meta",
             new_callable=AsyncMock,
-            return_value={},
+            return_value=[],  # no DB rows → fall back to lexicographic sort
         ),
     ):
         mock_cm = AsyncMock()
@@ -404,12 +383,10 @@ async def test_get_issues_grouped_by_phase_initiative_scoped_labels() -> None:
         mock_cm.execute = AsyncMock(return_value=mock_result)
         mock_session.return_value = mock_cm
 
-        # Simulate config phase_order belonging to a DIFFERENT initiative.
-        wrong_phase_order = ["ac-ui/0-critical-bugs", "ac-ui/1-design-tokens"]
+        # No explicit phase_order — function must discover from actual issue labels.
         groups = await get_issues_grouped_by_phase(
             "cgcardona/agentception",
             initiative=initiative,
-            phase_order=wrong_phase_order,
         )
 
     labels = [g["label"] for g in groups]
@@ -449,9 +426,9 @@ async def test_get_issues_grouped_by_phase_phase_key_initiative_prefix() -> None
     with (
         patch("agentception.db.queries.get_session") as mock_session,
         patch(
-            "agentception.db.queries.get_initiative_phase_deps",
+            "agentception.db.queries.get_initiative_phase_meta",
             new_callable=AsyncMock,
-            return_value={},
+            return_value=[],
         ),
     ):
         mock_cm = AsyncMock()

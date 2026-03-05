@@ -1,7 +1,6 @@
 {
   "coordinator_limits": {
-    "engineering-coordinator": 1,
-    "qa-coordinator": 1
+    "engineering-coordinator": 2
   },
   "pool_size": 4,
   "active_labels_order": [],
@@ -11,15 +10,8 @@
     "variant_a_file": null,
     "variant_b_file": null
   },
-  "projects": [
-    {
-      "name": "agentception",
-      "gh_repo": "cgcardona/agentception",
-      "cursor_project_id": "Users-gabriel-dev-tellurstori-agentception",
-      "initiative_labels": ["ac-*"]
-    }
-  ],
-  "active_project": "agentception",
+  "projects": [],
+  "active_project": null,
   "approval_required_labels": [
     "db-schema",
     "security",

@@ -359,19 +359,26 @@ class ACInitiativePhase(Base):
     """One row per phase per initiative — the DAG declared in the PlanSpec.
 
     Written by ``persist_initiative_phases`` when ``file_issues`` completes.
-    Read by ``get_initiative_phase_deps`` to compute the ``locked`` flag on
-    the Build board swim lanes.
+    Read by ``get_initiative_phase_meta`` to compute the display order and
+    ``locked`` flag on the Build board swim lanes.
 
-    When no rows exist for an initiative every phase is shown as unlocked,
-    which is the correct default for plans created before this feature.
+    ``phase_order`` is the canonical display position (0-indexed).  It is the
+    single source of truth for phase ordering — the board always sorts by this
+    column, never by label strings.
+
+    When no rows exist for an initiative every phase is shown as unlocked and
+    ordering falls back to lexicographic sort of the scoped phase labels —
+    correct for plans that use the ``{N}-{slug}`` label convention.
     """
 
     __tablename__ = "initiative_phases"
 
     initiative: Mapped[str] = mapped_column(String(256), primary_key=True)
     phase_label: Mapped[str] = mapped_column(String(256), primary_key=True)
+    phase_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    """0-indexed display position within the initiative."""
     depends_on_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
-    """JSON list of phase label strings, e.g. ``'["phase-0"]'``."""
+    """JSON list of scoped phase label strings this phase waits for."""
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
