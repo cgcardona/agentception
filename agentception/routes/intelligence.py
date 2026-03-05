@@ -136,14 +136,14 @@ async def apply_scaling_advice() -> dict[str, object]:
 
         # Mutate only the field that the recommendation targets.
         new_config: PipelineConfig
-        if rec.action == "increase_qa_vps":
-            new_config = config.model_copy(update={"max_qa_vps": rec.recommended_value})
+        if rec.action == "increase_coordinator_limit" and rec.target_role is not None:
+            new_limits = {**config.coordinator_limits, rec.target_role: rec.recommended_value}
+            new_config = config.model_copy(update={"coordinator_limits": new_limits})
         elif rec.action == "increase_pool":
-            new_config = config.model_copy(update={"pool_size_per_vp": rec.recommended_value})
-        elif rec.action == "increase_eng_vps":
-            new_config = config.model_copy(update={"max_eng_vps": rec.recommended_value})
-        # All Literal branches handled above; mypy may still flag the else as unreachable.
-        # The dead-code guard is kept for runtime safety when called with coerced types.
+            new_config = config.model_copy(update={"pool_size": rec.recommended_value})
+        else:
+            # no_change — already handled above; guard against coerced types at runtime
+            return {"applied": rec.action, "new_value": 0}
 
         await write_pipeline_config(new_config)
         logger.info(

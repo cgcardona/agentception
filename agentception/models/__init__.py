@@ -79,8 +79,8 @@ class AgentNode(BaseModel):
     Represents one Cursor/Claude agent instance that is either actively working
     or has completed its assigned task. Children are spawned sub-agents.
 
-    ``logical_tier`` is the organisational tier this run reports to regardless
-    of who physically spawned it (executive | coordinator | engineer | reviewer).
+    ``logical_tier`` is the structural node type (``coordinator`` | ``leaf``).
+    A coordinator surveys its scope and spawns children; a leaf works one issue/PR.
     ``parent_run_id`` is the run_id of the agent that physically spawned this one.
     Both are used by the UI to build the virtual org chart with inferred nodes.
     """
@@ -242,7 +242,7 @@ class TaskFile(BaseModel):
     on_block: str | None = None
     cognitive_arch: str | None = None
     logical_tier: str | None = None
-    """Organisational tier (executive | coordinator | engineer | reviewer). Added in 0006."""
+    """Node type in the agent tree (``coordinator`` | ``leaf``). Added in 0006, normalised in 0008."""
     parent_run_id: str | None = None
     """Run ID of the agent that physically spawned this one. Added in 0006."""
 
@@ -293,20 +293,26 @@ class ProjectConfig(BaseModel):
 class PipelineConfig(BaseModel):
     """Validated shape of ``.agentception/pipeline-config.json``.
 
-    This is the single source of truth for pipeline allocation.  The CTO and
-    Engineering VP role files read this model at the start of every loop/seed
-    cycle.  The ``PUT /api/config`` route validates incoming bodies against
-    this schema before persisting them to disk.
+    This is the single source of truth for pipeline allocation.  Coordinator
+    role files read this model at the start of every loop/seed cycle.  The
+    ``PUT /api/config`` route validates incoming bodies against this schema
+    before persisting them to disk.
 
     ``projects`` lists all configured projects; ``active_project`` is the name
     of the currently active one.  When ``active_project`` is set, the dashboard
     targets the corresponding project's ``gh_repo``, ``repo_dir``, and
     ``worktrees_dir`` instead of the defaults in :class:`AgentCeptionSettings`.
+
+    Allocation fields:
+      ``coordinator_limits`` — max concurrent instances per coordinator role slug.
+      ``pool_size``          — number of leaf agents per coordinator instance.
     """
 
-    max_eng_vps: int = Field(gt=0, description="Maximum number of engineering VPs")
-    max_qa_vps: int = Field(gt=0, description="Maximum number of QA VPs")
-    pool_size_per_vp: int = Field(gt=0, description="Pool size per VP")
+    coordinator_limits: dict[str, int] = Field(
+        default={"engineering-coordinator": 1, "qa-coordinator": 1},
+        description="Max concurrent instances per coordinator role slug.",
+    )
+    pool_size: int = Field(default=4, gt=0, description="Leaf agents per coordinator.")
     active_labels_order: list[str]
     ab_mode: AbModeConfig = AbModeConfig()
     projects: list[ProjectConfig] = []

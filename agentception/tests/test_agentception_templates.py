@@ -46,7 +46,7 @@ def _make_repo(tmp_path: Path) -> Path:
     prompts = ac / "prompts"
     prompts.mkdir(parents=True, exist_ok=True)
     (prompts / "parallel-issue-to-pr.md").write_text("# Parallel", encoding="utf-8")
-    (ac / "pipeline-config.json").write_text('{"max_eng_vps": 1}', encoding="utf-8")
+    (ac / "pipeline-config.json").write_text('{"coordinator_limits": {"engineering-coordinator": 1, "qa-coordinator": 1}, "pool_size": 4}', encoding="utf-8")
     (ac / "agent-command-policy.md").write_text("# Policy", encoding="utf-8")
     return tmp_path
 
@@ -186,7 +186,7 @@ def test_import_detects_conflicts(tmp_path: Path) -> None:
     target_ac = target_repo / ".agentception"
     target_ac.mkdir(parents=True)
     existing = target_ac / "pipeline-config.json"
-    existing.write_text('{"max_eng_vps": 99}', encoding="utf-8")
+    existing.write_text('{"coordinator_limits": {"engineering-coordinator": 99, "qa-coordinator": 1}, "pool_size": 4}', encoding="utf-8")
 
     result = import_template(archive_bytes, str(target_repo))
 

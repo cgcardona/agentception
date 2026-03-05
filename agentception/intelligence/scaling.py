@@ -11,8 +11,9 @@ Typical usage::
     from agentception.intelligence.scaling import compute_recommendation
 
     recommendation = await compute_recommendation(state, waves)
-    print(recommendation.action)       # "increase_pool"
-    print(recommendation.confidence)   # "high"
+    print(recommendation.action)        # "increase_coordinator_limit"
+    print(recommendation.target_role)   # "qa-coordinator"
+    print(recommendation.confidence)    # "high"
 """
 
 import logging
@@ -31,10 +32,10 @@ logger = logging.getLogger(__name__)
 # Fewer waves → "low" confidence because duration estimates are noisy.
 _MIN_WAVES_FOR_HIGH_CONFIDENCE = 3
 
-# Threshold: PR backlog large enough to warrant an extra QA VP.
+# Threshold: PR backlog large enough to warrant an extra QA coordinator.
 _PR_BACKLOG_THRESHOLD = 2
 
-# Threshold: queue depth that signals under-staffed Engineering VPs.
+# Threshold: queue depth that signals under-staffed engineering coordinators.
 _QUEUE_DEPTH_THRESHOLD = 4
 
 # Threshold: fast average wave duration (minutes) that indicates agents can
@@ -48,14 +49,19 @@ _MAX_SAFE_POOL_SIZE = 8
 class ScalingRecommendation(BaseModel):
     """A single scaling recommendation produced by :func:`compute_recommendation`.
 
-    The ``action`` field drives the dashboard and CTO role prompt — it is
-    a machine-readable verb pair that tells the operator exactly what to change.
+    The ``action`` field drives the dashboard and coordinator role prompts — it
+    is a machine-readable verb that tells the operator exactly what to change.
+
+    ``target_role`` is set for ``increase_coordinator_limit`` actions and
+    identifies which coordinator role slug to bump (e.g. ``"qa-coordinator"``).
+
     ``confidence`` reflects how many completed waves of history are available:
     fewer than :data:`_MIN_WAVES_FOR_HIGH_CONFIDENCE` completed waves always
     yields ``"low"`` confidence even when the thresholds are clearly breached.
     """
 
-    action: Literal["increase_eng_vps", "increase_qa_vps", "increase_pool", "no_change"]
+    action: Literal["increase_coordinator_limit", "increase_pool", "no_change"]
+    target_role: str | None = None
     reason: str
     current_value: int
     recommended_value: int
@@ -70,9 +76,9 @@ async def compute_recommendation(
 
     Decision rules (evaluated in priority order, first match wins):
 
-    1. ``pr_backlog >= 2`` and ``max_qa_vps < 2``  →  increase QA VPs.
-    2. ``queue_depth > 4`` and ``avg_duration < 20`` and ``pool_size_per_vp < 8``
-       →  increase pool size per VP.
+    1. ``pr_backlog >= 2`` and ``qa-coordinator`` limit < 2  →  increase QA coordinator limit.
+    2. ``queue_depth > 4`` and ``avg_duration < 20`` and ``pool_size < 8``
+       →  increase pool size.
     3. Otherwise  →  no change.
 
     Confidence is always ``"low"`` when fewer than
@@ -110,22 +116,26 @@ async def compute_recommendation(
     completed_wave_count = len(completed_durations)
     confidence: Literal["high", "medium", "low"] = _classify_confidence(completed_wave_count)
 
-    # ── Rule 1: QA VP backlog ─────────────────────────────────────────────────
-    if pr_backlog >= _PR_BACKLOG_THRESHOLD and config.max_qa_vps < 2:
+    qa_limit = config.coordinator_limits.get("qa-coordinator", 1)
+
+    # ── Rule 1: QA coordinator backlog ───────────────────────────────────────
+    if pr_backlog >= _PR_BACKLOG_THRESHOLD and qa_limit < 2:
         logger.info(
-            "⚠️  PR backlog %d ≥ %d and max_qa_vps=%d < 2 — recommending increase_qa_vps",
+            "⚠️  PR backlog %d ≥ %d and qa-coordinator limit=%d < 2"
+            " — recommending increase_coordinator_limit",
             pr_backlog,
             _PR_BACKLOG_THRESHOLD,
-            config.max_qa_vps,
+            qa_limit,
         )
         return ScalingRecommendation(
-            action="increase_qa_vps",
+            action="increase_coordinator_limit",
+            target_role="qa-coordinator",
             reason=(
                 f"PR backlog ({pr_backlog}) has reached the threshold of "
-                f"{_PR_BACKLOG_THRESHOLD} but only {config.max_qa_vps} QA VP(s) are "
-                "configured.  Adding a second QA VP will clear the review queue faster."
+                f"{_PR_BACKLOG_THRESHOLD} but only {qa_limit} QA coordinator(s) are "
+                "configured.  Adding a second QA coordinator will clear the review queue faster."
             ),
-            current_value=config.max_qa_vps,
+            current_value=qa_limit,
             recommended_value=2,
             confidence=confidence,
         )
@@ -134,9 +144,9 @@ async def compute_recommendation(
     if (
         queue_depth > _QUEUE_DEPTH_THRESHOLD
         and avg_duration < _AVG_DURATION_FAST_THRESHOLD
-        and config.pool_size_per_vp < _MAX_SAFE_POOL_SIZE
+        and config.pool_size < _MAX_SAFE_POOL_SIZE
     ):
-        new_pool = min(config.pool_size_per_vp + 2, _MAX_SAFE_POOL_SIZE)
+        new_pool = min(config.pool_size + 2, _MAX_SAFE_POOL_SIZE)
         logger.info(
             "⚠️  Queue depth %d > %d, avg_duration=%.1f min < %.0f — recommending increase_pool",
             queue_depth,
@@ -146,14 +156,15 @@ async def compute_recommendation(
         )
         return ScalingRecommendation(
             action="increase_pool",
+            target_role=None,
             reason=(
                 f"Issue queue depth ({queue_depth}) exceeds {_QUEUE_DEPTH_THRESHOLD} "
                 f"while agents complete waves in {avg_duration:.1f} min on average — "
                 f"well under the {_AVG_DURATION_FAST_THRESHOLD:.0f}-min threshold.  "
-                f"Increasing pool size from {config.pool_size_per_vp} to {new_pool} "
+                f"Increasing pool size from {config.pool_size} to {new_pool} "
                 "will absorb the backlog without overloading reviewers."
             ),
-            current_value=config.pool_size_per_vp,
+            current_value=config.pool_size,
             recommended_value=new_pool,
             confidence=confidence,
         )
@@ -162,6 +173,7 @@ async def compute_recommendation(
     logger.info("✅ Pipeline is balanced — no scaling action recommended")
     return ScalingRecommendation(
         action="no_change",
+        target_role=None,
         reason=(
             "Current queue depth, PR backlog, and agent throughput are within "
             "acceptable bounds.  No scaling adjustment is required."

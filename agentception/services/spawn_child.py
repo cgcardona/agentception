@@ -2,8 +2,7 @@ from __future__ import annotations
 
 """Universal child-node spawner for the AgentCeption agent tree.
 
-Any manager agent — CTO, engineering-coordinator, qa-coordinator, or any
-future tier — calls ``spawn_child()`` to atomically:
+Any coordinator agent calls ``spawn_child()`` to atomically:
 
   1. Create a git worktree for the child.
   2. Resolve COGNITIVE_ARCH for the child's role and scope.
@@ -17,16 +16,25 @@ and a short prompt directing the child to read its ``.agent-task``.
 
 Protocol guarantee
 ------------------
-Every node in the agent tree — regardless of tier, scope type, or which
+Every node in the agent tree — regardless of node type, scope type, or which
 parent spawned it — gets:
 
 - A unique ``run_id`` and git worktree.
-- A ``.agent-task`` file containing ``COGNITIVE_ARCH``, ``SCOPE_TYPE``,
-  ``SCOPE_VALUE``, ``TIER``, ``ROLE``, ``ROLE_FILE``, ``PARENT_RUN_ID``,
-  and ``AC_URL``.
+- A ``.agent-task`` file containing ``NODE_TYPE``, ``COGNITIVE_ARCH``,
+  ``SCOPE_TYPE``, ``SCOPE_VALUE``, ``ROLE``, ``ROLE_FILE``,
+  ``PARENT_RUN_ID``, and ``AC_URL``.
 - A DB row visible on the Build board with full lineage back to its root.
 
-Any subtree rooted at any node behaves identically to the full tree —
+Node types
+----------
+``coordinator``
+    Surveys its GitHub scope and spawns child nodes (coordinators or leaves).
+    Any coordinator can be the tree root — there is no special "executive" tier.
+
+``leaf``
+    Works on a single GitHub issue or PR.  Does not spawn children.
+
+Any subtree rooted at any coordinator behaves identically to the full tree —
 pruning a node makes it the entry point without any protocol change.
 """
 
@@ -40,7 +48,7 @@ from typing import Literal
 
 from agentception.config import settings
 from agentception.db.persist import acknowledge_agent_run, persist_agent_run_dispatch
-from agentception.routes.api._shared import ROLE_DEFAULT_FIGURE, _resolve_cognitive_arch
+from agentception.routes.api._shared import _resolve_cognitive_arch
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +57,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 ScopeType = Literal["label", "issue", "pr"]
+
+#: Structural node type — the only two values used in ``logical_tier``.
+NodeType = Literal["coordinator", "leaf"]
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
@@ -60,11 +71,11 @@ class SpawnChildResult:
         run_id:              Unique run identifier (e.g. ``coord-abc123``).
         host_worktree_path:  Absolute path on the HOST filesystem.
         worktree_path:       Absolute path inside the container.
-        tier:                Protocol tier (executive | coordinator | engineer | reviewer).
-        role:                Role slug (e.g. ``engineering-coordinator``).
-        cognitive_arch:      Resolved COGNITIVE_ARCH string (e.g. ``von_neumann:python``).
+        node_type:           ``"coordinator"`` or ``"leaf"``.
+        role:                Role slug (e.g. ``"engineering-coordinator"``).
+        cognitive_arch:      Resolved COGNITIVE_ARCH string.
         agent_task_path:     Path to the written ``.agent-task`` file.
-        scope_type:          ``label``, ``issue``, or ``pr``.
+        scope_type:          ``"label"``, ``"issue"``, or ``"pr"``.
         scope_value:         Label string or issue/PR number.
     """
 
@@ -72,7 +83,7 @@ class SpawnChildResult:
         "run_id",
         "host_worktree_path",
         "worktree_path",
-        "tier",
+        "node_type",
         "role",
         "cognitive_arch",
         "agent_task_path",
@@ -86,7 +97,7 @@ class SpawnChildResult:
         run_id: str,
         host_worktree_path: str,
         worktree_path: str,
-        tier: str,
+        node_type: str,
         role: str,
         cognitive_arch: str,
         agent_task_path: str,
@@ -96,7 +107,7 @@ class SpawnChildResult:
         self.run_id = run_id
         self.host_worktree_path = host_worktree_path
         self.worktree_path = worktree_path
-        self.tier = tier
+        self.node_type = node_type
         self.role = role
         self.cognitive_arch = cognitive_arch
         self.agent_task_path = agent_task_path
@@ -108,50 +119,13 @@ class SpawnChildResult:
             "run_id": self.run_id,
             "host_worktree_path": self.host_worktree_path,
             "worktree_path": self.worktree_path,
-            "tier": self.tier,
+            "node_type": self.node_type,
             "role": self.role,
             "cognitive_arch": self.cognitive_arch,
             "agent_task_path": self.agent_task_path,
             "scope_type": self.scope_type,
             "scope_value": self.scope_value,
         }
-
-
-# ---------------------------------------------------------------------------
-# Tier mapping (mirrors agent-tree-protocol.md)
-# ---------------------------------------------------------------------------
-
-#: Maps every known role slug to its protocol tier.
-#: Defaults to ``"engineer"`` for any unlisted role.
-_ROLE_TIER: dict[str, str] = {
-    "cto": "executive",
-    "csto": "executive",
-    "ceo": "executive",
-    "cpo": "executive",
-    "coo": "executive",
-    "cdo": "executive",
-    "cfo": "executive",
-    "ciso": "executive",
-    "cmo": "executive",
-    "engineering-coordinator": "coordinator",
-    "qa-coordinator": "coordinator",
-    "coordinator": "coordinator",
-    "conductor": "coordinator",
-    "vp-platform": "coordinator",
-    "vp-infrastructure": "coordinator",
-    "vp-data": "coordinator",
-    "vp-ml": "coordinator",
-    "vp-design": "coordinator",
-    "vp-mobile": "coordinator",
-    "vp-security": "coordinator",
-    "vp-product": "coordinator",
-    "pr-reviewer": "reviewer",
-}
-
-
-def tier_for_role(role: str) -> str:
-    """Return the protocol tier for a role slug."""
-    return _ROLE_TIER.get(role, "engineer")
 
 
 # ---------------------------------------------------------------------------
@@ -189,14 +163,14 @@ def _make_batch_id(scope_type: ScopeType, scope_value: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# .agent-task builder (universal — all scope types)
+# .agent-task builder (universal — all scope types and node types)
 # ---------------------------------------------------------------------------
 
 def _build_child_task(
     *,
     run_id: str,
     role: str,
-    tier: str,
+    node_type: str,
     scope_type: ScopeType,
     scope_value: str,
     gh_repo: str,
@@ -213,7 +187,7 @@ def _build_child_task(
 ) -> str:
     """Build the raw text content of a ``.agent-task`` file for any tree node.
 
-    The format is identical regardless of tier or scope type so that the
+    The format is identical regardless of node type or scope type so that the
     Dispatcher, the universal manager briefing, and all role files can use
     the same parsing logic.
     """
@@ -228,8 +202,7 @@ def _build_child_task(
         "",
         f"RUN_ID={run_id}",
         f"ROLE={role}",
-        f"TIER={tier}",
-        f"LOGICAL_TIER={tier}",
+        f"NODE_TYPE={node_type}",
         f"SCOPE_TYPE={scope_type}",
         f"SCOPE_VALUE={scope_value}",
         f"GH_REPO={gh_repo}",
@@ -258,28 +231,20 @@ def _build_child_task(
     lines += [
         f"CREATED_AT={now}",
         "",
-        f"# GitHub queries for this tier ({tier}):",
+        f"# GitHub queries for this node (node_type={node_type}, scope_type={scope_type}):",
     ]
 
-    # Inline query hints by tier
-    if tier == "executive":
+    # Inline query hints by node type and scope
+    if node_type == "coordinator" and scope_type == "label":
         lines += [
             f"# gh issue list --repo {gh_repo} --label '{scope_value}' --state open --json number,title,labels,assignees --limit 200",
             f"# gh pr list --repo {gh_repo} --base dev --state open --json number,title,headRefName,reviewDecision --limit 200",
         ]
-    elif tier == "coordinator" and role == "engineering-coordinator":
-        lines.append(
-            f"# gh issue list --repo {gh_repo} --label '{scope_value}' --state open --json number,title,labels,assignees --limit 200"
-        )
-    elif tier == "coordinator" and role == "qa-coordinator":
-        lines.append(
-            f"# gh pr list --repo {gh_repo} --base dev --state open --json number,title,headRefName,reviewDecision --limit 200"
-        )
-    elif tier == "engineer" and scope_type == "issue":
+    elif node_type == "leaf" and scope_type == "issue":
         lines.append(
             f"# gh issue view {scope_value} --repo {gh_repo} --json number,title,body,labels"
         )
-    elif tier == "reviewer" and scope_type == "pr":
+    elif node_type == "leaf" and scope_type == "pr":
         lines.append(
             f"# gh pr view {scope_value} --repo {gh_repo} --json number,title,body,files,reviews"
         )
@@ -299,6 +264,7 @@ async def spawn_child(
     *,
     parent_run_id: str,
     role: str,
+    node_type: NodeType,
     scope_type: ScopeType,
     scope_value: str,
     gh_repo: str,
@@ -315,6 +281,10 @@ async def spawn_child(
     Args:
         parent_run_id:  ``run_id`` of the calling agent (lineage tracking).
         role:           Child's role slug (e.g. ``"engineering-coordinator"``).
+        node_type:      ``"coordinator"`` if the child spawns children;
+                        ``"leaf"`` if it works one issue/PR directly.
+                        The caller always knows which type it is spawning —
+                        this is never derived from the role slug.
         scope_type:     ``"label"``, ``"issue"``, or ``"pr"``.
         scope_value:    Label string, or issue/PR number as a string.
         gh_repo:        ``"owner/repo"`` string.
@@ -328,7 +298,6 @@ async def spawn_child(
     Raises:
         :class:`SpawnChildError` if worktree creation or file I/O fails.
     """
-    tier = tier_for_role(role)
     run_id = _make_run_id(scope_type, scope_value)
     branch = _make_branch(scope_type, scope_value)
     batch_id = _make_batch_id(scope_type, scope_value)
@@ -358,8 +327,8 @@ async def spawn_child(
         skills_hint=skills_hint,
     )
     logger.info(
-        "🌳 spawn_child: role=%r tier=%r scope=%s:%s arch=%r",
-        role, tier, scope_type, scope_value, cognitive_arch,
+        "🌳 spawn_child: role=%r node_type=%r scope=%s:%s arch=%r",
+        role, node_type, scope_type, scope_value, cognitive_arch,
     )
 
     # Create git worktree
@@ -381,7 +350,7 @@ async def spawn_child(
     task_content = _build_child_task(
         run_id=run_id,
         role=role,
-        tier=tier,
+        node_type=node_type,
         scope_type=scope_type,
         scope_value=scope_value,
         gh_repo=gh_repo,
@@ -425,7 +394,7 @@ async def spawn_child(
         batch_id=batch_id,
         host_worktree_path=host_worktree_path,
         cognitive_arch=cognitive_arch,
-        logical_tier=tier,
+        logical_tier=node_type,
         parent_run_id=parent_run_id,
     )
 
@@ -437,7 +406,7 @@ async def spawn_child(
         run_id=run_id,
         host_worktree_path=host_worktree_path,
         worktree_path=worktree_path,
-        tier=tier,
+        node_type=node_type,
         role=role,
         cognitive_arch=cognitive_arch,
         agent_task_path=agent_task_path,

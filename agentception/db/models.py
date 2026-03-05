@@ -124,19 +124,16 @@ class ACAgentRun(Base):
     """Cognitive architecture string at spawn time, e.g. ``guido_van_rossum:python``."""
 
     logical_tier: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    """Organizational tier this run reports to, independent of which agent physically spawned it.
+    """Node type in the agent tree.
 
-    Values: ``executive`` | ``coordinator`` | ``engineer`` | ``reviewer``.
-    A reviewer chain-spawned directly by an engineer still has ``logical_tier='reviewer'``
-    even though no qa-coordinator physically ran; the org chart renders it under the
-    qa-coordinator logical node. Null for legacy rows created before migration 0006.
+    Values: ``coordinator`` | ``leaf``.
+    A coordinator surveys its scope and spawns children; a leaf works one issue/PR.
+    Null for legacy rows created before migration 0006. Normalised in migration 0008.
     """
 
     parent_run_id: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
     """Run ID of the agent that physically spawned this one (spawn-lineage tracking).
 
-    Separate from ``logical_tier`` — a reviewer chain-spawned by an engineer has
-    ``parent_run_id`` pointing to the engineer's run and ``logical_tier='reviewer'``.
     Null for top-level dispatches and legacy rows.
     """
 

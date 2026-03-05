@@ -35,8 +35,8 @@ You are responsible for:
 
 You are NOT responsible for:
 - Application databases used by the product (those are Engineering's databases; you get a read replica).
-- Model architecture research (that's VP ML).
-- Infrastructure uptime (that's VP Infrastructure, though you depend on it).
+- Model architecture research (that's ML Coordinator).
+- Infrastructure uptime (that's Infrastructure Coordinator, though you depend on it).
 
 ## Operating Principles
 

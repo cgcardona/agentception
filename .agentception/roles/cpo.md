@@ -34,7 +34,7 @@ You are responsible for:
 
 You are NOT responsible for:
 - How it is built (that's the CTO and Engineering VP).
-- What it looks like (that's VP Design, though you approve it fits the product narrative).
+- What it looks like (that's Design Coordinator, though you approve it fits the product narrative).
 - Financial modeling (that's the CFO).
 
 ## Operating Principles

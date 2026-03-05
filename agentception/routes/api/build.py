@@ -36,7 +36,12 @@ from agentception.db.persist import acknowledge_agent_run, persist_agent_event, 
 from agentception.db.queries import get_agent_run_teardown, get_pending_launches
 from agentception.mcp.plan_advance_phase import plan_advance_phase as _plan_advance_phase
 from agentception.routes.api._shared import _resolve_cognitive_arch
-from agentception.services.spawn_child import SpawnChildError, ScopeType, spawn_child
+from agentception.services.spawn_child import (
+    NodeType,
+    SpawnChildError,
+    ScopeType,
+    spawn_child,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -198,33 +203,24 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
 
 
 # ---------------------------------------------------------------------------
-# Tier → GitHub scope mapping (mirrors agent-tree-protocol.md)
+# Node type helpers for the dispatch-label endpoint
 # ---------------------------------------------------------------------------
 
-# Maps each role slug to its canonical tier.
-_ROLE_TIER: dict[str, str] = {
-    "cto": "executive",
-    "engineering-coordinator": "coordinator",
-    "qa-coordinator": "coordinator",
-    "pr-reviewer": "reviewer",
-}
-_ENGINEERING_ROLES = {
-    "python-developer", "frontend-developer", "typescript-developer",
-    "react-developer", "go-developer", "rust-developer", "api-developer",
-    "devops-engineer", "data-engineer", "site-reliability-engineer",
-    "security-engineer", "mobile-developer", "ios-developer",
-    "android-developer", "full-stack-developer", "architect",
-    "technical-writer", "test-engineer", "ml-engineer", "ml-researcher",
-    "systems-programmer", "rails-developer", "database-architect",
-    "muse-specialist",
-}
-for _r in _ENGINEERING_ROLES:
-    _ROLE_TIER[_r] = "engineer"
+#: Role slugs known to be coordinators (spawn children rather than working directly).
+_COORDINATOR_ROLES: frozenset[str] = frozenset({
+    # C-suite
+    "cto", "csto", "ceo", "cpo", "coo", "cdo", "cfo", "ciso", "cmo",
+    # Domain coordinators
+    "engineering-coordinator", "qa-coordinator", "coordinator", "conductor",
+    "platform-coordinator", "infrastructure-coordinator", "data-coordinator",
+    "ml-coordinator", "design-coordinator", "mobile-coordinator",
+    "security-coordinator", "product-coordinator",
+})
 
 
-def _tier_for_role(role: str) -> str:
-    """Derive the protocol tier for a role slug."""
-    return _ROLE_TIER.get(role, "engineer")
+def _node_type_for_role(role: str) -> NodeType:
+    """Return ``"coordinator"`` for roles that spawn children; ``"leaf"`` otherwise."""
+    return "coordinator" if role in _COORDINATOR_ROLES else "leaf"
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +245,7 @@ class LabelDispatchResponse(BaseModel):
     """Successful label-dispatch response."""
 
     run_id: str
-    tier: str
+    node_type: str
     role: str
     label: str
     worktree: str
@@ -291,7 +287,7 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
         "🚀 dispatch-label: received request label=%r role=%r repo=%r",
         req.label, req.role, req.repo,
     )
-    tier = _tier_for_role(req.role)
+    node_type = _node_type_for_role(req.role)
     label_slug = _label_slug(req.label)
     batch_id = _make_label_batch_id(req.label)
     run_id = f"label-{label_slug}-{uuid.uuid4().hex[:6]}"
@@ -300,8 +296,8 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
     worktree_path = str(Path(settings.worktrees_dir) / run_id)
     host_worktree_path = str(Path(settings.host_worktrees_dir) / run_id)
     logger.warning(
-        "🚀 dispatch-label: run_id=%r tier=%r worktree_path=%r host_worktree_path=%r",
-        run_id, tier, worktree_path, host_worktree_path,
+        "🚀 dispatch-label: run_id=%r node_type=%r worktree_path=%r host_worktree_path=%r",
+        run_id, node_type, worktree_path, host_worktree_path,
     )
 
     if Path(worktree_path).exists():
@@ -322,7 +318,7 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
         logger.error("❌ dispatch-label: git worktree add failed — %s", err)
         raise HTTPException(status_code=500, detail=f"git worktree add failed: {err}")
 
-    logger.info("✅ dispatch-label: worktree %s for label %r tier=%s", worktree_path, req.label, tier)
+    logger.info("✅ dispatch-label: worktree %s for label %r node_type=%s", worktree_path, req.label, node_type)
 
     ac_url = settings.ac_url
     role_file = str(Path(settings.repo_dir) / ".agentception" / "roles" / f"{req.role}.md")
@@ -335,8 +331,7 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
         f"# See agentception/docs/agent-tree-protocol.md for the full spec.\n\n"
         f"RUN_ID={run_id}\n"
         f"ROLE={req.role}\n"
-        f"TIER={tier}\n"
-        f"LOGICAL_TIER={tier}\n"
+        f"NODE_TYPE={node_type}\n"
         f"SCOPE_TYPE=label\n"
         f"SCOPE_VALUE={req.label}\n"
         f"GH_REPO={req.repo}\n"
@@ -348,21 +343,13 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
         f"ROLE_FILE={role_file}\n"
         f"COGNITIVE_ARCH={label_cognitive_arch}\n"
         f"\n"
-        f"# GitHub queries for this tier ({tier}):\n"
+        f"# GitHub queries for this node (node_type={node_type}, scope_type=label):\n"
     )
 
-    if tier == "executive":
+    if node_type == "coordinator":
         agent_task += (
             f"# gh issue list --repo {req.repo} --label '{req.label}' --state open --json number,title,labels --limit 200\n"
             f"# gh pr list --repo {req.repo} --base dev --state open --json number,title,headRefName --limit 200\n"
-        )
-    elif tier == "coordinator" and req.role == "engineering-coordinator":
-        agent_task += (
-            f"# gh issue list --repo {req.repo} --label '{req.label}' --state open --json number,title,labels --limit 200\n"
-        )
-    elif tier == "coordinator" and req.role == "qa-coordinator":
-        agent_task += (
-            f"# gh pr list --repo {req.repo} --base dev --state open --json number,title,headRefName,reviewDecision --limit 200\n"
         )
 
     agent_task_path = str(Path(worktree_path) / ".agent-task")
@@ -394,14 +381,14 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
         batch_id=batch_id,
         host_worktree_path=host_worktree_path,
         cognitive_arch=label_cognitive_arch,
-        logical_tier=tier,
+        logical_tier=node_type,
         parent_run_id=req.parent_run_id,
     )
     logger.warning("✅ dispatch-label: persist_agent_run_dispatch complete — run_id=%r is now pending_launch", run_id)
 
     return LabelDispatchResponse(
         run_id=run_id,
-        tier=tier,
+        node_type=node_type,
         role=req.role,
         label=req.label,
         worktree=worktree_path,
@@ -485,6 +472,8 @@ class SpawnChildRequest(BaseModel):
     """``run_id`` of the calling manager agent (for lineage tracking)."""
     role: str
     """Child's role slug (e.g. ``"engineering-coordinator"``, ``"python-developer"``)."""
+    node_type: NodeType
+    """``"coordinator"`` if the child spawns children; ``"leaf"`` if it works one issue/PR."""
     scope_type: Literal["label", "issue", "pr"]
     """``"label"``, ``"issue"``, or ``"pr"``."""
     scope_value: str
@@ -505,7 +494,7 @@ class SpawnChildResponse(BaseModel):
     run_id: str
     host_worktree_path: str
     worktree_path: str
-    tier: str
+    node_type: str
     role: str
     cognitive_arch: str
     agent_task_path: str
@@ -541,6 +530,7 @@ async def spawn_child_node(req: SpawnChildRequest) -> SpawnChildResponse:
         result = await spawn_child(
             parent_run_id=req.parent_run_id,
             role=req.role,
+            node_type=req.node_type,
             scope_type=req.scope_type,
             scope_value=req.scope_value,
             gh_repo=req.gh_repo,

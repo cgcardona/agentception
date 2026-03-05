@@ -200,9 +200,8 @@ async def test_get_active_label_returns_first_match_from_config() -> None:
     from agentception.readers import pipeline_config as _pc
 
     mock_config = PipelineConfig(
-        max_eng_vps=1,
-        max_qa_vps=1,
-        pool_size_per_vp=4,
+        coordinator_limits={"engineering-coordinator": 1, "qa-coordinator": 1},
+        pool_size=4,
         active_labels_order=["ac-ui/0-critical-bugs", "ac-ui/1-design-tokens", "ac-ui/2-data-model"],
     )
     # Issues only have ac-ui/1 and ac-ui/2 labels (phase 0 is all done)
@@ -228,9 +227,8 @@ async def test_get_active_label_returns_none_when_no_configured_labels_have_issu
     from agentception.readers import pipeline_config as _pc
 
     mock_config = PipelineConfig(
-        max_eng_vps=1,
-        max_qa_vps=1,
-        pool_size_per_vp=4,
+        coordinator_limits={"engineering-coordinator": 1, "qa-coordinator": 1},
+        pool_size=4,
         active_labels_order=["ac-ui/0-critical-bugs", "ac-ui/1-design-tokens"],
     )
     # No ac-ui/* issues open

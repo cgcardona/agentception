@@ -1,7 +1,7 @@
 {
   "versions": {
     "cto": {
-      "current": "v8",
+      "current": "v14",
       "history": [
         {
           "sha": "abcdef1234567890abcdef1234567890abcdef12",
@@ -42,6 +42,36 @@
           "sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
           "label": "v8",
           "timestamp": 1772724160
+        },
+        {
+          "sha": "abcdef1234567890abcdef1234567890abcdef12",
+          "label": "v9",
+          "timestamp": 1772726341
+        },
+        {
+          "sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+          "label": "v10",
+          "timestamp": 1772726341
+        },
+        {
+          "sha": "abcdef1234567890abcdef1234567890abcdef12",
+          "label": "v11",
+          "timestamp": 1772726371
+        },
+        {
+          "sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+          "label": "v12",
+          "timestamp": 1772726371
+        },
+        {
+          "sha": "abcdef1234567890abcdef1234567890abcdef12",
+          "label": "v13",
+          "timestamp": 1772726507
+        },
+        {
+          "sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+          "label": "v14",
+          "timestamp": 1772726507
         }
       ]
     }
