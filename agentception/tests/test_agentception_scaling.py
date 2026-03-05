@@ -501,9 +501,9 @@ async def test_apply_no_change_is_noop() -> None:
     mock_write.assert_not_called()
 
 
-def test_banner_hidden_when_dismissed_markup_present() -> None:
+@pytest.mark.anyio
+async def test_banner_hidden_when_dismissed_markup_present() -> None:
     """Overview page HTML includes the scaling advisor banner markup with x-cloak."""
-    from fastapi.testclient import TestClient
     from agentception.models import PipelineState
 
     state = PipelineState(
@@ -518,8 +518,11 @@ def test_banner_hidden_when_dismissed_markup_present() -> None:
     )
 
     with patch("agentception.routes.ui.overview.get_state", return_value=state):
-        with TestClient(app) as client:
-            response = client.get("/overview")
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            response = await client.get("/overview")
 
     assert response.status_code == 200
     html = response.text

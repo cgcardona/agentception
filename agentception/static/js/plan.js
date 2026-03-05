@@ -253,7 +253,10 @@ export function planForm() {
               this.step = 'review';
               this.yamlValid = true;
               this.yamlValidationMsg = '✓ Plan ready — review and edit before launching';
-              this.$nextTick(() => this._mountEditor(yamlText));
+              this.$nextTick(() => {
+                this._mountEditor(yamlText);
+                this.$nextTick(() => this._validateYaml());
+              });
               resolve(undefined);
             } else {
               reject(new Error('Plan generation timed out on the server. Please try again.'));
@@ -303,7 +306,13 @@ export function planForm() {
         });
         const body = await resp.json().catch(() => ({}));
         if (!resp.ok) {
-          throw new Error(body.detail || `HTTP ${resp.status}`);
+          const d = body.detail;
+          const msg = typeof d === 'string'
+            ? d
+            : Array.isArray(d)
+              ? d.map((e) => (e && e.msg) || JSON.stringify(e)).join('; ')
+              : `HTTP ${resp.status}`;
+          throw new Error(msg || `HTTP ${resp.status}`);
         }
 
         this.result = {

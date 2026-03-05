@@ -265,10 +265,16 @@
       </button>
     </div>
 
+    {# Worktree path — from POST /api/plan/launch response ───────────────── #}
+    <div class="plan-done-meta" x-show="result.worktree">
+      <span class="plan-done-meta-label">Worktree</span>
+      <code class="plan-done-meta-value" x-text="result.worktree"></code>
+    </div>
+
     <div class="plan-done-actions">
       <a
         class="btn btn-primary"
-        :href="'/build?initiative=' + encodeURIComponent(initiative || '')"
+        :href="initiative ? '/ship/' + encodeURIComponent(initiative) : '/ship'"
       >Open in Build →</a>
       <a href="/org-chart" class="btn btn-secondary">View org chart →</a>
       <button class="btn btn-ghost" @click="reset()">← New plan</button>

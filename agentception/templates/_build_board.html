@@ -79,9 +79,9 @@
       <span class="build-issue__status build-issue__status--{{ active_run.agent_status }}">
         {%- if active_run.agent_status == 'stale' %}⚠ stale{%- else %}{{ active_run.agent_status }}{%- endif %}
       </span>
-      {% if active_run.node_type %}
-      <span class="build-issue__tier build-issue__tier--{{ active_run.node_type }}">
-        {{- active_run.logical_tier or active_run.node_type -}}
+      {% if active_run.tier %}
+      <span class="build-issue__tier build-issue__tier--{{ active_run.tier }}">
+        {{- active_run.org_domain or active_run.tier -}}
       </span>
       {% endif %}
       {% if active_run.pr_number %}

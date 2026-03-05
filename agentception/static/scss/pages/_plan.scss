@@ -529,4 +529,31 @@
   &:hover { color: var(--text-primary, #e5e5e5); }
 }
 
+// Worktree path from POST /api/plan/launch — shown in done state.
+.plan-done-meta {
+  margin: 0 auto 1.5rem;
+  padding: .5rem .9rem;
+  background: var(--bg-secondary, #1a1a2e);
+  border: 1px solid var(--border, #2a2a3e);
+  border-radius: 8px;
+  max-width: 100%;
+}
+
+.plan-done-meta-label {
+  display: block;
+  font-size: .7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--text-muted, #666);
+  margin-bottom: .25rem;
+}
+
+.plan-done-meta-value {
+  font-family: monospace;
+  font-size: .8rem;
+  color: var(--text-secondary, #999);
+  word-break: break-all;
+}
+
 .plan-done-actions { display: flex; justify-content: center; gap: .75rem; flex-wrap: wrap; }

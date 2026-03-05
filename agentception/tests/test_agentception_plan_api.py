@@ -103,7 +103,7 @@ async def test_post_valid_dump_returns_200_pending(
     parsed = uuid.UUID(body["draft_id"], version=4)
     assert str(parsed) == body["draft_id"]
     # output_path must be a specific file (not the directory) so the poller
-    # can watch for it and emit task_output_ready when it appears.
+    # can watch for it and emit plan_draft_ready when it appears.
     assert "plan-draft-" in body["output_path"]
     assert body["output_path"].endswith(".plan-output.yaml")
     assert body["task_file"].endswith(".agent-task")

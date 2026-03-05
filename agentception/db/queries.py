@@ -80,8 +80,8 @@ class AgentRunRow(TypedDict):
     spawned_at: str
     last_activity_at: str | None
     completed_at: str | None
-    node_type: str | None
-    logical_tier: str | None
+    tier: str | None
+    org_domain: str | None
     parent_run_id: str | None
 
 
@@ -340,8 +340,8 @@ class RunForIssueRow(TypedDict):
     current_step: str | None
     steps_completed: int
     steps_total: int | None
-    logical_tier: str | None
-    node_type: str | None
+    tier: str | None
+    org_domain: str | None
 
 
 # ---------------------------------------------------------------------------
@@ -375,8 +375,8 @@ class PendingLaunchRow(TypedDict):
     host_worktree_path: str | None
     batch_id: str | None
     spawned_at: str
-    node_type: str | None
-    logical_tier: str | None
+    tier: str | None
+    org_domain: str | None
     parent_run_id: str | None
 
 
@@ -566,8 +566,8 @@ async def get_agent_run_history(
                 completed_at=(
                     row.completed_at.isoformat() if row.completed_at else None
                 ),
-                node_type=row.node_type,
-                logical_tier=row.logical_tier,
+                tier=row.tier,
+                org_domain=row.org_domain,
                 parent_run_id=row.parent_run_id,
             )
             for row in rows
@@ -1569,8 +1569,8 @@ async def get_runs_for_issue_numbers(
                 current_step=sd["current_step"],
                 steps_completed=sd["steps_completed"],
                 steps_total=None,
-                logical_tier=row.logical_tier,
-                node_type=row.node_type,
+                tier=row.tier,
+                org_domain=row.org_domain,
             )
         return out
     except Exception as exc:
@@ -1629,8 +1629,8 @@ async def get_pending_launches() -> list[PendingLaunchRow]:
                     host_worktree_path=host_worktree,
                     batch_id=row.batch_id,
                     spawned_at=row.spawned_at.isoformat(),
-                    node_type=row.node_type,
-                    logical_tier=row.logical_tier,
+                    tier=row.tier,
+                    org_domain=row.org_domain,
                     parent_run_id=row.parent_run_id,
                 )
             )

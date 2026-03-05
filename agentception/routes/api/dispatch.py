@@ -33,9 +33,10 @@ from agentception.db.persist import persist_agent_run_dispatch
 from agentception.db.queries import get_label_context
 from agentception.routes.api._shared import _resolve_cognitive_arch
 from agentception.services.spawn_child import (
-    NodeType,
     SpawnChildError,
     ScopeType,
+    Tier,
+    _tier_to_node_type,
     spawn_child,
 )
 
@@ -262,12 +263,21 @@ _COORDINATOR_ROLES: frozenset[str] = frozenset({
 })
 
 
-def _node_type_for_role(role: str) -> NodeType:
-    """Return ``"coordinator"`` for roles that spawn children; ``"leaf"`` otherwise."""
-    return "coordinator" if role in _COORDINATOR_ROLES else "leaf"
+def _tier_for_role(role: str) -> Tier:
+    """Return the behavioral tier for a role slug.
+
+    Coordinator roles survey their scope and spawn children → ``coordinator``
+    or ``executive`` for C-suite roles.  All other roles are leaf agents:
+    PR reviewers → ``reviewer``, everything else → ``engineer``.
+    """
+    if role in _COORDINATOR_ROLES:
+        return "executive" if role in {"cto", "ceo", "cpo", "coo", "cdo", "cfo", "ciso", "cmo", "csto"} else "coordinator"
+    if role in {"pr-reviewer", "qa-coordinator"}:
+        return "reviewer"
+    return "engineer"
 
 
-#: Map role slug prefixes/exact slugs to their logical org domain.
+#: Map role slug prefixes/exact slugs to their org domain (UI hierarchy slot).
 _ROLE_DOMAIN: dict[str, str] = {
     "cto": "c-suite",
     "ceo": "c-suite",
@@ -280,14 +290,14 @@ _ROLE_DOMAIN: dict[str, str] = {
     "csto": "c-suite",
     "engineering-coordinator": "engineering",
     "qa-coordinator": "qa",
-    "platform-coordinator": "platform",
-    "infrastructure-coordinator": "infrastructure",
-    "data-coordinator": "data",
-    "ml-coordinator": "ml",
-    "design-coordinator": "design",
-    "mobile-coordinator": "mobile",
-    "security-coordinator": "security",
-    "product-coordinator": "product",
+    "platform-coordinator": "engineering",
+    "infrastructure-coordinator": "engineering",
+    "data-coordinator": "engineering",
+    "ml-coordinator": "engineering",
+    "design-coordinator": "engineering",
+    "mobile-coordinator": "engineering",
+    "security-coordinator": "engineering",
+    "product-coordinator": "engineering",
     "pr-reviewer": "qa",
 }
 
@@ -296,17 +306,17 @@ _ROLE_DOMAIN_PREFIXES: list[tuple[str, str]] = [
     ("js-", "engineering"),
     ("frontend-", "engineering"),
     ("backend-", "engineering"),
-    ("infra-", "infrastructure"),
-    ("data-", "data"),
-    ("ml-", "ml"),
-    ("security-", "security"),
-    ("mobile-", "mobile"),
-    ("design-", "design"),
+    ("infra-", "engineering"),
+    ("data-", "engineering"),
+    ("ml-", "engineering"),
+    ("security-", "engineering"),
+    ("mobile-", "engineering"),
+    ("design-", "engineering"),
 ]
 
 
-def _logical_tier_for_role(role: str) -> str | None:
-    """Return the org domain for a role slug, or ``None`` when unknown."""
+def _org_domain_for_role(role: str) -> str | None:
+    """Return the org domain (UI hierarchy slot) for a role slug, or ``None`` when unknown."""
     if role in _ROLE_DOMAIN:
         return _ROLE_DOMAIN[role]
     for prefix, domain in _ROLE_DOMAIN_PREFIXES:
@@ -325,14 +335,14 @@ class LabelDispatchRequest(BaseModel):
 
     *scope* is the primary selector:
 
-    - ``"full_initiative"`` — a coordinator agent surveys every open ticket
-      under *label* and assembles its own child team.  ``node_type`` is
-      ``"coordinator"``.
+    - ``"full_initiative"`` — an executive agent surveys every open ticket
+      under *label* and assembles its own child team.  ``tier`` is
+      ``"executive"``.
     - ``"phase"`` — a coordinator handles just one phase sub-label; supply
-      *scope_label* with the sub-label string.  ``node_type`` is
+      *scope_label* with the sub-label string.  ``tier`` is
       ``"coordinator"``.
-    - ``"issue"`` — a single leaf agent works on one issue; supply
-      *scope_issue_number*.  ``node_type`` is ``"leaf"``.
+    - ``"issue"`` — a single engineer agent works on one issue; supply
+      *scope_issue_number*.  ``tier`` is ``"engineer"``.
 
     *role* is optional.  When omitted the server derives a sensible default
     (``cto`` for ``full_initiative``, ``engineering-coordinator`` for
@@ -342,7 +352,7 @@ class LabelDispatchRequest(BaseModel):
     label: str
     """Initiative label string, e.g. ``ac-workflow``."""
     scope: Literal["full_initiative", "phase", "issue"] = "full_initiative"
-    """Determines the node_type and SCOPE_VALUE written to .agent-task."""
+    """Determines the tier and SCOPE_VALUE written to .agent-task."""
     scope_label: str | None = None
     """Phase sub-label when *scope* is ``"phase"``."""
     scope_issue_number: int | None = None
@@ -359,7 +369,7 @@ class LabelDispatchResponse(BaseModel):
     """Successful label-dispatch response."""
 
     run_id: str
-    node_type: str
+    tier: str
     role: str
     label: str
     worktree: str
@@ -381,19 +391,16 @@ def _make_label_batch_id(label: str) -> str:
     return f"label-{slug}-{stamp}-{short}"
 
 
-def _role_and_node_type_for_scope(
+def _role_and_tier_for_scope(
     scope: Literal["full_initiative", "phase", "issue"],
     role_override: str | None,
-) -> tuple[str, NodeType]:
-    """Derive the effective role and node_type from the launch scope."""
-    if scope == "issue":
-        node_type: NodeType = "leaf"
-        default_role = "python-developer"
-    else:
-        node_type = "coordinator"
-        default_role = "cto" if scope == "full_initiative" else "engineering-coordinator"
+) -> tuple[str, Tier]:
+    """Derive the effective role and behavioral tier from the launch scope."""
+    default_role = "python-developer" if scope == "issue" else (
+        "cto" if scope == "full_initiative" else "engineering-coordinator"
+    )
     role = role_override.strip() if role_override and role_override.strip() else default_role
-    return role, node_type
+    return role, _tier_for_role(role)
 
 
 @router.post("/label", response_model=LabelDispatchResponse)
@@ -412,8 +419,8 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
         HTTPException 409: Worktree already exists.
         HTTPException 500: git worktree or .agent-task write failed.
     """
-    role, node_type = _role_and_node_type_for_scope(req.scope, req.role)
-    logical_tier = _logical_tier_for_role(role)
+    role, tier = _role_and_tier_for_scope(req.scope, req.role)
+    org_domain = _org_domain_for_role(role)
 
     if req.scope == "phase" and req.scope_label:
         scope_value = req.scope_label
@@ -426,8 +433,8 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
         scope_type = "label"
 
     logger.warning(
-        "🚀 dispatch-label: scope=%r role=%r node_type=%r scope_value=%r repo=%r",
-        req.scope, role, node_type, scope_value, req.repo,
+        "🚀 dispatch-label: scope=%r role=%r tier=%r scope_value=%r repo=%r",
+        req.scope, role, tier, scope_value, req.repo,
     )
 
     label_slug = _label_slug(req.label)
@@ -438,8 +445,8 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
     worktree_path = str(Path(settings.worktrees_dir) / run_id)
     host_worktree_path = str(Path(settings.host_worktrees_dir) / run_id)
     logger.warning(
-        "🚀 dispatch-label: run_id=%r node_type=%r logical_tier=%r",
-        run_id, node_type, logical_tier,
+        "🚀 dispatch-label: run_id=%r tier=%r org_domain=%r",
+        run_id, tier, org_domain,
     )
 
     if Path(worktree_path).exists():
@@ -460,21 +467,23 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
         logger.error("❌ dispatch-label: git worktree add failed — %s", err)
         raise HTTPException(status_code=500, detail=f"git worktree add failed: {err}")
 
-    logger.info("✅ dispatch-label: worktree %s for label %r node_type=%s", worktree_path, req.label, node_type)
+    logger.info("✅ dispatch-label: worktree %s for label %r tier=%s", worktree_path, req.label, tier)
 
     ac_url = settings.ac_url
     role_file = str(Path(settings.repo_dir) / ".agentception" / "roles" / f"{role}.md")
+    host_role_file = str(Path(settings.host_repo_dir) / ".agentception" / "roles" / f"{role}.md")
     label_cognitive_arch = _resolve_cognitive_arch("", role)
+    node_type = _tier_to_node_type(tier)
 
     parent_run_id_val = req.parent_run_id or ""
-    logical_tier_line = f"LOGICAL_TIER={logical_tier}\n" if logical_tier else ""
+    org_domain_line = f"ORG_DOMAIN={org_domain}\n" if org_domain else ""
     agent_task = (
         f"# AgentCeption agent briefing — generated by dispatch-label\n"
         f"# See docs/agent-tree-protocol.md for the full spec.\n\n"
         f"RUN_ID={run_id}\n"
         f"ROLE={role}\n"
-        f"NODE_TYPE={node_type}\n"
-        f"{logical_tier_line}"
+        f"TIER={tier}\n"
+        f"{org_domain_line}"
         f"SCOPE_TYPE={scope_type}\n"
         f"SCOPE_VALUE={scope_value}\n"
         f"INITIATIVE_LABEL={req.label}\n"
@@ -485,9 +494,10 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
         f"PARENT_RUN_ID={parent_run_id_val}\n"
         f"AC_URL={ac_url}\n"
         f"ROLE_FILE={role_file}\n"
+        f"HOST_ROLE_FILE={host_role_file}\n"
         f"COGNITIVE_ARCH={label_cognitive_arch}\n"
         f"\n"
-        f"# GitHub queries for this node (node_type={node_type}, scope_type={scope_type}):\n"
+        f"# GitHub queries for this node (tier={tier}, scope_type={scope_type}):\n"
     )
 
     if node_type == "coordinator":
@@ -525,15 +535,15 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
         batch_id=batch_id,
         host_worktree_path=host_worktree_path,
         cognitive_arch=label_cognitive_arch,
-        node_type=node_type,
-        logical_tier=logical_tier,
+        tier=tier,
+        org_domain=org_domain,
         parent_run_id=req.parent_run_id,
     )
     logger.warning("✅ dispatch-label: persist complete — run_id=%r is now pending_launch", run_id)
 
     return LabelDispatchResponse(
         run_id=run_id,
-        node_type=node_type,
+        tier=tier,
         role=role,
         label=req.label,
         worktree=worktree_path,

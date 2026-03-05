@@ -97,19 +97,34 @@ All API routes are prefixed `/api`.
 
 These drive Phase 1A (brain dump → draft) and Phase 1B (review → file issues).
 
-#### `POST /api/plan/preview`
+#### `POST /api/plan/draft` (Plan step 1.A)
 
-Generate a plan preview from a brain dump. Streams SSE events as Claude reasons.
+Accept plan text (brain dump), create a git worktree, and write an `.agent-task` file so a Cursor agent can produce the PlanSpec YAML. Returns immediately; completion is signalled asynchronously via **GET /events** (see below).
 
 **Body:** `application/json`
 ```json
+{ "text": "string" }
+```
+
+`text` must be non-empty and not whitespace-only (422 otherwise).
+
+**Response:** `200` JSON
+```json
 {
-  "brain_dump": "string",
-  "initiative": "string"
+  "draft_id": "uuid",
+  "task_file": "/path/to/worktree/.agent-task",
+  "output_path": "/path/to/worktree/.plan-output.yaml",
+  "status": "pending"
 }
 ```
 
-**Response:** `text/event-stream` — SSE events with `plan_draft_ready` payload on completion.
+**Completion:** Subscribe to **GET /events** (SSE). Each message is a JSON object: the current `PipelineState`. When the poller detects that the Cursor agent has written the file at `output_path`, it appends a **plan_draft_ready** entry to `state.plan_draft_events` for that tick. The entry has `event: "plan_draft_ready"`, `draft_id`, `yaml_text` (the generated YAML), and `output_path`. Match `draft_id` to the value returned by this POST. If the agent does not write the file within the server timeout, a **plan_draft_timeout** entry is emitted instead (same `draft_id`, empty `yaml_text`).
+
+#### `GET /events` (SSE — Plan step 1.A and dashboard)
+
+Streams the current `PipelineState` as Server-Sent Events (one JSON payload per poller tick, default ~5 s). Used by the Plan page to receive **plan_draft_ready** / **plan_draft_timeout** in `state.plan_draft_events` after calling **POST /api/plan/draft**, and by the overview/ship UIs for live agent and board updates.
+
+**Response:** `text/event-stream`. Each event has a `data` field containing the JSON-serialised `PipelineState` (including `plan_draft_events` for the plan flow).
 
 ---
 

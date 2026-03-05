@@ -338,10 +338,27 @@ async def test_merge_agents_implementing_status() -> None:
 
 
 @pytest.mark.anyio
-async def test_merge_agents_unknown_status() -> None:
-    """A worktree with no matching PR or WIP issue should be UNKNOWN."""
+async def test_merge_agents_implementing_when_issue_number_present() -> None:
+    """A worktree with an issue_number is IMPLEMENTING regardless of agent:wip label.
+
+    The worktree's existence is the authoritative signal — we no longer require
+    the agent:wip GitHub label because leaf agents may not have claimed the
+    issue by the time the first poller tick fires.
+    """
     worktrees = [_make_worktree(issue_number=30, branch="feat/issue-30")]
     agents = await merge_agents(worktrees, _empty_board())
+
+    assert len(agents) == 1
+    assert agents[0].status == AgentStatus.IMPLEMENTING
+
+
+@pytest.mark.anyio
+async def test_merge_agents_unknown_status() -> None:
+    """A worktree with no issue_number AND no PR AND no task name is UNKNOWN."""
+    # A TaskFile with no issue_number, no PR, and a generic task name — truly unknown.
+    wt = _make_worktree(issue_number=None, branch="feat/unknown-thing")
+    wt.task = None  # no task type to infer from
+    agents = await merge_agents([wt], _empty_board())
 
     assert len(agents) == 1
     assert agents[0].status == AgentStatus.UNKNOWN

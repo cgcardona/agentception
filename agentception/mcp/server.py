@@ -365,9 +365,9 @@ TOOLS: list[ACToolDef] = [
         description=(
             "Create a child agent node in the agent tree. "
             "Any coordinator agent calls this to atomically create a worktree, "
-            "write a .agent-task file with NODE_TYPE, COGNITIVE_ARCH, and full "
+            "write a .agent-task file with TIER, COGNITIVE_ARCH, and full "
             "lineage fields, register a DB record, and auto-acknowledge the run. "
-            "Returns {ok, run_id, host_worktree_path, node_type, role, "
+            "Returns {ok, run_id, host_worktree_path, tier, org_domain, role, "
             "cognitive_arch, agent_task_path, scope_type, scope_value}. "
             "After calling this tool, immediately fire a Task with the briefing: "
             "'Read your .agent-task at {host_worktree_path}/.agent-task and follow "
@@ -385,19 +385,20 @@ TOOLS: list[ACToolDef] = [
                     "type": "string",
                     "description": "Child role slug (e.g. 'engineering-coordinator', 'python-developer').",
                 },
-                "node_type": {
+                "tier": {
                     "type": "string",
-                    "enum": ["coordinator", "leaf"],
-                    "description": "'coordinator' if the child surveys a scope and spawns its own children; 'leaf' if it works one issue/PR.",
+                    "enum": ["executive", "coordinator", "engineer", "reviewer"],
+                    "description": "Behavioral execution tier. 'executive' = top-level initiative coordinator (CTO-level); 'coordinator' = domain/phase coordinator that spawns children; 'engineer' = leaf worker implementing one issue; 'reviewer' = leaf agent reviewing one PR.",
                 },
-                "logical_tier": {
+                "org_domain": {
                     "type": "string",
-                    "description": "Org domain for UI visualisation (e.g. 'qa', 'engineering', 'c-suite'). Pass 'qa' when chain-spawning a PR reviewer so the dashboard places it under the QA branch. Optional — omit or pass '' to leave unset.",
+                    "enum": ["c-suite", "engineering", "qa"],
+                    "description": "Organisational slot for UI hierarchy. Pass 'qa' when chain-spawning a PR reviewer so the dashboard places it under the QA column. Optional — omit to leave unset.",
                 },
                 "scope_type": {
                     "type": "string",
                     "enum": ["label", "issue", "pr"],
-                    "description": "'label' for coordinator nodes, 'issue' for leaf engineer nodes, 'pr' for leaf reviewer nodes.",
+                    "description": "'label' for coordinator nodes, 'issue' for engineer nodes, 'pr' for reviewer nodes.",
                 },
                 "scope_value": {
                     "type": "string",
@@ -431,7 +432,7 @@ TOOLS: list[ACToolDef] = [
                     ),
                 },
             },
-            "required": ["parent_run_id", "role", "node_type", "scope_type", "scope_value", "gh_repo"],
+            "required": ["parent_run_id", "role", "tier", "scope_type", "scope_value", "gh_repo"],
             "additionalProperties": False,
         },
     ),
@@ -722,20 +723,20 @@ async def call_tool_async(
     if name == "build_spawn_child":
         parent_run_id = arguments.get("parent_run_id")
         role = arguments.get("role")
-        node_type = arguments.get("node_type")
+        tier_arg = arguments.get("tier")
         scope_type = arguments.get("scope_type")
         scope_value = arguments.get("scope_value")
         gh_repo = arguments.get("gh_repo")
         if (
             not isinstance(parent_run_id, str)
             or not isinstance(role, str)
-            or not isinstance(node_type, str)
+            or not isinstance(tier_arg, str)
             or not isinstance(scope_type, str)
             or not isinstance(scope_value, str)
             or not isinstance(gh_repo, str)
         ):
             err_text = _tool_result_to_text(
-                {"error": "parent_run_id, role, node_type, scope_type, scope_value, gh_repo (strings) are required"}
+                {"error": "parent_run_id, role, tier, scope_type, scope_value, gh_repo (strings) are required"}
             )
             return ACToolResult(
                 content=[ACToolContent(type="text", text=err_text)],
@@ -745,8 +746,8 @@ async def call_tool_async(
         issue_body = str(issue_body_raw) if issue_body_raw else ""
         issue_title_raw = arguments.get("issue_title", "")
         issue_title = str(issue_title_raw) if issue_title_raw else ""
-        logical_tier_raw = arguments.get("logical_tier", "")
-        logical_tier = str(logical_tier_raw) if logical_tier_raw else ""
+        org_domain_raw = arguments.get("org_domain", "")
+        org_domain = str(org_domain_raw) if org_domain_raw else ""
         skills_raw = arguments.get("skills_hint")
         skills_hint: list[str] | None = None
         if isinstance(skills_raw, list):
@@ -756,11 +757,11 @@ async def call_tool_async(
         result = await build_spawn_child(
             parent_run_id=parent_run_id,
             role=role,
-            node_type=node_type,
+            tier=tier_arg,
             scope_type=scope_type,
             scope_value=scope_value,
             gh_repo=gh_repo,
-            logical_tier=logical_tier,
+            org_domain=org_domain,
             issue_body=issue_body,
             issue_title=issue_title,
             skills_hint=skills_hint,

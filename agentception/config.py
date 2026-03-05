@@ -86,6 +86,15 @@ class AgentCeptionSettings(BaseSettings):
     Set via ``HOST_WORKTREES_DIR`` in docker-compose.override.yml.
     """
     repo_dir: Path = Path.cwd()
+    host_repo_dir: Path = Path.cwd()
+    """Host-side path to the repository root.
+
+    Inside Docker, ``repo_dir`` is the container path (``/app``).
+    ``host_repo_dir`` is the corresponding path on the developer's machine
+    (e.g. ``/Users/alice/dev/myproject``), used to generate ``ROLE_FILE``
+    and ``HOST_ROLE_FILE`` paths that Cursor agents running on the host can
+    actually read.  Set via ``HOST_REPO_DIR`` in docker-compose or .env.
+    """
     gh_repo: str = "cgcardona/agentception"
 
     @property

@@ -181,6 +181,6 @@ def test_plan_page_done_state_has_batch_pill_and_build_link(client: TestClient) 
     assert "plan-done-batch" in resp.text
     assert "plan-done-batch-id" in resp.text
     assert "copyBatchId" in resp.text
-    # 'Open in Build →' anchor with correct URL pattern.
+    # 'Open in Build →' anchor — links to Ship page (/ship or /ship/{initiative}).
     assert "Open in Build" in resp.text
-    assert "/build?initiative=" in resp.text
+    assert "/ship" in resp.text
