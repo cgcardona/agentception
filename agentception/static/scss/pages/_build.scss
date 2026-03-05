@@ -348,6 +348,15 @@
     background: rgba(139, 92, 246, 0.07);
   }
 
+  // Has an associated agent run — stronger 2px ring on hover signals inspector linkage
+  &--has-run {
+    cursor: pointer;
+
+    &:hover {
+      box-shadow: var(--shadow-sm), 0 0 0 2px var(--accent);
+    }
+  }
+
   // Agent actively running — subtle pulse ring
   &--running {
     animation: build-agent-pulse 2.8s ease-in-out infinite;
