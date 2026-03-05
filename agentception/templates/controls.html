@@ -117,13 +117,13 @@
     {% endif %}
   </section>
 
-  {# ── 4. Trigger Poll Tick ────────────────────────────────────────────── #}
+  {# ── 4. Trigger Poll ─────────────────────────────────────────────────── #}
   <section class="controls-card" aria-labelledby="poll-heading">
     <div class="controls-card-icon">🔄</div>
     <h2 id="poll-heading" class="controls-card-title">Trigger Poll</h2>
     <p class="controls-card-desc">
-      Fire an immediate poller tick to refresh pipeline state from the
-      filesystem without waiting for the next scheduled interval.
+      Force an immediate pipeline sync from GitHub without waiting for the
+      next scheduled interval.
     </p>
     <div class="controls-card-actions" id="poll-zone">
       <button
@@ -132,7 +132,7 @@
         hx-target="#poll-result"
         hx-swap="innerHTML"
         hx-indicator="#poll-indicator"
-      >🔄 Trigger Poll</button>
+      >🔄 Sync Now</button>
       <span id="poll-indicator" class="htmx-indicator controls-spinner" aria-hidden="true">⏳</span>
     </div>
     <div id="poll-result" class="controls-poll-result"></div>
