@@ -44,5 +44,9 @@ logs/
 # Alembic
 alembic/versions/__pycache__/
 
+# Node
+node_modules/
+package-lock.json
+
 # Agent ephemeral briefing files — never committed
 .agent-task
