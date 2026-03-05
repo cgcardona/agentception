@@ -3,12 +3,12 @@ from __future__ import annotations
 """Tests for the logical_tier / parent_run_id lineage fields added in migration 0006.
 
 Covers:
-  - TaskFile parser picks up LOGICAL_TIER and PARENT_RUN_ID from .agent-task content.
+  - TaskFile parser picks up NODE_TYPE (and legacy LOGICAL_TIER) from .agent-task content.
   - AgentNode carries logical_tier and parent_run_id through from TaskFile.
   - PendingLaunchRow TypedDict includes both fields.
   - AgentRunRow TypedDict includes both fields.
   - Migration file 0006 exists and references the expected columns.
-  - dispatch-label .agent-task writer includes LOGICAL_TIER.
+  - dispatch-label .agent-task writer includes NODE_TYPE= (canonical field since PR1).
   - Regression: PARENT_RUN_ID empty string is normalised to None in the task parser.
 """
 
@@ -32,8 +32,23 @@ def _make_task_file(fields: dict[str, str], tmp_path: Path) -> TaskFile:
     return _build_task_file(fields, tmp_path)
 
 
-def test_task_file_parses_logical_tier(tmp_path: Path) -> None:
-    """_build_task_file extracts LOGICAL_TIER into TaskFile.logical_tier."""
+def test_task_file_parses_node_type(tmp_path: Path) -> None:
+    """_build_task_file extracts NODE_TYPE into TaskFile.logical_tier (canonical field)."""
+    tf = _make_task_file(
+        {
+            "WORKFLOW": "pr-review",
+            "ROLE": "pr-reviewer",
+            "NODE_TYPE": "leaf",
+            "PARENT_RUN_ID": "issue-42",
+        },
+        tmp_path,
+    )
+    assert tf.logical_tier == "leaf"
+    assert tf.parent_run_id == "issue-42"
+
+
+def test_task_file_parses_legacy_logical_tier(tmp_path: Path) -> None:
+    """_build_task_file falls back to LOGICAL_TIER when NODE_TYPE is absent (legacy compat)."""
     tf = _make_task_file(
         {
             "WORKFLOW": "pr-review",
@@ -63,7 +78,7 @@ def test_task_file_empty_parent_run_id_is_none(tmp_path: Path) -> None:
         {
             "WORKFLOW": "pr-review",
             "ROLE": "pr-reviewer",
-            "LOGICAL_TIER": "reviewer",
+            "NODE_TYPE": "leaf",
             "PARENT_RUN_ID": "",
         },
         tmp_path,
@@ -72,13 +87,13 @@ def test_task_file_empty_parent_run_id_is_none(tmp_path: Path) -> None:
     assert tf.parent_run_id is None
 
 
-def test_task_file_executive_tier(tmp_path: Path) -> None:
-    """_build_task_file handles LOGICAL_TIER=executive correctly."""
+def test_task_file_coordinator_node_type(tmp_path: Path) -> None:
+    """_build_task_file handles NODE_TYPE=coordinator correctly (CTO is a coordinator)."""
     tf = _make_task_file(
-        {"RUN_ID": "label-ac-ui-0-critical-a1b2", "ROLE": "cto", "LOGICAL_TIER": "executive"},
+        {"RUN_ID": "label-ac-ui-0-critical-a1b2", "ROLE": "cto", "NODE_TYPE": "coordinator"},
         tmp_path,
     )
-    assert tf.logical_tier == "executive"
+    assert tf.logical_tier == "coordinator"
 
 
 # ---------------------------------------------------------------------------
@@ -190,41 +205,43 @@ def test_migration_0006_has_downgrade() -> None:
 
 
 # ---------------------------------------------------------------------------
-# .agent-task writer — LOGICAL_TIER in dispatch-label output
+# .agent-task writer — NODE_TYPE in dispatch-label output
 # ---------------------------------------------------------------------------
 
 
-def test_dispatch_label_agent_task_contains_logical_tier() -> None:
-    """The .agent-task file written by dispatch-label includes LOGICAL_TIER=<tier>."""
-    # Verify the source code constructs the LOGICAL_TIER line.
+def test_dispatch_label_agent_task_contains_node_type() -> None:
+    """The .agent-task file written by dispatch-label includes NODE_TYPE= (canonical since PR1)."""
     source_path = (
         Path(__file__).parent.parent / "routes" / "api" / "build.py"
     )
     source = source_path.read_text()
-    assert "LOGICAL_TIER=" in source, (
-        "dispatch_label_agent should write LOGICAL_TIER to the .agent-task file"
+    assert "NODE_TYPE=" in source, (
+        "dispatch_label_agent should write NODE_TYPE to the .agent-task file"
+    )
+    # The deprecated LOGICAL_TIER= field must not appear in the build.py writer.
+    assert "LOGICAL_TIER=" not in source, (
+        "dispatch_label_agent must not write the deprecated LOGICAL_TIER field"
     )
 
 
 # ---------------------------------------------------------------------------
-# Engineering-coordinator role — reviewer .agent-task includes LOGICAL_TIER
+# Engineering-coordinator role — reviewer .agent-task includes NODE_TYPE=leaf
 # ---------------------------------------------------------------------------
 
 
-def test_engineering_coordinator_reviewer_task_has_logical_tier() -> None:
-    """The reviewer .agent-task written by engineering-coordinator STEP 6 sets LOGICAL_TIER=reviewer."""
+def test_engineering_coordinator_reviewer_task_has_node_type_leaf() -> None:
+    """The reviewer .agent-task heredoc in engineering-coordinator sets NODE_TYPE=leaf."""
     role_path = (
         Path(__file__).parent.parent.parent
         / ".agentception" / "roles" / "engineering-coordinator.md"
     )
     assert role_path.exists(), f"Role file missing: {role_path}"
     content = role_path.read_text()
-    # LOGICAL_TIER=reviewer must appear inside the heredoc for the reviewer .agent-task
-    assert re.search(r"LOGICAL_TIER=reviewer", content), (
-        "engineering-coordinator STEP 6 must write LOGICAL_TIER=reviewer to reviewer .agent-task"
+    assert re.search(r"NODE_TYPE=leaf", content), (
+        "engineering-coordinator reviewer heredoc must write NODE_TYPE=leaf"
     )
     assert re.search(r"PARENT_RUN_ID=\$\{RUN_ID", content), (
-        "engineering-coordinator STEP 6 must write PARENT_RUN_ID=${RUN_ID:-} to reviewer .agent-task"
+        "engineering-coordinator reviewer heredoc must write PARENT_RUN_ID=${RUN_ID:-}"
     )
 
 

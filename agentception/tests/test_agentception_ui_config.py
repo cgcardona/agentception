@@ -36,9 +36,8 @@ def client() -> Generator[TestClient, None, None]:
 _DEFAULT_CONFIG = PipelineConfig.model_validate(_DEFAULTS)
 
 _CUSTOM_CONFIG = PipelineConfig(
-    max_eng_vps=3,
-    max_qa_vps=2,
-    pool_size_per_vp=6,
+    coordinator_limits={"engineering-coordinator": 3, "qa-coordinator": 2},
+    pool_size=6,
     active_labels_order=[
         "agentception/0-scaffold",
         "agentception/1-controls",
@@ -94,19 +93,18 @@ def test_config_page_shows_current_values(client: TestClient) -> None:
     body = response.text
     # The page must invoke configPanel via x-data (function defined in app.js).
     assert "configPanel(" in body
-    # Sliders must be present.
-    assert 'id="slider-eng-vps"' in body
-    assert 'id="slider-qa-vps"' in body
+    # Pool size slider must be present.
     assert 'id="slider-pool-size"' in body
+    # Dynamic coordinator sliders are rendered via Alpine x-for — verify the template element.
+    assert "coordinator_limits" in body
     # Label editor must be present.
     assert "label-list" in body
     # Save button must be present.
     assert "btn-save-config" in body
     # SSR hydration — custom config values must appear in the initial JS state
     # so the page reflects current settings before Alpine.js fetches the API.
-    assert '"max_eng_vps": 3' in body
-    assert '"max_qa_vps": 2' in body
-    assert '"pool_size_per_vp": 6' in body
+    assert '"coordinator_limits"' in body
+    assert '"pool_size"' in body
 
 
 def test_config_page_contains_api_put_endpoint(client: TestClient) -> None:
@@ -154,9 +152,8 @@ def test_config_page_nav_link_active(client: TestClient) -> None:
 def test_config_save_calls_put_api_valid_payload(client: TestClient) -> None:
     """PUT /api/config validates a correct payload and returns the saved config."""
     payload = {
-        "max_eng_vps": 2,
-        "max_qa_vps": 1,
-        "pool_size_per_vp": 5,
+        "coordinator_limits": {"engineering-coordinator": 2, "qa-coordinator": 1},
+        "pool_size": 5,
         "active_labels_order": ["agentception/0-scaffold", "agentception/1-controls"],
     }
     saved = PipelineConfig.model_validate(payload)
@@ -169,23 +166,22 @@ def test_config_save_calls_put_api_valid_payload(client: TestClient) -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["max_eng_vps"] == 2
-    assert body["pool_size_per_vp"] == 5
+    assert body["coordinator_limits"] == {"engineering-coordinator": 2, "qa-coordinator": 1}
+    assert body["pool_size"] == 5
     assert body["active_labels_order"] == ["agentception/0-scaffold", "agentception/1-controls"]
 
 
 def test_config_save_calls_put_api_rejects_bad_payload(client: TestClient) -> None:
     """PUT /api/config returns 422 when required fields are missing."""
-    response = client.put("/api/config", json={"max_eng_vps": 2})
+    response = client.put("/api/config", json={"coordinator_limits": {"engineering-coordinator": 2}})
     assert response.status_code == 422
 
 
 def test_config_save_calls_put_api_slider_ranges(client: TestClient) -> None:
     """PUT /api/config accepts integer values matching slider ranges (1-4 for VPs, 1-8 pool)."""
     payload = {
-        "max_eng_vps": 4,
-        "max_qa_vps": 4,
-        "pool_size_per_vp": 8,
+        "coordinator_limits": {"engineering-coordinator": 4, "qa-coordinator": 4},
+        "pool_size": 8,
         "active_labels_order": [],
     }
     saved = PipelineConfig.model_validate(payload)
@@ -197,8 +193,8 @@ def test_config_save_calls_put_api_slider_ranges(client: TestClient) -> None:
         response = client.put("/api/config", json=payload)
 
     assert response.status_code == 200
-    assert response.json()["max_eng_vps"] == 4
-    assert response.json()["pool_size_per_vp"] == 8
+    assert response.json()["coordinator_limits"] == {"engineering-coordinator": 4, "qa-coordinator": 4}
+    assert response.json()["pool_size"] == 8
 
 
 # ---------------------------------------------------------------------------
