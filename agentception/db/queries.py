@@ -1122,6 +1122,80 @@ def _label_matches_patterns(label: str, patterns: list[str]) -> bool:
     return any(fnmatch.fnmatch(label, pat) for pat in patterns)
 
 
+class PhaseSummary(TypedDict):
+    """A phase sub-label and its open-issue count, for the launch modal picker."""
+
+    label: str
+    count: int
+
+
+class IssueSummary(TypedDict):
+    """A minimal open-issue descriptor, for the launch modal single-issue picker."""
+
+    number: int
+    title: str
+
+
+class LabelContext(TypedDict):
+    """Data package returned by ``get_label_context`` to populate the launch modal."""
+
+    phases: list[PhaseSummary]
+    issues: list[IssueSummary]
+
+
+async def get_label_context(repo: str, initiative_label: str) -> LabelContext:
+    """Return phases and open issues for *initiative_label*, for the launch modal.
+
+    *phases* — distinct sub-labels of the form ``<initiative>/<slug>`` that
+    appear on at least one open issue, sorted by label name.
+
+    *issues* — all open issues that carry *initiative_label* directly (i.e. the
+    top-level label, not a sub-phase label), sorted by issue number ascending.
+
+    Falls back to empty lists on DB error so the modal still opens gracefully.
+    """
+    phase_prefix = initiative_label + "/"
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(
+                    ACIssue.github_number,
+                    ACIssue.title,
+                    ACIssue.labels_json,
+                    ACIssue.state,
+                ).where(ACIssue.repo == repo, ACIssue.state == "open")
+            )
+            rows = result.all()
+
+        phase_counts: dict[str, int] = {}
+        issues: list[IssueSummary] = []
+
+        for number, title, labels_json_str, _state in rows:
+            labels: list[str] = json.loads(labels_json_str or "[]")
+            has_initiative = initiative_label in labels
+
+            # Collect phase sub-labels (e.g. "ac-workflow/5-plan-step-v2")
+            for lbl in labels:
+                if lbl.startswith(phase_prefix):
+                    phase_counts[lbl] = phase_counts.get(lbl, 0) + 1
+
+            # Collect issues directly tagged with the top-level initiative label
+            if has_initiative:
+                issues.append(IssueSummary(number=number, title=title or ""))
+
+        phases: list[PhaseSummary] = sorted(
+            [PhaseSummary(label=lbl, count=cnt) for lbl, cnt in phase_counts.items()],
+            key=lambda p: p["label"],
+        )
+        issues.sort(key=lambda i: i["number"])
+
+        return LabelContext(phases=phases, issues=issues)
+
+    except Exception as exc:
+        logger.warning("⚠️  get_label_context failed (non-fatal): %s", exc)
+        return LabelContext(phases=[], issues=[])
+
+
 async def get_initiatives(
     repo: str,
     initiative_patterns: list[str] | None = None,

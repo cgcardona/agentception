@@ -33,7 +33,11 @@ from typing import Literal
 
 from agentception.config import settings
 from agentception.db.persist import acknowledge_agent_run, persist_agent_event, persist_agent_run_dispatch
-from agentception.db.queries import get_agent_run_teardown, get_pending_launches
+from agentception.db.queries import (
+    get_agent_run_teardown,
+    get_label_context,
+    get_pending_launches,
+)
 from agentception.mcp.plan_advance_phase import plan_advance_phase as _plan_advance_phase
 from agentception.routes.api._shared import _resolve_cognitive_arch
 from agentception.services.spawn_child import (
@@ -280,12 +284,34 @@ def _logical_tier_for_role(role: str) -> str | None:
 
 
 class LabelDispatchRequest(BaseModel):
-    """Request body for ``POST /api/build/dispatch-label``."""
+    """Request body for ``POST /api/build/dispatch-label``.
+
+    *scope* is the primary selector:
+
+    - ``"full_initiative"`` — a coordinator agent surveys every open ticket
+      under *label* and assembles its own child team.  ``node_type`` is
+      ``"coordinator"``.
+    - ``"phase"`` — a coordinator handles just one phase sub-label; supply
+      *scope_label* with the sub-label string.  ``node_type`` is
+      ``"coordinator"``.
+    - ``"issue"`` — a single leaf agent works on one issue; supply
+      *scope_issue_number*.  ``node_type`` is ``"leaf"``.
+
+    *role* is optional.  When omitted the server derives a sensible default
+    (``cto`` for ``full_initiative``, ``engineering-coordinator`` for
+    ``phase``, and ``python-developer`` for ``issue``).
+    """
 
     label: str
-    """GitHub label string, e.g. ``AC-UI/0-CRITICAL-BUGS``."""
-    role: str = "cto"
-    """Entry role. Defaults to ``cto`` (root of the tree)."""
+    """Initiative label string, e.g. ``ac-workflow``."""
+    scope: Literal["full_initiative", "phase", "issue"] = "full_initiative"
+    """Determines the node_type and SCOPE_VALUE written to .agent-task."""
+    scope_label: str | None = None
+    """Phase sub-label when *scope* is ``"phase"``."""
+    scope_issue_number: int | None = None
+    """Issue number when *scope* is ``"issue"``."""
+    role: str | None = None
+    """Entry role override.  Derived from *scope* when omitted."""
     repo: str
     """``owner/repo`` string."""
     parent_run_id: str | None = None
@@ -318,28 +344,105 @@ def _make_label_batch_id(label: str) -> str:
     return f"label-{slug}-{stamp}-{short}"
 
 
+def _role_and_node_type_for_scope(
+    scope: Literal["full_initiative", "phase", "issue"],
+    role_override: str | None,
+) -> tuple[str, NodeType]:
+    """Derive the effective role and node_type from the launch scope.
+
+    The scope is the primary structural signal — it determines ``node_type``
+    first.  The role is inferred from scope when *role_override* is absent.
+    """
+    if scope == "issue":
+        node_type: NodeType = "leaf"
+        default_role = "python-developer"
+    else:
+        # full_initiative or phase → always a coordinator
+        node_type = "coordinator"
+        default_role = "cto" if scope == "full_initiative" else "engineering-coordinator"
+    role = role_override.strip() if role_override and role_override.strip() else default_role
+    return role, node_type
+
+
+class PhaseSummaryItem(BaseModel):
+    """One phase sub-label and its open-issue count, for the launch modal picker."""
+
+    label: str
+    count: int
+
+
+class IssueSummaryItem(BaseModel):
+    """A minimal open-issue descriptor for the launch modal single-ticket picker."""
+
+    number: int
+    title: str
+
+
+class LabelContextResponse(BaseModel):
+    """Response shape for ``GET /api/build/label-context``."""
+
+    phases: list[PhaseSummaryItem]
+    issues: list[IssueSummaryItem]
+
+
+@router.get("/label-context", response_model=LabelContextResponse)
+async def get_label_context_route(
+    label: str,
+    repo: str,
+) -> LabelContextResponse:
+    """Return phases and open issues for *label* so the Launch modal can populate pickers.
+
+    Response shape::
+
+        {
+          "phases": [{"label": "ac-workflow/5-plan-step-v2", "count": 3}, ...],
+          "issues": [{"number": 108, "title": "..."}, ...]
+        }
+
+    Falls back to empty lists when the initiative has no recorded data yet.
+    """
+    ctx = await get_label_context(repo=repo, initiative_label=label)
+    return LabelContextResponse(
+        phases=[PhaseSummaryItem(label=p["label"], count=p["count"]) for p in ctx["phases"]],
+        issues=[IssueSummaryItem(number=i["number"], title=i["title"]) for i in ctx["issues"]],
+    )
+
+
 @router.post("/dispatch-label", response_model=LabelDispatchResponse)
 async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchResponse:
-    """Launch a manager or root agent scoped to a GitHub label.
+    """Launch an agent scoped to a GitHub label (initiative or phase) or a single issue.
 
-    Unlike ``/dispatch`` (which is tied to a single issue), this endpoint
-    creates an agent whose SCOPE_TYPE is ``label``.  The agent's role file
-    and tier determine how it surveys GitHub and which children it spawns —
-    see ``agentception/docs/agent-tree-protocol.md``.
+    *scope* drives the structural classification:
 
-    A worktree is still created so the agent has an isolated checkout to
-    run ``gh`` and ``git`` commands from without touching the main repo.
+    - ``"full_initiative"`` → coordinator, surveys all tickets, spawns child team.
+    - ``"phase"`` → coordinator, owns one phase sub-label only.
+    - ``"issue"`` → leaf, works on a single ticket.
+
+    A worktree is always created so the agent runs in an isolated checkout.
 
     Raises:
         HTTPException 409: Worktree already exists.
         HTTPException 500: git worktree or .agent-task write failed.
     """
+    role, node_type = _role_and_node_type_for_scope(req.scope, req.role)
+    logical_tier = _logical_tier_for_role(role)
+
+    # The effective scope label/value written to .agent-task
+    if req.scope == "phase" and req.scope_label:
+        scope_value = req.scope_label
+        scope_type = "label"
+    elif req.scope == "issue" and req.scope_issue_number is not None:
+        scope_value = str(req.scope_issue_number)
+        scope_type = "issue"
+    else:
+        scope_value = req.label
+        scope_type = "label"
+
     logger.warning(
-        "🚀 dispatch-label: received request label=%r role=%r repo=%r",
-        req.label, req.role, req.repo,
+        "🚀 dispatch-label: scope=%r role=%r node_type=%r scope_value=%r repo=%r",
+        req.scope, role, node_type, scope_value, req.repo,
     )
-    node_type = _node_type_for_role(req.role)
-    logical_tier = _logical_tier_for_role(req.role)
+
     label_slug = _label_slug(req.label)
     batch_id = _make_label_batch_id(req.label)
     run_id = f"label-{label_slug}-{uuid.uuid4().hex[:6]}"
@@ -373,9 +476,8 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
     logger.info("✅ dispatch-label: worktree %s for label %r node_type=%s", worktree_path, req.label, node_type)
 
     ac_url = settings.ac_url
-    role_file = str(Path(settings.repo_dir) / ".agentception" / "roles" / f"{req.role}.md")
-    # Label-scoped agents have no issue body to parse — derive arch from role only.
-    label_cognitive_arch = _resolve_cognitive_arch("", req.role)
+    role_file = str(Path(settings.repo_dir) / ".agentception" / "roles" / f"{role}.md")
+    label_cognitive_arch = _resolve_cognitive_arch("", role)
 
     parent_run_id_val = req.parent_run_id or ""
     logical_tier_line = f"LOGICAL_TIER={logical_tier}\n" if logical_tier else ""
@@ -383,11 +485,12 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
         f"# AgentCeption agent briefing — generated by dispatch-label\n"
         f"# See agentception/docs/agent-tree-protocol.md for the full spec.\n\n"
         f"RUN_ID={run_id}\n"
-        f"ROLE={req.role}\n"
+        f"ROLE={role}\n"
         f"NODE_TYPE={node_type}\n"
         f"{logical_tier_line}"
-        f"SCOPE_TYPE=label\n"
-        f"SCOPE_VALUE={req.label}\n"
+        f"SCOPE_TYPE={scope_type}\n"
+        f"SCOPE_VALUE={scope_value}\n"
+        f"INITIATIVE_LABEL={req.label}\n"
         f"GH_REPO={req.repo}\n"
         f"BRANCH={branch}\n"
         f"WORKTREE={host_worktree_path}\n"
@@ -397,12 +500,12 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
         f"ROLE_FILE={role_file}\n"
         f"COGNITIVE_ARCH={label_cognitive_arch}\n"
         f"\n"
-        f"# GitHub queries for this node (node_type={node_type}, scope_type=label):\n"
+        f"# GitHub queries for this node (node_type={node_type}, scope_type={scope_type}):\n"
     )
 
     if node_type == "coordinator":
         agent_task += (
-            f"# gh issue list --repo {req.repo} --label '{req.label}' --state open --json number,title,labels --limit 200\n"
+            f"# gh issue list --repo {req.repo} --label '{scope_value}' --state open --json number,title,labels --limit 200\n"
             f"# gh pr list --repo {req.repo} --base dev --state open --json number,title,headRefName --limit 200\n"
         )
 
@@ -428,8 +531,8 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
     )
     await persist_agent_run_dispatch(
         run_id=run_id,
-        issue_number=0,          # no single issue — label-scoped
-        role=req.role,
+        issue_number=req.scope_issue_number if (req.scope == "issue" and req.scope_issue_number is not None) else 0,
+        role=role,
         branch=branch,
         worktree_path=worktree_path,
         batch_id=batch_id,
@@ -444,7 +547,7 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
     return LabelDispatchResponse(
         run_id=run_id,
         node_type=node_type,
-        role=req.role,
+        role=role,
         label=req.label,
         worktree=worktree_path,
         host_worktree=host_worktree_path,

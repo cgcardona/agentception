@@ -201,65 +201,149 @@
     </div>
   </div>
 
-  {# ── label-dispatch modal (phase-level / manager launch) ─────────────── #}
-  <div class="build-modal-backdrop" x-show="labelDispatchOpen" x-transition @click.self="labelDispatchOpen = false">
-    <div class="build-modal" @click.stop>
+  {# ── launch modal — scope-based agent wave launch ─────────────────────── #}
+  <div class="build-modal-backdrop" x-show="labelDispatchOpen" x-transition @click.self="closeLabelDispatch()">
+    <div class="build-modal build-modal--launch" @click.stop>
 
       <div class="build-modal__header">
-        <h3 class="build-modal__title">Launch agent tree</h3>
-        <button class="build-modal__close" @click="labelDispatchOpen = false">✕</button>
+        <h3 class="build-modal__title">Launch agent wave</h3>
+        <button class="build-modal__close" @click="closeLabelDispatch()">✕</button>
       </div>
 
       <div class="build-modal__body">
+
+        {# Initiative badge #}
         <p class="build-modal__issue-label">
-          <strong>Label: </strong>
+          <strong>Initiative:</strong>
           <span class="build-modal__label-badge" x-text="labelDispatchLabel"></span>
         </p>
 
-        <label class="build-modal__label">Entry point (tier)</label>
-        <div class="build-modal__tier-list">
-          <template x-for="(opt, idx) in labelDispatchTiers" :key="opt.role">
-            <label class="build-modal__tier-opt" :class="{ 'build-modal__tier-opt--active': labelDispatchTierIdx === idx }">
-              <input type="radio" name="labelDispatchTier" :value="idx" x-model.number="labelDispatchTierIdx" />
-              <span x-text="opt.label"></span>
-            </label>
-          </template>
-        </div>
+        {# Scope selector #}
+        <fieldset class="launch-scope" :class="{ 'launch-scope--loading': labelContextLoading }">
+          <legend class="launch-scope__legend">How much should this wave handle?</legend>
 
+          {# Full initiative #}
+          <label class="launch-scope__opt" :class="{ 'launch-scope__opt--active': scopeMode === 'full_initiative' }">
+            <input type="radio" name="launchScope" value="full_initiative" x-model="scopeMode" />
+            <span class="launch-scope__icon">🌳</span>
+            <span class="launch-scope__text">
+              <strong>Full initiative</strong>
+              <span class="launch-scope__sub">A coordinator surveys all open tickets and assembles its own team</span>
+            </span>
+            <span class="launch-scope__badge launch-scope__badge--coordinator">coordinator</span>
+          </label>
+
+          {# Phase scope #}
+          <label class="launch-scope__opt" :class="{ 'launch-scope__opt--active': scopeMode === 'phase' }">
+            <input type="radio" name="launchScope" value="phase" x-model="scopeMode" />
+            <span class="launch-scope__icon">📁</span>
+            <span class="launch-scope__text">
+              <strong>One phase</strong>
+              <span class="launch-scope__sub">A coordinator owns just the tickets in one phase</span>
+            </span>
+            <span class="launch-scope__badge launch-scope__badge--coordinator">coordinator</span>
+          </label>
+
+          {# Phase picker #}
+          <div class="launch-scope__picker" x-show="scopeMode === 'phase'" x-transition>
+            <template x-if="scopePhases.length === 0 && !labelContextLoading">
+              <p class="launch-scope__empty">No phases found for this initiative yet.</p>
+            </template>
+            <template x-if="scopePhases.length > 0">
+              <select x-model="selectedPhase" class="build-modal__select">
+                <option value="">Choose a phase…</option>
+                <template x-for="p in scopePhases" :key="p.label">
+                  <option :value="p.label" x-text="p.label + ' (' + p.count + ' open)'"></option>
+                </template>
+              </select>
+            </template>
+          </div>
+
+          {# Single issue scope #}
+          <label class="launch-scope__opt" :class="{ 'launch-scope__opt--active': scopeMode === 'issue' }">
+            <input type="radio" name="launchScope" value="issue" x-model="scopeMode" />
+            <span class="launch-scope__icon">📋</span>
+            <span class="launch-scope__text">
+              <strong>One ticket</strong>
+              <span class="launch-scope__sub">A single leaf agent works on this specific issue</span>
+            </span>
+            <span class="launch-scope__badge launch-scope__badge--leaf">leaf</span>
+          </label>
+
+          {# Issue picker #}
+          <div class="launch-scope__picker" x-show="scopeMode === 'issue'" x-transition>
+            <template x-if="scopeIssues.length === 0 && !labelContextLoading">
+              <p class="launch-scope__empty">No open issues found for this initiative yet.</p>
+            </template>
+            <template x-if="scopeIssues.length > 0">
+              <select x-model.number="selectedIssueNumber" class="build-modal__select">
+                <option value="">Choose a ticket…</option>
+                <template x-for="i in scopeIssues" :key="i.number">
+                  <option :value="i.number" x-text="'#' + i.number + ' · ' + i.title"></option>
+                </template>
+              </select>
+            </template>
+          </div>
+        </fieldset>
+
+        {# Live preview line #}
+        <p class="launch-preview" x-show="launchPreviewText" x-text="launchPreviewText"></p>
+
+        {# Advanced section #}
+        <details class="launch-advanced" :open="showAdvanced" @toggle="showAdvanced = $event.target.open">
+          <summary class="launch-advanced__toggle">Advanced</summary>
+          <div class="launch-advanced__body">
+            <label class="build-modal__label" for="launchRoleOverride">Role override</label>
+            <input id="launchRoleOverride"
+                   type="text"
+                   class="launch-advanced__input"
+                   x-model="advancedRole"
+                   placeholder="e.g. cto, engineering-coordinator, python-developer" />
+            <p class="launch-advanced__hint">
+              Leave blank to use the default for the chosen scope.
+              Full initiative → <code>cto</code> · Phase → <code>engineering-coordinator</code> · Ticket → <code>python-developer</code>
+            </p>
+          </div>
+        </details>
+
+        {# Error #}
         <template x-if="labelDispatchError">
           <p class="build-modal__error" x-text="labelDispatchError"></p>
         </template>
 
+        {# Success #}
         <template x-if="labelDispatchSuccess">
           <div class="build-modal__success">
             <p>⏳ Queued for launch</p>
             <p class="build-modal__success-hint">
               Run ID: <code x-text="labelDispatchResult.run_id ?? ''"></code>
+              &nbsp;·&nbsp;
+              Node: <code x-text="labelDispatchResult.node_type ?? ''"></code>
+              &nbsp;·&nbsp;
+              Role: <code x-text="labelDispatchResult.role ?? ''"></code>
             </p>
             <p class="build-modal__success-hint" style="margin-top:0.5rem">
-              To launch the agent tree, copy the Dispatcher prompt and paste it
-              into a <strong>new Cursor chat</strong>:
+              Paste the <strong>Dispatcher prompt</strong> into a new Cursor chat to start the agent:
             </p>
             <button class="build-modal__copy-btn"
                     @click="copyDispatcherPrompt()"
                     x-text="dispatcherCopied ? '✅ Copied!' : '📋 Copy Dispatcher Prompt'">
             </button>
-            <p class="build-modal__success-hint" style="opacity:0.55;font-size:0.7rem">
-              Prompt lives at <code>.agentception/dispatcher.md</code>
-            </p>
           </div>
         </template>
+
       </div>
 
       <div class="build-modal__footer">
-        <button class="btn btn-secondary" @click="labelDispatchOpen = false">Cancel</button>
+        <button class="btn btn-secondary" @click="closeLabelDispatch()">Cancel</button>
         <button class="btn btn-primary"
-                :disabled="labelDispatching || labelDispatchSuccess"
+                :disabled="!launchReady || labelDispatching || labelDispatchSuccess"
                 @click="submitLabelDispatch()">
           <span x-show="!labelDispatching">Launch →</span>
           <span x-show="labelDispatching">Queuing…</span>
         </button>
       </div>
+
     </div>
   </div>
 
