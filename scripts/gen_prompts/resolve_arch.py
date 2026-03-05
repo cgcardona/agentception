@@ -397,7 +397,7 @@ def render_fingerprint(
     session: str,
     batch: str,
     wave: str,
-    vp: str,
+    coordinator: str,
     started_at: str = "",
 ) -> str:
     """Render the canonical agent fingerprint as a collapsible GitHub markdown block.
@@ -405,11 +405,11 @@ def render_fingerprint(
     This is the single source of truth for fingerprint format. All agents call
     this and embed the output verbatim — same block, same format, everywhere.
 
-    Every fingerprint shows the full three-tier chain:
+    Every fingerprint shows the full lineage chain:
       Role + Architecture (who the agent is)
       CTO Wave (which wave the CTO dispatched)
-      VP Batch (which batch the VP assembled)
-      VP (which VP identity spawned this agent)
+      Coordinator Batch (which batch the coordinator assembled)
+      Coordinator (which coordinator identity spawned this agent)
       Timestamp (when this fingerprint was written — always present)
 
     Pass started_at (ISO-8601 string) to use a specific timestamp; otherwise
@@ -425,8 +425,8 @@ def render_fingerprint(
         f"| **Architecture** | `{arch_display}` |",
         f"| **Session** | `{session}` |",
         f"| **CTO Wave** | `{wave}` |",
-        f"| **VP Batch** | `{batch}` |",
-        f"| **VP** | `{vp}` |",
+        f"| **Coordinator Batch** | `{batch}` |",
+        f"| **Coordinator** | `{coordinator}` |",
         f"| **Timestamp** | `{timestamp}` |",
     ]
 
@@ -466,9 +466,9 @@ def main() -> None:
     )
     parser.add_argument("--role", default="unset", help="Agent role for fingerprint.")
     parser.add_argument("--session", default="unset", help="Agent session ID for fingerprint.")
-    parser.add_argument("--batch", default="none", help="VP batch ID for fingerprint.")
+    parser.add_argument("--batch", default="none", help="Coordinator batch ID for fingerprint.")
     parser.add_argument("--wave", default="unset", help="CTO wave ID for fingerprint.")
-    parser.add_argument("--vp", default="unset", help="VP fingerprint string.")
+    parser.add_argument("--coordinator", default="unset", help="Coordinator fingerprint string.")
     parser.add_argument("--started-at", default="", help="ISO-8601 start timestamp (reviewer context).")
     args = parser.parse_args()
 
@@ -479,7 +479,7 @@ def main() -> None:
             session=args.session,
             batch=args.batch,
             wave=args.wave,
-            vp=args.vp,
+            coordinator=args.coordinator,
             started_at=args.started_at,
         ))
         return

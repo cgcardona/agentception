@@ -451,7 +451,7 @@ $(gh pr list --repo "$GH_REPO" --state open \
       --session "${AGENT_SESSION:-unset}" \
       --batch "${BATCH_ID:-none}" \
       --wave "${WAVE:-unset}" \
-      --vp "none" \
+      --coordinator "none" \
       --started-at "$CONDUCTOR_CREATED_AT" 2>/dev/null)
     if [ -z "$CONDUCTOR_FINGERPRINT" ]; then
       CONDUCTOR_FINGERPRINT="<details>
@@ -463,8 +463,8 @@ $(gh pr list --repo "$GH_REPO" --state open \
 | **Architecture** | \`${COGNITIVE_ARCH:-unset}\` |
 | **Session** | \`${AGENT_SESSION:-unset}\` |
 | **CTO Wave** | \`${WAVE:-unset}\` |
-| **VP Batch** | \`${BATCH_ID:-none}\` |
-| **VP** | \`none\` |
+| **Coordinator Batch** | \`${BATCH_ID:-none}\` |
+| **Coordinator** | \`none\` |
 | **Timestamp** | \`$CONDUCTOR_CREATED_AT\` |
 
 </details>"
