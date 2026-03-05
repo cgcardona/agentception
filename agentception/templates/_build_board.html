@@ -24,6 +24,17 @@
     {% if group.locked %}
     <span class="build-phase__gate">locked</span>
     {% endif %}
+    {% if group.locked and loop.previtem is defined and loop.previtem.complete and initiative %}
+    <button class="build-phase__advance-btn"
+            hx-post="/api/build/advance-phase"
+            hx-vals='{"initiative": {{ initiative | tojson }}, "from_phase": {{ loop.previtem.label | tojson }}, "to_phase": {{ group.label | tojson }}}'
+            hx-target="#build-board"
+            hx-swap="innerHTML"
+            hx-indicator=".build-phase__advance-btn--loading"
+            @click.stop>
+      Advance to {{ group.label }}
+    </button>
+    {% endif %}
     {% if not group.locked and group.issues and initiative %}
     <button class="build-phase__launch-btn"
             @click.stop='$dispatch("open-label-dispatch", { label: {{ initiative | tojson }} })'>
