@@ -45,7 +45,7 @@ ROLE_DEFAULT_FIGURE: dict[str, str] = {
     "site-reliability-engineer": "margaret_hamilton",
     "security-engineer":         "bruce_schneier",
     "test-engineer":             "kent_beck",
-    "architect":                 "martin_fowler",
+    "architect":                 "avie_tevanian",
     "ml-engineer":               "andrej_karpathy",
     "ml-researcher":             "yann_lecun",
     "data-scientist":            "fei_fei_li",
@@ -53,9 +53,9 @@ ROLE_DEFAULT_FIGURE: dict[str, str] = {
     "rust-developer":            "graydon_hoare",
     "go-developer":              "rob_pike",
     "react-developer":           "ryan_dahl",
-    "ios-developer":             "wozniak",
+    "ios-developer":             "scott_forstall",
     "android-developer":         "james_gosling",
-    "mobile-developer":          "wozniak",
+    "mobile-developer":          "scott_forstall",
     "rails-developer":           "dhh",
     "technical-writer":          "feynman",
     "muse-specialist":           "lovelace",
@@ -63,10 +63,12 @@ ROLE_DEFAULT_FIGURE: dict[str, str] = {
     "engineering-coordinator":   "von_neumann",
     "qa-coordinator":            "w_edwards_deming",
     "coordinator":               "satya_nadella",
+    "conductor":                 "jeff_dean",       # wave-level orchestrator
     # PR reviewer — the_guardian: correctness above all
     "pr-reviewer":               "michael_fagan",
     # C-suite roles
-    "cto":                       "jeff_dean",
+    "cto":                       "jeff_dean",       # planetary-scale systems
+    "csto":                      "avie_tevanian",   # Chief Software Technology Officer
     "ceo":                       "steve_jobs",
     "cpo":                       "lovelace",
     "coo":                       "jeff_bezos",
@@ -264,7 +266,7 @@ def _build_coordinator_task(
         f"BASE=dev\n"
         f"BATCH_ID={slug}\n"
         f"WAVE={slug}\n"
-        f"COGNITIVE_ARCH={ROLE_DEFAULT_FIGURE.get('coordinator', 'satya_nadella')}:python\n"
+        f"COGNITIVE_ARCH={ROLE_DEFAULT_FIGURE.get('engineering-coordinator', 'von_neumann')}:python\n"
         f"{prefix_line}"
         f"CREATED_AT={now}\n"
         f"SPAWN_MODE=chain\n"
@@ -307,7 +309,7 @@ def _build_conductor_task(
         f"BASE=dev\n"
         f"BATCH_ID={wave_id}\n"
         f"WAVE={wave_id}\n"
-        f"COGNITIVE_ARCH={ROLE_DEFAULT_FIGURE.get('cto', 'jeff_dean')}:python\n"
+        f"COGNITIVE_ARCH={ROLE_DEFAULT_FIGURE.get('conductor', 'jeff_dean')}:python\n"
         f"CREATED_AT={now}\n"
         f"SPAWN_MODE=chain\n"
         f"SPAWN_SUB_AGENTS=true\n"
