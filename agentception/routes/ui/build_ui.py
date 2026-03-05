@@ -20,6 +20,7 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from starlette.requests import Request
 
@@ -47,6 +48,7 @@ class EnrichedIssueRow(TypedDict):
     state: str
     url: str
     labels: list[str]
+    depends_on: list[int]
     run: RunForIssueRow | None
 
 
@@ -161,6 +163,7 @@ async def build_page(
                     state=i["state"],
                     url=i["url"],
                     labels=i["labels"],
+                    depends_on=i["depends_on"],
                     run=runs.get(i["number"]),
                 )
                 for i in g["issues"]
@@ -213,6 +216,7 @@ async def build_board_partial(
                     state=i["state"],
                     url=i["url"],
                     labels=i["labels"],
+                    depends_on=i["depends_on"],
                     run=runs.get(i["number"]),
                 )
                 for i in g["issues"]
@@ -316,3 +320,106 @@ async def agent_stream(run_id: str) -> StreamingResponse:
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /api/build/agent/{run_id}/message — send a user message to an agent
+# ---------------------------------------------------------------------------
+
+
+class _AgentMessageBody(BaseModel):
+    content: str
+
+
+@router.post("/api/build/agent/{run_id}/message", response_model=None)
+async def post_agent_message(run_id: str, body: _AgentMessageBody) -> Response:
+    """Append a user message to an agent run's transcript.
+
+    The message is stored in ``agent_messages`` with ``role='user'`` and
+    immediately picked up by the inspector's SSE stream on the next 2-second
+    poll.  This lets operators leave context for a running agent and see it
+    reflected in the inspector's chain-of-thought area.
+
+    Returns 404 if the run_id is not found.
+    """
+    from agentception.db.engine import get_session
+    from agentception.db.models import ACAgentMessage, ACAgentRun
+    from sqlalchemy import select, func
+
+    content = body.content.strip()
+    if not content:
+        raise HTTPException(status_code=422, detail="content must be non-empty")
+
+    try:
+        async with get_session() as session:
+            run_exists = await session.scalar(
+                select(func.count()).select_from(ACAgentRun).where(ACAgentRun.id == run_id)
+            )
+            if not run_exists:
+                raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
+
+            seq_result = await session.scalar(
+                select(func.coalesce(func.max(ACAgentMessage.sequence_index), -1)).where(
+                    ACAgentMessage.agent_run_id == run_id
+                )
+            )
+            next_seq = int(seq_result) + 1 if seq_result is not None else 0
+
+            import datetime
+
+            session.add(
+                ACAgentMessage(
+                    agent_run_id=run_id,
+                    role="user",
+                    content=content,
+                    sequence_index=next_seq,
+                    recorded_at=datetime.datetime.now(datetime.timezone.utc),
+                )
+            )
+            await session.commit()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("❌ post_agent_message failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to save message") from exc
+
+    return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# POST /api/build/agent/{run_id}/stop — mark a run as done
+# ---------------------------------------------------------------------------
+
+
+@router.post("/api/build/agent/{run_id}/stop", response_model=None)
+async def stop_agent(run_id: str) -> Response:
+    """Mark an agent run as DONE so the board no longer shows it as active.
+
+    Does not remove the worktree (use the control panel kill action for that).
+    This is a lightweight "I'm done watching this" action that removes the
+    run from the active-agent display so a fresh agent can be dispatched.
+
+    Returns 404 if the run_id is not found.
+    """
+    from agentception.db.engine import get_session
+    from agentception.db.models import ACAgentRun
+    from sqlalchemy import select
+
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun).where(ACAgentRun.id == run_id)
+            )
+            run = result.scalar_one_or_none()
+            if run is None:
+                raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
+
+            run.status = "DONE"
+            await session.commit()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("❌ stop_agent failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to stop agent") from exc
+
+    return Response(status_code=204)

@@ -1,161 +1,243 @@
+{% macro render_issue(issue, group_complete, group_locked, initiative, repo) %}
+{% set run = issue.run %}
+{% set active_run = run if (run and run.agent_status != 'unknown') else none %}
+{% set is_running = active_run and active_run.agent_status in ('implementing', 'pending_launch') %}
+<li class="build-issue
+  {%- if group_complete %} build-issue--closed build-issue--done
+  {%- elif issue.state == 'closed' %} build-issue--closed
+  {%- elif is_running %} build-issue--active build-issue--running
+  {%- elif active_run %} build-issue--active
+  {%- endif %}
+  {%- if active_run %} build-issue--has-run{%- endif %}"
+  {%- if not group_complete and active_run %}@click='$dispatch("inspect-issue", {{ issue | tojson }})'{% endif %}
+>
+  {% if active_run %}
+  <div class="build-issue__icon-links">
+    <a class="build-issue__icon-link"
+       href="/agents/{{ active_run.id }}"
+       title="View agent transcript"
+       target="_blank"
+       rel="noopener"
+       @click.stop>
+      <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M10 2h4v4"/>
+        <path d="M14 2L9 7"/>
+        <path d="M7 3H3a1 1 0 00-1 1v9a1 1 0 001 1h9a1 1 0 001-1V9"/>
+      </svg>
+    </a>
+    {% if active_run.cognitive_arch %}
+    <a class="build-issue__icon-link"
+       href="/cognitive-arch/{{ active_run.cognitive_arch | urlencode }}"
+       title="View cognitive architecture: {{ active_run.cognitive_arch }}"
+       target="_blank"
+       rel="noopener"
+       @click.stop>
+      <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="5" cy="5" r="2"/>
+        <circle cx="11" cy="5" r="2"/>
+        <circle cx="8" cy="12" r="2"/>
+        <line x1="7" y1="5" x2="9" y2="5"/>
+        <line x1="5.8" y1="6.8" x2="7.2" y2="10.2"/>
+        <line x1="10.2" y1="6.8" x2="8.8" y2="10.2"/>
+      </svg>
+    </a>
+    {% endif %}
+  </div>
+  {% endif %}
+  <div class="build-issue__header">
+    <a class="build-issue__number" href="{{ issue.url }}" target="_blank" rel="noopener" @click.stop>
+      #{{ issue.number }}
+    </a>
+    {% set lns = namespace(role_label=none) %}
+    {% for lbl in issue.labels %}
+      {# Skip initiative labels, scoped phase labels (contain "/"), and bare phase-N labels. #}
+      {% if lns.role_label is none and lbl != initiative and "/" not in lbl and not lbl.startswith('phase-') %}
+        {% set lns.role_label = lbl %}
+      {% endif %}
+    {% endfor %}
+    {% if lns.role_label %}
+    <span class="build-issue__label-pill">{{ lns.role_label }}</span>
+    {% endif %}
+    <span class="build-issue__state-dot
+      {%- if issue.state == 'closed' %} build-issue__state-dot--closed
+      {%- elif is_running %} build-issue__state-dot--active
+      {%- else %} build-issue__state-dot--open
+      {%- endif %}"></span>
+  </div>
+  <p class="build-issue__title">{{ issue.title }}</p>
+  {% if issue.depends_on %}
+  <div class="build-issue__deps">
+    {% for dep in issue.depends_on %}
+    <span class="build-issue__dep-chip" title="Depends on #{{ dep }}">↑ #{{ dep }}</span>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <div class="build-issue__footer">
+    {% if active_run %}
+    <div class="build-issue__run">
+      <span class="build-issue__role">{{ active_run.role }}</span>
+      <span class="build-issue__status build-issue__status--{{ active_run.agent_status }}">{{ active_run.agent_status }}</span>
+      {% if active_run.node_type %}
+      <span class="build-issue__tier build-issue__tier--{{ active_run.node_type }}">
+        {{- active_run.logical_tier or active_run.node_type -}}
+      </span>
+      {% endif %}
+      {% if active_run.pr_number %}
+      <a class="build-issue__pr" href="https://github.com/{{ repo }}/pull/{{ active_run.pr_number }}"
+         target="_blank" rel="noopener" @click.stop>PR&thinsp;#{{ active_run.pr_number }}</a>
+      {% endif %}
+    </div>
+    {% if active_run.current_step %}
+    <p class="build-issue__step">{{ active_run.current_step }}</p>
+    {% endif %}
+    {% if active_run.steps_completed > 0 %}
+    <div class="build-issue__progress">
+      {% if active_run.steps_total %}
+      <div class="build-issue__progress-bar"
+           style="width: {{ (active_run.steps_completed / active_run.steps_total * 100) | int }}%"></div>
+      {% endif %}
+      <span class="build-issue__step-count">{{ active_run.steps_completed }} step{{ 's' if active_run.steps_completed != 1 else '' }}</span>
+    </div>
+    {% endif %}
+    {% elif not group_locked and issue.state == 'open' %}
+    <button class="build-issue__assign-btn"
+            @click.stop='$dispatch("open-dispatch", {{ issue | tojson }})'>Assign →</button>
+    {% endif %}
+  </div>
+</li>
+{% endmacro %}
+
+{# ── Empty state ─────────────────────────────────────────────────────────── #}
 {% if not groups %}
 <div class="build-board__empty">
   <p class="build-board__empty-message">No phases filed yet.</p>
   <p class="build-board__empty-hint">Use <strong>Plan</strong> to generate and file issues for this initiative.</p>
 </div>
-{% endif %}
-{% for group in groups %}
-{% set closed_count = group.issues | selectattr("state", "equalto", "closed") | list | length %}
-{% set total_count  = group.issues | length %}
-{# Display just the slug suffix — strip the "{initiative}/" prefix for readability. #}
-{% set phase_slug = group.label.split("/", 1)[1] if "/" in group.label else group.label %}
+{% else %}
 
-<div class="build-phase
-  {%- if group.complete %} build-phase--complete
-  {%- elif group.locked %} build-phase--locked
-  {%- elif not group.issues %} build-phase--empty
-  {%- else %} build-phase--active
-  {%- endif %}"
-  x-data="{ open: {{ 'true' if (not group.locked and not group.complete and group.issues) else 'false' }} }"
-  x-init='(function(){
-    var k = {{ ("phase:" + group.label) | tojson }};
-    var s = sessionStorage.getItem(k);
-    if (s !== null) open = (s === "true");
-    $watch("open", function(v){ sessionStorage.setItem(k, String(v)); });
-  })()'
->
+{# ── Swimlane grid ────────────────────────────────────────────────────────── #}
+<div class="build-swimlane">
 
-  <div class="build-phase__header" @click="open = !open">
-    <span class="build-phase__icon">
-      {%- if group.complete %}✅{%- elif group.locked %}🔒{%- elif not group.issues %}○{%- else %}🔓{%- endif %}
-    </span>
-    <span class="build-phase__label">{{ phase_slug }}</span>
-    {% if total_count > 0 %}
-    <span class="build-phase__progress">{{ closed_count }}&thinsp;/&thinsp;{{ total_count }}</span>
-    {% else %}
-    <span class="build-phase__progress build-phase__progress--empty">no issues</span>
-    {% endif %}
-    {% if group.locked %}
-    <span class="build-phase__gate">locked</span>
-    {% endif %}
-    {% if group.locked and loop.previtem is defined and loop.previtem.complete and initiative %}
-    <button class="build-phase__advance-btn"
-            hx-post="/api/build/advance-phase"
-            hx-vals='{"initiative": {{ initiative | tojson }}, "from_phase": {{ loop.previtem.label | tojson }}, "to_phase": {{ group.label | tojson }}}'
-            hx-target="#build-board"
-            hx-swap="innerHTML"
-            hx-indicator=".build-phase__advance-btn--loading"
-            @click.stop>
-      Advance to {{ phase_slug }}
-    </button>
-    {% endif %}
-    {% if not group.locked and not group.complete and group.issues and initiative %}
-    <button class="build-phase__launch-btn"
-            @click.stop='$dispatch("open-label-dispatch", { label: {{ initiative | tojson }} })'>
-      Launch →
-    </button>
-    {% endif %}
-    <span class="build-phase__chevron" :class="{ 'build-phase__chevron--open': open }">›</span>
+  {# Column headers #}
+  <div class="build-swimlane__cols-header">
+    <div class="build-swimlane__col-empty"></div>
+    <div class="build-swimlane__col-label">Todo</div>
+    <div class="build-swimlane__col-label build-swimlane__col-label--active">Active</div>
+    <div class="build-swimlane__col-label build-swimlane__col-label--pr">PR Open</div>
+    <div class="build-swimlane__col-label build-swimlane__col-label--review">Reviewing</div>
+    <div class="build-swimlane__col-label build-swimlane__col-label--done">Done</div>
   </div>
 
-  {% if group.issues %}
-  <ul class="build-phase__issues" x-show="open">
-    {% for issue in group.issues %}
-    {% set run = issue.run %}
-    {% set is_running = run and run.agent_status in ('implementing', 'pending_launch') %}
-    <li class="build-issue
-      {%- if group.complete %} build-issue--closed build-issue--done
-      {%- elif issue.state == 'closed' %} build-issue--closed
-      {%- elif is_running %} build-issue--active build-issue--running
-      {%- elif run %} build-issue--active
-      {%- endif %}
-      {%- if run %} build-issue--has-run{%- endif %}"
-      {%- if not group.complete and run %}@click='$dispatch("inspect-issue", {{ issue | tojson }})'{% endif %}
-    >
-      {% if run %}
-      <div class="build-issue__icon-links">
-        <a class="build-issue__icon-link"
-           href="/agents/{{ run.id }}"
-           title="View agent transcript"
-           target="_blank"
-           rel="noopener"
-           @click.stop>
-          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M10 2h4v4"/>
-            <path d="M14 2L9 7"/>
-            <path d="M7 3H3a1 1 0 00-1 1v9a1 1 0 001 1h9a1 1 0 001-1V9"/>
-          </svg>
-        </a>
-        {% if run.cognitive_arch %}
-        <a class="build-issue__icon-link"
-           href="/cognitive-arch#{{ run.cognitive_arch }}"
-           title="View cognitive architecture: {{ run.cognitive_arch }}"
-           target="_blank"
-           rel="noopener"
-           @click.stop>
-          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="5" cy="5" r="2"/>
-            <circle cx="11" cy="5" r="2"/>
-            <circle cx="8" cy="12" r="2"/>
-            <line x1="7" y1="5" x2="9" y2="5"/>
-            <line x1="5.8" y1="6.8" x2="7.2" y2="10.2"/>
-            <line x1="10.2" y1="6.8" x2="8.8" y2="10.2"/>
-          </svg>
-        </a>
-        {% endif %}
-      </div>
-      {% endif %}
-      <div class="build-issue__header">
-        <a class="build-issue__number" href="{{ issue.url }}" target="_blank" rel="noopener" @click.stop>
-          #{{ issue.number }}
-        </a>
-        {% set ns = namespace(role_label=none) %}
-        {% for lbl in issue.labels %}
-          {% if ns.role_label is none and not lbl.startswith('phase-') and lbl != initiative %}
-            {% set ns.role_label = lbl %}
-          {% endif %}
-        {% endfor %}
-        {% if ns.role_label %}
-        <span class="build-issue__label-pill">{{ ns.role_label }}</span>
-        {% endif %}
-        <span class="build-issue__state-dot
-          {%- if issue.state == 'closed' %} build-issue__state-dot--closed
-          {%- elif is_running %} build-issue__state-dot--active
-          {%- else %} build-issue__state-dot--open
-          {%- endif %}"></span>
-      </div>
-      <p class="build-issue__title">{{ issue.title }}</p>
-      <div class="build-issue__footer">
-        {% if run %}
-        <div class="build-issue__run">
-          <span class="build-issue__role">{{ run.role }}</span>
-          <span class="build-issue__status build-issue__status--{{ run.agent_status }}">{{ run.agent_status }}</span>
-          {% if run.pr_number %}
-          <a class="build-issue__pr" href="https://github.com/{{ repo }}/pull/{{ run.pr_number }}"
-             target="_blank" rel="noopener" @click.stop>PR&thinsp;#{{ run.pr_number }}</a>
-          {% endif %}
-        </div>
-        {% if run.current_step %}
-        <p class="build-issue__step">{{ run.current_step }}</p>
-        {% endif %}
-        {% if run.steps_completed > 0 %}
-        <div class="build-issue__progress">
-          {% if run.steps_total %}
-          <div class="build-issue__progress-bar"
-               style="width: {{ (run.steps_completed / run.steps_total * 100) | int }}%"></div>
-          {% endif %}
-          <span class="build-issue__step-count">{{ run.steps_completed }} step{{ 's' if run.steps_completed != 1 else '' }}</span>
-        </div>
-        {% endif %}
-        {% elif not group.locked and issue.state == 'open' %}
-        <button class="build-issue__assign-btn"
-                @click.stop='$dispatch("open-dispatch", {{ issue | tojson }})'>Assign →</button>
-        {% endif %}
-      </div>
-    </li>
-    {% endfor %}
-  </ul>
-  {% endif %}
+  {# Phase rows #}
+  {% for group in groups %}
+  {% set phase_slug = group.label.split("/", 1)[1] if "/" in group.label else group.label %}
+  {% set closed_count = group.issues | selectattr("state", "equalto", "closed") | list | length %}
+  {% set total_count = group.issues | length %}
 
-</div>
-{% endfor %}
+  {# Sort issues into swimlane buckets by lifecycle stage. #}
+  {% set bns = namespace(todo=[], active=[], pr_open=[], reviewing=[], done=[]) %}
+  {% for issue in group.issues %}
+    {% set _r = issue.run %}
+    {% set _ar = _r if (_r and _r.agent_status != 'unknown') else none %}
+    {% if issue.state == 'closed' %}
+      {% set bns.done = bns.done + [issue] %}
+    {% elif _ar and _ar.pr_number and _ar.agent_status == 'reviewing' %}
+      {% set bns.reviewing = bns.reviewing + [issue] %}
+    {% elif _ar and _ar.pr_number %}
+      {% set bns.pr_open = bns.pr_open + [issue] %}
+    {% elif _ar and _ar.agent_status in ('implementing', 'pending_launch') %}
+      {% set bns.active = bns.active + [issue] %}
+    {% else %}
+      {% set bns.todo = bns.todo + [issue] %}
+    {% endif %}
+  {% endfor %}
+
+  <div class="build-swimlane__row
+    {%- if group.complete %} build-swimlane__row--complete
+    {%- elif group.locked %} build-swimlane__row--locked
+    {%- elif not group.issues %} build-swimlane__row--empty
+    {%- else %} build-swimlane__row--active
+    {%- endif %}"
+    x-data="{ open: {{ 'true' if (not group.locked and not group.complete and group.issues) else 'false' }} }"
+    x-init='(function(){
+      var k = {{ ("phase:" + group.label) | tojson }};
+      var s = sessionStorage.getItem(k);
+      if (s !== null) open = (s === "true");
+      $watch("open", function(v){ sessionStorage.setItem(k, String(v)); });
+    })()'
+  >
+
+    {# ── Phase label cell (always visible, click to collapse) ─────────────── #}
+    <div class="build-swimlane__phase-label" @click="open = !open">
+      <div class="build-swimlane__phase-label-top">
+        <span class="build-phase__icon">
+          {%- if group.complete %}✅{%- elif group.locked %}🔒{%- elif not group.issues %}○{%- else %}🔓{%- endif %}
+        </span>
+        <span class="build-phase__label">{{ phase_slug }}</span>
+        <span class="build-phase__chevron" :class="{ 'build-phase__chevron--open': open }">›</span>
+      </div>
+      <div class="build-swimlane__phase-label-meta">
+        {% if total_count > 0 %}
+        <span class="build-phase__progress">{{ closed_count }}&thinsp;/&thinsp;{{ total_count }}</span>
+        {% else %}
+        <span class="build-phase__progress build-phase__progress--empty">no issues</span>
+        {% endif %}
+        {% if group.locked %}
+        <span class="build-phase__gate">locked</span>
+        {% endif %}
+      </div>
+      {% if group.locked and loop.previtem is defined and loop.previtem.complete and initiative %}
+      <button class="build-phase__advance-btn"
+              hx-post="/api/build/advance-phase"
+              hx-vals='{"initiative": {{ initiative | tojson }}, "from_phase": {{ loop.previtem.label | tojson }}, "to_phase": {{ group.label | tojson }}}'
+              hx-target="#build-board"
+              hx-swap="innerHTML"
+              @click.stop>
+        Unlock →
+      </button>
+      {% endif %}
+      {% if not group.locked and not group.complete and group.issues and initiative %}
+      <button class="build-phase__launch-btn"
+              @click.stop='$dispatch("open-label-dispatch", { label: {{ initiative | tojson }} })'>
+        Launch →
+      </button>
+      {% endif %}
+    </div>
+
+    {# ── Lifecycle stage buckets (hidden when collapsed) ──────────────────── #}
+
+    <ul class="build-swimlane__bucket" x-show="open">
+      {% for issue in bns.todo %}
+        {{ render_issue(issue, group.complete, group.locked, initiative, repo) }}
+      {% endfor %}
+    </ul>
+
+    <ul class="build-swimlane__bucket build-swimlane__bucket--active" x-show="open">
+      {% for issue in bns.active %}
+        {{ render_issue(issue, group.complete, group.locked, initiative, repo) }}
+      {% endfor %}
+    </ul>
+
+    <ul class="build-swimlane__bucket build-swimlane__bucket--pr" x-show="open">
+      {% for issue in bns.pr_open %}
+        {{ render_issue(issue, group.complete, group.locked, initiative, repo) }}
+      {% endfor %}
+    </ul>
+
+    <ul class="build-swimlane__bucket build-swimlane__bucket--review" x-show="open">
+      {% for issue in bns.reviewing %}
+        {{ render_issue(issue, group.complete, group.locked, initiative, repo) }}
+      {% endfor %}
+    </ul>
+
+    <ul class="build-swimlane__bucket build-swimlane__bucket--done" x-show="open">
+      {% for issue in bns.done %}
+        {{ render_issue(issue, group.complete, group.locked, initiative, repo) }}
+      {% endfor %}
+    </ul>
+
+  </div>{# /.build-swimlane__row #}
+  {% endfor %}
+
+</div>{# /.build-swimlane #}
+{% endif %}

@@ -122,6 +122,9 @@
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  overflow-x: auto; // swimlane scrolls horizontally on narrow viewports
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-default) transparent;
 }
 
 // ── Phase swim lane ───────────────────────────────────────────────────────────
@@ -406,6 +409,24 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.build-issue__deps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  margin-bottom: 0.25rem;
+}
+
+.build-issue__dep-chip {
+  font-size: 0.55rem;
+  font-family: var(--font-mono);
+  color: var(--warning);
+  background: var(--warning-dim);
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-xs);
+  padding: 0 4px;
+  white-space: nowrap;
 }
 
 .build-issue__footer {
@@ -1290,5 +1311,265 @@
       font-family: var(--font-mono);
       color: var(--text-muted);
     }
+  }
+}
+
+// ── Swimlane board (phases × lifecycle stages) ────────────────────────────────
+//
+// Layout: CSS Grid where each phase is a row and each column is a lifecycle
+// stage. The phase label cell is always visible; the 5 bucket cells collapse
+// when the row is toggled shut.
+//
+// Column template: [label] 200px [todo] 1fr [active] 1fr [pr] 1fr [review] 1fr [done] 1fr
+// The same template is applied to both the sticky column-header row and each
+// phase row, so columns stay aligned across the full board.
+
+$_sw-label: 200px;
+$_sw-cols: #{$_sw-label} repeat(5, 1fr);
+$_sw-gap: 0.5rem;
+
+.build-swimlane {
+  display: flex;
+  flex-direction: column;
+  min-width: 860px; // prevents columns from collapsing below readable width
+}
+
+.build-swimlane__cols-header {
+  display: grid;
+  grid-template-columns: $_sw-cols;
+  gap: $_sw-gap;
+  padding: 0.375rem $_sw-gap;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 0.375rem;
+}
+
+.build-swimlane__col-empty {
+  // Spacer cell under the phase-label column
+}
+
+.build-swimlane__col-label {
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+  text-align: center;
+  padding: 0.25rem 0;
+
+  &--active  { color: var(--accent); }
+  &--pr      { color: var(--info); }
+  &--review  { color: var(--warning); }
+  &--done    { color: var(--success); }
+}
+
+.build-swimlane__row {
+  display: grid;
+  grid-template-columns: $_sw-cols;
+  gap: $_sw-gap;
+  padding: $_sw-gap;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+  margin-bottom: $_sw-gap;
+  background: var(--bg-surface);
+  align-items: start;
+
+  &--active {
+    border-color: var(--border-default);
+    border-left: 3px solid var(--accent);
+    background: rgba(139, 92, 246, 0.02);
+  }
+
+  &--complete {
+    opacity: 0.65;
+    border-left: 3px solid var(--success);
+
+    .build-swimlane__phase-label { cursor: default; }
+  }
+
+  &--locked {
+    opacity: 0.38;
+    border-left: 3px solid var(--border-default);
+
+    .build-swimlane__bucket { pointer-events: none; }
+  }
+
+  &--empty {
+    border-left: 3px solid var(--border-subtle);
+    opacity: 0.35;
+  }
+}
+
+// ── Phase label cell ──────────────────────────────────────────────────────────
+
+.build-swimlane__phase-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.375rem 0.5rem;
+  cursor: pointer;
+  border-radius: var(--radius);
+  transition: background 0.15s var(--ease-out);
+  user-select: none;
+
+  &:hover { background: var(--bg-overlay); }
+}
+
+.build-swimlane__phase-label-top {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+
+  .build-phase__label { flex: 1; }
+
+  // Re-use existing chevron — rotate handled by Alpine x-class
+  .build-phase__chevron { margin-left: 0; }
+}
+
+.build-swimlane__phase-label-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  padding-left: 1.1rem; // indent under icon
+}
+
+// ── Lifecycle stage bucket ────────────────────────────────────────────────────
+
+.build-swimlane__bucket {
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-height: 2.5rem;
+  border-radius: var(--radius);
+  border: 1px dashed var(--border-subtle);
+  background: var(--bg-elevated);
+
+  &--active  { border-color: rgba(139, 92, 246, 0.2); }
+  &--pr      { border-color: rgba(56, 189, 248, 0.2); }
+  &--review  { border-color: rgba(251, 191, 36, 0.2); }
+  &--done    { border-color: rgba(16, 217, 160, 0.15); background: rgba(16, 217, 160, 0.02); }
+}
+
+// ── Inspector chat box ────────────────────────────────────────────────────────
+
+.build-inspector__chat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  border-top: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.build-inspector__chat-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+
+.build-inspector__chat-input {
+  flex: 1;
+  resize: none;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  padding: 0.4rem 0.6rem;
+  line-height: 1.45;
+  max-height: 80px;
+  min-height: 32px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+
+  &::placeholder { color: var(--text-faint); }
+
+  &:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-glow);
+  }
+}
+
+.build-inspector__chat-send {
+  flex-shrink: 0;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent-bright);
+  background: rgba(139, 92, 246, 0.12);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+
+  &:hover { background: rgba(139, 92, 246, 0.24); border-color: var(--accent); }
+  &:disabled { opacity: 0.4; cursor: default; }
+}
+
+.build-inspector__agent-actions {
+  display: flex;
+  gap: 0.375rem;
+}
+
+.build-inspector__stop-btn {
+  flex: 1;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--danger);
+  background: var(--danger-dim);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s;
+
+  &:hover { background: rgba(244, 63, 94, 0.18); }
+  &:disabled { opacity: 0.4; cursor: default; }
+}
+
+.build-inspector__restart-btn {
+  flex: 1;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-overlay);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+
+  &:hover { background: var(--bg-elevated); color: var(--text-primary); }
+}
+
+// ── Agent hierarchy tier badge ────────────────────────────────────────────────
+
+.build-issue__tier {
+  font-size: 0.575rem;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+
+  &--coordinator {
+    color: var(--accent-bright);
+    background: rgba(139, 92, 246, 0.14);
+    border: 1px solid rgba(139, 92, 246, 0.28);
+  }
+
+  &--leaf {
+    color: var(--success);
+    background: var(--success-dim);
+    border: 1px solid var(--success-border);
   }
 }

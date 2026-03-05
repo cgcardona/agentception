@@ -31,7 +31,7 @@ from collections.abc import AsyncGenerator
 from typing import TypedDict
 
 from agentception.config import settings as _cfg
-from agentception.db.persist import persist_initiative_phases
+from agentception.db.persist import persist_initiative_phases, persist_issue_depends_on
 from agentception.models import PlanIssue, PlanSpec
 from agentception.readers.github import ensure_label_exists
 
@@ -308,6 +308,8 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
             )
 
     # ── 3. Resolve depends_on ──────────────────────────────────────────────
+    # Build a map of issue_number → blocker_numbers for DB persistence.
+    issue_deps: dict[int, list[int]] = {}
     for phase in spec.phases:
         for issue in phase.issues:
             if not issue.depends_on:
@@ -324,6 +326,8 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
             our_number = id_to_number.get(issue.id)
             if our_number is None:
                 continue
+
+            issue_deps[our_number] = blocker_numbers
 
             original_body = id_to_body.get(issue.id, issue.body)
             blocked_line = (
@@ -345,6 +349,9 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
             except RuntimeError as exc:
                 # Non-fatal — log and continue.
                 logger.warning("⚠️ Could not edit #%d for depends_on: %s", our_number, exc)
+
+    # Persist ticket-level deps to DB so the Build board can display them.
+    await persist_issue_depends_on(repo, issue_deps)
 
     # ── 4. Persist phase DAG and display order ────────────────────────────
     # Writes phase_order (list index) alongside the dependency graph so the

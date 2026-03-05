@@ -78,6 +78,11 @@
               <span class="build-inspector__run-status"
                     :class="'build-inspector__run-status--' + activeIssue.run.status.toLowerCase()"
                     x-text="activeIssue.run.status"></span>
+              <template x-if="activeIssue.run.node_type">
+                <span class="build-issue__tier"
+                      :class="'build-issue__tier--' + activeIssue.run.node_type"
+                      x-text="activeIssue.run.logical_tier || activeIssue.run.node_type"></span>
+              </template>
               <span class="build-inspector__run-since"
                     x-text="'since ' + fmtTime(activeIssue.run.spawned_at)"></span>
               <template x-if="activeIssue.run.pr_number">
@@ -134,6 +139,43 @@
             <p class="build-inspector__stream-status build-inspector__stream-status--live">
               🟢 Live
             </p>
+          </template>
+
+          {# ── Agent controls (stop / restart) ────────────────────────────── #}
+          <template x-if="activeIssue.run">
+            <div class="build-inspector__chat">
+              <div class="build-inspector__agent-actions">
+                <button class="build-inspector__stop-btn"
+                        :disabled="agentStopping"
+                        @click="stopAgent()">
+                  <span x-show="!agentStopping">⏹ Stop</span>
+                  <span x-show="agentStopping">Stopping…</span>
+                </button>
+                <button class="build-inspector__restart-btn"
+                        @click="restartAgent()">
+                  ↺ Reassign
+                </button>
+              </div>
+
+              {# ── Chat input ────────────────────────────────────────────── #}
+              <div class="build-inspector__chat-row">
+                <textarea class="build-inspector__chat-input"
+                          x-model="chatMessage"
+                          placeholder="Send a note to this agent…"
+                          rows="2"
+                          @keydown.enter.meta.prevent="sendMessage()"
+                          @keydown.ctrl.enter.prevent="sendMessage()"></textarea>
+                <button class="build-inspector__chat-send"
+                        :disabled="!chatMessage.trim() || chatSending"
+                        @click="sendMessage()">
+                  <span x-show="!chatSending">Send</span>
+                  <span x-show="chatSending">…</span>
+                </button>
+              </div>
+              <template x-if="chatError">
+                <p style="font-size:0.65rem;color:var(--danger);margin:0" x-text="chatError"></p>
+              </template>
+            </div>
           </template>
 
         </div>

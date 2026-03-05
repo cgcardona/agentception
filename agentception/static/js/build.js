@@ -20,6 +20,12 @@ export function buildPage(roleGroups) {
     streamOpen: false,
     _evtSource: null,
 
+    // ── chat / agent control ─────────────────────────────────────────────
+    chatMessage: '',
+    chatSending: false,
+    chatError: null,
+    agentStopping: false,
+
     // ── issue-dispatch modal state ───────────────────────────────────────
     dispatchOpen: false,
     dispatchIssue: null,
@@ -108,6 +114,61 @@ export function buildPage(roleGroups) {
       this.activeIssue = null;
       this.events = [];
       this.thoughts = [];
+      this.chatMessage = '';
+      this.chatError = null;
+    },
+
+    // ── chat with agent ──────────────────────────────────────────────────
+
+    async sendMessage() {
+      const content = this.chatMessage.trim();
+      if (!content || !this.activeIssue?.run) return;
+      const runId = this.activeIssue.run.id;
+      this.chatSending = true;
+      this.chatError = null;
+      try {
+        const res = await fetch(`/api/build/agent/${encodeURIComponent(runId)}/message`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          this.chatError = data.detail ?? `Error ${res.status}`;
+        } else {
+          this.chatMessage = '';
+        }
+      } catch (err) {
+        this.chatError = `Network error: ${err.message}`;
+      } finally {
+        this.chatSending = false;
+      }
+    },
+
+    // ── stop / restart agent ─────────────────────────────────────────────
+
+    async stopAgent() {
+      if (!this.activeIssue?.run) return;
+      const runId = this.activeIssue.run.id;
+      this.agentStopping = true;
+      try {
+        await fetch(`/api/build/agent/${encodeURIComponent(runId)}/stop`, {
+          method: 'POST',
+        });
+        // The 10 s board poll will refresh the card state automatically.
+        this._closeStream();
+      } catch {
+        // Non-fatal — board will sync on next poll.
+      } finally {
+        this.agentStopping = false;
+      }
+    },
+
+    restartAgent() {
+      if (!this.activeIssue) return;
+      // Re-open the dispatch modal pre-filled with the same issue so the
+      // user can pick a role and re-assign.
+      this.openDispatch(this.activeIssue);
     },
 
     _openStream(runId) {

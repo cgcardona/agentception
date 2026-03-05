@@ -1,8 +1,95 @@
 {% extends "base.html" %}
 
-{% block title %}AgentCeption — Cognitive Architecture Browser{% endblock %}
+{% block title %}
+  {%- if arch_id is defined and arch_id -%}
+    AgentCeption — {{ persona.display_name }} · Cognitive Architecture
+  {%- else -%}
+    AgentCeption — Cognitive Architecture Browser
+  {%- endif -%}
+{% endblock %}
 
 {% block content %}
+
+{# ══════════════════════════════════════════════════════════════════════════ #}
+{# DETAIL VIEW — rendered when the route provides an arch_id / persona       #}
+{# ══════════════════════════════════════════════════════════════════════════ #}
+{% if arch_id is defined and arch_id %}
+
+<div class="page-header mt-2">
+  <div style="display:flex;align-items:center;gap:0.75rem;">
+    <a href="/cognitive-arch" class="btn btn-secondary" style="font-size:0.75rem;">← All Architectures</a>
+    <h1 class="page-title" style="margin:0;">{{ persona.display_name }}</h1>
+    {% if persona.archetype %}
+    <span class="cog-panel__sub" style="margin-top:0.1rem;">{{ persona.archetype | replace('_', ' ') | title }}</span>
+    {% endif %}
+  </div>
+  <code class="cog-domain-card__id" style="margin-top:0.35rem;">{{ arch_str }}</code>
+</div>
+
+{# ── Hero panel ────────────────────────────────────────────────────────── #}
+<div class="cog-panel card mt-2">
+  <div class="cog-panel__header">
+    <span class="cog-panel__emoji">{{ persona.archetype_emoji }}</span>
+    <div>
+      <div class="cog-panel__title">{{ persona.display_name }}</div>
+      {% if persona.archetype %}
+        <div class="cog-panel__sub">{{ persona.archetype | replace('_', ' ') | title }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if persona.description %}
+  <p class="cog-panel__desc">{{ persona.description }}</p>
+  {% endif %}
+
+  <div class="cog-panel__body">
+    {% if persona.overrides %}
+    <div class="cog-panel__atoms">
+      <div class="cog-panel__section-label">Cognitive Atoms</div>
+      <div class="cog-atoms-row">
+        {% for dim, val in persona.overrides.items() %}
+        <div class="cog-atom-pill">
+          <span class="cog-atom-pill__key">{{ dim | replace('_', ' ') }}</span>
+          <span class="cog-atom-pill__val">{{ val | replace('_', ' ') }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if persona.skill_domains %}
+    <div class="cog-panel__skills">
+      <div class="cog-panel__section-label">Skill Domains</div>
+      <div class="cog-skills-row">
+        {% for skill in persona.skill_domains %}
+        <span class="cog-skill-tag">{{ skill | replace('_', ' ') | title }}</span>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if persona.prompt_prefix %}
+  <div class="cog-panel__prompt mt-2" style="padding:0.75rem 1rem;background:var(--bg-elevated);border-top:1px solid var(--border-subtle);">
+    <div class="cog-panel__section-label" style="margin-bottom:0.4rem;">Prompt Prefix (first 600 chars)</div>
+    <pre style="font-size:0.7rem;color:var(--text-muted);white-space:pre-wrap;word-break:break-word;margin:0;font-family:var(--font-mono);">{{ persona.prompt_prefix }}</pre>
+  </div>
+  {% endif %}
+</div>
+
+{# ── Not-found fallback ────────────────────────────────────────────────── #}
+{% if not persona.is_named_figure and not persona.skill_domains %}
+<div class="card mt-2" style="padding:1.25rem;text-align:center;">
+  <p class="text-muted">Architecture <code>{{ arch_str }}</code> could not be resolved to a known figure or skill domain.</p>
+  <a href="/cognitive-arch" class="btn btn-secondary" style="margin-top:0.75rem;">Browse all architectures</a>
+</div>
+{% endif %}
+
+
+{# ══════════════════════════════════════════════════════════════════════════ #}
+{# CATALOG VIEW — default when no arch_id is provided                        #}
+{# ══════════════════════════════════════════════════════════════════════════ #}
+{% else %}
 
 {# ── Page header ─────────────────────────────────────────────────────────── #}
 <div class="page-header mt-2">
@@ -19,7 +106,7 @@
   {% if figures %}
   <div class="card-grid">
     {% for fig in figures %}
-    <div class="card cog-figure-card">
+    <a class="card cog-figure-card" href="/cognitive-arch/{{ fig.id | urlencode }}" style="text-decoration:none;display:block;">
       <div class="cog-figure-card__header">
         <span class="cog-figure-card__name">{{ fig.display_name }}</span>
         <code class="cog-figure-card__id">{{ fig.id }}</code>
@@ -36,7 +123,7 @@
         {% endfor %}
       </div>
       {% endif %}
-    </div>
+    </a>
     {% endfor %}
   </div>
   {% else %}
@@ -71,5 +158,8 @@
   </div>
   {% endif %}
 </section>
+
+{% endif %}
+{# ── End catalog / detail branch ─────────────────────────────────────────── #}
 
 {% endblock %}
