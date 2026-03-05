@@ -32,6 +32,7 @@ from agentception.mcp.build_tools import (
     build_report_decision,
     build_report_done,
     build_report_step,
+    build_spawn_child,
 )
 from agentception.mcp.plan_advance_phase import plan_advance_phase
 from agentception.mcp.plan_tools import (
@@ -199,6 +200,63 @@ TOOLS: list[ACToolDef] = [
         inputSchema={
             "type": "object",
             "properties": {},
+            "additionalProperties": False,
+        },
+    ),
+    ACToolDef(
+        name="build_spawn_child",
+        description=(
+            "Create a child agent node in the agent tree. "
+            "Any manager agent (CTO, coordinator, or any future tier) calls this "
+            "to atomically create a worktree, write a .agent-task file with "
+            "COGNITIVE_ARCH and full lineage fields, register a DB record, and "
+            "auto-acknowledge the run. Returns {ok, run_id, host_worktree_path, "
+            "tier, role, cognitive_arch, agent_task_path, scope_type, scope_value}. "
+            "After calling this tool, immediately fire a Task with the briefing: "
+            "'Read your .agent-task at {host_worktree_path}/.agent-task and follow "
+            "the instructions for your role.' "
+            "This is the canonical way to grow the agent tree at runtime — replaces "
+            "manual worktree creation and shell-embedded .agent-task writing."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "parent_run_id": {
+                    "type": "string",
+                    "description": "run_id of the calling agent (lineage tracking).",
+                },
+                "role": {
+                    "type": "string",
+                    "description": "Child role slug (e.g. 'engineering-coordinator', 'python-developer').",
+                },
+                "scope_type": {
+                    "type": "string",
+                    "enum": ["label", "issue", "pr"],
+                    "description": "'label' for manager/coordinator nodes, 'issue' for engineer nodes, 'pr' for reviewer nodes.",
+                },
+                "scope_value": {
+                    "type": "string",
+                    "description": "Label string, issue number (as string), or PR number (as string).",
+                },
+                "gh_repo": {
+                    "type": "string",
+                    "description": "'owner/repo' string.",
+                },
+                "issue_body": {
+                    "type": "string",
+                    "description": "Issue body for COGNITIVE_ARCH skill extraction (issue-scoped children).",
+                },
+                "issue_title": {
+                    "type": "string",
+                    "description": "Issue title written to ISSUE_TITLE field.",
+                },
+                "skills_hint": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Explicit skill list override for COGNITIVE_ARCH (bypasses keyword extraction).",
+                },
+            },
+            "required": ["parent_run_id", "role", "scope_type", "scope_value", "gh_repo"],
             "additionalProperties": False,
         },
     ),
@@ -409,6 +467,7 @@ def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
         "plan_spawn_coordinator",
         "plan_advance_phase",
         "build_get_pending_launches",
+        "build_spawn_child",
         "build_report_step",
         "build_report_blocker",
         "build_report_decision",
@@ -475,6 +534,50 @@ async def call_tool_async(
         return ACToolResult(
             content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
             isError=False,
+        )
+
+    if name == "build_spawn_child":
+        parent_run_id = arguments.get("parent_run_id")
+        role = arguments.get("role")
+        scope_type = arguments.get("scope_type")
+        scope_value = arguments.get("scope_value")
+        gh_repo = arguments.get("gh_repo")
+        if (
+            not isinstance(parent_run_id, str)
+            or not isinstance(role, str)
+            or not isinstance(scope_type, str)
+            or not isinstance(scope_value, str)
+            or not isinstance(gh_repo, str)
+        ):
+            err_text = _tool_result_to_text(
+                {"error": "parent_run_id, role, scope_type, scope_value, gh_repo (strings) are required"}
+            )
+            return ACToolResult(
+                content=[ACToolContent(type="text", text=err_text)],
+                isError=True,
+            )
+        issue_body_raw = arguments.get("issue_body", "")
+        issue_body = str(issue_body_raw) if issue_body_raw else ""
+        issue_title_raw = arguments.get("issue_title", "")
+        issue_title = str(issue_title_raw) if issue_title_raw else ""
+        skills_raw = arguments.get("skills_hint")
+        skills_hint: list[str] | None = None
+        if isinstance(skills_raw, list):
+            skills_hint = [str(s) for s in skills_raw]
+        result = await build_spawn_child(
+            parent_run_id=parent_run_id,
+            role=role,
+            scope_type=scope_type,
+            scope_value=scope_value,
+            gh_repo=gh_repo,
+            issue_body=issue_body,
+            issue_title=issue_title,
+            skills_hint=skills_hint,
+        )
+        is_error = not bool(result.get("ok", False))
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=is_error,
         )
 
     if name == "build_report_step":

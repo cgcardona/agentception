@@ -8,9 +8,10 @@ Three audiences:
    ``POST /api/build/dispatch-label`` (label-scoped manager/root) create a
    worktree, ``.agent-task`` file, and a ``pending_launch`` DB record.
 
-2. **The AgentCeption Coordinator** — ``GET /api/build/pending-launches``
+2. **The AgentCeption Coordinator / Dispatcher** — ``GET /api/build/pending-launches``
    exposes the launch queue; ``POST /api/build/acknowledge/{run_id}``
-   atomically claims a run before the coordinator spawns its Task worker.
+   atomically claims a run; ``POST /api/build/spawn-child`` lets any manager
+   agent create a child node atomically (worktree + .agent-task + DB + ack).
 
 3. **Running agents** — ``POST /api/build/report/*`` lets agents push
    structured lifecycle events back to AgentCeption.
@@ -28,11 +29,14 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 
+from typing import Literal
+
 from agentception.config import settings
 from agentception.db.persist import acknowledge_agent_run, persist_agent_event, persist_agent_run_dispatch
 from agentception.db.queries import get_agent_run_teardown, get_pending_launches
 from agentception.mcp.plan_advance_phase import plan_advance_phase as _plan_advance_phase
 from agentception.routes.api._shared import _resolve_cognitive_arch
+from agentception.services.spawn_child import SpawnChildError, ScopeType, spawn_child
 
 logger = logging.getLogger(__name__)
 
@@ -467,6 +471,87 @@ async def acknowledge_launch(run_id: str) -> dict[str, object]:
         return {"ok": False, "reason": f"Run {run_id!r} not found or not in pending_launch state"}
     logger.info("✅ acknowledge_launch: %s claimed", run_id)
     return {"ok": True, "run_id": run_id}
+
+
+# ---------------------------------------------------------------------------
+# spawn-child — universal child-node creation for manager agents
+# ---------------------------------------------------------------------------
+
+
+class SpawnChildRequest(BaseModel):
+    """Request body for ``POST /api/build/spawn-child``."""
+
+    parent_run_id: str
+    """``run_id`` of the calling manager agent (for lineage tracking)."""
+    role: str
+    """Child's role slug (e.g. ``"engineering-coordinator"``, ``"python-developer"``)."""
+    scope_type: Literal["label", "issue", "pr"]
+    """``"label"``, ``"issue"``, or ``"pr"``."""
+    scope_value: str
+    """Label string, issue number, or PR number (as string)."""
+    gh_repo: str
+    """``"owner/repo"`` string."""
+    issue_body: str = ""
+    """Issue body for COGNITIVE_ARCH skill extraction (issue-scoped children)."""
+    issue_title: str = ""
+    """Issue title written to ISSUE_TITLE field."""
+    skills_hint: list[str] | None = None
+    """Explicit skill list; bypasses keyword extraction when provided."""
+
+
+class SpawnChildResponse(BaseModel):
+    """Successful response from ``POST /api/build/spawn-child``."""
+
+    run_id: str
+    host_worktree_path: str
+    worktree_path: str
+    tier: str
+    role: str
+    cognitive_arch: str
+    agent_task_path: str
+    scope_type: str
+    scope_value: str
+    status: str = "implementing"
+
+
+@router.post("/spawn-child", response_model=SpawnChildResponse)
+async def spawn_child_node(req: SpawnChildRequest) -> SpawnChildResponse:
+    """Atomically create a child node in the agent tree.
+
+    Any manager agent (CTO, coordinator, or future tier) calls this endpoint
+    to create a child with a worktree, ``.agent-task``, DB record, and
+    auto-acknowledgement — all in a single atomic operation.
+
+    The caller receives ``host_worktree_path`` and ``run_id``, then
+    immediately fires a Task tool call with the briefing:
+
+        "Read your .agent-task file at {host_worktree_path}/.agent-task
+         and follow the instructions for your role."
+
+    This endpoint is the canonical way to grow the agent tree at runtime.
+    It replaces the previous pattern of manager agents manually creating
+    worktrees and writing ``.agent-task`` files with hand-rolled shell
+    scripts embedded in role files.
+
+    Raises:
+        HTTPException 422: Invalid ``scope_type`` value.
+        HTTPException 500: Worktree creation or file I/O failure.
+    """
+    try:
+        result = await spawn_child(
+            parent_run_id=req.parent_run_id,
+            role=req.role,
+            scope_type=req.scope_type,
+            scope_value=req.scope_value,
+            gh_repo=req.gh_repo,
+            issue_body=req.issue_body,
+            issue_title=req.issue_title,
+            skills_hint=req.skills_hint,
+        )
+    except SpawnChildError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return SpawnChildResponse(**result.to_dict())
 
 
 # ---------------------------------------------------------------------------

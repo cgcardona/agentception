@@ -16,6 +16,7 @@ import logging
 
 from agentception.db.persist import persist_agent_event
 from agentception.db.queries import get_pending_launches
+from agentception.services.spawn_child import ScopeType, SpawnChildError, spawn_child
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +133,81 @@ async def build_report_decision(
         "✅ build_report_decision: issue=%d decision=%r", issue_number, decision
     )
     return {"ok": True, "event": "decision"}
+
+
+async def build_spawn_child(
+    parent_run_id: str,
+    role: str,
+    scope_type: str,
+    scope_value: str,
+    gh_repo: str,
+    issue_body: str = "",
+    issue_title: str = "",
+    skills_hint: list[str] | None = None,
+) -> dict[str, object]:
+    """Create a child agent node in the tree and return its worktree path.
+
+    Any manager agent — CTO, coordinator, or any future tier — calls this
+    tool to atomically spawn a child.  The tool creates the worktree, writes
+    the ``.agent-task`` file (with COGNITIVE_ARCH, SCOPE_TYPE, SCOPE_VALUE,
+    PARENT_RUN_ID, and all required fields), registers the DB record, and
+    auto-acknowledges the run so the caller can immediately fire a Task call.
+
+    Args:
+        parent_run_id:  ``run_id`` of the calling agent (lineage tracking).
+        role:           Child's role slug (e.g. ``"engineering-coordinator"``).
+        scope_type:     ``"label"``, ``"issue"``, or ``"pr"``.
+        scope_value:    Label string, or issue/PR number as a string.
+        gh_repo:        ``"owner/repo"`` string.
+        issue_body:     Issue body for COGNITIVE_ARCH skill extraction.
+        issue_title:    Issue title written to ISSUE_TITLE field.
+        skills_hint:    Explicit skill override list for COGNITIVE_ARCH.
+
+    Returns:
+        On success: ``{"ok": True, "run_id": ..., "host_worktree_path": ...,
+                       "tier": ..., "role": ..., "cognitive_arch": ...}``
+        On failure: ``{"ok": False, "error": "<reason>"}``
+    """
+    if scope_type == "label":
+        scope: ScopeType = "label"
+    elif scope_type == "issue":
+        scope = "issue"
+    elif scope_type == "pr":
+        scope = "pr"
+    else:
+        return {"ok": False, "error": f"scope_type must be label/issue/pr, got {scope_type!r}"}
+
+    try:
+        result = await spawn_child(
+            parent_run_id=parent_run_id,
+            role=role,
+            scope_type=scope,
+            scope_value=scope_value,
+            gh_repo=gh_repo,
+            issue_body=issue_body,
+            issue_title=issue_title,
+            skills_hint=skills_hint,
+        )
+    except SpawnChildError as exc:
+        logger.error("❌ build_spawn_child failed: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+    logger.info(
+        "✅ build_spawn_child: spawned run_id=%r role=%r scope=%s:%s",
+        result.run_id, result.role, result.scope_type, result.scope_value,
+    )
+    return {
+        "ok": True,
+        "run_id": result.run_id,
+        "host_worktree_path": result.host_worktree_path,
+        "tier": result.tier,
+        "role": result.role,
+        "cognitive_arch": result.cognitive_arch,
+        "agent_task_path": result.agent_task_path,
+        "scope_type": result.scope_type,
+        "scope_value": result.scope_value,
+        "status": "implementing",
+    }
 
 
 async def build_report_done(
