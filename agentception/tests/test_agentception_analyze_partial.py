@@ -19,7 +19,7 @@ from agentception.app import app
 from agentception.intelligence.analyzer import IssueAnalysis
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def client() -> Generator[TestClient, None, None]:
     """Synchronous test client with full lifespan."""
     with TestClient(app) as c:

@@ -32,7 +32,7 @@ from agentception.app import app
 _UTC = datetime.timezone.utc
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def client() -> Generator[TestClient, None, None]:
     """Synchronous test client with full app lifespan."""
     with TestClient(app) as c:

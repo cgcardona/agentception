@@ -22,7 +22,7 @@ from agentception.app import app
 from agentception.models import SpawnRequest, VALID_ROLES
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def client() -> Generator[TestClient, None, None]:
     """Synchronous test client with full lifespan."""
     with TestClient(app) as c:

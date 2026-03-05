@@ -20,7 +20,7 @@ from agentception.app import app
 from agentception.models import AgentNode, AgentStatus, BoardIssue, PipelineState
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def client() -> Generator[TestClient, None, None]:
     """Synchronous test client with full lifespan (poller is started but immediately cancelled)."""
     with TestClient(app) as c:

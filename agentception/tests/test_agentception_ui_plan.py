@@ -26,7 +26,7 @@ from agentception.config import AgentCeptionSettings
 from agentception.routes.ui.plan_ui import _count_plan_items, _parse_task_fields
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def client() -> Generator[TestClient, None, None]:
     """Synchronous test client."""
     with TestClient(app) as c:
