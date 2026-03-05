@@ -78,7 +78,7 @@ ls -la
 
 After extraction, `pipeline-config.json` references in the new repo need updating:
 
-1. Copy your existing `pipeline-config.json` to `.cursor/pipeline-config.json` in the new repo.
+1. Copy your existing `pipeline-config.json` to `.agentception/pipeline-config.json` in the new repo.
 2. Update the `projects` array:
 
 ```json

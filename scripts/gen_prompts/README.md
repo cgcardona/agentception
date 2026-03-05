@@ -2,7 +2,7 @@
 
 > **Commands can run inside the agentception Docker container or directly on the host.**
 
-The 12 agent prompt files (`.cursor/roles/*.md`, `.cursor/PARALLEL_*.md`) are
+The agent prompt files (`.agentception/roles/*.md`) are
 **generated** — never hand-edited. One config file (`config.yaml`) drives
 everything: repo slug, phase label order, active codebase, GitHub label
 definitions, and every value that varies between pipeline runs.
@@ -14,10 +14,10 @@ definitions, and every value that varies between pipeline runs.
 docker compose exec agentception python3 /app/scripts/gen_prompts/generate.py
 
 # 2. Review diffs:
-git diff .cursor/
+git diff .agentception/roles/
 
 # 3. Commit generated files:
-git add .cursor/ scripts/gen_prompts/sync_labels.sh
+git add .agentception/roles/ scripts/gen_prompts/sync_labels.sh
 git commit -m "chore: regenerate prompts"
 
 # 4. Sync GitHub labels (only needed when labels section changed):
@@ -25,7 +25,7 @@ bash scripts/gen_prompts/sync_labels.sh
 ```
 
 > **Why Docker?**
-> The generator writes directly to `.cursor/` inside the container, which is
+> The generator writes directly to `.agentception/roles/` inside the container, which is
 > bind-mounted from the host (`docker-compose.override.yml`). This guarantees
 > the same Python version (3.11), the same Jinja2 version, and the same file
 > permissions as the running pipeline. Running on the host bypasses all of
@@ -36,7 +36,7 @@ bash scripts/gen_prompts/sync_labels.sh
 ```
 scripts/gen_prompts/
   config.yaml                      ← edit this to reconfigure a run
-  generate.py                      ← run this to regenerate .cursor/ files
+  generate.py                      ← run this to regenerate .agentception/roles/ files
   sync_labels.sh                   ← auto-generated; run once to sync GitHub labels
   COGNITIVE_ARCHITECTURE_SPEC.md   ← full spec for the cognitive architecture mixer
   README.md                        ← this file
@@ -79,7 +79,7 @@ scripts/gen_prompts/
       hamming.yaml                 #   → the_pragmatist (work on the important problems)
       mccarthy.yaml                #   → the_architect  (formalize first, solve within formalism)
       ritchie.yaml                 #   → the_operator   (minimal tools that compose cleanly)
-  templates/                       ← Jinja2 templates for all .cursor/ prompt files
+  templates/                       ← Jinja2 templates for all .agentception/roles/ prompt files
     roles/
       cto.md.j2
       engineering-manager.md.j2
@@ -200,7 +200,7 @@ The engineering-manager writes `COGNITIVE_ARCH` to `.agent-task` at spawn time:
 ```bash
 ISSUE=671
 WORKTREE="$HOME/.agentception/worktrees/agentception/issue-671"
-ROLE_FILE="$HOME/.cursor/roles/python-developer.md"
+ROLE_FILE="$HOME/.agentception/roles/python-developer.md"
 ISSUE_LABEL="agentception/2-telemetry"
 SPAWN_MODE=direct
 COGNITIVE_ARCH=dijkstra+python        # figure + skill domain

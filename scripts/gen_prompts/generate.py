@@ -10,7 +10,7 @@ Workflow:
     1. Edit scripts/gen_prompts/config.yaml  (or a template in templates/)
     2. docker compose exec agentception python3 /app/scripts/gen_prompts/generate.py
     3. Review the diff, then commit:
-       git add .cursor/ scripts/gen_prompts/sync_labels.sh && git commit
+       git add .agentception/roles/ scripts/gen_prompts/sync_labels.sh && git commit
     4. Run sync_labels.sh once to push label changes to GitHub:
        bash scripts/gen_prompts/sync_labels.sh
 """
@@ -42,7 +42,7 @@ else:
         stacklevel=1,
     )
 
-CURSOR_DIR = REPO_ROOT / ".cursor"
+AGENTCEPTION_DIR = REPO_ROOT / ".agentception"
 SYNC_LABELS_PATH = SCRIPT_DIR / "sync_labels.sh"
 
 GENERATED_HEADER = (
@@ -52,14 +52,14 @@ GENERATED_HEADER = (
 
 
 def _output_path(template_path: Path) -> Path:
-    """Derive the .cursor/ output path from a template path.
+    """Derive the .agentception/ output path from a template path.
 
-    templates/roles/cto.md.j2         → .cursor/roles/cto.md
-    templates/PARALLEL_PR_REVIEW.md.j2 → .cursor/PARALLEL_PR_REVIEW.md
+    templates/roles/cto.md.j2         → .agentception/roles/cto.md
+    templates/PARALLEL_PR_REVIEW.md.j2 → .agentception/PARALLEL_PR_REVIEW.md
     """
     rel = template_path.relative_to(TEMPLATES_DIR)
     output_rel = rel.with_suffix("") if rel.suffix == ".j2" else rel
-    return CURSOR_DIR / output_rel
+    return AGENTCEPTION_DIR / output_rel
 
 
 def _build_context(config: dict) -> dict:  # type: ignore[type-arg]

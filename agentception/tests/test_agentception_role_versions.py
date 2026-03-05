@@ -41,10 +41,10 @@ def client() -> Generator[TestClient, None, None]:
 
 @pytest.fixture()
 def tmp_repo(tmp_path: Path) -> Path:
-    """Temp directory mimicking a minimal .cursor/ structure for version tracking tests."""
-    cursor_dir = tmp_path / ".cursor"
-    cursor_dir.mkdir(parents=True)
-    roles_dir = cursor_dir / "roles"
+    """Temp directory mimicking a minimal .agentception/ structure for version tracking tests."""
+    ac_dir = tmp_path / ".agentception"
+    ac_dir.mkdir(parents=True)
+    roles_dir = ac_dir / "roles"
     roles_dir.mkdir()
     (roles_dir / "cto.md").write_text("# CTO\nLeads engineering.", encoding="utf-8")
     return tmp_path
@@ -59,9 +59,9 @@ async def test_record_version_bump_appends_to_history(tmp_path: Path) -> None:
     with patch("agentception.intelligence.role_versions.settings") as mock_settings:
         mock_settings.repo_dir = tmp_path
         # Bootstrap an empty role-versions.json
-        cursor_dir = tmp_path / ".cursor"
-        cursor_dir.mkdir(exist_ok=True)
-        (cursor_dir / "role-versions.json").write_text(
+        ac_dir = tmp_path / ".agentception"
+        ac_dir.mkdir(exist_ok=True)
+        (ac_dir / "role-versions.json").write_text(
             json.dumps({"versions": {}, "ab_mode": {"enabled": False}}),
             encoding="utf-8",
         )
@@ -88,9 +88,9 @@ async def test_record_version_bump_idempotent_on_same_sha(tmp_path: Path) -> Non
     """record_version_bump must not add a duplicate entry when called twice with the same SHA."""
     with patch("agentception.intelligence.role_versions.settings") as mock_settings:
         mock_settings.repo_dir = tmp_path
-        cursor_dir = tmp_path / ".cursor"
-        cursor_dir.mkdir(exist_ok=True)
-        (cursor_dir / "role-versions.json").write_text(
+        ac_dir = tmp_path / ".agentception"
+        ac_dir.mkdir(exist_ok=True)
+        (ac_dir / "role-versions.json").write_text(
             json.dumps({"versions": {}, "ab_mode": {"enabled": False}}),
             encoding="utf-8",
         )
@@ -128,9 +128,9 @@ async def test_get_version_for_batch_returns_correct_sha(tmp_path: Path) -> None
 
     with patch("agentception.intelligence.role_versions.settings") as mock_settings:
         mock_settings.repo_dir = tmp_path
-        cursor_dir = tmp_path / ".cursor"
-        cursor_dir.mkdir(exist_ok=True)
-        (cursor_dir / "role-versions.json").write_text(
+        ac_dir = tmp_path / ".agentception"
+        ac_dir.mkdir(exist_ok=True)
+        (ac_dir / "role-versions.json").write_text(
             json.dumps(scaffold), encoding="utf-8"
         )
 
@@ -147,9 +147,9 @@ async def test_get_version_for_batch_returns_none_for_unknown_slug(tmp_path: Pat
     """get_version_for_batch must return None when the slug has no recorded history."""
     with patch("agentception.intelligence.role_versions.settings") as mock_settings:
         mock_settings.repo_dir = tmp_path
-        cursor_dir = tmp_path / ".cursor"
-        cursor_dir.mkdir(exist_ok=True)
-        (cursor_dir / "role-versions.json").write_text(
+        ac_dir = tmp_path / ".agentception"
+        ac_dir.mkdir(exist_ok=True)
+        (ac_dir / "role-versions.json").write_text(
             json.dumps({"versions": {}, "ab_mode": {"enabled": False}}),
             encoding="utf-8",
         )
@@ -167,14 +167,14 @@ async def test_role_versions_file_created_on_first_write(tmp_path: Path) -> None
     """write_role_versions must create role-versions.json when it does not yet exist."""
     with patch("agentception.intelligence.role_versions.settings") as mock_settings:
         mock_settings.repo_dir = tmp_path
-        # Ensure the .cursor dir does not exist yet.
-        target = tmp_path / ".cursor" / "role-versions.json"
+        # Ensure the .agentception dir does not exist yet.
+        target = tmp_path / ".agentception" / "role-versions.json"
         assert not target.exists(), "Pre-condition: file must not exist before first write"
 
         scaffold: dict[str, object] = {"versions": {}, "ab_mode": {"enabled": False}}
         await write_role_versions(scaffold)
 
-    assert target.exists(), "role-versions.json must be created on first write"
+    assert target.exists(), ".agentception/role-versions.json must be created on first write"
     content = json.loads(target.read_text(encoding="utf-8"))
     assert content == scaffold
 
@@ -201,7 +201,7 @@ def test_role_versions_api_returns_history(
             "agentception.intelligence.role_versions.settings"
         ) as mock_intel_settings:
             mock_intel_settings.repo_dir = tmp_repo
-            (tmp_repo / ".cursor" / "role-versions.json").write_text(
+            (tmp_repo / ".agentception" / "role-versions.json").write_text(
                 json.dumps(versions_data), encoding="utf-8"
             )
             response = client.get("/api/roles/cto/versions")
@@ -227,7 +227,7 @@ def test_role_versions_api_returns_empty_for_unrecorded_slug(
             "agentception.intelligence.role_versions.settings"
         ) as mock_intel_settings:
             mock_intel_settings.repo_dir = tmp_repo
-            (tmp_repo / ".cursor" / "role-versions.json").write_text(
+            (tmp_repo / ".agentception" / "role-versions.json").write_text(
                 json.dumps(versions_data), encoding="utf-8"
             )
             response = client.get("/api/roles/cto/versions")

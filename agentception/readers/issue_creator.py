@@ -198,11 +198,26 @@ async def _bootstrap_labels(spec: PlanSpec) -> None:
 # ── per-issue creation helper (free function avoids closure capture bugs) ──
 
 
+def _embed_skills(body: str, skills: list[str]) -> str:
+    """Append an HTML comment with skill domain IDs to the issue body.
+
+    The comment is machine-readable and invisible to humans in the GitHub UI.
+    It is parsed back at agent spawn time by ``_extract_skills_from_body`` in
+    ``agentception/routes/api/_shared.py`` to pass as ``skills_hint`` to
+    ``_resolve_cognitive_arch``, replacing fallback keyword extraction.
+    """
+    if not skills:
+        return body
+    skills_str = ", ".join(skills)
+    return f"{body}\n\n<!-- ac:skills: {skills_str} -->"
+
+
 async def _create_one(
     repo: str, issue: PlanIssue, labels: list[str]
 ) -> tuple[str, int, str]:
     """Create a single issue; return (issue.id, github_number, html_url)."""
-    number, url = await _gh_create_issue(repo, issue.title, issue.body, labels)
+    body_with_skills = _embed_skills(issue.body, issue.skills)
+    number, url = await _gh_create_issue(repo, issue.title, body_with_skills, labels)
     return issue.id, number, url
 
 

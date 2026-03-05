@@ -4,67 +4,176 @@ from __future__ import annotations
 
 Contains:
 - ``_SENTINEL``: path to the pipeline-pause sentinel file.
+- ``ROLE_DEFAULT_FIGURE``: canonical figure per role slug (all 45 roles).
+- ``_derive_skills_from_body``: keyword-based skill extraction from issue body.
+- ``_resolve_cognitive_arch``: derives COGNITIVE_ARCH string from role + issue body.
 - ``_build_agent_task``: constructs ``.agent-task`` file content for engineer agents.
 - ``_build_coordinator_task``: constructs ``.agent-task`` for brain-dump coordinators.
-- ``_resolve_cognitive_arch``: derives COGNITIVE_ARCH string from issue body.
+- ``_build_conductor_task``: constructs ``.agent-task`` for conductor/CTO agents.
 - ``_issue_is_claimed_api``: checks ``agent:wip`` label presence.
 """
 
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
 from agentception.config import settings
 
+_AC_SKILLS_RE = re.compile(r"<!--\s*ac:skills:\s*([^-]+?)\s*-->")
+
 # Path to the sentinel file that pauses the agent pipeline.
 # Writing this file tells CTO and Eng VP loops to wait rather than spawn agents.
 _SENTINEL: Path = settings.ac_dir / ".pipeline-pause"
 
+# ---------------------------------------------------------------------------
+# Role → default cognitive figure mapping
+# ---------------------------------------------------------------------------
+# Each role slug maps to the single figure that best represents the epistemic
+# mindset for that role.  Figure selection is role-driven (who is this agent?)
+# while skill selection remains issue-body-driven (what domain is this ticket?).
+# This covers all 45 role files in .agentception/roles/ plus the fallback.
+ROLE_DEFAULT_FIGURE: dict[str, str] = {
+    # Engineering leaf roles
+    "python-developer":          "guido_van_rossum",
+    "frontend-developer":        "don_norman",
+    "full-stack-developer":      "lovelace",
+    "typescript-developer":      "anders_hejlsberg",
+    "api-developer":             "turing",
+    "database-architect":        "dijkstra",
+    "data-engineer":             "shannon",
+    "devops-engineer":           "linus_torvalds",
+    "site-reliability-engineer": "margaret_hamilton",
+    "security-engineer":         "bruce_schneier",
+    "test-engineer":             "kent_beck",
+    "architect":                 "avie_tevanian",
+    "ml-engineer":               "andrej_karpathy",
+    "ml-researcher":             "yann_lecun",
+    "data-scientist":            "fei_fei_li",
+    "systems-programmer":        "ritchie",
+    "rust-developer":            "graydon_hoare",
+    "go-developer":              "rob_pike",
+    "react-developer":           "ryan_dahl",
+    "ios-developer":             "scott_forstall",
+    "android-developer":         "james_gosling",
+    "mobile-developer":          "scott_forstall",
+    "rails-developer":           "dhh",
+    "technical-writer":          "feynman",
+    "muse-specialist":           "lovelace",
+    # Coordinator / manager roles — real figures, not fake placeholder strings
+    "engineering-coordinator":   "von_neumann",
+    "qa-coordinator":            "w_edwards_deming",
+    "coordinator":               "satya_nadella",
+    "conductor":                 "jeff_dean",       # wave-level orchestrator
+    # PR reviewer — the_guardian: correctness above all
+    "pr-reviewer":               "michael_fagan",
+    # C-suite roles
+    "cto":                       "jeff_dean",       # planetary-scale systems
+    "csto":                      "avie_tevanian",   # Chief Software Technology Officer
+    "ceo":                       "steve_jobs",
+    "cpo":                       "lovelace",
+    "coo":                       "jeff_bezos",
+    "cdo":                       "shannon",
+    "cfo":                       "von_neumann",
+    "ciso":                      "bruce_schneier",
+    "cmo":                       "paul_graham",
+    # VP roles
+    "vp-platform":               "patrick_collison",
+    "vp-infrastructure":         "linus_torvalds",
+    "vp-data":                   "shannon",
+    "vp-ml":                     "andrej_karpathy",
+    "vp-design":                 "don_norman",
+    "vp-mobile":                 "wozniak",
+    "vp-security":               "bruce_schneier",
+    "vp-product":                "steve_jobs",
+    # Fallback — generic but capable default
+    "data-scientist":            "fei_fei_li",
+}
 
-def _resolve_cognitive_arch(issue_body: str, role: str) -> str:
-    """Derive COGNITIVE_ARCH string from issue body and role.
 
-    Format: ``figure:skill1:skill2``.  Mirrors the logic in
-    ``parallel-issue-to-pr.md`` so agents spawned via the control plane
-    receive the same architectural context as batch-spawned agents.
+def _derive_skills_from_body(body: str) -> str:
+    """Extract a colon-separated skill string from issue body keywords.
+
+    Returns the first matching skill string — priority order reflects how
+    distinct and actionable each technology signal is in practice.
     """
-    body = issue_body.lower()
-
-    if any(k in body for k in ("d3.js", "force-directed", "d3.force", "d3.select")):
-        skills = "d3:javascript"
-    elif any(k in body for k in ("monaco", "vs/loader", "editor.*cdn")):
-        skills = "monaco"
-    elif any(k in body for k in ("htmx", "hx-", "sse-connect", "hx-ext")):
+    b = body.lower()
+    if any(k in b for k in ("d3.js", "force-directed", "d3.force", "d3.select")):
+        return "d3:javascript"
+    if any(k in b for k in ("monaco", "vs/loader", "editor.*cdn")):
+        return "monaco"
+    if any(k in b for k in ("htmx", "hx-", "sse-connect", "hx-ext")):
         skills = "htmx"
-        if any(k in body for k in ("jinja2", ".html", "templateresponse", "extends.*html")):
+        if any(k in b for k in ("jinja2", ".html", "templateresponse")):
             skills += ":jinja2"
-        if any(k in body for k in ("alpine", "x-data", "x-show")):
+        if any(k in b for k in ("alpine", "x-data", "x-show")):
             skills += ":alpine"
-    elif any(k in body for k in ("jinja2", "templateresponse", "extends.*html")):
-        skills = "jinja2"
-    elif any(k in body for k in ("postgres", "alembic", "migration", "sqlalchemy")):
-        skills = "postgresql:python"
-    elif any(k in body for k in ("dockerfile", "from python", "compose.*service")):
-        skills = "devops"
-    elif any(k in body for k in ("midi", "muse", "variation", "beat")):
-        skills = "midi:python"
-    elif any(k in body for k in ("llm", "embedding", "rag", "openrouter", "claude")):
-        skills = "llm:python"
-    elif any(k in body for k in ("apirouter", "fastapi", "depends", "response_model")):
-        skills = "fastapi:python"
-    else:
-        skills = "python"
+        return skills
+    if any(k in b for k in ("jinja2", "templateresponse")):
+        return "jinja2"
+    if any(k in b for k in ("postgres", "alembic", "migration", "sqlalchemy")):
+        return "postgresql:python"
+    if any(k in b for k in ("dockerfile", "from python", "compose")):
+        return "devops"
+    if any(k in b for k in ("midi", "muse", "variation", "beat")):
+        return "midi:python"
+    if any(k in b for k in ("llm", "embedding", "rag", "openrouter", "claude")):
+        return "llm:python"
+    if any(k in b for k in ("apirouter", "fastapi", "depends", "response_model")):
+        return "fastapi:python"
+    if any(k in b for k in ("pytest", "test_", "assert", "coverage", "fixture")):
+        return "testing:python"
+    if any(k in b for k in ("typescript", ".ts", "tsx")):
+        return "typescript:javascript"
+    if any(k in b for k in ("rust", "cargo", "tokio")):
+        return "rust"
+    if any(k in b for k in ("docker", "kubernetes", "k8s", "helm")):
+        return "devops"
+    return "python"
 
-    if any(k in body for k in ("migration", "alembic", "schema", "db.model", "postgres")):
-        figure = "dijkstra"
-    elif any(k in body for k in ("sse", "broadcast", "async", "asyncio", "fanout")):
-        figure = "shannon"
-    elif any(k in body for k in ("overview", "dashboard", "pipeline", "tree")):
-        figure = "lovelace"
-    elif any(k in body for k in ("api", "endpoint", "route", "contract")):
-        figure = "turing"
-    else:
-        figure = "hopper"
 
+def _extract_skills_from_body(body: str) -> list[str] | None:
+    """Extract skill domain IDs embedded by the issue creator.
+
+    Returns a non-empty list when the ``<!-- ac:skills: ... -->`` comment is
+    present (written by ``_embed_skills`` in ``issue_creator.py``).  Returns
+    ``None`` when the comment is absent, allowing the caller to fall back to
+    keyword extraction.
+    """
+    m = _AC_SKILLS_RE.search(body)
+    if not m:
+        return None
+    raw = m.group(1)
+    skills = [s.strip() for s in raw.split(",") if s.strip()]
+    return skills if skills else None
+
+
+def _resolve_cognitive_arch(
+    issue_body: str,
+    role: str,
+    skills_hint: list[str] | None = None,
+) -> str:
+    """Derive COGNITIVE_ARCH string from role and issue body.
+
+    Format: ``figure:skill1[:skill2]``.
+
+    Figure is selected from ``ROLE_DEFAULT_FIGURE`` keyed by role slug — this
+    ensures every tier (C-suite, VP, coordinator, engineer) receives a real,
+    loadable figure rather than the old placeholder strings ``"coordinator"``
+    and ``"conductor"``.
+
+    Skills come from ``skills_hint`` when present (set by the LLM planner in
+    ``PlanIssue.skills``), falling back to keyword extraction from the issue
+    body.  This creates a clean pipeline: Phase 1A primes the skill context,
+    spawn time consumes it.
+    """
+    figure = ROLE_DEFAULT_FIGURE.get(role, "hopper")
+    if skills_hint:
+        # Explicit hint from call site (e.g. PlanIssue.skills passed directly).
+        skills = ":".join(skills_hint)
+    else:
+        # Try to read embedded skills comment first; fall back to keyword extraction.
+        embedded = _extract_skills_from_body(issue_body)
+        skills = ":".join(embedded) if embedded else _derive_skills_from_body(issue_body)
     return f"{figure}:{skills}"
 
 
@@ -96,7 +205,7 @@ def _build_agent_task(
     # ROLE_FILE is metadata only — the kickoff prompt embeds all role content
     # inline.  The path uses the host repo dir so it is human-readable even
     # though agents are instructed not to read it from disk.
-    role_file_display = f"<host-repo>/.cursor/roles/{role}.md"
+    role_file_display = f"<host-repo>/.agentception/roles/{role}.md"
     return (
         f"WORKFLOW=issue-to-pr\n"
         f"GH_REPO={repo}\n"
@@ -151,13 +260,13 @@ def _build_coordinator_task(
         f"WORKFLOW=bugs-to-issues\n"
         f"GH_REPO={repo}\n"
         f"ROLE=coordinator\n"
-        f"ROLE_FILE=<host-repo>/.cursor/roles/coordinator.md\n"
+        f"ROLE_FILE=<host-repo>/.agentception/roles/coordinator.md\n"
         f"WORKTREE={worktree}\n"
         f"HOST_WORKTREE={host_worktree}\n"
         f"BASE=dev\n"
         f"BATCH_ID={slug}\n"
         f"WAVE={slug}\n"
-        f"COGNITIVE_ARCH=coordinator\n"
+        f"COGNITIVE_ARCH={ROLE_DEFAULT_FIGURE.get('engineering-coordinator', 'von_neumann')}:python\n"
         f"{prefix_line}"
         f"CREATED_AT={now}\n"
         f"SPAWN_MODE=chain\n"
@@ -190,7 +299,7 @@ def _build_conductor_task(
         f"WORKFLOW=conductor\n"
         f"GH_REPO={repo}\n"
         f"ROLE=conductor\n"
-        f"ROLE_FILE=<host-repo>/.cursor/roles/conductor.md\n"
+        f"ROLE_FILE=<host-repo>/.agentception/roles/conductor.md\n"
         f"WAVE_ID={wave_id}\n"
         f"PHASES={','.join(phases)}\n"
         f"ORG={org or ''}\n"
@@ -200,7 +309,7 @@ def _build_conductor_task(
         f"BASE=dev\n"
         f"BATCH_ID={wave_id}\n"
         f"WAVE={wave_id}\n"
-        f"COGNITIVE_ARCH=conductor\n"
+        f"COGNITIVE_ARCH={ROLE_DEFAULT_FIGURE.get('conductor', 'jeff_dean')}:python\n"
         f"CREATED_AT={now}\n"
         f"SPAWN_MODE=chain\n"
         f"SPAWN_SUB_AGENTS=true\n"

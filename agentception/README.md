@@ -166,7 +166,7 @@ That's it. The dashboard auto-refreshes every 5 seconds.
 
 ## Configuration Reference
 
-AgentCeption is configured via environment variables or via the `pipeline-config.json` file in your repository's `.cursor/` directory.
+AgentCeption is configured via environment variables or via the `pipeline-config.json` file in your repository's `.agentception/` directory.
 
 ### Environment Variables
 
@@ -183,7 +183,7 @@ AgentCeption is configured via environment variables or via the `pipeline-config
 
 ### `pipeline-config.json` Schema
 
-Place this file at `<your-repo>/.cursor/pipeline-config.json`:
+Place this file at `<your-repo>/.agentception/pipeline-config.json`:
 
 ```jsonc
 {
@@ -207,8 +207,8 @@ Place this file at `<your-repo>/.cursor/pipeline-config.json`:
   "ab_mode": {
     "enabled": false,
     "target_role": "python-developer",
-    "variant_a_file": ".cursor/roles/python-developer.md",
-    "variant_b_file": ".cursor/roles/python-developer-v2.md"
+    "variant_a_file": ".agentception/roles/python-developer.md",
+    "variant_b_file": ".agentception/roles/python-developer-v2.md"
   },
 
   // Multi-repo support: list projects and set the active one
@@ -266,9 +266,9 @@ curl -X POST http://localhost:10003/api/templates/import \
 
 ### Minimal Manual Setup
 
-1. Copy `.cursor/pipeline-config.json` from this repo to your target repo, updating `gh_repo`, `repo_dir`, and `worktrees_dir`.
+1. Copy `.agentception/pipeline-config.json` from this repo to your target repo, updating `gh_repo`, `repo_dir`, and `worktrees_dir`.
 2. Create GitHub issue labels matching your `active_labels_order` entries.
-3. Create role files at `.cursor/roles/<role-name>.md`.
+3. Create role files at `.agentception/roles/<role-name>.md`.
 4. Launch AgentCeption with `REPO_DIR=/path/to/new-repo agentception`.
 
 ---

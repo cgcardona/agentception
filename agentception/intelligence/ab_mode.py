@@ -26,7 +26,7 @@ Typical call site (Engineering VP SEED)::
 
     role_file = await select_role_file(
         batch_id=BATCH_ID,
-        default_role_file=".cursor/roles/python-developer.md",
+        default_role_file=".agentception/roles/python-developer.md",
     )
 """
 

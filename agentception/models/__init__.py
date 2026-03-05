@@ -231,7 +231,7 @@ class AbModeConfig(BaseModel):
     can be compared with everything else held constant.
 
     ``variant_a_file`` and ``variant_b_file`` are paths relative to the
-    repository root (e.g. ``.cursor/roles/python-developer.md``).
+    repository root (e.g. ``.agentception/roles/python-developer.md``).
     """
 
     enabled: bool = False
@@ -707,7 +707,7 @@ class TemplateManifest(BaseModel):
 
 
 class TemplateConflict(BaseModel):
-    """A single file that already exists in the target repo's ``.cursor/`` directory.
+    """A single file that already exists in the target repo's ``.agentception/`` directory.
 
     Surfaced by the import endpoint before any file is overwritten so the
     caller can decide whether to proceed.
