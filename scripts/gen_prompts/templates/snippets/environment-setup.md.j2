@@ -1,0 +1,75 @@
+## Environment (agents read this first)
+
+**You are running inside a Cursor worktree.** Your working directory is NOT the main repo.
+
+```bash
+# Derive paths — run these at the start of your session
+REPO=$(git worktree list | head -1 | awk '{print $1}')   # local filesystem path to main repo
+WTNAME=$(basename "$(pwd)")                               # this worktree's name
+# Docker path to your worktree: /worktrees/$WTNAME
+
+# GitHub repo slug — HARDCODED. NEVER derive from local path or directory name.
+export GH_REPO={{ gh_repo }}
+```
+
+| Item | Value |
+|------|-------|
+| Your worktree root | current directory (contains `.agent-task`) |
+| Main repo (local path) | first entry of `git worktree list` |
+| GitHub repo slug | `{{ gh_repo }}` — always hardcoded, never derived |
+| Docker compose location | main repo |
+| Your worktree inside Docker | `/worktrees/$WTNAME` |
+
+**All `docker compose exec` commands must be run from the main repo:**
+```bash
+cd "$REPO" && docker compose exec agentception <cmd>
+```
+
+### Docker sees your worktree directly — no file copying needed
+
+`docker-compose.override.yml` bind-mounts the entire worktrees directory into
+the container. After creating your feature branch, your worktree's code is
+**immediately live inside the container at `/worktrees/$WTNAME/`**:
+
+```bash
+REPO=$(git worktree list | head -1 | awk '{print $1}')
+WTNAME=$(basename "$(pwd)")
+
+{{ is_ac_detection_code }}
+
+# mypy — route by codebase (both codebases are independent; never cross-run)
+if [ "$IS_AC" -gt 0 ]; then
+  cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
+else
+  cd "$REPO" && docker compose exec agentception sh -c \
+    "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/"
+fi
+
+# pytest — route by codebase
+if [ "$IS_AC" -gt 0 ]; then
+  cd "$REPO" && docker compose exec agentception pytest agentception/tests/test_<module>.py -v
+else
+  cd "$REPO" && docker compose exec agentception sh -c \
+    "PYTHONPATH=/worktrees/$WTNAME pytest /worktrees/$WTNAME/tests/path/to/test_file.py -v"
+fi
+```
+
+**⚠️ NEVER copy files into the main repo** for testing purposes. That pollutes
+the `dev` branch with uncommitted changes.
+
+> **Alembic exception:** `alembic revision --autogenerate` must run from the main repo
+> because it needs a live DB connection. After generating, immediately `git mv` the
+> migration file into your worktree and delete the copy from the main repo.
+
+### GitHub via MCP — always prefer MCP over `gh`
+
+{% include 'snippets/github-mcp-reference.md.j2' %}
+
+### Command policy
+
+Consult `.cursor/agent-command-policy.md` for the full tier list. Summary:
+- **Green (auto-allow):** `ls`, `git status/log/diff/fetch`, `github_get_issue`, `github_list_prs`, `mypy`, `pytest`, `rg`
+- **Yellow (review before running):** `docker compose build`, `rm <single file>`, `git rebase`
+- **Red (never):** `rm -rf`, `git push --force`, `git push origin dev`, `docker system prune`
+
+---

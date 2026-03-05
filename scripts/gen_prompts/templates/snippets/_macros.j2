@@ -1,0 +1,40 @@
+{## Jinja2 macro library — imported by parallel templates with `with context`.
+   Usage:
+     {% from 'snippets/_macros.j2' import fingerprint_block with context %}
+     {{ fingerprint_block("CLAIM_FINGERPRINT", "python-developer", "$CLAIMED_AT") }}
+##}
+
+{#- fingerprint_block: generates the resolve_arch.py call + shell fallback table.
+    Parameters:
+      var_name        — shell variable to assign, e.g. "CLAIM_FINGERPRINT"
+      role_default    — fallback role string, e.g. "python-developer"
+      timestamp_var   — shell expression for the timestamp, e.g. "$CLAIMED_AT"
+      coordinator_ref — coordinator field value (default: "${COORD_FINGERPRINT:-unset}");
+                        pass "none" for top-level orchestrators that have no coordinator
+-#}
+{% macro fingerprint_block(var_name, role_default, timestamp_var, coordinator_ref="${COORD_FINGERPRINT:-unset}") %}  {{ var_name }}=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" "${COGNITIVE_ARCH:-unset}" \
+    --fingerprint \
+    --role "${ROLE:-{{ role_default }}}" \
+    --session "$AGENT_SESSION" \
+    --batch "${BATCH_ID:-none}" \
+    --wave "${WAVE:-unset}" \
+    --coordinator "{{ coordinator_ref }}" \
+    --started-at "{{ timestamp_var }}" 2>/dev/null)
+  # Fallback: if resolve_arch.py is unavailable or returned nothing, build the table in shell.
+  # ⚠️  Row labels MUST match render_fingerprint() exactly — this is the single source of truth.
+  if [ -z "${{ var_name }}" ]; then
+    {{ var_name }}="<details>
+<summary>🤖 Agent Fingerprint</summary>
+
+| | |
+|---|---|
+| **Role** | \`${ROLE:-{{ role_default }}}\` |
+| **Architecture** | \`${COGNITIVE_ARCH:-unset}\` |
+| **Session** | \`${AGENT_SESSION:-unset}\` |
+| **CTO Wave** | \`${WAVE:-unset}\` |
+| **Coordinator Batch** | \`${BATCH_ID:-none}\` |
+| **Coordinator** | \`{{ coordinator_ref }}\` |
+| **Timestamp** | \`{{ timestamp_var }}\` |
+
+</details>"
+  fi{% endmacro %}

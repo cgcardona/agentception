@@ -1,0 +1,4 @@
+  WORKTREE=$(pwd)
+  cd "$REPO"
+  git worktree remove --force "$WORKTREE"
+  git worktree prune
