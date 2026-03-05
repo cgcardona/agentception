@@ -334,7 +334,7 @@ async def _build_board_issues(
     active_label: str | None,
     gh_repo: str,
 ) -> list[BoardIssue]:
-    """Query ``ac_issues`` for unclaimed issues in the active phase.
+    """Query ``issues`` for unclaimed issues in the active phase.
 
     Called after ``persist_tick`` so the DB already has the freshest data.
     Returns ``[]`` on any error — poller continues without board data.

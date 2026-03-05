@@ -626,7 +626,7 @@ async def persist_agent_event(
     payload: dict[str, object],
     agent_run_id: str | None = None,
 ) -> None:
-    """Write one structured agent event row to ``ac_agent_events``.
+    """Write one structured agent event row to ``agent_events``.
 
     Called by the ``build_report_*`` HTTP endpoints when a running agent
     signals a lifecycle change.  The optional ``agent_run_id`` is included

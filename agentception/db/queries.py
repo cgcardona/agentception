@@ -107,6 +107,13 @@ class AgentRunDetail(TypedDict):
     messages: list[AgentMessageRow]
 
 
+class AgentRunTeardownRow(TypedDict):
+    """Minimal agent run fields needed to tear down a worktree after completion."""
+
+    worktree_path: str | None
+    branch: str | None
+
+
 class OpenPRRow(TypedDict):
     """One row from get_open_prs_db."""
 
@@ -401,7 +408,7 @@ async def get_board_issues(
     include_claimed: bool = False,
     limit: int = 50,
 ) -> list[BoardIssueRow]:
-    """Return open issues from ``ac_issues``, optionally filtered by phase label.
+    """Return open issues from ``issues``, optionally filtered by phase label.
 
     Returns dicts shaped like the ``gh`` CLI JSON output so existing templates
     work without changes.  Falls back to ``[]`` on any DB error.
@@ -519,7 +526,7 @@ async def get_agent_run_history(
     limit: int = 100,
     status: str | None = None,
 ) -> list[AgentRunRow]:
-    """Return recent agent runs from ``ac_agent_runs``, newest first."""
+    """Return recent agent runs from ``agent_runs``, newest first."""
     try:
         async with get_session() as session:
             stmt = (
@@ -568,7 +575,7 @@ async def get_agent_run_detail(
     """Return a single agent run with its transcript messages.
 
     ``run_id`` is the worktree basename (e.g. ``issue-732``), which is the
-    primary key stored in ``ac_agent_runs``.
+    primary key stored in ``agent_runs``.
     """
     try:
         async with get_session() as session:
@@ -619,7 +626,7 @@ async def get_agent_run_detail(
 
 
 async def get_open_prs_db(repo: str, limit: int = 50) -> list[OpenPRRow]:
-    """Return open PRs from ``ac_pull_requests``."""
+    """Return open PRs from ``pull_requests``."""
     try:
         async with get_session() as session:
             result = await session.execute(
@@ -653,7 +660,7 @@ async def get_issue_detail(
     repo: str,
     number: int,
 ) -> IssueDetailRow | None:
-    """Return full detail for a single issue from ``ac_issues``.
+    """Return full detail for a single issue from ``issues``.
 
     Includes linked PR (via ``closes_issue_number``) and all agent runs
     that worked on this issue.  Returns ``None`` when the issue is not in DB.
@@ -731,7 +738,7 @@ async def get_all_issues(
     state: str | None = None,
     limit: int = 200,
 ) -> list[AllIssueRow]:
-    """Return issues from ``ac_issues``, optionally filtered by state."""
+    """Return issues from ``issues``, optionally filtered by state."""
     try:
         async with get_session() as session:
             stmt = (
@@ -770,7 +777,7 @@ async def get_pr_detail(
     repo: str,
     number: int,
 ) -> PRDetailRow | None:
-    """Return full detail for a single PR from ``ac_pull_requests``.
+    """Return full detail for a single PR from ``pull_requests``.
 
     Includes linked issue and agent runs that worked on this PR.
     Returns ``None`` when the PR is not in DB.
@@ -844,7 +851,7 @@ async def get_all_prs(
     state: str | None = None,
     limit: int = 200,
 ) -> list[AllPRRow]:
-    """Return PRs from ``ac_pull_requests``, optionally filtered by state."""
+    """Return PRs from ``pull_requests``, optionally filtered by state."""
     try:
         async with get_session() as session:
             stmt = (
@@ -885,7 +892,7 @@ async def get_waves_from_db(limit: int = 100) -> list[WaveRow]:
 
     Used by ``telemetry.aggregate_waves()`` when no ``.agent-task`` files exist
     on the filesystem (i.e. all worktrees have been cleaned up).  Groups rows
-    in ``ac_agent_runs`` by ``batch_id``, then shapes them into the same
+    in ``agent_runs`` by ``batch_id``, then shapes them into the same
     structure expected by ``WaveSummary`` so D3 charts work without changes.
 
     Returns dicts with keys: batch_id, started_at (UNIX float), ended_at
@@ -972,7 +979,7 @@ async def get_closed_issues_count(repo: str, hours: int = 24) -> int:
         async with get_session() as session:
             result = await session.execute(
                 text(
-                    "SELECT COUNT(*) FROM ac_issues "
+                    "SELECT COUNT(*) FROM issues "
                     "WHERE repo = :repo AND state = 'closed' AND closed_at >= :cutoff"
                 ).bindparams(repo=repo, cutoff=cutoff)
             )
@@ -991,7 +998,7 @@ async def get_merged_prs_count(repo: str, hours: int = 24) -> int:
         async with get_session() as session:
             result = await session.execute(
                 text(
-                    "SELECT COUNT(*) FROM ac_pull_requests "
+                    "SELECT COUNT(*) FROM pull_requests "
                     "WHERE repo = :repo AND state = 'merged' AND merged_at >= :cutoff"
                 ).bindparams(repo=repo, cutoff=cutoff)
             )
@@ -1072,7 +1079,7 @@ async def get_initiative_phase_deps(initiative: str) -> dict[str, list[str]]:
 
     Returns ``{}`` (no deps — all phases unlocked) when the initiative has no
     stored dep graph.  This is the correct default for initiatives created
-    before ``ac_initiative_phases`` was introduced.
+    before ``initiative_phases`` was introduced.
 
     Falls back to ``{}`` on DB error.
     """
@@ -1314,7 +1321,7 @@ def _compute_agent_status(
 async def _get_step_data_for_runs(run_ids: list[str]) -> dict[str, _RunStepData]:
     """Return step-event summary keyed by run_id.
 
-    Queries ``ac_agent_events`` for ``step_start`` events and returns, per run:
+    Queries ``agent_events`` for ``step_start`` events and returns, per run:
 
     * ``current_step`` — step name from the most-recent event's JSON payload
       (``{"step": "<name>"}``); ``None`` if no events exist or payload is malformed.
@@ -1704,3 +1711,29 @@ async def get_agent_thoughts_tail(
     except Exception as exc:
         logger.warning("⚠️  get_agent_thoughts_tail DB query failed (non-fatal): %s", exc)
         return []
+
+
+async def get_agent_run_teardown(run_id: str) -> AgentRunTeardownRow | None:
+    """Return the worktree path and branch for a single agent run.
+
+    Used by ``report_done`` to clean up the worktree and remote branch without
+    fetching the full run detail (transcript, messages, etc.).
+    Returns ``None`` when the run does not exist or the DB query fails.
+    """
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun.worktree_path, ACAgentRun.branch).where(
+                    ACAgentRun.id == run_id
+                )
+            )
+            row = result.one_or_none()
+        if row is None:
+            return None
+        return AgentRunTeardownRow(
+            worktree_path=row.worktree_path,
+            branch=row.branch,
+        )
+    except Exception as exc:
+        logger.warning("⚠️  get_agent_run_teardown DB query failed (non-fatal): %s", exc)
+        return None

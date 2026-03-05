@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""AgentCeption ORM models — all tables use the ``ac_`` prefix.
+"""AgentCeption ORM models — all tables — no prefix needed since this is a standalone app.
 
 Entity hierarchy
 ----------------
@@ -61,7 +61,7 @@ from agentception.db.base import Base
 class ACWave(Base):
     """A batch spawn operation — one "Start Wave" click = one ACWave."""
 
-    __tablename__ = "ac_waves"
+    __tablename__ = "waves"
 
     id: Mapped[str] = mapped_column(String(128), primary_key=True)
     """BATCH_ID from the .agent-task file (e.g. ``eng-20260302T084507Z-16da``)."""
@@ -98,13 +98,13 @@ class ACWave(Base):
 class ACAgentRun(Base):
     """Lifecycle of one agent working one issue."""
 
-    __tablename__ = "ac_agent_runs"
+    __tablename__ = "agent_runs"
 
     id: Mapped[str] = mapped_column(String(512), primary_key=True)
     """Worktree basename (e.g. ``issue-732``) or generated UUID for manual spawns."""
 
     wave_id: Mapped[str | None] = mapped_column(
-        String(128), ForeignKey("ac_waves.id"), nullable=True, index=True
+        String(128), ForeignKey("waves.id"), nullable=True, index=True
     )
     issue_number: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     pr_number: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
@@ -168,7 +168,7 @@ class ACIssue(Base):
     latest GitHub state without hammering the DB on every tick.
     """
 
-    __tablename__ = "ac_issues"
+    __tablename__ = "issues"
 
     github_number: Mapped[int] = mapped_column(Integer, primary_key=True)
     repo: Mapped[str] = mapped_column(String(256), nullable=False, primary_key=True)
@@ -200,8 +200,8 @@ class ACIssue(Base):
     )
 
     __table_args__ = (
-        Index("ix_ac_issues_state", "state"),
-        Index("ix_ac_issues_phase_label", "phase_label"),
+        Index("ix_issues_state", "state"),
+        Index("ix_issues_phase_label", "phase_label"),
     )
 
 
@@ -213,7 +213,7 @@ class ACIssue(Base):
 class ACPullRequest(Base):
     """Mirror of a GitHub pull request, refreshed on every tick via hash-diff."""
 
-    __tablename__ = "ac_pull_requests"
+    __tablename__ = "pull_requests"
 
     github_number: Mapped[int] = mapped_column(Integer, primary_key=True)
     repo: Mapped[str] = mapped_column(String(256), nullable=False, primary_key=True)
@@ -239,7 +239,7 @@ class ACPullRequest(Base):
         DateTime(timezone=True), nullable=False
     )
 
-    __table_args__ = (Index("ix_ac_pull_requests_state", "state"),)
+    __table_args__ = (Index("ix_pull_requests_state", "state"),)
 
 
 # ---------------------------------------------------------------------------
@@ -254,11 +254,11 @@ class ACAgentMessage(Base):
     the 5-second tick loop.  Enables full-text search and ML feature extraction.
     """
 
-    __tablename__ = "ac_agent_messages"
+    __tablename__ = "agent_messages"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     agent_run_id: Mapped[str] = mapped_column(
-        String(512), ForeignKey("ac_agent_runs.id"), nullable=False, index=True
+        String(512), ForeignKey("agent_runs.id"), nullable=False, index=True
     )
     role: Mapped[str] = mapped_column(String(64), nullable=False)
     """user | assistant | tool_call | tool_result | thinking"""
@@ -273,7 +273,7 @@ class ACAgentMessage(Base):
     agent_run: Mapped[ACAgentRun] = relationship("ACAgentRun", back_populates="messages")
 
     __table_args__ = (
-        Index("ix_ac_agent_messages_run_seq", "agent_run_id", "sequence_index"),
+        Index("ix_agent_messages_run_seq", "agent_run_id", "sequence_index"),
     )
 
 
@@ -289,7 +289,7 @@ class ACRoleVersion(Base):
     changes, making this a full audit trail of every prompt change over time.
     """
 
-    __tablename__ = "ac_role_versions"
+    __tablename__ = "role_versions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     role_name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
@@ -300,7 +300,7 @@ class ACRoleVersion(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("role_name", "content_hash", name="uq_ac_role_versions"),
+        UniqueConstraint("role_name", "content_hash", name="uq_role_versions"),
     )
 
 
@@ -325,11 +325,11 @@ class ACAgentEvent(Base):
     these are *intentional* structured reports, not passive transcript reads.
     """
 
-    __tablename__ = "ac_agent_events"
+    __tablename__ = "agent_events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     agent_run_id: Mapped[str | None] = mapped_column(
-        String(512), ForeignKey("ac_agent_runs.id"), nullable=True, index=True
+        String(512), ForeignKey("agent_runs.id"), nullable=True, index=True
     )
     issue_number: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -359,7 +359,7 @@ class ACInitiativePhase(Base):
     which is the correct default for plans created before this feature.
     """
 
-    __tablename__ = "ac_initiative_phases"
+    __tablename__ = "initiative_phases"
 
     initiative: Mapped[str] = mapped_column(String(256), primary_key=True)
     phase_label: Mapped[str] = mapped_column(String(256), primary_key=True)
@@ -370,7 +370,7 @@ class ACInitiativePhase(Base):
     )
 
     __table_args__ = (
-        Index("ix_ac_initiative_phases_initiative", "initiative"),
+        Index("ix_initiative_phases_initiative", "initiative"),
     )
 
 
@@ -393,7 +393,7 @@ class ACTaskRun(Base):
     jobs, cognitive-arch enrichment runs, and any future non-issue tasks.
     """
 
-    __tablename__ = "ac_task_runs"
+    __tablename__ = "task_runs"
 
     id: Mapped[str] = mapped_column(String(256), primary_key=True)
     """Stable task identifier, e.g. ``cog-arch-systems-language-designers``."""
@@ -432,7 +432,7 @@ class ACPipelineSnapshot(Base):
     Use for trend charts, SLA analysis, and anomaly detection.
     """
 
-    __tablename__ = "ac_pipeline_snapshots"
+    __tablename__ = "pipeline_snapshots"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     polled_at: Mapped[datetime.datetime] = mapped_column(
