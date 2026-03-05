@@ -24,13 +24,13 @@
       "repo_dir": "/app",
       "worktrees_dir": "/worktrees",
       "initiative_labels": [
-        "agentception",
-        "ac-build",
-        "ac-plan",
         "ac-workflow",
         "ac-reliability",
-        "ac-transcripts",
+        "ac-plan",
+        "ac-build",
         "ac-ship",
+        "ac-transcripts",
+        "agentception",
         "test-*"
       ]
     }

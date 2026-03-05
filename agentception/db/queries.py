@@ -1117,27 +1117,6 @@ _NON_INITIATIVE_LABELS = frozenset(
     }
 )
 
-# Load-bearing order for the initiative tab bar.  Initiatives in this list are
-# sorted by their position; any initiative not listed falls back to
-# alphabetical order after all pinned entries.
-_INITIATIVE_ORDER: list[str] = [
-    "ac-workflow",
-    "ac-reliability",
-    "ac-plan",
-    "ac-build",
-    "ac-ship",
-    "ac-transcripts",
-]
-
-
-def _initiative_sort_key(label: str) -> tuple[int, str]:
-    """Primary key = pinned position (unlisted → len); secondary = alphabetical."""
-    try:
-        return (_INITIATIVE_ORDER.index(label), label)
-    except ValueError:
-        return (len(_INITIATIVE_ORDER), label)
-
-
 def _label_matches_patterns(label: str, patterns: list[str]) -> bool:
     """Return True if *label* matches any of the fnmatch-style *patterns*."""
     return any(fnmatch.fnmatch(label, pat) for pat in patterns)
@@ -1147,11 +1126,16 @@ async def get_initiatives(
     repo: str,
     initiative_patterns: list[str] | None = None,
 ) -> list[str]:
-    """Return alphabetically sorted *active* initiative labels present in the DB.
+    """Return active initiative labels present in the DB, ordered by config position.
 
     When *initiative_patterns* is non-empty, a label is an initiative if it
     matches any of the fnmatch-style patterns (e.g. ``"ac-*"``, ``"agentception"``).
     Only labels that appear on at least one **open** issue are returned.
+
+    The result order mirrors the order of *initiative_patterns*: a label whose
+    first matching pattern appears earlier in the list sorts earlier.  This
+    means the order declared in ``pipeline-config.json`` is the single source
+    of truth for the initiative tab bar — no separate hardcoded list needed.
 
     When *initiative_patterns* is empty or ``None``, falls back to the legacy
     heuristic: a label is an initiative when it co-exists with a ``phase-N``
@@ -1161,6 +1145,14 @@ async def get_initiatives(
     bar to avoid noise over time.  Falls back to ``[]`` on DB error.
     """
     patterns: list[str] = initiative_patterns or []
+
+    def _sort_key(label: str) -> tuple[int, str]:
+        """Sort by first matching pattern index, then alphabetically."""
+        for i, pat in enumerate(patterns):
+            if fnmatch.fnmatch(label, pat):
+                return (i, label)
+        return (len(patterns), label)
+
     try:
         async with get_session() as session:
             result = await session.execute(
@@ -1189,10 +1181,10 @@ async def get_initiatives(
                         initiative_states.setdefault(lbl, set()).add(state or "open")
 
         # Only surface initiatives that still have at least one open issue,
-        # ordered by _INITIATIVE_ORDER then alphabetically.
+        # ordered by their position in initiative_patterns then alphabetically.
         return sorted(
             (ini for ini, states in initiative_states.items() if "open" in states),
-            key=_initiative_sort_key,
+            key=_sort_key,
         )
     except Exception as exc:
         logger.warning("⚠️  get_initiatives DB query failed (non-fatal): %s", exc)
