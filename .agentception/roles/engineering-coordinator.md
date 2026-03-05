@@ -115,8 +115,8 @@ SEED:
 
   4. Generate a batch fingerprint (stable for all agents seeded in this coordinator run):
        BATCH_ID="eng-$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%04x' $RANDOM)"
-       VP_FINGERPRINT="Engineering Coordinator · ${BATCH_ID}"
-       echo "Batch ID: $BATCH_ID  VP: $VP_FINGERPRINT"
+       COORD_FINGERPRINT="Engineering Coordinator · ${BATCH_ID}"
+       echo "Batch ID: $BATCH_ID  VP: $COORD_FINGERPRINT"
 
   5. Take the first 4 unclaimed issues. For each:
        a. Claim:  gh issue edit <N> --add-label "agent:wip"
@@ -185,7 +185,7 @@ BASE=dev
 GH_REPO=cgcardona/agentception
 CLOSES_ISSUES=<N>
 BATCH_ID=<BATCH_ID>
-VP_FINGERPRINT=<VP_FINGERPRINT>
+COORD_FINGERPRINT=<COORD_FINGERPRINT>
 WAVE=<CTO_WAVE>
 COGNITIVE_ARCH=<COGNITIVE_ARCH from step 5c above, e.g. "lovelace:htmx:jinja2:alpine">
 ```
@@ -527,7 +527,7 @@ WORKTREE=$WT
 BASE=dev
 CLOSES_ISSUES=$NUM
 BATCH_ID=$BATCH_ID
-VP_FINGERPRINT=${VP_FINGERPRINT:-unset}
+COORD_FINGERPRINT=${COORD_FINGERPRINT:-unset}
 COGNITIVE_ARCH=$COGNITIVE_ARCH_VAL
 WAVE=${CTO_WAVE:-unset}
 CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
@@ -766,7 +766,7 @@ STEP 2 — CHECK CANONICAL STATE BEFORE DOING ANY WORK:
     --session "$AGENT_SESSION" \
     --batch "${BATCH_ID:-none}" \
     --wave "${WAVE:-unset}" \
-    --vp "${VP_FINGERPRINT:-unset}" \
+    --coordinator "${COORD_FINGERPRINT:-unset}" \
     --started-at "$CLAIMED_AT" 2>/dev/null)
   # Fallback: if resolve_arch.py is unavailable or returned nothing, build the table in shell.
   # This ensures a consistent <details> table appears even when Python/PyYAML is absent.
@@ -782,7 +782,7 @@ STEP 2 — CHECK CANONICAL STATE BEFORE DOING ANY WORK:
 | **Session** | \`${AGENT_SESSION:-unset}\` |
 | **CTO Wave** | \`${WAVE:-unset}\` |
 | **Coordinator Batch** | \`${BATCH_ID:-none}\` |
-| **VP** | \`${VP_FINGERPRINT:-unset}\` |
+| **Coordinator** | \`${COORD_FINGERPRINT:-unset}\` |
 | **Timestamp** | \`$(date -u '+%Y-%m-%dT%H:%M:%SZ')\` |
 
 </details>"
@@ -1167,7 +1167,7 @@ STEP 5 — PUSH & CREATE PR:
     --session "${AGENT_SESSION:-unset}" \
     --batch "${BATCH_ID:-none}" \
     --wave "${WAVE:-unset}" \
-    --vp "${VP_FINGERPRINT:-unset}" \
+    --coordinator "${COORD_FINGERPRINT:-unset}" \
     --started-at "$PR_CREATED_AT" 2>/dev/null)
   # Fallback: match render_fingerprint() rows exactly.
   if [ -z "$PR_FINGERPRINT" ]; then
@@ -1181,7 +1181,7 @@ STEP 5 — PUSH & CREATE PR:
 | **Session** | \`${AGENT_SESSION:-unset}\` |
 | **CTO Wave** | \`${WAVE:-unset}\` |
 | **Coordinator Batch** | \`${BATCH_ID:-none}\` |
-| **VP** | \`${VP_FINGERPRINT:-unset}\` |
+| **Coordinator** | \`${COORD_FINGERPRINT:-unset}\` |
 | **Timestamp** | \`$PR_CREATED_AT\` |
 
 </details>"
@@ -1234,7 +1234,7 @@ STEP 5 — PUSH & CREATE PR:
     --session "${AGENT_SESSION:-unset}" \
     --batch "${BATCH_ID:-none}" \
     --wave "${WAVE:-unset}" \
-    --vp "${VP_FINGERPRINT:-unset}" \
+    --coordinator "${COORD_FINGERPRINT:-unset}" \
     --started-at "${PR_CREATED_AT:-$(date -u '+%Y-%m-%dT%H:%M:%SZ')}" 2>/dev/null)
   if [ -z "$IMPL_FINGERPRINT" ]; then
     IMPL_FINGERPRINT="<details>
@@ -1247,7 +1247,7 @@ STEP 5 — PUSH & CREATE PR:
 | **Session** | \`${AGENT_SESSION:-unset}\` |
 | **CTO Wave** | \`${WAVE:-unset}\` |
 | **Coordinator Batch** | \`${BATCH_ID:-none}\` |
-| **VP** | \`${VP_FINGERPRINT:-unset}\` |
+| **Coordinator** | \`${COORD_FINGERPRINT:-unset}\` |
 | **Timestamp** | \`${PR_CREATED_AT:-$(date -u '+%Y-%m-%dT%H:%M:%SZ')}\` |
 
 </details>"
@@ -2041,7 +2041,7 @@ for entry in "${PRS[@]}"; do
   fi
   R_COGNITIVE_ARCH="${R_FIGURE}:${R_SKILLS}"
   R_BATCH_ID="qa-$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%04x' $RANDOM)"
-  VP_FINGERPRINT="QA-COORD-${R_BATCH_ID}"
+  COORD_FINGERPRINT="QA-COORD-${R_BATCH_ID}"
 
   cat > "$WT/.agent-task" << TASKEOF
 WORKFLOW=pr-review
@@ -2060,7 +2060,7 @@ ROLE=$REVIEW_ROLE
 ROLE_FILE=<repo-root>/.agentception/roles/${REVIEW_ROLE}.md
 COGNITIVE_ARCH=$R_COGNITIVE_ARCH
 BATCH_ID=$R_BATCH_ID
-VP_FINGERPRINT=$VP_FINGERPRINT
+COORD_FINGERPRINT=$COORD_FINGERPRINT
 WAVE=${CTO_WAVE:-unset}
 CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 SPAWN_MODE=pool
@@ -2225,7 +2225,7 @@ STEP 0 — READ YOUR TASK FILE:
 
   Post an identity comment on the PR immediately so the audit trail is visible from the start:
     REPO=$(git worktree list | head -1 | awk '{print $1}')
-    VP_FINGERPRINT=$(grep "^VP_FINGERPRINT=" .agent-task | cut -d= -f2)
+    COORD_FINGERPRINT=$(grep "^COORD_FINGERPRINT=" .agent-task | cut -d= -f2)
     REVIEW_START=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
     REVIEW_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" "${COGNITIVE_ARCH:-unset}" \
       --fingerprint \
@@ -2233,7 +2233,7 @@ STEP 0 — READ YOUR TASK FILE:
       --session "$AGENT_SESSION" \
       --batch "${BATCH_ID:-none}" \
       --wave "${WAVE:-unset}" \
-      --vp "${VP_FINGERPRINT:-unset}" \
+      --coordinator "${COORD_FINGERPRINT:-unset}" \
       --started-at "$REVIEW_START" 2>/dev/null)
     # Fallback: if resolve_arch.py is unavailable or returned nothing, build the table in shell.
     # ⚠️  Row labels MUST match render_fingerprint() exactly — this is the single source of truth.
@@ -2248,7 +2248,7 @@ STEP 0 — READ YOUR TASK FILE:
 | **Session** | \`${AGENT_SESSION:-unset}\` |
 | **CTO Wave** | \`${WAVE:-unset}\` |
 | **Coordinator Batch** | \`${BATCH_ID:-none}\` |
-| **VP** | \`${VP_FINGERPRINT:-unset}\` |
+| **Coordinator** | \`${COORD_FINGERPRINT:-unset}\` |
 | **Timestamp** | \`$REVIEW_START\` |
 
 </details>"
@@ -2848,7 +2848,7 @@ STEP 6 — PRE-MERGE SYNC (only if grade is A or B):
          --session "$AGENT_SESSION" \
          --batch "${BATCH_ID:-none}" \
          --wave "${WAVE:-unset}" \
-         --vp "${VP_FINGERPRINT:-unset}" \
+         --coordinator "${COORD_FINGERPRINT:-unset}" \
          --started-at "$MERGED_AT" 2>/dev/null)
        gh pr comment "$N" --repo "$GH_REPO" --body "✅ **Review complete — Grade: \`<A/B/C/D/F>\`**
 
@@ -2870,7 +2870,7 @@ $MERGE_FINGERPRINT"
          --session "$AGENT_SESSION" \
          --batch "${BATCH_ID:-none}" \
          --wave "${WAVE:-unset}" \
-         --vp "${VP_FINGERPRINT:-unset}" \
+         --coordinator "${COORD_FINGERPRINT:-unset}" \
          --started-at "$MERGED_AT" 2>/dev/null)
        CLOSE_COMMENT="✅ Closed by PR #$N (merged).
 
@@ -3131,7 +3131,7 @@ CLOSES_ISSUES=$NEXT_ISSUE
 ROLE=python-developer
 ROLE_FILE=<repo-root>/.agentception/roles/python-developer.md
 BATCH_ID=${BATCH_ID:-none}
-VP_FINGERPRINT=${VP_FINGERPRINT:-unset}
+COORD_FINGERPRINT=${COORD_FINGERPRINT:-unset}
 WAVE=${WAVE:-unset}
 CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 COGNITIVE_ARCH=${COGNITIVE_ARCH:-hopper:python}
@@ -3199,7 +3199,7 @@ ROLE=pr-reviewer
 ROLE_FILE=<repo-root>/.agentception/roles/pr-reviewer.md
 COGNITIVE_ARCH=${COGNITIVE_ARCH:-knuth:python}
 BATCH_ID=${BATCH_ID:-none}
-VP_FINGERPRINT=${VP_FINGERPRINT:-unset}
+COORD_FINGERPRINT=${COORD_FINGERPRINT:-unset}
 WAVE=${WAVE:-unset}
 CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 SPAWN_MODE=pool

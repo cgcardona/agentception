@@ -270,19 +270,19 @@ def _validate_team_yaml() -> list[str]:
             for sid in role_cfg.get("skills", []):
                 _check_skill(str(sid), f"c_suite.{role_name}")
 
-    # Validate vp
-    vp = org.get("vp", {})
-    if isinstance(vp, dict):
-        for role_name, role_cfg in vp.items():
+    # Validate coordinator
+    coordinator = org.get("coordinator", {})
+    if isinstance(coordinator, dict):
+        for role_name, role_cfg in coordinator.items():
             if not isinstance(role_cfg, dict):
                 continue
             for fid in role_cfg.get("figures", []):
-                _check_figure(str(fid), f"vp.{role_name}")
+                _check_figure(str(fid), f"coordinator.{role_name}")
             arch = role_cfg.get("archetype")
             if arch:
-                _check_figure(str(arch), f"vp.{role_name}.archetype")
+                _check_figure(str(arch), f"coordinator.{role_name}.archetype")
             for sid in role_cfg.get("skills", []):
-                _check_skill(str(sid), f"vp.{role_name}")
+                _check_skill(str(sid), f"coordinator.{role_name}")
 
     # Validate leaf pools
     for section_name in ("leaf", "reviewers"):

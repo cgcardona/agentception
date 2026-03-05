@@ -78,10 +78,10 @@ org:
       skills: []
       cognitive_arch: "jeff_bezos"
 
-  vp:
+  coordinator:
     engineering:
       # Hamming: error-correcting, pragmatic, reliability-focused.
-      # The Engineering VP seeds leaf agents and routes work.
+      # The Engineering Coordinator seeds leaf agents and routes work.
       figures: [hamming]
       archetype: the_pragmatist
       skills: []
@@ -89,7 +89,7 @@ org:
 
     qa:
       # Dijkstra: proof-oriented, uncompromising on correctness.
-      # The QA VP orchestrates PR reviewers.
+      # The QA Coordinator orchestrates PR reviewers.
       figures: [dijkstra]
       archetype: the_guardian
       skills: []
@@ -144,8 +144,8 @@ org:
       cognitive_arch: "yann_lecun"
 
   leaf:
-    # Leaf agents are dynamically assigned by the Engineering VP based on the
-    # issue content. The VP selects one or more figures and up to max_skills
+    # Leaf agents are dynamically assigned by the Engineering Coordinator based on the
+    # issue content. The coordinator selects one or more figures and up to max_skills
     # skill domains, then writes the assembled COGNITIVE_ARCH to .agent-task.
     selection: dynamic
 
@@ -204,7 +204,7 @@ org:
     max_skills: 3   # cap prevents context bloat
 
   reviewers:
-    # PR reviewers are assigned by the QA VP based on the PR content.
+    # PR reviewers are assigned by the QA Coordinator based on the PR content.
     # Same pools and rules as leaf agents — different task file, same format.
     selection: dynamic
     figure_pool:
@@ -230,7 +230,7 @@ org:
       - llm
     max_skills: 3
 
-# Heuristics used by the Engineering VP and QA VP to select skill domains.
+# Heuristics used by the Engineering Coordinator and QA Coordinator to select skill domains.
 # First matching rule wins. Skills are joined with ':' in COGNITIVE_ARCH.
 heuristics:
   - keywords: [htmx, hx-, partial, sse, hypermedia]

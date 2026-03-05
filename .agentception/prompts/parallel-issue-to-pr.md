@@ -313,7 +313,7 @@ WORKTREE=$WT
 BASE=dev
 CLOSES_ISSUES=$NUM
 BATCH_ID=$BATCH_ID
-VP_FINGERPRINT=${VP_FINGERPRINT:-unset}
+COORD_FINGERPRINT=${COORD_FINGERPRINT:-unset}
 COGNITIVE_ARCH=$COGNITIVE_ARCH_VAL
 WAVE=${CTO_WAVE:-unset}
 CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
@@ -552,7 +552,7 @@ STEP 2 — CHECK CANONICAL STATE BEFORE DOING ANY WORK:
     --session "$AGENT_SESSION" \
     --batch "${BATCH_ID:-none}" \
     --wave "${WAVE:-unset}" \
-    --vp "${VP_FINGERPRINT:-unset}" \
+    --coordinator "${COORD_FINGERPRINT:-unset}" \
     --started-at "$CLAIMED_AT" 2>/dev/null)
   # Fallback: if resolve_arch.py is unavailable or returned nothing, build the table in shell.
   # This ensures a consistent <details> table appears even when Python/PyYAML is absent.
@@ -567,8 +567,8 @@ STEP 2 — CHECK CANONICAL STATE BEFORE DOING ANY WORK:
 | **Architecture** | \`${COGNITIVE_ARCH:-unset}\` |
 | **Session** | \`${AGENT_SESSION:-unset}\` |
 | **CTO Wave** | \`${WAVE:-unset}\` |
-| **VP Batch** | \`${BATCH_ID:-none}\` |
-| **VP** | \`${VP_FINGERPRINT:-unset}\` |
+| **Coordinator Batch** | \`${BATCH_ID:-none}\` |
+| **Coordinator** | \`${COORD_FINGERPRINT:-unset}\` |
 | **Timestamp** | \`$(date -u '+%Y-%m-%dT%H:%M:%SZ')\` |
 
 </details>"
@@ -953,7 +953,7 @@ STEP 5 — PUSH & CREATE PR:
     --session "${AGENT_SESSION:-unset}" \
     --batch "${BATCH_ID:-none}" \
     --wave "${WAVE:-unset}" \
-    --vp "${VP_FINGERPRINT:-unset}" \
+    --coordinator "${COORD_FINGERPRINT:-unset}" \
     --started-at "$PR_CREATED_AT" 2>/dev/null)
   # Fallback: match render_fingerprint() rows exactly.
   if [ -z "$PR_FINGERPRINT" ]; then
@@ -966,8 +966,8 @@ STEP 5 — PUSH & CREATE PR:
 | **Architecture** | \`${COGNITIVE_ARCH:-unset}\` |
 | **Session** | \`${AGENT_SESSION:-unset}\` |
 | **CTO Wave** | \`${WAVE:-unset}\` |
-| **VP Batch** | \`${BATCH_ID:-none}\` |
-| **VP** | \`${VP_FINGERPRINT:-unset}\` |
+| **Coordinator Batch** | \`${BATCH_ID:-none}\` |
+| **Coordinator** | \`${COORD_FINGERPRINT:-unset}\` |
 | **Timestamp** | \`$PR_CREATED_AT\` |
 
 </details>"
@@ -1020,7 +1020,7 @@ STEP 5 — PUSH & CREATE PR:
     --session "${AGENT_SESSION:-unset}" \
     --batch "${BATCH_ID:-none}" \
     --wave "${WAVE:-unset}" \
-    --vp "${VP_FINGERPRINT:-unset}" \
+    --coordinator "${COORD_FINGERPRINT:-unset}" \
     --started-at "${PR_CREATED_AT:-$(date -u '+%Y-%m-%dT%H:%M:%SZ')}" 2>/dev/null)
   if [ -z "$IMPL_FINGERPRINT" ]; then
     IMPL_FINGERPRINT="<details>
@@ -1032,8 +1032,8 @@ STEP 5 — PUSH & CREATE PR:
 | **Architecture** | \`${COGNITIVE_ARCH:-unset}\` |
 | **Session** | \`${AGENT_SESSION:-unset}\` |
 | **CTO Wave** | \`${WAVE:-unset}\` |
-| **VP Batch** | \`${BATCH_ID:-none}\` |
-| **VP** | \`${VP_FINGERPRINT:-unset}\` |
+| **Coordinator Batch** | \`${BATCH_ID:-none}\` |
+| **Coordinator** | \`${COORD_FINGERPRINT:-unset}\` |
 | **Timestamp** | \`${PR_CREATED_AT:-$(date -u '+%Y-%m-%dT%H:%M:%SZ')}\` |
 
 </details>"

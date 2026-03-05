@@ -519,7 +519,7 @@ EOF
       --session "${AGENT_SESSION:-unset}" \
       --batch "${BATCH_ID:-none}" \
       --wave "${WAVE:-unset}" \
-      --vp "${VP_FINGERPRINT:-unset}" \
+      --coordinator "${COORD_FINGERPRINT:-unset}" \
       --started-at "$ISSUE_CREATED_AT" 2>/dev/null)
     if [ -z "$ISSUE_FINGERPRINT" ]; then
       ISSUE_FINGERPRINT="<details>
@@ -531,8 +531,8 @@ EOF
 | **Architecture** | \`${COGNITIVE_ARCH:-unset}\` |
 | **Session** | \`${AGENT_SESSION:-unset}\` |
 | **CTO Wave** | \`${WAVE:-unset}\` |
-| **VP Batch** | \`${BATCH_ID:-none}\` |
-| **VP** | \`${VP_FINGERPRINT:-unset}\` |
+| **Coordinator Batch** | \`${BATCH_ID:-none}\` |
+| **Coordinator** | \`${COORD_FINGERPRINT:-unset}\` |
 | **Timestamp** | \`$ISSUE_CREATED_AT\` |
 
 </details>"
