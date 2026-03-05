@@ -39,7 +39,7 @@ _SAMPLE_DUMP = (
     "- Login fails intermittently on mobile\n"
     "- Migrate auth to JWT with refresh tokens\n"
     "- Add dark mode toggle across the dashboard\n"
-    "- Refactor legacy jQuery to Alpine.js\n"
+    "- Extract business logic out of route handlers into services\n"
 )
 
 
