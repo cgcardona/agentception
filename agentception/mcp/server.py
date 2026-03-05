@@ -420,6 +420,16 @@ TOOLS: list[ACToolDef] = [
                     "items": {"type": "string"},
                     "description": "Explicit skill list override for COGNITIVE_ARCH (bypasses keyword extraction).",
                 },
+                "coord_fingerprint": {
+                    "type": "string",
+                    "description": (
+                        "The spawning coordinator's fingerprint string. Written as "
+                        "COORD_FINGERPRINT in the child's .agent-task so leaf agents "
+                        "can include it in their GitHub fingerprint comments. "
+                        "Coordinator agents should pass their own fingerprint here "
+                        "when spawning leaves."
+                    ),
+                },
             },
             "required": ["parent_run_id", "role", "node_type", "scope_type", "scope_value", "gh_repo"],
             "additionalProperties": False,
@@ -741,6 +751,8 @@ async def call_tool_async(
         skills_hint: list[str] | None = None
         if isinstance(skills_raw, list):
             skills_hint = [str(s) for s in skills_raw]
+        coord_fp_raw = arguments.get("coord_fingerprint")
+        coord_fingerprint: str | None = str(coord_fp_raw) if isinstance(coord_fp_raw, str) else None
         result = await build_spawn_child(
             parent_run_id=parent_run_id,
             role=role,
@@ -752,6 +764,7 @@ async def call_tool_async(
             issue_body=issue_body,
             issue_title=issue_title,
             skills_hint=skills_hint,
+            coord_fingerprint=coord_fingerprint,
         )
         is_error = not bool(result.get("ok", False))
         return ACToolResult(

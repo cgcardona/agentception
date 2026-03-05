@@ -426,6 +426,7 @@ Legacy orchestration control endpoints. Prefer MCP tools for new integrations.
 | `POST` | `/api/control/spawn` | Spawn a single agent |
 | `POST` | `/api/control/spawn-wave` | Spawn a wave of agents |
 | `POST` | `/api/control/sweep` | Sweep stale runs |
+| `POST` | `/api/control/reset-build` | Full reset: remove all worktrees, clear all agent:wip, set active runs to unknown |
 | `POST` | `/api/control/trigger-poll` | Trigger an immediate GitHub poll |
 
 ---

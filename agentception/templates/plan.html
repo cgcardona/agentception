@@ -207,7 +207,7 @@
           :disabled="step === 'launching' || !yamlValid"
         >
           <span x-show="step !== 'launching'">Launch →</span>
-          <span x-show="step === 'launching'">Filing…</span>
+          <span x-show="step === 'launching'">Launching…</span>
         </button>
       </div>
     </div>
@@ -240,43 +240,15 @@
   </div>
 
   {# ══════════════════════════════════════════════════════════════════════
-     DONE state — issues filed, links shown
+     DONE state — coordinator launched, batch and worktree shown
      ══════════════════════════════════════════════════════════════════════ #}
   <div class="plan-done" x-show="step === 'done'" x-transition.opacity>
     <div class="plan-done-badge">🚀</div>
-    <h2 class="plan-done-title">Issues filed</h2>
+    <h2 class="plan-done-title">Coordinator launched</h2>
     <p class="plan-done-sub">
-      <strong x-text="result.total || filedIssues.length"></strong> GitHub issues created
-      for initiative <strong x-text="result.initiative || initiative"></strong>.
-      Phase labels gate execution — engineers start on phase&#8209;0 first.
+      The coordinator worktree was created. Use the batch ID below to track this run.
+      <span x-show="result.branch">Branch <strong x-text="result.branch"></strong>.</span>
     </p>
-
-    {# Per-phase issue links #}
-    <div class="plan-done-issues">
-      <template x-for="phase in ['phase-0','phase-1','phase-2','phase-3']" :key="phase">
-        <div
-          class="plan-done-phase"
-          x-show="filedIssues.some(i => i.phase === phase)"
-        >
-          <h3 class="plan-done-phase-label" x-text="phase"></h3>
-          <ul class="plan-done-issue-list">
-            <template x-for="issue in filedIssues.filter(i => i.phase === phase)" :key="issue.number">
-              <li class="plan-done-issue-item">
-                <a
-                  class="plan-done-issue-link"
-                  :href="issue.url"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <span class="plan-done-issue-num" x-text="'#' + issue.number"></span>
-                  <span class="plan-done-issue-title" x-text="issue.title"></span>
-                </a>
-              </li>
-            </template>
-          </ul>
-        </div>
-      </template>
-    </div>
 
     {# Batch ID pill — copyable ──────────────────────────────────────────── #}
     <div class="plan-done-batch" x-show="batchId">
@@ -296,7 +268,7 @@
     <div class="plan-done-actions">
       <a
         class="btn btn-primary"
-        :href="'/build?initiative=' + encodeURIComponent(result.initiative || initiative)"
+        :href="'/build?initiative=' + encodeURIComponent(initiative || '')"
       >Open in Build →</a>
       <a href="/org-chart" class="btn btn-secondary">View org chart →</a>
       <button class="btn btn-ghost" @click="reset()">← New plan</button>

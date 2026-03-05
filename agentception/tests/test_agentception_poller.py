@@ -347,6 +347,23 @@ async def test_merge_agents_unknown_status() -> None:
     assert agents[0].status == AgentStatus.UNKNOWN
 
 
+@pytest.mark.anyio
+async def test_merge_agents_passes_pr_number_from_task_file() -> None:
+    """pr_number from .agent-task (TaskFile) is passed through to AgentNode so poller upsert sets run.pr_number."""
+    worktree = _make_worktree(issue_number=20, branch="feat/issue-20")
+    worktree.pr_number = 99
+    board = GitHubBoard(
+        active_label=None,
+        open_issues=[],
+        open_prs=[],
+        wip_issues=[{"number": 20, "title": "...", "labels": [{"name": "agent:wip"}]}],
+    )
+    agents = await merge_agents([worktree], board)
+
+    assert len(agents) == 1
+    assert agents[0].pr_number == 99
+
+
 # ---------------------------------------------------------------------------
 # polling_loop() — interval behaviour
 # ---------------------------------------------------------------------------

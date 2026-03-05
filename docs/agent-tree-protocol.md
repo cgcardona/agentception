@@ -138,16 +138,17 @@ ROLE_FILE     = "<repo-root>/.agentception/roles/pr-reviewer.md"
 
 ## What each tier reads from GitHub
 
+All GitHub queries use the `user-agentception` MCP server tools. Never use
+the `gh` CLI — it is not available inside Cursor agents.
+
 ### `root` (CTO)
 
-```bash
+```
 # Open issues for the scope label
-gh issue list --repo $GH_REPO --label "$SCOPE_VALUE" --state open \
-  --json number,title,labels,assignees --limit 200
+github_list_issues(label="$SCOPE_VALUE", state="open")
 
 # All open PRs against dev
-gh pr list --repo $GH_REPO --base dev --state open \
-  --json number,title,labels,headRefName --limit 200
+github_list_prs(state="open")
 ```
 
 Decides based on queue state (see "CTO spawn decision" above).
@@ -155,22 +156,21 @@ Loops until both queues are empty.
 
 ### `engineering-coordinator`
 
-```bash
-# Open issues for the scope label, excluding claimed ones
-gh issue list --repo $GH_REPO --label "$SCOPE_VALUE" --state open \
-  --json number,title,labels,assignees --limit 200 |
-  jq '[.[] | select(.labels[].name != "agent:wip")]'
+```
+# Open issues for the scope label
+github_list_issues(label="$SCOPE_VALUE", state="open")
+# → filter: exclude issues labelled "agent:wip" (claimed) or "blocked" (phase-gated)
+# Only work on issues that have neither label.
 ```
 
-Spawns one `engineer` Task per unclaimed issue, up to 3 concurrently.
+Spawns one `engineer` Task per eligible issue, up to 3 concurrently.
 Each engineer self-replaces (spawns its successor before exiting).
 
 ### `qa-coordinator` (cleanup sweep only)
 
-```bash
+```
 # Open PRs against dev (all are in scope — QA reviews everything)
-gh pr list --repo $GH_REPO --base dev --state open \
-  --json number,title,headRefName,reviewDecision --limit 200
+github_list_prs(state="open")
 ```
 
 Spawns one `reviewer` Task per unreviewed PR, up to 3 concurrently.
@@ -178,9 +178,9 @@ Only spawned by the CTO when `ISSUES == 0` and stale unreviewed PRs remain.
 
 ### `engineer` (leaf)
 
-```bash
+```
 # Read the single assigned issue
-gh issue view $SCOPE_VALUE --repo $GH_REPO --json number,title,body,labels
+github_get_issue(number=$SCOPE_VALUE)
 ```
 
 Implements the issue, opens a PR, then **immediately chain-spawns a
@@ -190,9 +190,9 @@ engineer's `RUN_ID` and `LOGICAL_TIER` is set to `reviewer`.
 
 ### `reviewer` (leaf)
 
-```bash
+```
 # Read the single assigned PR
-gh pr view $SCOPE_VALUE --repo $GH_REPO --json number,title,body,files,diff
+github_get_pr(number=$SCOPE_VALUE)
 ```
 
 Reviews, requests changes or approves+merges, calls `report/done`, exits.
@@ -205,7 +205,7 @@ Reviews, requests changes or approves+merges, calls `report/done`, exits.
 - **Always `subagent_type="generalPurpose"`** — never `shell`. Only
   `generalPurpose` agents have access to the Task tool.
 - **Claim before spawning**: manager tiers call
-  `POST /api/build/acknowledge/{run_id}` for each child run_id before
+  `POST /api/runs/{run_id}/acknowledge` for each child run_id before
   spawning its Task, preventing double-dispatch.
 - **PARENT_RUN_ID propagation**: every child task receives its physical
   spawner's `RUN_ID`. For chain-spawned reviewers this is the engineer's
@@ -223,17 +223,17 @@ Reviews, requests changes or approves+merges, calls `report/done`, exits.
 
 ## Reporting callbacks
 
-All tiers use the same callback surface:
+All tiers report progress via MCP tools (never HTTP directly):
 
 ```
-POST /api/build/report/step      { run_id, step_name }
-POST /api/build/report/blocker   { run_id, description }
-POST /api/build/report/decision  { run_id, decision, rationale }
-POST /api/build/report/done      { run_id, pr_url? }   ← leaf tiers only
+build_report_step(issue_number, step_name, agent_run_id?)
+build_report_blocker(issue_number, description, agent_run_id?)
+build_report_decision(issue_number, decision, rationale, agent_run_id?)
+build_report_done(issue_number, pr_url, summary?, agent_run_id?)  ← leaf tiers only
 ```
 
-Manager tiers call `report/step` at each phase of their loop.
-They do NOT call `report/done` — they exit naturally after their queue drains.
+Manager tiers call `build_report_step` at each phase of their loop.
+They do NOT call `build_report_done` — they exit naturally after their queue drains.
 
 ---
 

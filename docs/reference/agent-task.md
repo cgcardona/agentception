@@ -4,7 +4,8 @@
 >
 > **Format:** [TOML 1.0](https://toml.io/en/v1.0.0)  
 > **Parser:** `agentception/readers/worktrees.py` → `TaskFile` Pydantic model  
-> **Version:** 2.0
+> **Version:** 2.0  
+> **Model:** `TaskFile` in `agentception/models/__init__.py` covers the full TOML v2 spec (task, agent, repo, pipeline, spawn, target, worktree, output, domain, and `issue_queue` / `pr_queue` via `IssueSub` / `PRSub`).
 
 ---
 

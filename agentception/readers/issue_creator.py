@@ -8,26 +8,28 @@ that the user reviewed in the CodeMirror editor and creates real GitHub issues
 
 Execution order
 ---------------
-1. Ensure all required labels exist (initiative label + scoped phase labels).
-2. Iterate phases in order.  Within each phase, create issues concurrently
-   (they have no inter-phase dependency at creation time).
+1. Ensure all required labels exist (initiative label + scoped phase labels +
+   pipeline-active + blocked).
+2. Iterate phases in order.  Within each phase, create issues concurrently.
 3. After all issues are created and GitHub numbers are known, edit any issue
    whose ``depends_on`` list is non-empty to append a "Blocked by: #X" line.
 
 Labels applied to every issue
 ------------------------------
-- ``{spec.initiative}``             e.g. ``ac-build``
+- ``{spec.initiative}``               e.g. ``ac-build``
 - ``{spec.initiative}/{phase.label}`` e.g. ``ac-build/phase-0``
+- ``pipeline-active``                 phase 0 (first phase) only — ready for dispatch
+- ``blocked``                         phase 1+ — phase-gated until prior phase closes
 
-The scoped phase label acts as the execution gate.  Using the initiative as a
-prefix keeps GitHub labels namespaced per initiative — no global ``phase-N``
-labels are created or expected.
+When ``plan_advance_phase`` runs it removes ``blocked`` and adds
+``pipeline-active`` to the newly unlocked phase, so the pipeline-active /
+blocked labels always reflect the live execution frontier.
 """
 
 import asyncio
 import logging
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Coroutine
 from typing import TypedDict
 
 from agentception.config import settings as _cfg
@@ -177,19 +179,30 @@ async def _gh_edit_body(repo: str, number: int, new_body: str) -> None:
 
 
 async def _bootstrap_labels(spec: PlanSpec) -> None:
-    """Ensure the initiative label and all scoped phase labels exist in the repo.
+    """Ensure all required labels exist in the repo.
 
-    Creates ``{initiative}`` and ``{initiative}/{phase.label}`` for each phase.
-    Labels are namespaced per initiative — no bare global labels are created.
+    Creates the initiative label, all scoped phase labels, and the two
+    pipeline-gate labels (``pipeline-active`` / ``blocked``).  Labels are
+    namespaced per initiative — no bare global phase-N labels are created.
     Phase colors are assigned by position (``_PHASE_PALETTE[idx % len]``) so
     any slug convention and any number of phases receives a distinct color.
     """
-    coros = [
+    coros: list[Coroutine[None, None, None]] = [
         ensure_label_exists(
             spec.initiative,
             _INITIATIVE_COLOR,
             f"Initiative: {spec.initiative}",
-        )
+        ),
+        ensure_label_exists(
+            "pipeline-active",
+            "0E8A16",
+            "Issue is in the active phase — ready for agent dispatch",
+        ),
+        ensure_label_exists(
+            "blocked",
+            "B60205",
+            "Issue is blocked — waiting for a prior phase to complete",
+        ),
     ]
     for idx, phase in enumerate(spec.phases):
         color = _PHASE_PALETTE[idx % len(_PHASE_PALETTE)]
@@ -262,8 +275,10 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
 
     # ── 2. Issues (concurrent within each phase) ───────────────────────────
     index = 0
-    for phase in spec.phases:
-        labels = [spec.initiative, f"{spec.initiative}/{phase.label}"]
+    for phase_idx, phase in enumerate(spec.phases):
+        # Phase 0 is immediately workable; all later phases are phase-gated.
+        gate_label = "pipeline-active" if phase_idx == 0 else "blocked"
+        labels = [spec.initiative, f"{spec.initiative}/{phase.label}", gate_label]
         phase_tasks: list[asyncio.Task[tuple[str, int, str]]] = [
             asyncio.create_task(_create_one(repo, issue, labels))
             for issue in phase.issues

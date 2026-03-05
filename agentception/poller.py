@@ -167,6 +167,7 @@ async def merge_agents(
                 role=tf.role or "unknown",
                 status=status,
                 issue_number=tf.issue_number,
+                pr_number=tf.pr_number,
                 branch=tf.branch,
                 batch_id=tf.batch_id,
                 worktree_path=tf.worktree,

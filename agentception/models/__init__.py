@@ -223,38 +223,98 @@ class PipelineState(BaseModel):
         )
 
 
+class IssueSub(BaseModel):
+    """One entry from ``[[issue_queue]]`` in a TOML v2 .agent-task file.
+
+    Coordinator agents receive a list of these; each becomes one worktree and
+    one leaf agent. All fields except ``branch`` and ``file_ownership`` are
+    required in the spec; we allow optional for lenient parsing.
+    """
+
+    number: int
+    title: str = ""
+    role: str = ""
+    cognitive_arch: str = ""
+    depends_on: list[int] = []
+    file_ownership: list[str] = []
+    branch: str | None = None
+
+
+class PRSub(BaseModel):
+    """One entry from ``[[pr_queue]]`` in a TOML v2 .agent-task file.
+
+    QA coordinator agents receive a list of these; each is one PR to review
+    with merge order and grade threshold. All fields except ``closes_issues``
+    are required in the spec; we allow optional for lenient parsing.
+    """
+
+    number: int
+    title: str = ""
+    branch: str = ""
+    role: str = ""
+    cognitive_arch: str = ""
+    grade_threshold: str = ""
+    merge_order: int = 0
+    closes_issues: list[int] = []
+
+
 class TaskFile(BaseModel):
     """Parsed content of a ``.agent-task`` file from a worktree.
 
-    Every field maps 1-to-1 with a ``KEY=value`` line in the task file.
-    Unknown keys are silently ignored. All fields are optional to ensure
-    graceful handling of missing or malformed task files.
+    Supports both the legacy KEY=value format and the TOML v2 spec
+    (see .agentception/agent-task-spec.md). Every field maps from a TOML section
+    or a legacy key. Unknown keys are silently ignored. All fields are optional
+    to ensure graceful handling of missing or malformed task files.
     """
 
+    # [task]
     task: str | None = None
-    gh_repo: str | None = None
-    issue_number: int | None = None
-    pr_number: int | None = None
-    branch: str | None = None
-    worktree: str | None = None
-    role: str | None = None
-    base: str | None = None
-    batch_id: str | None = None
-    closes_issues: list[int] = []
-    spawn_sub_agents: bool = False
-    spawn_mode: str | None = None
-    merge_after: str | None = None
+    id: str | None = None
     attempt_n: int = 0
     required_output: str | None = None
     on_block: str | None = None
-    cognitive_arch: str | None = None
-    node_type: str | None = None
-    """Structural position in the agent tree (``coordinator`` | ``leaf``). Added in 0009."""
+    # [agent]
+    role: str | None = None
     logical_tier: str | None = None
-    """Organisational domain for UI visualisation (e.g. ``qa``, ``engineering``, ``c-suite``).
-    Added in 0006, repurposed for org domain in 0009."""
+    """Organisational domain for UI (e.g. qa, engineering, c-suite). Added in 0006."""
+    cognitive_arch: str | None = None
+    session_id: str | None = None
+    node_type: str | None = None
+    """Structural position in the agent tree (coordinator | leaf). Added in 0009."""
+    # [repo]
+    gh_repo: str | None = None
+    base: str | None = None
+    # [pipeline]
+    batch_id: str | None = None
     parent_run_id: str | None = None
-    """Run ID of the agent that physically spawned this one. Added in 0006."""
+    wave: str | None = None
+    vp_fingerprint: str | None = None
+    # [spawn]
+    spawn_sub_agents: bool = False
+    spawn_mode: str | None = None
+    # [target]
+    issue_number: int | None = None
+    pr_number: int | None = None
+    depends_on: list[int] = []
+    closes_issues: list[int] = []
+    file_ownership: list[str] = []
+    files_changed: list[str] = []
+    grade_threshold: str | None = None
+    has_migration: bool = False
+    merge_after: str | None = None
+    # [worktree]
+    worktree: str | None = None
+    branch: str | None = None
+    linked_pr: int | None = None
+    # [output]
+    draft_id: str | None = None
+    output_path: str | None = None
+    output_format: str | None = None
+    # [domain]
+    domain: str | None = None
+    # Queues (TOML v2 repeated tables)
+    issue_queue: list[IssueSub] = []
+    pr_queue: list[PRSub] = []
 
 
 class AbModeConfig(BaseModel):

@@ -329,7 +329,9 @@ async def test_file_issues_yields_error_on_create_failure() -> None:
 
 @pytest.mark.anyio
 async def test_bootstrap_labels_creates_scoped_phase_labels() -> None:
-    """_bootstrap_labels creates '{initiative}/{N}-{slug}' labels, not bare phase labels."""
+    """_bootstrap_labels creates '{initiative}/{N}-{slug}' labels, not bare phase labels.
+    Also ensures the pipeline-gate labels (pipeline-active, blocked) are created.
+    """
     spec = _make_spec(initiative="ac-build")
     created_labels: list[str] = []
 
@@ -353,6 +355,9 @@ async def test_bootstrap_labels_creates_scoped_phase_labels() -> None:
     assert "1-features" not in created_labels
     # Initiative label itself must be created.
     assert "ac-build" in created_labels
+    # Pipeline-gate labels must always be bootstrapped.
+    assert "pipeline-active" in created_labels
+    assert "blocked" in created_labels
 
 
 @pytest.mark.anyio
@@ -378,12 +383,46 @@ async def test_file_issues_uses_scoped_labels_on_gh_create() -> None:
         await _collect(file_issues(spec))
 
     assert create_calls, "Expected gh issue create calls"
-    for cmd in create_calls:
+    for idx, cmd in enumerate(create_calls):
         label_args = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--label"]
-        # Each issue gets exactly two labels: initiative + scoped phase.
+        # Every issue gets the initiative label and a scoped phase label.
         assert "ac-workflow" in label_args, "Initiative label must be present"
         scoped = [lbl for lbl in label_args if lbl.startswith("ac-workflow/")]
         assert scoped, "Scoped phase label must be present"
         # Global phase-N labels must NOT be passed.
         bare_phase = [lbl for lbl in label_args if lbl.startswith("phase-") and "/" not in lbl]
         assert bare_phase == [], f"Unexpected global phase label(s): {bare_phase}"
+        # Every issue gets exactly one pipeline-gate label.
+        gate = [lbl for lbl in label_args if lbl in ("pipeline-active", "blocked")]
+        assert len(gate) == 1, f"Expected exactly one gate label, got {gate}"
+
+
+@pytest.mark.anyio
+async def test_file_issues_phase_gate_labels_by_phase_position() -> None:
+    """Phase 0 issues get 'pipeline-active'; phase 1+ issues get 'blocked'."""
+    spec = _make_spec(initiative="ac-workflow")
+    # Capture (phase_scoped_label, gate_label) per create call.
+    phase_gate_pairs: list[tuple[str, str]] = []
+
+    def fake_proc(*args: str, **_kwargs: object) -> MagicMock:
+        cmd = list(args)
+        if "create" in cmd:
+            label_args = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--label"]
+            scoped = next((lbl for lbl in label_args if lbl.startswith("ac-workflow/")), "")
+            gate = next((lbl for lbl in label_args if lbl in ("pipeline-active", "blocked")), "")
+            phase_gate_pairs.append((scoped, gate))
+            return _mock_proc(stdout=_issue_url(len(phase_gate_pairs)))
+        return _mock_proc()
+
+    with (
+        patch("agentception.readers.issue_creator.ensure_label_exists", new_callable=AsyncMock),
+        patch("asyncio.create_subprocess_exec", side_effect=fake_proc),
+    ):
+        await _collect(file_issues(spec))
+
+    assert phase_gate_pairs, "No create calls recorded"
+    for scoped, gate in phase_gate_pairs:
+        if scoped.endswith("/0-foundation"):
+            assert gate == "pipeline-active", f"Phase-0 issue got {gate!r} instead of pipeline-active"
+        else:
+            assert gate == "blocked", f"Non-phase-0 issue got {gate!r} instead of blocked"
