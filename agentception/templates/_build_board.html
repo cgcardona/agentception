@@ -42,8 +42,9 @@
       {%- if issue.state == 'closed' %} build-issue--closed
       {%- elif is_running %} build-issue--active build-issue--running
       {%- elif run %} build-issue--active
-      {%- endif %}"
-      @click='$dispatch("inspect-issue", {{ issue | tojson }})'
+      {%- endif %}
+      {%- if run %} build-issue--has-run{%- endif %}"
+      {% if run %}@click='$dispatch("inspect-issue", {{ issue | tojson }})'{% endif %}
     >
       <div class="build-issue__header">
         <a class="build-issue__number" href="{{ issue.url }}" target="_blank" rel="noopener" @click.stop>
