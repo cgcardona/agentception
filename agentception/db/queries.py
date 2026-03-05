@@ -1160,10 +1160,10 @@ async def get_issues_grouped_by_phase(
 
     *phase_order* is the caller-supplied list of phase label strings that
     defines which phases appear in the result and in what order.  When
-    omitted it falls back to ``_PHASE_ORDER`` (``["phase-0".."phase-3"]``)
-    for backward compatibility.  Pass ``settings.active_labels_order`` from
-    ``pipeline-config.json`` to make the Build board reflect the project
-    configuration rather than the hard-coded default.
+    omitted it falls back to ``_PHASE_ORDER`` (``["phase-0".."phase-3"]``).
+    Pass ``settings.active_labels_order`` from ``pipeline-config.json`` to
+    make the Build board reflect the project configuration rather than the
+    hard-coded default.
 
     When *initiative* is supplied the result is scoped to that initiative:
     - Only issues carrying that initiative label are included.
@@ -1171,8 +1171,8 @@ async def get_issues_grouped_by_phase(
       so the UI can render the full gate structure.
     - No ``"unphased"`` bucket is emitted.
 
-    When *initiative* is ``None`` the legacy behaviour is preserved:
-    configured phases first, then remaining label buckets, then ``"unphased"``.
+    When *initiative* is ``None`` the result spans all issues: configured
+    phases first, then remaining label buckets, then ``"unphased"``.
 
     Each group dict contains:
     - ``label``    — phase label string
@@ -1193,10 +1193,9 @@ async def get_issues_grouped_by_phase(
             rows = result.scalars().all()
 
         # Group by phase label.
-        # Prefer a "phase-N" GitHub label from labels_json (works for any
-        # initiative) over the legacy phase_label column (which was set from
-        # the pipeline's active_label at poll time and is often wrong or None
-        # for issues created outside the active pipeline window).
+        # Prefer a "phase-N" GitHub label from labels_json over phase_label
+        # (which was set from the pipeline's active_label at poll time and
+        # may be None for issues created outside the active pipeline window).
         groups: dict[str, list[PhasedIssueRow]] = {}
         for row in rows:
             issue_labels: list[str] = json.loads(row.labels_json or "[]")

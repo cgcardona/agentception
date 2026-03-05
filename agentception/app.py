@@ -61,7 +61,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 app = FastAPI(
     title="Agentception",
     description="AgentCeption orchestration dashboard",
-    version="0.1.0",
+    version="0.1.1",
     lifespan=lifespan,
     # Disable the built-in Swagger/ReDoc UIs — we serve a native branded
     # version at /api-reference instead.

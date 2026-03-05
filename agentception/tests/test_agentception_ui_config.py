@@ -125,7 +125,12 @@ def test_config_page_contains_api_put_endpoint(client: TestClient) -> None:
 
 
 def test_config_page_nav_link_active(client: TestClient) -> None:
-    """GET /config marks the Config nav link as active in the base template."""
+    """GET /config renders with the primary nav (Plan/Build/Ship) from the base template.
+
+    The Config nav link was moved to secondary nav (currently hidden) in favour of the
+    1-2-3 Plan → Build → Ship primary flow. The test verifies the primary nav is
+    rendered and the page loads successfully.
+    """
     with patch(
         "agentception.routes.ui.config.read_pipeline_config",
         new_callable=AsyncMock,
@@ -134,9 +139,11 @@ def test_config_page_nav_link_active(client: TestClient) -> None:
         response = client.get("/config")
 
     body = response.text
-    # The base template uses request.url.path.startswith('/config') to set 'active'
-    # on the nav link — verify the rendered output includes the nav entry.
-    assert 'href="/config"' in body
+    assert response.status_code == 200
+    # Primary nav links (Plan → Build → Ship) must be present in the base template.
+    assert 'href="/plan"' in body
+    assert 'href="/build"' in body
+    assert 'href="/controls"' in body
 
 
 # ---------------------------------------------------------------------------

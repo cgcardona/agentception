@@ -352,13 +352,6 @@ async def controls_hub(request: Request) -> HTMLResponse:
     )
 
 
-@router.get("/control/spawn", response_class=HTMLResponse)
-async def spawn_form_legacy(request: Request) -> Response:
-    """Backwards-compat redirect — /control/spawn → /agents/spawn."""
-    from starlette.responses import RedirectResponse
-    return RedirectResponse(url="/agents/spawn", status_code=302)
-
-
 @router.get("/agents/spawn", response_class=HTMLResponse)
 async def spawn_form(request: Request) -> HTMLResponse:
     """Mission Control — orchestration dashboard for spawning agents.

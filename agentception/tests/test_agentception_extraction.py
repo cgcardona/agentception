@@ -77,14 +77,18 @@ def test_no_hardcoded_gabriel_paths() -> None:
 
 
 def test_pyproject_toml_valid() -> None:
-    """agentception/pyproject.toml must exist, be valid TOML, and contain required keys.
+    """The root pyproject.toml must exist, be valid TOML, and contain required keys.
+
+    There is exactly one pyproject.toml — at the repository root (one level above
+    the agentception/ package directory). The inner agentception/pyproject.toml was
+    an orphaned duplicate and has been removed.
 
     Required structure:
       [project] name, version, requires-python, dependencies
       [project.scripts] agentception entrypoint
       [build-system] requires, build-backend
     """
-    toml_path = AGENTCEPTION_ROOT / "pyproject.toml"
+    toml_path = AGENTCEPTION_ROOT.parent / "pyproject.toml"
     assert toml_path.exists(), f"pyproject.toml not found at {toml_path}"
 
     with toml_path.open("rb") as f:
@@ -104,8 +108,8 @@ def test_pyproject_toml_valid() -> None:
     assert "agentception" in scripts, (
         "[project.scripts].agentception entry point is missing"
     )
-    assert scripts["agentception"] == "agentception.app:main", (
-        f"[project.scripts].agentception must point to 'agentception.app:main', "
+    assert scripts["agentception"] == "agentception.app:app", (
+        f"[project.scripts].agentception must point to 'agentception.app:app', "
         f"got {scripts['agentception']!r}"
     )
 
