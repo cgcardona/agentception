@@ -1301,35 +1301,36 @@ async def get_issues_grouped_by_phase(
     """Return issues grouped by scoped phase label, ordered by *phase_order*.
 
     Every issue is expected to carry exactly two labels:
-    - ``{initiative}``            — the initiative slug
-    - ``{initiative}/phase-{N}``  — the namespaced phase identifier
+    - ``{initiative}``         — the initiative slug
+    - ``{initiative}/{slug}``  — the namespaced phase identifier (any slug, not
+                                 just ``phase-N``)
 
     When *initiative* is supplied the result is scoped to that initiative:
     - Only issues carrying that initiative label are included.
-    - Phase key is detected as the ``{initiative}/phase-N`` label.
-    - Every phase in *phase_order* is present in the result (even if empty)
-      so the UI can render the full gate structure.
-    - *phase_order* defaults to ``["{initiative}/phase-0" … "/phase-3"]``.
+    - Phase key is detected as the first ``{initiative}/*`` label on the issue.
+    - The effective phase order is determined as follows (highest priority first):
+        1. Explicitly passed *phase_order* argument.
+        2. Discovered dynamically from the actual ``{initiative}/*`` labels on
+           issues in the DB, sorted lexicographically.  This handles any slug
+           convention (``phase-N``, ``0-infra``, ``5-plan-step-v2``, etc.).
+        3. Fallback to ``_SCOPED_PHASE_SUFFIXES`` placeholders when the
+           initiative has no issues yet (so the UI renders an empty skeleton).
+    - Every phase in the effective order is present in the result (even if
+      empty) so the UI can render the full gate structure.
     - Issues without a scoped phase label are silently dropped.
 
     When *initiative* is ``None`` the result spans all issues, grouped by
     whatever phase-like labels they carry, with no defined ordering.
 
     Each group dict contains:
-    - ``label``    — phase label string
-    - ``issues``   — list of issue dicts (number, title, state, url, labels)
-    - ``locked``   — True when any declared dependency phase is not complete
-    - ``complete`` — True when every issue in this phase is closed
+    - ``label``      — phase label string
+    - ``issues``     — list of issue dicts (number, title, state, url, labels)
+    - ``locked``     — True when any declared dependency phase is not complete
+    - ``complete``   — True when every issue in this phase is closed
+    - ``depends_on`` — list of dependency phase labels
 
     Falls back to ``[]`` on DB error.
     """
-    if initiative and phase_order is None:
-        effective_phase_order: list[str] = [
-            f"{initiative}/{s}" for s in _SCOPED_PHASE_SUFFIXES
-        ]
-    else:
-        effective_phase_order = phase_order or []
-
     try:
         async with get_session() as session:
             result = await session.execute(
@@ -1347,7 +1348,7 @@ async def get_issues_grouped_by_phase(
             if initiative and initiative not in issue_labels:
                 continue
 
-            # Phase key is the scoped "{initiative}/phase-N" label.
+            # Phase key is the scoped "{initiative}/*" label.
             phase_key: str | None = next(
                 (lbl for lbl in issue_labels if initiative and lbl.startswith(f"{initiative}/")),
                 None,
@@ -1372,6 +1373,24 @@ async def get_issues_grouped_by_phase(
         phase_deps: dict[str, list[str]] = {}
         if initiative:
             phase_deps = await get_initiative_phase_deps(initiative)
+
+        # Determine the effective phase display order.
+        # Priority: explicit arg → discovered from actual labels → placeholder skeleton.
+        if phase_order is not None:
+            effective_phase_order: list[str] = phase_order
+        elif initiative:
+            if groups:
+                # Derive order from actual {initiative}/* labels on issues.
+                # Lexicographic sort works correctly for both "phase-N" and
+                # "N-slug" conventions because the numeric prefix dominates.
+                effective_phase_order = sorted(groups.keys())
+            else:
+                # No issues yet — show a placeholder skeleton so the UI isn't blank.
+                effective_phase_order = [
+                    f"{initiative}/{s}" for s in _SCOPED_PHASE_SUFFIXES
+                ]
+        else:
+            effective_phase_order = []
 
         # Build ordered list; compute complete set first so we can evaluate
         # deps in a single pass.
