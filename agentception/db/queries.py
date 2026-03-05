@@ -304,6 +304,8 @@ class PhasedIssueRow(TypedDict):
     state: str
     url: str
     labels: list[str]
+    depends_on: list[int]
+    """GitHub issue numbers this issue must wait for (ticket-level dependencies)."""
 
 
 class PhaseGroupRow(TypedDict):
@@ -338,6 +340,8 @@ class RunForIssueRow(TypedDict):
     current_step: str | None
     steps_completed: int
     steps_total: int | None
+    logical_tier: str | None
+    node_type: str | None
 
 
 # ---------------------------------------------------------------------------
@@ -1353,6 +1357,7 @@ async def get_issues_grouped_by_phase(
             if phase_key is None:
                 continue
 
+            issue_deps: list[int] = json.loads(row.depends_on_json or "[]")
             groups.setdefault(phase_key, []).append(
                 PhasedIssueRow(
                     number=row.github_number,
@@ -1360,6 +1365,7 @@ async def get_issues_grouped_by_phase(
                     state=row.state,
                     url=f"https://github.com/{repo}/issues/{row.github_number}",
                     labels=issue_labels,
+                    depends_on=issue_deps,
                 )
             )
 
@@ -1563,6 +1569,8 @@ async def get_runs_for_issue_numbers(
                 current_step=sd["current_step"],
                 steps_completed=sd["steps_completed"],
                 steps_total=None,
+                logical_tier=row.logical_tier,
+                node_type=row.node_type,
             )
         return out
     except Exception as exc:

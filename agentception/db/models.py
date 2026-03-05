@@ -190,6 +190,9 @@ class ACIssue(Base):
     labels_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     """JSON-serialised list of label name strings."""
 
+    depends_on_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    """JSON-serialised list of GitHub issue numbers this issue depends on (must merge first)."""
+
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     """SHA-256 of (title + state + labels_json) — write guard for hash-diff."""
 

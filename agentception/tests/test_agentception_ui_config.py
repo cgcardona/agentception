@@ -138,10 +138,9 @@ def test_config_page_nav_link_active(client: TestClient) -> None:
 
     body = response.text
     assert response.status_code == 200
-    # Primary nav links (Plan → Build → Ship) must be present in the base template.
+    # Primary nav links (Plan → Ship) must be present in the base template.
     assert 'href="/plan"' in body
-    assert 'href="/build"' in body
-    assert 'href="/controls"' in body
+    assert 'href="/ship"' in body
 
 
 # ---------------------------------------------------------------------------

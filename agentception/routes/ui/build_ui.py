@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-"""UI routes: Build / Mission Control page.
+"""UI routes: Ship / Mission Control page.
 
 Endpoints
 ---------
-GET  /build                      — full page (Mission Control)
-GET  /build/board                — HTMX board partial (polled every 10 s)
-GET  /build/agent/{run_id}/stream — SSE: structured events + thinking messages
+GET  /ship                       — redirect to /ship/{first-initiative}
+GET  /ship/{initiative}          — full page (Mission Control)
+GET  /ship/{initiative}/board    — HTMX board partial (polled every 10 s)
+GET  /ship/runs/{run_id}/stream  — SSE: structured events + thinking messages
 
 The board shows all issues grouped by phase with live PR/agent-run status.
 The inspector panel streams events from ``ac_agent_events`` and thinking
@@ -20,6 +21,7 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from starlette.requests import Request
 
@@ -47,6 +49,7 @@ class EnrichedIssueRow(TypedDict):
     state: str
     url: str
     labels: list[str]
+    depends_on: list[int]
     run: RunForIssueRow | None
 
 
@@ -102,13 +105,7 @@ def _available_roles() -> dict[str, list[str]]:
 
 
 async def _initiative_patterns() -> list[str]:
-    """Return the active project's initiative label patterns from pipeline-config.json.
-
-    Looks up the project whose ``gh_repo`` matches ``settings.gh_repo`` and
-    returns its ``initiative_labels`` list.  Falls back to ``[]`` (which
-    triggers the legacy ``phase-N`` heuristic in ``get_initiatives``) when the
-    config is absent, unreadable, or has no matching project entry.
-    """
+    """Return the active project's initiative label patterns from pipeline-config.json."""
     try:
         cfg = await read_pipeline_config()
         for project in cfg.projects:
@@ -121,30 +118,38 @@ async def _initiative_patterns() -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# /build — full Mission Control page
+# GET /ship — redirect to first available initiative
 # ---------------------------------------------------------------------------
 
 
-@router.get("/build", response_class=HTMLResponse, response_model=None)
-async def build_page(
-    request: Request,
-    initiative: str | None = Query(default=None),
-) -> Response:
-    """Render the Mission Control build page.
+@router.get("/ship", response_class=HTMLResponse, response_model=None)
+async def ship_redirect() -> Response:
+    """Redirect ``/ship`` to ``/ship/{first-initiative}`` when initiatives exist.
 
-    When no *initiative* query param is provided, redirects to the first
-    available initiative so the board is always scoped.  Falls through to
-    the unscoped view only when the DB has no initiative-labelled issues at all.
+    Falls through to the full page with no initiative if none are found.
     """
     repo = settings.gh_repo
     patterns = await _initiative_patterns()
     initiatives = await get_initiatives(repo, initiative_patterns=patterns)
+    if initiatives:
+        return RedirectResponse(url=f"/ship/{initiatives[0]}", status_code=302)
+    return RedirectResponse(url="/plan", status_code=302)
 
-    # Auto-select the first initiative when none is specified.
-    if not initiative and initiatives:
-        return RedirectResponse(
-            url=f"/build?initiative={initiatives[0]}", status_code=302
-        )
+
+# ---------------------------------------------------------------------------
+# GET /ship/{initiative} — full Mission Control page
+# ---------------------------------------------------------------------------
+
+
+@router.get("/ship/{initiative}", response_class=HTMLResponse, response_model=None)
+async def build_page(
+    request: Request,
+    initiative: str,
+) -> Response:
+    """Render the Mission Control Ship page scoped to *initiative*."""
+    repo = settings.gh_repo
+    patterns = await _initiative_patterns()
+    initiatives = await get_initiatives(repo, initiative_patterns=patterns)
 
     groups = await get_issues_grouped_by_phase(repo, initiative=initiative)
 
@@ -161,6 +166,7 @@ async def build_page(
                     state=i["state"],
                     url=i["url"],
                     labels=i["labels"],
+                    depends_on=i["depends_on"],
                     run=runs.get(i["number"]),
                 )
                 for i in g["issues"]
@@ -177,7 +183,7 @@ async def build_page(
         "build.html",
         {
             "repo": repo,
-            "initiative": initiative or "",
+            "initiative": initiative,
             "initiatives": initiatives,
             "groups": enriched_groups,
             "role_groups": _available_roles(),
@@ -187,14 +193,14 @@ async def build_page(
 
 
 # ---------------------------------------------------------------------------
-# /build/board — HTMX board partial (polled every 10 s)
+# GET /ship/{initiative}/board — HTMX board partial (polled every 10 s)
 # ---------------------------------------------------------------------------
 
 
-@router.get("/build/board", response_class=HTMLResponse)
+@router.get("/ship/{initiative}/board", response_class=HTMLResponse)
 async def build_board_partial(
     request: Request,
-    initiative: str | None = Query(default=None),
+    initiative: str,
 ) -> HTMLResponse:
     """Return the phase-grouped board as an HTML partial for HTMX polling."""
     repo = settings.gh_repo
@@ -213,6 +219,7 @@ async def build_board_partial(
                     state=i["state"],
                     url=i["url"],
                     labels=i["labels"],
+                    depends_on=i["depends_on"],
                     run=runs.get(i["number"]),
                 )
                 for i in g["issues"]
@@ -230,13 +237,13 @@ async def build_board_partial(
         {
             "groups": enriched_groups,
             "repo": repo,
-            "initiative": initiative or "",
+            "initiative": initiative,
         },
     )
 
 
 # ---------------------------------------------------------------------------
-# /build/agent/{run_id}/stream — SSE inspector stream
+# GET /ship/runs/{run_id}/stream — SSE inspector stream
 # ---------------------------------------------------------------------------
 
 
@@ -257,7 +264,6 @@ async def _inspector_sse(run_id: str) -> AsyncGenerator[str, None]:
     ping_counter = 0
 
     while True:
-        # Structured events
         events = await get_agent_events_tail(run_id, after_id=last_event_id)
         for ev in events:
             last_event_id = max(last_event_id, int(ev["id"]))
@@ -271,7 +277,6 @@ async def _inspector_sse(run_id: str) -> AsyncGenerator[str, None]:
             )
             yield f"data: {payload}\n\n"
 
-        # Raw thinking messages
         thoughts = await get_agent_thoughts_tail(
             run_id, after_seq=last_thought_seq
         )
@@ -287,7 +292,6 @@ async def _inspector_sse(run_id: str) -> AsyncGenerator[str, None]:
             )
             yield f"data: {payload}\n\n"
 
-        # Keepalive ping every ~20 s (10 × 2 s sleep)
         ping_counter += 1
         if ping_counter % 10 == 0:
             yield 'data: {"t":"ping"}\n\n'
@@ -295,7 +299,7 @@ async def _inspector_sse(run_id: str) -> AsyncGenerator[str, None]:
         await asyncio.sleep(2)
 
 
-@router.get("/build/agent/{run_id}/stream")
+@router.get("/ship/runs/{run_id}/stream")
 async def agent_stream(run_id: str) -> StreamingResponse:
     """SSE stream of structured events + thinking for the inspector panel.
 
@@ -303,7 +307,7 @@ async def agent_stream(run_id: str) -> StreamingResponse:
     runs until the client closes it.
 
     Args:
-        run_id: The agent run id (worktree basename, e.g. ``issue-938``).
+        run_id: The agent run id (e.g. ``issue-938``).
 
     Returns:
         ``text/event-stream`` SSE response.

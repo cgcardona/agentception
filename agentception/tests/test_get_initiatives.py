@@ -8,11 +8,9 @@ Run targeted:
 """
 
 import json
-from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from contextlib import asynccontextmanager, AbstractAsyncContextManager
+from typing import AsyncIterator, Callable
 from unittest.mock import AsyncMock, MagicMock, patch
-
-# asynccontextmanager and AsyncIterator are used by _mock_session_context below.
 
 import pytest
 
@@ -31,8 +29,10 @@ def _make_row(
     return json.dumps(labels), state, phase_label
 
 
-def _mock_session_context(rows: list[tuple[str, str, str | None]]) -> MagicMock:
-    """Build a mock async context manager whose ``execute`` returns *rows*."""
+def _mock_session_context(
+    rows: list[tuple[str, str, str | None]],
+) -> Callable[[], AbstractAsyncContextManager[AsyncMock]]:
+    """Build a callable that, when called, returns an async context manager yielding a mock session."""
     result_mock = MagicMock()
     result_mock.all.return_value = rows
 
@@ -43,7 +43,7 @@ def _mock_session_context(rows: list[tuple[str, str, str | None]]) -> MagicMock:
     async def _ctx() -> AsyncIterator[AsyncMock]:
         yield session_mock
 
-    return _ctx  # type: ignore[return-value]
+    return _ctx
 
 
 # ---------------------------------------------------------------------------

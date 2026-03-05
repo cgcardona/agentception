@@ -642,6 +642,47 @@ async def persist_initiative_phases(
         logger.warning("⚠️  persist_initiative_phases failed (non-fatal): %s", exc)
 
 
+async def persist_issue_depends_on(
+    repo: str,
+    issue_deps: dict[int, list[int]],
+) -> None:
+    """Write ticket-level dependency lists into the ``issues`` table.
+
+    Called by ``file_issues`` after all ``PlanIssue.depends_on`` references
+    have been resolved to real GitHub issue numbers.  Only updates rows that
+    exist in the DB (issues created by this plan run will already be present
+    from the poller's upsert on the same tick, or we write optimistically and
+    accept that a very short race window may mean the row isn't there yet —
+    the next poller tick will not overwrite this field).
+
+    Best-effort — swallows exceptions so a DB outage never blocks filing.
+    """
+    import json as _json
+
+    if not issue_deps:
+        return
+    try:
+        async with get_session() as session:
+            for number, blockers in issue_deps.items():
+                result = await session.execute(
+                    select(ACIssue).where(
+                        ACIssue.github_number == number,
+                        ACIssue.repo == repo,
+                    )
+                )
+                row = result.scalar_one_or_none()
+                if row is not None:
+                    row.depends_on_json = _json.dumps(blockers)
+            await session.commit()
+        logger.info(
+            "✅ persist_issue_depends_on: %d issues updated for %s",
+            len(issue_deps),
+            repo,
+        )
+    except Exception as exc:
+        logger.warning("⚠️  persist_issue_depends_on failed (non-fatal): %s", exc)
+
+
 async def persist_agent_event(
     issue_number: int,
     event_type: str,

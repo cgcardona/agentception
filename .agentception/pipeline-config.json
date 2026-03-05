@@ -10,8 +10,22 @@
     "variant_a_file": null,
     "variant_b_file": null
   },
-  "projects": [],
-  "active_project": null,
+  "projects": [
+    {
+      "name": "agentception",
+      "gh_repo": "cgcardona/agentception",
+      "initiative_labels": [
+        "ac-workflow",
+        "ac-reliability",
+        "ac-plan",
+        "ac-ship",
+        "ac-transcripts",
+        "agentception-ux-phase1b-to-phase3",
+        "developer-experience-layer"
+      ]
+    }
+  ],
+  "active_project": "agentception",
   "approval_required_labels": [
     "db-schema",
     "security",

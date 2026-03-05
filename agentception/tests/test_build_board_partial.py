@@ -80,6 +80,7 @@ def _mock_issue(number: int = 82, title: str = "Enrich build board") -> dict[str
         "state": "open",
         "url": f"https://github.com/cgcardona/agentception/issues/{number}",
         "labels": ["phase-1"],
+        "depends_on": [],
     }
 
 
@@ -186,7 +187,7 @@ def test_build_board_partial_shows_status_badge(client: TestClient) -> None:
             return_value={82: _mock_run_dict()},
         ),
     ):
-        resp = client.get("/build/board?initiative=phase-1")
+        resp = client.get("/ship/phase-1/board")
 
     assert resp.status_code == 200
     # The agent_status "implementing" must appear as a badge in the card.
@@ -209,7 +210,7 @@ def test_build_board_partial_shows_current_step(client: TestClient) -> None:
             },
         ),
     ):
-        resp = client.get("/build/board?initiative=phase-1")
+        resp = client.get("/ship/phase-1/board")
 
     assert resp.status_code == 200
     assert "Running mypy checks" in resp.text
@@ -232,7 +233,7 @@ def test_build_board_partial_no_run_renders_without_error(
             return_value={},
         ),
     ):
-        resp = client.get("/build/board?initiative=phase-1")
+        resp = client.get("/ship/phase-1/board")
 
     assert resp.status_code == 200
     assert "Unassigned issue" in resp.text
@@ -259,6 +260,7 @@ def test_build_board_partial_complete_phase_hides_launch_button(
                     "state": "closed",
                     "url": "https://github.com/cgcardona/agentception/issues/10",
                     "labels": ["phase-0"],
+                    "depends_on": [],
                     "run": None,
                 }
             ],
@@ -279,7 +281,7 @@ def test_build_board_partial_complete_phase_hides_launch_button(
             return_value={},
         ),
     ):
-        resp = client.get("/build/board?initiative=my-initiative")
+        resp = client.get("/ship/my-initiative/board")
 
     assert resp.status_code == 200
     assert "Launch" not in resp.text, "Launch button must not appear on a complete phase"
@@ -299,6 +301,7 @@ def test_build_board_partial_complete_phase_cards_not_clickable(
                     "state": "closed",
                     "url": "https://github.com/cgcardona/agentception/issues/11",
                     "labels": ["phase-0"],
+                    "depends_on": [],
                     "run": None,
                 }
             ],
@@ -319,7 +322,7 @@ def test_build_board_partial_complete_phase_cards_not_clickable(
             return_value={},
         ),
     ):
-        resp = client.get("/build/board?initiative=my-initiative")
+        resp = client.get("/ship/my-initiative/board")
 
     assert resp.status_code == 200
     # The card must carry the done modifier
@@ -363,6 +366,7 @@ async def test_get_issues_grouped_by_phase_initiative_scoped_labels() -> None:
         row.state = "open"
         row.labels_json = json.dumps([initiative, phase])
         row.phase_label = None
+        row.depends_on_json = "[]"
         return row
 
     mock_rows = [_make_row(1, phase_a), _make_row(2, phase_a), _make_row(3, phase_b)]
@@ -419,6 +423,7 @@ async def test_get_issues_grouped_by_phase_phase_key_initiative_prefix() -> None
     row.state = "open"
     row.labels_json = json.dumps([initiative, phase, "enhancement"])
     row.phase_label = None
+    row.depends_on_json = "[]"
 
     mock_result = MagicMock()
     mock_result.scalars.return_value.all.return_value = [row]

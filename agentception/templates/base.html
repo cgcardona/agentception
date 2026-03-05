@@ -33,10 +33,9 @@
   <nav class="topnav" role="navigation" aria-label="Main navigation">
     <span class="brand">⚡ Agentception</span>
 
-    {# ── Primary nav: Plan → Build → Ship ───────────────────────────────── #}
+    {# ── Primary nav: Plan → Ship ────────────────────────────────────────── #}
     <a href="/plan" class="nav-cta {% if request.url.path == '/' or request.url.path.startswith('/plan') %}active{% endif %}">Plan</a>
-    <a href="/build" class="{% if request.url.path.startswith('/build') %}active{% endif %}">Build</a>
-    <a href="/controls"   class="{% if request.url.path.startswith('/controls') %}active{% endif %}">Ship</a>
+    <a href="/ship" class="{% if request.url.path.startswith('/ship') %}active{% endif %}">Ship</a>
 
     {# ── Secondary pages — temporarily hidden while 1-2-3 flow is primary ─ #}
     {#
@@ -99,9 +98,7 @@
     <span class="batch-bar__sep" aria-hidden="true">|</span>
     <a href="/plan" class="batch-bar__link">Plan</a>
     <span class="batch-bar__sep" aria-hidden="true">|</span>
-    <a :href="'/build?initiative=' + initiative" class="batch-bar__link">Build</a>
-    <span class="batch-bar__sep" aria-hidden="true">|</span>
-    <a :href="'/ship?batch=' + batchId" class="batch-bar__link">Ship</a>
+    <a :href="'/ship/' + encodeURIComponent(initiative)" class="batch-bar__link">Ship</a>
     <button class="batch-bar__dismiss" @click="dismiss()" aria-label="Dismiss active batch bar">✕</button>
   </div>
 

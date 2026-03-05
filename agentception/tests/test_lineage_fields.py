@@ -294,7 +294,7 @@ def test_migration_0009_has_downgrade() -> None:
 def test_dispatch_label_agent_task_contains_node_type() -> None:
     """The .agent-task file written by dispatch-label includes NODE_TYPE=."""
     source_path = (
-        Path(__file__).parent.parent / "routes" / "api" / "build.py"
+        Path(__file__).parent.parent / "routes" / "api" / "dispatch.py"
     )
     source = source_path.read_text()
     assert "NODE_TYPE=" in source, (
@@ -305,7 +305,7 @@ def test_dispatch_label_agent_task_contains_node_type() -> None:
 def test_dispatch_label_agent_task_contains_logical_tier() -> None:
     """dispatch-label also writes LOGICAL_TIER= (org domain) to the .agent-task file."""
     source_path = (
-        Path(__file__).parent.parent / "routes" / "api" / "build.py"
+        Path(__file__).parent.parent / "routes" / "api" / "dispatch.py"
     )
     source = source_path.read_text()
     assert "LOGICAL_TIER=" in source, (
