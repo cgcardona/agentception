@@ -40,6 +40,8 @@ services:
       - ${HOME}/.agentception/worktrees/agentception:/worktrees
     networks:
       - agentception-net
+    command: >
+      sh -c "cd /app && alembic -c agentception/alembic.ini upgrade head && exec uvicorn agentception.app:app --host 0.0.0.0 --port 10003"
     depends_on:
       postgres:
         condition: service_healthy
