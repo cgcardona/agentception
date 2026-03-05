@@ -1414,6 +1414,8 @@ SPAWN_SUB_AGENTS=false
 ATTEMPT_N=0
 REQUIRED_OUTPUT=grade,merge_status,pr_url
 ON_BLOCK=stop
+LOGICAL_TIER=reviewer
+PARENT_RUN_ID=${RUN_ID:-}
 TASK
 
     echo "✅ Spawning QA reviewer for PR #$MY_PR (chain mode — reviewer will spawn next engineer)"

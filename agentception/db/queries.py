@@ -79,6 +79,8 @@ class AgentRunRow(TypedDict):
     spawned_at: str
     last_activity_at: str | None
     completed_at: str | None
+    logical_tier: str | None
+    parent_run_id: str | None
 
 
 class AgentMessageRow(TypedDict):
@@ -257,7 +259,7 @@ class WaveAgentRow(TypedDict):
     branch: str | None
     batch_id: str | None
     worktree_path: str | None
-    cognitive_arch: None
+    cognitive_arch: str | None
     message_count: int
 
 
@@ -359,6 +361,8 @@ class PendingLaunchRow(TypedDict):
     host_worktree_path: str | None
     batch_id: str | None
     spawned_at: str
+    logical_tier: str | None
+    parent_run_id: str | None
 
 
 class AgentEventRow(TypedDict):
@@ -547,6 +551,8 @@ async def get_agent_run_history(
                 completed_at=(
                     row.completed_at.isoformat() if row.completed_at else None
                 ),
+                logical_tier=row.logical_tier,
+                parent_run_id=row.parent_run_id,
             )
             for row in rows
         ]
@@ -924,7 +930,7 @@ async def get_waves_from_db(limit: int = 100) -> list[WaveRow]:
                     branch=r.branch,
                     batch_id=r.batch_id,
                     worktree_path=r.worktree_path,
-                    cognitive_arch=None,
+                    cognitive_arch=r.cognitive_arch,
                     message_count=0,
                 )
                 for r in members
@@ -1459,6 +1465,8 @@ async def get_pending_launches() -> list[PendingLaunchRow]:
                     host_worktree_path=host_worktree,
                     batch_id=row.batch_id,
                     spawned_at=row.spawned_at.isoformat(),
+                    logical_tier=row.logical_tier,
+                    parent_run_id=row.parent_run_id,
                 )
             )
         logger.warning("🗄️  get_pending_launches: returning %d launch(es)", len(launches))

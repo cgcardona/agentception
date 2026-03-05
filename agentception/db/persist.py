@@ -319,6 +319,7 @@ async def _upsert_agent_runs(
                     role=agent.role,
                     status=agent.status.value,
                     batch_id=agent.batch_id,
+                    cognitive_arch=agent.cognitive_arch,
                     spawned_at=now,
                     last_activity_at=now,
                 )
@@ -332,6 +333,9 @@ async def _upsert_agent_runs(
                 existing.status = agent.status.value
             existing.pr_number = agent.pr_number
             existing.last_activity_at = now
+            # Backfill cognitive_arch when the poller first picks up a live run.
+            if existing.cognitive_arch is None and agent.cognitive_arch is not None:
+                existing.cognitive_arch = agent.cognitive_arch
 
     # Orphan sweep: any run that was active in a previous tick but is no
     # longer backed by a live worktree gets flipped to "unknown".  This
@@ -449,6 +453,9 @@ async def persist_agent_run_dispatch(
     worktree_path: str,
     batch_id: str,
     host_worktree_path: str,
+    cognitive_arch: str | None = None,
+    logical_tier: str | None = None,
+    parent_run_id: str | None = None,
 ) -> None:
     """Insert an ACAgentRun row with status ``pending_launch`` at dispatch time.
 
@@ -461,6 +468,16 @@ async def persist_agent_run_dispatch(
     blob because ACAgentRun has no dedicated host-path column — this is the
     least-invasive way to pass it to the coordinator without a migration.
 
+    ``cognitive_arch`` is written to the DB column added in migration 0005 so
+    the arch string survives beyond the worktree filesystem lifetime.
+
+    ``logical_tier`` captures where this run sits in the virtual org chart
+    (executive | coordinator | engineer | reviewer), independent of who
+    physically spawned it.  Added in migration 0006.
+
+    ``parent_run_id`` records the run_id of the agent that spawned this one,
+    enabling spawn-lineage tracing in the org chart.  Added in migration 0006.
+
     Best-effort — swallows exceptions so a DB outage never blocks dispatch.
     """
     import json as _json
@@ -468,8 +485,10 @@ async def persist_agent_run_dispatch(
     spawn_mode_json = _json.dumps({"host_worktree": host_worktree_path})
     logger.warning(
         "💾 persist_agent_run_dispatch: run_id=%r role=%r worktree_path=%r "
-        "host_worktree_path=%r spawn_mode=%r",
+        "host_worktree_path=%r spawn_mode=%r cognitive_arch=%r "
+        "logical_tier=%r parent_run_id=%r",
         run_id, role, worktree_path, host_worktree_path, spawn_mode_json,
+        cognitive_arch, logical_tier, parent_run_id,
     )
     try:
         async with get_session() as session:
@@ -486,6 +505,12 @@ async def persist_agent_run_dispatch(
                 existing.status = "pending_launch"
                 existing.spawn_mode = spawn_mode_json
                 existing.last_activity_at = _now()
+                if cognitive_arch is not None:
+                    existing.cognitive_arch = cognitive_arch
+                if logical_tier is not None:
+                    existing.logical_tier = logical_tier
+                if parent_run_id is not None:
+                    existing.parent_run_id = parent_run_id
             else:
                 logger.warning(
                     "💾 persist_agent_run_dispatch: run_id=%r is new — inserting with status=pending_launch",
@@ -504,6 +529,9 @@ async def persist_agent_run_dispatch(
                         attempt_number=0,
                         spawn_mode=spawn_mode_json,
                         batch_id=batch_id,
+                        cognitive_arch=cognitive_arch,
+                        logical_tier=logical_tier,
+                        parent_run_id=parent_run_id,
                         spawned_at=_now(),
                         last_activity_at=_now(),
                     )
