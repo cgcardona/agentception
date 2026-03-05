@@ -1,18 +1,17 @@
 from __future__ import annotations
 
-"""Tests for the node_type / logical_tier / parent_run_id lineage fields.
+"""Tests for the tier / org_domain / parent_run_id lineage fields.
 
 Covers:
-  - TaskFile parser reads NODE_TYPE → node_type and LOGICAL_TIER → logical_tier
+  - TaskFile parser reads TIER → tier and ORG_DOMAIN → org_domain
     as fully separate fields (not fallback aliases).
-  - A chain-spawned PR reviewer can have node_type=leaf AND logical_tier=qa
+  - A chain-spawned PR reviewer can have tier=reviewer AND org_domain=qa
     simultaneously.
   - AgentNode carries all three lineage fields.
-  - PendingLaunchRow and AgentRunRow TypedDicts include node_type.
-  - Migration 0006 adds logical_tier and parent_run_id columns.
-  - Migration 0009 adds node_type column.
-  - dispatch-label .agent-task writer includes NODE_TYPE= and LOGICAL_TIER=.
-  - engineering-coordinator reviewer heredoc sets NODE_TYPE=leaf LOGICAL_TIER=qa.
+  - PendingLaunchRow and AgentRunRow TypedDicts include tier and org_domain.
+  - Migration 0012 replaces node_type + logical_tier with tier + org_domain.
+  - dispatch-label .agent-task writer includes TIER= and ORG_DOMAIN=.
+  - engineering-coordinator reviewer heredoc sets TIER=reviewer ORG_DOMAIN=qa.
   - Regression: PARENT_RUN_ID empty string is normalised to None.
 """
 
@@ -35,81 +34,81 @@ def _make_task_file(fields: dict[str, str], tmp_path: Path) -> TaskFile:
     return _build_task_file(fields, tmp_path)
 
 
-def test_task_file_parses_node_type(tmp_path: Path) -> None:
-    """NODE_TYPE field is read into TaskFile.node_type (structural position)."""
+def test_task_file_parses_tier(tmp_path: Path) -> None:
+    """TIER field is read into TaskFile.tier (behavioral execution tier)."""
     tf = _make_task_file(
         {
             "WORKFLOW": "pr-review",
             "ROLE": "pr-reviewer",
-            "NODE_TYPE": "leaf",
+            "TIER": "reviewer",
             "PARENT_RUN_ID": "issue-42",
         },
         tmp_path,
     )
-    assert tf.node_type == "leaf"
+    assert tf.tier == "reviewer"
     assert tf.parent_run_id == "issue-42"
 
 
-def test_task_file_parses_logical_tier(tmp_path: Path) -> None:
-    """LOGICAL_TIER field is read into TaskFile.logical_tier (org domain)."""
+def test_task_file_parses_org_domain(tmp_path: Path) -> None:
+    """ORG_DOMAIN field is read into TaskFile.org_domain (UI hierarchy slot)."""
     tf = _make_task_file(
         {
             "WORKFLOW": "pr-review",
             "ROLE": "pr-reviewer",
-            "LOGICAL_TIER": "qa",
+            "ORG_DOMAIN": "qa",
             "PARENT_RUN_ID": "issue-42",
         },
         tmp_path,
     )
-    assert tf.logical_tier == "qa"
+    assert tf.org_domain == "qa"
     assert tf.parent_run_id == "issue-42"
 
 
 def test_task_file_parses_both_fields_independently(tmp_path: Path) -> None:
-    """NODE_TYPE and LOGICAL_TIER are parsed as separate fields — the core invariant.
+    """TIER and ORG_DOMAIN are parsed as separate fields — the core invariant.
 
-    A chain-spawned PR reviewer has node_type=leaf (structural) and
-    logical_tier=qa (org domain) at the same time.
+    A chain-spawned PR reviewer has tier=reviewer (behavioral) and
+    org_domain=qa (org slot) at the same time.
     """
     tf = _make_task_file(
         {
             "ROLE": "pr-reviewer",
-            "NODE_TYPE": "leaf",
-            "LOGICAL_TIER": "qa",
+            "TIER": "reviewer",
+            "ORG_DOMAIN": "qa",
             "PARENT_RUN_ID": "issue-42",
         },
         tmp_path,
     )
-    assert tf.node_type == "leaf"
-    assert tf.logical_tier == "qa"
+    assert tf.tier == "reviewer"
+    assert tf.org_domain == "qa"
     assert tf.parent_run_id == "issue-42"
 
 
-def test_task_file_node_type_does_not_bleed_into_logical_tier(tmp_path: Path) -> None:
-    """NODE_TYPE value must not appear in logical_tier and vice versa."""
+def test_task_file_tier_does_not_bleed_into_org_domain(tmp_path: Path) -> None:
+    """TIER value must not appear in org_domain and vice versa."""
     tf = _make_task_file(
         {
             "ROLE": "pr-reviewer",
-            "NODE_TYPE": "leaf",
-            "LOGICAL_TIER": "engineering",
+            "TIER": "engineer",
+            "ORG_DOMAIN": "engineering",
         },
         tmp_path,
     )
-    assert tf.node_type == "leaf"
-    assert tf.logical_tier == "engineering"
+    assert tf.tier == "engineer"
+    assert tf.org_domain == "engineering"
     # The two values must not bleed
-    assert tf.node_type != "engineering"
-    assert tf.logical_tier != "leaf"
+    assert tf.tier != "engineering"
+    assert tf.org_domain != "engineer"
 
 
 def test_task_file_defaults_both_to_none(tmp_path: Path) -> None:
-    """Both node_type and logical_tier default to None when absent."""
+    """Both tier and org_domain default to None when absent."""
     tf = _make_task_file(
         {"WORKFLOW": "issue-to-pr", "ROLE": "python-developer"},
         tmp_path,
     )
-    assert tf.node_type is None
-    assert tf.logical_tier is None
+    assert tf.tier is None
+    assert tf.org_domain is None
     assert tf.parent_run_id is None
 
 
@@ -118,7 +117,7 @@ def test_task_file_empty_parent_run_id_is_none(tmp_path: Path) -> None:
     tf = _make_task_file(
         {
             "ROLE": "pr-reviewer",
-            "NODE_TYPE": "leaf",
+            "TIER": "reviewer",
             "PARENT_RUN_ID": "",
         },
         tmp_path,
@@ -127,15 +126,15 @@ def test_task_file_empty_parent_run_id_is_none(tmp_path: Path) -> None:
     assert tf.parent_run_id is None
 
 
-def test_task_file_coordinator_node_type(tmp_path: Path) -> None:
-    """_build_task_file parses NODE_TYPE=coordinator correctly."""
+def test_task_file_coordinator_tier(tmp_path: Path) -> None:
+    """_build_task_file parses TIER=coordinator correctly."""
     tf = _make_task_file(
-        {"RUN_ID": "label-ac-ui-0-critical-a1b2", "ROLE": "cto", "NODE_TYPE": "coordinator"},
+        {"RUN_ID": "label-ac-ui-0-critical-a1b2", "ROLE": "engineering-coordinator", "TIER": "coordinator"},
         tmp_path,
     )
-    assert tf.node_type == "coordinator"
-    # CTO has no explicit LOGICAL_TIER in this file — org domain is optional
-    assert tf.logical_tier is None
+    assert tf.tier == "coordinator"
+    # Coordinator with no explicit ORG_DOMAIN — org domain is optional
+    assert tf.org_domain is None
 
 
 # ---------------------------------------------------------------------------
@@ -143,46 +142,46 @@ def test_task_file_coordinator_node_type(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_agent_node_carries_node_type_and_logical_tier() -> None:
-    """AgentNode stores node_type, logical_tier, and parent_run_id."""
+def test_agent_node_carries_tier_and_org_domain() -> None:
+    """AgentNode stores tier, org_domain, and parent_run_id."""
     node = AgentNode(
         id="pr-99",
         role="pr-reviewer",
         status=AgentStatus.REVIEWING,
-        node_type="leaf",
-        logical_tier="qa",
+        tier="reviewer",
+        org_domain="qa",
         parent_run_id="issue-42",
     )
-    assert node.node_type == "leaf"
-    assert node.logical_tier == "qa"
+    assert node.tier == "reviewer"
+    assert node.org_domain == "qa"
     assert node.parent_run_id == "issue-42"
 
 
 def test_agent_node_lineage_fields_default_none() -> None:
-    """AgentNode.node_type, logical_tier, and parent_run_id default to None."""
+    """AgentNode.tier, org_domain, and parent_run_id default to None."""
     node = AgentNode(
         id="issue-1",
         role="python-developer",
         status=AgentStatus.IMPLEMENTING,
     )
-    assert node.node_type is None
-    assert node.logical_tier is None
+    assert node.tier is None
+    assert node.org_domain is None
     assert node.parent_run_id is None
 
 
 def test_agent_node_serialises_lineage_fields() -> None:
-    """model_dump() includes node_type, logical_tier, and parent_run_id keys."""
+    """model_dump() includes tier, org_domain, and parent_run_id keys."""
     node = AgentNode(
         id="pr-99",
         role="pr-reviewer",
         status=AgentStatus.REVIEWING,
-        node_type="leaf",
-        logical_tier="qa",
+        tier="reviewer",
+        org_domain="qa",
         parent_run_id="issue-42",
     )
     d = node.model_dump()
-    assert d["node_type"] == "leaf"
-    assert d["logical_tier"] == "qa"
+    assert d["tier"] == "reviewer"
+    assert d["org_domain"] == "qa"
     assert d["parent_run_id"] == "issue-42"
 
 
@@ -191,155 +190,143 @@ def test_agent_node_serialises_lineage_fields() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_pending_launch_row_has_all_lineage_keys() -> None:
-    """PendingLaunchRow TypedDict declares node_type, logical_tier, and parent_run_id."""
+def test_pending_launch_row_has_tier_and_org_domain_keys() -> None:
+    """PendingLaunchRow TypedDict declares tier, org_domain, and parent_run_id."""
     from agentception.db.queries import PendingLaunchRow
 
     keys = PendingLaunchRow.__required_keys__ | PendingLaunchRow.__optional_keys__
-    assert "node_type" in keys
-    assert "logical_tier" in keys
+    assert "tier" in keys
+    assert "org_domain" in keys
     assert "parent_run_id" in keys
 
 
-def test_agent_run_row_has_all_lineage_keys() -> None:
-    """AgentRunRow TypedDict declares node_type, logical_tier, and parent_run_id."""
+def test_agent_run_row_has_tier_and_org_domain_keys() -> None:
+    """AgentRunRow TypedDict declares tier, org_domain, and parent_run_id."""
     from agentception.db.queries import AgentRunRow
 
     keys = AgentRunRow.__required_keys__ | AgentRunRow.__optional_keys__
-    assert "node_type" in keys
-    assert "logical_tier" in keys
+    assert "tier" in keys
+    assert "org_domain" in keys
     assert "parent_run_id" in keys
 
 
 # ---------------------------------------------------------------------------
-# Migration 0006 — structural smoke test
+# Consolidated migration 0001 — structural smoke tests
+#
+# Migrations 0001–0012 were flattened into a single canonical baseline.
+# These tests verify that the consolidated schema file contains all the
+# columns that matter for lineage tracking.
 # ---------------------------------------------------------------------------
 
 
-def _migration_0006_content() -> str:
-    migration_dir = (
-        Path(__file__).parent.parent / "alembic" / "versions"
-    )
-    candidates = list(migration_dir.glob("0006_*.py"))
-    assert candidates, "Migration file 0006_* not found in alembic/versions/"
+def _migration_0001_content() -> str:
+    migration_dir = Path(__file__).parent.parent / "alembic" / "versions"
+    candidates = list(migration_dir.glob("0001_*.py"))
+    assert candidates, "Migration file 0001_* not found in alembic/versions/"
     return candidates[0].read_text()
 
 
-def test_migration_0006_adds_logical_tier() -> None:
-    """Migration 0006 upgrade() adds a logical_tier column to ac_agent_runs."""
-    content = _migration_0006_content()
-    assert "logical_tier" in content
-    assert "add_column" in content
-
-
-def test_migration_0006_adds_parent_run_id() -> None:
-    """Migration 0006 upgrade() adds a parent_run_id column to ac_agent_runs."""
-    content = _migration_0006_content()
+def test_migration_0001_adds_parent_run_id() -> None:
+    """Consolidated migration creates agent_runs with a parent_run_id column."""
+    content = _migration_0001_content()
     assert "parent_run_id" in content
 
 
-def test_migration_0006_has_indexes() -> None:
-    """Migration 0006 creates indexes for both new columns."""
-    content = _migration_0006_content()
-    assert "create_index" in content
-    assert "ix_agent_runs_logical_tier" in content
-    assert "ix_agent_runs_parent_run_id" in content
-
-
-def test_migration_0006_has_downgrade() -> None:
-    """Migration 0006 implements downgrade() that drops both columns."""
-    content = _migration_0006_content()
+def test_migration_0001_has_downgrade() -> None:
+    """Consolidated migration implements downgrade() that drops all tables."""
+    content = _migration_0001_content()
     assert "def downgrade" in content
-    assert "drop_column" in content
+    assert "drop_table" in content
 
 
-# ---------------------------------------------------------------------------
-# Migration 0009 — node_type column smoke test
-# ---------------------------------------------------------------------------
+def test_migration_0001_adds_tier_column() -> None:
+    """Consolidated migration creates agent_runs with a tier column."""
+    content = _migration_0001_content()
+    assert '"tier"' in content
 
 
-def _migration_0009_content() -> str:
-    migration_dir = (
-        Path(__file__).parent.parent / "alembic" / "versions"
+def test_migration_0001_adds_org_domain_column() -> None:
+    """Consolidated migration creates agent_runs with an org_domain column."""
+    content = _migration_0001_content()
+    assert '"org_domain"' in content
+
+
+def test_migration_0001_has_no_node_type_or_logical_tier() -> None:
+    """Consolidated migration never creates the deprecated node_type / logical_tier columns.
+
+    Those intermediate columns existed only in the incremental migration chain
+    (0006–0009).  The flattened 0001 schema goes directly to the final shape.
+    """
+    content = _migration_0001_content()
+    assert "node_type" not in content
+    assert "logical_tier" not in content
+
+
+def test_migration_0001_is_only_migration() -> None:
+    """Exactly one migration file exists — the consolidated baseline."""
+    migration_dir = Path(__file__).parent.parent / "alembic" / "versions"
+    py_files = [
+        f for f in migration_dir.glob("*.py") if f.name != "__init__.py"
+    ]
+    assert len(py_files) == 1, (
+        f"Expected exactly 1 migration file, found {len(py_files)}: "
+        + ", ".join(f.name for f in sorted(py_files))
     )
-    candidates = list(migration_dir.glob("0009_*.py"))
-    assert candidates, "Migration file 0009_* not found in alembic/versions/"
-    return candidates[0].read_text()
-
-
-def test_migration_0009_adds_node_type_column() -> None:
-    """Migration 0009 upgrade() adds a node_type column to agent_runs."""
-    content = _migration_0009_content()
-    assert "node_type" in content
-    assert "add_column" in content
-
-
-def test_migration_0009_copies_existing_logical_tier_values() -> None:
-    """Migration 0009 copies coordinator/leaf values from logical_tier to node_type."""
-    content = _migration_0009_content()
-    assert "node_type = logical_tier" in content or "node_type" in content
-
-
-def test_migration_0009_has_downgrade() -> None:
-    """Migration 0009 implements downgrade()."""
-    content = _migration_0009_content()
-    assert "def downgrade" in content
 
 
 # ---------------------------------------------------------------------------
-# .agent-task writer — dispatch-label writes both NODE_TYPE= and LOGICAL_TIER=
+# .agent-task writer — dispatch-label writes TIER= and ORG_DOMAIN=
 # ---------------------------------------------------------------------------
 
 
-def test_dispatch_label_agent_task_contains_node_type() -> None:
-    """The .agent-task file written by dispatch-label includes NODE_TYPE=."""
+def test_dispatch_label_agent_task_contains_tier() -> None:
+    """The .agent-task file written by dispatch-label includes TIER=."""
     source_path = (
         Path(__file__).parent.parent / "routes" / "api" / "dispatch.py"
     )
     source = source_path.read_text()
-    assert "NODE_TYPE=" in source, (
-        "dispatch_label_agent should write NODE_TYPE to the .agent-task file"
+    assert "TIER=" in source, (
+        "dispatch_label_agent should write TIER= to the .agent-task file"
     )
 
 
-def test_dispatch_label_agent_task_contains_logical_tier() -> None:
-    """dispatch-label also writes LOGICAL_TIER= (org domain) to the .agent-task file."""
+def test_dispatch_label_agent_task_contains_org_domain() -> None:
+    """dispatch-label also writes ORG_DOMAIN= (org slot) to the .agent-task file."""
     source_path = (
         Path(__file__).parent.parent / "routes" / "api" / "dispatch.py"
     )
     source = source_path.read_text()
-    assert "LOGICAL_TIER=" in source, (
-        "dispatch_label_agent should write LOGICAL_TIER= for org domain visualisation"
+    assert "ORG_DOMAIN=" in source, (
+        "dispatch_label_agent should write ORG_DOMAIN= for org hierarchy visualisation"
     )
 
 
 # ---------------------------------------------------------------------------
-# Engineering-coordinator role — reviewer heredoc sets NODE_TYPE=leaf LOGICAL_TIER=qa
+# Engineering-coordinator role — reviewer heredoc sets TIER=reviewer ORG_DOMAIN=qa
 # ---------------------------------------------------------------------------
 
 
-def test_engineering_coordinator_reviewer_task_has_node_type_leaf() -> None:
-    """The reviewer .agent-task heredoc in engineering-coordinator sets NODE_TYPE=leaf."""
+def test_engineering_coordinator_reviewer_task_has_tier_reviewer() -> None:
+    """The reviewer .agent-task heredoc in engineering-coordinator sets TIER=reviewer."""
     role_path = (
         Path(__file__).parent.parent.parent
         / ".agentception" / "roles" / "engineering-coordinator.md"
     )
     assert role_path.exists(), f"Role file missing: {role_path}"
     content = role_path.read_text()
-    assert re.search(r"NODE_TYPE=leaf", content), (
-        "engineering-coordinator reviewer heredoc must write NODE_TYPE=leaf"
+    assert re.search(r"TIER=reviewer", content), (
+        "engineering-coordinator reviewer heredoc must write TIER=reviewer"
     )
     assert re.search(r"PARENT_RUN_ID=\$\{RUN_ID", content), (
         "engineering-coordinator reviewer heredoc must write PARENT_RUN_ID=${RUN_ID:-}"
     )
 
 
-def test_engineering_coordinator_reviewer_task_has_logical_tier_qa() -> None:
-    """The reviewer .agent-task heredoc sets LOGICAL_TIER=qa for org visualisation.
+def test_engineering_coordinator_reviewer_task_has_org_domain_qa() -> None:
+    """The reviewer .agent-task heredoc sets ORG_DOMAIN=qa for org visualisation.
 
-    Even though the reviewer is physically spawned by a Python developer (an
-    engineering leaf), it belongs logically to the QA branch of the org tree.
-    This is what allows the dashboard to display it under the QA branch.
+    Even though the reviewer is physically spawned by an engineering leaf,
+    it belongs logically to the QA column of the org tree.
     """
     role_path = (
         Path(__file__).parent.parent.parent
@@ -347,8 +334,8 @@ def test_engineering_coordinator_reviewer_task_has_logical_tier_qa() -> None:
     )
     assert role_path.exists(), f"Role file missing: {role_path}"
     content = role_path.read_text()
-    assert re.search(r"LOGICAL_TIER=qa", content), (
-        "engineering-coordinator reviewer heredoc must write LOGICAL_TIER=qa"
+    assert re.search(r"ORG_DOMAIN=qa", content), (
+        "engineering-coordinator reviewer heredoc must write ORG_DOMAIN=qa"
     )
 
 

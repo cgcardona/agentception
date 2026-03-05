@@ -22,13 +22,42 @@ Pass the correct `BATCH_LABEL` and `PHASE_LABEL`. Verify these labels exist on G
 
 ## ENRICHED_MANIFEST: block in `.agent-task`
 
-When you are spawned via the planning pipeline (`POST /api/plan/launch` or the `plan_spawn_coordinator` MCP tool), your `.agent-task` file contains an **`ENRICHED_MANIFEST:`** block instead of (or in addition to) the usual key-value fields. That block is a single multi-line section:
+When you are spawned via the planning pipeline (`POST /api/plan/launch` or the `plan_spawn_coordinator` MCP tool), your `.agent-task` file contains an **`ENRICHED_MANIFEST:`** block. That block is the single source of truth for what to do — execute it; do not re-validate or re-interpret.
 
-- **Location:** After the key-value pairs (`WORKFLOW=`, `BATCH_ID=`, `BRANCH=`, `WORKTREE=`). The block starts with the line `ENRICHED_MANIFEST:` and continues with a fenced JSON block (triple backticks, `json`).
-- **Contents:** A JSON object describing the initiative: `initiative`, `phases` (each with `label`, `description`, `depends_on`, `issues`, `parallel_groups`), `total_issues`, and `estimated_waves`. Each issue in `phases[*].issues` has `title`, `body`, `labels`, `phase`, `depends_on`, `can_parallel`, `acceptance_criteria`, `tests_required`, `docs_required`.
-- **Your job:** **Execute** the manifest — do not re-validate or re-interpret it. Dependency order and parallel groups are already validated by the API. Create issues per phase, dispatch leaf agents in dependency order and within each phase’s `parallel_groups`, and respect `estimated_waves` as the critical-path length.
+### Format
 
-Full schema, invariants, and examples: `docs/guides/integrate.md` (§ ENRICHED_MANIFEST: .agent-task format).
+The block appears after the key-value header. The header is always:
+
+```
+WORKFLOW=bugs-to-issues
+BATCH_ID=<slug>
+BRANCH=coordinator/<stamp>
+WORKTREE=<path>
+
+ENRICHED_MANIFEST:
+```
+
+Then a fenced JSON block: a line with triple backticks and the info string `json`, then the JSON object, then a closing triple-backtick line. Parse that JSON as the manifest.
+
+### Manifest shape (what you execute)
+
+| Field | Meaning |
+|-------|--------|
+| `initiative` | Human-readable batch name (optional). |
+| `phases` | Ordered list of phases (index 0 = no deps). Each has `label`, `description`, `depends_on`, `issues`, `parallel_groups`. |
+| `total_issues` | Total issue count (computed; do not override). |
+| `estimated_waves` | Critical-path length (computed; use as expected wave count). |
+
+Each `phases[*].issues` entry has: `title`, `body`, `labels`, `phase`, `depends_on`, `can_parallel`, `acceptance_criteria`, `tests_required`, `docs_required`. Use these to create GitHub issues and dispatch leaf agents.
+
+### Your job
+
+1. **Create issues** per phase using the pre-written `title`, `body`, `labels` from the manifest.
+2. **Dispatch leaf agents** in dependency order; within a phase, respect `parallel_groups` (each inner list is one wave).
+3. **Do not re-validate** dependency order or parallel groups — the API already validated the DAG and intra-group invariants.
+4. Treat **`estimated_waves`** as the critical-path length; use it to reason about progress.
+
+Full schema, invariants, and API details: `docs/guides/integrate.md` (§ ENRICHED_MANIFEST: .agent-task format).
 
 ## Pipeline State
 

@@ -60,11 +60,11 @@ strictly required to start.
 # ── Identity ──────────────────────────────────────────────────────────────────
 RUN_ID        = "label-AC-UI-0-CRITICAL-BUGS-20260303T200000Z-a1b2"
 ROLE          = "cto"
-TIER          = "executive"
-LOGICAL_TIER  = "executive"        # org-chart tier — matches TIER for CTO
+TIER          = "executive"        # behavioral tier: executive|coordinator|engineer|reviewer
+ORG_DOMAIN    = "c-suite"          # UI hierarchy slot: c-suite|engineering|qa
 
 # ── Scope ─────────────────────────────────────────────────────────────────────
-# SCOPE_TYPE  label   → manager tiers; SCOPE_VALUE is a GitHub label string
+# SCOPE_TYPE  label   → executive/coordinator tiers; SCOPE_VALUE is a GitHub label string
 # SCOPE_TYPE  issue   → engineer leaf; SCOPE_VALUE is the issue number (string)
 # SCOPE_TYPE  pr      → reviewer leaf; SCOPE_VALUE is the PR number (string)
 SCOPE_TYPE    = "label"
@@ -72,16 +72,17 @@ SCOPE_VALUE   = "AC-UI/0-CRITICAL-BUGS"
 
 # ── Provenance ────────────────────────────────────────────────────────────────
 GH_REPO       = "cgcardona/agentception"
-BRANCH        = ""                  # empty for manager tiers (no dedicated branch)
+BRANCH        = ""                  # empty for executive/coordinator tiers
 WORKTREE      = "$HOME/.agentception/worktrees/agentception/label-AC-UI-0-..."
 BATCH_ID      = "label-AC-UI-0-20260303T200000Z-a1b2"
 PARENT_RUN_ID = ""                  # empty for root; set by spawner for all other tiers
 
 # ── Callbacks ─────────────────────────────────────────────────────────────────
 AC_URL        = "http://localhost:10003"
-# ROLE_FILE is written by AgentCeption from REPO_DIR + .agentception/roles/<role>.md.
-# Agents read it for role context; the kickoff prompt also embeds the content inline.
-ROLE_FILE     = "<repo-root>/.agentception/roles/cto.md"
+# ROLE_FILE is the container-side path; HOST_ROLE_FILE is the host-side path.
+# Cursor agents running on the developer's machine should use HOST_ROLE_FILE.
+ROLE_FILE     = "<container-repo-root>/.agentception/roles/cto.md"
+HOST_ROLE_FILE = "<host-repo-root>/.agentception/roles/cto.md"
 ```
 
 ### Leaf engineer example
@@ -90,7 +91,7 @@ ROLE_FILE     = "<repo-root>/.agentception/roles/cto.md"
 RUN_ID        = "issue-42-20260303T200100Z-c3d4"
 ROLE          = "python-developer"
 TIER          = "engineer"
-LOGICAL_TIER  = "engineer"         # matches TIER for engineers
+ORG_DOMAIN    = "engineering"
 SCOPE_TYPE    = "issue"
 SCOPE_VALUE   = "42"
 GH_REPO       = "cgcardona/agentception"
@@ -99,7 +100,8 @@ WORKTREE      = "$HOME/.agentception/worktrees/agentception/issue-42"
 BATCH_ID      = "label-AC-UI-0-20260303T200000Z-a1b2"
 PARENT_RUN_ID = "label-AC-UI-0-CRITICAL-BUGS-20260303T200000Z-a1b2"
 AC_URL        = "http://localhost:10003"
-ROLE_FILE     = "<repo-root>/.agentception/roles/python-developer.md"
+ROLE_FILE     = "<container-repo-root>/.agentception/roles/python-developer.md"
+HOST_ROLE_FILE = "<host-repo-root>/.agentception/roles/python-developer.md"
 ```
 
 ### Chain-spawned reviewer example (written by the engineer, not the CTO)
@@ -108,7 +110,7 @@ ROLE_FILE     = "<repo-root>/.agentception/roles/python-developer.md"
 RUN_ID        = "pr-99-20260303T200200Z-e5f6"
 ROLE          = "pr-reviewer"
 TIER          = "reviewer"
-LOGICAL_TIER  = "reviewer"         # used by UI org-chart to place node correctly
+ORG_DOMAIN    = "qa"               # dashboard places this node under the QA column
 SCOPE_TYPE    = "pr"
 SCOPE_VALUE   = "99"
 GH_REPO       = "cgcardona/agentception"
@@ -117,16 +119,16 @@ WORKTREE      = "$HOME/.agentception/worktrees/agentception/pr-99"
 BATCH_ID      = "label-AC-UI-0-20260303T200000Z-a1b2"
 PARENT_RUN_ID = "issue-42-20260303T200100Z-c3d4"  # ← engineer that spawned this reviewer
 AC_URL        = "http://localhost:10003"
-ROLE_FILE     = "<repo-root>/.agentception/roles/pr-reviewer.md"
+ROLE_FILE     = "<container-repo-root>/.agentception/roles/pr-reviewer.md"
+HOST_ROLE_FILE = "<host-repo-root>/.agentception/roles/pr-reviewer.md"
 ```
 
-> **`LOGICAL_TIER` vs `TIER`:** `TIER` is the physical execution tier —
-> it controls what tools the agent gets and how the dispatcher routes it.
-> `LOGICAL_TIER` is the organisational tier used by the UI to render the
-> virtual org chart. For chain-spawned reviewers the two are identical
-> (`reviewer`), but if a cleanup-sweep QA coordinator spawns a reviewer,
-> the reviewer's `PARENT_RUN_ID` points to the coordinator rather than
-> an engineer, so the chart nests correctly without requiring a
+> **`TIER` vs `ORG_DOMAIN`:** `TIER` is the behavioral execution tier —
+> it tells the agent what kind of work it does (survey+spawn vs implement vs review).
+> `ORG_DOMAIN` is the organisational slot for the UI hierarchy (c-suite, engineering, qa).
+> A chain-spawned PR reviewer has `TIER=reviewer` and `ORG_DOMAIN=qa` even though its
+> `PARENT_RUN_ID` points to an engineer, so the dashboard nests it under the QA column
+> without requiring a
 > physical QA VP node to be running.
 
 > `<repo-root>` is the absolute path to the cloned repository on the host
@@ -186,7 +188,7 @@ github_get_issue(number=$SCOPE_VALUE)
 Implements the issue, opens a PR, then **immediately chain-spawns a
 `pr-reviewer` Task** (Step 6 in the engineering-coordinator role) before
 calling `report/done`. The reviewer's `PARENT_RUN_ID` is set to this
-engineer's `RUN_ID` and `LOGICAL_TIER` is set to `reviewer`.
+engineer's `RUN_ID`, `TIER` is set to `reviewer`, and `ORG_DOMAIN` to `qa`.
 
 ### `reviewer` (leaf)
 
@@ -210,10 +212,10 @@ Reviews, requests changes or approves+merges, calls `report/done`, exits.
 - **PARENT_RUN_ID propagation**: every child task receives its physical
   spawner's `RUN_ID`. For chain-spawned reviewers this is the engineer's
   `RUN_ID`, not the coordinator's.
-- **LOGICAL_TIER propagation**: every child task must include a
-  `LOGICAL_TIER` field. For most agents it matches `TIER`. The UI uses
-  this field to place nodes in the virtual org chart without requiring a
-  physical VP node to be running.
+- **ORG_DOMAIN propagation**: every child task should include an
+  `ORG_DOMAIN` field (c-suite | engineering | qa). The UI uses this
+  field to place nodes in the hierarchy without requiring a physical parent
+  node to be running. Chain-spawned reviewers must pass `org_domain="qa"`.
 - **No concurrent QA coordinator when issues remain**: the CTO must never
   spawn a QA coordinator when `ISSUES > 0`. Engineers chain-spawn their own
   reviewers; a concurrent QA coordinator would race against them and find

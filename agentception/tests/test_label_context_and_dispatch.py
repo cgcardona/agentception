@@ -3,11 +3,11 @@ from __future__ import annotations
 """Tests for GET /api/dispatch/context and the scope-based POST /api/dispatch/label.
 
 Covers:
-  - _role_and_node_type_for_scope() derives the correct node_type and default role for each scope.
+  - _role_and_tier_for_scope() derives the correct tier and default role for each scope.
   - GET /api/dispatch/context returns empty lists gracefully when the DB is empty.
-  - POST /api/dispatch/label with scope=full_initiative spawns a coordinator with role cto.
+  - POST /api/dispatch/label with scope=full_initiative spawns an executive with role cto.
   - POST /api/dispatch/label with scope=phase spawns a coordinator for the sub-label.
-  - POST /api/dispatch/label with scope=issue spawns a leaf for the given issue number.
+  - POST /api/dispatch/label with scope=issue spawns an engineer for the given issue number.
   - POST /api/dispatch/label respects an explicit role override in the request.
   - .agent-task file contains SCOPE_TYPE=issue and SCOPE_VALUE=<number> for issue scope.
   - .agent-task file contains INITIATIVE_LABEL for phase and issue scopes.
@@ -25,7 +25,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agentception.app import app
-from agentception.routes.api.dispatch import _role_and_node_type_for_scope
+from agentception.routes.api.dispatch import _role_and_tier_for_scope
 
 
 # ---------------------------------------------------------------------------
@@ -40,37 +40,37 @@ def client() -> Generator[TestClient, None, None]:
 
 
 # ---------------------------------------------------------------------------
-# Unit tests — _role_and_node_type_for_scope
+# Unit tests — _role_and_tier_for_scope
 # ---------------------------------------------------------------------------
 
 
-def test_scope_full_initiative_is_coordinator() -> None:
-    role, node_type = _role_and_node_type_for_scope("full_initiative", None)
-    assert node_type == "coordinator"
+def test_scope_full_initiative_is_executive() -> None:
+    role, tier = _role_and_tier_for_scope("full_initiative", None)
+    assert tier == "executive"
     assert role == "cto"
 
 
 def test_scope_phase_is_coordinator() -> None:
-    role, node_type = _role_and_node_type_for_scope("phase", None)
-    assert node_type == "coordinator"
+    role, tier = _role_and_tier_for_scope("phase", None)
+    assert tier == "coordinator"
     assert role == "engineering-coordinator"
 
 
-def test_scope_issue_is_leaf() -> None:
-    role, node_type = _role_and_node_type_for_scope("issue", None)
-    assert node_type == "leaf"
+def test_scope_issue_is_engineer() -> None:
+    role, tier = _role_and_tier_for_scope("issue", None)
+    assert tier == "engineer"
     assert role == "python-developer"
 
 
 def test_scope_role_override_respected() -> None:
-    role, node_type = _role_and_node_type_for_scope("full_initiative", "qa-coordinator")
-    assert node_type == "coordinator"
+    role, tier = _role_and_tier_for_scope("full_initiative", "qa-coordinator")
+    assert tier == "coordinator"
     assert role == "qa-coordinator"
 
 
 def test_scope_role_override_blank_ignored() -> None:
-    role, node_type = _role_and_node_type_for_scope("issue", "  ")
-    assert node_type == "leaf"
+    role, tier = _role_and_tier_for_scope("issue", "  ")
+    assert tier == "engineer"
     assert role == "python-developer"
 
 
@@ -184,7 +184,7 @@ def test_dispatch_label_full_initiative_creates_coordinator(
 
     assert res.status_code == 200
     data = res.json()
-    assert data["node_type"] == "coordinator"
+    assert data["tier"] == "executive"
     assert data["role"] == "cto"
     assert data["label"] == "ac-workflow"
 
@@ -210,7 +210,7 @@ def test_dispatch_label_full_initiative_role_override(
 
     assert res.status_code == 200
     data = res.json()
-    assert data["node_type"] == "coordinator"
+    assert data["tier"] == "coordinator"
     assert data["role"] == "engineering-coordinator"
 
 
@@ -243,7 +243,7 @@ def test_dispatch_label_phase_scope_is_coordinator(
 
     assert res.status_code == 200
     data = res.json()
-    assert data["node_type"] == "coordinator"
+    assert data["tier"] == "coordinator"
     assert data["role"] == "engineering-coordinator"
     assert data["label"] == "ac-workflow"
 
@@ -294,7 +294,7 @@ def test_dispatch_label_phase_scope_agent_task_scope_value(
     task_text = written_text[0]
     assert "SCOPE_VALUE=ac-workflow/5-plan-step-v2" in task_text
     assert "INITIATIVE_LABEL=ac-workflow" in task_text
-    assert "NODE_TYPE=coordinator" in task_text
+    assert "TIER=coordinator" in task_text
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +326,7 @@ def test_dispatch_label_issue_scope_is_leaf(
 
     assert res.status_code == 200
     data = res.json()
-    assert data["node_type"] == "leaf"
+    assert data["tier"] == "engineer"
     assert data["role"] == "python-developer"
 
 
@@ -373,4 +373,4 @@ def test_dispatch_label_issue_scope_agent_task_fields(
     assert "SCOPE_TYPE=issue" in task_text
     assert "SCOPE_VALUE=42" in task_text
     assert "INITIATIVE_LABEL=ac-workflow" in task_text
-    assert "NODE_TYPE=leaf" in task_text
+    assert "TIER=engineer" in task_text

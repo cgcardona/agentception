@@ -123,22 +123,22 @@ class ACAgentRun(Base):
     cognitive_arch: Mapped[str | None] = mapped_column(String(256), nullable=True)
     """Cognitive architecture string at spawn time, e.g. ``guido_van_rossum:python``."""
 
-    node_type: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    """Structural position in the agent tree.
+    tier: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    """Behavioral execution tier for this agent run.
 
-    Values: ``coordinator`` | ``leaf``.
-    A coordinator surveys its scope and spawns children; a leaf works one issue/PR.
-    Null for rows created before migration 0009.  Populated by migration 0009 from
-    the ``coordinator | leaf`` values that were previously stored in ``logical_tier``.
+    Values: ``executive`` | ``coordinator`` | ``engineer`` | ``reviewer``.
+    Written from the ``TIER=`` field in the ``.agent-task`` file.
+    Null for rows spawned before migration 0012.
     """
 
-    logical_tier: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    """Organisational domain for UI visualisation.
+    org_domain: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    """Organisational slot for UI hierarchy visualisation.
 
-    Free string written by the spawning agent — e.g. ``"qa"``, ``"engineering"``,
-    ``"c-suite"``.  Allows the UI to place a chain-spawned PR reviewer under the
-    QA branch even though its physical ``parent_run_id`` points to an engineering
-    leaf.  Null for rows created before migration 0009.
+    Values: ``c-suite`` | ``engineering`` | ``qa``.
+    Written from the ``ORG_DOMAIN=`` field in the ``.agent-task`` file.
+    Allows the UI to place a chain-spawned PR reviewer under the QA column
+    even though its physical ``parent_run_id`` points to an engineering leaf.
+    Null for rows spawned before migration 0012.
     """
 
     parent_run_id: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)

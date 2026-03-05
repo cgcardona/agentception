@@ -80,13 +80,17 @@ class AgentNode(BaseModel):
     Represents one Cursor/Claude agent instance that is either actively working
     or has completed its assigned task. Children are spawned sub-agents.
 
-    ``node_type`` is the structural position: ``"coordinator"`` (spawns children)
-    or ``"leaf"`` (works one issue/PR).
+    ``tier`` is the behavioral execution tier:
+    - ``"executive"``   — top-level coordinator; surveys the whole initiative.
+    - ``"coordinator"`` — mid-level coordinator; surveys a domain or phase.
+    - ``"engineer"``    — leaf worker; implements one issue.
+    - ``"reviewer"``    — leaf reviewer; reviews one PR.
 
-    ``logical_tier`` is the organisational domain for UI visualisation — e.g.
-    ``"qa"``, ``"engineering"``, ``"c-suite"``.  A chain-spawned PR reviewer will
-    have ``node_type="leaf"`` and ``logical_tier="qa"`` even though its physical
-    ``parent_run_id`` points to an engineering leaf.
+    ``org_domain`` is the organisational slot for UI hierarchy visualisation —
+    ``"c-suite"``, ``"engineering"``, or ``"qa"``.  A chain-spawned PR reviewer
+    that was seeded by an engineering leaf will have ``tier="reviewer"`` and
+    ``org_domain="qa"`` so the board places it under the QA column rather than
+    under its physical parent.
 
     ``parent_run_id`` is the run_id of the agent that physically spawned this one.
     """
@@ -104,8 +108,8 @@ class AgentNode(BaseModel):
     last_activity_mtime: float = 0.0
     children: list[AgentNode] = []
     cognitive_arch: str | None = None
-    node_type: str | None = None
-    logical_tier: str | None = None
+    tier: str | None = None
+    org_domain: str | None = None
     parent_run_id: str | None = None
 
 
@@ -275,12 +279,12 @@ class TaskFile(BaseModel):
     on_block: str | None = None
     # [agent]
     role: str | None = None
-    logical_tier: str | None = None
-    """Organisational domain for UI (e.g. qa, engineering, c-suite). Added in 0006."""
+    tier: str | None = None
+    """Behavioral execution tier: executive | coordinator | engineer | reviewer."""
+    org_domain: str | None = None
+    """Organisational slot for UI hierarchy: c-suite | engineering | qa."""
     cognitive_arch: str | None = None
     session_id: str | None = None
-    node_type: str | None = None
-    """Structural position in the agent tree (coordinator | leaf). Added in 0009."""
     # [repo]
     gh_repo: str | None = None
     base: str | None = None

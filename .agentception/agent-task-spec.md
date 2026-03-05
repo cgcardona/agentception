@@ -99,7 +99,8 @@ Who is executing this task.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `role` | string | yes | Role slug: `"python-developer"`, `"pr-reviewer"`, `"qa-manager"`, etc. |
-| `logical_tier` | string | yes | Organisational tier for the virtual org chart: `"executive"` \| `"coordinator"` \| `"engineer"` \| `"reviewer"`. Matches `TIER` for most agents; set by the spawner so chain-spawned reviewers (parent_run_id = engineer) still appear under the correct tier in the dashboard. |
+| `tier` | string | yes | Behavioral execution tier: `"executive"` \| `"coordinator"` \| `"engineer"` \| `"reviewer"`. Written as `TIER=` in the `.agent-task` file. Tells the agent and the dashboard its place in the pipeline hierarchy. |
+| `org_domain` | string | no | Organisational slot for UI hierarchy: `"c-suite"` \| `"engineering"` \| `"qa"`. Written as `ORG_DOMAIN=` when provided. A chain-spawned PR reviewer with `tier=reviewer` should have `org_domain=qa` so the dashboard places it under the QA column regardless of its physical parent. |
 | `cognitive_arch` | string | yes | `"figure:skill1:skill2"` — resolved by `resolve_arch.py` |
 | `session_id` | string | no | Set by the agent at runtime: `"eng-20260303T134821Z-a7f2"` |
 
@@ -139,7 +140,7 @@ Lineage for traceability. Every artifact produced (commit, PR, issue comment) em
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `batch_id` | string | yes | VP-level batch fingerprint: `"eng-20260303T134821Z-a7f2"` |
-| `parent_run_id` | string | no | `run_id` of the agent that physically spawned this one. Empty for root (CTO). For chain-spawned reviewers this is the engineer's `run_id`, not the coordinator's — the dashboard uses `agent.logical_tier` to position the node in the virtual org chart regardless. |
+| `parent_run_id` | string | no | `run_id` of the agent that physically spawned this one. Empty for root (CTO). For chain-spawned reviewers this is the engineer's `run_id`, not the coordinator's — the dashboard uses `agent.org_domain` to position the node in the UI hierarchy regardless. |
 | `wave` | string | no | Named wave: `"5-plan-step-v2"` |
 | `coord_fingerprint` | string | no | The spawning coordinator's fingerprint string (role + batch ID). Written by the spawner via `build_spawn_child(coord_fingerprint=...)` and read by leaf agents to include in GitHub issue/PR fingerprint comments without re-deriving it. Format: `"Engineering Coordinator · <batch_id>"`. |
 | `vp_fingerprint` | string | no | VP agent's session ID — propagated to leaf agents |
@@ -372,7 +373,8 @@ on_block = "stop"
 
 [agent]
 role = "python-developer"
-logical_tier = "engineer"
+tier = "engineer"
+org_domain = "engineering"
 cognitive_arch = "turing:python"
 
 [repo]
@@ -524,7 +526,8 @@ task.attempt_n → TaskFile.attempt_n
 task.required_output → TaskFile.required_output
 task.on_block → TaskFile.on_block
 agent.role → TaskFile.role
-agent.logical_tier → TaskFile.logical_tier
+agent.tier → TaskFile.tier
+agent.org_domain → TaskFile.org_domain
 agent.cognitive_arch → TaskFile.cognitive_arch
 agent.session_id → TaskFile.session_id
 repo.gh_repo → TaskFile.gh_repo

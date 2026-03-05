@@ -195,8 +195,8 @@ def test_pr_sub_validates_correctly() -> None:
     assert sub.closes_issues == [47]
 
 
-def test_task_file_old_fields_still_present_no_regression() -> None:
-    """Existing TaskFile fields remain present and work (no regression)."""
+def test_task_file_tier_and_org_domain_fields() -> None:
+    """TaskFile tier + org_domain fields are present and work."""
     tf = TaskFile(
         task="issue-to-pr",
         gh_repo="cgcardona/agentception",
@@ -215,8 +215,8 @@ def test_task_file_old_fields_still_present_no_regression() -> None:
         required_output="pr_url",
         on_block="stop",
         cognitive_arch="guido_van_rossum:postgresql:python",
-        node_type="leaf",
-        logical_tier="engineer",
+        tier="engineer",
+        org_domain="engineering",
         parent_run_id="coord-ac-workflow-feac3d",
     )
     assert tf.task == "issue-to-pr"
@@ -227,8 +227,8 @@ def test_task_file_old_fields_still_present_no_regression() -> None:
     assert tf.batch_id == "issue-47-20260305T214233Z-b46f"
     assert tf.spawn_mode == "chain"
     assert tf.merge_after == "other-branch"
-    assert tf.node_type == "leaf"
-    assert tf.logical_tier == "engineer"
+    assert tf.tier == "engineer"
+    assert tf.org_domain == "engineering"
     assert tf.parent_run_id == "coord-ac-workflow-feac3d"
     # New fields default as specified
     assert tf.depends_on == []

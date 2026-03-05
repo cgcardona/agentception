@@ -146,7 +146,13 @@ async def merge_agents(
         branch = tf.branch or ""
         if branch and branch in pr_branches:
             status = AgentStatus.REVIEWING
-        elif tf.issue_number is not None and tf.issue_number in wip_issue_numbers:
+        elif tf.issue_number is not None:
+            # Any worktree with a valid issue number is implementing. We do not
+            # require the agent:wip GitHub label here — the worktree's existence
+            # is the authoritative signal. The label is useful for stale-claim
+            # detection (a label without a worktree) but should not gate board
+            # visibility, because leaf agents may not have claimed the issue yet
+            # when the first poller tick fires.
             status = AgentStatus.IMPLEMENTING
         elif tf.task == "bugs-to-issues":
             # Coordinator (brain-dump) agents have no GitHub issue or PR until
@@ -172,8 +178,8 @@ async def merge_agents(
                 batch_id=tf.batch_id,
                 worktree_path=tf.worktree,
                 cognitive_arch=tf.cognitive_arch,
-                node_type=tf.node_type,
-                logical_tier=tf.logical_tier,
+                tier=tf.tier,
+                org_domain=tf.org_domain,
                 parent_run_id=tf.parent_run_id,
             )
         )
