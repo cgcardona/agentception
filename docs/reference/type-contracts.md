@@ -121,6 +121,161 @@ Pydantic `BaseModel` — Request body for `POST /api/config/switch-project`.
 
 ---
 
+## Dispatch API models
+
+**Path:** `agentception/routes/api/dispatch.py`
+
+### `DispatchRequest` / `DispatchResponse`
+
+Request body and response for `POST /api/dispatch/issue` — dispatch a single-issue agent.
+
+| Model | Field | Type | Description |
+|-------|-------|------|-------------|
+| `DispatchRequest` | `issue_number` | `int` | GitHub issue number |
+| | `role` | `str` | Role slug (e.g. `"python-developer"`) |
+| | `gh_repo` | `str` | `"owner/repo"` |
+| | `batch_id` | `str` | Batch fingerprint |
+| `DispatchResponse` | `run_id` | `str` | Created run ID |
+| | `worktree_path` | `str` | Worktree path inside container |
+| | `branch` | `str` | Git branch name |
+
+---
+
+### `LabelDispatchRequest` / `LabelDispatchResponse`
+
+Request body and response for `POST /api/dispatch/label` — dispatch a top-of-tree agent.
+
+| Model | Field | Type | Description |
+|-------|-------|------|-------------|
+| `LabelDispatchRequest` | `label` | `str` | GitHub label (e.g. `"ac-workflow"`) |
+| | `role` | `str` | Role slug (e.g. `"cto"`) |
+| | `gh_repo` | `str` | `"owner/repo"` |
+| `LabelDispatchResponse` | `run_id` | `str` | Created run ID |
+| | `worktree_path` | `str` | Worktree path inside container |
+
+---
+
+### `LabelContextResponse`
+
+Response for `GET /api/dispatch/context?label=...`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `label` | `str` | The queried label |
+| `phases` | `list[PhaseGroupRow]` | Phase groups with issues (from `get_issues_grouped_by_phase`) |
+| `dispatcher_prompt` | `str` | The current dispatcher prompt text |
+
+---
+
+## Runs API models
+
+**Path:** `agentception/routes/api/runs.py`
+
+### `SpawnChildRequest` / `SpawnChildResponse`
+
+`POST /api/runs/{parent_run_id}/children` — coordinator spawns a leaf agent.
+
+| Model | Field | Type | Description |
+|-------|-------|------|-------------|
+| `SpawnChildRequest` | `role` | `str` | Role slug |
+| | `node_type` | `NodeType` | `"coordinator"` or `"leaf"` |
+| | `scope_type` | `ScopeType` | `"label"`, `"issue"`, or `"pr"` |
+| | `scope_value` | `str` | Issue number, PR number, or label string |
+| | `gh_repo` | `str` | `"owner/repo"` |
+| `SpawnChildResponse` | `run_id` | `str` | Created child run ID |
+| | `worktree_path` | `str` | Worktree path |
+
+---
+
+### `StepReport`, `BlockerReport`, `DecisionReport`
+
+Bodies for `POST /api/runs/{run_id}/step|blocker|decision`.
+
+| Model | Field | Type | Description |
+|-------|-------|------|-------------|
+| `StepReport` | `step_name` | `str` | What step the agent completed |
+| | `issue_number` | `int` | Issue this step relates to |
+| `BlockerReport` | `description` | `str` | What is blocking the agent |
+| | `issue_number` | `int` | Issue being worked |
+| `DecisionReport` | `description` | `str` | Design decision made |
+| | `issue_number` | `int` | Issue being worked |
+
+Note: `run_id` is in the URL path for all three — it was removed from the body in the URL taxonomy refactor.
+
+---
+
+### `DoneReport`
+
+Body for `POST /api/runs/{run_id}/done`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `issue_number` | `int` | Issue completed |
+| `pr_number` | `int \| None` | PR opened (if any) |
+| `summary` | `str` | Completion summary |
+
+---
+
+## Ship API models
+
+**Path:** `agentception/routes/api/ship_api.py`
+
+### `AdvancePhaseBody`
+
+Body for `POST /api/ship/{initiative}/advance`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `from_phase` | `str` | Phase label that must be fully closed (e.g. `"ac-workflow/0-foundation"`) |
+| `to_phase` | `str` | Phase label to unlock (e.g. `"ac-workflow/1-generation"`) |
+
+Note: `initiative` is in the URL path.
+
+---
+
+### `AdvancePhaseOk` / `AdvancePhaseBlocked`
+
+Responses for `POST /api/ship/{initiative}/advance`.
+
+| Model | Field | Type | Description |
+|-------|-------|------|-------------|
+| `AdvancePhaseOk` | `unlocked` | `int` | Number of issues unlocked in `to_phase` |
+| `AdvancePhaseBlocked` | `open_count` | `int` | Number of still-open issues in `from_phase` |
+| | `open_issues` | `list[int]` | Issue numbers that are still open |
+
+`AdvancePhaseBlocked` is returned with HTTP 422.
+
+---
+
+## Board TypedDicts (URL refactor additions)
+
+**Path:** `agentception/db/queries.py`
+
+### `EnrichedIssueRow`
+
+Extended version of `PhasedIssueRow` with dependency information, used by `build_ui.py` to render the ship board.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `number` | `int` | GitHub issue number |
+| `title` | `str` | Issue title |
+| `state` | `str` | `"open"` or `"closed"` |
+| `url` | `str` | GitHub URL |
+| `labels` | `list[str]` | All label names |
+| `depends_on` | `list[int]` | Issue numbers that must merge before this one |
+
+### `InitiativePhaseMeta`
+
+Phase metadata with explicit ordering, used by `get_initiative_phase_meta()`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `label` | `str` | Full phase label (e.g. `"ac-workflow/0-foundation"`) |
+| `order` | `int` | 0-based sort index from `initiative_phases.phase_order` |
+| `depends_on` | `list[str]` | Phase labels this phase depends on |
+
+---
+
 ## Readers
 
 ### `switch_project` (function)
