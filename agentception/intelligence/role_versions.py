@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Role version tracking for AgentCeption (AC-503).
 
-Maintains ``.cursor/role-versions.json`` — a persistent ledger that records
+Maintains ``.agentception/role-versions.json`` — a persistent ledger that records
 which SHA of each managed role file was active during each agent batch/wave.
 This enables retrospective A/B testing and outcome correlation: given a
 batch ID, callers can retrieve the exact role file content that governed the
@@ -42,7 +42,7 @@ from agentception.config import settings
 
 logger = logging.getLogger(__name__)
 
-_ROLE_VERSIONS_REL = ".cursor/role-versions.json"
+_ROLE_VERSIONS_REL = ".agentception/role-versions.json"
 
 
 def _versions_path() -> Path:

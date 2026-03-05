@@ -1,0 +1,9 @@
+{
+  "versions": {},
+  "ab_mode": {
+    "enabled": false,
+    "target_role": null,
+    "variant_a_sha": null,
+    "variant_b_sha": null
+  }
+}
