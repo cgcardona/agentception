@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Tests for POST /api/build/advance-phase endpoint (issue #87).
 
 Coverage:
@@ -12,6 +10,8 @@ Coverage:
 - build board template: does NOT render button when current phase is not locked
 - build board template: does NOT render button when prev phase is not complete
 """
+
+from __future__ import annotations
 
 from collections.abc import Generator
 from unittest.mock import AsyncMock, patch
