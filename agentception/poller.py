@@ -23,7 +23,7 @@ from pathlib import Path
 
 from agentception.config import settings
 from agentception.intelligence.guards import detect_out_of_order_prs, detect_stale_claims
-from agentception.models import AgentNode, AgentStatus, BoardIssue, PipelineState, StaleClaim, TaskFile
+from agentception.models import AgentNode, AgentStatus, BoardIssue, PipelineState, PlanDraftEvent, StaleClaim, TaskFile
 from agentception.readers.github import (
     get_active_label,
     get_closed_issues,
@@ -39,12 +39,20 @@ logger = logging.getLogger(__name__)
 # Agents whose most-recent commit is older than this threshold are flagged.
 _STUCK_THRESHOLD_SECONDS: int = 30 * 60  # 30 minutes
 
+# Plan draft output file must appear within this many seconds of .agent-task mtime.
+_PLAN_DRAFT_TIMEOUT_SECONDS: int = 120
+
 # ---------------------------------------------------------------------------
 # Shared state — module-level singletons, mutated only by tick()
 # ---------------------------------------------------------------------------
 
 _state: PipelineState | None = None
 _subscribers: list[asyncio.Queue[PipelineState]] = []
+
+# In-memory deduplication for plan draft events.  Each set holds draft_ids
+# for which the corresponding SSE event has already been emitted exactly once.
+_emitted_ready_drafts: set[str] = set()
+_emitted_timeout_drafts: set[str] = set()
 
 
 # ---------------------------------------------------------------------------
@@ -330,6 +338,124 @@ async def broadcast(state: PipelineState) -> None:
 # ---------------------------------------------------------------------------
 
 
+async def scan_plan_draft_worktrees() -> list[PlanDraftEvent]:
+    """Scan ``plan-draft-*`` worktrees and return new plan-draft lifecycle events.
+
+    Called on each tick to detect when a Cursor agent has written the expected
+    output file (``OUTPUT_PATH`` from the ``.agent-task``).  Returns a list
+    containing at most one event per draft per tick:
+
+    - ``plan_draft_ready``   — emitted exactly once when ``OUTPUT_PATH`` appears.
+    - ``plan_draft_timeout`` — emitted exactly once when ``OUTPUT_PATH`` is still
+      absent 120 seconds after the ``.agent-task`` mtime.
+
+    Already-seen drafts are tracked in ``_emitted_ready_drafts`` and
+    ``_emitted_timeout_drafts`` so no draft_id appears in the SSE stream more
+    than once regardless of how many ticks elapse.
+    """
+    events: list[PlanDraftEvent] = []
+    worktrees_dir: Path = settings.worktrees_dir
+
+    if not worktrees_dir.exists():
+        return events
+
+    try:
+        entries = list(worktrees_dir.iterdir())
+    except OSError as exc:
+        logger.warning("⚠️  scan_plan_draft_worktrees: cannot read %s: %s", worktrees_dir, exc)
+        return events
+
+    now = time.time()
+
+    for entry in entries:
+        if not entry.is_dir():
+            continue
+        if not entry.name.startswith("plan-draft-"):
+            continue
+
+        task_file = entry / ".agent-task"
+        if not task_file.exists():
+            continue
+
+        # Parse the KEY=VALUE task file to extract DRAFT_ID and OUTPUT_PATH.
+        fields: dict[str, str] = {}
+        try:
+            content = await asyncio.get_running_loop().run_in_executor(
+                None, task_file.read_text, "utf-8"
+            )
+            for raw_line in content.splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                fields[key.strip().upper()] = value.strip()
+        except OSError as exc:
+            logger.warning("⚠️  scan_plan_draft_worktrees: cannot read task file %s: %s", task_file, exc)
+            continue
+
+        draft_id = fields.get("DRAFT_ID")
+        output_path_str = fields.get("OUTPUT_PATH")
+
+        if not draft_id or not output_path_str:
+            continue
+
+        # Skip if this draft already had an event emitted.
+        if draft_id in _emitted_ready_drafts or draft_id in _emitted_timeout_drafts:
+            continue
+
+        output_file = Path(output_path_str)
+
+        if output_file.exists():
+            # Output file appeared: emit plan_draft_ready exactly once.
+            try:
+                yaml_text = await asyncio.get_running_loop().run_in_executor(
+                    None, output_file.read_text, "utf-8"
+                )
+            except OSError as exc:
+                logger.warning(
+                    "⚠️  scan_plan_draft_worktrees: cannot read output file %s: %s",
+                    output_file,
+                    exc,
+                )
+                yaml_text = ""
+            _emitted_ready_drafts.add(draft_id)
+            events.append(
+                PlanDraftEvent(
+                    event="plan_draft_ready",
+                    draft_id=draft_id,
+                    yaml_text=yaml_text,
+                    output_path=output_path_str,
+                )
+            )
+            logger.info("✅ plan_draft_ready: draft=%s output=%s", draft_id, output_path_str)
+        else:
+            # Check whether the draft has timed out.
+            try:
+                task_mtime = task_file.stat().st_mtime
+            except OSError as exc:
+                logger.warning(
+                    "⚠️  scan_plan_draft_worktrees: cannot stat task file %s: %s",
+                    task_file,
+                    exc,
+                )
+                continue
+            if (now - task_mtime) >= _PLAN_DRAFT_TIMEOUT_SECONDS:
+                _emitted_timeout_drafts.add(draft_id)
+                events.append(
+                    PlanDraftEvent(
+                        event="plan_draft_timeout",
+                        draft_id=draft_id,
+                        yaml_text="",
+                        output_path=output_path_str,
+                    )
+                )
+                logger.warning(
+                    "⚠️ plan_draft_timeout: draft=%s output=%s", draft_id, output_path_str
+                )
+
+    return events
+
+
 async def _build_board_issues(
     active_label: str | None,
     gh_repo: str,
@@ -388,6 +514,7 @@ async def tick() -> PipelineState:
     github = await build_github_board()
     agents = await merge_agents(worktrees, github)
     alerts, stale_claims = await detect_alerts(worktrees, github)
+    plan_draft_events = await scan_plan_draft_worktrees()
 
     # ── Persist raw tick data to Postgres ────────────────────────────────────
     # Non-blocking: a DB outage cannot crash the poller or stall the SSE stream.
@@ -403,6 +530,7 @@ async def tick() -> PipelineState:
                 stale_claims=stale_claims,
                 board_issues=[],
                 polled_at=time.time(),
+                plan_draft_events=plan_draft_events,
             ),
             open_issues=github.open_issues,
             open_prs=github.open_prs,
@@ -454,6 +582,7 @@ async def tick() -> PipelineState:
         closed_issues_count=closed_issues_count,
         merged_prs_count=merged_prs_count,
         stale_branches=stale_branches,
+        plan_draft_events=plan_draft_events,
     )
     _state = state
 

@@ -20,6 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import agentception.poller as poller_module
 from agentception.models import AgentStatus, PipelineState, TaskFile
 from agentception.poller import (
     GitHubBoard,
@@ -28,6 +29,7 @@ from agentception.poller import (
     get_state,
     merge_agents,
     polling_loop,
+    scan_plan_draft_worktrees,
     subscribe,
     tick,
     unsubscribe,
@@ -348,6 +350,162 @@ async def test_merge_agents_unknown_status() -> None:
 # ---------------------------------------------------------------------------
 # polling_loop() — interval behaviour
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# scan_plan_draft_worktrees() — plan draft event detection
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=False)
+def reset_plan_draft_tracking() -> None:
+    """Reset module-level plan draft deduplication sets before each test.
+
+    Without this, a draft_id emitted in one test would be skipped in a
+    subsequent test that reuses the same id, producing false negatives.
+    """
+    poller_module._emitted_ready_drafts.clear()
+    poller_module._emitted_timeout_drafts.clear()
+
+
+@pytest.mark.anyio
+async def test_plan_draft_ready_event_emitted(tmp_path: Path, reset_plan_draft_tracking: None) -> None:
+    """scan_plan_draft_worktrees() emits plan_draft_ready when OUTPUT_PATH exists."""
+    draft_id = "test-draft-001"
+    output_file = tmp_path / ".plan-output.yaml"
+
+    # Create plan-draft-* worktree with .agent-task
+    worktree = tmp_path / f"plan-draft-{draft_id}"
+    worktree.mkdir()
+    task_file = worktree / ".agent-task"
+    task_file.write_text(
+        f"WORKFLOW=plan-spec\nDRAFT_ID={draft_id}\nOUTPUT_PATH={output_file}\nSTATUS=pending\n",
+        encoding="utf-8",
+    )
+    # Write the output file to simulate the Cursor agent finishing.
+    output_file.write_text("initiative: test\nphases: []\n", encoding="utf-8")
+
+    with patch("agentception.poller.settings") as mock_settings:
+        mock_settings.worktrees_dir = tmp_path
+        events = await scan_plan_draft_worktrees()
+
+    assert len(events) == 1
+    ev = events[0]
+    assert ev.event == "plan_draft_ready"
+    assert ev.draft_id == draft_id
+    assert ev.yaml_text == "initiative: test\nphases: []\n"
+    assert ev.output_path == str(output_file)
+
+
+@pytest.mark.anyio
+async def test_plan_draft_ready_not_reemitted(tmp_path: Path, reset_plan_draft_tracking: None) -> None:
+    """Second scan with the same ready draft must NOT re-emit the event."""
+    draft_id = "test-draft-002"
+    output_file = tmp_path / ".plan-output.yaml"
+
+    worktree = tmp_path / f"plan-draft-{draft_id}"
+    worktree.mkdir()
+    task_file = worktree / ".agent-task"
+    task_file.write_text(
+        f"WORKFLOW=plan-spec\nDRAFT_ID={draft_id}\nOUTPUT_PATH={output_file}\n",
+        encoding="utf-8",
+    )
+    output_file.write_text("initiative: test\n", encoding="utf-8")
+
+    with patch("agentception.poller.settings") as mock_settings:
+        mock_settings.worktrees_dir = tmp_path
+        first = await scan_plan_draft_worktrees()
+        second = await scan_plan_draft_worktrees()
+
+    assert len(first) == 1
+    assert first[0].event == "plan_draft_ready"
+    # Second tick — already emitted, must be empty.
+    assert second == []
+
+
+@pytest.mark.anyio
+async def test_plan_draft_timeout_event_emitted(tmp_path: Path, reset_plan_draft_tracking: None) -> None:
+    """scan_plan_draft_worktrees() emits plan_draft_timeout when OUTPUT_PATH absent after 120 s."""
+    import os
+
+    draft_id = "test-draft-003"
+    output_file = tmp_path / ".plan-output.yaml"
+
+    worktree = tmp_path / f"plan-draft-{draft_id}"
+    worktree.mkdir()
+    task_file = worktree / ".agent-task"
+    task_file.write_text(
+        f"WORKFLOW=plan-spec\nDRAFT_ID={draft_id}\nOUTPUT_PATH={output_file}\n",
+        encoding="utf-8",
+    )
+
+    # Backdate the task file mtime to simulate 121 seconds ago.
+    old_mtime = time.time() - 121
+    os.utime(task_file, (old_mtime, old_mtime))
+
+    # OUTPUT_PATH does NOT exist.
+    assert not output_file.exists()
+
+    with patch("agentception.poller.settings") as mock_settings:
+        mock_settings.worktrees_dir = tmp_path
+        events = await scan_plan_draft_worktrees()
+
+    assert len(events) == 1
+    ev = events[0]
+    assert ev.event == "plan_draft_timeout"
+    assert ev.draft_id == draft_id
+    assert ev.yaml_text == ""
+    assert ev.output_path == str(output_file)
+
+
+@pytest.mark.anyio
+async def test_plan_draft_timeout_not_reemitted(tmp_path: Path, reset_plan_draft_tracking: None) -> None:
+    """Second scan for a timed-out draft must NOT re-emit the timeout event."""
+    import os
+
+    draft_id = "test-draft-004"
+    output_file = tmp_path / ".plan-output.yaml"
+
+    worktree = tmp_path / f"plan-draft-{draft_id}"
+    worktree.mkdir()
+    task_file = worktree / ".agent-task"
+    task_file.write_text(
+        f"WORKFLOW=plan-spec\nDRAFT_ID={draft_id}\nOUTPUT_PATH={output_file}\n",
+        encoding="utf-8",
+    )
+    old_mtime = time.time() - 121
+    os.utime(task_file, (old_mtime, old_mtime))
+
+    with patch("agentception.poller.settings") as mock_settings:
+        mock_settings.worktrees_dir = tmp_path
+        first = await scan_plan_draft_worktrees()
+        second = await scan_plan_draft_worktrees()
+
+    assert len(first) == 1
+    assert first[0].event == "plan_draft_timeout"
+    assert second == []
+
+
+@pytest.mark.anyio
+async def test_plan_draft_no_event_before_timeout(tmp_path: Path, reset_plan_draft_tracking: None) -> None:
+    """No event when OUTPUT_PATH is absent and 120 s has NOT elapsed."""
+    draft_id = "test-draft-005"
+    output_file = tmp_path / ".plan-output.yaml"
+
+    worktree = tmp_path / f"plan-draft-{draft_id}"
+    worktree.mkdir()
+    task_file = worktree / ".agent-task"
+    # Write the task file now — mtime is fresh, within the 120 s window.
+    task_file.write_text(
+        f"WORKFLOW=plan-spec\nDRAFT_ID={draft_id}\nOUTPUT_PATH={output_file}\n",
+        encoding="utf-8",
+    )
+
+    with patch("agentception.poller.settings") as mock_settings:
+        mock_settings.worktrees_dir = tmp_path
+        events = await scan_plan_draft_worktrees()
+
+    assert events == []
 
 
 @pytest.mark.anyio
