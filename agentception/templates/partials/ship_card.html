@@ -1,0 +1,56 @@
+{% set is_merged  = pr.state == "merged" %}
+{% set is_closed  = pr.state == "closed" and not is_merged %}
+{% set is_open    = pr.state == "open" %}
+{% set reviewer   = pr.reviewer_run %}
+{% set is_reviewing = reviewer and reviewer.status in ("implementing", "pending_launch", "IMPLEMENTING", "PENDING_LAUNCH") %}
+
+<li class="build-issue
+  {%- if is_merged %} build-issue--closed
+  {%- elif is_reviewing %} build-issue--active build-issue--running
+  {%- elif reviewer %} build-issue--active
+  {%- endif %}">
+
+  <div class="build-issue__header">
+    <a class="build-issue__number"
+       href="{{ pr.url }}"
+       target="_blank" rel="noopener">
+      PR&thinsp;#{{ pr.number }}
+    </a>
+    {% if pr.closes_issue_number %}
+    <a class="build-issue__label-pill"
+       href="https://github.com/{{ repo }}/issues/{{ pr.closes_issue_number }}"
+       target="_blank" rel="noopener">
+      #{{ pr.closes_issue_number }}
+    </a>
+    {% endif %}
+    <span class="build-issue__state-dot
+      {%- if is_merged %} build-issue__state-dot--closed
+      {%- elif is_reviewing %} build-issue__state-dot--active
+      {%- else %} build-issue__state-dot--open
+      {%- endif %}"></span>
+    <span class="build-issue__status build-issue__status--{{ pr.state | lower }}">{{ pr.state }}</span>
+  </div>
+
+  <p class="build-issue__title">{{ pr.title }}</p>
+
+  {% if pr.head_ref %}
+  <p class="build-issue__subtitle" style="font-family:monospace;font-size:0.75rem;opacity:0.6;">
+    {{ pr.head_ref }}
+  </p>
+  {% endif %}
+
+  <div class="build-issue__footer">
+    {% if reviewer %}
+    <div class="build-issue__run">
+      <span class="build-issue__role">pr-reviewer</span>
+      <span class="build-issue__status build-issue__status--{{ reviewer.status | lower }}">
+        {{ reviewer.status }}
+      </span>
+    </div>
+    {% endif %}
+    {% if pr.merged_at %}
+    <span style="font-size:0.72rem;opacity:0.55;">merged {{ pr.merged_at[:10] }}</span>
+    {% endif %}
+  </div>
+
+</li>
