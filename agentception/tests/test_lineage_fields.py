@@ -178,8 +178,8 @@ def test_migration_0006_has_indexes() -> None:
     """Migration 0006 creates indexes for both new columns."""
     content = _migration_0006_content()
     assert "create_index" in content
-    assert "ix_ac_agent_runs_logical_tier" in content
-    assert "ix_ac_agent_runs_parent_run_id" in content
+    assert "ix_agent_runs_logical_tier" in content
+    assert "ix_agent_runs_parent_run_id" in content
 
 
 def test_migration_0006_has_downgrade() -> None:
