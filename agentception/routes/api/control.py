@@ -438,6 +438,101 @@ async def spawn_wave(role: str = "python-developer") -> WaveSpawnResult:
     return WaveSpawnResult(active_label=active_label, spawned=spawned, skipped=skipped)
 
 
+class ResetBuildResult(BaseModel):
+    """Result of a full build reset (worktrees, wip labels, run status)."""
+
+    removed_worktrees: list[str]
+    cleared_wip_labels: list[int]
+    runs_reset: int
+    errors: list[str]
+
+
+@router.post("/control/reset-build", tags=["control"])
+async def reset_build() -> ResetBuildResult:
+    """Remove all agent worktrees, clear all agent:wip labels, and reset run statuses.
+
+    Use this to start over from scratch: no worktrees, no in-motion labels,
+    and no pending_launch/implementing/reviewing runs in the DB.  The main
+    worktree is never removed.  Idempotent when already clean.
+    """
+    from agentception.db.persist import reset_build_runs_to_unknown
+    from agentception.readers.git import list_git_worktrees
+    from agentception.readers.github import clear_wip_label, get_wip_issues
+
+    removed_worktrees: list[str] = []
+    cleared_wip_labels: list[int] = []
+    errors: list[str] = []
+    worktrees_dir_str = str(settings.worktrees_dir).rstrip("/")
+    repo_dir = str(settings.repo_dir)
+
+    # ── 1. Remove every non-main worktree under worktrees_dir ───────────────
+    all_wts = await list_git_worktrees()
+    for wt in all_wts:
+        if wt.get("is_main"):
+            continue
+        path = str(wt.get("path", "")).rstrip("/")
+        if not path or (path != worktrees_dir_str and not path.startswith(worktrees_dir_str + "/")):
+            continue
+        slug = str(wt.get("slug", ""))
+        if wt.get("locked"):
+            unlock_proc = await asyncio.create_subprocess_exec(
+                "git", "-C", repo_dir, "worktree", "unlock", path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await unlock_proc.communicate()
+        proc = await asyncio.create_subprocess_exec(
+            "git", "-C", repo_dir, "worktree", "remove", "--force", path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await proc.communicate()
+        if proc.returncode == 0:
+            removed_worktrees.append(slug or path)
+            logger.info("✅ reset-build: removed worktree %s", path)
+        else:
+            errors.append(f"worktree {slug}: {stderr.decode().strip()}")
+
+    prune_proc = await asyncio.create_subprocess_exec(
+        "git", "-C", repo_dir, "worktree", "prune",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await prune_proc.communicate()
+
+    # ── 2. Clear agent:wip from every issue that has it ────────────────────
+    try:
+        wip_issues = await get_wip_issues()
+        for issue in wip_issues:
+            num = issue.get("number")
+            if not isinstance(num, int):
+                continue
+            try:
+                await clear_wip_label(num)
+                cleared_wip_labels.append(num)
+            except Exception as exc:
+                errors.append(f"clear wip #{num}: {exc}")
+    except Exception as exc:
+        errors.append(f"get_wip_issues: {exc}")
+
+    # ── 3. Set all active runs to unknown ───────────────────────────────────
+    runs_reset = await reset_build_runs_to_unknown()
+
+    logger.info(
+        "✅ reset-build complete: worktrees=%d wip_cleared=%d runs_reset=%d errors=%d",
+        len(removed_worktrees),
+        len(cleared_wip_labels),
+        runs_reset,
+        len(errors),
+    )
+    return ResetBuildResult(
+        removed_worktrees=removed_worktrees,
+        cleared_wip_labels=cleared_wip_labels,
+        runs_reset=runs_reset,
+        errors=errors,
+    )
+
+
 class SweepResult(BaseModel):
     """Result of a stale-state sweep operation."""
 

@@ -256,6 +256,7 @@ def _build_child_task(
         lines += [
             f"# MCP: github_list_issues(label='{scope_value}', state='open')",
             f"# MCP: github_list_prs(state='open')",
+            f"# NOTE: exclude issues labelled 'agent:wip' (claimed) or 'blocked' (phase-gated)",
         ]
     elif node_type == "leaf" and scope_type == "issue":
         lines.append(

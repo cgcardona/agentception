@@ -84,6 +84,25 @@ from agentception.db import persist as _persist  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
+# _pr_number_from_url (used when persist_agent_event handles "done" with pr_url)
+# ---------------------------------------------------------------------------
+
+
+def test_pr_number_from_url_extracts_number() -> None:
+    """PR number is parsed from GitHub PR URL so done events can update run.pr_number."""
+    assert _persist._pr_number_from_url("https://github.com/owner/repo/pull/123") == 123
+    assert _persist._pr_number_from_url("https://github.com/owner/repo/pull/123/") == 123
+    assert _persist._pr_number_from_url("https://example.com/pulls/42") == 42
+
+
+def test_pr_number_from_url_returns_none_for_invalid() -> None:
+    """Non-URL or URL without trailing number returns None."""
+    assert _persist._pr_number_from_url("") is None
+    assert _persist._pr_number_from_url("https://github.com/owner/repo/pull") is None
+    assert _persist._pr_number_from_url("not-a-url") is None
+
+
+# ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
 

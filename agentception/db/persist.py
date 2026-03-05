@@ -579,6 +579,34 @@ async def acknowledge_agent_run(run_id: str) -> bool:
         return False
 
 
+_RESET_STATUSES = frozenset({"pending_launch", "implementing", "reviewing"})
+
+
+async def reset_build_runs_to_unknown() -> int:
+    """Set all agent runs in active states to ``unknown``.
+
+    Used by the full reset-build flow so the launch queue is empty and no
+    run appears as in progress.  Returns the number of runs updated.
+    """
+    try:
+        now = _now()
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun).where(ACAgentRun.status.in_(_RESET_STATUSES))
+            )
+            rows = result.scalars().all()
+            for run in rows:
+                run.status = "unknown"
+                run.last_activity_at = now
+            await session.commit()
+            count = len(rows)
+        logger.info("✅ reset_build_runs_to_unknown: %d run(s) set to unknown", count)
+        return count
+    except Exception as exc:
+        logger.warning("⚠️  reset_build_runs_to_unknown failed: %s", exc)
+        return 0
+
+
 class PhaseEntry(TypedDict):
     """One phase entry for :func:`persist_initiative_phases`."""
 
@@ -683,6 +711,20 @@ async def persist_issue_depends_on(
         logger.warning("⚠️  persist_issue_depends_on failed (non-fatal): %s", exc)
 
 
+def _pr_number_from_url(pr_url: str) -> int | None:
+    """Extract PR number from a GitHub PR URL (e.g. .../pull/123 or .../pulls/123)."""
+    if not pr_url or not isinstance(pr_url, str):
+        return None
+    try:
+        # Accept .../pull/123 or .../pulls/123
+        parts = pr_url.rstrip("/").split("/")
+        if len(parts) >= 1 and parts[-1].isdigit():
+            return int(parts[-1])
+        return None
+    except (ValueError, IndexError):
+        return None
+
+
 async def persist_agent_event(
     issue_number: int,
     event_type: str,
@@ -694,6 +736,10 @@ async def persist_agent_event(
     Called by the ``build_report_*`` HTTP endpoints when a running agent
     signals a lifecycle change.  The optional ``agent_run_id`` is included
     if the caller can resolve it; otherwise only ``issue_number`` is set.
+
+    When ``event_type == "done"`` and ``payload`` contains ``pr_url``, the
+    corresponding run (by ``agent_run_id`` or latest run for ``issue_number``)
+    is updated with ``pr_number`` so the Kanban shows the issue in PR Open.
     """
     try:
         async with get_session() as session:
@@ -706,6 +752,34 @@ async def persist_agent_event(
                     recorded_at=_now(),
                 )
             )
+            if event_type == "done":
+                pr_url = payload.get("pr_url")
+                pr_num = _pr_number_from_url(str(pr_url)) if pr_url else None
+                if pr_num is not None:
+                    run_id = agent_run_id
+                    if run_id:
+                        run_result = await session.execute(
+                            select(ACAgentRun).where(ACAgentRun.id == run_id)
+                        )
+                        run_row = run_result.scalar_one_or_none()
+                    else:
+                        run_row = None
+                    if run_row is None and issue_number:
+                        run_result = await session.execute(
+                            select(ACAgentRun)
+                            .where(ACAgentRun.issue_number == issue_number)
+                            .order_by(ACAgentRun.spawned_at.desc())
+                            .limit(1)
+                        )
+                        run_row = run_result.scalar_one_or_none()
+                    if run_row is not None:
+                        run_row.pr_number = pr_num
+                        run_row.last_activity_at = _now()
+                        logger.info(
+                            "✅ persist_agent_event: run %s pr_number=%d (from done)",
+                            run_row.id,
+                            pr_num,
+                        )
             await session.commit()
     except Exception as exc:
         logger.warning("⚠️  persist_agent_event failed (non-fatal): %s", exc)

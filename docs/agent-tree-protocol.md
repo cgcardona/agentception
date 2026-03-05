@@ -159,10 +159,11 @@ Loops until both queues are empty.
 ```
 # Open issues for the scope label
 github_list_issues(label="$SCOPE_VALUE", state="open")
-# → filter: exclude any issue whose labels include "agent:wip"
+# → filter: exclude issues labelled "agent:wip" (claimed) or "blocked" (phase-gated)
+# Only work on issues that have neither label.
 ```
 
-Spawns one `engineer` Task per unclaimed issue, up to 3 concurrently.
+Spawns one `engineer` Task per eligible issue, up to 3 concurrently.
 Each engineer self-replaces (spawns its successor before exiting).
 
 ### `qa-coordinator` (cleanup sweep only)

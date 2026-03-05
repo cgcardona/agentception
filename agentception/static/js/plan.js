@@ -7,8 +7,8 @@
  *   write      — textarea, user composes their plan
  *   generating — waiting for SSE plan_draft_ready (Cursor agent async, ~30-120s)
  *   review     — CodeMirror 6 YAML editor, editable, validate-on-change
- *   launching  — waiting for POST /api/plan/file-issues SSE stream
- *   done       — issues filed, success summary
+ *   launching  — waiting for POST /api/plan/launch response
+ *   done       — coordinator spawned, success summary (batch_id, worktree, branch)
  *
  * Architecture note (Plan v2 — async MCP-native flow)
  * ----------------------------------------------------
@@ -28,11 +28,10 @@
  *     draft_id).  The UI resolves its _waitForDraftReady() Promise here and
  *     transitions to the review step.  Times out after 60 s.
  *
- *   POST /api/plan/file-issues  { yaml_text }  (SSE stream)
- *     AgentCeption validates the YAML, ensures GitHub labels exist, then
- *     creates issues phase-by-phase using gh CLI.  The SSE stream reports
- *     progress per-issue so the user sees real-time filing status.  On done,
- *     the UI flips to the success state with links.
+ *   POST /api/plan/launch  { yaml_text }
+ *     AgentCeption validates the YAML as EnrichedManifest, checks for cycles,
+ *     then spawns the coordinator worktree.  Returns JSON with worktree,
+ *     branch, agent_task_path, batch_id.  The UI flips to the done step.
  *
  * CodeMirror 6 is bundled by esbuild — no CDN, no Web Workers, no AMD loader.
  * This avoids the cross-origin worker crashes that affect Monaco CDN usage.
@@ -74,9 +73,8 @@ export function planForm() {
     batchId: '',
     batchIdCopied: false,
 
-    // ── Filing progress (from /api/plan/file-issues SSE stream) ───────────
-    filingProgress: '',     // e.g. "Filing 3 / 8 — phase-1"
-    filedIssues: [],        // [{number, url, title, phase}] filled as issues arrive
+    // ── Launch progress (POST /api/plan/launch) ─────────────────────────────
+    filingProgress: '',     // e.g. "Launching…" while waiting for response
 
     // ── YAML validation ────────────────────────────────────────────────────
     yamlValid: true,
@@ -281,9 +279,9 @@ export function planForm() {
       });
     },
 
-    // ── Step 1.B: POST /api/plan/file-issues — create GitHub issues ────────
-    // Consumes an SSE stream that reports progress as each issue is filed.
-    // The old /api/plan/launch endpoint (coordinator worktrees) is untouched.
+    // ── Step 1.B: POST /api/plan/launch — validate EnrichedManifest, spawn coordinator ─
+    // Sends YAML to /api/plan/launch; backend validates, spawns coordinator worktree,
+    // returns JSON { worktree, branch, agent_task_path, batch_id }.
 
     async launch() {
       const yaml = this._getEditorValue();
@@ -293,90 +291,33 @@ export function planForm() {
         return;
       }
       this.errorMsg = '';
-      this.filingProgress = 'Setting up labels…';
-      this.filedIssues = [];
+      this.filingProgress = 'Launching…';
       this.step = 'launching';
       this.submitting = true;
 
       try {
-        const resp = await fetch('/api/plan/file-issues', {
+        const resp = await fetch('/api/plan/launch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ yaml_text: yaml }),
         });
+        const body = await resp.json().catch(() => ({}));
         if (!resp.ok) {
-          const body = await resp.json().catch(() => ({}));
           throw new Error(body.detail || `HTTP ${resp.status}`);
         }
 
-        // Read the SSE stream.  Event types:
-        //   {"t":"start",   "total":N, "initiative":"..."}
-        //   {"t":"label",   "text":"..."}
-        //   {"t":"issue",   "index":N, "total":N, "number":N, "url":"...",
-        //                   "title":"...", "phase":"..."}
-        //   {"t":"blocked", "number":N, "blocked_by":[N,...]}
-        //   {"t":"done",    "total":N, "initiative":"...", "issues":[...]}
-        //   {"t":"error",   "detail":"..."}
-        const reader = resp.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let doneData = null;
-
-        outer: while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-
-          const lines = buffer.split('\n');
-          buffer = lines.pop() ?? '';
-
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            const raw = line.slice(6).trim();
-            if (!raw) continue;
-            let msg;
-            try { msg = JSON.parse(raw); } catch { continue; }
-
-            if (msg.t === 'start') {
-              this.filingProgress = `Filing 0 / ${msg.total}…`;
-
-            } else if (msg.t === 'label') {
-              this.filingProgress = msg.text;
-
-            } else if (msg.t === 'issue') {
-              this.filingProgress = `Filing ${msg.index} / ${msg.total} — ${msg.phase}`;
-              this.filedIssues.push({
-                number: msg.number,
-                url: msg.url,
-                title: msg.title,
-                phase: msg.phase,
-              });
-
-            } else if (msg.t === 'blocked') {
-              // Silently noted — body was edited server-side; no UI change needed.
-
-            } else if (msg.t === 'done') {
-              doneData = msg;
-              break outer;
-
-            } else if (msg.t === 'error') {
-              throw new Error(msg.detail || 'Filing issues failed.');
-            }
-          }
-        }
-
-        if (!doneData) throw new Error('Stream ended without a done event.');
-
         this.result = {
-          initiative: doneData.initiative,
-          total: doneData.total,
-          issues: doneData.issues ?? [],
+          worktree: body.worktree,
+          branch: body.branch,
+          agent_task_path: body.agent_task_path,
+          batch_id: body.batch_id,
         };
-        this.batchId = doneData.batch_id ?? '';
-        this.initiative = doneData.initiative ?? this.initiative;
+        this.batchId = body.batch_id ?? '';
         try {
           localStorage.setItem('ac_active_batch', this.batchId);
-          localStorage.setItem('ac_active_initiative', this.initiative);
+          if (this.initiative) {
+            localStorage.setItem('ac_active_initiative', this.initiative);
+          }
         } catch (_) {
           // localStorage may be unavailable in some browser contexts — silent fail.
         }
@@ -406,7 +347,6 @@ export function planForm() {
       this.yamlValid = true;
       this.yamlValidationMsg = '';
       this.filingProgress = '';
-      this.filedIssues = [];
       this.result = {};
       this.batchId = '';
       this.batchIdCopied = false;
@@ -518,6 +458,7 @@ export function planForm() {
         const data = await resp.json();
         if (data.valid) {
           this.yamlValid = true;
+          this.initiative = data.initiative ?? this.initiative;
           this.yamlValidationMsg = `✓ Valid — ${data.phase_count} phases, ${data.issue_count} issues`;
         } else {
           this.yamlValid = false;

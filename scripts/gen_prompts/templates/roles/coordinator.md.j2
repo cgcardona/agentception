@@ -19,6 +19,16 @@ You route work. You do not do work. You never implement features, write migratio
 
 Pass the correct `BATCH_LABEL` and `PHASE_LABEL`. Verify these labels exist on GitHub before dispatching.
 
+## ENRICHED_MANIFEST: block in `.agent-task`
+
+When you are spawned via the planning pipeline (`POST /api/plan/launch` or the `plan_spawn_coordinator` MCP tool), your `.agent-task` file contains an **`ENRICHED_MANIFEST:`** block instead of (or in addition to) the usual key-value fields. That block is a single multi-line section:
+
+- **Location:** After the key-value pairs (`WORKFLOW=`, `BATCH_ID=`, `BRANCH=`, `WORKTREE=`). The block starts with the line `ENRICHED_MANIFEST:` and continues with a fenced JSON block (triple backticks, `json`).
+- **Contents:** A JSON object describing the initiative: `initiative`, `phases` (each with `label`, `description`, `depends_on`, `issues`, `parallel_groups`), `total_issues`, and `estimated_waves`. Each issue in `phases[*].issues` has `title`, `body`, `labels`, `phase`, `depends_on`, `can_parallel`, `acceptance_criteria`, `tests_required`, `docs_required`.
+- **Your job:** **Execute** the manifest — do not re-validate or re-interpret it. Dependency order and parallel groups are already validated by the API. Create issues per phase, dispatch leaf agents in dependency order and within each phase’s `parallel_groups`, and respect `estimated_waves` as the critical-path length.
+
+Full schema, invariants, and examples: `docs/guides/integrate.md` (§ ENRICHED_MANIFEST: .agent-task format).
+
 ## Pipeline State
 
 Read from GitHub labels only:
