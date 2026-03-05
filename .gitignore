@@ -32,8 +32,6 @@ docker-compose.override.yml
 .vscode/
 *.swp
 *.swo
-# Safety net: role-versions lives in .agentception/, not .cursor/
-.cursor/role-versions.json
 
 # OS
 .DS_Store

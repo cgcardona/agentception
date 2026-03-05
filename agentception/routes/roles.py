@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Role file reader/writer API for the Role Studio editor (AC-301/303).
 
-Exposes all managed ``.cursor/roles/*.md`` and ``.cursor/PARALLEL_*.md`` files
+Exposes all managed ``.agentception/roles/*.md`` files
 through a REST API so the Role Studio UI (AC-302/303) can list, read, update,
 diff, commit, and inspect git history for each file without direct filesystem access.
 
