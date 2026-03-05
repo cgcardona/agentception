@@ -141,6 +141,7 @@ Lineage for traceability. Every artifact produced (commit, PR, issue comment) em
 | `batch_id` | string | yes | VP-level batch fingerprint: `"eng-20260303T134821Z-a7f2"` |
 | `parent_run_id` | string | no | `run_id` of the agent that physically spawned this one. Empty for root (CTO). For chain-spawned reviewers this is the engineer's `run_id`, not the coordinator's — the dashboard uses `agent.logical_tier` to position the node in the virtual org chart regardless. |
 | `wave` | string | no | Named wave: `"5-plan-step-v2"` |
+| `coord_fingerprint` | string | no | The spawning coordinator's fingerprint string (role + batch ID). Written by the spawner via `build_spawn_child(coord_fingerprint=...)` and read by leaf agents to include in GitHub issue/PR fingerprint comments without re-deriving it. Format: `"Engineering Coordinator · <batch_id>"`. |
 | `vp_fingerprint` | string | no | VP agent's session ID — propagated to leaf agents |
 | `cto_wave` | string | no | CTO-level orchestration round for full-pipeline traces |
 
@@ -530,6 +531,7 @@ repo.gh_repo → TaskFile.gh_repo
 repo.base → TaskFile.base
 pipeline.batch_id → TaskFile.batch_id
 pipeline.parent_run_id → TaskFile.parent_run_id
+pipeline.coord_fingerprint → TaskFile.coord_fingerprint   (written by spawner; read by leaf for GitHub comments)
 pipeline.wave → TaskFile.wave
 spawn.mode → TaskFile.spawn_mode
 spawn.sub_agents → TaskFile.spawn_sub_agents
