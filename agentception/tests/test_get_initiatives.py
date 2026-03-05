@@ -60,7 +60,9 @@ async def test_get_initiatives_patterns_exact_match() -> None:
         result = await get_initiatives(
             "owner/repo", initiative_patterns=["agentception", "ac-plan", "ac-build"]
         )
-    assert result == ["ac-plan", "agentception"]
+    # Pattern order: agentception(0), ac-plan(1), ac-build(2)
+    # ac-build/1-tree-ui does not match the bare "ac-build" pattern (no wildcard).
+    assert result == ["agentception", "ac-plan"]
 
 
 @pytest.mark.anyio
@@ -95,7 +97,12 @@ async def test_get_initiatives_patterns_excludes_closed_only() -> None:
 
 @pytest.mark.anyio
 async def test_get_initiatives_patterns_returns_sorted() -> None:
-    """Result is alphabetically sorted regardless of row order."""
+    """Result order mirrors the position of each label's pattern in initiative_patterns.
+
+    The patterns list is the single source of truth for tab order — ac-workflow
+    is at index 2, ac-plan at index 1, ac-build at index 0, so the result
+    preserves that declaration order regardless of DB row order.
+    """
     rows = [
         _make_row(["ac-workflow"]),
         _make_row(["ac-build"]),
@@ -105,6 +112,7 @@ async def test_get_initiatives_patterns_returns_sorted() -> None:
         result = await get_initiatives(
             "owner/repo", initiative_patterns=["ac-build", "ac-plan", "ac-workflow"]
         )
+    # Sorted by pattern position: ac-build(0) → ac-plan(1) → ac-workflow(2)
     assert result == ["ac-build", "ac-plan", "ac-workflow"]
 
 

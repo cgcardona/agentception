@@ -6,17 +6,10 @@
  *  - events[]           — structured MCP events from /build/agent/{run_id}/stream
  *  - thoughts[]         — raw CoT messages from the same SSE stream
  *  - dispatch modal     — role selection and POST /api/build/dispatch (issue-scoped leaf)
- *  - labelDispatch modal — tier/role selection and POST /api/build/dispatch-label (label-scoped)
+ *  - labelDispatch modal — scope-based launch: full initiative / phase / single issue
  *
- * See agentception/docs/agent-tree-protocol.md for tier definitions.
+ * See agentception/docs/agent-tree-protocol.md for the node-type spec.
  */
-
-/** Tier options shown in the label-dispatch modal. */
-const LABEL_DISPATCH_TIERS = [
-  { tier: 'root',           role: 'cto',                label: '🌳 Full tree  (CTO → VPs → Engineers + Reviewers)' },
-  { tier: 'coordinator', role: 'engineering-coordinator', label: '🛠 Engineering  (Coordinator → Implementers)' },
-  { tier: 'coordinator', role: 'qa-coordinator',          label: '🔍 QA  (Coordinator → Reviewers)' },
-];
 
 export function buildPage(roleGroups) {
   return {
@@ -37,19 +30,61 @@ export function buildPage(roleGroups) {
     dispatchSuccess: false,
     dispatchResult: null,
 
-    // ── label-dispatch modal state ───────────────────────────────────────
+    // ── label-dispatch (launch) modal state ─────────────────────────────
     labelDispatchOpen: false,
     labelDispatchLabel: '',
-    labelDispatchTiers: LABEL_DISPATCH_TIERS,
-    labelDispatchTierIdx: 0,
+
+    // Scope selector: 'full_initiative' | 'phase' | 'issue'
+    scopeMode: 'full_initiative',
+
+    // Phase picker (populated from /api/build/label-context)
+    scopePhases: [],
+    selectedPhase: '',
+
+    // Issue picker (populated from /api/build/label-context)
+    scopeIssues: [],
+    selectedIssueNumber: null,
+
+    // Context loading
+    labelContextLoading: false,
+    labelContextLoaded: false,
+
+    // Advanced section
+    showAdvanced: false,
+    advancedRole: '',
+
+    // Submission state
     labelDispatching: false,
     labelDispatchError: null,
     labelDispatchSuccess: false,
     labelDispatchResult: null,
     dispatcherCopied: false,
 
-    get labelDispatchSelected() {
-      return this.labelDispatchTiers[this.labelDispatchTierIdx] ?? this.labelDispatchTiers[0];
+    get launchPreviewText() {
+      const label = this.labelDispatchLabel;
+      if (this.scopeMode === 'full_initiative') {
+        const role = this.advancedRole.trim() || 'coordinator';
+        return `A ${role} will survey every open ticket under "${label}" and assemble its own team.`;
+      }
+      if (this.scopeMode === 'phase') {
+        if (!this.selectedPhase) return 'Choose a phase to see the preview.';
+        const role = this.advancedRole.trim() || 'coordinator';
+        return `A ${role} will handle all tickets in phase "${this.selectedPhase}".`;
+      }
+      if (this.scopeMode === 'issue') {
+        if (!this.selectedIssueNumber) return 'Choose a ticket to see the preview.';
+        const found = this.scopeIssues.find(i => i.number === this.selectedIssueNumber);
+        const title = found ? found.title : `#${this.selectedIssueNumber}`;
+        return `One leaf agent will work on #${this.selectedIssueNumber}: "${title}".`;
+      }
+      return '';
+    },
+
+    get launchReady() {
+      if (this.scopeMode === 'full_initiative') return true;
+      if (this.scopeMode === 'phase') return !!this.selectedPhase;
+      if (this.scopeMode === 'issue') return !!this.selectedIssueNumber;
+      return false;
     },
 
     // ── repo (set by inline script in template) ──────────────────────────
@@ -165,17 +200,50 @@ export function buildPage(roleGroups) {
       }
     },
 
-    // ── label-dispatch modal ─────────────────────────────────────────────
+    // ── label-dispatch (launch) modal ────────────────────────────────────
 
     openLabelDispatch(detail) {
       this.labelDispatchLabel = detail.label ?? '';
-      this.labelDispatchTierIdx = 0;
+      this.scopeMode = 'full_initiative';
+      this.scopePhases = [];
+      this.scopeIssues = [];
+      this.selectedPhase = '';
+      this.selectedIssueNumber = null;
+      this.labelContextLoading = false;
+      this.labelContextLoaded = false;
+      this.showAdvanced = false;
+      this.advancedRole = '';
       this.labelDispatchError = null;
       this.labelDispatchSuccess = false;
       this.labelDispatchResult = null;
       this.labelDispatching = false;
       this.dispatcherCopied = false;
       this.labelDispatchOpen = true;
+      // Pre-load context so pickers are ready when user switches scope
+      this._loadLabelContext();
+    },
+
+    closeLabelDispatch() {
+      this.labelDispatchOpen = false;
+    },
+
+    async _loadLabelContext() {
+      if (this.labelContextLoaded || this.labelContextLoading) return;
+      this.labelContextLoading = true;
+      try {
+        const url = `/api/build/label-context?label=${encodeURIComponent(this.labelDispatchLabel)}&repo=${encodeURIComponent(this.repo)}`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          this.scopePhases = data.phases ?? [];
+          this.scopeIssues = data.issues ?? [];
+          this.labelContextLoaded = true;
+        }
+      } catch {
+        // Non-fatal — pickers will be empty; user can still launch full initiative
+      } finally {
+        this.labelContextLoading = false;
+      }
     },
 
     async copyDispatcherPrompt() {
@@ -192,19 +260,30 @@ export function buildPage(roleGroups) {
     },
 
     async submitLabelDispatch() {
-      const selected = this.labelDispatchSelected;
+      if (!this.launchReady) return;
       this.labelDispatching = true;
       this.labelDispatchError = null;
+
+      const body = {
+        label: this.labelDispatchLabel,
+        scope: this.scopeMode,
+        repo: this.repo,
+      };
+      if (this.scopeMode === 'phase' && this.selectedPhase) {
+        body.scope_label = this.selectedPhase;
+      }
+      if (this.scopeMode === 'issue' && this.selectedIssueNumber) {
+        body.scope_issue_number = this.selectedIssueNumber;
+      }
+      if (this.advancedRole.trim()) {
+        body.role = this.advancedRole.trim();
+      }
 
       try {
         const res = await fetch('/api/build/dispatch-label', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            label: this.labelDispatchLabel,
-            role: selected.role,
-            repo: this.repo,
-          }),
+          body: JSON.stringify(body),
         });
 
         const data = await res.json();
