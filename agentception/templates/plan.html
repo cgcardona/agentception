@@ -66,8 +66,8 @@
      ══════════════════════════════════════════════════════════════════════ #}
   <div class="plan-write" x-show="step === 'write'" x-transition.opacity>
 
-    <h1 class="plan-title">Messy thoughts → shipped work.</h1>
-    <p class="plan-sub">Dump everything — bugs, features, ideas, debt. Claude will structure it into phased GitHub issues.</p>
+    <h1 class="plan-title">One brain dump away.</h1>
+    <p class="plan-sub">Paste anything — a rough idea, a wall of text, a list of tasks, a complaint about what's broken. Claude structures it into a phase-gated plan of GitHub issues.</p>
 
     <div class="plan-textarea-wrap" :class="{'plan-textarea-wrap--focused': focused}">
       <textarea
@@ -79,7 +79,7 @@
         @blur="focused = false"
         @input="autoGrow($refs.textarea)"
         @keydown.meta.enter.prevent="submit()"
-        placeholder="e.g.&#10;- Fix the flaky login test when DB is slow&#10;- Migrate auth middleware to JWT&#10;- Add dark mode toggle&#10;- CSV export breaks for reports over 10k rows&#10;- Refactor legacy jQuery to Alpine.js&#10;..."
+        placeholder="e.g.&#10;- Auth is broken on mobile and rate limiting is missing on public endpoints&#10;- Build a billing dashboard: Stripe, invoice emails, subscription management&#10;- The agent dispatch UI needs dark mode and Slack notifications&#10;- Export hangs for datasets over 10k rows&#10;&#10;Or just paste a wall of text — Claude will sort it out."
         :disabled="submitting"
         spellcheck="true"
       ></textarea>
