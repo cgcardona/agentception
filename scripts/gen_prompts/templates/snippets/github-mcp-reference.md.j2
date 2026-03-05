@@ -1,0 +1,30 @@
+Both MCP servers are configured. Use them instead of `gh` for all GitHub reads and
+writes — they add caching, structured output, and logging.
+
+**AgentCeption MCP server** (`user-agentception-*` — cached and logged):
+
+| MCP tool | Replaces |
+|----------|---------|
+| `github_list_issues(state, label)` | `gh issue list --label X` |
+| `github_get_issue(issue_number)` | `gh issue view N --json ...` |
+| `github_list_prs(state)` | `gh pr list` |
+| `github_get_pr(pr_number)` | `gh pr view N --json ...` |
+| `github_add_label(issue_number, label)` | `gh issue edit N --add-label X` |
+| `github_remove_label(issue_number, label)` | `gh issue edit N --remove-label X` |
+| `github_claim_issue(issue_number)` | `gh issue edit N --add-label "agent:wip"` |
+| `github_unclaim_issue(issue_number)` | `gh issue edit N --remove-label "agent:wip"` |
+
+**GitHub MCP server** (`user-github-*` — direct GitHub API):
+
+| MCP tool | Replaces |
+|----------|---------|
+| `create_pull_request` | `gh pr create` |
+| `merge_pull_request` | `gh pr merge N` |
+| `add_issue_comment` | `gh issue comment N` / `gh pr comment N` |
+| `issue_write` (state: closed) | `gh issue close N` |
+| `update_pull_request` | `gh pr edit N` (title/body/state) |
+| `pull_request_read` | `gh pr view N` (detailed review data) |
+
+**Keep `gh` for:** `gh pr checkout N` (git-level branch checkout),
+`gh pr diff N --name-only` (diff content), `gh label create/edit` (label setup),
+and all `git` commands.

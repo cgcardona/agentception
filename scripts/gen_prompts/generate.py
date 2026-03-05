@@ -134,6 +134,9 @@ def _render(config: dict) -> dict[Path, str]:  # type: ignore[type-arg]
 
     results: dict[Path, str] = {}
     for template_path in sorted(TEMPLATES_DIR.rglob("*.j2")):
+        # Skip snippet fragments — they are included by other templates, not rendered directly.
+        if "snippets" in template_path.relative_to(TEMPLATES_DIR).parts:
+            continue
         rel = str(template_path.relative_to(TEMPLATES_DIR))
         template = env.get_template(rel)
         rendered = GENERATED_HEADER + template.render(**context)

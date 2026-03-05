@@ -48,14 +48,14 @@ The file contains `TIER`, `SCOPE_TYPE`, and `SCOPE_VALUE` in addition to the
 fields you already know. These three together define exactly what GitHub queries
 to make and which children to spawn:
 
-| TIER | SCOPE_TYPE | What SCOPE_VALUE means | GitHub queries (inline in .agent-task comments) |
-|------|-----------|------------------------|------------------------------------------------|
-| `executive` | `label` | GitHub label string | issues + PRs filtered to the label |
-| `coordinator` | `label` | GitHub label string | issues only (engineering-coordinator) or PRs only (qa-coordinator) |
-| `engineer` | `issue` | Issue number (string) | `gh issue view $SCOPE_VALUE` |
-| `reviewer` | `pr` | PR number (string) | `gh pr view $SCOPE_VALUE` |
+| TIER | SCOPE_TYPE | What SCOPE_VALUE means | GitHub queries |
+|------|-----------|------------------------|----------------|
+| `executive` | `label` | GitHub label string | `github_list_issues` + `github_list_prs` filtered to the label |
+| `coordinator` | `label` | GitHub label string | `github_list_issues` only (engineering) or `github_list_prs` only (qa) |
+| `engineer` | `issue` | Issue number (string) | `github_get_issue(issue_number=SCOPE_VALUE)` |
+| `reviewer` | `pr` | PR number (string) | `github_get_pr(pr_number=SCOPE_VALUE)` |
 
-The `.agent-task` file contains inline comments with the exact `gh` commands
+The `.agent-task` file contains inline comments with the MCP tool calls
 for this tier — pass them verbatim to the spawned agent in the briefing below.
 
 ---

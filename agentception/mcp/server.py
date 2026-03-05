@@ -34,6 +34,16 @@ from agentception.mcp.build_tools import (
     build_report_step,
     build_spawn_child,
 )
+from agentception.mcp.github_tools import (
+    github_add_label,
+    github_claim_issue,
+    github_get_issue,
+    github_get_pr,
+    github_list_issues,
+    github_list_prs,
+    github_remove_label,
+    github_unclaim_issue,
+)
 from agentception.mcp.plan_advance_phase import plan_advance_phase
 from agentception.mcp.plan_tools import (
     plan_get_labels,
@@ -184,6 +194,153 @@ TOOLS: list[ACToolDef] = [
                 },
             },
             "required": ["initiative", "from_phase", "to_phase"],
+            "additionalProperties": False,
+        },
+    ),
+    # ── GitHub tools — cached reads + write-through mutations ────────────────
+    ACToolDef(
+        name="github_list_issues",
+        description=(
+            "List GitHub issues for the configured repository, optionally filtered "
+            "by label and state. Reads are cached (10 s TTL). "
+            "Returns {ok, issues: [{number, title, labels, body, state}], count, label, state}."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "label": {
+                    "type": "string",
+                    "description": "Label to filter by (e.g. 'ac-plan/phase-0'). Omit for all.",
+                },
+                "state": {
+                    "type": "string",
+                    "enum": ["open", "closed"],
+                    "description": "Issue state — 'open' (default) or 'closed'.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results (applies to closed issues only). Default 100.",
+                },
+            },
+            "additionalProperties": False,
+        },
+    ),
+    ACToolDef(
+        name="github_get_issue",
+        description=(
+            "Fetch full metadata and body for a single GitHub issue. "
+            "Returns {ok, issue: {number, state, title, labels, body, comments}}."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "number": {
+                    "type": "integer",
+                    "description": "GitHub issue number.",
+                },
+            },
+            "required": ["number"],
+            "additionalProperties": False,
+        },
+    ),
+    ACToolDef(
+        name="github_list_prs",
+        description=(
+            "List pull requests targeting the dev branch. "
+            "Returns {ok, prs: [{number, title, headRefName, labels, state}], count, state}."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "state": {
+                    "type": "string",
+                    "enum": ["open", "merged", "all"],
+                    "description": "PR state — 'open' (default), 'merged', or 'all'.",
+                },
+            },
+            "additionalProperties": False,
+        },
+    ),
+    ACToolDef(
+        name="github_get_pr",
+        description=(
+            "Fetch PR metadata including comments, review decisions, and CI checks. "
+            "Returns {ok, pr: {number, comments, reviews, checks}}."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "number": {
+                    "type": "integer",
+                    "description": "GitHub PR number.",
+                },
+            },
+            "required": ["number"],
+            "additionalProperties": False,
+        },
+    ),
+    ACToolDef(
+        name="github_add_label",
+        description=(
+            "Add a label to a GitHub issue. Invalidates the read cache. "
+            "Returns {ok, issue_number, added}."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "issue_number": {"type": "integer", "description": "GitHub issue number."},
+                "label": {"type": "string", "description": "Label name to add."},
+            },
+            "required": ["issue_number", "label"],
+            "additionalProperties": False,
+        },
+    ),
+    ACToolDef(
+        name="github_remove_label",
+        description=(
+            "Remove a label from a GitHub issue. Idempotent — no error if the label "
+            "is not present. Invalidates the read cache. "
+            "Returns {ok, issue_number, removed}."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "issue_number": {"type": "integer", "description": "GitHub issue number."},
+                "label": {"type": "string", "description": "Label name to remove."},
+            },
+            "required": ["issue_number", "label"],
+            "additionalProperties": False,
+        },
+    ),
+    ACToolDef(
+        name="github_claim_issue",
+        description=(
+            "Claim a GitHub issue for this agent by adding the 'agent:wip' label. "
+            "Call this before starting work to prevent double-claiming. "
+            "Invalidates the read cache. Returns {ok, issue_number, claimed: true}."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "issue_number": {"type": "integer", "description": "GitHub issue number to claim."},
+            },
+            "required": ["issue_number"],
+            "additionalProperties": False,
+        },
+    ),
+    ACToolDef(
+        name="github_unclaim_issue",
+        description=(
+            "Release an issue claim by removing the 'agent:wip' label. "
+            "Call this when finishing or aborting work. "
+            "Invalidates the read cache. Returns {ok, issue_number, claimed: false}."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "issue_number": {"type": "integer", "description": "GitHub issue number to unclaim."},
+            },
+            "required": ["issue_number"],
             "additionalProperties": False,
         },
     ),
@@ -480,6 +637,14 @@ def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
         "build_report_blocker",
         "build_report_decision",
         "build_report_done",
+        "github_list_issues",
+        "github_get_issue",
+        "github_list_prs",
+        "github_get_pr",
+        "github_add_label",
+        "github_remove_label",
+        "github_claim_issue",
+        "github_unclaim_issue",
     ):
         err_text = _tool_result_to_text(
             {"error": f"Tool {name!r} is async — use the async call path"}
@@ -658,6 +823,110 @@ async def call_tool_async(
         return ACToolResult(
             content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
             isError=False,
+        )
+
+    # ── GitHub tools ─────────────────────────────────────────────────────────
+
+    if name == "github_list_issues":
+        label_raw = arguments.get("label")
+        label: str | None = str(label_raw) if isinstance(label_raw, str) else None
+        state_raw = arguments.get("state", "open")
+        state: str = str(state_raw) if isinstance(state_raw, str) else "open"
+        limit_raw = arguments.get("limit", 100)
+        limit: int = int(limit_raw) if isinstance(limit_raw, int) else 100
+        result = await github_list_issues(label=label, state=state, limit=limit)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=not bool(result.get("ok", False)),
+        )
+
+    if name == "github_get_issue":
+        number = arguments.get("number")
+        if not isinstance(number, int):
+            return ACToolResult(
+                content=[ACToolContent(type="text", text='{"error":"number (int) is required"}')],
+                isError=True,
+            )
+        result = await github_get_issue(number)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=not bool(result.get("ok", False)),
+        )
+
+    if name == "github_list_prs":
+        state_raw = arguments.get("state", "open")
+        pr_state: str = str(state_raw) if isinstance(state_raw, str) else "open"
+        result = await github_list_prs(state=pr_state)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=not bool(result.get("ok", False)),
+        )
+
+    if name == "github_get_pr":
+        number = arguments.get("number")
+        if not isinstance(number, int):
+            return ACToolResult(
+                content=[ACToolContent(type="text", text='{"error":"number (int) is required"}')],
+                isError=True,
+            )
+        result = await github_get_pr(number)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=not bool(result.get("ok", False)),
+        )
+
+    if name == "github_add_label":
+        issue_num = arguments.get("issue_number")
+        lbl = arguments.get("label")
+        if not isinstance(issue_num, int) or not isinstance(lbl, str):
+            return ACToolResult(
+                content=[ACToolContent(type="text", text='{"error":"issue_number (int) and label (str) are required"}')],
+                isError=True,
+            )
+        result = await github_add_label(issue_num, lbl)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=not bool(result.get("ok", False)),
+        )
+
+    if name == "github_remove_label":
+        issue_num = arguments.get("issue_number")
+        lbl = arguments.get("label")
+        if not isinstance(issue_num, int) or not isinstance(lbl, str):
+            return ACToolResult(
+                content=[ACToolContent(type="text", text='{"error":"issue_number (int) and label (str) are required"}')],
+                isError=True,
+            )
+        result = await github_remove_label(issue_num, lbl)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=not bool(result.get("ok", False)),
+        )
+
+    if name == "github_claim_issue":
+        issue_num = arguments.get("issue_number")
+        if not isinstance(issue_num, int):
+            return ACToolResult(
+                content=[ACToolContent(type="text", text='{"error":"issue_number (int) is required"}')],
+                isError=True,
+            )
+        result = await github_claim_issue(issue_num)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=not bool(result.get("ok", False)),
+        )
+
+    if name == "github_unclaim_issue":
+        issue_num = arguments.get("issue_number")
+        if not isinstance(issue_num, int):
+            return ACToolResult(
+                content=[ACToolContent(type="text", text='{"error":"issue_number (int) is required"}')],
+                isError=True,
+            )
+        result = await github_unclaim_issue(issue_num)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=not bool(result.get("ok", False)),
         )
 
     # Delegate sync tools

@@ -1,0 +1,110 @@
+  ── CONFLICT PLAYBOOK (reference this immediately when git reports conflicts) ──
+  │                                                                              │
+  │ STEP A — See what conflicted (one command):                                 │
+  │   git status | grep "^UU"                                                   │
+  │                                                                              │
+  │ STEP A.5 — UNIVERSAL TRIAGE (run for EVERY conflict before step B):        │
+  │                                                                              │
+  │   Peek at the conflict shape for each file:                                 │
+  │     git diff --diff-filter=U -- <file> | grep -A6 "^<<<<<<<"               │
+  │                                                                              │
+  │   Apply the FIRST matching rule — stop as soon as one matches:             │
+  │                                                                              │
+  │   RULE 0 ─ ONE SIDE EMPTY (most common in parallel batches):               │
+  │   ┌──────────────────────────────────────────────────────────────────────┐  │
+  │   │  <<<<<<< HEAD                                                        │  │
+  │   │  (blank / whitespace only)        ← this side is empty              │  │
+  │   │  =======                                                             │  │
+  │   │  <real content>                   ← this side has content           │  │
+  │   │  >>>>>>> origin/dev                                                  │  │
+  │   │  — OR the reverse (HEAD has content, origin/dev is blank/stub).     │  │
+  │   │                                                                      │  │
+  │   │  Action: TAKE the non-empty side. Remove markers. Done.             │  │
+  │   │  This is always safe. The empty side is a base-file placeholder,   │  │
+  │   │  NOT intentionally deleted content. No further analysis needed.     │  │
+  │   │  Do NOT open the file to "verify" — just take the non-empty side.  │  │
+  │   └──────────────────────────────────────────────────────────────────────┘  │
+  │                                                                              │
+  │   RULE 1 ─ BOTH SIDES IDENTICAL:                                            │
+  │     Keep either side, remove markers. Done.                                │
+  │                                                                              │
+  │   RULE 2 ─ KNOWN ADDITIVE FILE → apply the file-specific rule in STEP B:  │
+  │     cli/app.py  •  docs/architecture/<module>.md  •  type-contracts.md    │
+  │                                                                              │
+  │   RULE 3 ─ ALL OTHER FILES (judgment conflict):                             │
+  │     Preserve dev's version PLUS {{ conflict_additions_phrase }}.           │
+  │     Semantically incompatible → STOP and report to user. Never guess.     │
+  │                                                                              │
+  │ STEP B — For each conflicted file NOT resolved by STEP A.5 (Rules 0–1):   │
+  │                                                                              │
+  │ ┌─ agentception/cli/app.py (or any CLI registration file) ──────────────┐  │
+  │ │ Each parallel agent adds exactly one registration line.               │  │
+  │ │ Pattern:                                                               │  │
+  │ │   <<<<<<< HEAD                                                         │  │
+  │ │   app.add_typer(foo_app, name="foo", ...)                              │  │
+  │ │   =======                                                              │  │
+  │ │   app.add_typer(bar_app, name="bar", ...)                              │  │
+  │ │   >>>>>>> origin/dev                                                   │  │
+  │ │ Rule: KEEP BOTH LINES. Remove markers. Never drop a line.             │  │
+  │ │ Verify: grep -c "add_typer" agentception/cli/app.py                   │  │
+  │ │   count must equal the total number of registered sub-apps            │  │
+  │ └───────────────────────────────────────────────────────────────────────┘  │
+  │                                                                              │
+  │ ┌─ docs/architecture/<module>.md (any additive architecture doc) ───────┐  │
+  │ │ Count markers first:                                                   │  │
+  │ │   grep -c "^<<<<<" docs/architecture/<module>.md                      │  │
+  │ │ That is how many conflict blocks you must resolve.                     │  │
+  │ │                                                                        │  │
+  │ │ Pattern A — both sides have a real ## section:                        │  │
+  │ │   <<<<<<< HEAD                                                         │  │
+  │ │   ## feature-foo — ...                                                 │  │
+  │ │   =======                                                              │  │
+  │ │   ## feature-bar — ...                                                 │  │
+  │ │   >>>>>>> origin/dev                                                   │  │
+  │ │   Rule: KEEP BOTH, sorted alphabetically by section name.             │  │
+  │ │                                                                        │  │
+  │ │ Pattern B — one side is empty or a blank stub:                        │  │
+  │ │   <<<<<<< HEAD                                                         │  │
+  │ │   (blank or single-line stub)                                          │  │
+  │ │   =======                                                              │  │
+  │ │   ## feature-bar — full content                                        │  │
+  │ │   >>>>>>> origin/dev                                                   │  │
+  │ │   Rule: KEEP the non-empty side entirely. Discard the empty side.    │  │
+  │ │                                                                        │  │
+  │ │ Pattern C — both sides edited the SAME section differently:           │  │
+  │ │   Rule: read both, keep the more complete / accurate version.         │  │
+  │ │   If genuinely unclear, keep both and note in the commit message.     │  │
+  │ │                                                                        │  │
+  │ │ Final check (must return empty):                                       │  │
+  │ │   grep -n "<<<<<<\|=======\|>>>>>>>" docs/architecture/<module>.md   │  │
+  │ └───────────────────────────────────────────────────────────────────────┘  │
+  │                                                                              │
+  │ ┌─ docs/reference/type-contracts.md ────────────────────────────────────┐  │
+  │ │ Rule: KEEP ALL entries from BOTH sides. Remove markers.              │  │
+  │ │ Final check: grep -n "<<<<<<\|=======\|>>>>>>>" docs/reference/type-contracts.md │
+  │ └───────────────────────────────────────────────────────────────────────┘  │
+  │                                                                              │
+  │ ┌─ Any other file (JUDGMENT CONFLICTS) ─────────────────────────────────┐  │
+  │ │ • Preserve dev's version PLUS {{ conflict_additions_phrase }}.       │  │
+  │ │ • If dev already contains the feature → stop and self-destruct.     │  │
+  │ │ • If semantically incompatible → stop, report to user.              │  │
+  │ └───────────────────────────────────────────────────────────────────────┘  │
+  │                                                                              │
+  │ STEP C — After resolving ALL files:                                         │
+  │   git add <resolved-files>                                                  │
+  │   git commit -m "chore: resolve merge conflicts with origin/dev"            │
+  │                                                                              │
+  │ STEP D — Verify clean (no markers anywhere):                                │
+  │   git diff --check    ← must return nothing                                 │
+  │                                                                              │
+  │ STEP E — Re-run mypy only if Python files were in conflict:                 │
+  │   app.py changed → run mypy. Markdown-only conflicts → skip mypy.          │
+  │   cd "$REPO" && docker compose exec agentception sh -c \                   │
+  │     "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"  │
+  │   Re-run targeted tests only if logic files changed.                        │
+  │                                                                              │
+  │ STEP F — Advanced diagnostics if needed:                                    │
+  │   git log --oneline origin/dev...HEAD  ← commits this branch adds          │
+  │   git diff origin/dev...HEAD           ← full delta vs dev                 │
+  │   git show origin/dev:path/to/file     ← see dev's version of a file       │
+  └──────────────────────────────────────────────────────────────────────────────
