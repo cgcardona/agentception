@@ -13,6 +13,7 @@ Run targeted:
     pytest agentception/tests/test_pipeline_panel.py -v
 """
 
+import asyncio
 import time
 from collections.abc import Generator
 from unittest.mock import AsyncMock, patch
@@ -28,11 +29,31 @@ from agentception.models import AgentNode, AgentStatus, BoardIssue, PipelineStat
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 
-@pytest.fixture()
+async def _noop_polling_loop() -> None:
+    """No-op replacement for the real polling_loop in tests.
+
+    The real polling_loop immediately calls tick() which makes live GitHub API
+    and subprocess calls.  That causes the third+ TestClient startup to hang
+    when those calls block.  This coroutine sleeps until cancelled so the
+    lifespan can start and stop cleanly without any network I/O.
+    """
+    try:
+        await asyncio.sleep(float("inf"))
+    except asyncio.CancelledError:
+        return
+
+
+@pytest.fixture(scope="module")
 def client() -> Generator[TestClient, None, None]:
-    """Synchronous test client with full lifespan."""
-    with TestClient(app) as c:
-        yield c
+    """Module-scoped test client with mocked poller.
+
+    Scoped to module so the lifespan (DB init + poller task) starts and stops
+    exactly once for all HTTP route tests in this file, avoiding repeated
+    startup/shutdown overhead and the associated risk of subprocess hangs.
+    """
+    with patch("agentception.app.polling_loop", _noop_polling_loop):
+        with TestClient(app) as c:
+            yield c
 
 
 @pytest.fixture()

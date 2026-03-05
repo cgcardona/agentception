@@ -87,10 +87,10 @@ _PLAN_SEEDS = [
     {
         "label": "🏗️ Tech debt",
         "text": (
-            "- Replace legacy jQuery with Alpine across all pages\n"
-            "- Remove the deprecated v1 API endpoints\n"
-            "- Add mypy strict mode to the agentception module\n"
-            "- Consolidate duplicate GitHub fetch helpers"
+            "- Consolidate duplicate GitHub fetch helpers into a single client\n"
+            "- Add missing type coverage to the remaining untyped modules\n"
+            "- Extract business logic out of route handlers into services\n"
+            "- Replace inline SQL strings with typed SQLAlchemy queries"
         ),
     },
 ]

@@ -163,6 +163,8 @@ async def merge_agents(
                 batch_id=tf.batch_id,
                 worktree_path=tf.worktree,
                 cognitive_arch=tf.cognitive_arch,
+                logical_tier=tf.logical_tier,
+                parent_run_id=tf.parent_run_id,
             )
         )
 

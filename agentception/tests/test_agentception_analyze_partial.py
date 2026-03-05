@@ -250,7 +250,7 @@ def test_overview_shows_analyze_button_for_unclaimed_issues(client: TestClient) 
         polled_at=0.0,
     )
     with patch("agentception.routes.ui.overview.get_state", return_value=state):
-        response = client.get("/")
+        response = client.get("/overview")
 
     assert response.status_code == 200
     html = response.text
@@ -273,7 +273,7 @@ def test_overview_hides_analyze_button_for_claimed_issues(client: TestClient) ->
     # board_issues is empty — claimed issues are filtered before reaching state.
     state = PipelineState.empty()
     with patch("agentception.routes.ui.overview.get_state", return_value=state):
-        response = client.get("/")
+        response = client.get("/overview")
 
     assert response.status_code == 200
     # Issue 99 must not appear in board_issues — it was claimed and filtered out.

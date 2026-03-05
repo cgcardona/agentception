@@ -329,9 +329,9 @@ def test_wizard_state_returns_html_for_htmx(client: TestClient) -> None:
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
     assert "wizard-stepper" in resp.text
-    assert "Brain Dump" in resp.text
-    assert "Org Chart" in resp.text
-    assert "Launch Wave" in resp.text
+    assert "Plan" in resp.text
+    assert "Build" in resp.text
+    assert "Ship" in resp.text
 
 
 # ---------------------------------------------------------------------------

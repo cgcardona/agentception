@@ -236,13 +236,13 @@ class TestRolesTaxonomy:
         assert "application/json" in resp.headers["content-type"]
 
     def test_taxonomy_has_all_tiers(self, client: TestClient) -> None:
-        """Response must contain c_suite, vp, and worker tiers."""
+        """Response must contain c_suite, coordinator, and worker tiers."""
         resp = client.get("/api/org/taxonomy")
         data = resp.json()
         assert "tiers" in data
         tiers = data["tiers"]
         assert "c_suite" in tiers
-        assert "vp" in tiers
+        assert "coordinator" in tiers
         assert "worker" in tiers
 
     def test_taxonomy_tier_has_label_and_roles(self, client: TestClient) -> None:
@@ -263,7 +263,7 @@ class TestRolesTaxonomy:
             all_roles.extend(tier_data["roles"])
         assert "cto" in all_roles
         assert "python-developer" in all_roles
-        assert "vp-engineering" in all_roles
+        assert "engineering-coordinator" in all_roles
 
 
 class TestAddRole:
@@ -390,17 +390,17 @@ class TestUpdateRolePhases:
         tmp_pipeline_config: Path,
     ) -> None:
         """After updating phases, the assigned phases must appear in pipeline-config.json."""
-        client.post("/api/org/roles/add", data={"slug": "vp-engineering"})
+        client.post("/api/org/roles/add", data={"slug": "engineering-coordinator"})
         client.post(
-            "/api/org/roles/vp-engineering/phases",
+            "/api/org/roles/engineering-coordinator/phases",
             data={"phases": ["phase-a", "phase-b"]},
         )
         written = json.loads(tmp_pipeline_config.read_text(encoding="utf-8"))
         roles = written.get("active_org_roles", [])
-        vp = next((r for r in roles if r["slug"] == "vp-engineering"), None)
-        assert vp is not None
-        assert "phase-a" in vp["assigned_phases"]
-        assert "phase-b" in vp["assigned_phases"]
+        coord = next((r for r in roles if r["slug"] == "engineering-coordinator"), None)
+        assert coord is not None
+        assert "phase-a" in coord["assigned_phases"]
+        assert "phase-b" in coord["assigned_phases"]
 
     def test_update_phases_clears_when_empty(
         self,
