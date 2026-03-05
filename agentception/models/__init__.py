@@ -282,17 +282,25 @@ class ProjectConfig(BaseModel):
     The ``active_project`` field in :class:`PipelineConfig` selects which
     project the AgentCeption dashboard currently targets.
 
-    ``worktrees_dir`` supports ``~`` expansion (e.g. ``~/.agentception/worktrees/agentception``).
+    ``repo_dir`` and ``worktrees_dir`` are optional.  When absent, the values
+    from the environment (``REPO_DIR``, ``WORKTREES_DIR``) are used unchanged.
+    Set them only when targeting a *different* repository than the one the
+    service was started against — e.g. in a multi-repo setup.
+    ``worktrees_dir`` supports ``~`` expansion.
+
     ``cursor_project_id`` is the Cursor project slug used to locate transcript files.
-    ``initiative_labels`` is a list of fnmatch-style glob patterns (e.g. ``"ac-*"``,
-    ``"agentception"``) that identify which GitHub labels are treated as initiative
-    tabs on the Build and Ship boards.
+
+    ``initiative_labels`` is a list of fnmatch-style glob patterns (e.g. ``"ac-*"``)
+    that identify which GitHub labels are treated as initiative tabs on the Build
+    and Ship boards.  Patterns are matched only against labels that contain no
+    ``/``, so scoped phase labels (``ac-build/phase-0``) are never surfaced as
+    initiative tabs regardless of the pattern.
     """
 
     name: str
     gh_repo: str
-    repo_dir: str
-    worktrees_dir: str
+    repo_dir: str | None = None
+    worktrees_dir: str | None = None
     cursor_project_id: str | None = None
     initiative_labels: list[str] = []
 

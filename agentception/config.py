@@ -8,8 +8,11 @@ any env vars set.
 
 When ``pipeline-config.json`` contains a ``projects`` list and an
 ``active_project`` name, the model validator applies the matching project's
-``gh_repo``, ``repo_dir``, and ``worktrees_dir`` values over the env-var
-defaults.  This is the primary mechanism for multi-repo support (AC-601).
+``gh_repo`` over the env-var default.  ``repo_dir`` and ``worktrees_dir`` are
+only overridden when the project entry explicitly provides them (non-null),
+which is only needed for multi-repo setups where the active project lives in a
+different directory than the one the service was started against.  For the
+primary repo, omit those fields and let ``REPO_DIR`` / ``WORKTREES_DIR`` win.
 
 :func:`settings.reload` re-applies the active project on demand.  The poller
 calls it at the top of every tick so a project switch via the GUI takes effect
@@ -27,7 +30,13 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_project(raw: dict[str, object], target: AgentCeptionSettings) -> None:
-    """Apply the active project's path overrides from *raw* onto *target* in-place.
+    """Apply the active project's overrides from *raw* onto *target* in-place.
+
+    Only ``gh_repo`` is always applied from the project entry.  ``repo_dir``
+    and ``worktrees_dir`` are applied only when the project entry explicitly
+    provides a non-null string value — omitting them lets the environment
+    variables (``REPO_DIR``, ``WORKTREES_DIR``) remain authoritative, which is
+    the correct behaviour for the primary (single-repo) use case.
 
     Extracted as a module-level helper so both the Pydantic validator and
     :meth:`AgentCeptionSettings.reload` can share identical logic without

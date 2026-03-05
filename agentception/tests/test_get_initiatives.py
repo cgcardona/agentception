@@ -86,6 +86,22 @@ async def test_get_initiatives_patterns_glob_match() -> None:
 
 
 @pytest.mark.anyio
+async def test_get_initiatives_glob_never_matches_scoped_phase_labels() -> None:
+    """``ac-*`` must not surface scoped phase labels (e.g. ``ac-build/phase-0``) as initiative tabs.
+
+    Python's fnmatch ``*`` matches ``/``, so without the ``"/" not in lbl`` guard
+    the pattern would match ``ac-build/phase-0`` and create a phantom tab.
+    """
+    rows = [
+        _make_row(["ac-build", "ac-build/phase-0"]),
+    ]
+    with patch("agentception.db.queries.get_session", _mock_session_context(rows)):
+        result = await get_initiatives("owner/repo", initiative_patterns=["ac-*"])
+    assert result == ["ac-build"]
+    assert "ac-build/phase-0" not in result
+
+
+@pytest.mark.anyio
 async def test_get_initiatives_patterns_excludes_closed_only() -> None:
     """An initiative only appearing on closed issues is not returned."""
     rows = [
