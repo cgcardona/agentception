@@ -146,9 +146,12 @@ def _build_task_file(fields: dict[str, str], worktree_path: Path) -> TaskFile:
         "required_output": fields.get("REQUIRED_OUTPUT"),
         "on_block": fields.get("ON_BLOCK"),
         "cognitive_arch": fields.get("COGNITIVE_ARCH"),
-        # NODE_TYPE is the canonical field written by new code; LOGICAL_TIER is the
-        # legacy alias written by old .agent-task files and preserved for backward compat.
-        "logical_tier": fields.get("NODE_TYPE") or fields.get("LOGICAL_TIER"),
+        # NODE_TYPE — structural position (coordinator | leaf).
+        # LOGICAL_TIER — organisational domain for UI visualisation (qa, engineering, …).
+        # The two concepts are fully separate: a PR reviewer chain-spawned by an
+        # engineering leaf will have NODE_TYPE=leaf and LOGICAL_TIER=qa.
+        "node_type": fields.get("NODE_TYPE"),
+        "logical_tier": fields.get("LOGICAL_TIER"),
         "parent_run_id": fields.get("PARENT_RUN_ID") or None,
     }
     cleaned = {k: v for k, v in raw.items() if v is not None}

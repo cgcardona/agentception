@@ -123,12 +123,22 @@ class ACAgentRun(Base):
     cognitive_arch: Mapped[str | None] = mapped_column(String(256), nullable=True)
     """Cognitive architecture string at spawn time, e.g. ``guido_van_rossum:python``."""
 
-    logical_tier: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    """Node type in the agent tree.
+    node_type: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    """Structural position in the agent tree.
 
     Values: ``coordinator`` | ``leaf``.
     A coordinator surveys its scope and spawns children; a leaf works one issue/PR.
-    Null for legacy rows created before migration 0006. Normalised in migration 0008.
+    Null for rows created before migration 0009.  Populated by migration 0009 from
+    the ``coordinator | leaf`` values that were previously stored in ``logical_tier``.
+    """
+
+    logical_tier: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    """Organisational domain for UI visualisation.
+
+    Free string written by the spawning agent — e.g. ``"qa"``, ``"engineering"``,
+    ``"c-suite"``.  Allows the UI to place a chain-spawned PR reviewer under the
+    QA branch even though its physical ``parent_run_id`` points to an engineering
+    leaf.  Null for rows created before migration 0009.
     """
 
     parent_run_id: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)

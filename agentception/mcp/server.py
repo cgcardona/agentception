@@ -233,6 +233,10 @@ TOOLS: list[ACToolDef] = [
                     "enum": ["coordinator", "leaf"],
                     "description": "'coordinator' if the child surveys a scope and spawns its own children; 'leaf' if it works one issue/PR.",
                 },
+                "logical_tier": {
+                    "type": "string",
+                    "description": "Org domain for UI visualisation (e.g. 'qa', 'engineering', 'c-suite'). Pass 'qa' when chain-spawning a PR reviewer so the dashboard places it under the QA branch. Optional — omit or pass '' to leave unset.",
+                },
                 "scope_type": {
                     "type": "string",
                     "enum": ["label", "issue", "pr"],
@@ -566,6 +570,8 @@ async def call_tool_async(
         issue_body = str(issue_body_raw) if issue_body_raw else ""
         issue_title_raw = arguments.get("issue_title", "")
         issue_title = str(issue_title_raw) if issue_title_raw else ""
+        logical_tier_raw = arguments.get("logical_tier", "")
+        logical_tier = str(logical_tier_raw) if logical_tier_raw else ""
         skills_raw = arguments.get("skills_hint")
         skills_hint: list[str] | None = None
         if isinstance(skills_raw, list):
@@ -577,6 +583,7 @@ async def call_tool_async(
             scope_type=scope_type,
             scope_value=scope_value,
             gh_repo=gh_repo,
+            logical_tier=logical_tier,
             issue_body=issue_body,
             issue_title=issue_title,
             skills_hint=skills_hint,

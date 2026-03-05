@@ -71,7 +71,10 @@ class SpawnChildResult:
         run_id:              Unique run identifier (e.g. ``coord-abc123``).
         host_worktree_path:  Absolute path on the HOST filesystem.
         worktree_path:       Absolute path inside the container.
-        node_type:           ``"coordinator"`` or ``"leaf"``.
+        node_type:           ``"coordinator"`` or ``"leaf"`` (structural position).
+        logical_tier:        Org domain for UI visualisation (e.g. ``"qa"``,
+                             ``"engineering"``, ``"c-suite"``).  May be ``None``
+                             if the caller did not specify one.
         role:                Role slug (e.g. ``"engineering-coordinator"``).
         cognitive_arch:      Resolved COGNITIVE_ARCH string.
         agent_task_path:     Path to the written ``.agent-task`` file.
@@ -84,6 +87,7 @@ class SpawnChildResult:
         "host_worktree_path",
         "worktree_path",
         "node_type",
+        "logical_tier",
         "role",
         "cognitive_arch",
         "agent_task_path",
@@ -98,6 +102,7 @@ class SpawnChildResult:
         host_worktree_path: str,
         worktree_path: str,
         node_type: str,
+        logical_tier: str | None,
         role: str,
         cognitive_arch: str,
         agent_task_path: str,
@@ -108,18 +113,20 @@ class SpawnChildResult:
         self.host_worktree_path = host_worktree_path
         self.worktree_path = worktree_path
         self.node_type = node_type
+        self.logical_tier = logical_tier
         self.role = role
         self.cognitive_arch = cognitive_arch
         self.agent_task_path = agent_task_path
         self.scope_type = scope_type
         self.scope_value = scope_value
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> dict[str, str | None]:
         return {
             "run_id": self.run_id,
             "host_worktree_path": self.host_worktree_path,
             "worktree_path": self.worktree_path,
             "node_type": self.node_type,
+            "logical_tier": self.logical_tier,
             "role": self.role,
             "cognitive_arch": self.cognitive_arch,
             "agent_task_path": self.agent_task_path,
@@ -171,6 +178,7 @@ def _build_child_task(
     run_id: str,
     role: str,
     node_type: str,
+    logical_tier: str | None,
     scope_type: ScopeType,
     scope_value: str,
     gh_repo: str,
@@ -190,6 +198,11 @@ def _build_child_task(
     The format is identical regardless of node type or scope type so that the
     Dispatcher, the universal manager briefing, and all role files can use
     the same parsing logic.
+
+    ``node_type`` is the structural position (``coordinator`` | ``leaf``).
+    ``logical_tier`` is the organisational domain for UI visualisation
+    (e.g. ``"qa"``, ``"engineering"``, ``"c-suite"``).  Written only when
+    provided; the field is omitted from the file when ``None``.
     """
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     role_file = str(
@@ -214,6 +227,10 @@ def _build_child_task(
         f"ROLE_FILE={role_file}",
         f"COGNITIVE_ARCH={cognitive_arch}",
     ]
+
+    # LOGICAL_TIER is optional — only written when the caller provides an org domain.
+    if logical_tier:
+        lines.append(f"LOGICAL_TIER={logical_tier}")
 
     # Scope-specific supplemental fields
     if scope_type == "issue" and issue_number is not None:
@@ -265,6 +282,7 @@ async def spawn_child(
     parent_run_id: str,
     role: str,
     node_type: NodeType,
+    logical_tier: str | None = None,
     scope_type: ScopeType,
     scope_value: str,
     gh_repo: str,
@@ -285,6 +303,14 @@ async def spawn_child(
                         ``"leaf"`` if it works one issue/PR directly.
                         The caller always knows which type it is spawning —
                         this is never derived from the role slug.
+        logical_tier:   Organisational domain for UI visualisation, e.g.
+                        ``"qa"``, ``"engineering"``, ``"c-suite"``.  Optional —
+                        when provided it is written as ``LOGICAL_TIER=`` in the
+                        ``.agent-task`` file and stored in the DB.  A
+                        chain-spawned PR reviewer should pass ``"qa"`` so the
+                        dashboard can display it under the QA branch even though
+                        its physical ``parent_run_id`` points to an engineering
+                        leaf.
         scope_type:     ``"label"``, ``"issue"``, or ``"pr"``.
         scope_value:    Label string, or issue/PR number as a string.
         gh_repo:        ``"owner/repo"`` string.
@@ -327,8 +353,8 @@ async def spawn_child(
         skills_hint=skills_hint,
     )
     logger.info(
-        "🌳 spawn_child: role=%r node_type=%r scope=%s:%s arch=%r",
-        role, node_type, scope_type, scope_value, cognitive_arch,
+        "🌳 spawn_child: role=%r node_type=%r logical_tier=%r scope=%s:%s arch=%r",
+        role, node_type, logical_tier, scope_type, scope_value, cognitive_arch,
     )
 
     # Create git worktree
@@ -351,6 +377,7 @@ async def spawn_child(
         run_id=run_id,
         role=role,
         node_type=node_type,
+        logical_tier=logical_tier,
         scope_type=scope_type,
         scope_value=scope_value,
         gh_repo=gh_repo,
@@ -394,7 +421,8 @@ async def spawn_child(
         batch_id=batch_id,
         host_worktree_path=host_worktree_path,
         cognitive_arch=cognitive_arch,
-        logical_tier=node_type,
+        node_type=node_type,
+        logical_tier=logical_tier,
         parent_run_id=parent_run_id,
     )
 
@@ -407,6 +435,7 @@ async def spawn_child(
         host_worktree_path=host_worktree_path,
         worktree_path=worktree_path,
         node_type=node_type,
+        logical_tier=logical_tier,
         role=role,
         cognitive_arch=cognitive_arch,
         agent_task_path=agent_task_path,
