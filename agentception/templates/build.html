@@ -38,8 +38,9 @@
 
     {# ── left: phase board ─────────────────────────────────────────────── #}
     <section class="build-board"
+             id="build-board"
              hx-get="/build/board?initiative={{ initiative }}"
-             hx-trigger="load, every 10s"
+             hx-trigger="load, every 10s, refreshBoard from:body"
              hx-swap="innerHTML"
     >
       {% include "_build_board.html" %}
