@@ -58,6 +58,39 @@
       {%- if run %} build-issue--has-run{%- endif %}"
       {%- if not group.complete and run %}@click='$dispatch("inspect-issue", {{ issue | tojson }})'{% endif %}
     >
+      {% if run %}
+      <div class="build-issue__icon-links">
+        <a class="build-issue__icon-link"
+           href="/agents/{{ run.id }}"
+           title="View agent transcript"
+           target="_blank"
+           rel="noopener"
+           @click.stop>
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M10 2h4v4"/>
+            <path d="M14 2L9 7"/>
+            <path d="M7 3H3a1 1 0 00-1 1v9a1 1 0 001 1h9a1 1 0 001-1V9"/>
+          </svg>
+        </a>
+        {% if run.cognitive_arch %}
+        <a class="build-issue__icon-link"
+           href="/cognitive-arch#{{ run.cognitive_arch }}"
+           title="View cognitive architecture: {{ run.cognitive_arch }}"
+           target="_blank"
+           rel="noopener"
+           @click.stop>
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="5" cy="5" r="2"/>
+            <circle cx="11" cy="5" r="2"/>
+            <circle cx="8" cy="12" r="2"/>
+            <line x1="7" y1="5" x2="9" y2="5"/>
+            <line x1="5.8" y1="6.8" x2="7.2" y2="10.2"/>
+            <line x1="10.2" y1="6.8" x2="8.8" y2="10.2"/>
+          </svg>
+        </a>
+        {% endif %}
+      </div>
+      {% endif %}
       <div class="build-issue__header">
         <a class="build-issue__number" href="{{ issue.url }}" target="_blank" rel="noopener" @click.stop>
           #{{ issue.number }}

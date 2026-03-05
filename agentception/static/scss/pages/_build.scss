@@ -549,6 +549,51 @@
   }
 }
 
+// ── Card icon links (hover-revealed — transcript + cognitive arch) ────────────
+
+.build-issue__icon-links {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  display: flex;
+  gap: 0.2rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s var(--ease-out);
+  z-index: 1;
+}
+
+// Reveal on hover for any card that is not pointer-events:none (i.e. not --done)
+.build-issue:not(.build-issue--done):hover .build-issue__icon-links {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.build-issue__icon-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  color: var(--text-faint);
+  text-decoration: none;
+  transition:
+    color       0.15s var(--ease-out),
+    background  0.15s var(--ease-out),
+    border-color 0.15s var(--ease-out);
+
+  svg { flex-shrink: 0; display: block; }
+
+  &:hover {
+    color: var(--accent-bright);
+    background: var(--bg-overlay);
+    border-color: var(--accent);
+  }
+}
+
 // ── "Show more" for unphased ──────────────────────────────────────────────────
 
 .build-load-more {
