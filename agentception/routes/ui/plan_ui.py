@@ -34,7 +34,6 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from starlette.requests import Request
 
-from agentception.readers.phase_planner import plan_phases
 from agentception.readers.llm_phase_planner import _strip_fences
 from agentception.services.llm import call_openrouter_stream
 from ._shared import _TEMPLATES
@@ -276,9 +275,7 @@ async def plan_preview(body: PlanDraftRequest) -> StreamingResponse:
     Returns ``text/event-stream``.  Each event is a JSON object on a ``data:``
     line.  See module docstring for the full event shape reference.
 
-    When ``OPENROUTER_API_KEY`` is set the LLM path streams tokens in real
-    time so the browser can show progress.  When the key is absent the heuristic
-    fallback emits a single ``done`` event immediately.
+    Requires ``OPENROUTER_API_KEY`` to be configured — returns HTTP 503 if absent.
     """
     from agentception.config import settings as _cfg
     from agentception.models import PlanSpec
@@ -366,41 +363,13 @@ async def plan_preview(body: PlanDraftRequest) -> StreamingResponse:
             logger.error("❌ Plan stream error: %s | accumulated (200): %s", exc, accumulated[:200])
             yield _sse({"t": "error", "detail": str(exc)})
 
-    async def _heuristic_stream() -> AsyncGenerator[str, None]:
-        """Emit a single ``done`` event from the keyword heuristic (no LLM)."""
-        try:
-            result = plan_phases(dump)
-        except ValueError as exc:
-            yield _sse({"t": "error", "detail": str(exc)})
-            return
+    if not _cfg.openrouter_api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="OPENROUTER_API_KEY is not configured. Set it to use the Plan step.",
+        )
 
-        initiative = body.label_prefix or "plan"
-        phase_lines = [f"initiative: {initiative}", "phases:"]
-        prev_labels: list[str] = []
-        total = 0
-        for ph in result.phases:
-            phase_lines.append(f"  - label: {ph.label}")
-            phase_lines.append(f'    description: "{ph.description}"')
-            deps = "[" + ", ".join(prev_labels) + "]" if prev_labels else "[]"
-            phase_lines.append(f"    depends_on: {deps}")
-            phase_lines.append("    issues:")
-            phase_lines.append(f'      - title: "{ph.description}"')
-            phase_lines.append(f'        body: "Implement: {ph.description}"')
-            phase_lines.append("        depends_on: []")
-            prev_labels.append(ph.label)
-            total += 1
-
-        yaml_str = "\n".join(phase_lines) + "\n"
-        yield _sse({
-            "t": "done",
-            "yaml": yaml_str,
-            "initiative": initiative,
-            "phase_count": len(result.phases),
-            "issue_count": total,
-        })
-
-    generator = _llm_stream() if _cfg.openrouter_api_key else _heuristic_stream()
-    return StreamingResponse(generator, media_type="text/event-stream")
+    return StreamingResponse(_llm_stream(), media_type="text/event-stream")
 
 
 class PlanValidateRequest(BaseModel):
