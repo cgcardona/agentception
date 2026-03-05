@@ -1,29 +1,38 @@
 'use strict';
 
 /**
- * Powers the Plan page — Write → Review (CodeMirror 6 YAML) → Done.
+ * Powers the Plan page — Write → Generating → Review (CodeMirror 6 YAML) → Done.
  *
  * State machine:
  *   write      — textarea, user composes their plan
- *   generating — waiting for POST /api/plan/preview (LLM call, ~5-15s)
+ *   generating — waiting for SSE plan_draft_ready (Cursor agent async, ~30-120s)
  *   review     — CodeMirror 6 YAML editor, editable, validate-on-change
- *   launching  — waiting for POST /api/plan/launch
- *   done       — coordinator spawned, success summary
+ *   launching  — waiting for POST /api/plan/file-issues SSE stream
+ *   done       — issues filed, success summary
  *
- * Architecture note
- * -----------------
- * This component talks to two endpoints:
+ * Architecture note (Plan v2 — async MCP-native flow)
+ * ----------------------------------------------------
+ * This component talks to three endpoints:
  *
- *   POST /api/plan/preview  { dump, label_prefix }
- *     → { yaml, initiative, phase_count, issue_count }
- *     Claude (via AgentCeption → OpenRouter) returns a PlanSpec YAML.
- *     No MCP, no Cursor, no worktrees involved here.
+ *   POST /api/plan/draft  { text }
+ *     → { draft_id, task_file, output_path, status: "pending" }
+ *     Creates a git worktree + .agent-task file.  A Cursor agent picks the
+ *     task up, calls plan_get_schema() to retrieve the PlanSpec TOML schema,
+ *     and writes the finished YAML to output_path.  Fire-and-forget from the
+ *     HTTP perspective — the caller must subscribe to SSE for completion.
+ *
+ *   GET /events  (EventSource / SSE)
+ *     Streams PipelineState JSON every ~5 s.  When the poller detects that
+ *     output_path has appeared on disk it emits plan_draft_ready inside
+ *     PipelineState.plan_draft_events (deduplicated — fires exactly once per
+ *     draft_id).  The UI resolves its _waitForDraftReady() Promise here and
+ *     transitions to the review step.  Times out after 60 s.
  *
  *   POST /api/plan/file-issues  { yaml_text }  (SSE stream)
  *     AgentCeption validates the YAML, ensures GitHub labels exist, then
- *     creates issues phase-by-phase using gh CLI.  No agents, no LLM calls.
- *     The SSE stream reports progress per-issue so the user sees real-time
- *     filing status.  On done, the UI flips to the success state with links.
+ *     creates issues phase-by-phase using gh CLI.  The SSE stream reports
+ *     progress per-issue so the user sees real-time filing status.  On done,
+ *     the UI flips to the success state with links.
  *
  * CodeMirror 6 is bundled by esbuild — no CDN, no Web Workers, no AMD loader.
  * This avoids the cross-origin worker crashes that affect Monaco CDN usage.
@@ -49,7 +58,14 @@ export function planForm() {
     errorMsg: '',
     result: {},
 
-    // ── Review metadata (from /api/plan/preview response) ──────────────────
+    // ── Draft state (Plan v2 async flow) ──────────────────────────────────
+    // draft_id is returned by POST /api/plan/draft and used to match the
+    // plan_draft_ready SSE event emitted by the poller.
+    draft_id: '',
+    _sseSource: null,    // EventSource subscribed to /events during generating
+    _draftTimeout: null, // setTimeout handle — 60 s hard deadline
+
+    // ── Review metadata (from plan_draft_ready SSE event) ─────────────────
     initiative: '',
     phaseCount: 0,
     issueCount: 0,
@@ -67,13 +83,11 @@ export function planForm() {
     yamlValidationMsg: '',
     _validateTimer: null,
 
-    // ── Streaming output ───────────────────────────────────────────────────
-    streamingText: '',  // output YAML tokens (live preview while generating)
-
-    // Internal write buffer — flushed to Alpine state once per animation frame
-    // so we don't trigger hundreds of reactive updates per second.
-    _streamBuf: '',
-    _streamFlush: null,
+    // ── Streaming output — kept for backward template compatibility ────────
+    // In the Plan v2 async flow the Cursor agent writes the full YAML file
+    // directly; there are no token-by-token chunks.  streamingText stays
+    // empty and the stream display section in plan.html is hidden (x-show).
+    streamingText: '',
 
     // ── Loading message rotation ───────────────────────────────────────────
     loadingMsg: 'Amplifying your intelligence…',
@@ -159,12 +173,35 @@ export function planForm() {
     },
 
     cancel() {
+      this._closeSse();
       this.step = 'write';
       this.submitting = false;
       this.errorMsg = '';
     },
 
-    // ── Step 1.A: POST /api/plan/preview — get PlanSpec YAML from LLM ─────
+    // ── Internal SSE cleanup ───────────────────────────────────────────────
+
+    _closeSse() {
+      if (this._draftTimeout !== null) {
+        clearTimeout(this._draftTimeout);
+        this._draftTimeout = null;
+      }
+      if (this._sseSource !== null) {
+        this._sseSource.close();
+        this._sseSource = null;
+      }
+    },
+
+    // ── Step 1.A: POST /api/plan/draft — async plan generation via Cursor ──
+    //
+    // Flow:
+    //   1. POST /api/plan/draft { text } → { draft_id, task_file, output_path }
+    //   2. Subscribe to GET /events (EventSource).
+    //   3. On each PipelineState tick, inspect plan_draft_events for an entry
+    //      whose draft_id matches ours.
+    //   4a. plan_draft_ready  → load yaml_text into CodeMirror, flip to review.
+    //   4b. plan_draft_timeout (server-side) → reject with timeout message.
+    //   5. If 60 s elapse client-side without a match → reject with timeout.
 
     async submit() {
       const trimmed = this.text.trim();
@@ -174,79 +211,64 @@ export function planForm() {
       this.step = 'generating';
       this.submitting = true;
       try {
-        const resp = await fetch('/api/plan/preview', {
+        const resp = await fetch('/api/plan/draft', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ dump: trimmed, label_prefix: this.labelPrefix.trim() }),
+          body: JSON.stringify({ text: trimmed }),
         });
         if (!resp.ok) {
           const errBody = await resp.json().catch(() => ({}));
           throw new Error(errBody.detail || `HTTP ${resp.status}`);
         }
-
-        // Read the SSE stream.  The server emits three event types:
-        //   {"t":"chunk","text":"..."}  — raw token(s), append to display
-        //   {"t":"done", "yaml":"...", "initiative":"...", ...}  — complete
-        //   {"t":"error","detail":"..."}  — something went wrong
-        const reader = resp.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let doneData = null;
-
-        outer: while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-
-          // SSE lines are separated by \n\n; split on \n and process complete lines.
-          const lines = buffer.split('\n');
-          buffer = lines.pop() ?? ''; // hold the (possibly incomplete) last chunk
-
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            const raw = line.slice(6).trim();
-            if (!raw) continue;
-            let msg;
-            try { msg = JSON.parse(raw); } catch { continue; }
-
-            if (msg.t === 'chunk') {
-              this._appendStream(msg.text);
-
-            } else if (msg.t === 'done') {
-              doneData = msg;
-              break outer;
-
-            } else if (msg.t === 'error') {
-              throw new Error(msg.detail || 'Plan generation failed.');
-            }
-          }
-        }
-
-        if (!doneData) throw new Error('Stream ended without a done event.');
-
-        this.initiative = doneData.initiative || 'plan';
-        this.phaseCount  = doneData.phase_count  ?? 0;
-        this.issueCount  = doneData.issue_count  ?? 0;
-
-        // Flush any remaining buffered stream text before changing step,
-        // so the buffers are empty when the generating div disappears.
-        this._flushStream();
-
-        // Flip to review. One nextTick lets Alpine process the x-show change.
-        this.step = 'review';
-        await this.$nextTick();
-
-        // Mount (or reuse) the CodeMirror editor and load the YAML.
-        this._mountEditor(doneData.yaml || '');
-
-        this.yamlValid = true;
-        this.yamlValidationMsg = `✓ Valid — ${this.phaseCount} phases, ${this.issueCount} issues`;
+        const data = await resp.json();
+        this.draft_id = data.draft_id ?? '';
+        await this._waitForDraftReady();
       } catch (err) {
         this.errorMsg = err.message;
         this.step = 'write';
       } finally {
         this.submitting = false;
       }
+    },
+
+    // Returns a Promise that resolves when the SSE plan_draft_ready event
+    // matching this.draft_id arrives, or rejects on timeout / error.
+    _waitForDraftReady() {
+      return new Promise((resolve, reject) => {
+        const source = new EventSource('/events');
+        this._sseSource = source;
+
+        this._draftTimeout = setTimeout(() => {
+          this._closeSse();
+          reject(new Error('Plan generation timed out after 60 s. Please try again.'));
+        }, 60_000);
+
+        source.onmessage = (ev) => {
+          let state;
+          try { state = JSON.parse(ev.data); } catch { return; }
+          const events = state.plan_draft_events ?? [];
+          for (const pde of events) {
+            if (pde.draft_id !== this.draft_id) continue;
+            this._closeSse();
+            if (pde.event === 'plan_draft_ready') {
+              const yamlText = pde.yaml_text ?? '';
+              this.step = 'review';
+              this.yamlValid = true;
+              this.yamlValidationMsg = '✓ Plan ready — review and edit before launching';
+              this.$nextTick(() => this._mountEditor(yamlText));
+              resolve(undefined);
+            } else {
+              reject(new Error('Plan generation timed out on the server. Please try again.'));
+            }
+            return;
+          }
+        };
+
+        source.onerror = () => {
+          this._closeSse();
+          reject(new Error('SSE connection lost while waiting for plan. Please try again.'));
+        };
+      });
     },
 
     // ── Step 1.B: go back to textarea, keep text intact ───────────────────
@@ -370,13 +392,14 @@ export function planForm() {
     // ── Reset: start a new plan ────────────────────────────────────────────
 
     reset() {
+      this._closeSse();
       this.step = 'write';
       this.text = '';
       this.labelPrefix = '';
       this.showOptions = false;
       this.errorMsg = '';
       this.streamingText = '';
-      this._streamBuf = '';
+      this.draft_id = '';
       this.initiative = '';
       this.phaseCount = 0;
       this.issueCount = 0;
@@ -421,27 +444,6 @@ export function planForm() {
       } catch (err) {
         this.errorMsg = err.message || 'Failed to load previous run.';
       }
-    },
-
-    // ── Stream buffering helpers ───────────────────────────────────────────
-    // Alpine reactive updates are expensive — batch them to one per animation
-    // frame instead of firing once per token (~50-300 times/second).
-
-    _appendStream(text) {
-      this._streamBuf += text;
-      if (!this._streamFlush) {
-        this._streamFlush = requestAnimationFrame(() => this._flushStream());
-      }
-    },
-
-    _flushStream() {
-      if (this._streamBuf) {
-        this.streamingText += this._streamBuf;
-        this._streamBuf = '';
-        const el = this.$refs.streamDisplay;
-        if (el) el.scrollTop = el.scrollHeight;
-      }
-      this._streamFlush = null;
     },
 
     // ── CodeMirror 6 editor ────────────────────────────────────────────────
