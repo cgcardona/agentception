@@ -219,6 +219,43 @@ def test_build_child_task_coordinator_includes_both_queries() -> None:
     assert "github_list_prs" in task
 
 
+def test_build_child_task_coord_fingerprint_written_when_provided() -> None:
+    """COORD_FINGERPRINT is written to the task file when the caller provides it."""
+    task = _make_task(
+        node_type="leaf",
+        role="python-developer",
+        scope_type="issue",
+        scope_value="42",
+        issue_number=42,
+    )
+    # Without coord_fingerprint — field must be absent.
+    assert "COORD_FINGERPRINT=" not in task
+
+
+def test_build_child_task_coord_fingerprint_present() -> None:
+    """When coord_fingerprint is supplied it appears verbatim in the task file."""
+    fp = "Engineering Coordinator · batch-abc123"
+    task = _build_child_task(
+        run_id="issue-42-abc",
+        role="python-developer",
+        node_type="leaf",
+        logical_tier="engineering",
+        scope_type="issue",
+        scope_value="42",
+        gh_repo="owner/repo",
+        branch="feat/issue-42-ab12",
+        worktree_path="/worktrees/issue-42-abc",
+        host_worktree_path="/host/worktrees/issue-42-abc",
+        batch_id="issue-42-20260305T000000Z-ab12",
+        parent_run_id="coord-ac-xyz",
+        cognitive_arch="ada_lovelace:python",
+        ac_url="http://localhost:10003",
+        coord_fingerprint=fp,
+        issue_number=42,
+    )
+    assert f"COORD_FINGERPRINT={fp}" in task
+
+
 # ---------------------------------------------------------------------------
 # spawn_child — explicit node_type parameter, happy paths
 # ---------------------------------------------------------------------------

@@ -76,7 +76,9 @@
     {% if active_run %}
     <div class="build-issue__run">
       <span class="build-issue__role">{{ active_run.role }}</span>
-      <span class="build-issue__status build-issue__status--{{ active_run.agent_status }}">{{ active_run.agent_status }}</span>
+      <span class="build-issue__status build-issue__status--{{ active_run.agent_status }}">
+        {%- if active_run.agent_status == 'stale' %}⚠ stale{%- else %}{{ active_run.agent_status }}{%- endif %}
+      </span>
       {% if active_run.node_type %}
       <span class="build-issue__tier build-issue__tier--{{ active_run.node_type }}">
         {{- active_run.logical_tier or active_run.node_type -}}
@@ -145,7 +147,7 @@
       {% set bns.reviewing = bns.reviewing + [issue] %}
     {% elif _ar and _ar.pr_number %}
       {% set bns.pr_open = bns.pr_open + [issue] %}
-    {% elif _ar and _ar.agent_status in ('implementing', 'pending_launch') %}
+    {% elif _ar and _ar.agent_status in ('implementing', 'pending_launch', 'stale') %}
       {% set bns.active = bns.active + [issue] %}
     {% else %}
       {% set bns.todo = bns.todo + [issue] %}

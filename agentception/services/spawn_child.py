@@ -189,6 +189,7 @@ def _build_child_task(
     parent_run_id: str,
     cognitive_arch: str,
     ac_url: str,
+    coord_fingerprint: str | None = None,
     issue_title: str = "",
     issue_number: int | None = None,
     pr_number: int | None = None,
@@ -231,6 +232,11 @@ def _build_child_task(
     # LOGICAL_TIER is optional — only written when the caller provides an org domain.
     if logical_tier:
         lines.append(f"LOGICAL_TIER={logical_tier}")
+
+    # COORD_FINGERPRINT propagates the coordinator's identity to leaf agents so
+    # they can include it in their fingerprint comments on GitHub issues and PRs.
+    if coord_fingerprint:
+        lines.append(f"COORD_FINGERPRINT={coord_fingerprint}")
 
     # Scope-specific supplemental fields
     if scope_type == "issue" and issue_number is not None:
@@ -290,6 +296,7 @@ async def spawn_child(
     issue_body: str = "",
     issue_title: str = "",
     skills_hint: list[str] | None = None,
+    coord_fingerprint: str | None = None,
 ) -> SpawnChildResult:
     """Atomically create a child agent node in the agent tree.
 
@@ -298,26 +305,30 @@ async def spawn_child(
     caller can immediately fire a Task tool call.
 
     Args:
-        parent_run_id:  ``run_id`` of the calling agent (lineage tracking).
-        role:           Child's role slug (e.g. ``"engineering-coordinator"``).
-        node_type:      ``"coordinator"`` if the child spawns children;
-                        ``"leaf"`` if it works one issue/PR directly.
-                        The caller always knows which type it is spawning —
-                        this is never derived from the role slug.
-        logical_tier:   Organisational domain for UI visualisation, e.g.
-                        ``"qa"``, ``"engineering"``, ``"c-suite"``.  Optional —
-                        when provided it is written as ``LOGICAL_TIER=`` in the
-                        ``.agent-task`` file and stored in the DB.  A
-                        chain-spawned PR reviewer should pass ``"qa"`` so the
-                        dashboard can display it under the QA branch even though
-                        its physical ``parent_run_id`` points to an engineering
-                        leaf.
-        scope_type:     ``"label"``, ``"issue"``, or ``"pr"``.
-        scope_value:    Label string, or issue/PR number as a string.
-        gh_repo:        ``"owner/repo"`` string.
-        issue_body:     Issue body text (used for COGNITIVE_ARCH skill extraction).
-        issue_title:    Issue title (written to ISSUE_TITLE field).
-        skills_hint:    Explicit skill list override for COGNITIVE_ARCH.
+        parent_run_id:      ``run_id`` of the calling agent (lineage tracking).
+        role:               Child's role slug (e.g. ``"engineering-coordinator"``).
+        node_type:          ``"coordinator"`` if the child spawns children;
+                            ``"leaf"`` if it works one issue/PR directly.
+                            The caller always knows which type it is spawning —
+                            this is never derived from the role slug.
+        logical_tier:       Organisational domain for UI visualisation, e.g.
+                            ``"qa"``, ``"engineering"``, ``"c-suite"``.  Optional —
+                            when provided it is written as ``LOGICAL_TIER=`` in the
+                            ``.agent-task`` file and stored in the DB.  A
+                            chain-spawned PR reviewer should pass ``"qa"`` so the
+                            dashboard can display it under the QA branch even though
+                            its physical ``parent_run_id`` points to an engineering
+                            leaf.
+        scope_type:         ``"label"``, ``"issue"``, or ``"pr"``.
+        scope_value:        Label string, or issue/PR number as a string.
+        gh_repo:            ``"owner/repo"`` string.
+        issue_body:         Issue body text (used for COGNITIVE_ARCH skill extraction).
+        issue_title:        Issue title (written to ISSUE_TITLE field).
+        skills_hint:        Explicit skill list override for COGNITIVE_ARCH.
+        coord_fingerprint:  The spawning coordinator's fingerprint string.  Written
+                            as ``COORD_FINGERPRINT=`` in the child's ``.agent-task``
+                            so leaf agents can include it in their GitHub fingerprint
+                            comments without having to re-derive it.
 
     Returns:
         :class:`SpawnChildResult` with all fields needed to fire a Task call.
@@ -389,6 +400,7 @@ async def spawn_child(
         parent_run_id=parent_run_id,
         cognitive_arch=cognitive_arch,
         ac_url=ac_url,
+        coord_fingerprint=coord_fingerprint,
         issue_title=issue_title,
         issue_number=issue_number,
         pr_number=pr_number,

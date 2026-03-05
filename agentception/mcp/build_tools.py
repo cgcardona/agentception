@@ -146,6 +146,7 @@ async def build_spawn_child(
     issue_body: str = "",
     issue_title: str = "",
     skills_hint: list[str] | None = None,
+    coord_fingerprint: str | None = None,
 ) -> dict[str, object]:
     """Create a child agent node in the tree and return its worktree path.
 
@@ -170,9 +171,11 @@ async def build_spawn_child(
                         chain-spawning a PR reviewer so the dashboard places it
                         under the QA branch.  Optional — omit or pass ``""`` to
                         leave the field unset.
-        issue_body:     Issue body for COGNITIVE_ARCH skill extraction.
-        issue_title:    Issue title written to ISSUE_TITLE field.
-        skills_hint:    Explicit skill override list for COGNITIVE_ARCH.
+        issue_body:         Issue body for COGNITIVE_ARCH skill extraction.
+        issue_title:        Issue title written to ISSUE_TITLE field.
+        skills_hint:        Explicit skill override list for COGNITIVE_ARCH.
+        coord_fingerprint:  The spawning coordinator's fingerprint string, written
+                            as COORD_FINGERPRINT in the child's .agent-task.
 
     Returns:
         On success: ``{"ok": True, "run_id": ..., "host_worktree_path": ...,
@@ -209,6 +212,7 @@ async def build_spawn_child(
             issue_body=issue_body,
             issue_title=issue_title,
             skills_hint=skills_hint,
+            coord_fingerprint=coord_fingerprint,
         )
     except SpawnChildError as exc:
         logger.error("❌ build_spawn_child failed: %s", exc)
