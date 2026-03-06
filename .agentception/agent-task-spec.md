@@ -33,7 +33,7 @@ extensible at zero cost.
 [task]          # Core identity and lifecycle control
 [agent]         # Who is running this task
 [repo]          # GitHub and git coordinates
-[pipeline]      # Batch/wave/VP lineage for traceability
+[pipeline]      # Batch/wave/coordinator lineage for traceability
 [spawn]         # Orchestration control: chaining, sub-agents
 [target]        # What this task acts on (issue, PR, or custom)
 [worktree]      # Local filesystem coordinates
@@ -98,7 +98,7 @@ Who is executing this task.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `role` | string | yes | Role slug: `"python-developer"`, `"pr-reviewer"`, `"qa-manager"`, etc. |
+| `role` | string | yes | Role slug: `"python-developer"`, `"pr-reviewer"`, `"qa-coordinator"`, etc. |
 | `tier` | string | yes | Behavioral execution tier: `"executive"` \| `"coordinator"` \| `"engineer"` \| `"reviewer"`. Written as `TIER=` in the `.agent-task` file. Tells the agent and the dashboard its place in the pipeline hierarchy. |
 | `org_domain` | string | no | Organisational slot for UI hierarchy: `"c-suite"` \| `"engineering"` \| `"qa"`. Written as `ORG_DOMAIN=` when provided. A chain-spawned PR reviewer with `tier=reviewer` should have `org_domain=qa` so the dashboard places it under the QA column regardless of its physical parent. |
 | `cognitive_arch` | string | yes | `"figure:skill1:skill2"` — resolved by `resolve_arch.py` |
@@ -139,11 +139,11 @@ Lineage for traceability. Every artifact produced (commit, PR, issue comment) em
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `batch_id` | string | yes | VP-level batch fingerprint: `"eng-20260303T134821Z-a7f2"` |
+| `batch_id` | string | yes | Coordinator-level batch fingerprint: `"eng-20260303T134821Z-a7f2"` |
 | `parent_run_id` | string | no | `run_id` of the agent that physically spawned this one. Empty for root (CTO). For chain-spawned reviewers this is the engineer's `run_id`, not the coordinator's — the dashboard uses `agent.org_domain` to position the node in the UI hierarchy regardless. |
 | `wave` | string | no | Named wave: `"5-plan-step-v2"` |
 | `coord_fingerprint` | string | no | The spawning coordinator's fingerprint string (role + batch ID). Written by the spawner via `build_spawn_child(coord_fingerprint=...)` and read by leaf agents to include in GitHub issue/PR fingerprint comments without re-deriving it. Format: `"Engineering Coordinator · <batch_id>"`. |
-| `vp_fingerprint` | string | no | VP agent's session ID — propagated to leaf agents |
+| `vp_fingerprint` | string | no | Coordinator agent's session ID — propagated to leaf agents (legacy field name) |
 | `cto_wave` | string | no | CTO-level orchestration round for full-pipeline traces |
 
 Commit message trailers written by every agent:

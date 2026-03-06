@@ -82,8 +82,8 @@ scripts/gen_prompts/
   templates/                       ← Jinja2 templates for all .agentception/roles/ prompt files
     roles/
       cto.md.j2
-      engineering-manager.md.j2
-      qa-manager.md.j2
+      engineering-coordinator.md.j2
+      qa-coordinator.md.j2
       pr-reviewer.md.j2
       python-developer.md.j2
       coordinator.md.j2
@@ -195,7 +195,7 @@ Each value carries a `prompt_fragment` — actual text that gets injected into t
 
 ### Usage in `.agent-task`
 
-The engineering-manager writes `COGNITIVE_ARCH` to `.agent-task` at spawn time:
+The engineering coordinator writes `COGNITIVE_ARCH` to `.agent-task` at spawn time:
 
 ```bash
 ISSUE=671

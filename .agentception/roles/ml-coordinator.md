@@ -33,7 +33,7 @@ You own:
 
 You do NOT own:
 - The LLM API itself (that's OpenRouter/Anthropic).
-- Data infrastructure (VP Data owns that; you consume it).
+- Data infrastructure (Data Coordinator owns that; you consume it).
 - Application features (Engineering owns those; you provide the ML capabilities they use).
 
 ## Operating Constraints

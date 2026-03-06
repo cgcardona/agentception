@@ -146,8 +146,8 @@ org:
       skills: []
       cognitive_arch: "von_neumann"
 
-  vps:
-    engineering_manager:
+  coordinators:
+    engineering_coordinator:
       figures: [dijkstra]
       archetype: the_scholar
       skills: [python, fastapi]
@@ -230,8 +230,8 @@ levels:
   - id: vps
     label: "VPs"
     roles:
-      - slug: engineering-manager
-        label: "Engineering Manager"
+      - slug: engineering-coordinator
+        label: "Engineering Coordinator"
         category: coordinator
         spawnable: true
         compatible_figures:

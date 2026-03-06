@@ -34,8 +34,8 @@ You own:
 
 You do NOT own:
 - Application architecture (Engineering owns that; you provide the platform it runs on).
-- Security posture (VP Security owns that; you implement their controls in infrastructure).
-- Data pipelines (VP Data owns those; you operate the infrastructure they run on).
+- Security posture (Security Coordinator owns that; you implement their controls in infrastructure).
+- Data pipelines (Data Coordinator owns those; you operate the infrastructure they run on).
 
 ## Operating Stack
 

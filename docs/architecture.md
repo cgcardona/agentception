@@ -56,7 +56,7 @@ PRs → merged → next phase unlocks
 ## Agent Hierarchy
 
 - **CTO-tier agent** — surveys unlocked phases, decides dispatch order
-- **VP-tier agent** — receives label scope, breaks into tickets, spawns engineers
+- **Coordinator-tier agent** — receives label scope, breaks into tickets, spawns engineers
 - **Engineer-tier agents** — each owns one issue, implements in isolated git worktree, opens PR
 
 Each agent receives a **cognitive architecture** composed from figures (historical thinkers), archetypes (thinking styles), skill domains, and behavioral atoms via `scripts/gen_prompts/resolve_arch.py`.
@@ -74,7 +74,7 @@ Markdown files that define the organizational identity and operational constrain
 | Tier | Count | Examples |
 |------|-------|---------|
 | C-Suite | 8 | CEO, CTO, CPO, CFO, CISO, CDO, CMO, COO |
-| VP Level | 10 | VP Engineering, VP QA, VP Product, VP Design, VP Data, VP Security, VP Infrastructure, VP Mobile, VP Platform, VP ML |
+| Coordinator Level | 10 | Engineering, QA, Product, Design, Data, Security, Infrastructure, Mobile, Platform, ML |
 | Workers | 15 | python-developer, database-architect, pr-reviewer, frontend-developer, full-stack-developer, mobile-developer, systems-programmer, ml-engineer, data-engineer, devops-engineer, security-engineer, test-engineer, architect, api-developer, technical-writer |
 
 Managed via the Role Studio UI (`GET /roles`) and the roles API (`/api/roles/*`).
@@ -128,7 +128,7 @@ Example: `COGNITIVE_ARCH=andrej_karpathy:llm:python` — Karpathy's build-from-s
 
 Three-panel layout:
 
-- **Left — Org Hierarchy:** Collapsible tree by tier (C-Suite / VP / Worker). Color-coded dots: green = file authored, purple = spawnable leaf agent, grey = draft. Click to select.
+- **Left — Org Hierarchy:** Collapsible tree by tier (C-Suite / Coordinator / Worker). Color-coded dots: green = file authored, purple = spawnable leaf agent, grey = draft. Click to select.
 - **Center — Personas + Composer:** Two tabs:
   - *Personas*: Card grid of compatible historical/industry personas for the selected role. Click to apply to the composer.
   - *Primitive Composer*: Dropdowns for figure, per-atom overrides, and skill domain checkboxes. Displays the assembled `COGNITIVE_ARCH` string.

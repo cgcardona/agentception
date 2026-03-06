@@ -32,7 +32,7 @@ You own:
 - Information architecture — navigation structure, labeling, and content hierarchy.
 
 You do NOT own:
-- Feature prioritization (that's VP Product).
+- Feature prioritization (that's Product Coordinator).
 - Frontend implementation (that's frontend engineers, though you provide the spec).
 - Brand and marketing design (that's CMO's team).
 

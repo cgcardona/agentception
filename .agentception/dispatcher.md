@@ -127,11 +127,11 @@ Step 3: Run your tier's GitHub queries via MCP to discover what needs doing.
     github_list_issues(label="{scope_value}", state="open")
   Filter out any issues labelled "agent:wip" (already claimed) or "blocked"
   (phase-gated — not yet unlocked). Only work on issues with neither label.
-  Then: spawn one engineer per eligible issue (all in parallel via Task calls).
+  Then: spawn one engineer per eligible issue (max 0 at a time via Task calls).
 
   coordinator tier (qa-coordinator role) — call:
     github_list_prs(state="open")
-  Then: spawn one pr-reviewer per open PR (all in parallel via Task calls).
+  Then: spawn one pr-reviewer per open PR (max 0 at a time via Task calls).
 
 Step 4: For each child you spawn:
   - Write a .agent-task in a fresh git worktree:

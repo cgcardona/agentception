@@ -35,7 +35,7 @@ You are responsible for:
 You are NOT responsible for:
 - Product decisions (that's the CPO).
 - Engineering architecture (that's the CTO).
-- Hiring decisions (that's the relevant VP, with budget you approve).
+- Hiring decisions (that's the relevant coordinator, with budget you approve).
 
 ## Operating Principles
 

@@ -22,9 +22,9 @@ A fully saturated, self-managing pipeline where:
 ```
 YOU (human)
     │
-    └─► CTO Agent  (reads cto.md — sees the whole board, dispatches VPs)
+    └─► CTO Agent  (reads cto.md — sees the whole board, dispatches coordinators)
             │
-            ├─► Engineering VP 1  (seeds 4 leaf engineers)
+            ├─► Engineering Coordinator  (seeds 0 leaf engineers)
             │        │
             │        ├─► Leaf Agent: issue-423  → opens PR → spawns replacement for issue-427 →
             │        │                             issue-427 opens PR → spawns replacement for issue-431 → ...
@@ -32,23 +32,19 @@ YOU (human)
             │        ├─► Leaf Agent: issue-425  → opens PR → spawns replacement for issue-429 → ...
             │        └─► Leaf Agent: issue-426  → opens PR → spawns replacement for issue-430 → ...
             │
-            ├─► Engineering VP 2  (seeds 4 more leaf engineers — same self-replacing pattern)
-            │
-            ├─► QA VP 1  (seeds 4 leaf reviewers)
-            │        │
-            │        ├─► Reviewer: PR #485  → merges → spawns replacement for PR #489 → ...
-            │        └─► ... 4 concurrent reviewers, each self-replacing
-            │
-            └─► QA VP 2  (seeds 4 more leaf reviewers — same pattern)
+            └─► QA Coordinator  (seeds 0 leaf reviewers)
+                     │
+                     ├─► Reviewer: PR #485  → merges → spawns replacement for PR #489 → ...
+                     └─► ... 0 concurrent reviewers, each self-replacing
 ```
 
-**How it works:** VPs seed the initial pool. Each leaf agent, the moment it finishes
+**How it works:** Coordinators seed the initial pool. Each leaf agent, the moment it finishes
 its work (PR opened / PR merged), queries GitHub for the next unclaimed item, claims
 it with a `agent:wip` label, creates a new worktree, and spawns a fresh leaf agent
 via the Task tool — before it exits. No batch boundaries. No waiting for the slowest
 agent. The pool stays at N concurrent workers continuously until the queue drains.
 
-**The golden rule:** VPs seed. Leaf agents replace themselves. Canonical prompts describe work. Never cross the streams.
+**The golden rule:** Coordinators seed. Leaf agents replace themselves. Canonical prompts describe work. Never cross the streams.
 
 ---
 
@@ -58,18 +54,18 @@ agent. The pool stays at N concurrent workers continuously until the queue drain
 
 | File | Purpose |
 |------|---------|
-| `.agentception/prompts/parallel-issue-to-pr.md` | Full kickoff for implementation leaf agents |
-| `.agentception/prompts/parallel-pr-review.md` | Full kickoff for review leaf agents |
-| `.agentception/prompts/parallel-bugs-to-issues.md` | Full kickoff for issue-creation agents |
-| `.agentception/prompts/parallel-conductor.md` | Full kickoff for a meta-conductor (single-agent orchestration) |
+| `.agentception/parallel-issue-to-pr.md` | Full kickoff for implementation leaf agents |
+| `.agentception/parallel-pr-review.md` | Full kickoff for review leaf agents |
+| `.agentception/parallel-bugs-to-issues.md` | Full kickoff for issue-creation agents |
+| `.agentception/parallel-conductor.md` | Full kickoff for a meta-conductor (single-agent orchestration) |
 
 ### Cognitive Architecture (role files — who each agent IS)
 
 | File | Used by |
 |------|---------|
 | `.agentception/roles/cto.md` | CTO agent |
-| `.agentception/roles/engineering-coordinator.md` | Engineering Manager |
-| `.agentception/roles/qa-coordinator.md` | QA Manager |
+| `.agentception/roles/engineering-coordinator.md` | Engineering Coordinator |
+| `.agentception/roles/qa-coordinator.md` | QA Coordinator |
 | `.agentception/roles/python-developer.md` | Leaf implementation agents (Python/API work) |
 | `.agentception/roles/muse-specialist.md` | Leaf agents on Muse VCS / musical analysis work |
 | `.agentception/roles/database-architect.md` | Leaf agents on migrations / seed data |
@@ -125,10 +121,10 @@ This is what the leaf agent reads to know what to build.
 
 Every piece of pipeline work is permanently signed at two granularities:
 
-### BATCH_ID — VP-level identifier
-Generated once per VP seed run: `eng-<YYYYMMDDTHHMMSSZ>-<4hex>` (engineering) or `qa-<…>` (QA).
-Propagated to every leaf agent in that VP's pool, and carried forward through every self-replacing successor.
-Lets you answer: *"Which VP wave spawned this PR?"*
+### BATCH_ID — coordinator-level identifier
+Generated once per coordinator seed run: `eng-<YYYYMMDDTHHMMSSZ>-<4hex>` (engineering) or `qa-<…>` (QA).
+Propagated to every leaf agent in that coordinator's pool, and carried forward through every self-replacing successor.
+Lets you answer: *"Which coordinator wave spawned this PR?"*
 
 ### AGENT_SESSION — leaf-level identifier
 Generated fresh by each individual leaf agent: `eng-<timestamp>-<4hex>` or `qa-<…>`.
@@ -194,25 +190,25 @@ One file per worktree. Use the TOML v2 format above. Key fields:
 
 Open two Cursor composer windows or call the Task tool twice simultaneously:
 
-**QA Manager prompt:**
+**QA Coordinator prompt:**
 ```
-You are the QA Manager. Read <repo-root>/.agentception/roles/qa-coordinator.md.
+You are the QA Coordinator. Read <repo-root>/.agentception/roles/qa-coordinator.md.
 
 Launch one leaf agent per PR using the Task tool. Each agent gets:
 "Read .agent-task at <WORKTREE>/.agent-task, then follow the Kickoff Prompt in
-<repo-root>/.agentception/prompts/parallel-pr-review.md.
+<repo-root>/.agentception/parallel-pr-review.md.
 Your worktree is <WORKTREE>. GH_REPO=cgcardona/agentception"
 
 Your PRs: [list worktrees]
 ```
 
-**Engineering Manager prompt:**
+**Engineering Coordinator prompt:**
 ```
-You are the Engineering Manager. Read <repo-root>/.agentception/roles/engineering-coordinator.md.
+You are the Engineering Coordinator. Read <repo-root>/.agentception/roles/engineering-coordinator.md.
 
 Launch one leaf agent per issue using the Task tool. Each agent gets:
 "Read .agent-task at <WORKTREE>/.agent-task, then follow the Kickoff Prompt in
-<repo-root>/.agentception/prompts/parallel-issue-to-pr.md.
+<repo-root>/.agentception/parallel-issue-to-pr.md.
 Your worktree is <WORKTREE>. GH_REPO=cgcardona/agentception"
 
 Your issues: [list worktrees]
@@ -227,8 +223,8 @@ Use this when you want the pipeline to run end-to-end without manual interventio
 You are the CTO. Read <repo-root>/.agentception/roles/cto.md.
 
 Survey the pipeline state with gh issue list and gh pr list.
-Dispatch the Engineering Manager and QA Manager simultaneously using the Task tool.
-Each manager launches leaf agents pointing at the canonical prompts — not inline instructions.
+Dispatch the Engineering Coordinator and QA Coordinator simultaneously using the Task tool.
+Each coordinator launches leaf agents pointing at the canonical prompts — not inline instructions.
 Continue until gh issue list --state open returns 0 results and gh pr list --state open returns 0 results.
 GH_REPO=cgcardona/agentception
 Repo: <repo-root>
@@ -236,27 +232,27 @@ Repo: <repo-root>
 
 ---
 
-## Platform Constraint: 4-Wide Branching, Unlimited Depth
+## Platform Constraint: 0-Wide Branching, Unlimited Depth
 
-**The Task tool supports 4 concurrent sub-agents per spawning agent.**
+**The Task tool supports 0 concurrent sub-agents per spawning agent.**
 
 This is a branching factor, not a ceiling. Use it as a tree:
 
 ```
 CTO (autonomous, loops until pipeline empty)
- ├── Engineering VP  (autonomous, loops until no open issues)
- │    ├── Batch Tech Lead A  →  4 leaf engineers
- │    ├── Batch Tech Lead B  →  4 leaf engineers
- │    ├── Batch Tech Lead C  →  4 leaf engineers
- │    └── Batch Tech Lead D  →  4 leaf engineers
- └── QA VP  (autonomous, loops until no open PRs)
-      ├── Review Tech Lead A  →  4 leaf reviewers
-      ├── Review Tech Lead B  →  4 leaf reviewers
-      ├── Review Tech Lead C  →  4 leaf reviewers
-      └── Review Tech Lead D  →  4 leaf reviewers
+ ├── Engineering Coordinator  (autonomous, loops until no open issues)
+ │    ├── Batch Tech Lead A  →  0 leaf engineers
+ │    ├── Batch Tech Lead B  →  0 leaf engineers
+ │    ├── Batch Tech Lead C  →  0 leaf engineers
+ │    └── Batch Tech Lead D  →  0 leaf engineers
+ └── QA Coordinator  (autonomous, loops until no open PRs)
+      ├── Review Tech Lead A  →  0 leaf reviewers
+      ├── Review Tech Lead B  →  0 leaf reviewers
+      ├── Review Tech Lead C  →  0 leaf reviewers
+      └── Review Tech Lead D  →  0 leaf reviewers
 ```
 
-**2 levels below CTO = 4 × 4 = 16 concurrent leaf workers per wave.**
+**2 levels below CTO = 0 × 0 = 0 concurrent leaf workers per wave.**
 Each level loops — when its queue empties it re-queries and dispatches the next wave.
 
 **You just launch one CTO.** It runs autonomously until GitHub is empty.
@@ -272,7 +268,7 @@ This is the ONLY thing you pass to a leaf agent. Do not add anything.
 ```
 Read the `.agent-task` file at `<WORKTREE>/.agent-task` to get your full assignment,
 then follow the complete Kickoff Prompt section in
-`<repo-root>/.agentception/prompts/parallel-issue-to-pr.md`.
+`<repo-root>/.agentception/parallel-issue-to-pr.md`.
 
 Your worktree is `<WORKTREE>`. Work only in that directory.
 Repo root: <repo-root>
@@ -283,7 +279,7 @@ GH_REPO=cgcardona/agentception
 ```
 Read the `.agent-task` file at `<WORKTREE>/.agent-task` to get your full assignment,
 then follow the complete Kickoff Prompt section in
-`<repo-root>/.agentception/prompts/parallel-pr-review.md`.
+`<repo-root>/.agentception/parallel-pr-review.md`.
 
 Your worktree is `<WORKTREE>`. Work only in that directory.
 Repo root: <repo-root>
