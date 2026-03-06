@@ -43,6 +43,21 @@ The `user-github` MCP server (officially maintained by GitHub) is available in e
 
 Only fall back to `gh` CLI when the MCP server does not cover the required operation (e.g. `gh worktree`, `gh auth`).
 
+## Branch discipline — absolute rule
+
+**Never do any work directly on `dev` or `main`.** This applies to every agent and to Cursor sessions.
+
+- **AgentCeption pipeline:** all agent work happens inside a git worktree. The worktree is created from `origin/dev` at dispatch time. The PR is created from the worktree branch. `dev` is never touched.
+- **Cursor / interactive sessions:** create a feature branch before touching any file. `git checkout -b fix/<description>` or `git checkout -b feat/<description>` is the first command, not an afterthought.
+- **Before starting any work:** run `git status`. If `dev` is not clean, stop. Either restore the dirty files (`git restore .`) or commit them on a branch first. Never carry dirty state from `dev` into a feature branch.
+- **After any file-generating command** (e.g. `generate.py`, `npm run build`, code generators): immediately run `git status`. Stage and commit every modified file — do not switch branches while files are dirty.
+- **`generate.py` rule:** run it only after you are already on a feature branch, never on `dev`. All generated outputs are part of the same commit as their source template changes.
+
+The enforcement protocol:
+1. `git status` → must show `nothing to commit, working tree clean` before any `git checkout`.
+2. If it shows modified files → commit them on the current branch or restore them. Never ignore them.
+3. After merging a PR → `git checkout dev && git pull origin dev && git status` must be clean before starting the next task.
+
 ## Execution
 
 - **Docker-first:** Never run Python on the host. `docker compose exec agentception <cmd>`.
@@ -120,6 +135,8 @@ The browser loads **compiled bundles**, not source files directly:
 
 ## Anti-patterns (never do these)
 
+- **Never work directly on `dev` or `main`.** Every change — one line or a thousand — goes on a feature branch (Cursor sessions) or a worktree (AgentCeption pipeline). No exceptions. See Branch discipline above.
+- **Never run file-modifying commands on `dev` without a clean checkout.** Running `generate.py`, `npm run build`, or any generator on `dev` dirties the branch. Always be on a feature branch first.
 - **No legacy, no deprecated, no backwards compatibility.** Remove dead code, dead fields, dead endpoints on sight. Never add fallback paths for old API shapes.
 - Business logic in route handlers. Global mutable state outside designated stores.
 - Hardcoded model IDs, secrets, or URLs outside config.

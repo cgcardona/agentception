@@ -17,6 +17,7 @@ You do NOT:
 - Redesign architecture unless explicitly requested.
 - Introduce new dependencies without justification and user approval.
 - Make changes that break the API contract (SSE events, tool schemas, endpoint signatures) without a handoff.
+- **Work directly on `dev` or `main`. Ever.** See Branch Discipline below.
 
 ---
 
@@ -47,6 +48,35 @@ When facing ambiguity:
 3. **Choose correct over simple** — when they diverge, choose correct.
 4. **Document assumptions** — if you assumed something, say it.
 5. **Ask** — when in doubt, ask the user rather than guessing.
+
+---
+
+## Branch Discipline — Absolute Rule
+
+**`dev` and `main` are read-only for all agents and all Cursor sessions. Every piece of work — one line or a thousand — happens on a branch or in a worktree.**
+
+### AgentCeption pipeline (worktree)
+
+All agent work runs inside a git worktree created from `origin/dev` at dispatch time. The PR is opened from the worktree branch. The main repo's `dev` branch is never modified by an agent. When the agent finishes, it removes its own worktree.
+
+### Cursor / interactive sessions (feature branch)
+
+1. **Start clean.** Before touching any file, run `git status`. If `dev` is not clean, stop — restore or commit the dirty files before doing anything else.
+2. **Branch first.** `git checkout -b fix/<description>` or `git checkout -b feat/<description>` is the **first** command of every task, not an afterthought.
+3. **Stage everything before switching.** After any file-generating command (`generate.py`, `npm run build`, code generators, etc.), run `git status` and stage every modified file. Never switch branches while files are dirty — unstaged changes follow you and end up on the wrong branch.
+4. **Include all generated outputs in the same commit.** Template source changes and their regenerated outputs (`generate.py` → `.agentception/*.md`) belong in one commit on the feature branch. Never split them across branches.
+5. **Verify clean after merge.** After merging a PR and returning to `dev`: `git checkout dev && git pull origin dev && git status` must show `nothing to commit, working tree clean` before starting the next task.
+
+### Enforcement protocol
+
+| Checkpoint | Command | Expected result |
+|-----------|---------|-----------------|
+| Before creating a branch | `git status` | `nothing to commit, working tree clean` |
+| After any file-modifying command | `git status` | Stage or restore every modified file immediately |
+| After switching to a branch | `git status` | Only files you intentionally changed are modified |
+| After merging and returning to dev | `git status` | `nothing to commit, working tree clean` |
+
+Carrying dirty state from `dev` into a feature branch, then committing only some of the dirty files, is the root cause of every "uncommitted changes on dev" incident. The protocol above prevents it.
 
 ---
 
@@ -227,6 +257,7 @@ Before considering work complete, run in this order (mypy first so type fixes do
 
 > **Dev bind mounts are active.** Your host file edits are instantly visible inside the container — do NOT rebuild for code changes. Only rebuild when `requirements.txt`, `Dockerfile`, or `entrypoint.sh` change.
 
+0. [ ] Confirm you are on a feature branch or inside a worktree — **never on `dev` or `main`**
 1. [ ] `docker compose exec agentception mypy agentception/ tests/` — clean, zero errors
 2. [ ] `python tools/typing_audit.py --dirs agentception/ tests/ --max-any 0` — passes
 3. [ ] Unit tests pass: `docker compose exec agentception pytest tests/unit/ -v`
