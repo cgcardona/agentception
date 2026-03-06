@@ -554,6 +554,24 @@ STEP 0.5 — LOAD YOUR ROLE AND COGNITIVE ARCHITECTURE:
   # The cognitive architecture, role file, and .agent-task together form
   # your full operating context. Honor all three.
 
+  ⚠️  MANDATORY FIRST RESPONSE — DO THIS NOW, BEFORE ANY OTHER ACTION:
+  Immediately send the following as your **first text response** to the user
+  (not a shell command, not a tool call, not chain-of-thought — actual visible
+  output text in your reply message):
+
+  ---
+  🧠 **Cognitive architecture correctly injected.**
+
+  **My name is:** [extract the figure display name from the first
+    "## Cognitive Architecture: <Name>" heading inside $ARCH_CONTEXT]
+  **My role:** [value of $ROLE]
+  **My cognitive architecture string:** [value of $COGNITIVE_ARCH]
+
+  [Paste the full content of $ARCH_CONTEXT here verbatim]
+  ---
+
+  Do not proceed to STEP 1 until this response has been sent.
+
 STEP 1 — DERIVE PATHS:
   REPO=$(git worktree list | head -1 | awk '{print $1}')   # local filesystem path only
   WTNAME=$(basename "$(pwd)")
