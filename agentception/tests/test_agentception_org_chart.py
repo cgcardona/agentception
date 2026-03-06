@@ -13,6 +13,8 @@ Covers:
 - POST /api/org/templates saves the current org as a named preset
 - GET /api/org/tree returns a hierarchical JSON tree for the active preset
 - GET /api/org/tree returns 404 when no active preset is selected
+- org-presets.yaml loads 4 presets including 3 non-tech presets
+- Non-tech roles appear in the preset definitions
 
 Run targeted:
     docker compose exec agentception pytest agentception/tests/test_agentception_org_chart.py -v
@@ -25,9 +27,11 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from agentception.app import app
+from agentception.routes.ui.org_chart import _load_presets, _PRESETS_PATH
 
 
 @pytest.fixture(scope="module")
@@ -657,3 +661,92 @@ class TestOrgTree:
 
         assert resp.status_code == 200
         assert 'id="org-tree-panel"' in resp.text
+
+
+class TestOrgPresetsYaml:
+    """Integration tests against the real org-presets.yaml at the repo root."""
+
+    def test_presets_file_exists(self) -> None:
+        """org-presets.yaml must exist at the repo root path _PRESETS_PATH points to."""
+        assert _PRESETS_PATH.exists(), (
+            f"org-presets.yaml not found at {_PRESETS_PATH}. "
+            "Create it at the repo root with 4 presets."
+        )
+
+    def test_presets_yaml_has_four_presets(self) -> None:
+        """The real org-presets.yaml must contain exactly 4 presets."""
+        presets = _load_presets()
+        assert len(presets) == 4, (
+            f"Expected 4 presets in org-presets.yaml, got {len(presets)}: "
+            f"{[p['id'] for p in presets]}"
+        )
+
+    def test_engineering_preset_exists(self) -> None:
+        """The engineering preset must be present."""
+        presets = _load_presets()
+        ids = [p["id"] for p in presets]
+        assert "engineering" in ids, f"'engineering' preset not found. Got: {ids}"
+
+    def test_non_tech_presets_exist(self) -> None:
+        """content-team, legal-team, and ops-team presets must all be present."""
+        presets = _load_presets()
+        ids = [p["id"] for p in presets]
+        assert "content-team" in ids, f"'content-team' preset not found. Got: {ids}"
+        assert "legal-team" in ids, f"'legal-team' preset not found. Got: {ids}"
+        assert "ops-team" in ids, f"'ops-team' preset not found. Got: {ids}"
+
+    def test_each_preset_has_required_fields(self) -> None:
+        """Every preset must have id, name, description, and tiers with leadership and workers."""
+        presets = _load_presets()
+        for preset in presets:
+            pid = preset["id"]
+            assert preset["name"], f"Preset {pid!r} has blank name"
+            assert preset["description"], f"Preset {pid!r} has blank description"
+            tiers = preset["tiers"]
+            assert isinstance(tiers["leadership"], list), f"Preset {pid!r} tiers.leadership must be a list"
+            assert isinstance(tiers["workers"], list), f"Preset {pid!r} tiers.workers must be a list"
+
+    def test_non_tech_roles_appear_in_content_team(self) -> None:
+        """content-writer must appear in the content-team preset."""
+        presets = _load_presets()
+        content_team = next((p for p in presets if p["id"] == "content-team"), None)
+        assert content_team is not None
+        all_roles = content_team["tiers"]["leadership"] + content_team["tiers"]["workers"]
+        assert "content-writer" in all_roles, (
+            f"'content-writer' not in content-team roles: {all_roles}"
+        )
+
+    def test_non_tech_roles_appear_in_legal_team(self) -> None:
+        """legal-analyst must appear in the legal-team preset."""
+        presets = _load_presets()
+        legal_team = next((p for p in presets if p["id"] == "legal-team"), None)
+        assert legal_team is not None
+        all_roles = legal_team["tiers"]["leadership"] + legal_team["tiers"]["workers"]
+        assert "legal-analyst" in all_roles, (
+            f"'legal-analyst' not in legal-team roles: {all_roles}"
+        )
+
+    def test_non_tech_roles_appear_in_ops_team(self) -> None:
+        """ops-analyst must appear in the ops-team preset."""
+        presets = _load_presets()
+        ops_team = next((p for p in presets if p["id"] == "ops-team"), None)
+        assert ops_team is not None
+        all_roles = ops_team["tiers"]["leadership"] + ops_team["tiers"]["workers"]
+        assert "ops-analyst" in all_roles, (
+            f"'ops-analyst' not in ops-team roles: {all_roles}"
+        )
+
+    def test_org_chart_route_returns_all_four_preset_names(
+        self,
+        client: TestClient,
+    ) -> None:
+        """GET /org-chart with the real presets file must render all 4 preset names."""
+        with patch("agentception.routes.ui.org_chart._read_pipeline_config", return_value={}):
+            resp = client.get("/org-chart")
+
+        assert resp.status_code == 200
+        body = resp.text
+        assert "Software Engineering" in body
+        assert "Content Team" in body
+        assert "Legal Team" in body
+        assert "Ops Team" in body
