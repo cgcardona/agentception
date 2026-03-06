@@ -49,6 +49,7 @@ def _build_agent_task(
     depends_on: list[int] | None = None,
     cognitive_arch: str = "hopper:python",
     wave_id: str = "manual",
+    file_ownership: list[str] | None = None,
 ) -> str:
     """Build the TOML v2 content of a ``.agent-task`` file for an engineer agent.
 
@@ -64,6 +65,7 @@ def _build_agent_task(
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     repo = settings.gh_repo
     dep_list: list[int] = depends_on if depends_on is not None else []
+    ownership: list[str] = file_ownership if file_ownership is not None else []
 
     sections: dict[str, dict[str, _TomlValue]] = {
         "task": {
@@ -100,6 +102,7 @@ def _build_agent_task(
             "phase_label": phase_label,
             "depends_on": dep_list,
             "closes": [issue_number],
+            "file_ownership": ownership,
         },
         "worktree": {
             "path": str(host_worktree),

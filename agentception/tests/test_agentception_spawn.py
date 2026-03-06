@@ -655,6 +655,40 @@ def test_build_agent_task_depends_on_list(tmp_path: Path) -> None:
     assert parsed["target"]["depends_on"] == [10, 20, 30]
 
 
+def test_build_agent_task_file_ownership_as_toml_array(tmp_path: Path) -> None:
+    """_build_agent_task() writes file_ownership as a TOML string array in [target]."""
+    wt = _fake_worktree(tmp_path, "issue-ownership")
+    output = _build_agent_task(
+        issue_number=60,
+        title="Ownership issue",
+        role="python-developer",
+        worktree=wt,
+        host_worktree=wt,
+        branch="feat/issue-60",
+        file_ownership=["agentception/routes/api/_shared.py", "agentception/services/toml_task.py"],
+    )
+    parsed = tomllib.loads(output)
+    assert parsed["target"]["file_ownership"] == [
+        "agentception/routes/api/_shared.py",
+        "agentception/services/toml_task.py",
+    ]
+
+
+def test_build_agent_task_file_ownership_defaults_to_empty_array(tmp_path: Path) -> None:
+    """_build_agent_task() without file_ownership emits an empty TOML array."""
+    wt = _fake_worktree(tmp_path, "issue-no-ownership")
+    output = _build_agent_task(
+        issue_number=61,
+        title="No ownership",
+        role="python-developer",
+        worktree=wt,
+        host_worktree=wt,
+        branch="feat/issue-61",
+    )
+    parsed = tomllib.loads(output)
+    assert parsed["target"]["file_ownership"] == []
+
+
 # ---------------------------------------------------------------------------
 # _build_child_task — TOML v2 output regression (swim lane fix)
 # ---------------------------------------------------------------------------
