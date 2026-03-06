@@ -70,7 +70,6 @@ def _mock_run_dict(
         "last_activity_at": None,
         "current_step": current_step,
         "steps_completed": steps_completed,
-        "steps_total": None,
     }
 
 
@@ -274,6 +273,7 @@ def test_build_board_partial_complete_phase_hides_launch_button(
                 {
                     "number": 10,
                     "title": "Done issue",
+                    "body_excerpt": "",
                     "state": "closed",
                     "url": "https://github.com/cgcardona/agentception/issues/10",
                     "labels": ["phase-0"],
@@ -320,6 +320,7 @@ def test_build_board_partial_complete_phase_cards_not_clickable(
                 {
                     "number": 11,
                     "title": "Completed task",
+                    "body_excerpt": "",
                     "state": "closed",
                     "url": "https://github.com/cgcardona/agentception/issues/11",
                     "labels": ["phase-0"],
@@ -515,7 +516,6 @@ def _run(agent_status: str, pr_number: int | None = None) -> RunForIssueRow:
         last_activity_at=None,
         current_step=None,
         steps_completed=0,
-        steps_total=None,
         tier="engineer",
         org_domain="engineering",
         batch_id="issue-99-batch",
