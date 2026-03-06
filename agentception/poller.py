@@ -32,7 +32,7 @@ from agentception.readers.github import (
     get_open_prs,
     get_wip_issues,
 )
-from agentception.readers.worktrees import list_active_worktrees, worktree_last_commit_time
+from agentception.readers.worktrees import list_active_worktrees, parse_agent_task, worktree_last_commit_time
 
 logger = logging.getLogger(__name__)
 
@@ -387,28 +387,15 @@ async def scan_plan_draft_worktrees() -> list[PlanDraftEvent]:
         if not entry.name.startswith("plan-draft-"):
             continue
 
-        task_file = entry / ".agent-task"
-        if not task_file.exists():
+        if not (entry / ".agent-task").exists():
             continue
 
-        # Parse the KEY=VALUE task file to extract DRAFT_ID and OUTPUT_PATH.
-        fields: dict[str, str] = {}
-        try:
-            content = await asyncio.get_running_loop().run_in_executor(
-                None, task_file.read_text, "utf-8"
-            )
-            for raw_line in content.splitlines():
-                line = raw_line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, _, value = line.partition("=")
-                fields[key.strip().upper()] = value.strip()
-        except OSError as exc:
-            logger.warning("⚠️  scan_plan_draft_worktrees: cannot read task file %s: %s", task_file, exc)
+        task_file_data = await parse_agent_task(entry)
+        if task_file_data is None:
             continue
 
-        draft_id = fields.get("DRAFT_ID")
-        output_path_str = fields.get("OUTPUT_PATH")
+        draft_id = task_file_data.draft_id
+        output_path_str = task_file_data.output_path
 
         if not draft_id or not output_path_str:
             continue
@@ -444,12 +431,13 @@ async def scan_plan_draft_worktrees() -> list[PlanDraftEvent]:
             logger.info("✅ plan_draft_ready: draft=%s output=%s", draft_id, output_path_str)
         else:
             # Check whether the draft has timed out.
+            task_file_path = entry / ".agent-task"
             try:
-                task_mtime = task_file.stat().st_mtime
+                task_mtime = task_file_path.stat().st_mtime
             except OSError as exc:
                 logger.warning(
                     "⚠️  scan_plan_draft_worktrees: cannot stat task file %s: %s",
-                    task_file,
+                    task_file_path,
                     exc,
                 )
                 continue

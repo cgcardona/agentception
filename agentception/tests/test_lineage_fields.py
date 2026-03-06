@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from agentception.models import AgentNode, AgentStatus, TaskFile
-from agentception.readers.worktrees import _build_task_file
+from agentception.readers.worktrees import _build_task_file_from_toml
 
 
 # ---------------------------------------------------------------------------
@@ -30,8 +30,39 @@ from agentception.readers.worktrees import _build_task_file
 
 
 def _make_task_file(fields: dict[str, str], tmp_path: Path) -> TaskFile:
-    """Helper: build a TaskFile from a key→value dict via _build_task_file."""
-    return _build_task_file(fields, tmp_path)
+    """Helper: build a TaskFile from a legacy key→value dict via TOML mapping.
+
+    Maps the K=V field names to the appropriate TOML section structure so
+    tests can exercise the same semantics without touching disk.
+    """
+    toml_data: dict[str, object] = {}
+
+    task_sec: dict[str, object] = {}
+    agent_sec: dict[str, object] = {}
+    pipeline_sec: dict[str, object] = {}
+
+    if "WORKFLOW" in fields:
+        task_sec["workflow"] = fields["WORKFLOW"]
+    if "RUN_ID" in fields:
+        task_sec["id"] = fields["RUN_ID"]
+    if "ROLE" in fields:
+        agent_sec["role"] = fields["ROLE"]
+    if "TIER" in fields:
+        agent_sec["tier"] = fields["TIER"]
+    if "ORG_DOMAIN" in fields:
+        agent_sec["org_domain"] = fields["ORG_DOMAIN"]
+    # Empty PARENT_RUN_ID is omitted so it normalises to None (absent → None).
+    if fields.get("PARENT_RUN_ID"):
+        pipeline_sec["parent_run_id"] = fields["PARENT_RUN_ID"]
+
+    if task_sec:
+        toml_data["task"] = task_sec
+    if agent_sec:
+        toml_data["agent"] = agent_sec
+    if pipeline_sec:
+        toml_data["pipeline"] = pipeline_sec
+
+    return _build_task_file_from_toml(toml_data, tmp_path)
 
 
 def test_task_file_parses_tier(tmp_path: Path) -> None:

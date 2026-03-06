@@ -28,37 +28,64 @@ from agentception.readers.worktrees import (
 
 @pytest.fixture()
 def issue_task_content() -> str:
-    """Minimal .agent-task content for an issue-to-pr workflow."""
+    """Minimal TOML v2 .agent-task content for an issue-to-pr workflow."""
     return (
-        "TASK=issue-to-pr\n"
-        "GH_REPO=cgcardona/agentception\n"
-        "ISSUE_NUMBER=610\n"
-        "BRANCH=feat/issue-610\n"
-        "WORKTREE=/home/user/.agentception/worktrees/agentception/issue-610\n"
-        "ROLE=python-developer\n"
-        "BASE=dev\n"
-        "BATCH_ID=eng-20260301T214203Z-057d\n"
-        "CLOSES_ISSUES=610\n"
-        "SPAWN_SUB_AGENTS=false\n"
-        "ATTEMPT_N=0\n"
-        "REQUIRED_OUTPUT=pr_url\n"
-        "ON_BLOCK=stop\n"
+        "[task]\n"
+        'workflow = "issue-to-pr"\n'
+        "attempt_n = 0\n"
+        'required_output = "pr_url"\n'
+        'on_block = "stop"\n'
+        "\n"
+        "[agent]\n"
+        'role = "python-developer"\n'
+        "\n"
+        "[repo]\n"
+        'gh_repo = "cgcardona/agentception"\n'
+        'base = "dev"\n'
+        "\n"
+        "[pipeline]\n"
+        'batch_id = "eng-20260301T214203Z-057d"\n'
+        "\n"
+        "[spawn]\n"
+        "sub_agents = false\n"
+        "\n"
+        "[target]\n"
+        "issue_number = 610\n"
+        "closes = [610]\n"
+        "\n"
+        "[worktree]\n"
+        'path = "/home/user/.agentception/worktrees/agentception/issue-610"\n'
+        'branch = "feat/issue-610"\n'
     )
 
 
 @pytest.fixture()
 def pr_review_task_content() -> str:
-    """Minimal .agent-task content for a pr-review workflow."""
+    """Minimal TOML v2 .agent-task content for a pr-review workflow."""
     return (
-        "TASK=pr-review\n"
-        "PR=642\n"
-        "BRANCH=feat/issue-609\n"
-        "WORKTREE=/home/user/.agentception/worktrees/agentception/pr-642\n"
-        "ROLE=pr-reviewer\n"
-        "BASE=dev\n"
-        "GH_REPO=cgcardona/agentception\n"
-        "BATCH_ID=eng-20260301T211956Z-741f\n"
-        "SPAWN_MODE=chain\n"
+        "[task]\n"
+        'workflow = "pr-review"\n'
+        "\n"
+        "[agent]\n"
+        'role = "pr-reviewer"\n'
+        "\n"
+        "[repo]\n"
+        'gh_repo = "cgcardona/agentception"\n'
+        'base = "dev"\n'
+        "\n"
+        "[pipeline]\n"
+        'batch_id = "eng-20260301T211956Z-741f"\n'
+        "\n"
+        "[spawn]\n"
+        'mode = "chain"\n'
+        "sub_agents = false\n"
+        "\n"
+        "[target]\n"
+        "pr_number = 642\n"
+        "\n"
+        "[worktree]\n"
+        'path = "/home/user/.agentception/worktrees/agentception/pr-642"\n'
+        'branch = "feat/issue-609"\n'
     )
 
 
@@ -127,16 +154,18 @@ async def test_parse_agent_task_missing_returns_none(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
-async def test_parse_agent_task_blank_lines_and_comments_ignored(tmp_path: Path) -> None:
-    """parse_agent_task silently skips blank lines and comment-like lines."""
+async def test_parse_agent_task_toml_with_comments(tmp_path: Path) -> None:
+    """parse_agent_task handles valid TOML with comments and blank lines."""
     task_file = tmp_path / ".agent-task"
     task_file.write_text(
+        "# TOML v2 agent task\n"
         "\n"
-        "# This is a comment-like line\n"
-        "TASK=issue-to-pr\n"
+        "[task]\n"
+        'workflow = "issue-to-pr"\n'
         "\n"
-        "ROLE=python-developer\n"
-        "not_a_key_value_pair\n"
+        "[agent]\n"
+        '# Role for this agent\n'
+        'role = "python-developer"\n'
     )
     result = await parse_agent_task(tmp_path)
     assert result is not None
@@ -145,20 +174,88 @@ async def test_parse_agent_task_blank_lines_and_comments_ignored(tmp_path: Path)
 
 
 @pytest.mark.anyio
-async def test_parse_agent_task_closes_issues_multi(tmp_path: Path) -> None:
-    """parse_agent_task parses comma-separated CLOSES_ISSUES into list[int]."""
+async def test_parse_agent_task_malformed_toml_returns_none(tmp_path: Path) -> None:
+    """parse_agent_task returns None gracefully when the file is malformed TOML."""
     task_file = tmp_path / ".agent-task"
-    task_file.write_text("TASK=issue-to-pr\nCLOSES_ISSUES=610,611,612\n")
+    task_file.write_text("this is not valid TOML [\n")
+    result = await parse_agent_task(tmp_path)
+    assert result is None
+
+
+@pytest.mark.anyio
+async def test_parse_agent_task_closes_issues_as_toml_array(tmp_path: Path) -> None:
+    """parse_agent_task populates closes_issues from a TOML array."""
+    task_file = tmp_path / ".agent-task"
+    task_file.write_text(
+        "[task]\n"
+        'workflow = "issue-to-pr"\n'
+        "\n"
+        "[target]\n"
+        "closes = [610, 611, 612]\n"
+    )
     result = await parse_agent_task(tmp_path)
     assert result is not None
     assert result.closes_issues == [610, 611, 612]
 
 
 @pytest.mark.anyio
-async def test_parse_agent_task_workflow_alias(tmp_path: Path) -> None:
-    """parse_agent_task accepts WORKFLOW= as an alias for TASK= (legacy format)."""
+async def test_parse_agent_task_depends_on_as_toml_array(tmp_path: Path) -> None:
+    """parse_agent_task populates depends_on as list[int] from a TOML array."""
     task_file = tmp_path / ".agent-task"
-    task_file.write_text("WORKFLOW=issue-to-pr\nROLE=python-developer\n")
+    task_file.write_text(
+        "[task]\n"
+        'workflow = "issue-to-pr"\n'
+        "\n"
+        "[target]\n"
+        "issue_number = 872\n"
+        "depends_on = [870, 871]\n"
+    )
+    result = await parse_agent_task(tmp_path)
+    assert result is not None
+    assert result.depends_on == [870, 871]
+
+
+@pytest.mark.anyio
+async def test_parse_agent_task_issue_queue_populated(tmp_path: Path) -> None:
+    """parse_agent_task populates issue_queue as list[IssueSub] from TOML arrays."""
+    task_file = tmp_path / ".agent-task"
+    task_file.write_text(
+        "[task]\n"
+        'workflow = "coordinator"\n'
+        "\n"
+        "[[issue_queue]]\n"
+        "number = 870\n"
+        'title = "MCP layer"\n'
+        'role = "python-developer"\n'
+        'cognitive_arch = "turing:python"\n'
+        "depends_on = []\n"
+        "\n"
+        "[[issue_queue]]\n"
+        "number = 871\n"
+        'title = "Plan tools"\n'
+        'role = "python-developer"\n'
+        'cognitive_arch = "turing:python"\n'
+        "depends_on = [870]\n"
+    )
+    result = await parse_agent_task(tmp_path)
+    assert result is not None
+    assert len(result.issue_queue) == 2
+    assert result.issue_queue[0].number == 870
+    assert result.issue_queue[1].number == 871
+    assert result.issue_queue[1].depends_on == [870]
+
+
+@pytest.mark.anyio
+async def test_parse_agent_task_workflow_field_in_task_section(tmp_path: Path) -> None:
+    """parse_agent_task reads task.workflow from the TOML [task] section."""
+    task_file = tmp_path / ".agent-task"
+    task_file.write_text(
+        "[task]\n"
+        'workflow = "issue-to-pr"\n'
+        "\n"
+        "[agent]\n"
+        'role = "python-developer"\n'
+    )
     result = await parse_agent_task(tmp_path)
     assert result is not None
     assert result.task == "issue-to-pr"
