@@ -50,7 +50,9 @@ SEED:
          # If an open PR already references this issue (via branch name or close keyword),
          # the claim is ACTIVE even if the implementer worktree was pruned. Never clear it.
          OPEN_PR=$(gh pr list --state open --repo cgcardona/agentception \
-           --head "feat/issue-${NUM}" --json number --jq '.[0].number // empty' 2>/dev/null || echo "")
+           --json headRefName,number \
+           --jq "[.[] | select(.headRefName | startswith(\"feat/issue-${NUM}\")) | .number] | first // empty" \
+           2>/dev/null || echo "")
          if [ -n "$OPEN_PR" ]; then
            echo "Keeping agent:wip on #$NUM (open PR #$OPEN_PR exists — worktree pruning is expected)"
            continue
@@ -87,7 +89,9 @@ SEED:
        # Always re-verify before seeding — branch naming is the canonical signal.
        for NUM in <candidate numbers from step 3>; do
          OPEN_PR=$(gh pr list --state open --repo cgcardona/agentception \
-           --head "feat/issue-${NUM}" --json number --jq '.[0].number // empty' 2>/dev/null || echo "")
+           --json headRefName,number \
+           --jq "[.[] | select(.headRefName | startswith(\"feat/issue-${NUM}\")) | .number] | first // empty" \
+           2>/dev/null || echo "")
          if [ -n "$OPEN_PR" ]; then
            echo "SKIP #$NUM — open PR #$OPEN_PR already exists for this issue"
            # Remove from candidate list
