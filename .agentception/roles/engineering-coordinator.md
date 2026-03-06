@@ -985,7 +985,7 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
 
     agentception/readers/pipeline.py          → tests/test_pipeline.py
     agentception/readers/llm_phase_planner.py           → tests/test_intent*.py
-    agentception/readers/  → tests/test_maestro_handlers.py
+    agentception/readers/  → tests/test_handlers.py
     agentception/services/muse_*.py        → tests/test_muse_*.py
     agentception/routes/api/muse.py        → tests/test_muse.py
     agentception/mcp/                      → tests/test_mcp.py
@@ -2509,7 +2509,7 @@ STEP 4 — TARGETED TEST SCOPING (before review):
   #    Quick reference (from .cursorrules):
   #      agentception/readers/llm_phase_planner.py           → tests/test_intent*.py
   #      agentception/readers/pipeline.py          → tests/test_pipeline.py
-  #      agentception/readers/  → tests/test_maestro_handlers.py
+  #      agentception/readers/  → tests/test_handlers.py
   #      agentception/services/muse_*.py        → tests/test_muse_*.py
   #      agentception/mcp/                      → tests/test_mcp.py
   #      agentception/muse/daw/                      → tests/test_daw_adapter.py
@@ -2968,7 +2968,7 @@ AgentCeption-Session: ${AGENT_SESSION:-unset}"
   else
     # Route by codebase — always run in the agentception container.
     HAS_AC=$(echo "$TEST_FILES" | grep -c "test_agentception" || true)
-    HAS_MAESTRO=$(echo "$TEST_FILES" | grep -v "test_agentception" | grep -c "test_" || true)
+    HAS_OTHER_TESTS=$(echo "$TEST_FILES" | grep -v "test_agentception" | grep -c "test_" || true)
 
     if [ "$HAS_AC" -gt 0 ]; then
       # Convert host paths ($REPO/agentception/tests/...) to container-relative paths
@@ -2980,7 +2980,7 @@ AgentCeption-Session: ${AGENT_SESSION:-unset}"
       echo "$AC_OUTPUT"
       TEST_OUTPUT="$AC_OUTPUT"
     fi
-    if [ "$HAS_MAESTRO" -gt 0 ]; then
+    if [ "$HAS_OTHER_TESTS" -gt 0 ]; then
       # Convert host-absolute paths to container-relative (strip $REPO/ prefix)
       M_TESTS_CONTAINER=$(echo "$TEST_FILES" | tr ' ' '\n' | grep -v "test_agentception" | \
         sed "s|$REPO/||" | tr '\n' ' ')

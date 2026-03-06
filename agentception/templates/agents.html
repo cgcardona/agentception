@@ -225,9 +225,9 @@
             {% endif %}
             {% if persona.raw %}
             <a
-              href="/cognitive-arch/{{ persona.raw | urlencode }}"
+              href="/cognitive-arch/{{ persona.raw | replace(':', '-') }}"
               class="agent-arch-link"
-              @click.prevent.stop="window.location='/cognitive-arch/{{ persona.raw }}'"
+              @click.prevent.stop="window.location='/cognitive-arch/{{ persona.raw | replace(':', '-') }}'"
               title="View cognitive architecture"
             >{{ persona.archetype_emoji }}</a>
             {% endif %}

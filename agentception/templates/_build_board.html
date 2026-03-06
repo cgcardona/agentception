@@ -1,4 +1,9 @@
-{% macro render_issue(issue, group_complete, group_locked, initiative, repo) %}
+{#
+  render_issue(issue, group_complete, group_locked, initiative, repo, lane)
+  lane: "todo" | "active" | "pr_open" | "reviewing" | "done"
+  Each lane shows a different slice of information tailored to that state.
+#}
+{% macro render_issue(issue, group_complete, group_locked, initiative, repo, lane="todo") %}
 {% set run = issue.run %}
 {% set active_run = run if (run and run.agent_status != 'unknown') else none %}
 {% set is_running = active_run and active_run.agent_status in ('implementing', 'pending_launch') %}
@@ -9,15 +14,15 @@
   {%- elif active_run %} build-issue--active
   {%- endif %}
   {%- if active_run %} build-issue--has-run{%- endif %}"
-  {%- if not group_complete and active_run %}@click='$dispatch("inspect-issue", {{ issue | tojson }})'{% endif %}
+  {%- if not group_complete and active_run and lane != 'done' %}@click='$dispatch("inspect-issue", {{ issue | tojson }})'{% endif %}
 >
-  {% if active_run %}
+
+  {# ── Icon links (agent + cog-arch) — shown in active/pr/reviewing lanes only #}
+  {% if active_run and lane in ('active', 'pr_open', 'reviewing') %}
   <div class="build-issue__icon-links">
     <a class="build-issue__icon-link"
        href="/agents/{{ active_run.id }}"
        title="View agent transcript"
-       target="_blank"
-       rel="noopener"
        @click.stop>
       <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M10 2h4v4"/>
@@ -27,10 +32,8 @@
     </a>
     {% if active_run.cognitive_arch %}
     <a class="build-issue__icon-link"
-       href="/cognitive-arch/{{ active_run.cognitive_arch | urlencode }}"
+       href="/cognitive-arch/{{ active_run.cognitive_arch | replace(':', '-') }}"
        title="View cognitive architecture: {{ active_run.cognitive_arch }}"
-       target="_blank"
-       rel="noopener"
        @click.stop>
       <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <circle cx="5" cy="5" r="2"/>
@@ -44,13 +47,16 @@
     {% endif %}
   </div>
   {% endif %}
+
+  {# ── Header: issue number + role label pill + state dot #}
   <div class="build-issue__header">
     <a class="build-issue__number" href="{{ issue.url }}" target="_blank" rel="noopener" @click.stop>
       #{{ issue.number }}
     </a>
+    {# Role label pill — shown in TODO and Active #}
+    {% if lane in ('todo', 'active') %}
     {% set lns = namespace(role_label=none) %}
     {% for lbl in issue.labels %}
-      {# Skip initiative labels, scoped phase labels (contain "/"), and bare phase-N labels. #}
       {% if lns.role_label is none and lbl != initiative and "/" not in lbl and not lbl.startswith('phase-') %}
         {% set lns.role_label = lbl %}
       {% endif %}
@@ -58,51 +64,76 @@
     {% if lns.role_label %}
     <span class="build-issue__label-pill">{{ lns.role_label }}</span>
     {% endif %}
+    {% endif %}
+    {# State dot — only in Active lane (is_running = pulsing, else static) #}
+    {% if lane == 'active' %}
     <span class="build-issue__state-dot
-      {%- if issue.state == 'closed' %} build-issue__state-dot--closed
-      {%- elif is_running %} build-issue__state-dot--active
+      {%- if is_running %} build-issue__state-dot--active
       {%- else %} build-issue__state-dot--open
       {%- endif %}"></span>
+    {% endif %}
   </div>
-  <p class="build-issue__title">{{ issue.title }}</p>
-  {% if issue.depends_on %}
+
+  {# ── Title #}
+  <p class="build-issue__title build-issue__title--{{ lane }}">{{ issue.title }}</p>
+
+  {# ── Body excerpt (TODO lane only) #}
+  {% if lane == 'todo' and issue.body_excerpt %}
+  <p class="build-issue__excerpt">{{ issue.body_excerpt }}</p>
+  {% endif %}
+
+  {# ── Dependencies #}
+  {% if issue.depends_on and lane == 'todo' %}
   <div class="build-issue__deps">
     {% for dep in issue.depends_on %}
     <span class="build-issue__dep-chip" title="Depends on #{{ dep }}">↑ #{{ dep }}</span>
     {% endfor %}
   </div>
   {% endif %}
+
+  {# ── Footer: lane-specific content #}
+  {% if lane == 'active' and active_run %}
   <div class="build-issue__footer">
-    {% if active_run %}
     <div class="build-issue__run">
-      <span class="build-issue__role">{{ active_run.role }}</span>
+      <span class="build-issue__role">{{ active_run.role | replace('-', ' ') | title }}</span>
       <span class="build-issue__status build-issue__status--{{ active_run.agent_status }}">
         {%- if active_run.agent_status == 'stale' %}⚠ stale{%- else %}{{ active_run.agent_status }}{%- endif %}
       </span>
-      {% if active_run.tier %}
-      <span class="build-issue__tier build-issue__tier--{{ active_run.tier }}">
-        {{- active_run.org_domain or active_run.tier -}}
-      </span>
-      {% endif %}
-      {% if active_run.pr_number %}
-      <a class="build-issue__pr" href="https://github.com/{{ repo }}/pull/{{ active_run.pr_number }}"
-         target="_blank" rel="noopener" @click.stop>PR&thinsp;#{{ active_run.pr_number }}</a>
-      {% endif %}
     </div>
     {% if active_run.current_step %}
     <p class="build-issue__step">{{ active_run.current_step }}</p>
     {% endif %}
-    {% if active_run.steps_completed > 0 %}
+    {% if active_run.steps_completed > 1 %}
     <div class="build-issue__progress">
       {% if active_run.steps_total %}
       <div class="build-issue__progress-bar"
            style="width: {{ (active_run.steps_completed / active_run.steps_total * 100) | int }}%"></div>
       {% endif %}
-      <span class="build-issue__step-count">{{ active_run.steps_completed }} step{{ 's' if active_run.steps_completed != 1 else '' }}</span>
+      <span class="build-issue__step-count">{{ active_run.steps_completed }} steps</span>
     </div>
     {% endif %}
+  </div>
+
+  {% elif lane in ('pr_open', 'reviewing') and active_run %}
+  <div class="build-issue__footer">
+    {# PR chip: links out to the PR and communicates the state #}
+    {% if active_run.pr_number %}
+    <div class="build-issue__pr-row">
+      <a class="build-issue__pr-chip build-issue__pr-chip--{{ lane }}"
+         href="https://github.com/{{ repo }}/pull/{{ active_run.pr_number }}"
+         target="_blank" rel="noopener" @click.stop>
+        PR #{{ active_run.pr_number }}
+        {%- if lane == 'reviewing' %} · In Review{%- endif %}
+      </a>
+      {% if active_run.branch %}
+      <span class="build-issue__branch">{{ active_run.branch }}</span>
+      {% endif %}
+    </div>
     {% endif %}
   </div>
+  {% endif %}
+  {# Done lane: no footer — the grayed row is the signal #}
+
 </li>
 {% endmacro %}
 
@@ -208,31 +239,31 @@
 
     <ul class="build-swimlane__bucket{% if bns.todo %} build-swimlane__bucket--has-items{% endif %}" x-show="open">
       {% for issue in bns.todo %}
-        {{ render_issue(issue, group.complete, group.locked, initiative, repo) }}
+        {{ render_issue(issue, group.complete, group.locked, initiative, repo, lane="todo") }}
       {% endfor %}
     </ul>
 
     <ul class="build-swimlane__bucket build-swimlane__bucket--active{% if bns.active %} build-swimlane__bucket--has-items{% endif %}" x-show="open">
       {% for issue in bns.active %}
-        {{ render_issue(issue, group.complete, group.locked, initiative, repo) }}
+        {{ render_issue(issue, group.complete, group.locked, initiative, repo, lane="active") }}
       {% endfor %}
     </ul>
 
     <ul class="build-swimlane__bucket build-swimlane__bucket--pr{% if bns.pr_open %} build-swimlane__bucket--has-items{% endif %}" x-show="open">
       {% for issue in bns.pr_open %}
-        {{ render_issue(issue, group.complete, group.locked, initiative, repo) }}
+        {{ render_issue(issue, group.complete, group.locked, initiative, repo, lane="pr_open") }}
       {% endfor %}
     </ul>
 
     <ul class="build-swimlane__bucket build-swimlane__bucket--review{% if bns.reviewing %} build-swimlane__bucket--has-items{% endif %}" x-show="open">
       {% for issue in bns.reviewing %}
-        {{ render_issue(issue, group.complete, group.locked, initiative, repo) }}
+        {{ render_issue(issue, group.complete, group.locked, initiative, repo, lane="reviewing") }}
       {% endfor %}
     </ul>
 
     <ul class="build-swimlane__bucket build-swimlane__bucket--done{% if bns.done %} build-swimlane__bucket--has-items{% endif %}" x-show="open">
       {% for issue in bns.done %}
-        {{ render_issue(issue, group.complete, group.locked, initiative, repo) }}
+        {{ render_issue(issue, group.complete, group.locked, initiative, repo, lane="done") }}
       {% endfor %}
     </ul>
 

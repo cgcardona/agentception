@@ -203,14 +203,13 @@ async def test_pr_number_advanced_when_agent_task_has_one() -> None:
 
 
 @pytest.mark.anyio
-async def test_orphan_with_pr_number_kept_as_reviewing() -> None:
-    """Kanban regression: worktree removed but PR still open.
+async def test_orphan_with_pr_number_set_to_done() -> None:
+    """Kanban regression: worktree removed, PR exists — card should land in PR Open lane.
 
-    When the engineer's worktree disappears the orphan sweep must NOT flip
-    status to 'unknown' if pr_number is set.  Doing so would collapse the
-    Kanban card back to the 'todo' lane (_ar becomes None in the template).
-    Instead it should stay 'reviewing' until the PR is merged and the issue
-    is closed.
+    When the engineer's worktree disappears the orphan sweep sets status to
+    'done' (not 'unknown') when pr_number is set.  'done' agent_status + a
+    pr_number causes the template to route the card to the PR Open bucket,
+    keeping it visible.  'unknown' would collapse it back to the todo lane.
     """
     orphan = _make_run(status="reviewing")
     orphan.pr_number = 77
@@ -230,8 +229,8 @@ async def test_orphan_with_pr_number_kept_as_reviewing() -> None:
 
     await _persist._upsert_agent_runs(session, [different_agent])
 
-    assert orphan.status == "reviewing", (
-        "Orphan with open PR was flipped to 'unknown' — Kanban card lost"
+    assert orphan.status == "done", (
+        "Orphan with open PR must be set to 'done' so the Kanban card lands in PR Open"
     )
 
 

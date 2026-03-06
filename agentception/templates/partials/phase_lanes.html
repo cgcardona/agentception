@@ -44,7 +44,7 @@
         <p class="blockers-label">Waiting on:</p>
         {% for b in lane.blockers[:3] %}
         <a
-          href="https://github.com/cgcardona/maestro/issues/{{ b.number }}"
+          href="{{ gh_base_url }}/issues/{{ b.number }}"
           target="_blank"
           rel="noopener noreferrer"
           class="blocker-link"

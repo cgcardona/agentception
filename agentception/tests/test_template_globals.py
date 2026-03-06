@@ -43,8 +43,8 @@ def test_gh_base_url_contains_repo_slug() -> None:
     assert base_url == f"https://github.com/{settings.gh_repo}"
 
 
-def test_no_hardcoded_cgcardona_maestro_in_globals() -> None:
-    """Template globals must not contain a literal ``cgcardona/agentception`` that bypasses settings.
+def test_no_hardcoded_repo_in_globals() -> None:
+    """Template globals must not contain a hardcoded repo string that bypasses settings.
 
     If ``settings.gh_repo`` is overridden (e.g. via ``GH_REPO`` env var), the globals
     must reflect the override — they must never be a static string burned in at import time

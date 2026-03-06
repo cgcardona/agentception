@@ -771,7 +771,7 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
 
     agentception/readers/pipeline.py          → tests/test_pipeline.py
     agentception/readers/llm_phase_planner.py           → tests/test_intent*.py
-    agentception/readers/  → tests/test_maestro_handlers.py
+    agentception/readers/  → tests/test_handlers.py
     agentception/services/muse_*.py        → tests/test_muse_*.py
     agentception/routes/api/muse.py        → tests/test_muse.py
     agentception/mcp/                      → tests/test_mcp.py

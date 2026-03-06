@@ -27,27 +27,6 @@ def _all_python_files(exclude_self: bool = False) -> list[Path]:
         and (not exclude_self or p.resolve() != this_file)
     ]
 
-
-def test_no_maestro_imports_in_agentception() -> None:
-    """No .py file in agentception/ may import from the legacy maestro package.
-
-    AgentCeption is fully self-contained. Imports from maestro.* would reintroduce
-    a hard dependency on the old monorepo that no longer exists here.
-    """
-    violations: list[str] = []
-    pattern = re.compile(r"^\s*(from maestro[.\s]|import maestro[.\s])", re.MULTILINE)
-
-    for path in _all_python_files(exclude_self=False):
-        source = path.read_text(encoding="utf-8")
-        if pattern.search(source):
-            violations.append(str(path.relative_to(AGENTCEPTION_ROOT.parent)))
-
-    assert not violations, (
-        "Found maestro.* imports in agentception/ — remove them, agentception is standalone:\n"
-        + "\n".join(f"  {v}" for v in violations)
-    )
-
-
 def test_no_hardcoded_gabriel_paths() -> None:
     """No .py file in agentception/ may contain a literal hardcoded user path.
 

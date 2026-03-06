@@ -125,6 +125,27 @@ def _fmt_duration(seconds: float) -> str:
     return f"{h}h {m}m"
 
 
+_ROLE_ACRONYMS: frozenset[str] = frozenset({"cto", "vp", "qa", "coo", "cfo", "cpo", "ciso"})
+
+
+def _fmt_role(role: str) -> str:
+    """Format a role slug for display.
+
+    Known acronyms (cto, vp, qa …) are uppercased; all other parts are
+    title-cased.  Hyphens become spaces.
+
+    Examples::
+
+        "cto"                   → "CTO"
+        "vp-engineering"        → "VP Engineering"
+        "python-developer"      → "Python Developer"
+    """
+    return " ".join(
+        p.upper() if p.lower() in _ROLE_ACRONYMS else p.title()
+        for p in role.split("-")
+    )
+
+
 def _fmt_elapsed(spawned_iso: object) -> str:
     """Return a human-readable elapsed time string from an ISO spawn timestamp to now."""
     dt = _parse_iso(spawned_iso)
@@ -200,5 +221,6 @@ _TEMPLATES.env.filters["markdown"] = _md_to_html
 _TEMPLATES.env.filters["format_ts"] = _format_ts
 _TEMPLATES.env.filters["format_number"] = _format_number
 _TEMPLATES.env.filters["dirname"] = _dirname
+_TEMPLATES.env.filters["fmt_role"] = _fmt_role
 _TEMPLATES.env.globals["gh_repo"] = _settings.gh_repo
 _TEMPLATES.env.globals["gh_base_url"] = f"https://github.com/{_settings.gh_repo}"

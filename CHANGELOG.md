@@ -33,7 +33,7 @@ See [CONTRIBUTING](docs/guides/contributing.md) for commit conventions and PR gu
 
 ### Added
 
-- Standalone extraction from the maestro monorepo; `cgcardona/agentception` established as an independent repository.
+- Established `cgcardona/agentception` as an independent repository.
 - Initial project scaffold: FastAPI application with Jinja2/HTMX/Alpine.js build dashboard.
 - Docker Compose setup with bind mounts for fast development iteration (no rebuild required for code changes).
 - Base agent infrastructure: `.agentception/` configuration directory, cognitive architecture scripts, and dispatcher prompt.

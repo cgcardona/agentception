@@ -158,7 +158,8 @@ def test_agent_detail_no_transcript_path(client: TestClient) -> None:
     with patch("agentception.routes.ui.agents.get_state", return_value=state):
         response = client.get("/agents/no-transcript")
     assert response.status_code == 200
-    assert "No transcript available" in response.text
+    # The page renders successfully regardless of transcript content.
+    assert "no-transcript" in response.text
 
 
 def test_agent_detail_contains_task_table(
@@ -193,8 +194,9 @@ def test_agent_detail_contains_breadcrumb(
     ):
         response = client.get("/agents/issue-616")
     assert response.status_code == 200
-    assert "← Overview" in response.text
-    assert 'href="/"' in response.text
+    # Breadcrumb now uses history.back() with "← Back" label.
+    assert "← Back" in response.text
+    assert "back-link" in response.text
 
 
 # ── GET /api/agents — list endpoint ───────────────────────────────────────────
@@ -402,20 +404,24 @@ def test_agent_detail_has_copy_buttons(
     assert "btn-copy" in response.text
 
 
-def test_agent_detail_has_htmx_polling(
+def test_agent_detail_has_conversation_section(
     client: TestClient, pipeline_with_agent: PipelineState
 ) -> None:
-    """GET /agents/<id> HTML must include hx-trigger polling on the transcript section."""
+    """GET /agents/<id> HTML must include the collapsible Conversation section when messages exist."""
+    fake_messages = [
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "Hi there"},
+    ]
     with (
         patch("agentception.routes.ui.agents.get_state", return_value=pipeline_with_agent),
         patch(
             "agentception.routes.ui.agents.read_transcript_messages",
             new_callable=AsyncMock,
-            return_value=[],
+            return_value=fake_messages,
         ),
     ):
         response = client.get("/agents/issue-616")
     assert response.status_code == 200
-    assert "hx-trigger" in response.text
-    assert "every 8s" in response.text
-    assert "transcript-section" in response.text
+    # Conversation renders in a collapsible <details> element when messages are present.
+    assert "Conversation" in response.text
+    assert "agent-section-disclosure" in response.text

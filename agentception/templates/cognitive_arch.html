@@ -15,31 +15,37 @@
 {# ══════════════════════════════════════════════════════════════════════════ #}
 {% if arch_id is defined and arch_id %}
 
-<div class="page-header mt-2">
-  <div style="display:flex;align-items:center;gap:0.75rem;">
-    <a href="/cognitive-arch" class="btn btn-secondary" style="font-size:0.75rem;">← All Architectures</a>
-    <h1 class="page-title" style="margin:0;">{{ persona.display_name }}</h1>
-    {% if persona.archetype %}
-    <span class="cog-panel__sub" style="margin-top:0.1rem;">{{ persona.archetype | replace('_', ' ') | title }}</span>
-    {% endif %}
-  </div>
-  <code class="cog-domain-card__id" style="margin-top:0.35rem;">{{ arch_str }}</code>
-</div>
+{# ── Breadcrumb ────────────────────────────────────────────────────────── #}
+<nav class="breadcrumb" aria-label="Breadcrumb" x-data>
+  <a class="back-link" href="/cognitive-arch" @click.prevent="history.back()">← Back</a>
+</nav>
 
 {# ── Hero panel ────────────────────────────────────────────────────────── #}
-<div class="cog-panel card mt-2">
+<div class="cog-panel card mt-2"
+     x-data="{
+       selected: null,
+       pick(title, desc) { this.selected = this.selected && this.selected.title === title ? null : { title, desc }; }
+     }">
   <div class="cog-panel__header">
     <span class="cog-panel__emoji">{{ persona.archetype_emoji }}</span>
     <div>
       <div class="cog-panel__title">{{ persona.display_name }}</div>
       {% if persona.archetype %}
-        <div class="cog-panel__sub">{{ persona.archetype | replace('_', ' ') | title }}</div>
+        <button class="cog-panel__sub cog-chip--btn"
+                data-title="{{ persona.archetype | replace('_', ' ') | title }}"
+                data-desc="{{ archetype_desc }}"
+                @click="pick($el.dataset.title, $el.dataset.desc)"
+                :class="selected && selected.title === $el.dataset.title ? 'cog-chip--active' : ''">
+          {{ persona.archetype | replace('_', ' ') | title }}
+        </button>
       {% endif %}
     </div>
   </div>
 
   {% if persona.description %}
-  <p class="cog-panel__desc">{{ persona.description }}</p>
+  <div class="cog-panel__desc"
+       x-data
+       x-init="$el.innerHTML = renderMd($el.textContent)">{{ persona.description }}</div>
   {% endif %}
 
   <div class="cog-panel__body">
@@ -48,10 +54,14 @@
       <div class="cog-panel__section-label">Cognitive Atoms</div>
       <div class="cog-atoms-row">
         {% for dim, val in persona.overrides.items() %}
-        <div class="cog-atom-pill">
+        <button class="cog-atom-pill cog-chip--btn"
+                data-title="{{ val | replace('_', ' ') | title }}"
+                data-desc="{{ atom_descs.get(dim + ':' + val, '') }}"
+                @click="pick($el.dataset.title, $el.dataset.desc)"
+                :class="selected && selected.title === $el.dataset.title ? 'cog-chip--active' : ''">
           <span class="cog-atom-pill__key">{{ dim | replace('_', ' ') }}</span>
           <span class="cog-atom-pill__val">{{ val | replace('_', ' ') }}</span>
-        </div>
+        </button>
         {% endfor %}
       </div>
     </div>
@@ -62,17 +72,35 @@
       <div class="cog-panel__section-label">Skill Domains</div>
       <div class="cog-skills-row">
         {% for skill in persona.skill_domains %}
-        <span class="cog-skill-tag">{{ skill | replace('_', ' ') | title }}</span>
+        <button class="cog-skill-tag cog-chip--btn"
+                data-title="{{ skill | replace('_', ' ') | title }}"
+                data-desc="{{ skill_descs.get(skill, '') }}"
+                @click="pick($el.dataset.title, $el.dataset.desc)"
+                :class="selected && selected.title === $el.dataset.title ? 'cog-chip--active' : ''">
+          {{ skill | replace('_', ' ') | title }}
+        </button>
         {% endfor %}
       </div>
     </div>
     {% endif %}
+
+    {# Inline description panel — shown when any chip is selected #}
+    <div class="cog-chip-desc" x-show="selected" x-cloak x-transition.opacity>
+      <div class="cog-chip-desc__header">
+        <span class="cog-chip-desc__title" x-text="selected && selected.title"></span>
+        <button class="cog-chip-desc__close" @click="selected = null" aria-label="Close">×</button>
+      </div>
+      <p class="cog-chip-desc__body" x-text="selected && selected.desc"></p>
+    </div>
   </div>
 
   {% if persona.prompt_prefix %}
   <div class="cog-panel__prompt mt-2" style="padding:0.75rem 1rem;background:var(--bg-elevated);border-top:1px solid var(--border-subtle);">
-    <div class="cog-panel__section-label" style="margin-bottom:0.4rem;">Prompt Prefix (first 600 chars)</div>
-    <pre style="font-size:0.7rem;color:var(--text-muted);white-space:pre-wrap;word-break:break-word;margin:0;font-family:var(--font-mono);">{{ persona.prompt_prefix }}</pre>
+    <div class="cog-panel__section-label" style="margin-bottom:0.4rem;">Prompt Prefix</div>
+    {# Render the full prompt prefix as markdown — it is authored in markdown. #}
+    <div class="cog-panel__prompt-body"
+         x-data
+         x-init="$el.innerHTML = renderMd($el.textContent)">{{ persona.prompt_prefix }}</div>
   </div>
   {% endif %}
 </div>
@@ -106,7 +134,7 @@
   {% if figures %}
   <div class="card-grid">
     {% for fig in figures %}
-    <a class="card cog-figure-card" href="/cognitive-arch/{{ fig.id | urlencode }}" style="text-decoration:none;display:block;">
+    <a class="card cog-figure-card" href="/cognitive-arch/{{ fig.id | replace(':', '-') }}" style="text-decoration:none;display:block;">
       <div class="cog-figure-card__header">
         <span class="cog-figure-card__name">{{ fig.display_name }}</span>
         <code class="cog-figure-card__id">{{ fig.id }}</code>

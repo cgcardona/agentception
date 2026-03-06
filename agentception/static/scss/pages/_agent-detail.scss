@@ -102,6 +102,22 @@
   padding: 0.5rem 0;
   vertical-align: top;
   word-break: break-word;
+
+  // Non-link code snippets should not appear as purple links.
+  code {
+    color: var(--text-secondary);
+  }
+
+  // Actual links — and code inside links — keep the purple accent + hover.
+  a {
+    color: var(--accent-bright);
+    text-decoration: none;
+    transition: color 0.15s;
+
+    &:hover { color: #fff; text-decoration: underline; }
+
+    code { color: inherit; }
+  }
 }
 
 .task-value--path code {
@@ -426,6 +442,40 @@
   color: var(--text-secondary);
   line-height: 1.55;
   margin: 0 0 0.75rem;
+
+  // Markdown output styling
+  p        { margin: 0 0 0.5em; &:last-child { margin-bottom: 0; } }
+  strong   { font-weight: 600; color: var(--text-primary); }
+  em       { font-style: italic; }
+  code     { font-family: var(--font-mono); font-size: 0.78rem;
+              background: rgba(255,255,255,0.07); border-radius: 3px; padding: 0 0.3em; }
+  a        { color: var(--accent); text-decoration: underline; }
+  ul, ol   { margin: 0.4em 0; padding-left: 1.4em; }
+  li       { margin: 0.1em 0; }
+}
+
+// Full-prompt rendered markdown block beneath the hero panel.
+.cog-panel__prompt-body {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.55;
+
+  p        { margin: 0 0 0.6em; &:last-child { margin-bottom: 0; } }
+  h1,h2    { font-size: 0.85rem; font-weight: 700; margin: 0.6em 0 0.3em;
+              color: var(--text-secondary); }
+  h3,h4    { font-size: 0.78rem; font-weight: 600; margin: 0.5em 0 0.25em;
+              color: var(--text-secondary); }
+  strong   { font-weight: 600; color: var(--text-secondary); }
+  em       { font-style: italic; }
+  code     { font-family: var(--font-mono); font-size: 0.72rem;
+              background: rgba(255,255,255,0.07); border-radius: 3px; padding: 0 0.3em; }
+  pre      { background: rgba(255,255,255,0.05); border-radius: var(--radius-xs);
+              padding: 0.6em 0.8em; overflow-x: auto; margin: 0.5em 0;
+              code { background: none; padding: 0; } }
+  ul, ol   { margin: 0.4em 0; padding-left: 1.4em; }
+  li       { margin: 0.15em 0; }
+  a        { color: var(--accent); text-decoration: underline; }
+  hr       { border: none; border-top: 1px solid var(--border-subtle); margin: 0.75em 0; }
 }
 
 .cog-panel__body {
@@ -676,5 +726,483 @@
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+// ── Agent Profile page ──────────────────────────────────────────────────────
+
+// Shared section heading used across all profile sections.
+.agent-section-title {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  margin: 0 0 0.75rem;
+}
+
+// ── Hero ────────────────────────────────────────────────────────────────────
+
+.agent-hero {
+  // Override the default card padding to let the inner flex row breathe.
+  .agent-hero__inner {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .agent-hero__body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+
+  .agent-hero__title-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .agent-hero__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+  }
+
+  .agent-hero__date   { color: var(--text-muted); }
+  .agent-hero__duration { color: var(--text-muted); }
+  .agent-hero__sep    { color: var(--text-faint); }
+
+  .agent-hero__link {
+    color: var(--accent);
+    text-decoration: underline;
+    text-decoration-color: transparent;
+    transition: text-decoration-color 0.15s;
+    &:hover { text-decoration-color: var(--accent); }
+    &--mono { font-family: var(--font-mono); font-size: 0.72rem; }
+  }
+
+  .agent-hero__actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-shrink: 0;
+    align-items: flex-start;
+  }
+}
+
+// ── Mission + Deliverable grid ───────────────────────────────────────────────
+
+.agent-profile-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  align-items: start;
+
+  @media (max-width: 800px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+// ── Mission ─────────────────────────────────────────────────────────────────
+
+.agent-mission {
+  &__issue-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 0.5rem;
+    line-height: 1.35;
+  }
+
+  &__labels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-bottom: 0.75rem;
+  }
+
+  &__body {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+
+    p           { margin: 0 0 0.6em; &:last-child { margin-bottom: 0; } }
+    h1, h2, h3  { font-size: 0.9rem; font-weight: 700; margin: 0.75em 0 0.3em;
+                   color: var(--text-primary); }
+    h4, h5, h6  { font-size: 0.82rem; font-weight: 600; margin: 0.5em 0 0.25em; }
+    ul, ol      { margin: 0.4em 0; padding-left: 1.4em; }
+    li          { margin: 0.15em 0; }
+    code        { font-family: var(--font-mono); font-size: 0.78rem;
+                  background: rgba(255,255,255,0.07); border-radius: 3px; padding: 0 0.3em; }
+    pre         { background: rgba(255,255,255,0.05); border-radius: var(--radius-xs);
+                  padding: 0.6em 0.8em; overflow-x: auto; margin: 0.5em 0;
+                  code { background: none; padding: 0; } }
+    strong      { font-weight: 600; color: var(--text-primary); }
+    a           { color: var(--accent); text-decoration: underline; }
+    blockquote  { border-left: 3px solid var(--border-default); margin: 0.5em 0;
+                  padding: 0.25em 0.75em; color: var(--text-muted); }
+    hr          { border: none; border-top: 1px solid var(--border-subtle); margin: 0.75em 0; }
+  }
+}
+
+// ── Deliverable ──────────────────────────────────────────────────────────────
+
+.agent-deliverable {
+  &__pr-header {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 1rem;
+  }
+
+  &__pr-link {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-decoration: underline;
+    text-decoration-color: transparent;
+    &:hover { text-decoration-color: var(--accent); }
+  }
+
+  &__section {
+    margin-bottom: 0.75rem;
+    &:last-child { margin-bottom: 0; }
+  }
+
+  &__section-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    margin-bottom: 0.4rem;
+  }
+
+  &__checks, &__reviews {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  &__check {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.78rem;
+  }
+
+  &__check-icon {
+    font-size: 0.75rem;
+    font-weight: 700;
+    width: 1.1rem;
+    text-align: center;
+    flex-shrink: 0;
+
+    &--pass    { color: var(--success); }
+    &--fail    { color: var(--danger); }
+    &--pending { color: var(--text-muted); }
+  }
+
+  &__check-name { color: var(--text-secondary); }
+
+  &__review {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.78rem;
+  }
+
+  &__review-state {
+    font-weight: 600;
+    font-size: 0.72rem;
+
+    &--approved  { color: var(--success); }
+    &--changes   { color: var(--warning); }
+    &--comment   { color: var(--text-muted); }
+  }
+
+  &__review-author { color: var(--text-muted); font-size: 0.72rem; }
+}
+
+// ── Lineage ──────────────────────────────────────────────────────────────────
+
+.agent-lineage {
+  &__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.75rem;
+  }
+
+  &__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    padding: 0.2rem 0.55rem;
+    font-size: 0.75rem;
+  }
+
+  &__chip-label {
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 0.6rem;
+  }
+
+  &__chip-val {
+    color: var(--text-primary);
+    font-weight: 500;
+    a { color: var(--accent); text-decoration: underline; }
+  }
+
+  &__siblings { margin-top: 0.5rem; }
+
+  &__siblings-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    margin-bottom: 0.4rem;
+  }
+
+  &__siblings-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+}
+
+.agent-sibling-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 0.25rem 0.6rem;
+  font-size: 0.72rem;
+  text-decoration: none;
+  transition: border-color 0.15s, background 0.15s;
+
+  &:hover { border-color: var(--accent); background: rgba(139,92,246,0.08); }
+
+  &__role  { color: var(--text-primary); font-weight: 500; }
+  &__issue { color: var(--text-muted); font-size: 0.68rem; }
+  &__status {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-faint);
+  }
+
+  &--done       { border-color: rgba(16,217,160,0.25); }
+  &--implementing { border-color: rgba(139,92,246,0.35); }
+  &--reviewing  { border-color: rgba(56,189,248,0.25); }
+}
+
+// ── Disclosure (collapsible sections) ────────────────────────────────────────
+
+.agent-section-disclosure {
+  &[open] summary { margin-bottom: 0.75rem; }
+
+  &__summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    user-select: none;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    padding: 0.6rem 0.8rem;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    list-style: none;
+
+    &::-webkit-details-marker { display: none; }
+    &::before { content: '▶'; font-size: 0.6rem; transition: transform 0.15s; }
+    details[open] > &::before { transform: rotate(90deg); }
+    &:hover { color: var(--text-primary); border-color: var(--border-hover, var(--border-default)); }
+  }
+
+  &__count {
+    color: var(--text-muted);
+    font-weight: 400;
+    font-size: 0.75rem;
+  }
+}
+
+/* ── Two-column grids (mission/timeline, deliverable/tasks) ─────────── */
+
+.agent-upper-grid,
+.agent-lower-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+
+  @media (max-width: 700px) { grid-template-columns: 1fr; }
+}
+
+/* ── Agent Tasks panel ───────────────────────────────────────────────── */
+
+.agent-tasks {
+  // inherits .card
+}
+
+/* ── Org hierarchy chain ─────────────────────────────────────────────── */
+
+.org-chain {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.org-chain__arrow {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  align-self: center;
+  margin-top: -0.5rem; // visually center with the node labels
+}
+
+.org-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  min-width: 90px;
+  text-align: center;
+  transition: border-color 0.15s, background 0.15s;
+
+  &__emoji { font-size: 1.2rem; line-height: 1; }
+
+  &__label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  &__sub {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+  }
+
+  &__parent-link {
+    font-size: 0.65rem;
+    color: var(--accent-bright);
+    text-decoration: none;
+    margin-top: 0.2rem;
+    &:hover { text-decoration: underline; }
+  }
+
+  // Current agent's tier
+  &--current {
+    border-color: var(--accent-bright);
+    background: rgba(124, 106, 247, 0.12);
+    .org-node__label { color: var(--accent-bright); }
+  }
+
+  // Ancestor tier (above current in the chain)
+  &--ancestor {
+    border-color: var(--border-subtle);
+    opacity: 0.85;
+  }
+
+  // Not yet reached in the chain
+  &--dim {
+    opacity: 0.35;
+  }
+
+  // Ancestor node that is also a navigation link
+  &--link {
+    text-decoration: none;
+    cursor: pointer;
+
+    &:hover {
+      border-color: var(--accent-bright);
+      background: rgba(124, 106, 247, 0.08);
+      .org-node__label { color: var(--accent-bright); }
+    }
+  }
+}
+
+/* ── Clickable chip base — turns any chip into a button ─────────────── */
+
+.cog-chip--btn {
+  cursor: pointer;
+  border: none;
+  background: inherit;
+  font: inherit;
+  text-align: left;
+  transition: filter 0.12s, outline 0.12s;
+
+  &:hover { filter: brightness(1.2); }
+  &:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 2px; }
+}
+
+.cog-chip--active {
+  outline: 2px solid var(--accent-bright);
+  outline-offset: 2px;
+  filter: brightness(1.25);
+}
+
+/* ── Inline description panel ───────────────────────────────────────── */
+
+.cog-chip-desc {
+  width: 100%;      /* always occupies its own row in the flex body */
+  margin-top: 0.25rem;
+  padding: 0.65rem 0.85rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--accent-bright);
+  border-radius: 6px;
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.35rem;
+  }
+
+  &__title {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  &__close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 1rem;
+    line-height: 1;
+    padding: 0 0.15rem;
+    &:hover { color: var(--text-primary); }
+  }
+
+  &__body {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    line-height: 1.55;
+    margin: 0;
+  }
 }
 

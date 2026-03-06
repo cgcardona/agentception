@@ -1,7 +1,7 @@
 {
   "versions": {
     "cto": {
-      "current": "v62",
+      "current": "v76",
       "history": [
         {
           "sha": "abcdef1234567890abcdef1234567890abcdef12",
@@ -312,6 +312,76 @@
           "sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
           "label": "v62",
           "timestamp": 1772754074
+        },
+        {
+          "sha": "abcdef1234567890abcdef1234567890abcdef12",
+          "label": "v63",
+          "timestamp": 1772808733
+        },
+        {
+          "sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+          "label": "v64",
+          "timestamp": 1772808733
+        },
+        {
+          "sha": "abcdef1234567890abcdef1234567890abcdef12",
+          "label": "v65",
+          "timestamp": 1772808960
+        },
+        {
+          "sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+          "label": "v66",
+          "timestamp": 1772808960
+        },
+        {
+          "sha": "abcdef1234567890abcdef1234567890abcdef12",
+          "label": "v67",
+          "timestamp": 1772809022
+        },
+        {
+          "sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+          "label": "v68",
+          "timestamp": 1772809022
+        },
+        {
+          "sha": "abcdef1234567890abcdef1234567890abcdef12",
+          "label": "v69",
+          "timestamp": 1772809049
+        },
+        {
+          "sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+          "label": "v70",
+          "timestamp": 1772809049
+        },
+        {
+          "sha": "abcdef1234567890abcdef1234567890abcdef12",
+          "label": "v71",
+          "timestamp": 1772809648
+        },
+        {
+          "sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+          "label": "v72",
+          "timestamp": 1772809648
+        },
+        {
+          "sha": "abcdef1234567890abcdef1234567890abcdef12",
+          "label": "v73",
+          "timestamp": 1772809657
+        },
+        {
+          "sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+          "label": "v74",
+          "timestamp": 1772809657
+        },
+        {
+          "sha": "abcdef1234567890abcdef1234567890abcdef12",
+          "label": "v75",
+          "timestamp": 1772809676
+        },
+        {
+          "sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+          "label": "v76",
+          "timestamp": 1772809676
         }
       ]
     }

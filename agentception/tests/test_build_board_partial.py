@@ -77,6 +77,7 @@ def _mock_issue(number: int = 82, title: str = "Enrich build board") -> dict[str
     return {
         "number": number,
         "title": title,
+        "body_excerpt": "",
         "state": "open",
         "url": f"https://github.com/cgcardona/agentception/issues/{number}",
         "labels": ["phase-1"],
@@ -237,8 +238,8 @@ def test_build_board_partial_no_run_renders_without_error(
 
     assert resp.status_code == 200
     assert "Unassigned issue" in resp.text
-    # No run → Assign button should appear instead of a status badge.
-    assert "Assign" in resp.text
+    # No run → no status badge present, just the plain card.
+    assert "implementing" not in resp.text
 
 
 # ---------------------------------------------------------------------------
