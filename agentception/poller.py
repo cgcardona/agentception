@@ -54,6 +54,12 @@ _subscribers: list[asyncio.Queue[PipelineState]] = []
 _emitted_ready_drafts: set[str] = set()
 _emitted_timeout_drafts: set[str] = set()
 
+# In-memory deduplication for auto phase-advance transitions.
+# Each entry is (initiative, from_phase, to_phase) and is added only after a
+# successful plan_advance_phase call.  This prevents repeated GitHub API calls
+# on every tick for transitions that have already been applied.
+_auto_advanced: set[tuple[str, str, str]] = set()
+
 
 # ---------------------------------------------------------------------------
 # GitHub board aggregation
@@ -497,6 +503,86 @@ async def _build_board_issues(
         return []
 
 
+async def _auto_advance_phases(repo: str) -> None:
+    """Automatically remove the ``blocked`` label and add ``pipeline-active`` when a phase gate opens.
+
+    Called on every tick after ``persist_tick`` and ``reseed_missing_initiative_phases``.
+    Reads the DB-computed phase completion state, finds any phases whose
+    dependencies are now all closed, and calls ``plan_advance_phase`` for each
+    newly unlocked transition.
+
+    Uses ``_auto_advanced`` (a module-level set of
+    ``(initiative, from_phase, to_phase)`` tuples) to deduplicate — a
+    transition that has already succeeded is never retried within the same
+    process run.  Failures are logged at WARNING level and retried on the
+    next tick.
+    """
+    from agentception.db.queries import get_initiatives, get_issues_grouped_by_phase
+    from agentception.mcp.plan_advance_phase import plan_advance_phase
+
+    try:
+        initiatives = await get_initiatives(repo)
+    except Exception as exc:
+        logger.debug("⚠️  _auto_advance_phases: get_initiatives failed: %s", exc)
+        return
+
+    for initiative in initiatives:
+        try:
+            phases = await get_issues_grouped_by_phase(repo, initiative)
+        except Exception as exc:
+            logger.debug(
+                "⚠️  _auto_advance_phases: get_issues_grouped_by_phase(%s) failed: %s",
+                initiative,
+                exc,
+            )
+            continue
+
+        complete_set: set[str] = {p["label"] for p in phases if p["complete"]}
+
+        for phase in phases:
+            # Only consider phases that have dependencies and are not yet done.
+            if phase["complete"] or not phase["depends_on"]:
+                continue
+
+            # Check whether all dependencies are now complete in the DB.
+            if not all(dep in complete_set for dep in phase["depends_on"]):
+                continue
+
+            # All deps complete — fire plan_advance_phase for each dep→phase pair.
+            for dep_label in phase["depends_on"]:
+                key = (initiative, dep_label, phase["label"])
+                if key in _auto_advanced:
+                    continue  # already applied this tick-cycle
+                try:
+                    result = await plan_advance_phase(initiative, dep_label, phase["label"])
+                    if result.get("advanced") is True:
+                        _auto_advanced.add(key)
+                        logger.info(
+                            "✅ auto-advance: %s %r → %r (%s issue(s) unlocked)",
+                            initiative,
+                            dep_label,
+                            phase["label"],
+                            result.get("unlocked_count", 0),
+                        )
+                    else:
+                        # from_phase not yet fully closed on GitHub (DB ahead of GH).
+                        logger.debug(
+                            "⚠️  auto-advance: %s %r → %r gate not yet open on GitHub: %s",
+                            initiative,
+                            dep_label,
+                            phase["label"],
+                            result.get("open_issues", []),
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "⚠️  auto-advance: %s %r → %r failed: %s",
+                        initiative,
+                        dep_label,
+                        phase["label"],
+                        exc,
+                    )
+
+
 async def tick() -> PipelineState:
     """Execute a single polling cycle: collect → merge → detect → persist → enrich → broadcast.
 
@@ -551,6 +637,8 @@ async def tick() -> PipelineState:
         # have stored phase metadata.  Initiative slugs are derived from the
         # scoped labels on the issues themselves — no config file needed.
         await reseed_missing_initiative_phases(settings.gh_repo)
+        # Auto-unblock next-phase issues whenever a phase gate closes.
+        await _auto_advance_phases(settings.gh_repo)
     except Exception as exc:
         logger.warning("⚠️  DB persist skipped (non-fatal): %s", exc)
 
