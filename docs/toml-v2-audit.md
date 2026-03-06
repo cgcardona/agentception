@@ -18,9 +18,9 @@ The TOML v2 migration was partially completed. Three distinct migration commits 
 | `7e4b890` | Migrate `_build_agent_task` / `_build_coordinator_task` / `_build_conductor_task` in `_shared.py` to TOML v2 |
 | `aaf8a75` | Migrate coordinator prompt templates from K=V heredocs to TOML v2 writer blocks |
 
-However, **three writer paths were not migrated** (`dispatch.py` × 2 and `mcp/plan_tools.py` × 1), **all template reader sections** still use `grep "^KEY="` shell commands that will fail against TOML v2 files, and **nine test files** contain fixtures or assertions anchored to the old flat K=V format.
+However, **three writer paths were not migrated** (`dispatch.py` × 2 and `mcp/plan_tools.py` × 1), **all template reader sections** (8 files: `parallel-issue-to-pr.md`, `parallel-pr-review.md`, `parallel-bugs-to-issues.md`, `parallel-conductor.md`, and the four role files `cto.md`, `engineering-coordinator.md`, `qa-coordinator.md`, `pr-reviewer.md`) still use `grep "^KEY="` shell commands that will fail against TOML v2 files, and **nine test files** contain fixtures or assertions anchored to the old flat K=V format.
 
-**Zero findings is not the result.** 19 violations are recorded below.
+**Zero findings is not the result.** 19 violations are recorded below (findings #1–#14 were identified in the initial pass; findings #15–#19 are the omitted role and conductor files added in the review remediation pass).
 
 ---
 
@@ -63,6 +63,11 @@ These files are correctly implemented and serve as the template for remediation:
 | 12 | `.agentception/parallel-pr-review.md` | 402–414, 463, 889, 1074, 1091, 1207, 1231, 1603, 1640–1641 | `template` | Same reader-not-updated problem. Broken fields: `GH_REPO`, `PR_NUMBER`, `PR_BRANCH`, `MERGE_AFTER`, `HAS_MIGRATION`, `ATTEMPT_N`, `BATCH_ID`, `COGNITIVE_ARCH`, `WAVE`, `COORD_FINGERPRINT`, `ROLE`, `CLOSES_ISSUES`, `SPAWN_MODE`, `TASK_BATCH_ID`. | `aaf8a75` (writer migrated; reader left behind) |
 | 13 | `.agentception/parallel-bugs-to-issues.md` | 423, 458, 464–468 | `template` | Same reader-not-updated problem. Broken fields: `GH_REPO`, `ROLE`, `PHASE_LABEL`, `LABELS_TO_APPLY`, `PHASE_DEPENDS_ON_ISSUES`, `ATTEMPT_N`. | `aaf8a75` (writer migrated; reader left behind) |
 | 14 | `docs/guides/integrate.md` | 83–86 | `spec-markdown` | Documentation block titled "ENRICHED_MANIFEST: .agent-task format" shows flat K=V example (`WORKFLOW=bugs-to-issues`, `BATCH_ID=...`, `BRANCH=...`, `WORKTREE=...`). This documents the un-migrated format of `mcp/plan_tools.py` (finding #3) and should be updated once that writer is fixed. | `18ca1ab` |
+| 15 | `.agentception/parallel-conductor.md` | 162, 164, 165, 363, 378 | `template` | Agent reader instructions use `grep "^KEY=" .agent-task \| cut -d= -f2` to extract values. Broken fields: `GH_REPO` (`[repo].gh_repo`), `PHASE_FILTER` (`[task].phase_filter`), `ATTEMPT_N` (`[task].attempt_n`), `MAX_ISSUES_PER_DISPATCH` (`[task].max_issues_per_dispatch`), `MAX_PRS_PER_DISPATCH` (`[task].max_prs_per_dispatch`). This file was omitted from the initial audit scan. | `aaf8a75` (writer migrated; reader left behind) |
+| 16 | `.agentception/roles/cto.md` | 276–277, 982, 984–986, 1006, 1015, 1172, 1222, 2498, 2500–2505, 2509–2510, 2515, 2559, 2569, 3028, 3213, 3230, 3346, 3370, 3742, 3779–3780 | `template` | All embedded coordinator and leaf kickoff sections (which are inlined verbatim from `engineering-coordinator.md.j2` and `qa-coordinator.md.j2`) use `grep "^KEY=" .agent-task \| cut -d= -f2`. Broken fields include the full set: `COGNITIVE_ARCH`, `ROLE`, `GH_REPO`, `ISSUE_NUMBER`, `ATTEMPT_N`, `BATCH_ID`, `DEPENDS_ON`, `FILE_OWNERSHIP`, `PR_NUMBER`, `PR_BRANCH`, `MERGE_AFTER`, `HAS_MIGRATION`, `WAVE`, `COORD_FINGERPRINT`, `CLOSES_ISSUES`, `SPAWN_MODE`, `TASK_BATCH_ID`. This is the most operationally critical omission — `cto.md` is the primary document read by the live pipeline's top-level agent. | `aaf8a75` (writer migrated; reader left behind) |
+| 17 | `.agentception/roles/engineering-coordinator.md` | 17–18, 723, 725–727, 747, 756, 913, 963, 2239, 2241–2246, 2250–2251, 2256 | `template` | Same reader-not-updated violation as findings #11–#13. Broken fields: `COGNITIVE_ARCH`, `ROLE`, `GH_REPO`, `ISSUE_NUMBER`, `ATTEMPT_N`, `BATCH_ID`, `DEPENDS_ON`, `FILE_OWNERSHIP`, `PR_NUMBER`, `PR_BRANCH`, `MERGE_AFTER`, `HAS_MIGRATION`, `WAVE`, `COORD_FINGERPRINT`. | `aaf8a75` (writer migrated; reader left behind) |
+| 18 | `.agentception/roles/qa-coordinator.md` | 17–18, 582, 584–589, 593–594, 599, 643, 653, 1112, 1297, 1314, 1430, 1454, 1826 | `template` | Same reader-not-updated violation. Broken fields: `COGNITIVE_ARCH`, `ROLE`, `GH_REPO`, `PR_NUMBER`, `PR_BRANCH`, `MERGE_AFTER`, `HAS_MIGRATION`, `ATTEMPT_N`, `BATCH_ID`, `WAVE`, `COORD_FINGERPRINT`, `CLOSES_ISSUES`, `SPAWN_MODE`, `TASK_BATCH_ID`. | `aaf8a75` (writer migrated; reader left behind) |
+| 19 | `.agentception/roles/pr-reviewer.md` | 12, 49, 50 | `template` | Same reader-not-updated violation. Broken fields: `COGNITIVE_ARCH` (`[agent].cognitive_arch`), `PR_NUMBER` (`[target].pr_number`), `GH_REPO` (`[repo].gh_repo`). | `aaf8a75` (writer migrated; reader left behind) |
 
 ---
 
@@ -97,7 +102,7 @@ The `git log --diff-filter=M` command in the worktree returned no results (the w
 
 ## TOML Template / Render Sites Inventory
 
-All sites in coordinator and conductor source that write `.agent-task` content:
+### Writers (source code that emits `.agent-task` content)
 
 | File | Function | Status |
 |------|----------|--------|
@@ -108,6 +113,19 @@ All sites in coordinator and conductor source that write `.agent-task` content:
 | `agentception/routes/api/dispatch.py` | `/api/dispatch-label` route handler (line ~480) | ❌ Flat K=V |
 | `agentception/mcp/plan_tools.py` | `plan_spawn_coordinator()` (line ~275) | ❌ Flat K=V + non-TOML `ENRICHED_MANIFEST:` block |
 | `agentception/services/spawn_child.py` | No direct `.agent-task` writes found | ✅ N/A |
+
+### Readers (agent prompt templates that consume `.agent-task` content)
+
+| File | Fields read via `grep "^KEY="` | Status |
+|------|-------------------------------|--------|
+| `.agentception/parallel-issue-to-pr.md` | GH_REPO, ISSUE_NUMBER, ATTEMPT_N, BATCH_ID, ROLE, COGNITIVE_ARCH, DEPENDS_ON, FILE_OWNERSHIP | ❌ Flat K=V grep |
+| `.agentception/parallel-pr-review.md` | GH_REPO, PR_NUMBER, PR_BRANCH, MERGE_AFTER, HAS_MIGRATION, ATTEMPT_N, BATCH_ID, COGNITIVE_ARCH, WAVE, COORD_FINGERPRINT, ROLE, CLOSES_ISSUES, SPAWN_MODE, TASK_BATCH_ID | ❌ Flat K=V grep |
+| `.agentception/parallel-bugs-to-issues.md` | GH_REPO, ROLE, PHASE_LABEL, LABELS_TO_APPLY, PHASE_DEPENDS_ON_ISSUES, ATTEMPT_N | ❌ Flat K=V grep |
+| `.agentception/parallel-conductor.md` | GH_REPO, PHASE_FILTER, ATTEMPT_N, MAX_ISSUES_PER_DISPATCH, MAX_PRS_PER_DISPATCH | ❌ Flat K=V grep |
+| `.agentception/roles/cto.md` | Full field set (all embedded coordinator + leaf sections inlined) | ❌ Flat K=V grep |
+| `.agentception/roles/engineering-coordinator.md` | COGNITIVE_ARCH, ROLE, GH_REPO, ISSUE_NUMBER, ATTEMPT_N, BATCH_ID, DEPENDS_ON, FILE_OWNERSHIP, PR_NUMBER, PR_BRANCH, MERGE_AFTER, HAS_MIGRATION, WAVE, COORD_FINGERPRINT | ❌ Flat K=V grep |
+| `.agentception/roles/qa-coordinator.md` | COGNITIVE_ARCH, ROLE, GH_REPO, PR_NUMBER, PR_BRANCH, MERGE_AFTER, HAS_MIGRATION, ATTEMPT_N, BATCH_ID, WAVE, COORD_FINGERPRINT, CLOSES_ISSUES, SPAWN_MODE, TASK_BATCH_ID | ❌ Flat K=V grep |
+| `.agentception/roles/pr-reviewer.md` | COGNITIVE_ARCH, PR_NUMBER, GH_REPO | ❌ Flat K=V grep |
 
 ---
 
