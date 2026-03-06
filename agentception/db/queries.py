@@ -372,7 +372,6 @@ class RunForIssueRow(TypedDict):
     last_activity_at: str | None
     current_step: str | None
     steps_completed: int
-    steps_total: int | None
     tier: str | None
     org_domain: str | None
     batch_id: str | None
@@ -1749,7 +1748,6 @@ async def get_runs_for_issue_numbers(
       ``"reviewing"`` so the board card moves into the Reviewing swim lane.
     * ``current_step`` — step name from the most-recent ``step_start`` event.
     * ``steps_completed`` — count of ``step_start`` events for the run.
-    * ``steps_total`` — always ``None``; the DB does not track planned step count.
 
     Only issue numbers that have at least one run are included in the result.
     Falls back to ``{}`` on DB error.
@@ -1804,7 +1802,6 @@ async def get_runs_for_issue_numbers(
                 ),
                 current_step=sd["current_step"],
                 steps_completed=sd["steps_completed"],
-                steps_total=None,
                 tier=row.tier,
                 org_domain=row.org_domain,
                 batch_id=row.batch_id,
@@ -1862,11 +1859,9 @@ async def get_run_tree_by_batch_id(batch_id: str) -> list[RunTreeNodeRow]:
 
 
 async def get_latest_active_batch_id(
-    repo: str,
-    initiative: str,
     issue_numbers: list[int] | None = None,
 ) -> str | None:
-    """Return the batch_id of the most recently active run scoped to *initiative*.
+    """Return the batch_id of the most recently active run.
 
     Returns a ``batch_id`` only when at least one run has a genuinely live
     status (``implementing``, ``pending_launch``, or ``reviewing``).  Returns
@@ -1874,8 +1869,9 @@ async def get_latest_active_batch_id(
     state rather than showing stale data from a previous or unrelated dispatch.
 
     When *issue_numbers* is provided the query is restricted to runs whose
-    ``issue_number`` is in that set.  This scopes the hierarchy panel to the
-    current initiative's issues and prevents cross-initiative contamination.
+    ``issue_number`` is in that set.  Callers pass only open issue numbers
+    for the current initiative to prevent cross-initiative contamination and
+    closed issues from surfacing ghost agents in the hierarchy panel.
     """
     try:
         async with get_session() as session:

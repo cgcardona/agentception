@@ -26,7 +26,7 @@
  *     output_path has appeared on disk it emits plan_draft_ready inside
  *     PipelineState.plan_draft_events (deduplicated — fires exactly once per
  *     draft_id).  The UI resolves its _waitForDraftReady() Promise here and
- *     transitions to the review step.  Times out after 60 s.
+ *     transitions to the review step.  Times out after 180 s.
  *
  *   POST /api/plan/launch  { yaml_text }
  *     AgentCeption validates the YAML as EnrichedManifest, checks for cycles,
@@ -62,7 +62,7 @@ export function planForm() {
     // plan_draft_ready SSE event emitted by the poller.
     draft_id: '',
     _sseSource: null,    // EventSource subscribed to /events during generating
-    _draftTimeout: null, // setTimeout handle — 60 s hard deadline
+    _draftTimeout: null, // setTimeout handle — 180 s hard deadline
 
     // ── Review metadata (from plan_draft_ready SSE event) ─────────────────
     initiative: '',
@@ -199,7 +199,7 @@ export function planForm() {
     //      whose draft_id matches ours.
     //   4a. plan_draft_ready  → load yaml_text into CodeMirror, flip to review.
     //   4b. plan_draft_timeout (server-side) → reject with timeout message.
-    //   5. If 60 s elapse client-side without a match → reject with timeout.
+    //   5. If 180 s elapse client-side without a match → reject with timeout.
 
     async submit() {
       const trimmed = this.text.trim();
@@ -238,8 +238,8 @@ export function planForm() {
 
         this._draftTimeout = setTimeout(() => {
           this._closeSse();
-          reject(new Error('Plan generation timed out after 60 s. Please try again.'));
-        }, 60_000);
+          reject(new Error('Plan generation timed out after 3 minutes. Please try again — large specs can take longer.'));
+        }, 180_000);
 
         source.onmessage = (ev) => {
           let state;

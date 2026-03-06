@@ -79,7 +79,7 @@ export function buildPage() {
     get launchPreviewText() {
       const label = this.labelDispatchLabel;
       if (this.scopeMode === 'full_initiative') {
-        const role = this.advancedRole.trim() || 'coordinator';
+        const role = this.advancedRole.trim() || 'cto';
         return `A ${role} will survey every open ticket under "${label}" and assemble its own team.`;
       }
       if (this.scopeMode === 'phase') {
@@ -219,10 +219,6 @@ export function buildPage() {
       }
     },
 
-    restartAgent() {
-      // Reassignment is handled through the phase-level Launch → modal.
-    },
-
     _openStream(runId) {
       this._closeStream();
       const src = new EventSource(`/ship/runs/${encodeURIComponent(runId)}/stream`);
@@ -240,7 +236,7 @@ export function buildPage() {
         } else if (msg.t === 'thought') {
           // Accumulate into last entry if same role and rapid succession
           const last = this.thoughts[this.thoughts.length - 1];
-          if (last && last.role === msg.role && this.thoughts.length > 0) {
+          if (last && last.role === msg.role) {
             last.content += '\n' + msg.content;
           } else {
             this.thoughts.push(msg);

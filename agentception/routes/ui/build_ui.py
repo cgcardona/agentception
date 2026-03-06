@@ -22,7 +22,6 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncGenerator
-from pathlib import Path
 
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
@@ -64,6 +63,7 @@ class EnrichedIssueRow(TypedDict):
 
     number: int
     title: str
+    body_excerpt: str
     state: str
     url: str
     labels: list[str]
@@ -120,43 +120,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# ---------------------------------------------------------------------------
-# Role catalogue (derived from .cursor/roles/ on disk)
-# ---------------------------------------------------------------------------
-
-_ROLES_DIR = Path(__file__).parent.parent.parent.parent / ".cursor" / "roles"
-
-_ROLE_GROUPS: dict[str, list[str]] = {
-    "C-Suite": ["ceo", "cto", "cpo", "coo", "cfo", "cmo", "cdo", "ciso"],
-    "Coordinators": [
-        "product-coordinator", "infrastructure-coordinator", "platform-coordinator", "ml-coordinator",
-        "mobile-coordinator", "data-coordinator", "design-coordinator", "security-coordinator",
-    ],
-    "Engineering": [
-        "python-developer", "typescript-developer", "frontend-developer",
-        "full-stack-developer", "api-developer", "go-developer", "rust-developer",
-        "android-developer", "ios-developer", "mobile-developer",
-        "react-developer", "rails-developer", "systems-programmer",
-        "database-architect", "devops-engineer", "site-reliability-engineer",
-        "security-engineer",
-    ],
-    "Specialists": [
-        "architect", "ml-engineer", "ml-researcher", "data-engineer",
-        "data-scientist", "engineering-coordinator", "qa-coordinator", "test-engineer",
-        "technical-writer", "muse-specialist", "pr-reviewer", "coordinator",
-    ],
-}
-
-
-def _available_roles() -> dict[str, list[str]]:
-    """Return role groups filtered to roles that actually exist on disk."""
-    out: dict[str, list[str]] = {}
-    for group, roles in _ROLE_GROUPS.items():
-        present = [r for r in roles if (_ROLES_DIR / f"{r}.md").exists()]
-        if present:
-            out[group] = present
-    return out
-
 
 async def _initiative_patterns() -> list[str]:
     """Return the active project's initiative label patterns from pipeline-config.json."""
@@ -172,6 +135,60 @@ async def _initiative_patterns() -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Shared enrichment helper
+# ---------------------------------------------------------------------------
+
+
+async def _build_enriched_groups(
+    repo: str,
+    initiative: str,
+) -> tuple[list[EnrichedPhaseGroupRow], int, int]:
+    """Fetch and enrich all phase groups for *initiative*.
+
+    Returns ``(enriched_groups, total_issue_count, open_issue_count)``.
+    Centralises the DB fan-out so both the full page and the HTMX partial
+    share a single implementation.
+    """
+    groups = await get_issues_grouped_by_phase(repo, initiative=initiative)
+    all_issue_numbers = [i["number"] for g in groups for i in g["issues"]]
+    open_issue_count = sum(
+        1 for g in groups for i in g["issues"] if i["state"] != "closed"
+    )
+    runs, open_prs = await asyncio.gather(
+        get_runs_for_issue_numbers(all_issue_numbers),
+        get_open_prs_by_issue(all_issue_numbers, repo),
+    )
+    enriched: list[EnrichedPhaseGroupRow] = [
+        EnrichedPhaseGroupRow(
+            label=g["label"],
+            issues=[
+                EnrichedIssueRow(
+                    number=i["number"],
+                    title=i["title"],
+                    body_excerpt=i["body_excerpt"],
+                    state=i["state"],
+                    url=i["url"],
+                    labels=i["labels"],
+                    depends_on=i["depends_on"],
+                    run=runs.get(i["number"]),
+                    swim_lane=_compute_swim_lane(
+                        i["state"],
+                        runs.get(i["number"]),
+                        open_prs.get(i["number"]),
+                    ),
+                )
+                for i in g["issues"]
+            ],
+            locked=g["locked"],
+            complete=g["complete"],
+            depends_on=g["depends_on"],
+        )
+        for g in groups
+    ]
+    return enriched, len(all_issue_numbers), open_issue_count
+
+
+# ---------------------------------------------------------------------------
 # GET /ship — redirect to first available initiative
 # ---------------------------------------------------------------------------
 
@@ -180,7 +197,7 @@ async def _initiative_patterns() -> list[str]:
 async def ship_redirect() -> Response:
     """Redirect ``/ship`` to ``/ship/{first-initiative}`` when initiatives exist.
 
-    Falls through to the full page with no initiative if none are found.
+    Falls through to /plan if none are found.
     """
     repo = settings.gh_repo
     patterns = await _initiative_patterns()
@@ -204,45 +221,7 @@ async def build_page(
     repo = settings.gh_repo
     patterns = await _initiative_patterns()
     initiatives = await get_initiatives(repo, initiative_patterns=patterns)
-
-    groups = await get_issues_grouped_by_phase(repo, initiative=initiative)
-
-    all_issue_numbers = [i["number"] for g in groups for i in g["issues"]]
-    open_issue_numbers = [
-        i["number"] for g in groups for i in g["issues"] if i["state"] != "closed"
-    ]
-    runs, open_prs = await asyncio.gather(
-        get_runs_for_issue_numbers(all_issue_numbers),
-        get_open_prs_by_issue(all_issue_numbers, repo),
-    )
-
-    enriched_groups: list[EnrichedPhaseGroupRow] = [
-        EnrichedPhaseGroupRow(
-            label=g["label"],
-            issues=[
-                EnrichedIssueRow(
-                    number=i["number"],
-                    title=i["title"],
-                    state=i["state"],
-                    url=i["url"],
-                    labels=i["labels"],
-                    depends_on=i["depends_on"],
-                    run=runs.get(i["number"]),
-                    swim_lane=_compute_swim_lane(
-                        i["state"],
-                        runs.get(i["number"]),
-                        open_prs.get(i["number"]),
-                    ),
-                )
-                for i in g["issues"]
-            ],
-            locked=g["locked"],
-            complete=g["complete"],
-            depends_on=g["depends_on"],
-        )
-        for g in groups
-    ]
-
+    enriched_groups, total_issues, open_issues = await _build_enriched_groups(repo, initiative)
     return _TEMPLATES.TemplateResponse(
         request,
         "build.html",
@@ -251,15 +230,14 @@ async def build_page(
             "initiative": initiative,
             "initiatives": initiatives,
             "groups": enriched_groups,
-            "role_groups": _available_roles(),
-            "total_issues": len(all_issue_numbers),
-            "open_issues": len(open_issue_numbers),
+            "total_issues": total_issues,
+            "open_issues": open_issues,
         },
     )
 
 
 # ---------------------------------------------------------------------------
-# GET /ship/{initiative}/board — HTMX board partial (polled every 10 s)
+# GET /ship/{initiative}/board — HTMX board partial (polled every 5 s)
 # ---------------------------------------------------------------------------
 
 
@@ -270,41 +248,7 @@ async def build_board_partial(
 ) -> HTMLResponse:
     """Return the phase-grouped board as an HTML partial for HTMX polling."""
     repo = settings.gh_repo
-    groups = await get_issues_grouped_by_phase(repo, initiative=initiative)
-
-    all_issue_numbers = [i["number"] for g in groups for i in g["issues"]]
-    runs, open_prs = await asyncio.gather(
-        get_runs_for_issue_numbers(all_issue_numbers),
-        get_open_prs_by_issue(all_issue_numbers, repo),
-    )
-
-    enriched_groups: list[EnrichedPhaseGroupRow] = [
-        EnrichedPhaseGroupRow(
-            label=g["label"],
-            issues=[
-                EnrichedIssueRow(
-                    number=i["number"],
-                    title=i["title"],
-                    state=i["state"],
-                    url=i["url"],
-                    labels=i["labels"],
-                    depends_on=i["depends_on"],
-                    run=runs.get(i["number"]),
-                    swim_lane=_compute_swim_lane(
-                        i["state"],
-                        runs.get(i["number"]),
-                        open_prs.get(i["number"]),
-                    ),
-                )
-                for i in g["issues"]
-            ],
-            locked=g["locked"],
-            complete=g["complete"],
-            depends_on=g["depends_on"],
-        )
-        for g in groups
-    ]
-
+    enriched_groups, _, _ = await _build_enriched_groups(repo, initiative)
     return _TEMPLATES.TemplateResponse(
         request,
         "_build_board.html",
@@ -411,10 +355,12 @@ async def initiative_active_tree(initiative: str) -> Response:
     """
     repo = settings.gh_repo
     groups = await get_issues_grouped_by_phase(repo, initiative=initiative)
-    all_issue_numbers = [i["number"] for g in groups for i in g["issues"]]
-    batch_id = await get_latest_active_batch_id(
-        repo, initiative, issue_numbers=all_issue_numbers
-    )
+    # Only open issues drive the hierarchy — closed issues' stale runs must
+    # never surface a ghost agent in the panel.
+    open_issue_numbers = [
+        i["number"] for g in groups for i in g["issues"] if i["state"] != "closed"
+    ]
+    batch_id = await get_latest_active_batch_id(issue_numbers=open_issue_numbers)
     if not batch_id:
         return JSONResponse({"nodes": [], "batch_id": None})
     nodes = await get_run_tree_by_batch_id(batch_id)

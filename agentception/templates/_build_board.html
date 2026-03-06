@@ -105,10 +105,6 @@
     {% endif %}
     {% if active_run.steps_completed > 1 %}
     <div class="build-issue__progress">
-      {% if active_run.steps_total %}
-      <div class="build-issue__progress-bar"
-           style="width: {{ (active_run.steps_completed / active_run.steps_total * 100) | int }}%"></div>
-      {% endif %}
       <span class="build-issue__step-count">{{ active_run.steps_completed }} steps</span>
     </div>
     {% endif %}

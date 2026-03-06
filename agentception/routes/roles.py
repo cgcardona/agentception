@@ -225,7 +225,7 @@ async def get_taxonomy() -> TaxonomyResponse:
         roles: list[TaxonomyRole] = []
         for raw_role in raw_level.get("roles", []):
             slug = str(raw_role.get("slug", ""))
-            rel_path = _MANAGED_FILES.get(slug, f".cursor/roles/{slug}.md")
+            rel_path = _MANAGED_FILES.get(slug, f".agentception/roles/{slug}.md")
             file_exists = (settings.repo_dir / rel_path).exists()
             roles.append(
                 TaxonomyRole(

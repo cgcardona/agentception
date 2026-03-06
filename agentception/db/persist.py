@@ -207,6 +207,9 @@ async def _upsert_prs(
     assert isinstance(session, AsyncSession)
     now = _now()
 
+    # Track every PR number we see in this tick so we can tombstone the rest.
+    seen_numbers: set[int] = set()
+
     for raw in prs:
         num = raw.get("number")
         if not isinstance(num, int):
@@ -254,6 +257,8 @@ async def _upsert_prs(
             int(closes_match.group(1)) if closes_match else None
         )
 
+        seen_numbers.add(num)
+
         if existing is None:
             session.add(
                 ACPullRequest(
@@ -283,6 +288,25 @@ async def _upsert_prs(
             if closes_issue_number is not None and existing.closes_issue_number is None:
                 existing.closes_issue_number = closes_issue_number
             existing.last_synced_at = now
+
+    # Tombstone sweep: the poller passes ALL open + merged PRs every tick.
+    # Any DB row with state='open' that is absent from this tick's feed was
+    # closed without merging on GitHub — mark it closed so the board is not
+    # poisoned by stale "open" signals for PRs that no longer exist.
+    tombstone_result = await session.execute(
+        select(ACPullRequest).where(
+            ACPullRequest.repo == repo,
+            ACPullRequest.state == "open",
+        )
+    )
+    for stale_pr in tombstone_result.scalars().all():
+        if stale_pr.github_number not in seen_numbers:
+            stale_pr.state = "closed"
+            stale_pr.last_synced_at = now
+            logger.debug(
+                "🧹 PR #%s tombstoned → closed (absent from open+merged feed)",
+                stale_pr.github_number,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -516,6 +540,26 @@ async def _upsert_agent_runs(
                 orphan.status,
                 orphan.pr_number,
             )
+
+    # Pending-launch TTL sweep: a pending_launch run that was never acknowledged
+    # within 15 minutes is presumed abandoned (Dispatcher aborted before claiming
+    # it).  Mark it unknown so it doesn't permanently lock the issue in "active".
+    _PENDING_LAUNCH_TTL = datetime.timedelta(minutes=15)
+    ttl_cutoff = now - _PENDING_LAUNCH_TTL
+    pending_result = await session.execute(
+        select(ACAgentRun).where(
+            ACAgentRun.status == "pending_launch",
+            ACAgentRun.spawned_at <= ttl_cutoff,
+        )
+    )
+    for stale_pending in pending_result.scalars().all():
+        stale_pending.status = "unknown"
+        stale_pending.last_activity_at = now
+        logger.debug(
+            "🧹 Pending-launch TTL expired: %s → unknown (spawned_at=%s)",
+            stale_pending.id,
+            stale_pending.spawned_at,
+        )
 
 
 # ---------------------------------------------------------------------------
