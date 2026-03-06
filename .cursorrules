@@ -48,7 +48,19 @@ Only fall back to `gh` CLI when the MCP server does not cover the required opera
 **Never do any work directly on `dev` or `main`.** This applies to every agent and to Cursor sessions.
 
 - **AgentCeption pipeline:** all agent work happens inside a git worktree. The worktree is created from `origin/dev` at dispatch time. The PR is created from the worktree branch. `dev` is never touched.
-- **Cursor / interactive sessions:** create a feature branch before touching any file. `git checkout -b fix/<description>` or `git checkout -b feat/<description>` is the first command, not an afterthought.
+- **Cursor / interactive sessions:** every task follows the full lifecycle below — no step is optional.
+
+**Full task lifecycle for Cursor sessions:**
+1. `git status` — must be clean before branching.
+2. `git checkout -b fix/<description>` or `feat/<description>` — branch first, always.
+3. Do the work, commit on the branch.
+4. **Open a PR** against `dev` via `create_pull_request` MCP tool (never push directly to `dev`).
+5. **Merge the PR** via `merge_pull_request` MCP tool (squash). Never leave a PR open.
+6. **Delete the remote branch** — pass `deleteBranch: true` to `merge_pull_request`, or run `git push origin --delete <branch>`.
+7. **Delete the local branch** — `git checkout dev && git branch -D <branch>`.
+8. **Pull dev** — `git pull origin dev`.
+9. **Verify clean** — `git status` must show `nothing to commit, working tree clean`.
+
 - **Before starting any work:** run `git status`. If `dev` is not clean, stop. Either restore the dirty files (`git restore .`) or commit them on a branch first. Never carry dirty state from `dev` into a feature branch.
 - **After any file-generating command** (e.g. `generate.py`, `npm run build`, code generators): immediately run `git status`. Stage and commit every modified file — do not switch branches while files are dirty.
 - **`generate.py` rule:** run it only after you are already on a feature branch, never on `dev`. All generated outputs are part of the same commit as their source template changes.
@@ -56,7 +68,7 @@ Only fall back to `gh` CLI when the MCP server does not cover the required opera
 The enforcement protocol:
 1. `git status` → must show `nothing to commit, working tree clean` before any `git checkout`.
 2. If it shows modified files → commit them on the current branch or restore them. Never ignore them.
-3. After merging a PR → `git checkout dev && git pull origin dev && git status` must be clean before starting the next task.
+3. After every task → PR created, PR merged, remote branch deleted, local branch deleted, `git pull origin dev`, `git status` clean.
 
 ## Execution
 
