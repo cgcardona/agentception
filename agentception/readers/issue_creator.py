@@ -228,12 +228,31 @@ def _embed_skills(body: str, skills: list[str]) -> str:
     return f"{body}\n\n<!-- ac:skills: {skills_str} -->"
 
 
+def _embed_phase_gate(body: str, prev_phase_label: str) -> str:
+    """Append a phase-gate notice to the issue body.
+
+    This makes the gating dependency explicit in the ticket itself — agents
+    reading the ticket understand what must finish before they can start,
+    without needing to query the DB or read label metadata.
+    """
+    return (
+        f"{body}\n\n---\n"
+        f"**Phase gate:** This issue is blocked until all issues in "
+        f"`{prev_phase_label}` are closed."
+    )
+
+
 async def _create_one(
-    repo: str, issue: PlanIssue, labels: list[str]
+    repo: str,
+    issue: PlanIssue,
+    labels: list[str],
+    prev_phase_label: str | None = None,
 ) -> tuple[str, int, str]:
     """Create a single issue; return (issue.id, github_number, html_url)."""
-    body_with_skills = _embed_skills(issue.body, issue.skills)
-    number, url = await _gh_create_issue(repo, issue.title, body_with_skills, labels)
+    body = _embed_skills(issue.body, issue.skills)
+    if prev_phase_label is not None:
+        body = _embed_phase_gate(body, prev_phase_label)
+    number, url = await _gh_create_issue(repo, issue.title, body, labels)
     return issue.id, number, url
 
 
@@ -279,8 +298,15 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
         # Phase 0 is immediately workable; all later phases are phase-gated.
         gate_label = "pipeline-active" if phase_idx == 0 else "blocked"
         labels = [spec.initiative, f"{spec.initiative}/{phase.label}", gate_label]
+        # For phase 1+ embed the blocking phase label into the issue body so
+        # agents reading the ticket immediately know what must complete first.
+        prev_phase_label = (
+            f"{spec.initiative}/{spec.phases[phase_idx - 1].label}"
+            if phase_idx > 0
+            else None
+        )
         phase_tasks: list[asyncio.Task[tuple[str, int, str]]] = [
-            asyncio.create_task(_create_one(repo, issue, labels))
+            asyncio.create_task(_create_one(repo, issue, labels, prev_phase_label))
             for issue in phase.issues
         ]
 

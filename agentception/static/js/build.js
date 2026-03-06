@@ -5,13 +5,12 @@
  *  - activeIssue        — the issue card currently being inspected
  *  - events[]           — structured MCP events from /ship/runs/{run_id}/stream
  *  - thoughts[]         — raw CoT messages from the same SSE stream
- *  - dispatch modal     — role selection and POST /api/dispatch/issue (issue-scoped leaf)
  *  - labelDispatch modal — scope-based launch: full initiative / phase / single issue
  *
  * See docs/agent-tree-protocol.md for the node-type spec.
  */
 
-export function buildPage(roleGroups) {
+export function buildPage() {
   return {
     // ── inspector state ──────────────────────────────────────────────────
     activeIssue: null,
@@ -25,16 +24,6 @@ export function buildPage(roleGroups) {
     chatSending: false,
     chatError: null,
     agentStopping: false,
-
-    // ── issue-dispatch modal state ───────────────────────────────────────
-    dispatchOpen: false,
-    dispatchIssue: null,
-    dispatchRole: 'python-developer',
-    roleGroups,
-    dispatching: false,
-    dispatchError: null,
-    dispatchSuccess: false,
-    dispatchResult: null,
 
     // ── label-dispatch (launch) modal state ─────────────────────────────
     labelDispatchOpen: false,
@@ -165,10 +154,7 @@ export function buildPage(roleGroups) {
     },
 
     restartAgent() {
-      if (!this.activeIssue) return;
-      // Re-open the dispatch modal pre-filled with the same issue so the
-      // user can pick a role and re-assign.
-      this.openDispatch(this.activeIssue);
+      // Reassignment is handled through the phase-level Launch → modal.
     },
 
     _openStream(runId) {
@@ -215,50 +201,6 @@ export function buildPage(roleGroups) {
         const el = this.$refs.cotScroll;
         if (el) el.scrollTop = el.scrollHeight;
       });
-    },
-
-    // ── issue-dispatch modal ─────────────────────────────────────────────
-
-    openDispatch(issue) {
-      this.dispatchIssue = issue;
-      this.dispatchRole = 'python-developer';
-      this.dispatchError = null;
-      this.dispatchSuccess = false;
-      this.dispatchResult = null;
-      this.dispatching = false;
-      this.dispatchOpen = true;
-    },
-
-    async submitDispatch() {
-      if (!this.dispatchIssue) return;
-      this.dispatching = true;
-      this.dispatchError = null;
-
-      try {
-        const res = await fetch('/api/dispatch/issue', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            issue_number: this.dispatchIssue.number,
-            issue_title: this.dispatchIssue.title,
-            role: this.dispatchRole,
-            repo: this.repo,
-          }),
-        });
-
-        const data = await res.json();
-
-        if (!res.ok) {
-          this.dispatchError = data.detail ?? `Error ${res.status}`;
-        } else {
-          this.dispatchResult = data;
-          this.dispatchSuccess = true;
-        }
-      } catch (err) {
-        this.dispatchError = `Network error: ${err.message}`;
-      } finally {
-        this.dispatching = false;
-      }
     },
 
     // ── label-dispatch (launch) modal ────────────────────────────────────

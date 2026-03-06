@@ -25,6 +25,7 @@ from agentception.readers.issue_creator import (
     IssueEvent,
     LabelEvent,
     StartEvent,
+    _embed_phase_gate,
     file_issues,
 )
 
@@ -426,3 +427,45 @@ async def test_file_issues_phase_gate_labels_by_phase_position() -> None:
             assert gate == "pipeline-active", f"Phase-0 issue got {gate!r} instead of pipeline-active"
         else:
             assert gate == "blocked", f"Non-phase-0 issue got {gate!r} instead of blocked"
+
+
+def test_embed_phase_gate_appends_blocking_notice() -> None:
+    """Phase-gate footer names the blocking phase so agents know what to wait for."""
+    body = _embed_phase_gate("Implement the widget.", "ac-build/0-foundation")
+    assert "ac-build/0-foundation" in body
+    assert "Phase gate" in body
+    assert body.startswith("Implement the widget.")
+
+
+@pytest.mark.anyio
+async def test_file_issues_phase1_body_contains_phase_gate_notice() -> None:
+    """Phase 1+ issue bodies include a phase-gate notice naming the prior phase."""
+    spec = _make_spec(initiative="ac-workflow")
+    body_calls: list[tuple[str, str]] = []  # (scoped_phase_label, body_text)
+
+    def fake_proc(*args: str, **_kwargs: object) -> MagicMock:
+        cmd = list(args)
+        if "create" in cmd:
+            label_args = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--label"]
+            scoped = next((lbl for lbl in label_args if lbl.startswith("ac-workflow/")), "")
+            body_idx = cmd.index("--body") + 1 if "--body" in cmd else -1
+            body_text = cmd[body_idx] if body_idx >= 0 else ""
+            body_calls.append((scoped, body_text))
+            return _mock_proc(stdout=_issue_url(len(body_calls)))
+        return _mock_proc()
+
+    with (
+        patch("agentception.readers.issue_creator.ensure_label_exists", new_callable=AsyncMock),
+        patch("asyncio.create_subprocess_exec", side_effect=fake_proc),
+    ):
+        await _collect(file_issues(spec))
+
+    assert body_calls, "No create calls recorded"
+    for scoped, body in body_calls:
+        if scoped.endswith("/0-foundation"):
+            assert "Phase gate" not in body, "Phase-0 issues must not have a gate notice"
+        else:
+            assert "Phase gate" in body, f"Phase 1+ issue body is missing gate notice: {body!r}"
+            assert "ac-workflow/0-foundation" in body, (
+                f"Phase 1+ body should name the blocking phase: {body!r}"
+            )

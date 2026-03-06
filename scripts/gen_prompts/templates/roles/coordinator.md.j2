@@ -23,20 +23,38 @@ Pass the correct `BATCH_LABEL` and `PHASE_LABEL`. Verify these labels exist on G
 
 When you are spawned via the planning pipeline (`POST /api/plan/launch` or the `plan_spawn_coordinator` MCP tool), your `.agent-task` file contains an **`ENRICHED_MANIFEST:`** block. That block is the single source of truth for what to do — execute it; do not re-validate or re-interpret.
 
+**File location:** The file is written at the root of your worktree: `$WORKTREE/.agent-task` (the `WORKTREE` key in the header is that path).
+
 ### Format
 
-The block appears after the key-value header. The header is always:
+The file is plain text. First comes a **key-value header**: one key per line, `KEY=VALUE`, no spaces around `=`. A blank line separates the header from the **`ENRICHED_MANIFEST:`** block. The block starts with the single line `ENRICHED_MANIFEST:`; the next line is a JSON fence (triple backticks and the info string `json`), then the JSON object, then a closing fence line (triple backticks). Parse that JSON as the manifest.
 
-```
+**Minimal example:**
+
+````
 WORKFLOW=bugs-to-issues
-BATCH_ID=<slug>
-BRANCH=coordinator/<stamp>
-WORKTREE=<path>
+BATCH_ID=coordinator-20260305-142201
+BRANCH=coordinator/20260305-142201
+WORKTREE=/path/to/worktrees/coordinator-20260305-142201
 
 ENRICHED_MANIFEST:
+```json
+{
+  "initiative": "my-feature",
+  "phases": [
+    {
+      "label": "0-foundation",
+      "description": "Foundation work",
+      "depends_on": [],
+      "issues": [],
+      "parallel_groups": []
+    }
+  ],
+  "total_issues": 0,
+  "estimated_waves": 1
+}
 ```
-
-Then a fenced JSON block: a line with triple backticks and the info string `json`, then the JSON object, then a closing triple-backtick line. Parse that JSON as the manifest.
+````
 
 ### Manifest shape (what you execute)
 
