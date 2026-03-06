@@ -84,6 +84,29 @@ When your changes affect another agent's domain, produce a **handoff prompt** de
 
 ---
 
+## GitHub interactions — MCP first
+
+The `user-github` MCP server (officially maintained by GitHub) is available in every Cursor session. **Always prefer MCP tools over `gh` CLI for GitHub operations.** MCP calls are typed, structured, and composable; `gh` is a last resort for operations not yet covered by the server.
+
+| Operation | MCP tool |
+|-----------|----------|
+| Read an issue | `issue_read` |
+| Create / edit an issue | `issue_write` |
+| Add an issue comment | `add_issue_comment` |
+| List issues | `list_issues` |
+| Search issues / PRs | `search_issues`, `search_pull_requests` |
+| Read a PR | `pull_request_read` |
+| Create a PR | `create_pull_request` |
+| Update / merge a PR | `update_pull_request`, `merge_pull_request` |
+| Create / submit a review | `pull_request_review_write` |
+| List / create branches | `list_branches`, `create_branch` |
+| Get current user | `get_me` |
+| Search code | `search_code` |
+
+Only fall back to `gh` CLI when the MCP server does not cover the required operation (e.g. `gh worktree`, `gh auth`).
+
+---
+
 ## Architecture Boundaries
 
 ```
