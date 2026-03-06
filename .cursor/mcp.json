@@ -1,17 +1,15 @@
 {
   "mcpServers": {
     "agentception": {
-      "url": "http://localhost:10003/mcp",
-      "autoApprove": [
-        "plan_get_schema",
-        "plan_validate_spec",
-        "plan_get_labels",
-        "plan_validate_manifest",
-        "build_get_pending_launches",
-        "build_report_step",
-        "build_report_blocker",
-        "build_report_decision"
-      ]
+      "command": "docker",
+      "args": [
+        "compose",
+        "-f", "/Users/gabriel/dev/tellurstori/agentception/docker-compose.yml",
+        "exec", "-T",
+        "agentception",
+        "python", "-m", "agentception.mcp.stdio_server"
+      ],
+      "autoApprove": ["*"]
     }
   }
 }

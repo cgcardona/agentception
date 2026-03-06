@@ -8,6 +8,8 @@ Covers:
 - GET /api/plan/{run_id}/plan-text endpoint
 - _parse_task_fields helper
 - _count_plan_items helper
+- Done step shows batch_id, worktree, Track Agents →, View Issues → (issue #42)
+- Review section has inline error display for 422 from POST /api/plan/launch
 
 Run targeted:
     pytest agentception/tests/test_agentception_ui_plan.py -v
@@ -173,14 +175,50 @@ def test_plan_run_text_not_found(client: TestClient, tmp_path: Path) -> None:
     assert resp.status_code == 404
 
 
-def test_plan_page_done_state_has_batch_pill_and_build_link(client: TestClient) -> None:
-    """GET /plan must render the batch_id pill and 'Open in Build' link in the done state."""
+def test_plan_page_done_state_has_batch_pill_and_track_agents(client: TestClient) -> None:
+    """GET /plan must render the batch_id pill and 'Track Agents' / 'View Issues' links in the done state."""
     resp = client.get("/plan")
     assert resp.status_code == 200
     # Batch pill elements — present in the done state section.
     assert "plan-done-batch" in resp.text
     assert "plan-done-batch-id" in resp.text
     assert "copyBatchId" in resp.text
-    # 'Open in Build →' anchor — links to Ship page (/ship or /ship/{initiative}).
-    assert "Open in Build" in resp.text
-    assert "/ship" in resp.text
+    # Done step CTAs per issue #42: Track Agents → (/controls), View Issues → (GitHub).
+    assert "Track Agents" in resp.text
+    assert "/controls" in resp.text
+    assert "View Issues" in resp.text
+    assert "/issues" in resp.text
+
+
+def test_plan_page_wires_step_1a_draft_and_sse(client: TestClient) -> None:
+    """Plan page (issue #41) wires planForm to POST /api/plan/draft and SSE plan_draft_ready.
+
+    Step 1.A flow: user clicks Generate plan → plan.js submit() calls
+    POST /api/plan/draft, then _waitForDraftReady() subscribes to GET /events
+    and matches state.plan_draft_events by draft_id for plan_draft_ready.
+    This test asserts the page structure and script loading required for that flow.
+    """
+    resp = client.get("/plan")
+    assert resp.status_code == 200
+    # planForm() from plan.js is the Alpine component for the Plan page.
+    assert 'x-data="planForm()"' in resp.text
+    # Write step: submit button triggers submit() which calls POST /api/plan/draft.
+    assert "Generate plan" in resp.text
+    assert "submit()" in resp.text
+    # Generating step exists so the UI can show waiting state while listening for SSE.
+    assert "generating" in resp.text
+    # app.js bundle includes plan.js which uses EventSource('/events') and
+    # plan_draft_events; the plan page must load the bundle.
+    assert "/static/app.js" in resp.text
+    # Done-state and review step exist so the flow can complete after plan_draft_ready.
+    assert "plan-review" in resp.text
+    assert "plan-done" in resp.text
+
+
+def test_plan_page_review_section_has_inline_error_for_422(client: TestClient) -> None:
+    """Plan review section must include plan-error so 422 from POST /api/plan/launch can be shown inline."""
+    resp = client.get("/plan")
+    assert resp.status_code == 200
+    # Inline error is shown in the review block (x-show="errorMsg") so user can edit and retry.
+    assert "plan-error" in resp.text
+    assert "errorMsg" in resp.text
