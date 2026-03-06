@@ -34,17 +34,14 @@ from agentception.config import settings
 from agentception.db.engine import get_session
 from agentception.db.models import ACAgentRun
 from agentception.db.queries import (
-    OpenPRForIssueRow,
     PhaseGroupRow,
     RunForIssueRow,
     RunTreeNodeRow,
-    WorkflowStateRow,
     get_agent_events_tail,
     get_agent_thoughts_tail,
     get_initiatives,
     get_issues_grouped_by_phase,
     get_latest_active_batch_id,
-    get_open_prs_by_issue,
     get_run_tree_by_batch_id,
     get_runs_for_issue_numbers,
     get_workflow_states_by_issue,
@@ -85,39 +82,6 @@ class EnrichedPhaseGroupRow(TypedDict):
     depends_on: list[str]
 
 
-def _compute_swim_lane(
-    issue_state: str,
-    run: RunForIssueRow | None,
-    open_pr: OpenPRForIssueRow | None,
-) -> str:
-    """Compute the deterministic swim lane for a board issue card.
-
-    This is the single canonical definition of swim lane assignment.
-    There must be no other place in the codebase that decides which lane
-    a card belongs in — Jinja2 templates, JS, and API responses all read
-    the ``swim_lane`` field produced here.
-
-    Priority (highest wins):
-    1. DONE      — ``ac_issues.state == 'closed'``  (GitHub is the source of truth)
-    2. REVIEWING — open PR in ``ac_pull_requests`` AND active reviewer agent run
-    3. PR_OPEN   — open PR in ``ac_pull_requests``  (authoritative; not ac_agent_runs.pr_number)
-    4. ACTIVE    — active agent run with no open PR yet
-    5. TODO      — none of the above
-    """
-    if issue_state == "closed":
-        return "done"
-    if open_pr is not None:
-        if run is not None and run["agent_status"] == "reviewing":
-            return "reviewing"
-        return "pr_open"
-    if run is not None and run["agent_status"] in (
-        "implementing",
-        "pending_launch",
-        "stale",
-        "reviewing",
-    ):
-        return "active"
-    return "todo"
 
 logger = logging.getLogger(__name__)
 
@@ -149,21 +113,19 @@ async def _build_enriched_groups(
     """Fetch and enrich all phase groups for *initiative*.
 
     Returns ``(enriched_groups, total_issue_count, open_issue_count)``.
-    Centralises the DB fan-out so both the full page and the HTMX partial
-    share a single implementation.
 
-    Reads swim lanes from the canonical ``ac_issue_workflow_state`` table.
-    Falls back to ad-hoc ``_compute_swim_lane()`` for issues that haven't
-    been computed yet (graceful dual-run during migration).
+    Swim lanes and PR numbers come exclusively from ``ac_issue_workflow_state``
+    — the canonical persisted state written by the workflow state machine on
+    every poller tick and immediately on ``build_report_done``.  There is no
+    fallback; if a row is absent the issue is ``todo``.
     """
     groups = await get_issues_grouped_by_phase(repo, initiative=initiative)
     all_issue_numbers = [i["number"] for g in groups for i in g["issues"]]
     open_issue_count = sum(
         1 for g in groups for i in g["issues"] if i["state"] != "closed"
     )
-    runs, open_prs, workflow_states = await asyncio.gather(
+    runs, workflow_states = await asyncio.gather(
         get_runs_for_issue_numbers(all_issue_numbers),
-        get_open_prs_by_issue(all_issue_numbers, repo),
         get_workflow_states_by_issue(all_issue_numbers, repo),
     )
     enriched: list[EnrichedPhaseGroupRow] = [
@@ -179,16 +141,15 @@ async def _build_enriched_groups(
                     labels=i["labels"],
                     depends_on=i["depends_on"],
                     run=runs.get(i["number"]),
-                    swim_lane=_resolve_swim_lane(
-                        i["number"],
-                        i["state"],
-                        runs.get(i["number"]),
-                        open_prs.get(i["number"]),
-                        workflow_states.get(i["number"]),
+                    swim_lane=(
+                        workflow_states[i["number"]]["lane"]
+                        if i["number"] in workflow_states
+                        else "todo"
                     ),
-                    pr_number=_resolve_pr_number(
-                        runs.get(i["number"]),
-                        workflow_states.get(i["number"]),
+                    pr_number=(
+                        workflow_states[i["number"]].get("pr_number")
+                        if i["number"] in workflow_states
+                        else None
                     ),
                 )
                 for i in g["issues"]
@@ -200,39 +161,6 @@ async def _build_enriched_groups(
         for g in groups
     ]
     return enriched, len(all_issue_numbers), open_issue_count
-
-
-def _resolve_swim_lane(
-    issue_number: int,
-    issue_state: str,
-    run: RunForIssueRow | None,
-    open_pr: OpenPRForIssueRow | None,
-    workflow_state: WorkflowStateRow | None,
-) -> str:
-    """Return the canonical swim lane, preferring the persisted workflow state.
-
-    During dual-run / migration, falls back to ``_compute_swim_lane()``
-    for issues without a persisted state row yet.
-    """
-    if workflow_state is not None:
-        return workflow_state["lane"]
-    return _compute_swim_lane(issue_state, run, open_pr)
-
-
-def _resolve_pr_number(
-    run: RunForIssueRow | None,
-    workflow_state: WorkflowStateRow | None,
-) -> int | None:
-    """Return the best PR number for an issue.
-
-    Prefers the canonical workflow state (linker-derived), falls back to
-    the agent run's ``pr_number`` for issues without a persisted state.
-    """
-    if workflow_state is not None and workflow_state.get("pr_number"):
-        return workflow_state["pr_number"]
-    if run is not None and run.get("pr_number"):
-        return run["pr_number"]
-    return None
 
 
 # ---------------------------------------------------------------------------

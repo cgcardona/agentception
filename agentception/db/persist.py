@@ -1291,6 +1291,67 @@ def _pr_number_from_url(pr_url: str) -> int | None:
         return None
 
 
+async def persist_pr_link_and_recompute(
+    pr_number: int,
+    issue_number: int,
+    gh_repo: str,
+) -> None:
+    """Write an explicit PR↔Issue link and immediately recompute workflow state.
+
+    Called from ``persist_agent_event`` when an agent reports ``build_report_done``
+    with a ``pr_url``.  The agent knows exactly which PR belongs to which issue —
+    no regex, no inference, no poller cycle needed.
+
+    Writes a confidence-100 ``ACPRIssueLink`` row, then runs
+    ``_recompute_workflow_state`` so the board card moves on the next board
+    refresh (every 5 s) rather than waiting for the next poller tick.
+    """
+    now = _now()
+    try:
+        async with get_session() as session:
+            existing = (
+                await session.execute(
+                    select(ACPRIssueLink).where(
+                        ACPRIssueLink.repo == gh_repo,
+                        ACPRIssueLink.pr_number == pr_number,
+                        ACPRIssueLink.issue_number == issue_number,
+                        ACPRIssueLink.link_method == "explicit",
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing is None:
+                session.add(
+                    ACPRIssueLink(
+                        repo=gh_repo,
+                        pr_number=pr_number,
+                        issue_number=issue_number,
+                        link_method="explicit",
+                        confidence=100,
+                        evidence_json=json.dumps({"source": "build_report_done"}),
+                        first_seen_at=now,
+                        last_seen_at=now,
+                    )
+                )
+            else:
+                existing.last_seen_at = now
+            await session.commit()
+    except Exception as exc:
+        logger.warning("⚠️  persist_pr_link_and_recompute (link upsert) failed: %s", exc)
+        return
+
+    try:
+        async with get_session() as session:
+            await _recompute_workflow_state(session, gh_repo)
+            await session.commit()
+        logger.info(
+            "✅ persist_pr_link_and_recompute: pr=%d → issue=%d, workflow recomputed",
+            pr_number,
+            issue_number,
+        )
+    except Exception as exc:
+        logger.warning("⚠️  persist_pr_link_and_recompute (recompute) failed: %s", exc)
+
+
 async def persist_agent_event(
     issue_number: int,
     event_type: str,
@@ -1299,14 +1360,13 @@ async def persist_agent_event(
 ) -> None:
     """Write one structured agent event row to ``agent_events``.
 
-    Called by the ``build_report_*`` HTTP endpoints when a running agent
-    signals a lifecycle change.  The optional ``agent_run_id`` is included
-    if the caller can resolve it; otherwise only ``issue_number`` is set.
-
     When ``event_type == "done"`` and ``payload`` contains ``pr_url``, the
-    corresponding run (by ``agent_run_id`` or latest run for ``issue_number``)
-    is updated with ``pr_number`` so the Kanban shows the issue in PR Open.
+    PR number is parsed from the URL and ``persist_pr_link_and_recompute`` is
+    called immediately so the board card moves without waiting for the poller.
+    If a matching ``ACAgentRun`` exists it is also updated with ``pr_number``.
     """
+    from agentception.config import settings
+
     try:
         async with get_session() as session:
             session.add(
@@ -1322,33 +1382,38 @@ async def persist_agent_event(
                 pr_url = payload.get("pr_url")
                 pr_num = _pr_number_from_url(str(pr_url)) if pr_url else None
                 if pr_num is not None:
+                    # Update ACAgentRun.pr_number when a run exists for this issue.
                     run_id = agent_run_id
+                    run_row: ACAgentRun | None = None
                     if run_id:
-                        run_result = await session.execute(
-                            select(ACAgentRun).where(ACAgentRun.id == run_id)
-                        )
-                        run_row = run_result.scalar_one_or_none()
-                    else:
-                        run_row = None
+                        run_row = (
+                            await session.execute(
+                                select(ACAgentRun).where(ACAgentRun.id == run_id)
+                            )
+                        ).scalar_one_or_none()
                     if run_row is None and issue_number:
-                        run_result = await session.execute(
-                            select(ACAgentRun)
-                            .where(ACAgentRun.issue_number == issue_number)
-                            .order_by(ACAgentRun.spawned_at.desc())
-                            .limit(1)
-                        )
-                        run_row = run_result.scalar_one_or_none()
+                        run_row = (
+                            await session.execute(
+                                select(ACAgentRun)
+                                .where(ACAgentRun.issue_number == issue_number)
+                                .order_by(ACAgentRun.spawned_at.desc())
+                                .limit(1)
+                            )
+                        ).scalar_one_or_none()
                     if run_row is not None:
                         run_row.pr_number = pr_num
                         run_row.last_activity_at = _now()
-                        logger.info(
-                            "✅ persist_agent_event: run %s pr_number=%d (from done)",
-                            run_row.id,
-                            pr_num,
-                        )
             await session.commit()
     except Exception as exc:
         logger.warning("⚠️  persist_agent_event failed (non-fatal): %s", exc)
+
+    # Immediately wire the explicit PR↔Issue link and recompute workflow state.
+    # This is the authoritative path — no regex or poller cycle needed.
+    if event_type == "done":
+        pr_url = payload.get("pr_url")
+        pr_num = _pr_number_from_url(str(pr_url)) if pr_url else None
+        if pr_num is not None and issue_number:
+            await persist_pr_link_and_recompute(pr_num, issue_number, settings.gh_repo)
 
 
 async def persist_agent_messages_async(

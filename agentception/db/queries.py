@@ -436,7 +436,7 @@ _STALE_THRESHOLD_SECONDS: int = int(STALE_THRESHOLD.total_seconds())
 
 #: Branch naming convention for engineer feature branches.
 #: Group 1 captures the issue number so we can link the PR back to its issue.
-_FEAT_ISSUE_BRANCH_RE: _re.Pattern[str] = _re.compile(r"^feat/issue-(\d+)-")
+_AC_ISSUE_BRANCH_RE: _re.Pattern[str] = _re.compile(r"^ac/issue-(\d+)")
 
 
 class _RunStepData(TypedDict):
@@ -1738,9 +1738,9 @@ async def get_open_prs_by_issue(
                         pr_number=row.github_number,
                         head_ref=row.head_ref,
                     )
-            # Signal 2: branch naming convention feat/issue-{N}-*.
+            # Signal 2: branch naming convention ac/issue-{N}.
             if row.head_ref:
-                m = _FEAT_ISSUE_BRANCH_RE.match(row.head_ref)
+                m = _AC_ISSUE_BRANCH_RE.match(row.head_ref)
                 if m:
                     issue_num = int(m.group(1))
                     if issue_num in issue_set and issue_num not in out:

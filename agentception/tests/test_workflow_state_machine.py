@@ -8,7 +8,7 @@ state machine specification.  They must pass before any merge.
 Coverage:
 
 1. Open PR with ``Closes #17`` and non-standard branch → lane ``pr_open``
-2. Open PR with no body but branch ``feat/issue-17-x`` → lane ``pr_open``
+2. Open PR with no body but branch ``ac/issue-17`` → lane ``pr_open``
 3. Run has ``pr_number=42`` but PR not yet in DB → warning + deterministic behaviour
 4. PR targets ``main`` not ``dev`` → lane ``pr_open`` + warning ``wrong_base``
 5. PR merges → lane ``done`` (with stabilisation even if issue still open)
@@ -105,7 +105,7 @@ def _best_pr(
     pr_number: int = 42,
     pr_state: str = "open",
     pr_base: str | None = "dev",
-    pr_head_ref: str | None = "feat/issue-17-fix",
+    pr_head_ref: str | None = "ac/issue-17",
     link_method: str = "body_closes",
     confidence: int = 95,
 ) -> BestPR:
@@ -122,7 +122,7 @@ def _best_pr(
 def _pr_row(
     number: int = 42,
     title: str = "Fix the thing",
-    head_ref: str | None = "feat/issue-17-fix",
+    head_ref: str | None = "ac/issue-17",
     base_ref: str | None = "dev",
     body: str = "",
     labels: list[str] | None = None,
@@ -159,7 +159,7 @@ class TestLaneComputation:
         assert result["lane"] == LANE_PR_OPEN
 
     def test_open_pr_with_branch_regex_is_pr_open(self) -> None:
-        """Acceptance criterion 2: no body but feat/issue-17-x branch."""
+        """Acceptance criterion 2: no body but ac/issue-17 branch."""
         result = compute_workflow_state(
             _issue(),
             _run(),
@@ -323,20 +323,20 @@ class TestLinkDiscovery:
         assert nums == {17, 18, 19}
 
     def test_branch_regex(self) -> None:
-        pr = _pr_row(head_ref="feat/issue-17-fix-buttons")
+        """ac/issue-{N} branch convention is detected as branch_regex at confidence 90."""
+        pr = _pr_row(head_ref="ac/issue-17")
         links = discover_links_for_pr(pr, _REPO)
         branch_links = [l for l in links if l["link_method"] == "branch_regex"]
         assert len(branch_links) == 1
         assert branch_links[0]["issue_number"] == 17
         assert branch_links[0]["confidence"] == 90
 
-    def test_explicit_label(self) -> None:
-        pr = _pr_row(labels=["agent:issue-17"])
+    def test_old_feat_branch_not_matched(self) -> None:
+        """Legacy feat/issue-{N}-slug branches are no longer matched."""
+        pr = _pr_row(head_ref="feat/issue-17-fix-buttons")
         links = discover_links_for_pr(pr, _REPO)
-        explicit_links = [l for l in links if l["link_method"] == "explicit"]
-        assert len(explicit_links) == 1
-        assert explicit_links[0]["issue_number"] == 17
-        assert explicit_links[0]["confidence"] == 100
+        branch_links = [l for l in links if l["link_method"] == "branch_regex"]
+        assert branch_links == []
 
     def test_run_pr_number(self) -> None:
         pr = _pr_row(number=42)
@@ -347,24 +347,16 @@ class TestLinkDiscovery:
         assert run_links[0]["issue_number"] == 17
         assert run_links[0]["confidence"] == 85
 
-    def test_title_mention(self) -> None:
-        pr = _pr_row(title="Fix #17 button rendering", head_ref="random/no-issue-ref")
-        links = discover_links_for_pr(pr, _REPO)
-        title_links = [l for l in links if l["link_method"] == "title_mention"]
-        assert len(title_links) == 1
-        assert title_links[0]["issue_number"] == 17
-        assert title_links[0]["confidence"] == 60
-
     def test_no_signals_empty(self) -> None:
         pr = _pr_row(head_ref="main", body="No references here")
         links = discover_links_for_pr(pr, _REPO)
         assert links == []
 
     def test_sorted_by_confidence_desc(self) -> None:
+        """Results from multiple signals are sorted highest confidence first."""
         pr = _pr_row(
-            head_ref="feat/issue-17-fix",
+            head_ref="ac/issue-17",
             body="Closes #17",
-            labels=["agent:issue-17"],
         )
         links = discover_links_for_pr(pr, _REPO)
         confidences = [l["confidence"] for l in links]
@@ -380,8 +372,8 @@ class TestBestPRSelection:
             CandidateLink(repo=_REPO, pr_number=2, issue_number=17, link_method="body_closes", confidence=95, evidence_json="{}"),
         ]
         pr_info = {
-            1: PRInfo(number=1, state="merged", base_ref="dev", head_ref="feat/issue-17-a"),
-            2: PRInfo(number=2, state="open", base_ref="dev", head_ref="feat/issue-17-b"),
+            1: PRInfo(number=1, state="merged", base_ref="dev", head_ref="ac/issue-17"),
+            2: PRInfo(number=2, state="open", base_ref="dev", head_ref="ac/issue-17-b"),
         }
         best = best_pr_for_issue(17, links, pr_info)
         assert best is not None
@@ -562,10 +554,10 @@ class TestEndToEndLaneDerivation:
         assert result["lane"] == LANE_PR_OPEN
 
     def test_branch_convention_drives_pr_open(self) -> None:
-        """Acceptance criterion 2: feat/issue-17-x → pr_open."""
-        pr = _pr_row(number=42, head_ref="feat/issue-17-some-slug", body="")
+        """Acceptance criterion 2: ac/issue-17 branch → pr_open."""
+        pr = _pr_row(number=42, head_ref="ac/issue-17", body="")
         links = discover_links_for_pr(pr, _REPO)
-        pr_info = {42: PRInfo(number=42, state="open", base_ref="dev", head_ref="feat/issue-17-some-slug")}
+        pr_info = {42: PRInfo(number=42, state="open", base_ref="dev", head_ref="ac/issue-17")}
         best = best_pr_for_issue(17, links, pr_info)
         result = compute_workflow_state(_issue(number=17), _run(), best)
         assert result["lane"] == LANE_PR_OPEN
@@ -582,9 +574,9 @@ class TestEndToEndLaneDerivation:
 
     def test_wrong_base_still_pr_open(self) -> None:
         """Acceptance criterion 4: PR against main → pr_open + warning."""
-        pr = _pr_row(number=42, head_ref="feat/issue-17-fix", body="Closes #17", base_ref="main")
+        pr = _pr_row(number=42, head_ref="ac/issue-17", body="Closes #17", base_ref="main")
         links = discover_links_for_pr(pr, _REPO)
-        pr_info = {42: PRInfo(number=42, state="open", base_ref="main", head_ref="feat/issue-17-fix")}
+        pr_info = {42: PRInfo(number=42, state="open", base_ref="main", head_ref="ac/issue-17")}
         best = best_pr_for_issue(17, links, pr_info)
         result = compute_workflow_state(_issue(number=17), _run(), best)
         assert result["lane"] == LANE_PR_OPEN

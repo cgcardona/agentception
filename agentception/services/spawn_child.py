@@ -170,10 +170,10 @@ def _make_run_id(scope_type: ScopeType, scope_value: str) -> str:
 def _make_branch(scope_type: ScopeType, scope_value: str) -> str:
     hex4 = uuid.uuid4().hex[:4]
     if scope_type == "label":
-        return f"agent/{_slug(scope_value)}-{hex4}"
+        return f"ac/coord-{_slug(scope_value)}-{hex4}"
     if scope_type == "issue":
-        return f"feat/issue-{scope_value}-{hex4}"
-    return f"review/pr-{scope_value}-{hex4}"
+        return f"ac/issue-{scope_value}"
+    return f"ac/review-{scope_value}-{hex4}"
 
 
 def _make_batch_id(scope_type: ScopeType, scope_value: str) -> str:
