@@ -298,6 +298,24 @@ async def _teardown_agent_worktree(run_id: str) -> None:
                 push_stderr.decode().strip(),
             )
 
+        # Delete the local branch so it does not accumulate in the main repo.
+        # git worktree remove unlinks the worktree but leaves the local branch
+        # reference in .git/refs/heads/ — this cleans it up.
+        branch_proc = await asyncio.create_subprocess_exec(
+            "git", "-C", repo_dir, "branch", "-D", branch,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, branch_stderr = await branch_proc.communicate()
+        if branch_proc.returncode == 0:
+            logger.info("✅ _teardown: deleted local branch %r", branch)
+        else:
+            logger.info(
+                "ℹ️  _teardown: local branch %r not deleted (may already be gone): %s",
+                branch,
+                branch_stderr.decode().strip(),
+            )
+
 
 @router.post("/{run_id}/done")
 async def report_done(run_id: str, req: DoneReport) -> dict[str, object]:

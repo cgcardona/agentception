@@ -431,14 +431,23 @@ async def test_spawn_child_skills_hint_overrides_body_extraction() -> None:
 
 @pytest.mark.anyio
 async def test_spawn_child_worktree_failure_raises_spawn_child_error() -> None:
-    mock_proc = MagicMock()
-    mock_proc.returncode = 1
-    mock_proc.communicate = AsyncMock(return_value=(b"", b"fatal: branch already exists"))
+    # spawn_child now calls create_subprocess_exec twice:
+    #   1. git rev-parse origin/dev  → succeeds (returns a SHA)
+    #   2. git worktree add ...      → fails (the case under test)
+    sha_proc = MagicMock()
+    sha_proc.returncode = 0
+    sha_proc.communicate = AsyncMock(
+        return_value=(b"abc1234abc1234abc1234abc1234abc1234abc1234\n", b"")
+    )
+
+    fail_proc = MagicMock()
+    fail_proc.returncode = 1
+    fail_proc.communicate = AsyncMock(return_value=(b"", b"fatal: branch already exists"))
 
     with (
         patch(
             "agentception.services.spawn_child.asyncio.create_subprocess_exec",
-            return_value=mock_proc,
+            side_effect=[sha_proc, fail_proc],
         ),
         pytest.raises(SpawnChildError, match="git worktree add failed"),
     ):
@@ -482,9 +491,9 @@ async def test_spawn_child_file_write_failure_cleans_up_worktree() -> None:
             gh_repo="owner/repo",
         )
 
-    # Second subprocess call should be the cleanup worktree remove
-    assert len(cleanup_calls) == 2
-    assert "remove" in cleanup_calls[1]
+    # Subprocess calls are now: git rev-parse, git worktree add, git worktree remove
+    assert len(cleanup_calls) == 3
+    assert "remove" in cleanup_calls[2]
 
 
 # ---------------------------------------------------------------------------

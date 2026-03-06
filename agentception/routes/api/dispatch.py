@@ -44,6 +44,29 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/dispatch", tags=["dispatch"])
 
+
+async def _resolve_dev_sha() -> str:
+    """Return the current SHA of origin/dev.
+
+    Pinning the worktree start point to a concrete SHA rather than the
+    symbolic HEAD of the main repo prevents agents from inheriting local
+    commits that are not yet on origin/dev and keeps each worktree
+    reproducibly anchored to the same commit regardless of the main
+    repo's checked-out branch.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        "git", "rev-parse", "origin/dev",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=str(settings.repo_dir),
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"git rev-parse origin/dev failed: {stderr.decode().strip()}"
+        )
+    return stdout.decode().strip()
+
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 # ---------------------------------------------------------------------------
@@ -163,8 +186,13 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
             detail=f"Worktree already exists at {worktree_path}. Remove it before re-dispatching.",
         )
 
+    try:
+        dev_sha = await _resolve_dev_sha()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
     proc = await asyncio.create_subprocess_exec(
-        "git", "worktree", "add", worktree_path, "-b", branch,
+        "git", "worktree", "add", worktree_path, "-b", branch, dev_sha,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         cwd=str(settings.repo_dir),
@@ -455,8 +483,13 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
             detail=f"Worktree already exists at {worktree_path}.",
         )
 
+    try:
+        dev_sha = await _resolve_dev_sha()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
     proc = await asyncio.create_subprocess_exec(
-        "git", "worktree", "add", worktree_path, "-b", branch,
+        "git", "worktree", "add", worktree_path, "-b", branch, dev_sha,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         cwd=str(settings.repo_dir),

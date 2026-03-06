@@ -176,18 +176,21 @@ def test_plan_run_text_not_found(client: TestClient, tmp_path: Path) -> None:
 
 
 def test_plan_page_done_state_has_batch_pill_and_track_agents(client: TestClient) -> None:
-    """GET /plan must render the batch_id pill and 'Track Agents' / 'View Issues' links in the done state."""
+    """GET /plan must render the batch_id pill and done-state action buttons.
+
+    The done screen was redesigned in PR #162 — CTAs are now 'Build Board'
+    (links to /) and 'View on GitHub' (links to the initiative's GitHub issues
+    page).  The batch pill elements are unchanged.
+    """
     resp = client.get("/plan")
     assert resp.status_code == 200
     # Batch pill elements — present in the done state section.
     assert "plan-done-batch" in resp.text
     assert "plan-done-batch-id" in resp.text
     assert "copyBatchId" in resp.text
-    # Done step CTAs per issue #42: Track Agents → (/controls), View Issues → (GitHub).
-    assert "Track Agents" in resp.text
-    assert "/controls" in resp.text
-    assert "View Issues" in resp.text
-    assert "/issues" in resp.text
+    # Done step CTAs (redesigned in PR #162).
+    assert "Build Board" in resp.text
+    assert "View on GitHub" in resp.text
 
 
 def test_plan_page_wires_step_1a_draft_and_sse(client: TestClient) -> None:
