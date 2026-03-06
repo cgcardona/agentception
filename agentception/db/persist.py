@@ -331,7 +331,15 @@ async def _upsert_agent_runs(
             # would drain the queue before the Dispatcher ever reads it.
             if existing.status != "pending_launch":
                 existing.status = agent.status.value
-            existing.pr_number = agent.pr_number
+            # Only advance pr_number — never regress it to None.
+            # persist_agent_event(done) writes pr_number from the agent's
+            # build_report_done call; the .agent-task file never contains a
+            # PR number (it was written before the PR existed).  Without this
+            # guard the worktree-derived None would overwrite the saved value
+            # on every subsequent tick, collapsing the Kanban card back to
+            # "todo" immediately after the engineer completes.
+            if agent.pr_number is not None:
+                existing.pr_number = agent.pr_number
             existing.last_activity_at = now
             # Backfill cognitive_arch when the poller first picks up a live run.
             if existing.cognitive_arch is None and agent.cognitive_arch is not None:
@@ -341,6 +349,11 @@ async def _upsert_agent_runs(
     # longer backed by a live worktree gets flipped to "unknown".  This
     # prevents phantom "implementing" rows from persisting in the Run
     # History after a worktree is removed without a clean shutdown.
+    #
+    # Exception: runs that have already opened a PR are not orphaned.  Their
+    # lifecycle is now driven by the PR state (GitHub), not by a live worktree.
+    # They stay "reviewing" until the PR merges and the issue closes, at which
+    # point the issue moves to the "done" bucket naturally.
     orphan_result = await session.execute(
         select(ACAgentRun).where(
             ACAgentRun.status.in_(_ACTIVE_STATUSES),
@@ -348,9 +361,19 @@ async def _upsert_agent_runs(
     )
     for orphan in orphan_result.scalars().all():
         if orphan.id not in live_ids:
-            orphan.status = "unknown"
+            if orphan.pr_number is not None:
+                # PR is open — keep as reviewing so the Kanban card stays in
+                # the "PR Open" / "Reviewing" lane until the issue is closed.
+                orphan.status = "reviewing"
+            else:
+                orphan.status = "unknown"
             orphan.last_activity_at = now
-            logger.debug("🧹 Orphan run %s flipped to unknown", orphan.id)
+            logger.debug(
+                "🧹 Orphan run %s → %s (pr_number=%s)",
+                orphan.id,
+                orphan.status,
+                orphan.pr_number,
+            )
 
 
 # ---------------------------------------------------------------------------
