@@ -567,6 +567,12 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
   # (Run targeted tests for the module you're about to modify)
 
   # ── STEP 3.2 — CREATE BRANCH ──────────────────────────────────────────────
+  # ⚠️  WORKTREE ISOLATION RULE: docker compose commands require running from
+  # $REPO (the main repo), but git branch/checkout/commit/push operations MUST
+  # run from $WORKTREE. After every `cd "$REPO"` for Docker, the very next
+  # command touching git MUST be preceded by `cd "$WORKTREE"`. Failure to do
+  # this is what causes feature branches to appear checked out in the main repo.
+  cd "$WORKTREE"
   git checkout -b feat/<short-description>
 
   # ── STEP 3.3 — IMPLEMENT ──────────────────────────────────────────────────
@@ -585,6 +591,7 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
 
   # ── STEP 3.4 — MYPY (scoped to your codebase only) ────────────────────────
   cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
+  cd "$WORKTREE"  # return to worktree — all subsequent git operations must run here
 
   ⚠️  MYPY RULES — fix correctly, never work around:
     - No cast() at call sites — fix the callee's return type.
@@ -1033,6 +1040,8 @@ git -C "$REPO" status
    git -C "$REPO" commit -m "feat: <description> (rescued from main repo dirty state)"
    git push origin fix/<description>
    # MCP: create_pull_request(owner="{{ gh_repo.split('/')[0] }}", repo="{{ gh_repo.split('/')[1] }}", title="...", body="...", head="fix/<description>", base="dev")
+   # ⚠️  Return main repo to dev after the rescue so the pipeline stays clean:
+   git -C "$REPO" checkout dev
    ```
 
 ### 5 — Hand off to PR review

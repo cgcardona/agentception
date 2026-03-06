@@ -792,15 +792,18 @@ STEP 5 — REVIEW:
 
   3. Add/fix tests if weak or missing
 
-  ── STEP 5.A — BASELINE HEALTH SNAPSHOT (run BEFORE checking out the PR branch) ──
+  ── STEP 5.A — BASELINE HEALTH SNAPSHOT (run BEFORE touching any PR code) ──
   Record the pre-existing state of dev so you know what errors are yours vs. already broken.
   This is your contract with the next agent — never skip it.
 
-  # Checkout dev tip first, run full mypy + targeted tests, record results.
-  git stash  # if you already have the PR branch checked out
-  git checkout dev
-  echo "=== PRE-EXISTING MYPY BASELINE (dev before PR) ==="
+  # ⚠️  WORKTREE ISOLATION: do NOT run `git checkout dev` here.
+  # `dev` is already checked out in the main repo; checking it out in a worktree
+  # always fails with "fatal: 'dev' is already checked out at '<main-repo>'".
+  # Instead, run mypy directly against the worktree filesystem — the Docker mount
+  # exposes it at /worktrees/$WTNAME regardless of which branch is checked out.
+  echo "=== PRE-EXISTING MYPY BASELINE (origin/dev state via Docker mount) ==="
   cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/" 2>&1 | tail -10
+  cd "$WORKTREE"  # return to worktree — all subsequent git operations must run here
   # Note: any error shown here is pre-existing on dev — you own fixing it if it
   # is in a file this PR touches. Errors in untouched files → note in report, do not block merge.
 
@@ -808,8 +811,9 @@ STEP 5 — REVIEW:
   # (Run targeted tests relevant to the PR's module — same files you'll test after merge)
   # Any failure here is pre-existing. Fix it before grading this PR.
 
-  # Then check out the PR branch for review:
-  git checkout "$PR_BRANCH" 2>/dev/null || git fetch origin && git checkout "$PR_BRANCH"
+  # Check out the PR branch for review (stay inside the worktree):
+  git fetch origin "$PR_BRANCH"
+  git checkout "$PR_BRANCH" 2>/dev/null || git checkout -b "$PR_BRANCH" --track "origin/$PR_BRANCH"
 
   ── STEP 5.B — MIGRATION CHAIN VALIDATION (skip if no migration files) ──────────
   # If the PR adds Alembic migration files, validate the revision chain before grading.
@@ -1144,16 +1148,20 @@ STEP 6 — PRE-MERGE SYNC (only if grade is A or B):
   #    This is the step that prevents "relation does not exist" DB errors when the
   #    coordinator tries to apply migrations before fetching.
   #
-  #    ⚠️  COMMIT GUARD — the main repo may have uncommitted files (e.g. from a
-  #    previous agent run that wrote directly to the main worktree, or from generate.py
-  #    updating role files). An uncommitted working tree aborts git merge. Commit
-  #    whatever is there so the merge can proceed cleanly.
-  git -C "$REPO" add -A
-  git -C "$REPO" diff --cached --quiet || git -C "$REPO" commit -m "chore: save main repo state before post-merge dev sync
-
-AgentCeption-Session: ${AGENT_SESSION:-unset}"
+  #    ⚠️  ISOLATION ASSERTION — the main repo must be clean before any merge.
+  #    If it is not, a prior agent violated worktree isolation by writing files
+  #    directly to the main repo. Do NOT commit those files — that would silently
+  #    land agent artifacts on dev. Instead, abort and surface the violation.
+  DIRTY=$(git -C "$REPO" status --porcelain)
+  if [ -n "$DIRTY" ]; then
+    echo "❌ ISOLATION VIOLATION: main repo has uncommitted changes — aborting merge."
+    echo "$DIRTY"
+    echo "Identify which agent wrote to the main repo and fix the root cause."
+    echo "Do NOT commit these files. Restore with: git -C \"\$REPO\" restore --staged . && git -C \"\$REPO\" restore ."
+    exit 1
+  fi
   git -C "$REPO" fetch origin
-  git -C "$REPO" merge origin/dev
+  git -C "$REPO" merge --ff-only origin/dev
 
 STEP 7 — REGRESSION FEEDBACK LOOP (only if merge succeeded — skip if D/F grade):
   After a successful merge, run targeted tests against dev to detect regressions
@@ -1161,12 +1169,15 @@ STEP 7 — REGRESSION FEEDBACK LOOP (only if merge succeeded — skip if D/F gra
   and re-enter the pipeline — no human triage required.
 
   # Pull the latest dev (contains the just-merged PR).
-  # ⚠️  COMMIT GUARD: same as step 6.9 — guard against uncommitted main-repo state.
-  git -C "$REPO" add -A
-  git -C "$REPO" diff --cached --quiet || git -C "$REPO" commit -m "chore: save main repo state before regression-feedback dev sync
-
-AgentCeption-Session: ${AGENT_SESSION:-unset}"
-  git -C "$REPO" fetch origin && git -C "$REPO" merge origin/dev
+  # ⚠️  ISOLATION ASSERTION: same as step 6.9 — main repo must be clean.
+  DIRTY=$(git -C "$REPO" status --porcelain)
+  if [ -n "$DIRTY" ]; then
+    echo "❌ ISOLATION VIOLATION: main repo has uncommitted changes — aborting regression sync."
+    echo "$DIRTY"
+    echo "Do NOT commit these files. Restore with: git -C \"\$REPO\" restore --staged . && git -C \"\$REPO\" restore ."
+    exit 1
+  fi
+  git -C "$REPO" fetch origin && git -C "$REPO" merge --ff-only origin/dev
 
   # Run TARGETED tests only — never the full suite.
   # Derive test files from what this PR actually changed:
@@ -1321,7 +1332,11 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
 
     if [ -n "$NEXT_ISSUE" ]; then
       NEXT_WORKTREE="$HOME/.agentception/worktrees/agentception/issue-$NEXT_ISSUE"
-      git -C "$REPO" worktree add -b "feat/issue-$NEXT_ISSUE" "$NEXT_WORKTREE" origin/dev
+      # Use --detach + SHA instead of -b to avoid registering a local branch on the
+      # main repo. The leaf agent creates the feat/issue-N branch from inside its
+      # own worktree via `git checkout -b feat/issue-$NEXT_ISSUE` at STEP 3.2.
+      NEXT_DEV_SHA=$(git -C "$REPO" rev-parse origin/dev)
+      git -C "$REPO" worktree add --detach "$NEXT_WORKTREE" "$NEXT_DEV_SHA"
       # Add label only after worktree is confirmed created — prevents permanent lock on creation failure
       # MCP: github_claim_issue(issue_number=$NEXT_ISSUE)
 
@@ -1622,6 +1637,8 @@ git -C "$REPO" status
    # MCP: create_pull_request(owner="cgcardona", repo="agentception",
    #       title="feat: <description> (rescued from main repo dirty state)",
    #       base="dev", head="fix/<description>", body="Rescued dirty-state work.")
+   # ⚠️  Return main repo to dev after the rescue so the pipeline stays clean:
+   git -C "$REPO" checkout dev
    ```
 
 ---

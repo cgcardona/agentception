@@ -433,9 +433,26 @@ async def spawn_child(
         role, tier, org_domain, scope_type, scope_value, cognitive_arch,
     )
 
-    # Create git worktree
+    # Resolve origin/dev SHA to pin the worktree start point.
+    # Using a concrete SHA instead of the main repo's HEAD prevents agents
+    # from inheriting local commits not yet on origin/dev and decouples the
+    # worktree from whatever branch the main repo currently has checked out.
+    sha_proc = await asyncio.create_subprocess_exec(
+        "git", "rev-parse", "origin/dev",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=str(settings.repo_dir),
+    )
+    sha_out, sha_err = await sha_proc.communicate()
+    if sha_proc.returncode != 0:
+        err = sha_err.decode().strip()
+        logger.error("❌ spawn_child: git rev-parse origin/dev failed — %s", err)
+        raise SpawnChildError(f"git rev-parse origin/dev failed: {err}")
+    dev_sha = sha_out.decode().strip()
+
+    # Create git worktree anchored to the resolved SHA
     proc = await asyncio.create_subprocess_exec(
-        "git", "worktree", "add", worktree_path, "-b", branch,
+        "git", "worktree", "add", worktree_path, "-b", branch, dev_sha,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         cwd=str(settings.repo_dir),
