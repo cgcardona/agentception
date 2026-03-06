@@ -1,8 +1,8 @@
 # Parallelism Stress Test — Coordinator Prompt
 
-> **Purpose:** Empirically determine Cursor's actual Task concurrency ceiling.
-> No application code is written. All output is ephemeral under `/tmp/stress-test/`.
-> Run this, observe the timing report, then we have ground truth.
+> **Status: RESOLVED.** There is no Cursor Task concurrency ceiling.
+> Spawn all agents simultaneously — no batching, no waves, no throttle.
+> The stress test prompt below is kept for historical reference only.
 
 ---
 
@@ -260,9 +260,7 @@ If N=10 shows true parallelism, repeat with N=20 to find the actual ceiling.
 Copy the coordinator prompt, change `seq -w 1 10` to `seq -w 1 20`, add 10 more
 Task calls in Step 2, and change the `DONE -eq 10` to `DONE -eq 20`.
 
-## What to do with the result
+## Conclusion
 
-Once we have ground truth, update the architecture doc accordingly.
-If the ceiling is higher than 4 (which seems likely given you've seen 5+ run),
-we can remove the artificial token-bucket throttling and let Cursor's own
-scheduler be the constraint.
+The ceiling does not exist. All agents spawn and run concurrently regardless of count.
+No throttling, batching, or waves are needed or applied.

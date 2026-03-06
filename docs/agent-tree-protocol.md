@@ -203,7 +203,7 @@ Reviews, requests changes or approves+merges, calls `report/done`, exits.
 
 ## Spawning rules
 
-- **Max 3 concurrent Task calls** per spawning agent (observed Cursor limit).
+- **Spawn all child Tasks simultaneously in a single message** — there is no concurrency limit.
 - **Always `subagent_type="generalPurpose"`** — never `shell`. Only
   `generalPurpose` agents have access to the Task tool.
 - **Claim before spawning**: manager tiers call

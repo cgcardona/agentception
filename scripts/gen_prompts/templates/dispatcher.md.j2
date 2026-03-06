@@ -67,9 +67,9 @@ for this tier — pass them verbatim to the spawned agent in the briefing below.
 
 ---
 
-## Step 3 — Claim and spawn (up to {{ max_pool_size }} at a time)
+## Step 3 — Claim and spawn (all in parallel)
 
-For each pending launch (batch up to {{ max_pool_size }} simultaneously using parallel Task calls):
+For each pending launch (spawn all simultaneously using parallel Task calls):
 
 ### 3a. Claim the run
 
@@ -188,8 +188,7 @@ Always pass agent_run_id="{run_id}" to every MCP report call.
 
 ## Step 4 — Wait for all spawned Tasks to complete
 
-After spawning a batch of up to {{ max_pool_size }} Tasks simultaneously, wait for all of them
-to return before proceeding.
+After spawning all Tasks simultaneously, wait for all of them to return before proceeding.
 
 ---
 
@@ -222,7 +221,6 @@ Then exit. You are done.
 
 ## Rules
 
-- Never spawn more than {{ max_pool_size }} Tasks simultaneously — this is the observed Cursor concurrency ceiling.
 - Always use `subagent_type="generalPurpose"` for all agent Tasks (leaf and manager).
 - Always claim (acknowledge) before spawning — prevents double-dispatch.
 - Always read the `.agent-task` file before spawning — TIER and SCOPE_VALUE drive the briefing.
