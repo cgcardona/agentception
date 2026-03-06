@@ -1304,6 +1304,7 @@ def _compute_locked(
     return any(dep not in complete_phases for dep in deps)
 
 
+
 async def get_issues_grouped_by_phase(
     repo: str,
     initiative: str | None = None,

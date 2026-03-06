@@ -666,6 +666,73 @@ async def persist_initiative_phases(
         logger.warning("⚠️  persist_initiative_phases failed (non-fatal): %s", exc)
 
 
+async def reseed_missing_initiative_phases(repo: str) -> None:
+    """Re-derive and persist the phase dep graph for any initiative that has no DB entry.
+
+    Called by the poller after every ``persist_tick`` so that a DB reset never
+    leaves the board in a permanently-unlocked state.  When ``file_issues`` ran
+    originally it wrote the authoritative dep graph; this function recovers it
+    from the scoped phase labels that are already on the GitHub issues (and now
+    in the ``issues`` table).
+
+    Initiative slugs are derived directly from the issues in the DB — any label
+    containing a ``/`` contributes an initiative slug (the part before the
+    slash).  This avoids a dependency on ``pipeline-config.json`` and makes the
+    recovery self-contained: the source of truth is the issues themselves.
+
+    Recovery rules:
+    - Scoped phase labels follow ``{initiative}/{N}-{slug}`` (e.g.
+      ``ac-workflow/1-toml-migration``).  Lexicographic sort preserves the
+      ``N-`` prefix ordering.
+    - Dependencies are assumed sequential: phase[0] has none; phase[i] depends
+      on phase[i-1].  This matches what ``file_issues`` writes for a linear plan.
+    - If ``initiative_phases`` already has rows for an initiative, skip it —
+      the authoritative data is in place and should not be overwritten.
+    """
+    try:
+        async with get_session() as session:
+            # Collect all scoped phase labels grouped by initiative slug.
+            issues_result = await session.execute(
+                select(ACIssue).where(ACIssue.repo == repo)
+            )
+            initiative_phase_labels: dict[str, set[str]] = {}
+            for issue in issues_result.scalars().all():
+                labels: list[str] = json.loads(issue.labels_json or "[]")
+                for lbl in labels:
+                    if "/" in lbl:
+                        slug, _, _ = lbl.partition("/")
+                        initiative_phase_labels.setdefault(slug, set()).add(lbl)
+
+            for initiative, phase_label_set in initiative_phase_labels.items():
+                # Skip if the dep graph already exists.
+                existing = await session.execute(
+                    select(ACInitiativePhase).where(
+                        ACInitiativePhase.initiative == initiative
+                    ).limit(1)
+                )
+                if existing.scalar_one_or_none() is not None:
+                    continue
+
+                sorted_phases = sorted(phase_label_set)
+                phases: list[PhaseEntry] = [
+                    PhaseEntry(
+                        label=label,
+                        order=idx,
+                        depends_on=[sorted_phases[idx - 1]] if idx > 0 else [],
+                    )
+                    for idx, label in enumerate(sorted_phases)
+                ]
+
+                logger.info(
+                    "✅ reseed_missing_initiative_phases: %s — recovered %d phases from issue labels",
+                    initiative,
+                    len(phases),
+                )
+                await persist_initiative_phases(initiative, phases)
+    except Exception as exc:
+        logger.warning("⚠️  reseed_missing_initiative_phases failed (non-fatal): %s", exc)
+
+
 async def persist_issue_depends_on(
     repo: str,
     issue_deps: dict[int, list[int]],

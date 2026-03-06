@@ -527,7 +527,7 @@ async def tick() -> PipelineState:
     # ── Persist raw tick data to Postgres ────────────────────────────────────
     # Non-blocking: a DB outage cannot crash the poller or stall the SSE stream.
     try:
-        from agentception.db.persist import persist_tick
+        from agentception.db.persist import persist_tick, reseed_missing_initiative_phases
         await persist_tick(
             state=PipelineState(
                 active_label=github.active_label,
@@ -546,6 +546,11 @@ async def tick() -> PipelineState:
             merged_prs=github.merged_prs,
             gh_repo=settings.gh_repo,
         )
+        # Re-seed initiative_phases from issue labels if the table is empty
+        # (e.g. after a DB reset).  Idempotent: skips initiatives that already
+        # have stored phase metadata.  Initiative slugs are derived from the
+        # scoped labels on the issues themselves — no config file needed.
+        await reseed_missing_initiative_phases(settings.gh_repo)
     except Exception as exc:
         logger.warning("⚠️  DB persist skipped (non-fatal): %s", exc)
 
