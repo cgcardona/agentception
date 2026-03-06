@@ -2,7 +2,7 @@
 #
 # This file is the canonical source for the full org chart.
 # The GUI reads this via GET /api/roles/taxonomy to render the hierarchy browser.
-# Each role's "slug" maps to a .cursor/roles/<slug>.md file (Track A — org prompt).
+# Each role's "slug" maps to a .agentception/roles/<slug>.md file (Track A — org prompt).
 # Each role's "compatible_figures" maps to cognitive_archetypes/figures/ (Track B — cognitive overlay).
 #
 # Spawnable roles are those that can be assigned to a leaf agent via POST /api/control/spawn.
@@ -542,7 +542,7 @@ levels:
         label: "Mobile Developer"
         title: "Mobile Developer (iOS/macOS)"
         category: mobile
-        description: "Builds Swift/SwiftUI applications for macOS. Owns the Muse client client integration."
+        description: "Builds Swift/SwiftUI applications for macOS."
         spawnable: true
         compatible_figures:
           - lovelace

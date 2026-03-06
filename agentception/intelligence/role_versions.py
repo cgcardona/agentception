@@ -82,7 +82,7 @@ async def read_role_versions() -> dict[str, object]:
 async def write_role_versions(data: dict[str, object]) -> None:
     """Atomically write ``data`` to role-versions.json with 2-space indentation.
 
-    Creates the parent ``.cursor/`` directory if it does not yet exist so the
+    Creates the parent ``.agentception/`` directory if it does not yet exist so the
     first write (bootstrap scenario) succeeds without any pre-setup.
     """
     import json

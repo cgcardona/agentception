@@ -30,7 +30,6 @@ Key AgentCeption services to monitor:
 | Service | Container | Port | SLO Owner |
 |---------|-----------|------|-----------|
 | AgentCeption | `agentception` | 10003 | Primary |
-| Muse | `agentception-muse` | 10002 | Secondary |
 | Postgres | `agentception-postgres` | 5433 | Data layer |
 | Qdrant | `agentception-qdrant` | 6335 | Vector search |
 | Nginx | `agentception-nginx` | 80/443 | Ingress |

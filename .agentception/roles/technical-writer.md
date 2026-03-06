@@ -30,8 +30,6 @@ Every document you produce must:
 | Frontend/MCP/JWT | `docs/guides/integrate.md` |
 | API reference | `docs/reference/api.md` |
 | Architecture | `docs/reference/architecture.md` |
-| Muse | `docs/reference/muse.md` |
-| Muse VCS | `docs/architecture/muse-vcs.md` |
 | Testing | `docs/guides/testing.md` |
 | Security | `docs/guides/security.md` |
 | Protocol specs | `docs/protocol/` |

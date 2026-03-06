@@ -144,13 +144,11 @@ async def test_agent_task_written_with_workflow_plan_spec(
     assert task_file.exists(), ".agent-task file was not created"
 
     content = task_file.read_text(encoding="utf-8")
-    assert "WORKFLOW=plan-spec" in content
+    assert 'workflow = "plan-spec"' in content
     assert plan_text in content
-    # Output path must be a specific file so the AgentCeption poller can watch
-    # for it; the mcp_tools_hint guides the Cursor agent to call plan_get_schema.
     assert ".plan-output.yaml" in content
-    assert "mcp_tools_hint=call plan_get_schema()" in content
-    assert "output_schema=plan_get_schema" in content
+    assert "plan_get_schema" in content
+    assert "output_schema" in content
 
 
 @pytest.mark.anyio

@@ -32,7 +32,6 @@ _ROLE_KEYWORDS: list[tuple[str, str]] = [
     ("CTO", "cto"),
     ("Engineering Coordinator", "engineering-coordinator"),
     ("QA Coordinator", "qa-coordinator"),
-    ("muse-specialist", "muse-specialist"),
     ("database-architect", "database-architect"),
     ("python-developer", "python-developer"),
     ("pr-reviewer", "pr-reviewer"),

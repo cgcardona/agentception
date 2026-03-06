@@ -164,7 +164,7 @@ Current atomic domains:
 | `d3` | Force-directed graphs, SVG, D3 selections |
 | `monaco` | In-browser code editor CDN integration |
 | `devops` | Docker, Compose, Nginx, CI/CD |
-| `midi` | MIDI pipeline, GM programs, Muse protocol integration |
+| `midi` | MIDI pipeline, GM programs, music generation |
 | `llm` | LLM calls, embeddings, RAG, OpenRouter |
 
 
@@ -377,7 +377,7 @@ at spawn time. Leaf agents read it at startup.
 # .agent-task (written by engineering coordinator)
 ISSUE=671
 WORKTREE="/path/to/worktree"
-ROLE_FILE="$HOME/.cursor/roles/python-developer.md"
+ROLE_FILE="<repo-root>/.agentception/roles/python-developer.md"
 ISSUE_LABEL="agentception/2-telemetry"
 SPAWN_MODE=direct
 COGNITIVE_ARCH=lovelace:htmx:jinja2:alpine   # ← new multi-skill format

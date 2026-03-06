@@ -161,7 +161,6 @@ ROLE_TAXONOMY: dict[str, list[str]] = {
         "security-engineer", "site-reliability-engineer", "ml-engineer",
         "ml-researcher", "data-engineer", "data-scientist",
         "systems-programmer", "technical-writer", "architect",
-        "muse-specialist",
     ],
 }
 

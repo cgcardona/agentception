@@ -44,7 +44,7 @@ The full tool list injected into this session:
 
 ### 2. It is documented in this codebase
 
-`.cursor/pipeline-howto.md` line ~241 (written by the team, not by an AI session):
+`.agentception/pipeline-howto.md` line ~241 (written by the team, not by an AI session):
 
 ```
 ## Platform Constraint: 4-Wide Branching, Unlimited Depth
@@ -250,8 +250,8 @@ This gives the web dashboard live visibility without polling filesystem state.
 | Test | Date | Files | Result |
 |---|---|---|---|
 | Depth test (3 layers) | 2026-03-03 | `/tmp/depth-test/layer*.{start,end,done}` | ✅ All 3 layers confirmed |
-| Parallelism stress test (10 agents × 4 runs) | 2026-03-03 | `.cursor/stress-test-parallelism.md` | Peak concurrency = 3 |
-| Hierarchical test (failed) | 2026-03-03 | `.cursor/stress-test-parallelism.md` | ❌ Shell child tried bash bg → sandbox blocked |
+| Parallelism stress test (10 agents × 4 runs) | 2026-03-03 | `.agentception/stress-test-parallelism.md` | Peak concurrency = 3 |
+| Hierarchical test (failed) | 2026-03-03 | `.agentception/stress-test-parallelism.md` | ❌ Shell child tried bash bg → sandbox blocked |
 | Tree test 1 (3 branches × 3 leaves) | 2026-03-03 | `/tmp/tree-test-1/` | ✅ All 38 files present — leaves ran parallel within each branch |
 | Tree test 2 (4 branches, wider) | 2026-03-03 | `/tmp/tree-test-2/` | 🔲 Pending |
 

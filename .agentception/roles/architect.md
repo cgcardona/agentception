@@ -28,7 +28,6 @@ This repository is a single standalone service:
 
 ```
 agentception/ # AgentCeption — FastAPI + HTMX + Alpine (port 10003)
-              #   muse/       # Muse protocol implementation (future)
               #   mcp/        # MCP server for Cursor/Claude tool integration
 ```
 
@@ -42,8 +41,6 @@ Key patterns:
 - **Planning pipeline**: Phase 1A (LLM → PlanSpec) → Phase 1B (human review) → Issue creation → Agent dispatch.
 - **SSE for live updates**: AgentCeption poller broadcasts `PipelineState` via SSE.
 - **Postgres for persistence**: `ac_*` tables. Alembic manages the migration tree.
-- **Muse-aware**: The Muse VCS protocol is a first-class domain — beats over seconds, Variation/Phrase/NoteChange vocabulary.
-
 ## Anti-patterns (Never Do)
 
 - Business logic in route handlers.

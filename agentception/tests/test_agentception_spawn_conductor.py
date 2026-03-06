@@ -113,10 +113,10 @@ def test_spawn_conductor_task_file_written_to_disk(
     task_file = created[0] / ".agent-task"
     assert task_file.exists(), ".agent-task file not found in worktree"
     content = task_file.read_text(encoding="utf-8")
-    assert "WORKFLOW=conductor" in content
-    assert "PHASES=ac-ui/1-bugs" in content
-    assert "SPAWN_SUB_AGENTS=true" in content
-    assert "REQUIRED_OUTPUT=wave_complete" in content
+    assert 'workflow = "conductor"' in content
+    assert 'phases = ["ac-ui/1-bugs"]' in content
+    assert "sub_agents = true" in content
+    assert 'required_output = "wave_complete"' in content
 
 
 def test_spawn_conductor_task_file_multi_phase(
@@ -157,7 +157,7 @@ def test_spawn_conductor_task_file_multi_phase(
 
     assert response.status_code == 200
     content = (created[0] / ".agent-task").read_text()
-    assert "PHASES=phase-a,phase-b,phase-c" in content
+    assert 'phases = ["phase-a", "phase-b", "phase-c"]' in content
 
 
 # ── POST /api/control/spawn-conductor — empty phases → 422 ────────────────────
@@ -271,7 +271,7 @@ def test_spawn_conductor_result_fields() -> None:
         worktree="/wt/conductor-20260303-142201",
         host_worktree="/host/conductor-20260303-142201",
         branch="feat/conductor-20260303-142201",
-        agent_task="WORKFLOW=conductor\n",
+        agent_task='[task]\nworkflow = "conductor"\n',
     )
     assert result.wave_id == "conductor-20260303-142201"
     assert result.branch.startswith("feat/conductor-")

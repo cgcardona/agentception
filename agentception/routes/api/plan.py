@@ -16,8 +16,8 @@ Side effects
    Docker-mounted path (``/worktrees`` in-container, ``~/.agentception/worktrees/agentception``
    on the host) — so mypy/pytest can reference it via ``/worktrees/<name>``
    inside the container without path mismatches.
-2. A ``.agent-task`` file is written to the new worktree using the K=V format
-   that is compatible with the future TOML migration (issue #888).
+2. A ``.agent-task`` file is written to the new worktree in TOML v2 format
+   (see ``agentception.services.toml_task.render_toml_str``).
 
 POST /api/plan/launch
 ---------------------
@@ -42,6 +42,7 @@ import asyncio
 import json
 import logging
 import uuid
+from datetime import datetime, timezone
 
 import yaml
 from fastapi import APIRouter, HTTPException
@@ -50,6 +51,7 @@ from pydantic import BaseModel, field_validator
 from agentception.config import settings
 from agentception.mcp.plan_tools import plan_spawn_coordinator
 from agentception.models import EnrichedManifest, EnrichedPhase
+from agentception.services.toml_task import TomlValue, render_toml_str
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +103,7 @@ async def post_plan_draft(request: PlanDraftRequest) -> PlanDraftResponse:
     2. Run ``git worktree add <worktrees_dir>/plan-draft-<draft_id>`` off origin/dev.
        Uses the canonical ``settings.worktrees_dir`` so the path is visible inside
        Docker at ``/worktrees/plan-draft-<draft_id>`` — never ``/tmp/``.
-    3. Write a K=V .agent-task to that path so a Cursor agent can pick it up.
+    3. Write a TOML v2 .agent-task to that path so a Cursor agent can pick it up.
     4. Return PlanDraftResponse immediately.
 
     Returns 422 if text is empty/whitespace (validated by PlanDraftRequest).
@@ -145,19 +147,36 @@ async def post_plan_draft(request: PlanDraftRequest) -> PlanDraftResponse:
     # mocked the subprocess in tests.
     worktree_path.mkdir(parents=True, exist_ok=True)
 
-    task_content = (
-        f"WORKFLOW=plan-spec\n"
-        f"DRAFT_ID={draft_id}\n"
-        # OUTPUT_PATH must be a file path (not the directory) so the AgentCeption
-        # poller can watch for the file's appearance and emit plan_draft_ready.
-        f"OUTPUT_PATH={output_file_path}\n"
-        f"STATUS=pending\n"
-        # Guide the Cursor agent: call plan_get_schema() first to get the PlanSpec
-        # TOML schema, then produce valid TOML matching that schema.
-        f"mcp_tools_hint=call plan_get_schema() to get the PlanSpec TOML schema first\n"
-        f"output_schema=plan_get_schema\n"
-        f"plan_draft.text={request.text}\n"
-    )
+    sections: dict[str, dict[str, TomlValue]] = {
+        "task": {
+            "version": "2.0",
+            "workflow": "plan-spec",
+            "id": draft_id,
+            "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "attempt_n": 0,
+            "required_output": "plan_yaml",
+            "on_block": "stop",
+        },
+        "output": {
+            "draft_id": draft_id,
+            "path": str(output_file_path),
+        },
+        "agent": {
+            "role": "planner",
+            "tier": "coordinator",
+            "cognitive_arch": "hopper:python",
+        },
+        "worktree": {
+            "path": str(host_worktree_path),
+            "branch": branch,
+        },
+        "plan_draft": {
+            "text": request.text,
+            "mcp_tools_hint": "call plan_get_schema() to get the PlanSpec TOML schema first",
+            "output_schema": "plan_get_schema",
+        },
+    }
+    task_content = render_toml_str(sections)
     task_file_path.write_text(task_content, encoding="utf-8")
 
     logger.info("✅ .agent-task written for draft %s", draft_id)

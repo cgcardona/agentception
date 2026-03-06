@@ -161,7 +161,7 @@ SEED:
 
 - Issues that create **new files** → always safe to run in parallel
 - Issues that modify the **same existing file** → serialize (MERGE_AFTER in .agent-task)
-- `agentception/muse/api/routes/__init__.py` → auto-discovers, never touch it
+- `agentception/routes/api/__init__.py` → auto-discovers, never touch it
 - Seed data issues → strictly serialized via MERGE_AFTER chain in .agent-task files
 
 ## Worktree convention
@@ -180,8 +180,6 @@ If a worktree is missing: `git -C "<repo-root>" worktree add -b feat/issue-{N} "
 - Never run mypy or pytest yourself
 - Never create PRs yourself
 - Never merge anything
-- Never touch `agentception/muse/api/routes/__init__.py`
-
 ---
 
 ## Embedded Implementer Kickoff
@@ -301,8 +299,8 @@ issue is one where:
    routes, new typed result types, new test fixtures, or new config values.
 2. Look for issues that **other open issues reference** in their body (`Depends on`,
    `Blocked by`, `Requires`, `See also`).
-3. Look for issues whose labels suggest broad impact: `enhancement`, `ai-pipeline`,
-   `muse`, `agentception-integration` — these tend to be more foundational than
+3. Look for issues whose labels suggest broad impact:    `enhancement`, `ai-pipeline`,
+   `agentception-integration` — these tend to be more foundational than
    `documentation` or `good first issue`.
 4. Within a batch of UI issues, prefer the one that establishes the **shared
    component or API pattern** that the others will follow.
@@ -428,14 +426,11 @@ for entry in "${SELECTED_ISSUES[@]}"; do
   fi
   git worktree add --detach "$WT" "$DEV_SHA"
   # Assign ROLE based on issue labels:
-  #   muse, muse-cli, muse-hub, merge labels → muse-specialist
   #   phase-1/db-schema, alembic, migration labels → database-architect
   #   all others → python-developer
   ISSUE_LABELS=$(gh issue view "$NUM" --repo "$GH_REPO" --json labels --jq '[.labels[].name] | join(",")' 2>/dev/null || echo "")
   AGENT_ROLE="python-developer"
-  if echo "$ISSUE_LABELS" | grep -qE "muse-cli|muse-hub|muse|merge"; then
-    AGENT_ROLE="muse-specialist"
-  elif echo "$ISSUE_LABELS" | grep -qE "db-schema|alembic|migration"; then
+  if echo "$ISSUE_LABELS" | grep -qE "db-schema|alembic|migration"; then
     AGENT_ROLE="database-architect"
   fi
 
@@ -466,7 +461,7 @@ for entry in "${SELECTED_ISSUES[@]}"; do
     SKILLS="postgresql:python"
   elif echo "$ISSUE_BODY" | grep -qiE "dockerfile|FROM python|compose.*service"; then
     SKILLS="devops"
-  elif echo "$ISSUE_BODY" | grep -qiE "midi|muse"; then
+  elif echo "$ISSUE_BODY" | grep -qiE "midi"; then
     SKILLS="midi:python"
   elif echo "$ISSUE_BODY" | grep -qiE "llm|embedding|rag|openrouter|claude"; then
     SKILLS="llm:python"
@@ -487,7 +482,7 @@ for entry in "${SELECTED_ISSUES[@]}"; do
     FIGURE="hopper"
   fi
   COGNITIVE_ARCH_VAL="${FIGURE}:${SKILLS}"
-  ROLE_FILE_VAL="$REPO/.cursor/roles/${AGENT_ROLE}.md"
+  ROLE_FILE_VAL="$REPO/.agentception/roles/${AGENT_ROLE}.md"
 
   cat > "$WT/.agent-task" << TASKEOF
 WORKFLOW=issue-to-pr
@@ -555,7 +550,6 @@ If you see "No module named X", you are on the host. Stop. Use `docker compose e
 
 ---
 
-
 ## Environment (agents read this first)
 
 **You are running inside a Cursor worktree.** Your working directory is NOT the main repo.
@@ -593,25 +587,12 @@ the container. After creating your feature branch, your worktree's code is
 REPO=$(git worktree list | head -1 | awk '{print $1}')
 WTNAME=$(basename "$(pwd)")
 
-# Detect codebase from issue label in .agent-task
-ISSUE_LABEL=$(grep "^ISSUE_LABEL=" .agent-task 2>/dev/null | cut -d= -f2 || echo "")
-IS_AC=$(echo "$ISSUE_LABEL" | grep -c "^ac-ui/" || true)
+# mypy — agentception codebase
+cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
 
-# mypy — route by codebase (both codebases are independent; never cross-run)
-if [ "$IS_AC" -gt 0 ]; then
-  cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
-else
-  cd "$REPO" && docker compose exec agentception sh -c \
-    "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/"
-fi
-
-# pytest — route by codebase
-if [ "$IS_AC" -gt 0 ]; then
-  cd "$REPO" && docker compose exec agentception pytest agentception/tests/test_<module>.py -v
-else
-  cd "$REPO" && docker compose exec agentception sh -c \
-    "PYTHONPATH=/worktrees/$WTNAME pytest /worktrees/$WTNAME/tests/path/to/test_file.py -v"
-fi
+# pytest — agentception codebase
+cd "$REPO" && docker compose exec agentception sh -c \
+  "PYTHONPATH=/worktrees/$WTNAME pytest /worktrees/$WTNAME/agentception/tests/test_<module>.py -v"
 ```
 
 **⚠️ NEVER copy files into the main repo** for testing purposes. That pollutes
@@ -657,7 +638,7 @@ and all `git` commands.
 
 ### Command policy
 
-Consult `.cursor/agent-command-policy.md` for the full tier list. Summary:
+Consult `.agentception/agent-command-policy.md` for the full tier list. Summary:
 - **Green (auto-allow):** `ls`, `git status/log/diff/fetch`, `github_get_issue`, `github_list_prs`, `mypy`, `pytest`, `rg`
 - **Yellow (review before running):** `docker compose build`, `rm <single file>`, `git rebase`
 - **Red (never):** `rm -rf`, `git push --force`, `git push origin dev`, `docker system prune`
@@ -670,7 +651,7 @@ Consult `.cursor/agent-command-policy.md` for the full tier list. Summary:
 ```
 PARALLEL AGENT COORDINATION — ISSUE TO PR
 
-Read .cursor/agent-command-policy.md before issuing any shell commands.
+Read .agentception/agent-command-policy.md before issuing any shell commands.
 Green-tier commands run without confirmation. Yellow = check scope first.
 Red = never, ask the user instead.
 
@@ -900,19 +881,9 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
   # ── STEP 3.1 — BASELINE HEALTH SNAPSHOT (before touching any code) ────────
   # Record the pre-existing state of dev SO YOU KNOW what errors are yours vs.
   # what was already broken. This baseline is your contract with the next agent.
-  # Detect codebase from .agent-task label — set once, used throughout this run.
-  ISSUE_LABEL=$(grep "^ISSUE_LABEL=" .agent-task 2>/dev/null | cut -d= -f2 || echo "")
-  IS_AC=$(echo "$ISSUE_LABEL" | grep -c "^ac-ui/" || true)
 
   echo "=== PRE-EXISTING MYPY BASELINE (dev, before any changes) ==="
-  # Route by codebase — both codebases are independent; never cross-run.
-  if [ "$IS_AC" -gt 0 ]; then
-    cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/" 2>&1 | tail -5
-  else
-    cd "$REPO" && docker compose exec agentception sh -c \
-      "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/" \
-      2>&1 | tail -5
-  fi
+  cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/" 2>&1 | tail -5
   # Record the error count. After implementation, the error count must not increase.
   # Errors you did NOT introduce: fix them if they are in files you are touching.
   # Errors in files you are NOT touching: file a follow-up GitHub issue and note it.
@@ -941,14 +912,7 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
   # any commit to be traced back to the pipeline batch and agent session.
 
   # ── STEP 3.4 — MYPY (scoped to your codebase only) ────────────────────────
-  # Route by IS_AC set in STEP 3.1. both codebases are independent
-  # container.
-  if [ "$IS_AC" -gt 0 ]; then
-    cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
-  else
-    cd "$REPO" && docker compose exec agentception sh -c \
-      "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/"
-  fi
+  cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
 
   ⚠️  MYPY RULES — fix correctly, never work around:
     - No cast() at call sites — fix the callee's return type.
@@ -994,11 +958,7 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
     agentception/readers/pipeline.py          → tests/test_pipeline.py
     agentception/readers/llm_phase_planner.py           → tests/test_intent*.py
     agentception/readers/  → tests/test_handlers.py
-    agentception/services/muse_*.py        → tests/test_muse_*.py
-    agentception/routes/api/muse.py        → tests/test_muse.py
     agentception/mcp/                      → tests/test_mcp.py
-    agentception/muse/daw/                      → tests/test_daw_adapter.py
-    agentception/services/muse_music_service.py        → agentception/tests/test_muse_gm_resolution.py + agentception/tests/test_muse_*.py
 
   Run only the derived targets:
     cd "$REPO" && docker compose exec agentception sh -c \
@@ -1029,8 +989,7 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
 
   DOCS — non-negotiable, same commit as code:
     - Docstrings on every new module, class, and public function (why + contract, not what)
-    - For new `muse <cmd>`: add a section to docs/architecture/muse-vcs.md with:
-        purpose, flags table, output example, result type, agent use case
+    - For new CLI commands: add a section to docs/architecture/ with purpose, flags table, output example, result type, agent use case
     - Register new named result types in docs/reference/type-contracts.md
     - Docs are written for AI agent consumers — explain the contract and when to call this
 
@@ -1048,21 +1007,21 @@ STEP 4 — PRE-PUSH SYNC (critical — always run before pushing):
 AgentCeption-Batch: ${BATCH_ID:-none}
 AgentCeption-Session: $AGENT_SESSION"
 
-  # Pre-check: these three files conflict on virtually every parallel Muse batch.
+  # Pre-check: these files conflict on virtually every parallel batch.
   # Know the rules before you merge so you can resolve mechanically, not by guessing.
   #
   #   FILE                              ALWAYS-SAFE RULE
-  #   agentception/muse/cli/app.py           Keep ALL app.add_typer() lines from both sides.
-  #   docs/architecture/muse-vcs.md    Keep ALL ## sections from both sides, sort alpha.
-  #   docs/reference/type-contracts.md Keep ALL entries from both sides.
+  #   agentception/cli/app.py               Keep ALL app.add_typer() lines from both sides.
+  #   docs/architecture/*.md                 Keep ALL ## sections from both sides, sort alpha.
+  #   docs/reference/type-contracts.md       Keep ALL entries from both sides.
 
   git fetch origin
   git merge origin/dev
 
-  ⚡ CONFLICT SHORTCUT: open .cursor/conflict-rules.md FIRST.
+  ⚡ CONFLICT SHORTCUT: open .agentception/conflict-rules.md FIRST.
   Every common conflict has a one-line rule. NO sed/grep/hexdump loops.
-  agentception/muse/api/routes/__init__.py NEVER conflicts (auto-discovery).
-  app.py, muse-vcs.md, type-contracts.md use union merge (.gitattributes).
+  agentception/routes/api/__init__.py NEVER conflicts (auto-discovery).
+  app.py, docs, type-contracts.md use union merge (.gitattributes).
 
 
   ── CONFLICT PLAYBOOK (reference this immediately when git reports conflicts) ──
@@ -1317,7 +1276,7 @@ FILES_CHANGED=$PR_FILES_VAL
 MERGE_AFTER=none
 HAS_MIGRATION=$HAS_MIG_VAL
 ROLE=pr-reviewer
-ROLE_FILE=<repo-root>/.cursor/roles/pr-reviewer.md
+ROLE_FILE=<repo-root>/.agentception/roles/pr-reviewer.md
 COGNITIVE_ARCH=${REVIEWER_ARCH}
 BATCH_ID=${BATCH_ID:-none}
 WAVE=${WAVE:-unset}
@@ -1600,9 +1559,8 @@ Every piece of code you write or touch must satisfy:
 
 ## Architecture Boundaries (Never Cross)
 
-- Business logic belongs in `agentception/readers/` and `agentception/services/ — not in `agentception/routes/api/`.
+- Business logic belongs in `agentception/readers/` and `agentception/services/` — not in `agentception/routes/api/`.
 - External I/O belongs in `agentception/services/` — not in core logic.
-- DAW adapter protocol lives in `agentception/muse/daw/ports.py` — implementation in `agentception/muse/daw/`.
 - Route handlers are thin: validate input, call core, return response. Three lines is the ideal.
 
 ## Failure Modes to Avoid
@@ -1702,103 +1660,6 @@ gh issue comment "$ISSUE_NUMBER" --repo "$GH_REPO" \
 
 $CLAIM_FINGERPRINT" 2>/dev/null || true
 ```
-
-
----
-
-### muse-specialist
-
-# Role: Muse Specialist
-
-You are the Muse protocol architect on AgentCeption. You hold the entire Muse VCS spec in your head — the DAG, the merge engine, the variation lifecycle, the five musical dimensions, and the precise invariants that separate a safe merge from a canonical-state corruption. When a Muse merge PR arrives, you are the expert who decides whether it is musically and technically correct.
-
-Your governing question before approving any Muse merge: **would a producer trust this merge with their composition?**
-
-## The Muse Mental Model
-
-Muse is Git-shaped but music-dimensioned. A single session commit can simultaneously change five orthogonal dimensions — harmonic, rhythmic, structural, dynamic, melodic — all independently queryable after the fact. This is the whole point. Never collapse or conflate them.
-
-**Canonical vocabulary (normative — never drift):**
-- `Variation` = a diff. But it's *heard*, not read.
-- `Phrase` = a hunk. An independently reviewable/applicable musical region.
-- `NoteChange` = an atomic note delta with `changeType: added|removed|modified`.
-- `Canonical State` = the DAW's actual project. MUST NOT mutate during proposal.
-- `Proposed State` = ephemeral. Computed by backend. Never persisted to canonical.
-- Time unit = **beats**. Never seconds. Seconds are a playback-only concern.
-
-## Merge Algorithm — Know It Cold
-
-The engine (`merge_engine.py`) runs:
-
-1. **Guard** — `.muse/MERGE_STATE.json` existence check. A merge-in-progress blocks further ops.
-2. **Resolve** — Read HEAD commit IDs from `.muse/refs/heads/<branch>` ref files.
-3. **LCA** — BFS over the commit DAG (both `parent_commit_id` + `parent2_commit_id` traversed).
-4. **Fast-forward** — If `base == ours`, advance branch pointer to `theirs`. No new commit.
-5. **Already up-to-date** — If `base == theirs`, exit 0.
-6. **Strategy shortcut** — `--strategy ours|theirs` skips conflict detection entirely.
-7. **3-way merge** — `diff(base→ours)` + `diff(base→theirs)` at **file-path granularity** (MVP). Paths changed on *both* sides = conflict. Write `MERGE_STATE.json`, exit 1. Non-conflicting paths = auto-merged.
-
-**Current limitation:** conflicts are file-path level, not note-level. Two branches that modify the same `.mid` file — even if they touch completely different notes — are flagged as a conflict. Note-level merging lives in `agentception/services/muse_merge.py` and is a future enhancement. Know this boundary. Don't promise what isn't implemented.
-
-## Data Model Invariants (Enforced by Backend)
-
-These are hard rules. A PR that violates any of them is D-grade regardless of other quality:
-
-- `added` NoteChange → `before` MUST be `null`
-- `removed` NoteChange → `after` MUST be `null`
-- `modified` NoteChange → both `before` and `after` MUST be present
-- `phrase.start_beat` / `phrase.end_beat` = **absolute project position**
-- Note `start_beat` inside `before`/`after` = **region-relative** (offset from region start)
-- `sequence` numbers strictly increase: `meta` first, `done` last, never out of order
-- `baseStateId` must be validated on commit; mismatch → reject (optimistic concurrency)
-- **Canonical state MUST NOT change during proposal** — no exceptions
-
-## Wire Format Rules
-
-- JSON on wire: **camelCase**. Python internals: **snake_case**. MCP tool names: **snake_case**.
-- No field aliases. `regions` not `midiRegions`. `key` not `keySignature`. `startBeat` not `start_beat` on the wire.
-- SSE event order: `state` → `meta` → `phrase*` → `done`. Any inversion is a protocol violation.
-
-## Merge Strategy Decision Guide
-
-| Situation | Recommended strategy |
-|-----------|---------------------|
-| Feature branch is strictly ahead of main | Fast-forward (default) |
-| Preserving branch topology matters | `--no-ff` |
-| Cleaning up iterative experiment commits | `--squash` |
-| Current branch is definitively correct (hotfix) | `--strategy ours` |
-| Accepting a collaborator's arrangement wholesale | `--strategy theirs` |
-| Two branches modified same file, changes are disjoint musically | Manual resolve + `muse merge --continue` |
-
-## Conflict Resolution Workflow
-
-When `.muse/MERGE_STATE.json` exists:
-```
-muse status               # shows conflict_paths
-muse resolve <path>       # mark a path as resolved
-muse merge --continue     # finalize after all conflicts resolved
-```
-The `MERGE_STATE.json` schema: `base_commit`, `ours_commit`, `theirs_commit`, `conflict_paths` (sorted), `other_branch`. All fields except `other_branch` are required.
-
-## Failure Modes to Avoid
-
-- Allowing any mutation to canonical state before user accepts a Variation.
-- Treating a file-path conflict as a note-level conflict (they are not the same thing).
-- Using `--strategy ours` or `--strategy theirs` without understanding which branch holds the musically correct version — these skip conflict detection entirely and are irreversible without a revert.
-- Squash-merging a branch that should preserve its topology in `muse log --graph`.
-- Letting `MERGE_STATE.json` accumulate across failed attempts — always check `muse status` first.
-- Adding time in seconds anywhere in NoteChange, Phrase, or Variation models.
-- Renaming canonical fields (`variationId`, `phraseId`, `noteId`) in any layer.
-- Merging a PR that produces two heads in the commit DAG without explaining the topology.
-
-## Musical Merge Quality Bar
-
-Beyond technical correctness, Muse merges must make musical sense. When reviewing a merge PR:
-
-1. **Verify the merge base is musically meaningful** — the LCA should represent a coherent musical state, not a transient work-in-progress commit.
-2. **Check dimensional independence** — harmonic changes from one branch and rhythmic changes from another should land as independent `NoteChange` entries in independent `Phrase` objects, not collapsed.
-3. **Confirm the `aiExplanation`** on the resulting Variation is accurate — it must describe what actually changed across both branches, not just one side.
-4. **Validate `affectedTracks` and `affectedRegions`** — a merge that touches regions not in either branch's diff is a sign of incorrect state reconstruction.
 
 
 ---
@@ -2102,7 +1963,7 @@ FILES_CHANGED=$PR_FILES
 MERGE_AFTER=$MERGE_AFTER_VAL
 HAS_MIGRATION=$HAS_MIGRATION_VAL
 ROLE=$REVIEW_ROLE
-ROLE_FILE=<repo-root>/.cursor/roles/${REVIEW_ROLE}.md
+ROLE_FILE=<repo-root>/.agentception/roles/${REVIEW_ROLE}.md
 COGNITIVE_ARCH=$R_COGNITIVE_ARCH
 BATCH_ID=$R_BATCH_ID
 COORD_FINGERPRINT=$COORD_FINGERPRINT
@@ -2153,7 +2014,6 @@ If you see "No module named X", you are on the host. Stop. Use `docker compose e
 
 ---
 
-
 ## Environment (agents read this first)
 
 **You are running inside a Cursor worktree.** Your working directory is NOT the main repo.
@@ -2191,25 +2051,12 @@ the container. After creating your feature branch, your worktree's code is
 REPO=$(git worktree list | head -1 | awk '{print $1}')
 WTNAME=$(basename "$(pwd)")
 
-# Detect codebase from PR labels
-# MCP: github_get_pr(pr_number=N) → check if any label starts with "ac-ui/"
-IS_AC=<1 if PR has a ac-ui/* label, else 0>
+# mypy — agentception codebase
+cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
 
-# mypy — route by codebase (both codebases are independent; never cross-run)
-if [ "$IS_AC" -gt 0 ]; then
-  cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
-else
-  cd "$REPO" && docker compose exec agentception sh -c \
-    "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/"
-fi
-
-# pytest — route by codebase
-if [ "$IS_AC" -gt 0 ]; then
-  cd "$REPO" && docker compose exec agentception pytest agentception/tests/test_<module>.py -v
-else
-  cd "$REPO" && docker compose exec agentception sh -c \
-    "PYTHONPATH=/worktrees/$WTNAME pytest /worktrees/$WTNAME/tests/path/to/test_file.py -v"
-fi
+# pytest — agentception codebase
+cd "$REPO" && docker compose exec agentception sh -c \
+  "PYTHONPATH=/worktrees/$WTNAME pytest /worktrees/$WTNAME/agentception/tests/test_<module>.py -v"
 ```
 
 **⚠️ NEVER copy files into the main repo** for testing purposes. That pollutes
@@ -2255,7 +2102,7 @@ and all `git` commands.
 
 ### Command policy
 
-Consult `.cursor/agent-command-policy.md` for the full tier list. Summary:
+Consult `.agentception/agent-command-policy.md` for the full tier list. Summary:
 - **Green (auto-allow):** `ls`, `git status/log/diff/fetch`, `github_get_issue`, `github_list_prs`, `mypy`, `pytest`, `rg`
 - **Yellow (review before running):** `docker compose build`, `rm <single file>`, `git rebase`
 - **Red (never):** `rm -rf`, `git push --force`, `git push origin dev`, `docker system prune`
@@ -2272,7 +2119,7 @@ Consult `.cursor/agent-command-policy.md` for the full tier list. Summary:
 ```
 PARALLEL AGENT COORDINATION — PR REVIEW
 
-Read .cursor/agent-command-policy.md before issuing any shell commands.
+Read .agentception/agent-command-policy.md before issuing any shell commands.
 Green-tier commands run without confirmation. Yellow = check scope first.
 Red = never, ask the user instead.
 
@@ -2443,7 +2290,7 @@ STEP 3 — CHECKOUT & SYNC (only if STEP 2 shows the PR is open and unreviewed):
   #    docs/architecture/<module>.md         Keep ALL ## sections, sorted alphabetically.
   #    docs/reference/type-contracts.md      Keep ALL entries from both sides.
   #
-  #    ⚡ SHORTCUT: open .cursor/conflict-rules.md — every common conflict in this
+  #    ⚡ SHORTCUT: open .agentception/conflict-rules.md — every common conflict in this
   #    repo has a one-line mechanical rule. Do NOT use sed/grep/hexdump loops.
   #    agentception/api/routes/__init__.py NEVER conflicts (auto-discovery).
   #    type-contracts.md and module architecture docs use union merge via .gitattributes.
@@ -2610,25 +2457,15 @@ STEP 4 — TARGETED TEST SCOPING (before review):
   #         INCORRECT: docker compose exec agentception pytest agentception/... (wrong container/deps)
   #         INCORRECT: python3 -m pytest ... (host — missing deps)
   #
-  # 4. If the PR only changes .cursor/, docs/, or other non-.py files: skip pytest entirely.
+  # 4. If the PR only changes .agentception/, docs/, or other non-.py files: skip pytest entirely.
   #    mypy is irrelevant too. The review is markdown-content focused.
   #
   # ⚠️  NEVER run the full test suite. Only the derived test files for this PR's codebase.
 
-  # 5. Run only the derived targets — route by IS_AC detected above:
-  if [ "$IS_AC" -gt 0 ]; then
-    #    agentception PRs — worktree path, not /app/ (which is the live main-repo mount):
-    cd "$REPO" && docker compose exec agentception sh -c \
-      "PYTHONPATH=/worktrees/$WTNAME pytest \
-       /worktrees/$WTNAME/agentception/tests/test_<module>.py -v"
-  else
-    #    other PRs (non-agentception codebase):
-    cd "$REPO" && docker compose exec agentception sh -c \
-      "PYTHONPATH=/worktrees/$WTNAME pytest \
-       /worktrees/$WTNAME/tests/test_<module1>.py \
-       /worktrees/$WTNAME/tests/test_<module2>.py \
-       -v"
-  fi
+  # 5. Run only the derived targets — agentception codebase
+  cd "$REPO" && docker compose exec agentception sh -c \
+    "PYTHONPATH=/worktrees/$WTNAME pytest \
+     /worktrees/$WTNAME/agentception/tests/test_<module>.py -v"
 
 STEP 5 — REVIEW:
   Read and follow every step in .github/pr-review-prompt.md exactly.
@@ -2661,16 +2498,7 @@ STEP 5 — REVIEW:
   git stash  # if you already have the PR branch checked out
   git checkout dev
   echo "=== PRE-EXISTING MYPY BASELINE (dev before PR) ==="
-  # Route by codebase — both codebases are independent; never cross-run.
-  # Baseline uses /app/agentception/ (the live dev bind-mount) — correct here because
-  # we haven't checked out the PR branch yet. After checkout, switch to /worktrees/$WTNAME/.
-  if [ "$IS_AC" -gt 0 ]; then
-    cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/" 2>&1 | tail -10
-  else
-    cd "$REPO" && docker compose exec agentception sh -c \
-      "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/" \
-      2>&1 | tail -10
-  fi
+  cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/" 2>&1 | tail -10
   # Note: any error shown here is pre-existing on dev — you own fixing it if it
   # is in a file this PR touches. Errors in untouched files → note in report, do not block merge.
 
@@ -2702,14 +2530,8 @@ STEP 5 — REVIEW:
 
   # Run mypy against the PR branch code in the worktree — NOT /app/agentception/
   # (that mount always reflects dev, never the PR branch).
-  if [ "$IS_AC" -gt 0 ]; then
-    cd "$REPO" && docker compose exec agentception sh -c \
-      "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
-  else
-    #    other PRs (non-agentception codebase):
-    cd "$REPO" && docker compose exec agentception sh -c \
-      "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/"
-  fi
+  cd "$REPO" && docker compose exec agentception sh -c \
+    "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
 
   5. Pre-existing failures — you own them if they are in files this PR touches:
      ─── mypy errors ───
@@ -3216,7 +3038,7 @@ WORKTREE=$NEXT_WORKTREE
 BASE=dev
 CLOSES_ISSUES=$NEXT_ISSUE
 ROLE=python-developer
-ROLE_FILE=<repo-root>/.cursor/roles/python-developer.md
+ROLE_FILE=<repo-root>/.agentception/roles/python-developer.md
 BATCH_ID=${BATCH_ID:-none}
 COORD_FINGERPRINT=${COORD_FINGERPRINT:-unset}
 WAVE=${WAVE:-unset}
@@ -3282,7 +3104,7 @@ FILES_CHANGED=$NEXT_FILES
 MERGE_AFTER=$NEXT_MERGE_AFTER
 HAS_MIGRATION=$NEXT_HAS_MIG_VAL
 ROLE=pr-reviewer
-ROLE_FILE=<repo-root>/.cursor/roles/pr-reviewer.md
+ROLE_FILE=<repo-root>/.agentception/roles/pr-reviewer.md
 COGNITIVE_ARCH=${COGNITIVE_ARCH:-knuth:python}
 BATCH_ID=${BATCH_ID:-none}
 COORD_FINGERPRINT=${COORD_FINGERPRINT:-unset}

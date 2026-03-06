@@ -108,7 +108,7 @@ class DispatchRequest(BaseModel):
     issue_body: str = ""
     """Issue body text used to derive skill domains for the cognitive arch."""
     role: str
-    """Role slug from ``agentception/.cursor/roles/`` (e.g. ``python-developer``)."""
+    """Role slug from ``.agentception/roles/`` (e.g. ``python-developer``)."""
     repo: str
     """``owner/repo`` string (e.g. ``cgcardona/agentception``)."""
 

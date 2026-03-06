@@ -4,11 +4,11 @@ from __future__ import annotations
 
 AgentCeption has zero LLM calls in the plan pipeline.
 
-1. AgentCeption writes .agent-task (WORKFLOW=plan-spec) — POST /api/plan/draft
+1. AgentCeption writes .agent-task (TOML v2 with workflow="plan-spec") — POST /api/plan/draft
 2. Cursor's agent picks it up (Cursor's concern — not tested here)
 3. Cursor calls plan_get_schema() MCP tool to get the PlanSpec format
-4. Cursor writes YAML to OUTPUT_PATH
-5. AgentCeption poller detects OUTPUT_PATH, emits plan_draft_ready SSE
+4. Cursor writes YAML to output path
+5. AgentCeption poller detects output path, emits plan_draft_ready SSE
 
 This test file covers steps 1 and 5.  Steps 2–4 are Cursor's responsibility.
 
@@ -23,6 +23,7 @@ Run targeted:
 
 import asyncio
 import time
+import tomllib
 from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -155,9 +156,9 @@ async def test_poller_detects_output_path_and_emits_sse_event(
     task_file = tmp_path / f"plan-draft-{draft_id}" / ".agent-task"
     assert task_file.exists(), ".agent-task not written by POST /api/plan/draft"
     task_content = task_file.read_text(encoding="utf-8")
-    assert f"DRAFT_ID={draft_id}" in task_content
-    assert f"OUTPUT_PATH={output_path}" in task_content
-    assert "WORKFLOW=plan-spec" in task_content
+    assert f'draft_id = "{draft_id}"' in task_content
+    assert output_path in task_content
+    assert 'workflow = "plan-spec"' in task_content
 
     # ── Step 4 (simulated): Cursor writes YAML to OUTPUT_PATH ────────────────
     yaml_content = "initiative: ocean-song\nphases: []\n"
@@ -357,11 +358,12 @@ async def test_plan_draft_agent_task_structure_is_poller_compatible(
 ) -> None:
     """The .agent-task written by POST /api/plan/draft is parseable by scan_plan_draft_worktrees.
 
-    This is a structural contract test: it verifies that the KEY=VALUE format
+    This is a structural contract test: it verifies that the TOML v2 format
     used by the route and the parser in the poller are always in sync.  A field
-    name mismatch (e.g., DRAFT_ID vs draft_id) would cause the poller to silently
-    skip every plan-draft worktree, resulting in no plan_draft_ready events ever
-    being emitted — a silent failure that would only surface via user complaint.
+    name mismatch (e.g., missing output.draft_id) would cause the poller to
+    silently skip every plan-draft worktree, resulting in no plan_draft_ready
+    events ever being emitted — a silent failure that would only surface via
+    user complaint.
     """
     proc_mock = _make_proc_mock(returncode=0)
 
@@ -382,34 +384,25 @@ async def test_plan_draft_agent_task_structure_is_poller_compatible(
     body = response.json()
     draft_id: str = body["draft_id"]
 
-    # Parse the .agent-task using the same logic as scan_plan_draft_worktrees
+    # Parse the .agent-task using the same TOML logic as scan_plan_draft_worktrees
     task_file = tmp_path / f"plan-draft-{draft_id}" / ".agent-task"
     content = task_file.read_text(encoding="utf-8")
-    fields: dict[str, str] = {}
-    for raw_line in content.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        fields[key.strip().upper()] = value.strip()
 
-    # These two fields are the minimum required for the poller to emit an event.
-    assert "DRAFT_ID" in fields, (
-        f"DRAFT_ID key missing from .agent-task — poller will skip this worktree. "
-        f"Found keys: {list(fields.keys())}"
-    )
-    assert "OUTPUT_PATH" in fields, (
-        f"OUTPUT_PATH key missing from .agent-task — poller will skip this worktree. "
-        f"Found keys: {list(fields.keys())}"
-    )
-    assert fields["DRAFT_ID"] == draft_id, (
-        f"DRAFT_ID in .agent-task ({fields['DRAFT_ID']!r}) "
+    data = tomllib.loads(content)
+    output_sec = data.get("output", {})
+    assert isinstance(output_sec, dict)
+    draft_id_in_file = output_sec.get("draft_id", "")
+    output_path_in_file = output_sec.get("path", "")
+
+    assert draft_id_in_file == draft_id, (
+        f"output.draft_id in .agent-task ({draft_id_in_file!r}) "
         f"does not match API response draft_id ({draft_id!r})"
     )
-    # OUTPUT_PATH must end with .plan-output.yaml and contain the draft slug
-    assert fields["OUTPUT_PATH"].endswith(".plan-output.yaml"), (
-        f"OUTPUT_PATH must end with .plan-output.yaml, got: {fields['OUTPUT_PATH']!r}"
+    assert isinstance(output_path_in_file, str) and output_path_in_file.endswith(
+        ".plan-output.yaml"
+    ), (
+        f"output.path must end with .plan-output.yaml, got: {output_path_in_file!r}"
     )
-    assert f"plan-draft-{draft_id}" in fields["OUTPUT_PATH"], (
-        f"OUTPUT_PATH must contain the plan-draft slug, got: {fields['OUTPUT_PATH']!r}"
+    assert f"plan-draft-{draft_id}" in output_path_in_file, (
+        f"output.path must contain the plan-draft slug, got: {output_path_in_file!r}"
     )

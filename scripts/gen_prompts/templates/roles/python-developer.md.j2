@@ -26,9 +26,8 @@ Every piece of code you write or touch must satisfy:
 
 ## Architecture Boundaries (Never Cross)
 
-- Business logic belongs in `agentception/readers/` and `agentception/services/ — not in `agentception/routes/api/`.
+- Business logic belongs in `agentception/readers/` and `agentception/services/` — not in `agentception/routes/api/`.
 - External I/O belongs in `agentception/services/` — not in core logic.
-- DAW adapter protocol lives in `agentception/muse/daw/ports.py` — implementation in `agentception/muse/daw/`.
 - Route handlers are thin: validate input, call core, return response. Three lines is the ideal.
 
 ## Failure Modes to Avoid

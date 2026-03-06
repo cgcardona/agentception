@@ -37,7 +37,7 @@ client = TestClient(app)
 
 
 def _make_repo(tmp_path: Path) -> Path:
-    """Create a minimal fake repo with managed .cursor/ files."""
+    """Create a minimal fake repo with managed .agentception/ files."""
     ac = tmp_path / ".agentception"
     ac.mkdir(parents=True, exist_ok=True)
     roles = ac / "roles"

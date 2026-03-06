@@ -20,9 +20,6 @@ If no output → conflict is resolved. Commit and continue.
 
 | File | Rule | Command |
 |------|------|---------|
-| `agentception/muse/api/routes/__init__.py` | **Never conflicts.** It is auto-generated. If you see a conflict here, run `git checkout HEAD -- agentception/muse/api/routes/__init__.py` to restore it. Never edit this file. | `git checkout HEAD -- agentception/muse/api/routes/__init__.py` |
-| `agentception/muse/cli/app.py` | Keep ALL `cli.add_typer()` lines from both sides. Union merge handles this automatically via `.gitattributes`. If markers appear anyway: extract all `cli.add_typer(` lines from both sides, deduplicate, sort alphabetically (except `repos` last). | See script below |
-| `docs/architecture/muse_vcs.md` | Keep ALL `## ` sections from both sides. Union merge handles this automatically. If markers appear: keep every `## ` section heading and its content from both sides. | See script below |
 | `docs/reference/type_contracts.md` | Keep ALL table rows from both sides. Union merge handles this. If markers appear: keep every `|` row from both sides, deduplicate. | See script below |
 | `docs/reference/api.md` | Keep ALL endpoint sections from both sides. Union merge handles this. | Same as above |
 | `alembic/versions/0001_consolidated_schema.py` | **Should never conflict** — only one agent at a time touches migrations. If it does: keep both `op.create_table(...)` blocks in `upgrade()`, keep both `op.drop_table(...)` blocks in `downgrade()`. | Manual edit |
@@ -66,12 +63,10 @@ Do not loop. The rules above cover 100% of normal conflicts in this repo.
 
 ## Prevention: what agents must do to avoid conflicts in the first place
 
-1. **Never edit `agentception/muse/api/routes/__init__.py`** — it auto-discovers.
-2. **Never edit `agentception/muse/cli/app.py` imports manually** — the union merge driver handles it, but minimise touching the file's middle section.
-3. **Sync `origin/dev` before implementing** (not just before pushing):
+1. **Sync `origin/dev` before implementing** (not just before pushing):
    ```bash
    git fetch origin && git merge origin/dev
    ```
    Do this at the start of your task, before writing a single line of code.
-4. **Sync again before pushing.** Two syncs (start + end) catches 99% of conflicts before they become PR-level problems.
-5. **File ownership**: each agent owns a distinct new file. The only shared files are the registries above, which are handled by auto-discovery or union merge.
+2. **Sync again before pushing.** Two syncs (start + end) catches 99% of conflicts before they become PR-level problems.
+3. **File ownership**: each agent owns a distinct new file. The only shared files are the registries above, which are handled by union merge.

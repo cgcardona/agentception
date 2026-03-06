@@ -137,11 +137,11 @@ def test_spawn_coordinator_creates_worktree(
     task_file = created[0] / ".agent-task"
     assert task_file.exists(), ".agent-task file not found in coordinator worktree"
     content = task_file.read_text(encoding="utf-8")
-    assert "WORKFLOW=bugs-to-issues" in content, (
-        "coordinator .agent-task must declare WORKFLOW=bugs-to-issues"
+    assert 'workflow = "bugs-to-issues"' in content, (
+        "coordinator .agent-task must declare workflow = bugs-to-issues"
     )
-    assert "PLAN_DUMP:" in content, (
-            "coordinator .agent-task must embed the original plan text"
+    assert "[plan_draft]" in content, (
+            "coordinator .agent-task must embed the original plan text in [plan_draft]"
         )
 
 
@@ -216,19 +216,19 @@ def test_spawn_conductor_creates_worktree(
     task_file = created[0] / ".agent-task"
     assert task_file.exists(), ".agent-task file not found in conductor worktree"
     content = task_file.read_text(encoding="utf-8")
-    assert "WORKFLOW=conductor" in content, (
-        "conductor .agent-task must declare WORKFLOW=conductor"
+    assert 'workflow = "conductor"' in content, (
+        "conductor .agent-task must declare workflow = conductor"
     )
 
-    # BATCH_ID is the wave_id slug — a timestamped conductor identifier.
-    batch_id_line = next(
-        (ln for ln in content.splitlines() if ln.startswith("BATCH_ID=")), None
-    )
-    assert batch_id_line is not None, "BATCH_ID field missing from .agent-task"
-    batch_id_value = batch_id_line.split("=", 1)[1].strip()
-    assert batch_id_value, "BATCH_ID must not be empty"
+    # batch_id is the wave_id slug — a timestamped conductor identifier.
+    import tomllib
+    data = tomllib.loads(content)
+    pipeline_sec = data.get("pipeline", {})
+    assert isinstance(pipeline_sec, dict)
+    batch_id_value = pipeline_sec.get("batch_id", "")
+    assert isinstance(batch_id_value, str) and batch_id_value, "batch_id must not be empty"
     assert batch_id_value.startswith("conductor-"), (
-        f"BATCH_ID must start with 'conductor-', got {batch_id_value!r}"
+        f"batch_id must start with 'conductor-', got {batch_id_value!r}"
     )
 
 
