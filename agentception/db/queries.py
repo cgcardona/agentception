@@ -337,6 +337,20 @@ class PhaseGroupRow(TypedDict):
     depends_on: list[str]
 
 
+class OpenPRForIssueRow(TypedDict):
+    """An open GitHub PR associated with a board issue.
+
+    Returned by ``get_open_prs_by_issue`` which uses this as the authoritative
+    signal for placing issues in the ``pr_open`` or ``reviewing`` swim lane.
+    Two matching strategies are used (either is sufficient):
+    1. ``closes_issue_number`` — explicit ``Closes #N`` link in the PR body.
+    2. ``head_ref`` matching ``feat/issue-{N}-*`` — branch naming convention.
+    """
+
+    pr_number: int
+    head_ref: str | None
+
+
 class RunForIssueRow(TypedDict):
     """Most-recent run entry from get_runs_for_issue_numbers.
 
@@ -397,6 +411,15 @@ _STALE_THRESHOLD_SECONDS: int = 1800  # 30 minutes
 _ACTIVE_STATUSES: frozenset[str] = frozenset(
     {"implementing", "pending_launch", "reviewing"}
 )
+
+#: Statuses considered "genuinely live" for hierarchy-panel visibility.
+_LIVE_STATUSES: frozenset[str] = frozenset(
+    {"implementing", "pending_launch", "reviewing"}
+)
+
+#: Branch naming convention for engineer feature branches.
+#: Group 1 captures the issue number so we can link the PR back to its issue.
+_FEAT_ISSUE_BRANCH_RE: _re.Pattern[str] = _re.compile(r"^feat/issue-(\d+)-")
 
 
 class _RunStepData(TypedDict):
@@ -1657,6 +1680,63 @@ async def _get_active_reviewer_runs_for_prs(
         return {}
 
 
+async def get_open_prs_by_issue(
+    issue_numbers: list[int],
+    repo: str,
+) -> dict[int, OpenPRForIssueRow]:
+    """Return open PRs keyed by associated issue number.
+
+    Uses two matching signals (either is sufficient):
+    1. ``closes_issue_number`` — explicit ``Closes #N`` link parsed from the PR body.
+    2. ``head_ref`` matching ``feat/issue-{N}-*`` — branch naming convention.
+
+    Only PRs with ``state == 'open'`` are returned.  This is the authoritative
+    source for placing board cards into the ``pr_open`` or ``reviewing`` swim lane
+    because it reads directly from the ``ac_pull_requests`` table (synced from
+    GitHub) rather than from the fragile ``ac_agent_runs.pr_number`` column.
+
+    Falls back to ``{}`` on DB error so the board degrades to live agent-run
+    signals rather than crashing.
+    """
+    if not issue_numbers:
+        return {}
+    issue_set = set(issue_numbers)
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACPullRequest).where(
+                    ACPullRequest.repo == repo,
+                    ACPullRequest.state == "open",
+                )
+            )
+            rows = result.scalars().all()
+
+        out: dict[int, OpenPRForIssueRow] = {}
+        for row in rows:
+            # Signal 1: explicit Closes #N link in PR body.
+            if row.closes_issue_number is not None and row.closes_issue_number in issue_set:
+                issue_num = row.closes_issue_number
+                if issue_num not in out:
+                    out[issue_num] = OpenPRForIssueRow(
+                        pr_number=row.github_number,
+                        head_ref=row.head_ref,
+                    )
+            # Signal 2: branch naming convention feat/issue-{N}-*.
+            if row.head_ref:
+                m = _FEAT_ISSUE_BRANCH_RE.match(row.head_ref)
+                if m:
+                    issue_num = int(m.group(1))
+                    if issue_num in issue_set and issue_num not in out:
+                        out[issue_num] = OpenPRForIssueRow(
+                            pr_number=row.github_number,
+                            head_ref=row.head_ref,
+                        )
+        return out
+    except Exception as exc:
+        logger.warning("⚠️  get_open_prs_by_issue DB query failed (non-fatal): %s", exc)
+        return {}
+
+
 async def get_runs_for_issue_numbers(
     issue_numbers: list[int],
 ) -> dict[int, RunForIssueRow]:
@@ -1781,41 +1861,37 @@ async def get_run_tree_by_batch_id(batch_id: str) -> list[RunTreeNodeRow]:
         return []
 
 
-async def get_latest_active_batch_id(repo: str, initiative: str) -> str | None:
-    """Return the batch_id of the most recently active run for an initiative.
+async def get_latest_active_batch_id(
+    repo: str,
+    initiative: str,
+    issue_numbers: list[int] | None = None,
+) -> str | None:
+    """Return the batch_id of the most recently active run scoped to *initiative*.
 
-    Scans ``agent_runs`` for runs whose status is active and whose ``batch_id``
-    is set, filtering to runs tied to issues labelled with *initiative*.
-    Falls back to the most-recently-spawned batch overall if no active run is
-    found.  Returns ``None`` when no runs exist.
+    Returns a ``batch_id`` only when at least one run has a genuinely live
+    status (``implementing``, ``pending_launch``, or ``reviewing``).  Returns
+    ``None`` when no live runs exist so the hierarchy panel renders an empty
+    state rather than showing stale data from a previous or unrelated dispatch.
+
+    When *issue_numbers* is provided the query is restricted to runs whose
+    ``issue_number`` is in that set.  This scopes the hierarchy panel to the
+    current initiative's issues and prevents cross-initiative contamination.
     """
     try:
         async with get_session() as session:
-            # Prefer an active run whose issue is in this initiative.
-            # Join on ac_issues via issue_number and labels_json text match.
-            active_statuses = ["implementing", "pending_launch", "reviewing"]
-            result = await session.execute(
+            query = (
                 select(ACAgentRun.batch_id)
                 .where(
                     ACAgentRun.batch_id.is_not(None),
-                    ACAgentRun.status.in_(active_statuses),
+                    ACAgentRun.status.in_(list(_LIVE_STATUSES)),
                 )
-                .order_by(ACAgentRun.spawned_at.desc())
-                .limit(1)
             )
+            if issue_numbers:
+                query = query.where(ACAgentRun.issue_number.in_(issue_numbers))
+            query = query.order_by(ACAgentRun.spawned_at.desc()).limit(1)
+            result = await session.execute(query)
             row = result.scalar_one_or_none()
-            if row:
-                return str(row)
-
-            # Fall back: most recent run with a batch_id, regardless of status.
-            result2 = await session.execute(
-                select(ACAgentRun.batch_id)
-                .where(ACAgentRun.batch_id.is_not(None))
-                .order_by(ACAgentRun.spawned_at.desc())
-                .limit(1)
-            )
-            row2 = result2.scalar_one_or_none()
-            return str(row2) if row2 else None
+            return str(row) if row else None
     except Exception as exc:
         logger.warning("⚠️  get_latest_active_batch_id DB query failed (non-fatal): %s", exc)
         return None

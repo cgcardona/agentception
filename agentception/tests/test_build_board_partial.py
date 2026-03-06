@@ -31,6 +31,7 @@ from agentception.db.queries import (
     _compute_agent_status,
     _get_step_data_for_runs,
     get_runs_for_issue_numbers,
+    OpenPRForIssueRow,
 )
 
 
@@ -187,6 +188,11 @@ def test_build_board_partial_shows_status_badge(client: TestClient) -> None:
             new_callable=AsyncMock,
             return_value={82: _mock_run_dict()},
         ),
+        patch(
+            "agentception.routes.ui.build_ui.get_open_prs_by_issue",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
     ):
         resp = client.get("/ship/phase-1/board")
 
@@ -210,6 +216,11 @@ def test_build_board_partial_shows_current_step(client: TestClient) -> None:
                 82: _mock_run_dict(current_step="Running mypy checks", steps_completed=3)
             },
         ),
+        patch(
+            "agentception.routes.ui.build_ui.get_open_prs_by_issue",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
     ):
         resp = client.get("/ship/phase-1/board")
 
@@ -230,6 +241,11 @@ def test_build_board_partial_no_run_renders_without_error(
         ),
         patch(
             "agentception.routes.ui.build_ui.get_runs_for_issue_numbers",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
+        patch(
+            "agentception.routes.ui.build_ui.get_open_prs_by_issue",
             new_callable=AsyncMock,
             return_value={},
         ),
@@ -281,6 +297,11 @@ def test_build_board_partial_complete_phase_hides_launch_button(
             new_callable=AsyncMock,
             return_value={},
         ),
+        patch(
+            "agentception.routes.ui.build_ui.get_open_prs_by_issue",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
     ):
         resp = client.get("/ship/my-initiative/board")
 
@@ -319,6 +340,11 @@ def test_build_board_partial_complete_phase_cards_not_clickable(
         ),
         patch(
             "agentception.routes.ui.build_ui.get_runs_for_issue_numbers",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
+        patch(
+            "agentception.routes.ui.build_ui.get_open_prs_by_issue",
             new_callable=AsyncMock,
             return_value={},
         ),
@@ -452,3 +478,175 @@ async def test_get_issues_grouped_by_phase_phase_key_initiative_prefix() -> None
     assert len(groups) == 1
     assert groups[0]["label"] == phase
     assert groups[0]["issues"][0]["number"] == 42
+
+
+# ---------------------------------------------------------------------------
+# State machine unit tests — _compute_swim_lane
+#
+# These tests encode the formal state machine invariants.  Every transition
+# trigger must have at least one test; any code change that breaks an
+# invariant will break a test here, making regressions visible immediately.
+#
+# Invariants:
+# I1. closed issue → 'done'  (no exceptions)
+# I2. open PR in ac_pull_requests → swim_lane in ('pr_open', 'reviewing', 'done')
+# I3. no worktree AND no open PR → swim_lane in ('todo', 'done')
+# I4. active run with no open PR → 'active'
+# I5. active run with open PR → 'pr_open'  (PR signal wins)
+# I6. active reviewer run + open PR → 'reviewing'
+# ---------------------------------------------------------------------------
+
+
+from agentception.db.queries import RunForIssueRow
+from agentception.routes.ui.build_ui import _compute_swim_lane
+
+
+def _run(agent_status: str, pr_number: int | None = None) -> RunForIssueRow:
+    """Build a minimal RunForIssueRow for state machine tests."""
+    return RunForIssueRow(
+        id="run-test",
+        role="python-developer",
+        cognitive_arch=None,
+        status=agent_status,
+        agent_status=agent_status,
+        pr_number=pr_number,
+        branch="feat/issue-99-test",
+        spawned_at="2026-03-06T12:00:00+00:00",
+        last_activity_at=None,
+        current_step=None,
+        steps_completed=0,
+        steps_total=None,
+        tier="engineer",
+        org_domain="engineering",
+        batch_id="issue-99-batch",
+    )
+
+
+def _open_pr(pr_number: int = 200) -> OpenPRForIssueRow:
+    return OpenPRForIssueRow(pr_number=pr_number, head_ref="feat/issue-99-test")
+
+
+# ── Invariant I1: closed issue always → done ─────────────────────────────────
+
+
+def test_swim_lane_closed_issue_no_run() -> None:
+    """I1: closed issue with no run → done."""
+    assert _compute_swim_lane("closed", None, None) == "done"
+
+
+def test_swim_lane_closed_issue_with_active_run() -> None:
+    """I1: closed issue even with an active run → done (state wins over run)."""
+    assert _compute_swim_lane("closed", _run("implementing"), None) == "done"
+
+
+def test_swim_lane_closed_issue_with_open_pr() -> None:
+    """I1: closed issue even with an open PR → done (issue close wins over PR)."""
+    assert _compute_swim_lane("closed", None, _open_pr()) == "done"
+
+
+def test_swim_lane_closed_issue_with_run_and_open_pr() -> None:
+    """I1: closed issue with both active run and open PR → done."""
+    assert _compute_swim_lane("closed", _run("reviewing"), _open_pr()) == "done"
+
+
+# ── Invariant I2: open PR → pr_open or reviewing or done ─────────────────────
+
+
+def test_swim_lane_open_pr_no_run() -> None:
+    """I2: open PR + no run → pr_open."""
+    assert _compute_swim_lane("open", None, _open_pr()) == "pr_open"
+
+
+def test_swim_lane_open_pr_with_implementing_run() -> None:
+    """I2: open PR + implementing run → pr_open (PR signal takes precedence)."""
+    assert _compute_swim_lane("open", _run("implementing"), _open_pr()) == "pr_open"
+
+
+def test_swim_lane_open_pr_with_stale_run() -> None:
+    """I2: open PR + stale run → pr_open (PR signal takes precedence)."""
+    assert _compute_swim_lane("open", _run("stale"), _open_pr()) == "pr_open"
+
+
+def test_swim_lane_open_pr_with_done_run() -> None:
+    """I2: open PR + done run → pr_open (PR open means issue is not closed)."""
+    assert _compute_swim_lane("open", _run("done"), _open_pr()) == "pr_open"
+
+
+def test_swim_lane_open_pr_with_reviewing_run() -> None:
+    """I2+I6: open PR + reviewing run → reviewing."""
+    assert _compute_swim_lane("open", _run("reviewing"), _open_pr()) == "reviewing"
+
+
+# ── Invariant I3: no worktree AND no PR → todo or done ───────────────────────
+
+
+def test_swim_lane_no_run_no_pr() -> None:
+    """I3: no run and no PR → todo."""
+    assert _compute_swim_lane("open", None, None) == "todo"
+
+
+def test_swim_lane_unknown_run_no_pr() -> None:
+    """I3: unknown-status run (treated as no effective run) + no PR → todo."""
+    assert _compute_swim_lane("open", _run("unknown"), None) == "todo"
+
+
+def test_swim_lane_done_run_no_pr() -> None:
+    """I3: done run with no PR → todo (orphan sweep set unknown; issue not closed)."""
+    assert _compute_swim_lane("open", _run("done"), None) == "todo"
+
+
+# ── Invariant I4: active run + no PR → active ────────────────────────────────
+
+
+def test_swim_lane_implementing_no_pr() -> None:
+    """I4: implementing run + no PR → active."""
+    assert _compute_swim_lane("open", _run("implementing"), None) == "active"
+
+
+def test_swim_lane_pending_launch_no_pr() -> None:
+    """I4: pending_launch run + no PR → active."""
+    assert _compute_swim_lane("open", _run("pending_launch"), None) == "active"
+
+
+def test_swim_lane_stale_no_pr() -> None:
+    """I4: stale run (active but frozen) + no PR → active."""
+    assert _compute_swim_lane("open", _run("stale"), None) == "active"
+
+
+def test_swim_lane_reviewing_no_pr() -> None:
+    """I4: reviewing run but no open PR in ac_pull_requests → active (degraded)."""
+    assert _compute_swim_lane("open", _run("reviewing"), None) == "active"
+
+
+# ── Invariant I5: active run + open PR → pr_open (PR signal wins) ────────────
+
+
+def test_swim_lane_implementing_with_open_pr() -> None:
+    """I5: agent still implementing but PR already open → pr_open."""
+    assert _compute_swim_lane("open", _run("implementing"), _open_pr()) == "pr_open"
+
+
+# ── Invariant I6: reviewer run + open PR → reviewing ─────────────────────────
+
+
+def test_swim_lane_reviewing_with_open_pr() -> None:
+    """I6: reviewer agent active + PR open → reviewing."""
+    assert _compute_swim_lane("open", _run("reviewing"), _open_pr()) == "reviewing"
+
+
+# ── Priority ordering: closed > pr > active > todo ───────────────────────────
+
+
+def test_swim_lane_priority_closed_beats_pr() -> None:
+    """Closed issue beats open PR — issue closure is final."""
+    assert _compute_swim_lane("closed", _run("reviewing"), _open_pr()) == "done"
+
+
+def test_swim_lane_priority_pr_beats_active_run() -> None:
+    """Open PR beats active run — PR is the more advanced state."""
+    assert _compute_swim_lane("open", _run("implementing"), _open_pr()) == "pr_open"
+
+
+def test_swim_lane_priority_active_beats_todo() -> None:
+    """Active run beats todo — agent is working even without a PR."""
+    assert _compute_swim_lane("open", _run("implementing"), None) == "active"

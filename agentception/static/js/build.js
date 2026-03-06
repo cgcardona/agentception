@@ -74,6 +74,7 @@ export function buildPage() {
     labelDispatchSuccess: false,
     labelDispatchResult: null,
     dispatcherCopied: false,
+    cancellingDispatch: false,
 
     get launchPreviewText() {
       const label = this.labelDispatchLabel;
@@ -292,12 +293,21 @@ export function buildPage() {
     async _fetchTree(url) {
       try {
         const res = await fetch(url);
-        if (!res.ok) return;
+        if (!res.ok) {
+          // Server error — clear to empty rather than showing stale data.
+          this.agentTreeNodes = [];
+          this.agentTreeBatchId = null;
+          return;
+        }
         const data = await res.json();
+        // batch_id === null means no active agents for this initiative right now.
+        // Clear the panel explicitly so stale nodes from a previous run are removed.
         this.agentTreeNodes = data.nodes ?? [];
         this.agentTreeBatchId = data.batch_id ?? null;
       } catch {
-        // Non-fatal — tree will retry on next interval.
+        // Network failure — clear to empty; will retry on next interval.
+        this.agentTreeNodes = [];
+        this.agentTreeBatchId = null;
       }
     },
 
@@ -319,6 +329,7 @@ export function buildPage() {
       this.labelDispatchResult = null;
       this.labelDispatching = false;
       this.dispatcherCopied = false;
+      this.cancellingDispatch = false;
       this.labelDispatchOpen = true;
       // Pre-load context so pickers are ready when user switches scope
       this._loadLabelContext();
@@ -326,6 +337,29 @@ export function buildPage() {
 
     closeLabelDispatch() {
       this.labelDispatchOpen = false;
+    },
+
+    async cancelPendingDispatch() {
+      const runId = this.labelDispatchResult?.run_id;
+      if (!runId) return;
+      this.cancellingDispatch = true;
+      try {
+        const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST' });
+        if (res.ok || res.status === 204) {
+          this.labelDispatchSuccess = false;
+          this.labelDispatchResult = null;
+          this.labelDispatchOpen = false;
+        } else {
+          const data = await res.json().catch(() => ({}));
+          this.labelDispatchError = data.detail ?? `Cancel failed (${res.status})`;
+          this.labelDispatchSuccess = false;
+        }
+      } catch (err) {
+        this.labelDispatchError = `Network error: ${err.message}`;
+        this.labelDispatchSuccess = false;
+      } finally {
+        this.cancellingDispatch = false;
+      }
     },
 
     async _loadLabelContext() {
