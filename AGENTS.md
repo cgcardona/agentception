@@ -61,11 +61,31 @@ All agent work runs inside a git worktree created from `origin/dev` at dispatch 
 
 ### Cursor / interactive sessions (feature branch)
 
+Every task follows this complete lifecycle — no step is optional:
+
 1. **Start clean.** Before touching any file, run `git status`. If `dev` is not clean, stop — restore or commit the dirty files before doing anything else.
 2. **Branch first.** `git checkout -b fix/<description>` or `git checkout -b feat/<description>` is the **first** command of every task, not an afterthought.
 3. **Stage everything before switching.** After any file-generating command (`generate.py`, `npm run build`, code generators, etc.), run `git status` and stage every modified file. Never switch branches while files are dirty — unstaged changes follow you and end up on the wrong branch.
 4. **Include all generated outputs in the same commit.** Template source changes and their regenerated outputs (`generate.py` → `.agentception/*.md`) belong in one commit on the feature branch. Never split them across branches.
-5. **Verify clean after merge.** After merging a PR and returning to `dev`: `git checkout dev && git pull origin dev && git status` must show `nothing to commit, working tree clean` before starting the next task.
+5. **Open a pull request.** Always create a PR against `dev` — never push directly. Use the `create_pull_request` MCP tool (preferred) or `gh pr create`. Every change, no matter how small, goes through a PR.
+6. **Merge the PR.** Use `merge_pull_request` MCP tool (squash merge). Do not leave PRs open at the end of a session.
+7. **Delete the remote branch.** After merging, delete the remote tracking branch. The `merge_pull_request` MCP tool does this automatically with `deleteBranch: true`; if using `gh`, run `git push origin --delete <branch>`.
+8. **Delete the local branch.** `git checkout dev && git branch -D <branch>`.
+9. **Pull dev.** `git pull origin dev` — confirm `git status` shows `nothing to commit, working tree clean` before starting the next task.
+
+### Complete task teardown sequence
+
+Run these commands in order at the end of every task:
+
+```bash
+# 1. Merge the PR (via MCP tool or gh)
+# 2. Return to dev and clean up
+git checkout dev
+git pull origin dev
+git branch -D <feature-branch>           # delete local branch
+git push origin --delete <feature-branch> # delete remote branch (if not auto-deleted)
+git status                               # must be clean
+```
 
 ### Enforcement protocol
 
@@ -74,7 +94,7 @@ All agent work runs inside a git worktree created from `origin/dev` at dispatch 
 | Before creating a branch | `git status` | `nothing to commit, working tree clean` |
 | After any file-modifying command | `git status` | Stage or restore every modified file immediately |
 | After switching to a branch | `git status` | Only files you intentionally changed are modified |
-| After merging and returning to dev | `git status` | `nothing to commit, working tree clean` |
+| After task complete | PR created, merged, branch deleted locally and remotely | `git status` on `dev` is clean |
 
 Carrying dirty state from `dev` into a feature branch, then committing only some of the dirty files, is the root cause of every "uncommitted changes on dev" incident. The protocol above prevents it.
 
