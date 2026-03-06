@@ -362,9 +362,12 @@ async def _upsert_agent_runs(
     for orphan in orphan_result.scalars().all():
         if orphan.id not in live_ids:
             if orphan.pr_number is not None:
-                # PR is open — keep as reviewing so the Kanban card stays in
-                # the "PR Open" / "Reviewing" lane until the issue is closed.
-                orphan.status = "reviewing"
+                # Engineer completed — PR exists but the agent is done working.
+                # "done" puts the card in the "PR Open" lane (any status with
+                # pr_number except "reviewing"), which is correct: the PR is
+                # open awaiting human or reviewer-agent action, not being
+                # actively reviewed yet.
+                orphan.status = "done"
             else:
                 orphan.status = "unknown"
             orphan.last_activity_at = now
