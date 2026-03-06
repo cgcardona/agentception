@@ -104,15 +104,31 @@ git worktree add --detach "$WT" "$DEV_SHA"
 # Write the conductor task file.
 # PHASE_FILTER: leave empty to run the full pipeline, or set to a single phase
 # label (e.g. phase-3/api-extensions) to limit scope to one phase.
-cat > "$WT/.agent-task" << TASKEOF
-WORKFLOW=conductor
-GH_REPO=$GH_REPO
-PHASE_FILTER=
-MAX_ISSUES_PER_DISPATCH=12
-MAX_PRS_PER_DISPATCH=12
-ATTEMPT_N=0
-REQUIRED_OUTPUT=pipeline_status_report
-ON_BLOCK=escalate
+cat > "$WT/.agent-task" <<TASKEOF
+[task]
+version = "2.0"
+workflow = "conductor"
+id = "$(uuidgen | tr '[:upper:]' '[:lower:]')"
+created_at = "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+attempt_n = 0
+required_output = "pipeline_status_report"
+on_block = "escalate"
+
+[agent]
+role = "conductor"
+tier = "executive"
+
+[repo]
+gh_repo = "$GH_REPO"
+base = "dev"
+
+[target]
+phase_filter = ""
+max_issues_per_dispatch = 12
+max_prs_per_dispatch = 12
+
+[worktree]
+path = "$WT"
 TASKEOF
 
 echo "✅ conductor worktree ready: $WT"
