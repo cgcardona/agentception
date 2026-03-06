@@ -379,6 +379,46 @@ async def post_agent_message(run_id: str, body: _AgentMessageBody) -> Response:
 
 
 # ---------------------------------------------------------------------------
+# POST /api/runs/{run_id}/cancel — abort a pending_launch before dispatch
+# ---------------------------------------------------------------------------
+
+
+@router.post("/{run_id}/cancel", response_model=None)
+async def cancel_pending_run(run_id: str) -> Response:
+    """Cancel a queued run before it is claimed by the Dispatcher.
+
+    Only works on runs still in ``pending_launch`` state — once the Dispatcher
+    claims a run (transitions it to ``implementing``) it cannot be cancelled
+    through this endpoint.
+
+    Returns 204 on success, 409 if already claimed/not pending.
+    """
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun).where(ACAgentRun.id == run_id)
+            )
+            run = result.scalar_one_or_none()
+            if run is None:
+                raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
+            if run.status != "pending_launch":
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Run '{run_id}' is '{run.status}' — only pending_launch runs can be cancelled",
+                )
+            run.status = "cancelled"
+            await session.commit()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("❌ cancel_pending_run failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to cancel run") from exc
+
+    logger.info("✅ cancel_pending_run: %s cancelled", run_id)
+    return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
 # POST /api/runs/{run_id}/stop — mark a run as done from the inspector
 # ---------------------------------------------------------------------------
 
@@ -402,7 +442,7 @@ async def stop_agent(run_id: str) -> Response:
             if run is None:
                 raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
 
-            run.status = "DONE"
+            run.status = "done"
             await session.commit()
     except HTTPException:
         raise

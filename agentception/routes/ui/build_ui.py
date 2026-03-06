@@ -35,6 +35,7 @@ from agentception.config import settings
 from agentception.db.engine import get_session
 from agentception.db.models import ACAgentRun
 from agentception.db.queries import (
+    OpenPRForIssueRow,
     PhaseGroupRow,
     RunForIssueRow,
     RunTreeNodeRow,
@@ -43,6 +44,7 @@ from agentception.db.queries import (
     get_initiatives,
     get_issues_grouped_by_phase,
     get_latest_active_batch_id,
+    get_open_prs_by_issue,
     get_run_tree_by_batch_id,
     get_runs_for_issue_numbers,
 )
@@ -51,7 +53,14 @@ from ._shared import _TEMPLATES
 
 
 class EnrichedIssueRow(TypedDict):
-    """Issue row enriched with the most-recent agent run attached."""
+    """Issue row enriched with the most-recent agent run and deterministic swim lane.
+
+    ``swim_lane`` is the canonical swim lane string computed by
+    ``_compute_swim_lane()``.  It is derived from authoritative DB signals —
+    not from Jinja2 logic — ensuring there is exactly one definition.
+
+    Values: ``'todo'`` | ``'active'`` | ``'pr_open'`` | ``'reviewing'`` | ``'done'``
+    """
 
     number: int
     title: str
@@ -60,6 +69,7 @@ class EnrichedIssueRow(TypedDict):
     labels: list[str]
     depends_on: list[int]
     run: RunForIssueRow | None
+    swim_lane: str
 
 
 class EnrichedPhaseGroupRow(TypedDict):
@@ -70,6 +80,41 @@ class EnrichedPhaseGroupRow(TypedDict):
     locked: bool
     complete: bool
     depends_on: list[str]
+
+
+def _compute_swim_lane(
+    issue_state: str,
+    run: RunForIssueRow | None,
+    open_pr: OpenPRForIssueRow | None,
+) -> str:
+    """Compute the deterministic swim lane for a board issue card.
+
+    This is the single canonical definition of swim lane assignment.
+    There must be no other place in the codebase that decides which lane
+    a card belongs in — Jinja2 templates, JS, and API responses all read
+    the ``swim_lane`` field produced here.
+
+    Priority (highest wins):
+    1. DONE      — ``ac_issues.state == 'closed'``  (GitHub is the source of truth)
+    2. REVIEWING — open PR in ``ac_pull_requests`` AND active reviewer agent run
+    3. PR_OPEN   — open PR in ``ac_pull_requests``  (authoritative; not ac_agent_runs.pr_number)
+    4. ACTIVE    — active agent run with no open PR yet
+    5. TODO      — none of the above
+    """
+    if issue_state == "closed":
+        return "done"
+    if open_pr is not None:
+        if run is not None and run["agent_status"] == "reviewing":
+            return "reviewing"
+        return "pr_open"
+    if run is not None and run["agent_status"] in (
+        "implementing",
+        "pending_launch",
+        "stale",
+        "reviewing",
+    ):
+        return "active"
+    return "todo"
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +208,13 @@ async def build_page(
     groups = await get_issues_grouped_by_phase(repo, initiative=initiative)
 
     all_issue_numbers = [i["number"] for g in groups for i in g["issues"]]
-    runs = await get_runs_for_issue_numbers(all_issue_numbers)
+    open_issue_numbers = [
+        i["number"] for g in groups for i in g["issues"] if i["state"] != "closed"
+    ]
+    runs, open_prs = await asyncio.gather(
+        get_runs_for_issue_numbers(all_issue_numbers),
+        get_open_prs_by_issue(all_issue_numbers, repo),
+    )
 
     enriched_groups: list[EnrichedPhaseGroupRow] = [
         EnrichedPhaseGroupRow(
@@ -177,6 +228,11 @@ async def build_page(
                     labels=i["labels"],
                     depends_on=i["depends_on"],
                     run=runs.get(i["number"]),
+                    swim_lane=_compute_swim_lane(
+                        i["state"],
+                        runs.get(i["number"]),
+                        open_prs.get(i["number"]),
+                    ),
                 )
                 for i in g["issues"]
             ],
@@ -197,6 +253,7 @@ async def build_page(
             "groups": enriched_groups,
             "role_groups": _available_roles(),
             "total_issues": len(all_issue_numbers),
+            "open_issues": len(open_issue_numbers),
         },
     )
 
@@ -216,7 +273,10 @@ async def build_board_partial(
     groups = await get_issues_grouped_by_phase(repo, initiative=initiative)
 
     all_issue_numbers = [i["number"] for g in groups for i in g["issues"]]
-    runs = await get_runs_for_issue_numbers(all_issue_numbers)
+    runs, open_prs = await asyncio.gather(
+        get_runs_for_issue_numbers(all_issue_numbers),
+        get_open_prs_by_issue(all_issue_numbers, repo),
+    )
 
     enriched_groups: list[EnrichedPhaseGroupRow] = [
         EnrichedPhaseGroupRow(
@@ -230,6 +290,11 @@ async def build_board_partial(
                     labels=i["labels"],
                     depends_on=i["depends_on"],
                     run=runs.get(i["number"]),
+                    swim_lane=_compute_swim_lane(
+                        i["state"],
+                        runs.get(i["number"]),
+                        open_prs.get(i["number"]),
+                    ),
                 )
                 for i in g["issues"]
             ],
@@ -345,7 +410,11 @@ async def initiative_active_tree(initiative: str) -> Response:
     issue is selected.  Falls back to an empty tree when there are no runs.
     """
     repo = settings.gh_repo
-    batch_id = await get_latest_active_batch_id(repo, initiative)
+    groups = await get_issues_grouped_by_phase(repo, initiative=initiative)
+    all_issue_numbers = [i["number"] for g in groups for i in g["issues"]]
+    batch_id = await get_latest_active_batch_id(
+        repo, initiative, issue_numbers=all_issue_numbers
+    )
     if not batch_id:
         return JSONResponse({"nodes": [], "batch_id": None})
     nodes = await get_run_tree_by_batch_id(batch_id)

@@ -164,18 +164,18 @@
   {% set closed_count = group.issues | selectattr("state", "equalto", "closed") | list | length %}
   {% set total_count = group.issues | length %}
 
-  {# Sort issues into swimlane buckets by lifecycle stage. #}
+  {# Sort issues into swimlane buckets using the pre-computed issue.swim_lane field.
+     swim_lane is the single canonical definition — computed in _compute_swim_lane()
+     in build_ui.py from authoritative DB signals, never re-derived here. #}
   {% set bns = namespace(todo=[], active=[], pr_open=[], reviewing=[], done=[]) %}
   {% for issue in group.issues %}
-    {% set _r = issue.run %}
-    {% set _ar = _r if (_r and _r.agent_status != 'unknown') else none %}
-    {% if issue.state == 'closed' %}
+    {% if issue.swim_lane == 'done' %}
       {% set bns.done = bns.done + [issue] %}
-    {% elif _ar and _ar.pr_number and _ar.agent_status == 'reviewing' %}
+    {% elif issue.swim_lane == 'reviewing' %}
       {% set bns.reviewing = bns.reviewing + [issue] %}
-    {% elif _ar and _ar.pr_number %}
+    {% elif issue.swim_lane == 'pr_open' %}
       {% set bns.pr_open = bns.pr_open + [issue] %}
-    {% elif _ar and _ar.agent_status in ('implementing', 'pending_launch', 'stale', 'reviewing') %}
+    {% elif issue.swim_lane == 'active' %}
       {% set bns.active = bns.active + [issue] %}
     {% else %}
       {% set bns.todo = bns.todo + [issue] %}
