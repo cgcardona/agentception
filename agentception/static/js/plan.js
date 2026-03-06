@@ -5,36 +5,32 @@
  *
  * State machine:
  *   write      — textarea, user composes their plan
- *   generating — waiting for SSE plan_draft_ready (Cursor agent async, ~30-120s)
+ *   generating — POST /api/plan/preview → OpenRouter → Claude streaming (SSE)
  *   review     — CodeMirror 6 YAML editor, editable, validate-on-change
  *   launching  — waiting for POST /api/plan/launch response
  *   done       — coordinator spawned, success summary (batch_id, worktree, branch)
  *
- * Architecture note (Plan v2 — async MCP-native flow)
- * ----------------------------------------------------
- * This component talks to three endpoints:
+ * Phase 1A flow (direct — no Cursor agent)
+ * -----------------------------------------
+ *   POST /api/plan/preview  { dump, label_prefix }
+ *     → text/event-stream SSE:
+ *         {"t": "chunk", "text": "..."}         — raw YAML token
+ *         {"t": "done",  "yaml": "...",
+ *                        "initiative": "...",
+ *                        "phase_count": N,
+ *                        "issue_count": N}       — stream complete, full validated YAML
+ *         {"t": "error", "detail": "..."}        — something went wrong
+ *     The browser accumulates chunk texts, streams them live, then on done
+ *     loads the canonical validated YAML into the CodeMirror editor.
  *
- *   POST /api/plan/draft  { text }
- *     → { draft_id, task_file, output_path, status: "pending" }
- *     Creates a git worktree + .agent-task file.  A Cursor agent picks the
- *     task up, calls plan_get_schema() to retrieve the PlanSpec TOML schema,
- *     and writes the finished YAML to output_path.  Fire-and-forget from the
- *     HTTP perspective — the caller must subscribe to SSE for completion.
- *
- *   GET /events  (EventSource / SSE)
- *     Streams PipelineState JSON every ~5 s.  When the poller detects that
- *     output_path has appeared on disk it emits plan_draft_ready inside
- *     PipelineState.plan_draft_events (deduplicated — fires exactly once per
- *     draft_id).  The UI resolves its _waitForDraftReady() Promise here and
- *     transitions to the review step.  Times out after 180 s.
- *
+ * Phase 1B flow
+ * -------------
  *   POST /api/plan/launch  { yaml_text }
  *     AgentCeption validates the YAML as EnrichedManifest, checks for cycles,
  *     then spawns the coordinator worktree.  Returns JSON with worktree,
  *     branch, agent_task_path, batch_id.  The UI flips to the done step.
  *
  * CodeMirror 6 is bundled by esbuild — no CDN, no Web Workers, no AMD loader.
- * This avoids the cross-origin worker crashes that affect Monaco CDN usage.
  */
 
 import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirror/view';
@@ -57,14 +53,11 @@ export function planForm() {
     errorMsg: '',
     result: {},
 
-    // ── Draft state (Plan v2 async flow) ──────────────────────────────────
-    // draft_id is returned by POST /api/plan/draft and used to match the
-    // plan_draft_ready SSE event emitted by the poller.
-    draft_id: '',
-    _sseSource: null,    // EventSource subscribed to /events during generating
-    _draftTimeout: null, // setTimeout handle — 180 s hard deadline
+    // ── Streaming state (Phase 1A direct SSE) ─────────────────────────────
+    streamingText: '',
+    _abortController: null,   // AbortController for cancelling the fetch stream
 
-    // ── Review metadata (from plan_draft_ready SSE event) ─────────────────
+    // ── Review metadata (populated from the SSE "done" event) ─────────────
     initiative: '',
     phaseCount: 0,
     issueCount: 0,
@@ -73,19 +66,13 @@ export function planForm() {
     batchId: '',
     batchIdCopied: false,
 
-    // ── Launch progress (POST /api/plan/launch) ─────────────────────────────
-    filingProgress: '',     // e.g. "Launching…" while waiting for response
+    // ── Launch progress ────────────────────────────────────────────────────
+    filingProgress: '',
 
     // ── YAML validation ────────────────────────────────────────────────────
     yamlValid: true,
     yamlValidationMsg: '',
     _validateTimer: null,
-
-    // ── Streaming output — kept for backward template compatibility ────────
-    // In the Plan v2 async flow the Cursor agent writes the full YAML file
-    // directly; there are no token-by-token chunks.  streamingText stays
-    // empty and the stream display section in plan.html is hidden (x-show).
-    streamingText: '',
 
     // ── Loading message rotation ───────────────────────────────────────────
     loadingMsg: 'Amplifying your intelligence…',
@@ -124,7 +111,7 @@ export function planForm() {
     _loadingTimer: null,
 
     // ── CodeMirror 6 editor ────────────────────────────────────────────────
-    _editor: null,         // EditorView instance (created once, kept alive)
+    _editor: null,
 
     // ── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -133,7 +120,6 @@ export function planForm() {
     },
 
     _rotateMsgs() {
-      // Fisher-Yates shuffle so the sequence is different every time.
       const msgs = [...this._loadingMsgs];
       for (let j = msgs.length - 1; j > 0; j--) {
         const k = Math.floor(Math.random() * (j + 1));
@@ -161,7 +147,7 @@ export function planForm() {
         await this.$nextTick();
         this.autoGrow(this.$refs.textarea);
       } catch (_) {
-        // Clipboard permission denied — silent fail (user can paste manually).
+        // Clipboard permission denied — silent fail.
       }
     },
 
@@ -171,85 +157,83 @@ export function planForm() {
     },
 
     cancel() {
-      this._closeSse();
+      if (this._abortController) {
+        this._abortController.abort();
+        this._abortController = null;
+      }
       this.step = 'write';
       this.submitting = false;
       this.errorMsg = '';
     },
 
-    // ── Internal SSE cleanup ───────────────────────────────────────────────
-
-    _closeSse() {
-      if (this._draftTimeout !== null) {
-        clearTimeout(this._draftTimeout);
-        this._draftTimeout = null;
-      }
-      if (this._sseSource !== null) {
-        this._sseSource.close();
-        this._sseSource = null;
-      }
-    },
-
-    // ── Step 1.A: POST /api/plan/draft — async plan generation via Cursor ──
-    //
-    // Flow:
-    //   1. POST /api/plan/draft { text } → { draft_id, task_file, output_path }
-    //   2. Subscribe to GET /events (EventSource).
-    //   3. On each PipelineState tick, inspect plan_draft_events for an entry
-    //      whose draft_id matches ours.
-    //   4a. plan_draft_ready  → load yaml_text into CodeMirror, flip to review.
-    //   4b. plan_draft_timeout (server-side) → reject with timeout message.
-    //   5. If 180 s elapse client-side without a match → reject with timeout.
+    // ── Phase 1A: POST /api/plan/preview — direct OpenRouter → Claude stream ──
 
     async submit() {
       const trimmed = this.text.trim();
       if (!trimmed) return;
+
       this.errorMsg = '';
       this.streamingText = '';
       this.step = 'generating';
       this.submitting = true;
+
+      this._abortController = new AbortController();
+
       try {
-        const resp = await fetch('/api/plan/draft', {
+        const resp = await fetch('/api/plan/preview', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: trimmed }),
+          body: JSON.stringify({ dump: trimmed, label_prefix: this.labelPrefix }),
+          signal: this._abortController.signal,
         });
+
         if (!resp.ok) {
           const errBody = await resp.json().catch(() => ({}));
           throw new Error(errBody.detail || `HTTP ${resp.status}`);
         }
-        const data = await resp.json();
-        this.draft_id = data.draft_id ?? '';
-        await this._waitForDraftReady();
+
+        await this._readStream(resp);
+
       } catch (err) {
-        this.errorMsg = err.message;
+        if (err.name === 'AbortError') return;   // user cancelled — already back on write
+        this.errorMsg = err.message || 'Unexpected error during plan generation.';
         this.step = 'write';
       } finally {
         this.submitting = false;
+        this._abortController = null;
       }
     },
 
-    // Returns a Promise that resolves when the SSE plan_draft_ready event
-    // matching this.draft_id arrives, or rejects on timeout / error.
-    _waitForDraftReady() {
-      return new Promise((resolve, reject) => {
-        const source = new EventSource('/events');
-        this._sseSource = source;
+    // Read the fetch SSE stream from /api/plan/preview.
+    // Resolves when the "done" event arrives; rejects on "error" event or network failure.
+    async _readStream(resp) {
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
 
-        this._draftTimeout = setTimeout(() => {
-          this._closeSse();
-          reject(new Error('Plan generation timed out after 3 minutes. Please try again — large specs can take longer.'));
-        }, 180_000);
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        source.onmessage = (ev) => {
-          let state;
-          try { state = JSON.parse(ev.data); } catch { return; }
-          const events = state.plan_draft_events ?? [];
-          for (const pde of events) {
-            if (pde.draft_id !== this.draft_id) continue;
-            this._closeSse();
-            if (pde.event === 'plan_draft_ready') {
-              const yamlText = pde.yaml_text ?? '';
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split('\n');
+          buf = lines.pop() ?? '';   // keep any incomplete final line
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            let evt;
+            try { evt = JSON.parse(line.slice(6)); } catch { continue; }
+
+            if (evt.t === 'chunk') {
+              this.streamingText += evt.text ?? '';
+
+            } else if (evt.t === 'done') {
+              this.initiative  = evt.initiative  ?? '';
+              this.phaseCount  = evt.phase_count ?? 0;
+              this.issueCount  = evt.issue_count ?? 0;
+              const yamlText   = evt.yaml ?? '';
+
               this.step = 'review';
               this.yamlValid = true;
               this.yamlValidationMsg = '✓ Plan ready — review and edit before launching';
@@ -257,38 +241,28 @@ export function planForm() {
                 this._mountEditor(yamlText);
                 this.$nextTick(() => this._validateYaml());
               });
-              resolve(undefined);
-            } else {
-              reject(new Error('Plan generation timed out on the server. Please try again.'));
+              return;   // stream finished successfully
+
+            } else if (evt.t === 'error') {
+              throw new Error(evt.detail || 'Plan generation failed.');
             }
-            return;
           }
-        };
+        }
+      } finally {
+        reader.cancel().catch(() => {});
+      }
 
-        source.onerror = () => {
-          this._closeSse();
-          reject(new Error('SSE connection lost while waiting for plan. Please try again.'));
-        };
-      });
+      // Stream ended without a "done" event — treat as an error.
+      if (this.step === 'generating') {
+        throw new Error('Plan stream ended without a result. Please try again.');
+      }
     },
 
-    // ── Step 1.B: go back to textarea, keep text intact ───────────────────
-
-    editPlan() {
-      this.step = 'write';
-      this.errorMsg = '';
-      this.$nextTick(() => {
-        if (this.$refs.textarea) this.autoGrow(this.$refs.textarea);
-      });
-    },
-
-    // ── Step 1.B: POST /api/plan/launch — validate EnrichedManifest, spawn coordinator ─
-    // Sends YAML to /api/plan/launch; backend validates, spawns coordinator worktree,
-    // returns JSON { worktree, branch, agent_task_path, batch_id }.
+    // ── Phase 1B: POST /api/plan/launch — validate EnrichedManifest, spawn coordinator ─
 
     async launch() {
-      const yaml = this._getEditorValue();
-      if (!yaml.trim()) return;
+      const yamlText = this._getEditorValue();
+      if (!yamlText.trim()) return;
       if (!this.yamlValid) {
         this.errorMsg = 'Fix the YAML errors before launching.';
         return;
@@ -302,7 +276,7 @@ export function planForm() {
         const resp = await fetch('/api/plan/launch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ yaml_text: yaml }),
+          body: JSON.stringify({ yaml_text: yamlText }),
         });
         const body = await resp.json().catch(() => ({}));
         if (!resp.ok) {
@@ -316,10 +290,10 @@ export function planForm() {
         }
 
         this.result = {
-          worktree: body.worktree,
-          branch: body.branch,
+          worktree:        body.worktree,
+          branch:          body.branch,
           agent_task_path: body.agent_task_path,
-          batch_id: body.batch_id,
+          batch_id:        body.batch_id,
         };
         this.batchId = body.batch_id ?? '';
         try {
@@ -328,7 +302,7 @@ export function planForm() {
             localStorage.setItem('ac_active_initiative', this.initiative);
           }
         } catch (_) {
-          // localStorage may be unavailable in some browser contexts — silent fail.
+          // localStorage may be unavailable — silent fail.
         }
         this.step = 'done';
       } catch (err) {
@@ -339,17 +313,29 @@ export function planForm() {
       }
     },
 
+    // ── Go back to the textarea, keeping text intact ───────────────────────
+
+    editPlan() {
+      this.step = 'write';
+      this.errorMsg = '';
+      this.$nextTick(() => {
+        if (this.$refs.textarea) this.autoGrow(this.$refs.textarea);
+      });
+    },
+
     // ── Reset: start a new plan ────────────────────────────────────────────
 
     reset() {
-      this._closeSse();
+      if (this._abortController) {
+        this._abortController.abort();
+        this._abortController = null;
+      }
       this.step = 'write';
       this.text = '';
       this.labelPrefix = '';
       this.showOptions = false;
       this.errorMsg = '';
       this.streamingText = '';
-      this.draft_id = '';
       this.initiative = '';
       this.phaseCount = 0;
       this.issueCount = 0;
@@ -396,16 +382,12 @@ export function planForm() {
     },
 
     // ── CodeMirror 6 editor ────────────────────────────────────────────────
-    // Bundled by esbuild — no CDN, no Web Workers, no AMD loader.
-    // _mountEditor() creates the view on first call and reuses it on
-    // subsequent calls (_setEditorValue flushes new content in place).
 
     _mountEditor(content) {
       const container = this.$refs.yamlEditor;
       if (!container) return;
 
       if (this._editor) {
-        // Editor already mounted — just update content and scroll to top.
         this._setEditorValue(content);
         return;
       }
@@ -452,8 +434,8 @@ export function planForm() {
 
     async _validateYaml() {
       if (this.step !== 'review') return;
-      const yaml = this._getEditorValue();
-      if (!yaml.trim()) {
+      const yamlText = this._getEditorValue();
+      if (!yamlText.trim()) {
         this.yamlValid = false;
         this.yamlValidationMsg = '⚠ YAML is empty.';
         return;
@@ -462,7 +444,7 @@ export function planForm() {
         const resp = await fetch('/api/plan/validate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ yaml_text: yaml }),
+          body: JSON.stringify({ yaml_text: yamlText }),
         });
         const data = await resp.json();
         if (data.valid) {
