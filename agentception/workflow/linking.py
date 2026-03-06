@@ -2,14 +2,15 @@ from __future__ import annotations
 
 """Multi-signal PR↔Issue linker with auditable provenance.
 
-Discovers candidate links between pull requests and issues using five
+Discovers candidate links between pull requests and issues using four
 signals (in decreasing confidence order):
 
-1. **Explicit metadata** — PR labels like ``agent:issue-123`` (confidence 100).
+1. **Explicit DB link** — written directly by ``persist_pr_link_and_recompute``
+   when an agent calls ``build_report_done`` (confidence 100). This is the
+   authoritative path — the agent tells us exactly which PR closes which issue.
 2. **Body closes references** — ``Closes/Fixes/Resolves #N`` (confidence 95).
-3. **Branch regex** — ``feat/issue-{N}-*`` (confidence 90).
+3. **Branch regex** — ``ac/issue-{N}`` (confidence 90).
 4. **Run pr_number** — an agent run claims this PR (confidence 85).
-5. **Title mention** — ``#123`` or ``issue 123`` in PR title (confidence 60).
 
 Each candidate is persisted as a row in ``ac_pr_issue_links`` with method,
 confidence, and evidence.  The ``best_pr_for_issue`` function chooses the
@@ -32,16 +33,8 @@ _CLOSES_RE = re.compile(
 )
 """Matches ``Closes #17``, ``fixes owner/repo#123``, ``Resolves #42``."""
 
-_FEAT_ISSUE_BRANCH_RE = re.compile(r"feat/issue-(\d+)")
-"""Matches ``feat/issue-17-some-slug`` and extracts the issue number."""
-
-_AGENT_ISSUE_LABEL_RE = re.compile(r"agent:issue-(\d+)")
-"""Matches ``agent:issue-123`` label on PRs (explicit metadata signal)."""
-
-_TITLE_ISSUE_RE = re.compile(
-    r"(?:^|\W)#(\d+)(?:\W|$)|\bissue[\s-]?(\d+)\b", re.IGNORECASE
-)
-"""Loose match for ``#123`` or ``issue 123`` / ``issue-123`` in PR title."""
+_AC_ISSUE_BRANCH_RE = re.compile(r"ac/issue-(\d+)")
+"""Matches ``ac/issue-17`` branches created by spawn_child for engineer scope."""
 
 
 # ---------------------------------------------------------------------------
@@ -113,18 +106,10 @@ def discover_links_for_pr(
     candidates: list[CandidateLink] = []
     pr_num = pr["number"]
 
-    # Signal 1: explicit metadata labels (agent:issue-123)
-    for label in pr["labels"]:
-        m = _AGENT_ISSUE_LABEL_RE.match(label)
-        if m:
-            candidates.append(CandidateLink(
-                repo=repo,
-                pr_number=pr_num,
-                issue_number=int(m.group(1)),
-                link_method="explicit",
-                confidence=100,
-                evidence_json=json.dumps({"label": label}),
-            ))
+    # Signal 1 (confidence 100) — explicit links are written directly to
+    # ``ac_pr_issue_links`` by ``persist_pr_link_and_recompute`` when an agent
+    # calls ``build_report_done``.  They are not discovered here; they are
+    # already in the DB before this function runs.
 
     # Signal 2: body closes references
     body = pr["body"] or ""
@@ -139,9 +124,10 @@ def discover_links_for_pr(
             evidence_json=json.dumps({"matched_text": m.group(0).strip()}),
         ))
 
-    # Signal 3: branch regex
+    # Signal 3: branch regex — matches ``ac/issue-{N}`` branches created by
+    # spawn_child for engineer-scope runs.
     head_ref = pr["head_ref"] or ""
-    branch_match = _FEAT_ISSUE_BRANCH_RE.match(head_ref)
+    branch_match = _AC_ISSUE_BRANCH_RE.match(head_ref)
     if branch_match:
         issue_num = int(branch_match.group(1))
         candidates.append(CandidateLink(
@@ -165,21 +151,6 @@ def discover_links_for_pr(
                     confidence=85,
                     evidence_json=json.dumps({"run_id": run["id"]}),
                 ))
-
-    # Signal 5: title mention
-    title = pr["title"] or ""
-    for m in _TITLE_ISSUE_RE.finditer(title):
-        issue_num = int(m.group(1) or m.group(2))
-        already_found = any(c["issue_number"] == issue_num for c in candidates)
-        if not already_found:
-            candidates.append(CandidateLink(
-                repo=repo,
-                pr_number=pr_num,
-                issue_number=issue_num,
-                link_method="title_mention",
-                confidence=60,
-                evidence_json=json.dumps({"matched_text": m.group(0).strip()}),
-            ))
 
     candidates.sort(key=lambda c: c["confidence"], reverse=True)
     return candidates
