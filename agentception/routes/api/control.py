@@ -260,9 +260,9 @@ async def _do_spawn(body: SpawnRequest) -> SpawnResult:
     except Exception:
         issue_body = ""
 
-    # Extract "Depends on #NNN" patterns — comma-separated, or "none" if absent.
+    # Extract "Depends on #NNN" patterns as a list of ints for the TOML builder.
     dep_matches = _re.findall(r"[Dd]epends\s+on\s+#(\d+)", issue_body)
-    depends_on = ",".join(dep_matches) if dep_matches else "none"
+    depends_on: list[int] = [int(m) for m in dep_matches]
 
     # Derive COGNITIVE_ARCH from issue body so the agent gets the right persona.
     cognitive_arch = _resolve_cognitive_arch(issue_body, body.role)

@@ -14,8 +14,10 @@ Contains:
 - ``_issue_is_claimed_api``: checks ``agent:wip`` label presence.
 """
 
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TypeAlias
 
 from agentception.config import settings
 from agentception.services.cognitive_arch import (
@@ -29,6 +31,62 @@ from agentception.services.cognitive_arch import (
 # Writing this file tells CTO and coordinator loops to wait rather than spawn agents.
 _SENTINEL: Path = settings.ac_dir / ".pipeline-pause"
 
+# Type alias for a single TOML scalar/collection value handled by _render_toml_str.
+_TomlValue: TypeAlias = str | int | bool | list[str] | list[int]
+
+
+def _escape_toml_str(s: str) -> str:
+    """Escape special characters for a TOML basic string (double-quoted)."""
+    return s.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _toml_val(value: _TomlValue) -> str:
+    """Render a Python value as its TOML inline representation.
+
+    Handles str (with multiline detection), bool (before int, since bool ⊂ int),
+    int, list[str], and list[int].  Multiline strings are emitted as TOML
+    multiline basic strings (triple-double-quote) so plan dumps and long
+    descriptions survive round-trips through tomllib without manual escaping.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, str):
+        if "\n" in value:
+            escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+            return f'"""\n{escaped}\n"""'
+        return f'"{_escape_toml_str(value)}"'
+    # list[str] | list[int] — render as TOML inline array
+    parts: list[str] = []
+    for item in value:
+        if isinstance(item, int):
+            parts.append(str(item))
+        else:
+            parts.append(f'"{_escape_toml_str(item)}"')
+    return "[" + ", ".join(parts) + "]"
+
+
+def _render_toml_str(
+    sections: dict[str, dict[str, _TomlValue]],
+) -> str:
+    """Render a dict of TOML sections into a valid TOML document string.
+
+    Each key in ``sections`` becomes a ``[section]`` header.  Values within
+    each section must be ``str | int | bool | list[str] | list[int]``.
+    Sections are separated by a blank line for readability.
+
+    No external dependency — this is a purpose-built minimal TOML emitter
+    for the fixed schema of ``.agent-task`` files.
+    """
+    lines: list[str] = []
+    for section, fields in sections.items():
+        lines.append(f"[{section}]")
+        for key, value in fields.items():
+            lines.append(f"{key} = {_toml_val(value)}")
+        lines.append("")
+    return "\n".join(lines)
+
 
 def _build_agent_task(
     issue_number: int,
@@ -38,53 +96,68 @@ def _build_agent_task(
     host_worktree: Path,
     branch: str,
     phase_label: str = "",
-    depends_on: str = "none",
+    depends_on: list[int] | None = None,
     cognitive_arch: str = "hopper:python",
     wave_id: str = "manual",
 ) -> str:
-    """Build the raw text content of a ``.agent-task`` file.
+    """Build the TOML v2 content of a ``.agent-task`` file for an engineer agent.
 
-    The format mirrors what the ``parallel-issue-to-pr.md`` coordinator
-    script generates so that agents spawned via the control plane receive
-    the same context as batch-spawned agents.
+    Emits a fully-structured TOML document following the v2.0 spec in
+    ``.agentception/agent-task-spec.md``.  The file is consumed by both the
+    AgentCeption dashboard (via ``parse_agent_task()`` / ``tomllib``) and the
+    Cursor LLM (raw text as context), so every field must be valid TOML.
 
-    ``worktree`` is the container-side path (written to the file for Docker
-    commands).  ``host_worktree`` is the host-side path embedded as
-    ``HOST_WORKTREE`` so the Cursor Task launcher can use the correct path
-    when opening the worktree as a project root.
+    ``worktree`` is the container-side path (retained for backward compat).
+    ``host_worktree`` is the host-side path written to ``[worktree].path`` so
+    the Cursor Task launcher opens the correct directory.
     """
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     repo = settings.gh_repo
-    # ROLE_FILE is metadata only — the kickoff prompt embeds all role content
-    # inline.  The path uses the host repo dir so it is human-readable even
-    # though agents are instructed not to read it from disk.
-    role_file_display = f"<host-repo>/.agentception/roles/{role}.md"
-    return (
-        f"WORKFLOW=issue-to-pr\n"
-        f"GH_REPO={repo}\n"
-        f"ISSUE_NUMBER={issue_number}\n"
-        f"ISSUE_TITLE={title}\n"
-        f"ISSUE_URL=https://github.com/{repo}/issues/{issue_number}\n"
-        f"PHASE_LABEL={phase_label}\n"
-        f"DEPENDS_ON={depends_on}\n"
-        f"BRANCH={branch}\n"
-        f"ROLE={role}\n"
-        f"ROLE_FILE={role_file_display}\n"
-        f"WORKTREE={worktree}\n"
-        f"HOST_WORKTREE={host_worktree}\n"
-        f"BASE=dev\n"
-        f"CLOSES_ISSUES={issue_number}\n"
-        f"BATCH_ID={wave_id}\n"
-        f"WAVE={wave_id}\n"
-        f"COGNITIVE_ARCH={cognitive_arch}\n"
-        f"CREATED_AT={now}\n"
-        f"SPAWN_MODE=chain\n"
-        f"LINKED_PR=none\n"
-        f"SPAWN_SUB_AGENTS=false\n"
-        f"ATTEMPT_N=0\n"
-        f"REQUIRED_OUTPUT=pr_url\n"
-        f"ON_BLOCK=stop\n"
-    )
+    dep_list: list[int] = depends_on if depends_on is not None else []
+
+    sections: dict[str, dict[str, _TomlValue]] = {
+        "task": {
+            "version": "2.0",
+            "workflow": "issue-to-pr",
+            "id": str(uuid.uuid4()),
+            "created_at": now,
+            "attempt_n": 0,
+            "required_output": "pr_url",
+            "on_block": "stop",
+        },
+        "agent": {
+            "role": role,
+            "tier": "engineer",
+            "org_domain": "engineering",
+            "cognitive_arch": cognitive_arch,
+        },
+        "repo": {
+            "gh_repo": repo,
+            "base": "dev",
+        },
+        "pipeline": {
+            "batch_id": wave_id,
+            "wave": wave_id,
+        },
+        "spawn": {
+            "mode": "chain",
+            "sub_agents": False,
+        },
+        "target": {
+            "issue_number": issue_number,
+            "issue_title": title,
+            "issue_url": f"https://github.com/{repo}/issues/{issue_number}",
+            "phase_label": phase_label,
+            "depends_on": dep_list,
+            "closes": [issue_number],
+        },
+        "worktree": {
+            "path": str(host_worktree),
+            "branch": branch,
+            "linked_pr": 0,
+        },
+    }
+    return _render_toml_str(sections)
 
 
 def _build_coordinator_task(
@@ -95,40 +168,60 @@ def _build_coordinator_task(
     host_worktree: Path,
     branch: str,
 ) -> str:
-    """Build the ``.agent-task`` content for a plan coordinator worktree.
+    """Build the TOML v2 ``.agent-task`` content for a plan coordinator worktree.
 
-    The coordinator agent reads ``WORKFLOW=bugs-to-issues`` and follows
-    ``parallel-bugs-to-issues.md``: it runs the Phase Planner, creates GitHub
-    labels, creates worktrees for each batch, writes sub-agent task files, and
-    launches sub-agents.  AgentCeption's only job is to prepare the worktree
-    and this file — the Cursor background agent does all LLM work.
+    The coordinator agent reads ``task.workflow = "bugs-to-issues"`` and runs
+    the Phase Planner, creates GitHub labels, creates worktrees for each batch,
+    and launches sub-agents.  AgentCeption only prepares the worktree and this
+    file — the Cursor background agent does all LLM work.
 
-    The ``PLAN_DUMP`` section is appended as a freeform block after the
-    structured key=value header so the coordinator can read it verbatim.
+    The raw brain dump is stored in ``[plan_draft].dump`` as a TOML multiline
+    basic string so it is available verbatim to the coordinator agent.
     """
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     repo = settings.gh_repo
-    prefix_line = f"LABEL_PREFIX={label_prefix}\n" if label_prefix else ""
-    return (
-        f"WORKFLOW=bugs-to-issues\n"
-        f"GH_REPO={repo}\n"
-        f"ROLE=coordinator\n"
-        f"ROLE_FILE=<host-repo>/.agentception/roles/coordinator.md\n"
-        f"WORKTREE={worktree}\n"
-        f"HOST_WORKTREE={host_worktree}\n"
-        f"BASE=dev\n"
-        f"BATCH_ID={slug}\n"
-        f"WAVE={slug}\n"
-        f"COGNITIVE_ARCH={ROLE_DEFAULT_FIGURE.get('engineering-coordinator', 'von_neumann')}:python\n"
-        f"{prefix_line}"
-        f"CREATED_AT={now}\n"
-        f"SPAWN_MODE=chain\n"
-        f"SPAWN_SUB_AGENTS=true\n"
-        f"ATTEMPT_N=0\n"
-        f"REQUIRED_OUTPUT=phase_plan\n"
-        f"ON_BLOCK=stop\n"
-        f"\nPLAN_DUMP:\n{plan_text}\n"
+    coord_arch = (
+        f"{ROLE_DEFAULT_FIGURE.get('engineering-coordinator', 'von_neumann')}:python"
     )
+
+    plan_draft_fields: dict[str, _TomlValue] = {"dump": plan_text}
+    if label_prefix:
+        plan_draft_fields["label_prefix"] = label_prefix
+
+    sections: dict[str, dict[str, _TomlValue]] = {
+        "task": {
+            "version": "2.0",
+            "workflow": "bugs-to-issues",
+            "id": str(uuid.uuid4()),
+            "created_at": now,
+            "attempt_n": 0,
+            "required_output": "phase_plan",
+            "on_block": "stop",
+        },
+        "agent": {
+            "role": "coordinator",
+            "tier": "coordinator",
+            "cognitive_arch": coord_arch,
+        },
+        "repo": {
+            "gh_repo": repo,
+            "base": "dev",
+        },
+        "pipeline": {
+            "batch_id": slug,
+            "wave": slug,
+        },
+        "spawn": {
+            "mode": "chain",
+            "sub_agents": True,
+        },
+        "worktree": {
+            "path": str(host_worktree),
+            "branch": branch,
+        },
+        "plan_draft": plan_draft_fields,
+    }
+    return _render_toml_str(sections)
 
 
 def _build_conductor_task(
@@ -139,37 +232,58 @@ def _build_conductor_task(
     host_worktree: Path,
     branch: str,
 ) -> str:
-    """Build the ``.agent-task`` content for a conductor worktree.
+    """Build the TOML v2 ``.agent-task`` content for a conductor worktree.
 
-    The conductor agent reads ``WORKFLOW=conductor`` and coordinates across the
-    listed phases, spawning sub-agents for each unclaimed issue.  AgentCeption
-    only prepares the worktree and this file — all LLM work happens inside
-    the Cursor background agent that opens the returned ``host_worktree``.
+    The conductor agent reads ``task.workflow = "conductor"`` and coordinates
+    across the listed phases, spawning sub-agents for each unclaimed issue.
+    AgentCeption only prepares the worktree and this file — all LLM work
+    happens inside the Cursor background agent that opens the returned
+    ``host_worktree``.
     """
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     repo = settings.gh_repo
-    return (
-        f"WORKFLOW=conductor\n"
-        f"GH_REPO={repo}\n"
-        f"ROLE=conductor\n"
-        f"ROLE_FILE=<host-repo>/.agentception/roles/conductor.md\n"
-        f"WAVE_ID={wave_id}\n"
-        f"PHASES={','.join(phases)}\n"
-        f"ORG={org or ''}\n"
-        f"BRANCH={branch}\n"
-        f"WORKTREE={worktree}\n"
-        f"HOST_WORKTREE={host_worktree}\n"
-        f"BASE=dev\n"
-        f"BATCH_ID={wave_id}\n"
-        f"WAVE={wave_id}\n"
-        f"COGNITIVE_ARCH={ROLE_DEFAULT_FIGURE.get('conductor', 'jeff_dean')}:python\n"
-        f"CREATED_AT={now}\n"
-        f"SPAWN_MODE=chain\n"
-        f"SPAWN_SUB_AGENTS=true\n"
-        f"ATTEMPT_N=0\n"
-        f"REQUIRED_OUTPUT=wave_complete\n"
-        f"ON_BLOCK=stop\n"
+    conductor_arch = (
+        f"{ROLE_DEFAULT_FIGURE.get('conductor', 'jeff_dean')}:python"
     )
+
+    target_fields: dict[str, _TomlValue] = {"phases": phases}
+    if org:
+        target_fields["org"] = org
+
+    sections: dict[str, dict[str, _TomlValue]] = {
+        "task": {
+            "version": "2.0",
+            "workflow": "conductor",
+            "id": str(uuid.uuid4()),
+            "created_at": now,
+            "attempt_n": 0,
+            "required_output": "wave_complete",
+            "on_block": "stop",
+        },
+        "agent": {
+            "role": "conductor",
+            "tier": "executive",
+            "cognitive_arch": conductor_arch,
+        },
+        "repo": {
+            "gh_repo": repo,
+            "base": "dev",
+        },
+        "pipeline": {
+            "batch_id": wave_id,
+            "wave": wave_id,
+        },
+        "spawn": {
+            "mode": "chain",
+            "sub_agents": True,
+        },
+        "target": target_fields,
+        "worktree": {
+            "path": str(host_worktree),
+            "branch": branch,
+        },
+    }
+    return _render_toml_str(sections)
 
 
 def _issue_is_claimed_api(iss: dict[str, object]) -> bool:
