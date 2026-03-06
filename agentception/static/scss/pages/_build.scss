@@ -1546,6 +1546,69 @@ $_sw-gap: 0.5rem;
 .build-swimlane__bucket--review.build-swimlane__bucket--has-items  { border-color: rgba(251, 191, 36, 0.2); }
 .build-swimlane__bucket--done.build-swimlane__bucket--has-items    { border-color: rgba(16, 217, 160, 0.15); background: rgba(16, 217, 160, 0.02); }
 
+// ── Cell wrapper — always occupies its grid column ────────────────────────────
+// Holds either the expanded bucket (x-show="open") or the collapsed ghost
+// (x-show="!open"). Keeps column alignment intact when the row collapses.
+
+.build-swimlane__cell {
+  display: flex;
+  flex-direction: column;
+  min-width: 0; // allow flex children to shrink below content size
+}
+
+// ── Collapsed ghost pill ───────────────────────────────────────────────────────
+// Shown in place of the bucket when the phase row is collapsed.
+// Only rendered when the lane has ≥1 issue; empty lanes leave the ghost div blank.
+
+.build-swimlane__ghost {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.75rem;
+  padding: 0.25rem;
+}
+
+.build-swimlane__ghost-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0.2rem 0.55rem;
+  border-radius: 100px;
+  background: var(--bg-elevated);
+  border: 1px dashed var(--border-subtle);
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+  min-width: 1.4rem;
+  text-align: center;
+
+  &--active {
+    color: var(--accent);
+    border-color: rgba(139, 92, 246, 0.35);
+    background: rgba(139, 92, 246, 0.1);
+  }
+
+  &--pr {
+    color: var(--info);
+    border-color: rgba(56, 189, 248, 0.35);
+    background: rgba(56, 189, 248, 0.1);
+  }
+
+  &--review {
+    color: var(--warning);
+    border-color: rgba(251, 191, 36, 0.35);
+    background: rgba(251, 191, 36, 0.1);
+  }
+
+  &--done {
+    color: var(--success);
+    border-color: rgba(16, 217, 160, 0.35);
+    background: rgba(16, 217, 160, 0.1);
+  }
+}
+
 // ── Inspector chat box ────────────────────────────────────────────────────────
 
 .build-inspector__chat {
