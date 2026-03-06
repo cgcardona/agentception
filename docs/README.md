@@ -121,7 +121,7 @@ scripts/
     resolve_arch.py  → Composes figure + archetype + skills into agent prompts
     config.yaml      → Pipeline configuration (phases, codebase routing)
     team.yaml        → Agent team definitions
-    role-taxonomy.yaml → Full org chart (C-Suite → VP → Engineering)
+    role-taxonomy.yaml → Full org chart (C-Suite → Coordinator → Worker)
     cognitive_archetypes/
       figures/       → Historical thinkers (YAML)
       archetypes/    → Abstract thinking styles (YAML)

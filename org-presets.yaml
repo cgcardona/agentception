@@ -5,7 +5,7 @@ presets:
     tiers:
       leadership:
         - engineering-coordinator
-        - engineering-manager
+        - engineering-coordinator
       workers:
         - python-developer
         - site-reliability-engineer

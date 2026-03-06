@@ -110,18 +110,21 @@
     {% endif %}
   </div>
 
-  {% elif lane in ('pr_open', 'reviewing') and active_run %}
+  {% elif lane in ('pr_open', 'reviewing') %}
   <div class="build-issue__footer">
-    {# PR chip: links out to the PR and communicates the state #}
-    {% if active_run.pr_number %}
+    {# PR chip: links out to the PR and communicates the state.
+       issue.pr_number is the canonical value from the workflow state machine;
+       falls back to active_run.pr_number for issues without a persisted state. #}
+    {% set pr_num = issue.pr_number or (active_run.pr_number if active_run else none) %}
+    {% if pr_num %}
     <div class="build-issue__pr-row">
       <a class="build-issue__pr-chip build-issue__pr-chip--{{ lane }}"
-         href="https://github.com/{{ repo }}/pull/{{ active_run.pr_number }}"
+         href="https://github.com/{{ repo }}/pull/{{ pr_num }}"
          target="_blank" rel="noopener" @click.stop>
-        PR #{{ active_run.pr_number }}
+        PR #{{ pr_num }}
         {%- if lane == 'reviewing' %} · In Review{%- endif %}
       </a>
-      {% if active_run.branch %}
+      {% if active_run and active_run.branch %}
       <span class="build-issue__branch">{{ active_run.branch }}</span>
       {% endif %}
     </div>

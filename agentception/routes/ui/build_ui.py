@@ -56,9 +56,9 @@ from ._shared import _TEMPLATES
 class EnrichedIssueRow(TypedDict):
     """Issue row enriched with the most-recent agent run and deterministic swim lane.
 
-    ``swim_lane`` is the canonical swim lane string computed by
-    ``_compute_swim_lane()``.  It is derived from authoritative DB signals —
-    not from Jinja2 logic — ensuring there is exactly one definition.
+    ``swim_lane`` is the canonical swim lane string computed by the workflow
+    state machine.  It is derived from authoritative DB signals — not from
+    Jinja2 logic — ensuring there is exactly one definition.
 
     Values: ``'todo'`` | ``'active'`` | ``'pr_open'`` | ``'reviewing'`` | ``'done'``
     """
@@ -72,6 +72,7 @@ class EnrichedIssueRow(TypedDict):
     depends_on: list[int]
     run: RunForIssueRow | None
     swim_lane: str
+    pr_number: int | None
 
 
 class EnrichedPhaseGroupRow(TypedDict):
@@ -185,6 +186,10 @@ async def _build_enriched_groups(
                         open_prs.get(i["number"]),
                         workflow_states.get(i["number"]),
                     ),
+                    pr_number=_resolve_pr_number(
+                        runs.get(i["number"]),
+                        workflow_states.get(i["number"]),
+                    ),
                 )
                 for i in g["issues"]
             ],
@@ -212,6 +217,22 @@ def _resolve_swim_lane(
     if workflow_state is not None:
         return workflow_state["lane"]
     return _compute_swim_lane(issue_state, run, open_pr)
+
+
+def _resolve_pr_number(
+    run: RunForIssueRow | None,
+    workflow_state: WorkflowStateRow | None,
+) -> int | None:
+    """Return the best PR number for an issue.
+
+    Prefers the canonical workflow state (linker-derived), falls back to
+    the agent run's ``pr_number`` for issues without a persisted state.
+    """
+    if workflow_state is not None and workflow_state.get("pr_number"):
+        return workflow_state["pr_number"]
+    if run is not None and run.get("pr_number"):
+        return run["pr_number"]
+    return None
 
 
 # ---------------------------------------------------------------------------

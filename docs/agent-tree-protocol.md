@@ -129,7 +129,7 @@ HOST_ROLE_FILE = "<host-repo-root>/.agentception/roles/pr-reviewer.md"
 > A chain-spawned PR reviewer has `TIER=reviewer` and `ORG_DOMAIN=qa` even though its
 > `PARENT_RUN_ID` points to an engineer, so the dashboard nests it under the QA column
 > without requiring a
-> physical QA VP node to be running.
+> physical QA Coordinator node to be running.
 
 > `<repo-root>` is the absolute path to the cloned repository on the host
 > machine — the value of `REPO_DIR` (defaults to `/app` inside the

@@ -10,7 +10,7 @@ target repo's ``.agentception/`` directory.
 Managed files that are always included when they exist:
 
 - ``.agentception/roles/*.md``
-- ``.agentception/prompts/*.md``
+- ``.agentception/parallel-*.md`` (generated pipeline prompts)
 - ``.agentception/pipeline-config.json``
 - ``.agentception/agent-command-policy.md``
 - ``.agentception/dispatcher.md``
@@ -61,10 +61,8 @@ def _gather_managed_files(repo_dir: Path) -> list[Path]:
     if roles_dir.is_dir():
         candidates.extend(sorted(roles_dir.glob("*.md")))
 
-    # Prompt templates
-    prompts_dir = ac_dir / "prompts"
-    if prompts_dir.is_dir():
-        candidates.extend(sorted(prompts_dir.glob("*.md")))
+    # Generated pipeline prompts (parallel-*.md at .agentception/ root)
+    candidates.extend(sorted(ac_dir.glob("parallel-*.md")))
 
     # pipeline-config.json
     pc = ac_dir / "pipeline-config.json"

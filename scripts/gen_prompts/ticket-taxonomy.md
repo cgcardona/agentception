@@ -1,7 +1,7 @@
 # AgentCeption Ticket Taxonomy
 
 > Every open issue mapped to its phase, tech stack, and optimal `COGNITIVE_ARCH`.
-> This document drives the auto-selection logic in `engineering-manager.md.j2`.
+> This document drives the auto-selection logic in `engineering-coordinator.md.j2`.
 > Update when new issues are added or the skill domain library grows.
 
 ---
@@ -98,9 +98,9 @@ files that can each be loaded independently for mixed-stack tickets.
 
 ---
 
-## Heuristic Rules (implemented in engineering-manager)
+## Heuristic Rules (implemented in engineering-coordinator)
 
-The engineering-manager runs these checks against each issue's body + labels
+The engineering coordinator runs these checks against each issue's body + labels
 to auto-select `COGNITIVE_ARCH`. Rules are checked in priority order — first match wins.
 The new format emits colon-separated skills (up to 3), replacing the deprecated `+` format.
 

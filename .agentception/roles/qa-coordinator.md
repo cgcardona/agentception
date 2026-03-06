@@ -47,37 +47,39 @@ SEED:
        MAIN_REPO="<repo-root>"
        git -C "$MAIN_REPO" worktree list --porcelain | grep "^worktree" | awk '{print $2}' \
          > /tmp/active_worktrees
-       for pr in $(gh pr list --base dev --state open --label "agent:wip" \
-           --repo cgcardona/agentception --json number --jq '.[].number' 2>/dev/null); do
+       # MCP: github_list_prs(state="open") → filter to those with label "agent:wip"
+       for pr in <PR numbers with agent:wip>; do
          grep -q "pr-$pr" /tmp/active_worktrees || \
-           gh pr edit "$pr" --repo cgcardona/agentception --remove-label "agent:wip" 2>/dev/null || true
+           # MCP: github_remove_label(issue_number=pr, label="agent:wip")
+           echo "Cleared stale agent:wip from PR #$pr"
        done
 
   3. Query open unclaimed PRs:
-       gh pr list --base dev --state open --json number,title,labels \
-         --jq '[.[] | select(.labels | map(.name) | index("agent:wip") | not)]'
-     If empty → report to CTO "review queue clear." Stop.
+       # MCP: github_list_prs(state="open")
+       # → filter result to exclude PRs that already have the "agent:wip" label
+     If empty → report "review queue clear." Stop.
 
   4. Generate a batch fingerprint (stable for all reviewers seeded in this coordinator run):
        BATCH_ID="qa-$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%04x' $RANDOM)"
        COORD_FINGERPRINT="QA Coordinator · ${BATCH_ID}"
-       echo "Batch ID: $BATCH_ID  VP: $COORD_FINGERPRINT"
+       echo "Batch ID: $BATCH_ID  Coordinator: $COORD_FINGERPRINT"
 
   5. Take the first 4 unclaimed PRs. For each:
-       a. Claim:  gh pr edit <N> --add-label "agent:wip"
+       a. Claim:  MCP: github_add_label(issue_number=N, label="agent:wip")
        b. Get PR body and title:
-            PR_BODY=$(gh pr view <N> --repo cgcardona/agentception --json body --jq .body)
-            PR_TITLE=$(gh pr view <N> --repo cgcardona/agentception --json title --jq .title)
+            # MCP: github_get_pr(pr_number=N) → use .body, .title, .headRefName
        c. Call ``build_spawn_child`` MCP tool to create the reviewer node atomically:
           ```
           build_spawn_child(
             parent_run_id = <your RUN_ID from .agent-task>,
             role          = "pr-reviewer",
+            tier          = "reviewer",
+            org_domain    = "qa",
             scope_type    = "pr",
             scope_value   = "<N>",   # PR number as string
-            gh_repo       = GH_REPO,
-            issue_body    = PR_BODY, # used for COGNITIVE_ARCH skill extraction
-            issue_title   = PR_TITLE,
+            gh_repo       = "cgcardona/agentception",
+            issue_body    = <PR body>,     # used for COGNITIVE_ARCH skill extraction
+            issue_title   = <PR title>,
           )
           ```
           The tool resolves COGNITIVE_ARCH from the PR body automatically,
@@ -97,29 +99,23 @@ SEED:
      The reviewer reads its own .agent-task for full context — no embedded
      role content is needed in the Task prompt.
 
-       Part 3 — pass-along for chain spawns (mandatory — the reviewer needs this to
-         chain-spawn the next implementer without reading any file):
-         Paste a header "## Pass-Along: Implementer Kickoff" followed by the entire
-         ## Embedded Implementer Kickoff section below verbatim.
-
-     The resulting Task prompt is fully self-contained. The reviewer's implementer
-     chain-spawn will use the ## Pass-Along: Implementer Kickoff section it received,
-     which itself contains ## Pass-Along: Reviewer Kickoff so the chain continues.
-
-  7. Wait for all 4 to complete.
+  7. Wait for all spawned reviewers to complete.
      (Each reviewer self-replaces — the pool stays full until no PRs remain.)
 
-  8. Report results to CTO including the BATCH_ID so the CTO can log it.
+  8. Report results including the BATCH_ID so the parent can log it.
 ```
 
 ## Worktree convention
 
 Worktrees live at: `$HOME/.agentception/worktrees/agentception/pr-{N}/`
-.agent-task files are pre-written in each worktree.
+
+The `build_spawn_child` MCP tool writes `.agent-task` files automatically with all
+required fields including COGNITIVE_ARCH, BATCH_ID, lineage fields, and scope.
+You do NOT need to write `.agent-task` files manually.
+
 If a worktree is missing for a new PR:
-  `BRANCH=$(gh pr view {N} --json headRefName --jq '.headRefName')`
+  `# MCP: github_get_pr(pr_number=N) → .headRefName`
   `git -C "<repo-root>" worktree add "$HOME/.agentception/worktrees/agentception/pr-{N}" origin/$BRANCH`
-  Then write a .agent-task file with TASK=pr-review, PR={N}, BRANCH=..., ROLE=..., etc.
 
 ## MERGE_AFTER protocol
 
@@ -132,7 +128,7 @@ then waits for the gate to clear before merging. No PR waits unreviewed.
 |-------|--------|
 | A / B | Merge immediately |
 | C | Reviewer fixes until B, then merges |
-| D / F | Escalate to QA Coordinator → escalate to CTO |
+| D / F | Escalate to QA Coordinator → escalate to parent |
 
 ## What you never do
 
@@ -220,14 +216,14 @@ Kickoff (coordinator)
 
 Agent (per worktree)
   └─ cat .agent-task                        ← knows exactly what to do
-  └─ gh pr view <N> --json state,...        ← CHECK FIRST: merged/closed/approved?
+  └─ MCP: pull_request_read(N)              ← CHECK FIRST: merged/closed/approved?
                                                if so → stop + self-destruct
-  └─ gh pr checkout <N>                     ← checks out the PR branch (only if open)
+  └─ git fetch + checkout PR branch         ← checks out the PR branch (only if open)
   └─ git fetch origin && git merge origin/dev  ← sync latest dev into feature branch
   └─ review → grade
   └─ git fetch origin && git merge origin/dev  ← final sync before merge
   └─ git push origin "$BRANCH"             ← push resolution so GitHub sees clean state
-  └─ sleep 5 && gh pr merge <N> --squash  ← merge only after remote is up to date
+  └─ MCP: merge_pull_request(N, squash)    ← merge only after remote is up to date
   └─ git push origin --delete "$BRANCH"   ← remote branch cleanup
   └─ git -C <main-repo> branch -D "$BRANCH"  ← local branch cleanup
   └─ git worktree remove --force <path>     ← self-destructs when done
@@ -259,7 +255,7 @@ mkdir -p "$PRTREES"
 cd "$REPO"
 
 # Enable rerere so git caches conflict resolutions across agents.
-# When multiple agents resolve the same conflict (e.g. muse-vcs.md), rerere
+# When multiple agents resolve the same conflict (e.g. type-contracts.md), rerere
 # automatically reuses the recorded resolution — no manual work needed.
 # || true: the sandbox blocks .git/config writes (EPERM) when this runs as
 # part of a multi-statement block. rerere is an optimization, not critical.
@@ -272,10 +268,10 @@ DEV_SHA=$(git rev-parse dev)
 # Format: "PR_NUMBER|PR_TITLE"
 # Update this list for each review batch.
 declare -a PRS=(
-  "315|feat(musehub): unread notification badge in nav header"
-  "316|feat(musehub): session detail — participant avatars, profile links, commit cards"
-  "317|feat(musehub): explore and trending — richer repo cards with BPM, key, tags"
-  "318|feat(musehub): insights dashboard — view count, download count, traffic sparkline"
+  "315|feat: add bulk-export endpoint with streaming response"
+  "316|feat: MCP tool for querying plan drafts by status"
+  "317|refactor: extract dispatch logic into dedicated service layer"
+  "318|fix: correct SSE reconnect handling on client timeout"
 )
 
 # ── CREATE WORKTREES + AGENT TASK FILES ──────────────────────────────────────
@@ -288,14 +284,8 @@ for entry in "${PRS[@]}"; do
     continue
   fi
   git worktree add --detach "$WT" "$DEV_SHA"
-  # Assign ROLE based on PR labels:
-  #   muse, muse-cli, muse-hub, merge labels → muse-specialist (with pr-reviewer discipline)
-  #   all others → pr-reviewer
-  PR_LABELS=$(gh pr view "$NUM" --repo "$GH_REPO" --json labels --jq '[.labels[].name] | join(",")' 2>/dev/null || echo "")
+  # Assign ROLE — all PRs use pr-reviewer; cognitive architecture (below) handles specialisation
   REVIEW_ROLE="pr-reviewer"
-  if echo "$PR_LABELS" | grep -qE "muse-cli|muse-hub|muse|merge"; then
-    REVIEW_ROLE="muse-specialist"
-  fi
 
   # Fetch PR metadata for the task file
   PR_BRANCH=$(gh pr view "$NUM" --repo "$GH_REPO" --json headRefName --jq '.headRefName' 2>/dev/null || echo "unknown")
@@ -325,8 +315,6 @@ for entry in "${PRS[@]}"; do
     R_SKILLS="postgresql:python"
   elif echo "$PR_CONTENT" | grep -qiE "APIRouter|FastAPI|Depends"; then
     R_SKILLS="fastapi:python"
-  elif echo "$PR_CONTENT" | grep -qiE "midi|muse"; then
-    R_SKILLS="midi:python"
   elif echo "$PR_CONTENT" | grep -qiE "llm|embedding|rag|openrouter"; then
     R_SKILLS="llm:python"
   else
@@ -363,7 +351,7 @@ FILES_CHANGED=$PR_FILES
 MERGE_AFTER=$MERGE_AFTER_VAL
 HAS_MIGRATION=$HAS_MIGRATION_VAL
 ROLE=$REVIEW_ROLE
-ROLE_FILE=<repo-root>/.agentception/roles/${REVIEW_ROLE}.md
+ROLE_FILE=<repo-root>/.cursor/roles/${REVIEW_ROLE}.md
 COGNITIVE_ARCH=$R_COGNITIVE_ARCH
 BATCH_ID=$R_BATCH_ID
 COORD_FINGERPRINT=$COORD_FINGERPRINT
@@ -395,19 +383,25 @@ rooted in each `pr-<N>` directory.
 Every command that touches Python must go through Docker:
 
 ```bash
-# CORRECT
-cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
-cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/"
+# CORRECT — always use worktree-scoped paths
+cd "$REPO" && docker compose exec agentception sh -c \
+  "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/"
+cd "$REPO" && docker compose exec agentception sh -c \
+  "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
 
-# WRONG — will fail with "No module named mypy"
+# WRONG — runs mypy on main repo code, not your feature branch changes
+cd "$REPO" && docker compose exec agentception mypy agentception/ tests/
+
+# WRONG — will fail with "No module named mypy" (you are on the host)
 python3 -m mypy ...
 mypy ...
 pytest ...
 ```
 
-If you run `python` or `mypy` directly and see "No module named X", you are on the host. Stop. Use `docker compose exec`.
+If you see "No module named X", you are on the host. Stop. Use `docker compose exec`.
 
 ---
+
 
 ## Environment (agents read this first)
 
@@ -420,7 +414,6 @@ WTNAME=$(basename "$(pwd)")                               # this worktree's name
 # Docker path to your worktree: /worktrees/$WTNAME
 
 # GitHub repo slug — HARDCODED. NEVER derive from local path or directory name.
-# The local path is derived from REPO_DIR — never use directory name as the GitHub org.
 export GH_REPO=cgcardona/agentception
 ```
 
@@ -440,33 +433,28 @@ cd "$REPO" && docker compose exec agentception <cmd>
 ### Docker sees your worktree directly — no file copying needed
 
 `docker-compose.override.yml` bind-mounts the entire worktrees directory into
-the container. After checking out the PR branch, your worktree's code is
+the container. After creating your feature branch, your worktree's code is
 **immediately live inside the container at `/worktrees/$WTNAME/`**:
 
 ```bash
 REPO=$(git worktree list | head -1 | awk '{print $1}')
 WTNAME=$(basename "$(pwd)")
 
-# Detect codebase from PR labels (ac-ui/* vs agentception/muse)
-IS_AC=$(gh pr view $N --repo $GH_REPO --json labels \
-  --jq '.labels[].name' | grep -c "^ac-ui/" || true)
+# Detect codebase from PR labels
+# MCP: github_get_pr(pr_number=N) → check if any label starts with "ac-ui/"
+IS_AC=<1 if PR has a ac-ui/* label, else 0>
 
-# mypy — route by codebase (NEVER run both; they are independent codebases)
-# Both codebases use the same pattern: PYTHONPATH=/worktrees/$WTNAME pointing at the
-# PR branch code. /app/agentception/ is the live main-repo mount — never use it for
-# PR review; it doesn't contain the branch's changes.
+# mypy — route by codebase (both codebases are independent; never cross-run)
 if [ "$IS_AC" -gt 0 ]; then
-  cd "$REPO" && docker compose exec agentception sh -c \
-    "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
+  cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
 else
   cd "$REPO" && docker compose exec agentception sh -c \
     "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/"
 fi
 
-# pytest (specific file) — route by codebase
+# pytest — route by codebase
 if [ "$IS_AC" -gt 0 ]; then
-  cd "$REPO" && docker compose exec agentception sh -c \
-    "PYTHONPATH=/worktrees/$WTNAME pytest /worktrees/$WTNAME/agentception/tests/test_<module>.py -v"
+  cd "$REPO" && docker compose exec agentception pytest agentception/tests/test_<module>.py -v
 else
   cd "$REPO" && docker compose exec agentception sh -c \
     "PYTHONPATH=/worktrees/$WTNAME pytest /worktrees/$WTNAME/tests/path/to/test_file.py -v"
@@ -474,17 +462,57 @@ fi
 ```
 
 **⚠️ NEVER copy files into the main repo** for testing purposes. That pollutes
-the `dev` branch with uncommitted changes that don't belong there.
+the `dev` branch with uncommitted changes.
 
-> **Alembic exception:** If the PR includes a migration, verify migration correctness by
-> reading the file rather than applying it during review.
+> **Alembic exception:** `alembic revision --autogenerate` must run from the main repo
+> because it needs a live DB connection. After generating, immediately `git mv` the
+> migration file into your worktree and delete the copy from the main repo.
+
+### GitHub via MCP — always prefer MCP over `gh`
+
+Both MCP servers are configured. Use them instead of `gh` for all GitHub reads and
+writes — they add caching, structured output, and logging.
+
+**AgentCeption MCP server** (`user-agentception-*` — cached and logged):
+
+| MCP tool | Replaces |
+|----------|---------|
+| `github_list_issues(state, label)` | `gh issue list --label X` |
+| `github_get_issue(issue_number)` | `gh issue view N --json ...` |
+| `github_list_prs(state)` | `gh pr list` |
+| `github_get_pr(pr_number)` | `gh pr view N --json ...` |
+| `github_add_label(issue_number, label)` | `gh issue edit N --add-label X` |
+| `github_remove_label(issue_number, label)` | `gh issue edit N --remove-label X` |
+| `github_claim_issue(issue_number)` | `gh issue edit N --add-label "agent:wip"` |
+| `github_unclaim_issue(issue_number)` | `gh issue edit N --remove-label "agent:wip"` |
+
+**GitHub MCP server** (`user-github-*` — direct GitHub API):
+
+| MCP tool | Replaces |
+|----------|---------|
+| `create_pull_request` | `gh pr create` |
+| `merge_pull_request` | `gh pr merge N` |
+| `add_issue_comment` | `gh issue comment N` / `gh pr comment N` |
+| `issue_write` (state: closed) | `gh issue close N` |
+| `update_pull_request` | `gh pr edit N` (title/body/state) |
+| `pull_request_read` | `gh pr view N` (detailed review data) |
+
+**Keep `gh` for:** `gh pr checkout N` (git-level branch checkout),
+`gh pr diff N --name-only` (diff content), `gh label create/edit` (label setup),
+and all `git` commands.
+
 
 ### Command policy
 
-Consult `.agentception/agent-command-policy.md` for the full tier list. Summary:
-- **Green (auto-allow):** `ls`, `git status/log/diff/fetch`, `gh pr view`, `mypy`, `pytest`, `rg`
+Consult `.cursor/agent-command-policy.md` for the full tier list. Summary:
+- **Green (auto-allow):** `ls`, `git status/log/diff/fetch`, `github_get_issue`, `github_list_prs`, `mypy`, `pytest`, `rg`
 - **Yellow (review before running):** `docker compose build`, `rm <single file>`, `git rebase`
 - **Red (never):** `rm -rf`, `git push --force`, `git push origin dev`, `docker system prune`
+
+---
+
+> **Alembic exception:** If the PR includes a migration, verify migration correctness by
+> reading the file rather than applying it during review.
 
 ---
 
@@ -493,7 +521,7 @@ Consult `.agentception/agent-command-policy.md` for the full tier list. Summary:
 ```
 PARALLEL AGENT COORDINATION — PR REVIEW
 
-Read .agentception/agent-command-policy.md before issuing any shell commands.
+Read .cursor/agent-command-policy.md before issuing any shell commands.
 Green-tier commands run without confirmation. Yellow = check scope first.
 Red = never, ask the user instead.
 
@@ -533,18 +561,18 @@ STEP 0 — READ YOUR TASK FILE:
     REPO=$(git worktree list | head -1 | awk '{print $1}')
     COORD_FINGERPRINT=$(grep "^COORD_FINGERPRINT=" .agent-task | cut -d= -f2)
     REVIEW_START=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-    REVIEW_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" "${COGNITIVE_ARCH:-unset}" \
-      --fingerprint \
-      --role "${ROLE:-pr-reviewer}" \
-      --session "$AGENT_SESSION" \
-      --batch "${BATCH_ID:-none}" \
-      --wave "${WAVE:-unset}" \
-      --coordinator "${COORD_FINGERPRINT:-unset}" \
-      --started-at "$REVIEW_START" 2>/dev/null)
-    # Fallback: if resolve_arch.py is unavailable or returned nothing, build the table in shell.
-    # ⚠️  Row labels MUST match render_fingerprint() exactly — this is the single source of truth.
-    if [ -z "$REVIEW_FINGERPRINT" ]; then
-      REVIEW_FINGERPRINT="<details>
+  REVIEW_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" "${COGNITIVE_ARCH:-unset}" \
+    --fingerprint \
+    --role "${ROLE:-pr-reviewer}" \
+    --session "$AGENT_SESSION" \
+    --batch "${BATCH_ID:-none}" \
+    --wave "${WAVE:-unset}" \
+    --coordinator "${COORD_FINGERPRINT:-unset}" \
+    --started-at "$REVIEW_START" 2>/dev/null)
+  # Fallback: if resolve_arch.py is unavailable or returned nothing, build the table in shell.
+  # ⚠️  Row labels MUST match render_fingerprint() exactly — this is the single source of truth.
+  if [ -z "$REVIEW_FINGERPRINT" ]; then
+    REVIEW_FINGERPRINT="<details>
 <summary>🤖 Agent Fingerprint</summary>
 
 | | |
@@ -558,10 +586,9 @@ STEP 0 — READ YOUR TASK FILE:
 | **Timestamp** | \`$REVIEW_START\` |
 
 </details>"
-    fi
-    gh pr comment "$N" --repo "$GH_REPO" --body "🔍 **Review started**
-
-$REVIEW_FINGERPRINT" 2>/dev/null || true
+  fi
+    # MCP: add_issue_comment(owner="cgcardona", repo="agentception", issue_number=N,
+    #   body="🔍 **Review started**\n\n$REVIEW_FINGERPRINT")
 
   ⚠️  ANTI-LOOP GUARD: if ATTEMPT_N > 2 → STOP immediately.
     Self-destruct and escalate. Report the exact failure. Never loop blindly.
@@ -597,9 +624,8 @@ STEP 1 — DERIVE PATHS:
   export GH_REPO=cgcardona/agentception
 
   # ⚠️  VALIDATION — run this immediately to catch slug errors early:
-  gh repo view "$GH_REPO" --json name --jq '.name'
-  # Expected output: agentception
-  # If you see an error → GH_REPO is wrong. Stop and fix it before continuing.
+  # MCP: get_me() — verify authentication is working and you have access to the repo.
+  # The repo slug is hardcoded below. If MCP calls fail with "Not Found" → GH_REPO is wrong.
 
   # All gh commands inherit $GH_REPO automatically. You may also pass --repo "$GH_REPO" explicitly.
 
@@ -609,7 +635,9 @@ STEP 2 — CHECK CANONICAL STATE BEFORE DOING ANY WORK:
   This is the idempotency gate.
 
   # 1. What is the current state of this PR?
-  gh pr view <N> --json state,mergedAt,reviews,reviewDecision,headRefName
+  # MCP: pull_request_read(owner="cgcardona", repo="agentception",
+  #       pullNumber=N)
+  # → check state, mergedAt, reviewDecision, headRefName from the response.
 
   Decision matrix — act on the FIRST match:
   ┌────────────────────────────────────────────────────────────────────────┐
@@ -622,7 +650,7 @@ STEP 2 — CHECK CANONICAL STATE BEFORE DOING ANY WORK:
   └────────────────────────────────────────────────────────────────────────┘
 
   Self-destruct when stopping early:
-    gh pr edit "$N" --repo "$GH_REPO" --remove-label "agent:wip" 2>/dev/null || true
+    # MCP: github_remove_label(issue_number=N, label="agent:wip")
     WORKTREE=$(pwd)
     cd "$REPO"
     git worktree remove --force "$WORKTREE"
@@ -633,7 +661,8 @@ STEP 3 — CHECKOUT & SYNC (only if STEP 2 shows the PR is open and unreviewed):
   # Claim the PR — this is the true "agent is working on it" signal.
   # Only runs after STEP 2's idempotency gate passes, so it never creates stale labels.
   # All exit paths (STEP 2 early-stop, merge, D/F grade, timeout) remove this label.
-  gh pr edit "$N" --repo "$GH_REPO" --add-label "agent:wip" 2>/dev/null || true
+  # MCP: github_claim_issue(issue_number=N)
+  #   (equivalent to: github_add_label(issue_number=N, label="agent:wip"))
 
   ⚠️  COMMIT GUARD — run this first if any files are modified in your worktree:
   Git will abort the merge if any tracked file has uncommitted local changes.
@@ -656,21 +685,21 @@ STEP 3 — CHECKOUT & SYNC (only if STEP 2 shows the PR is open and unreviewed):
   git fetch origin
 
   # 3. Pre-check: know what will conflict BEFORE you merge
-  #    These three files conflict on virtually every parallel Muse batch.
-  #    Read this section now so you can resolve mechanically when git stops.
+  #    These files are touched by nearly every parallel batch — resolve mechanically.
   #
-  #    FILE                              ALWAYS-SAFE RULE
-  #    agentception/muse/cli/app.py           Keep ALL app.add_typer() lines from both sides.
-  #    docs/architecture/muse-vcs.md    Keep ALL ## sections from both sides, sort alpha.
-  #    docs/reference/type-contracts.md Keep ALL entries from both sides.
+  #    FILE                                  ALWAYS-SAFE RULE
+  #    agentception/cli/app.py               Keep ALL registrations from both sides.
+  #    docs/architecture/<module>.md         Keep ALL ## sections, sorted alphabetically.
+  #    docs/reference/type-contracts.md      Keep ALL entries from both sides.
   #
-  #    ⚡ SHORTCUT: open .agentception/conflict-rules.md — every common conflict in this
+  #    ⚡ SHORTCUT: open .cursor/conflict-rules.md — every common conflict in this
   #    repo has a one-line mechanical rule. Do NOT use sed/grep/hexdump loops.
-  #    agentception/muse/api/routes/__init__.py NEVER conflicts (auto-discovery).
-  #    app.py, muse-vcs.md, type-contracts.md use union merge via .gitattributes.
+  #    agentception/api/routes/__init__.py NEVER conflicts (auto-discovery).
+  #    type-contracts.md and module architecture docs use union merge via .gitattributes.
 
   # 4. Merge the latest dev into this feature branch NOW
   git merge origin/dev
+
 
   ── CONFLICT PLAYBOOK (reference this immediately when git reports conflicts) ──
   │                                                                              │
@@ -703,16 +732,16 @@ STEP 3 — CHECKOUT & SYNC (only if STEP 2 shows the PR is open and unreviewed):
   │     Keep either side, remove markers. Done.                                │
   │                                                                              │
   │   RULE 2 ─ KNOWN ADDITIVE FILE → apply the file-specific rule in STEP B:  │
-  │     muse_cli/app.py  •  muse-vcs.md  •  type-contracts.md                 │
+  │     cli/app.py  •  docs/architecture/<module>.md  •  type-contracts.md    │
   │                                                                              │
   │   RULE 3 ─ ALL OTHER FILES (judgment conflict):                             │
-  │     Preserve dev's version PLUS this PR's additions.                       │
+  │     Preserve dev's version PLUS this PR's additions.           │
   │     Semantically incompatible → STOP and report to user. Never guess.     │
   │                                                                              │
   │ STEP B — For each conflicted file NOT resolved by STEP A.5 (Rules 0–1):   │
   │                                                                              │
-  │ ┌─ agentception/muse/cli/app.py ─────────────────────────────────────────────┐  │
-  │ │ Each parallel agent adds exactly one app.add_typer() line.            │  │
+  │ ┌─ agentception/cli/app.py (or any CLI registration file) ──────────────┐  │
+  │ │ Each parallel agent adds exactly one registration line.               │  │
   │ │ Pattern:                                                               │  │
   │ │   <<<<<<< HEAD                                                         │  │
   │ │   app.add_typer(foo_app, name="foo", ...)                              │  │
@@ -720,30 +749,28 @@ STEP 3 — CHECKOUT & SYNC (only if STEP 2 shows the PR is open and unreviewed):
   │ │   app.add_typer(bar_app, name="bar", ...)                              │  │
   │ │   >>>>>>> origin/dev                                                   │  │
   │ │ Rule: KEEP BOTH LINES. Remove markers. Never drop a line.             │  │
-  │ │ Verify: grep -c "add_typer" agentception/muse/cli/app.py                   │  │
+  │ │ Verify: grep -c "add_typer" agentception/cli/app.py                   │  │
   │ │   count must equal the total number of registered sub-apps            │  │
   │ └───────────────────────────────────────────────────────────────────────┘  │
   │                                                                              │
-  │ ┌─ docs/architecture/muse-vcs.md ───────────────────────────────────────┐  │
+  │ ┌─ docs/architecture/<module>.md (any additive architecture doc) ───────┐  │
   │ │ Count markers first:                                                   │  │
-  │ │   grep -c "^<<<<<" docs/architecture/muse-vcs.md                      │  │
+  │ │   grep -c "^<<<<<" docs/architecture/<module>.md                      │  │
   │ │ That is how many conflict blocks you must resolve.                     │  │
-  │ │                                                                        │  │
-  │ │ For each block, identify pattern and apply rule:                       │  │
   │ │                                                                        │  │
   │ │ Pattern A — both sides have a real ## section:                        │  │
   │ │   <<<<<<< HEAD                                                         │  │
-  │ │   ## muse foo — ...                                                    │  │
+  │ │   ## feature-foo — ...                                                 │  │
   │ │   =======                                                              │  │
-  │ │   ## muse bar — ...                                                    │  │
+  │ │   ## feature-bar — ...                                                 │  │
   │ │   >>>>>>> origin/dev                                                   │  │
-  │ │   Rule: KEEP BOTH, sorted alphabetically by command name.             │  │
+  │ │   Rule: KEEP BOTH, sorted alphabetically by section name.             │  │
   │ │                                                                        │  │
   │ │ Pattern B — one side is empty or a blank stub:                        │  │
   │ │   <<<<<<< HEAD                                                         │  │
   │ │   (blank or single-line stub)                                          │  │
   │ │   =======                                                              │  │
-  │ │   ## muse bar — full content                                           │  │
+  │ │   ## feature-bar — full content                                        │  │
   │ │   >>>>>>> origin/dev                                                   │  │
   │ │   Rule: KEEP the non-empty side entirely. Discard the empty side.    │  │
   │ │                                                                        │  │
@@ -752,20 +779,18 @@ STEP 3 — CHECKOUT & SYNC (only if STEP 2 shows the PR is open and unreviewed):
   │ │   If genuinely unclear, keep both and note in the commit message.     │  │
   │ │                                                                        │  │
   │ │ Final check (must return empty):                                       │  │
-  │ │   grep -n "<<<<<<\|=======\|>>>>>>>" docs/architecture/muse-vcs.md   │  │
+  │ │   grep -n "<<<<<<\|=======\|>>>>>>>" docs/architecture/<module>.md   │  │
   │ └───────────────────────────────────────────────────────────────────────┘  │
   │                                                                              │
   │ ┌─ docs/reference/type-contracts.md ────────────────────────────────────┐  │
-  │ │ Each agent registers new named types. Both belong.                    │  │
   │ │ Rule: KEEP ALL entries from BOTH sides. Remove markers.              │  │
   │ │ Final check: grep -n "<<<<<<\|=======\|>>>>>>>" docs/reference/type-contracts.md │
   │ └───────────────────────────────────────────────────────────────────────┘  │
   │                                                                              │
   │ ┌─ Any other file (JUDGMENT CONFLICTS) ─────────────────────────────────┐  │
-  │ │ These require reading both sides carefully.                            │  │
-  │ │ • Preserve dev's version PLUS this PR's additions.                   │  │
-  │ │ • If dev already contains this PR's feature → downgrade grade.       │  │
-  │ │ • If semantically incompatible → stop, report to user.               │  │
+  │ │ • Preserve dev's version PLUS this PR's additions.       │  │
+  │ │ • If dev already contains the feature → stop and self-destruct.     │  │
+  │ │ • If semantically incompatible → stop, report to user.              │  │
   │ └───────────────────────────────────────────────────────────────────────┘  │
   │                                                                              │
   │ STEP C — After resolving ALL files:                                         │
@@ -773,23 +798,24 @@ STEP 3 — CHECKOUT & SYNC (only if STEP 2 shows the PR is open and unreviewed):
   │   git commit -m "chore: resolve merge conflicts with origin/dev"            │
   │                                                                              │
   │ STEP D — Verify clean (no markers anywhere):                                │
-  │   git diff --check                                                           │
-  │   (should output nothing — any output means unresolvedmarkers remain)       │
+  │   git diff --check    ← must return nothing                                 │
   │                                                                              │
-  │ STEP E — Re-run mypy only if resolved files contain Python changes:         │
+  │ STEP E — Re-run mypy only if Python files were in conflict:                 │
   │   app.py changed → run mypy. Markdown-only conflicts → skip mypy.          │
-  │   agentception PR: docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/" │
-  │   agentception PR:      docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/" │
+  │   cd "$REPO" && docker compose exec agentception sh -c \                   │
+  │     "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"  │
+  │   Re-run targeted tests only if logic files changed.                        │
   │                                                                              │
   │ STEP F — Advanced diagnostics if needed:                                    │
-  │   git log --oneline origin/dev...HEAD  ← commits this PR adds              │
+  │   git log --oneline origin/dev...HEAD  ← commits this branch adds          │
   │   git diff origin/dev...HEAD           ← full delta vs dev                 │
   │   git show origin/dev:path/to/file     ← see dev's version of a file       │
   └──────────────────────────────────────────────────────────────────────────────
 
+
   ⚠️  If git merge reports "local changes would be overwritten":
     - Run git status to identify the unexpected modified files.
-    - If they came from the checkout (gh pr checkout left dirty files), run:
+    - If they came from the branch checkout (left dirty files), run:
         git checkout -- <file>   ← discard checkout-introduced changes, then retry merge
     - Then retry: git merge origin/dev
 
@@ -806,29 +832,25 @@ STEP 4 — TARGETED TEST SCOPING (before review):
 
   # 3. Derive test targets using module-name convention:
   #    agentception/readers/pipeline.py        → tests/test_pipeline.py
-  #    agentception/services/muse_vcs.py    → tests/test_muse_vcs.py
-  #    agentception/routes/api/muse.py      → tests/test_muse.py (or e2e/test_muse_e2e_harness.py)
-  #    agentception/services/muse_music_service.py      → agentception/muse/test_music_service.py
-  #    tests/test_*.py (already a test)→ run it directly
+  #    agentception/services/github.py         → tests/test_github.py
+  #    agentception/routes/api/<name>.py       → tests/test_<name>.py
+  #    tests/test_*.py (already a test)        → run it directly
   #
   #    Quick reference (from .cursorrules):
-  #      agentception/readers/llm_phase_planner.py           → tests/test_intent*.py
-  #      agentception/readers/pipeline.py          → tests/test_pipeline.py
-  #      agentception/readers/  → tests/test_handlers.py
-  #      agentception/services/muse_*.py        → tests/test_muse_*.py
-  #      agentception/mcp/                      → tests/test_mcp.py
-  #      agentception/muse/daw/                      → tests/test_daw_adapter.py
-  #      agentception/services/muse_music_service.py        → agentception/tests/test_muse_gm_resolution.py + agentception/tests/test_muse_*.py
+  #      agentception/readers/llm_phase_planner.py  → tests/test_llm_phase_planner.py
+  #      agentception/readers/pipeline.py            → tests/test_pipeline.py
+  #      agentception/readers/issue_creator.py       → tests/test_issue_creator.py
+  #      agentception/mcp/                           → tests/test_mcp.py
+  #      agentception/db/persist.py                  → tests/test_persist.py
+  #      agentception/db/queries.py                  → tests/test_queries.py
   #
   #    AgentCeption (agentception container — NEVER a different container):
   #      agentception/app.py               → agentception/tests/test_agentception_scaffold.py
   #      agentception/readers/worktrees.py → agentception/tests/test_agentception_worktrees.py
-  #      agentception/readers/transcripts.py → agentception/tests/test_agentception_transcripts.py
   #      agentception/readers/github.py    → agentception/tests/test_agentception_github.py
   #      agentception/poller.py            → agentception/tests/test_agentception_poller.py
-  #      agentception/routes/ui.py         → agentception/tests/test_agentception_ui_overview.py
-  #      agentception/routes/control.py    → agentception/tests/test_agentception_control.py
-  #      agentception/telemetry.py         → agentception/tests/test_agentception_telemetry.py
+  #      agentception/routes/ui/           → agentception/tests/test_agentception_ui.py
+  #      agentception/routes/api/build.py  → agentception/tests/test_build.py
   #      agentception/intelligence/*.py    → agentception/tests/test_agentception_dag.py, etc.
   #
   # ⚠️  CODEBASE ISOLATION — both codebases are independent. NEVER cross-run:
@@ -837,7 +859,7 @@ STEP 4 — TARGETED TEST SCOPING (before review):
   #         INCORRECT: docker compose exec agentception pytest agentception/... (wrong container/deps)
   #         INCORRECT: python3 -m pytest ... (host — missing deps)
   #
-  # 4. If the PR only changes .agentception/, .cursor/, docs/, or other non-.py files: skip pytest entirely.
+  # 4. If the PR only changes .cursor/, docs/, or other non-.py files: skip pytest entirely.
   #    mypy is irrelevant too. The review is markdown-content focused.
   #
   # ⚠️  NEVER run the full test suite. Only the derived test files for this PR's codebase.
@@ -849,7 +871,7 @@ STEP 4 — TARGETED TEST SCOPING (before review):
       "PYTHONPATH=/worktrees/$WTNAME pytest \
        /worktrees/$WTNAME/agentception/tests/test_<module>.py -v"
   else
-    #    muse PRs:
+    #    other PRs (non-agentception codebase):
     cd "$REPO" && docker compose exec agentception sh -c \
       "PYTHONPATH=/worktrees/$WTNAME pytest \
        /worktrees/$WTNAME/tests/test_<module1>.py \
@@ -873,8 +895,8 @@ STEP 5 — REVIEW:
 
   DOCS — automatic C grade if any of these are missing:
     - Docstrings on every new public module, class, and function
-    - New muse <cmd> section in docs/architecture/muse-vcs.md
-      (must include: purpose, flags table, output example, result type, agent use case)
+    - New command/endpoint documented in the relevant `docs/architecture/<module>.md`
+      (must include: purpose, parameters, output example, result type, agent use case)
     - New result types registered in docs/reference/type-contracts.md
     - Docs in the same commit as code (not a follow-up PR)
 
@@ -933,7 +955,7 @@ STEP 5 — REVIEW:
     cd "$REPO" && docker compose exec agentception sh -c \
       "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
   else
-    #    muse PRs:
+    #    other PRs (non-agentception codebase):
     cd "$REPO" && docker compose exec agentception sh -c \
       "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/"
   fi
@@ -1002,8 +1024,8 @@ STEP 5 — REVIEW:
     ESCALATE only if the C-grade issue is architecturally broken (wrong data model,
     missing foreign key chain, irrecoverable schema conflict). In that case:
       - DO NOT merge
-      - File a GitHub issue describing exactly what must change
-      - Apply labels with gh issue edit after creation (two-step pattern — never --label on create)
+      - File a GitHub issue via MCP issue_write describing exactly what must change
+      - Apply labels via MCP github_add_label after creation (two-step pattern — never label on create)
       - Apply "bug" label plus the current batch label (${BATCH_ID:-none} or agentception/*)
       - Self-destruct and report the issue URL to the coordinator
       - Never loop or block silently
@@ -1012,18 +1034,16 @@ STEP 5 — REVIEW:
       │ bug              documentation     duplicate         enhancement       │
       │ good first issue help wanted       invalid           question          │
       │ wontfix          multimodal        performance       ai-pipeline       │
-      │ agentception     muse              muse-cli          muse-hub          │
-      │ agentception-integration  mypy          cli               testing           │
-      │ weekend-mvp      muse-music-extensions                                 │
+      │ agentception     agentception-integration  mypy      cli               │
+      │ testing          weekend-mvp                                           │
       │                                                                        │
-      │ ⚠️  Never invent labels (e.g. "tech-debt", "mcp", "budget",           │
-      │    "security" do NOT exist). Using a missing label causes              │
-      │    gh issue create to fail entirely.                                   │
+      │ ⚠️  Never invent labels. Using a non-existent label causes            │
+      │    issue creation to fail entirely.                                    │
       └────────────────────────────────────────────────────────────────────────
 
-      ── TWO-STEP PATTERN (always use this — never --label on gh issue create) ──
-      │ Step 1: create the issue without --label (never fails due to labels)  │
-      │ Step 2: apply labels with gh issue edit (|| true = non-fatal)         │
+      ── TWO-STEP PATTERN (always use this for label assignment) ─────────────
+      │ Step 1: MCP issue_write to create the issue (no labels)              │
+      │ Step 2: MCP github_add_label for each label (non-fatal on failure)   │
       └────────────────────────────────────────────────────────────────────────
 
   8. Grade decision:
@@ -1046,7 +1066,8 @@ STEP 5.5 — MERGE ORDER GATE (sequential chain safety):
   DO NOT loop indefinitely — escalate and self-destruct instead.
 
     for i in $(seq 1 15); do
-      STATE=$(gh pr view "$MERGE_AFTER" --repo "$GH_REPO" --json state --jq '.state' 2>/dev/null)
+      # MCP: github_get_pr(pr_number=MERGE_AFTER) → .state
+      STATE=<github_get_pr(MERGE_AFTER).state>
       echo "[$i/15] Gate PR #$MERGE_AFTER state: $STATE"
       if [ "$STATE" = "MERGED" ]; then
         echo "✅ Gate cleared — PR #$MERGE_AFTER is merged. Proceeding to merge."
@@ -1059,7 +1080,7 @@ STEP 5.5 — MERGE ORDER GATE (sequential chain safety):
         echo "   This PR (#$N) will NOT be merged — merging out of order would break"
         echo "   the dependency chain."
         echo "   Action: fix PR #$MERGE_AFTER manually, then re-run this review agent."
-        gh pr edit "$N" --repo "$GH_REPO" --remove-label "agent:wip" 2>/dev/null || true
+        # MCP: github_remove_label(issue_number=N, label="agent:wip")
         WORKTREE=$(pwd)
         cd "$REPO"
         git worktree remove --force "$WORKTREE"
@@ -1088,7 +1109,7 @@ STEP 6 — PRE-MERGE SYNC (only if grade is A or B):
 
   If new conflicts appear after the final sync:
   - Use the CONFLICT PLAYBOOK from STEP 3 — same rules apply.
-  - For markdown-only conflicts (muse-vcs.md, type-contracts.md), skip mypy.
+  - For markdown-only conflicts (docs/, type-contracts.md), skip mypy.
   - For app.py or any Python file, re-run mypy before pushing.
   - If conflicts are non-trivial and introduce risk → resolve them here,
     re-run mypy and targeted tests, and re-grade before merging.
@@ -1101,36 +1122,39 @@ STEP 6 — PRE-MERGE SYNC (only if grade is A or B):
   # 4. Wait for GitHub to recompute merge status after the push
   sleep 5
 
-  Output "Approved for merge" and then run these in order:
+  Output "Approved for merge" and then merge via MCP:
 
-  # ⚠️  NEVER run `gh pr review --approve`. GitHub forbids approving your own PR
-  #    (the agent authenticates as the repo owner who also authored the PR).
-  #    The merge itself IS the approval signal — skip the review step entirely.
+  # ⚠️  All agents share one GitHub identity. GitHub blocks formal APPROVE
+  #    reviews when author == reviewer. Skip the review — the grade IS the
+  #    approval signal. Proceed directly to merge.
+  # ⚠️  Do NOT submit a COMMENT review "recommending approval" — that
+  #    leaves the PR unmerged. The agent MUST merge, not just comment.
 
-  # 5. Squash merge — this is the ONLY valid merge strategy here.
-  #    NEVER use --auto (requires branch protection rules we don't have).
-  #    NEVER use --merge (wrong strategy, creates a merge commit on dev).
-  #    NEVER use --delete-branch (breaks in multi-worktree setups).
-       gh pr merge <N> --squash
+  # 5. Squash merge via MCP — the ONLY valid merge strategy.
+  #    MCP: merge_pull_request(owner="cgcardona", repo="agentception",
+  #         pullNumber=N, merge_method="squash")
 
-  ── If gh pr merge still reports conflicts after the push ──────────────────
+  ── If merge_pull_request returns an error about conflicts ─────────────────
   │ GitHub sometimes needs more time to recompute merge status. Wait and retry: │
   │                                                                             │
   │   sleep 10                                                                  │
-  │   gh pr merge <N> --squash                                                  │
+  │   # MCP: merge_pull_request(owner="cgcardona",            │
+  │   #       repo="agentception",                               │
+  │   #       pullNumber=N, merge_method="squash")                              │
   │                                                                             │
   │ If it STILL fails: the feature branch has diverged again (yet another PR   │
   │ landed in the gap). Re-run the full sync:                                  │
   │   git fetch origin && git merge origin/dev                                  │
   │   git push origin "$BRANCH"                                                 │
-  │   sleep 5 && gh pr merge <N> --squash                                       │
+  │   sleep 5                                                                   │
+  │   # MCP: merge_pull_request (same args as above)                            │
   │                                                                             │
   │ After two sync+push+retry cycles with no success → stop, report the PR     │
   │ URL and the exact error, and let the user merge manually.                  │
   └─────────────────────────────────────────────────────────────────────────────
 
   # 6. Clear agent:wip now that the PR is merged — it must not persist on closed PRs.
-       gh pr edit <N> --repo "$GH_REPO" --remove-label "agent:wip" 2>/dev/null || true
+       # MCP: github_remove_label(issue_number=N, label="agent:wip")
 
   # 7. Delete the remote branch — CHECK EXISTENCE FIRST.
   # GitHub auto-delete-head-branches is ENABLED on this repo, so the branch is
@@ -1148,17 +1172,34 @@ STEP 6 — PRE-MERGE SYNC (only if grade is A or B):
 
   # 8. Post a fingerprint comment on the PR so every merge is permanently traceable:
        MERGED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-       MERGE_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" "${COGNITIVE_ARCH:-unset}" \
-         --fingerprint \
-         --role "${ROLE:-pr-reviewer}" \
-         --session "$AGENT_SESSION" \
-         --batch "${BATCH_ID:-none}" \
-         --wave "${WAVE:-unset}" \
-         --coordinator "${COORD_FINGERPRINT:-unset}" \
-         --started-at "$MERGED_AT" 2>/dev/null)
-       gh pr comment "$N" --repo "$GH_REPO" --body "✅ **Review complete — Grade: \`<A/B/C/D/F>\`**
+  MERGE_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" "${COGNITIVE_ARCH:-unset}" \
+    --fingerprint \
+    --role "${ROLE:-pr-reviewer}" \
+    --session "$AGENT_SESSION" \
+    --batch "${BATCH_ID:-none}" \
+    --wave "${WAVE:-unset}" \
+    --coordinator "${COORD_FINGERPRINT:-unset}" \
+    --started-at "$MERGED_AT" 2>/dev/null)
+  # Fallback: if resolve_arch.py is unavailable or returned nothing, build the table in shell.
+  # ⚠️  Row labels MUST match render_fingerprint() exactly — this is the single source of truth.
+  if [ -z "$MERGE_FINGERPRINT" ]; then
+    MERGE_FINGERPRINT="<details>
+<summary>🤖 Agent Fingerprint</summary>
 
-$MERGE_FINGERPRINT"
+| | |
+|---|---|
+| **Role** | \`${ROLE:-pr-reviewer}\` |
+| **Architecture** | \`${COGNITIVE_ARCH:-unset}\` |
+| **Session** | \`${AGENT_SESSION:-unset}\` |
+| **CTO Wave** | \`${WAVE:-unset}\` |
+| **Coordinator Batch** | \`${BATCH_ID:-none}\` |
+| **Coordinator** | \`${COORD_FINGERPRINT:-unset}\` |
+| **Timestamp** | \`$MERGED_AT\` |
+
+</details>"
+  fi
+       # MCP: add_issue_comment(owner="cgcardona", repo="agentception", issue_number=N,
+       #   body="✅ **Review complete — Grade: `<A/B/C/D/F>`**\n\n$MERGE_FINGERPRINT")
 
   # NOTE: Do NOT delete the local branch here — the branch is still checked out
   # in this worktree, so git will refuse. The local branch ref is cleaned up in
@@ -1170,44 +1211,57 @@ $MERGE_FINGERPRINT"
   #    ⚠️  Do NOT use `grep -o '#[0-9]*'` — it matches any #N (commit hashes,
   #    mentions, literal numbers) and silently closes the wrong issue.
   #    ⚠️  Do NOT use `while read` — the `read` builtin triggers a sandbox prompt.
-       CLOSE_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" "${COGNITIVE_ARCH:-unset}" \
-         --fingerprint \
-         --role "${ROLE:-pr-reviewer}" \
-         --session "$AGENT_SESSION" \
-         --batch "${BATCH_ID:-none}" \
-         --wave "${WAVE:-unset}" \
-         --coordinator "${COORD_FINGERPRINT:-unset}" \
-         --started-at "$MERGED_AT" 2>/dev/null)
-       CLOSE_COMMENT="✅ Closed by PR #$N (merged).
+  CLOSE_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" "${COGNITIVE_ARCH:-unset}" \
+    --fingerprint \
+    --role "${ROLE:-pr-reviewer}" \
+    --session "$AGENT_SESSION" \
+    --batch "${BATCH_ID:-none}" \
+    --wave "${WAVE:-unset}" \
+    --coordinator "${COORD_FINGERPRINT:-unset}" \
+    --started-at "$MERGED_AT" 2>/dev/null)
+  # Fallback: if resolve_arch.py is unavailable or returned nothing, build the table in shell.
+  # ⚠️  Row labels MUST match render_fingerprint() exactly — this is the single source of truth.
+  if [ -z "$CLOSE_FINGERPRINT" ]; then
+    CLOSE_FINGERPRINT="<details>
+<summary>🤖 Agent Fingerprint</summary>
 
-$CLOSE_FINGERPRINT"
+| | |
+|---|---|
+| **Role** | \`${ROLE:-pr-reviewer}\` |
+| **Architecture** | \`${COGNITIVE_ARCH:-unset}\` |
+| **Session** | \`${AGENT_SESSION:-unset}\` |
+| **CTO Wave** | \`${WAVE:-unset}\` |
+| **Coordinator Batch** | \`${BATCH_ID:-none}\` |
+| **Coordinator** | \`${COORD_FINGERPRINT:-unset}\` |
+| **Timestamp** | \`$MERGED_AT\` |
+
+</details>"
+  fi
+       CLOSE_COMMENT="✅ Closed by PR #$N (merged).\n\n$CLOSE_FINGERPRINT"
 
        CLOSES_ISSUES=$(grep "^CLOSES_ISSUES=" .agent-task | cut -d= -f2)
-       # Export so the xargs subshell can see both variables (single-quoted sh -c)
-       export CLOSE_COMMENT
-       export GH_REPO
        if [ -n "$CLOSES_ISSUES" ]; then
-         echo "$CLOSES_ISSUES" | tr ',' '\n' | xargs -I{} sh -c \
-           'gh issue close {} --comment "$CLOSE_COMMENT" --repo "$GH_REPO" 2>/dev/null || true; gh issue edit {} --remove-label "agent:wip" --repo "$GH_REPO" 2>/dev/null || true'
+         # For each issue number in CLOSES_ISSUES (comma-separated):
+         # MCP: issue_write(owner="cgcardona", repo="agentception",
+         #       issue_number=<N>, state="closed", state_reason="completed")
+         # MCP: add_issue_comment(owner="cgcardona", repo="agentception",
+         #       issue_number=<N>, body="$CLOSE_COMMENT")
+         # MCP: github_remove_label(issue_number=<N>, label="agent:wip")
+         echo "Close each issue via MCP issue_write + add_issue_comment + github_remove_label"
        else
          # Fallback: re-parse the PR body if CLOSES_ISSUES was empty in task file
-         gh pr view "$N" --json body --jq '.body' \
-           | grep -oE '[Cc]loses?\s+#[0-9]+' \
-           | grep -oE '[0-9]+' \
-           | xargs -I{} sh -c \
-               'gh issue close {} --comment "$CLOSE_COMMENT" --repo "$GH_REPO" 2>/dev/null || true; gh issue edit {} --remove-label "agent:wip" --repo "$GH_REPO" 2>/dev/null || true'
+         # MCP: github_get_pr(pr_number=N) → .body → parse "Closes #NNN" patterns
+         # Then for each parsed issue number, call MCP issue_write to close it.
+         echo "Parse PR body for Closes #NNN patterns, then close each via MCP issue_write"
        fi
-
-  ⚠️  Never use --delete-branch with gh pr merge in a multi-worktree setup.
-      gh attempts to checkout dev locally to delete the feature branch, but dev
-      is already checked out in the main worktree and git will refuse.
 
   # 10. Mark linked issues as merged (conductor reads this as "done").
   CLOSES_ISSUES_FOR_LABEL=$(grep "^CLOSES_ISSUES=" .agent-task | cut -d= -f2)
   if [ -n "$CLOSES_ISSUES_FOR_LABEL" ]; then
-    echo "$CLOSES_ISSUES_FOR_LABEL" | tr ',' '\n' | xargs -I{} sh -c \
-      'gh issue edit {} --repo "$GH_REPO" --remove-label "status/pr-open" 2>/dev/null || true
-       gh issue edit {} --repo "$GH_REPO" --add-label "status/merged" 2>/dev/null || true'
+    # For each issue in CLOSES_ISSUES_FOR_LABEL:
+    # MCP: github_remove_label(issue_number=<N>, label="status/pr-open")
+    # MCP: github_add_label(issue_number=<N>, label="status/merged")
+    echo "Update issue labels via MCP github_remove_label + github_add_label"
   fi
 
   # 9. Pull the merge into the main repo's local dev — so the coordinator's
@@ -1300,41 +1354,14 @@ AgentCeption-Session: ${AGENT_SESSION:-unset}"
   FAILED_TESTS=$(echo "$TEST_OUTPUT" | grep "^FAILED " | sed 's/^FAILED //')
   if [ -n "$FAILED_TESTS" ]; then
     echo "⚠️  New failures detected post-merge. Creating regression issues..."
-    while IFS= read -r test_line; do
-      [ -z "$test_line" ] && continue
-      # Create a bug fix issue for each failing test
-      BUG_URL=$(gh issue create \
-        --repo "$GH_REPO" \
-        --title "fix: regression — $test_line (introduced near batch merge)" \
-        --body "## Regression Report
-
-**Failing test:** \`$test_line\`
-**Detected after merging:** PR #$N (batch: ${BATCH_ID:-unknown})
-**Detection method:** post-merge targeted test run in PR_REVIEW STEP 7
-
-## Reproduction
-\`\`\`bash
-docker compose exec agentception pytest $test_line -v
-\`\`\`
-
-## Context
-This failure was not present before this PR was merged. The most likely cause is a
-side-effect of the changes in PR #$N. Start investigation there.
-
-## Acceptance Criteria
-- [ ] Test passes again
-- [ ] No other tests regressed by the fix
-- [ ] mypy clean after fix
-")
-      # Apply labels (two-step pattern — label failures are non-fatal)
-      gh issue edit "$BUG_URL" --add-label "bug" 2>/dev/null || true
-      # Apply the next available batch label (pipeline picks it up automatically)
-      NEXT_BATCH=$(gh label list --repo "$GH_REPO" \
-        --search "batch-" --json name --jq '[.[].name] | sort | last' 2>/dev/null || echo "")
-      [ -n "$NEXT_BATCH" ] && \
-        gh issue edit "$BUG_URL" --add-label "$NEXT_BATCH" 2>/dev/null || true
-      echo "✅ Regression issue created: $BUG_URL"
-    done <<< "$FAILED_TESTS"
+    # For each failing test, create a regression issue via MCP:
+    # MCP: issue_write(owner="cgcardona", repo="agentception",
+    #       title="fix: regression — <test_line> (introduced near batch merge)",
+    #       body="## Regression Report\n\n**Failing test:** `<test_line>`\n**Detected after merging:** PR #N (batch: BATCH_ID)\n**Detection method:** post-merge targeted test run in PR_REVIEW STEP 7\n\n## Reproduction\n```bash\ndocker compose exec agentception pytest <test_line> -v\n```\n\n## Context\nThis failure was not present before this PR was merged.\n\n## Acceptance Criteria\n- [ ] Test passes again\n- [ ] No other tests regressed by the fix\n- [ ] mypy clean after fix")
+    #
+    # Then apply labels (two-step pattern — label failures are non-fatal):
+    # MCP: github_add_label(issue_number=<created_issue_number>, label="bug")
+    # MCP: github_add_label(issue_number=<created_issue_number>, label="<batch_label>")
   else
     echo "✅ No regressions detected. Post-merge test run clean."
   fi
@@ -1354,11 +1381,12 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
     # that still has open issues. NEVER pick from a later label while an earlier one
     # still has work. This prevents later-phase issues from being claimed prematurely.
     ACTIVE_LABEL=""
+    # For each phase label in order, check if open issues exist:
        for label in ac-ui/0-critical-bugs ac-ui/1-design-tokens \
                         ac-ui/2-data-model ac-ui/3-core-pages \
                         ac-ui/4-controls-intelligence ac-ui/5-polish; do
-      COUNT=$(gh issue list --state open --repo "$GH_REPO" \
-                --label "$label" --json number --jq 'length')
+      # MCP: github_list_issues(label="$label", state="open") → .count
+      COUNT=<count from MCP response>
       if [ "$COUNT" -gt 0 ]; then
         ACTIVE_LABEL="$label"
         break
@@ -1371,8 +1399,8 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
       TASK_BATCH_ID=$(grep "^BATCH_ID=" .agent-task 2>/dev/null | cut -d= -f2 || echo "")
       BATCH_LABEL_PREFIX=$(echo "$TASK_BATCH_ID" | grep -oE 'batch-[0-9]+' | head -1)
       if [ -n "$BATCH_LABEL_PREFIX" ]; then
-        BATCH_COUNT=$(gh issue list --state open --repo "$GH_REPO" \
-          --label "$BATCH_LABEL_PREFIX" --json number --jq 'length' 2>/dev/null || echo 0)
+        # MCP: github_list_issues(label="$BATCH_LABEL_PREFIX", state="open") → .count
+        BATCH_COUNT=<count from MCP response>
         if [ "$BATCH_COUNT" -gt 0 ]; then
           ACTIVE_LABEL="$BATCH_LABEL_PREFIX"
         fi
@@ -1384,24 +1412,25 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
       echo "ℹ️  No open ac-ui/ or batch issues remain — chain complete."
     else
       # Pick the next unclaimed issue from ACTIVE_LABEL only.
-      NEXT_ISSUE=$(gh issue list \
-        --repo "$GH_REPO" \
-        --state open \
-        --label "$ACTIVE_LABEL" \
-        --json number,labels \
-        --jq '[.[] | select(.labels | map(.name) | index("agent:wip") | not)
-              ] | sort_by(.number) | first | .number // empty')
+      # MCP: github_list_issues(label="$ACTIVE_LABEL", state="open")
+      # Filter out any with label "agent:wip" (already claimed).
+      # Take the lowest-numbered remaining issue.
+      NEXT_ISSUE=<lowest unclaimed issue number from MCP response>
     fi
 
     # Dependency gate: only proceed if all "Depends on #NNN" references are CLOSED.
     if [ -n "$NEXT_ISSUE" ]; then
-      BODY=$(gh issue view "$NEXT_ISSUE" --repo "$GH_REPO" --json body --jq '.body' 2>/dev/null || echo "")
-      DEPS=$(echo "$BODY" | grep -oE 'Depends on[^.]+' | grep -oE '[0-9]+')
+      # MCP: github_get_issue(number=$NEXT_ISSUE) → .body
+      # Parse "Depends on #NNN" references from body text.
+      # For each dependency:
+      #   MCP: github_get_issue(number=<dep>) → check .state and .state_reason
+      #   If state != "closed" or state_reason != "completed" → skip this issue.
+      DEPS=<parsed dependency issue numbers>
       for dep in $DEPS; do
-        DEP_STATE=$(gh issue view "$dep" --repo "$GH_REPO" --json state --jq '.state' 2>/dev/null || echo "OPEN")
-        DEP_REASON=$(gh issue view "$dep" --repo "$GH_REPO" --json stateReason --jq '.stateReason' 2>/dev/null || echo "UNKNOWN")
-        if [ "$DEP_STATE" != "CLOSED" ] || [ "$DEP_REASON" != "COMPLETED" ]; then
-          echo "ℹ️  Issue #$NEXT_ISSUE blocked by dependency #$dep (state=$DEP_STATE reason=$DEP_REASON) — chain complete for now."
+        # MCP: github_get_issue(number=$dep) → .state
+        DEP_STATE=<state from MCP>
+        if [ "$DEP_STATE" != "closed" ]; then
+          echo "ℹ️  Issue #$NEXT_ISSUE blocked by dependency #$dep (state=$DEP_STATE) — chain complete for now."
           NEXT_ISSUE=""
           break
         fi
@@ -1419,11 +1448,12 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
       NEXT_WORKTREE="$HOME/.agentception/worktrees/agentception/issue-$NEXT_ISSUE"
       git -C "$REPO" worktree add -b "feat/issue-$NEXT_ISSUE" "$NEXT_WORKTREE" origin/dev
       # Add label only after worktree is confirmed created — prevents permanent lock on creation failure
-      gh issue edit "$NEXT_ISSUE" --repo "$GH_REPO" --add-label "agent:wip" 2>/dev/null || true
+      # MCP: github_claim_issue(issue_number=$NEXT_ISSUE)
 
       # Resolve the primary label so the engineer can route mypy/tests correctly.
-      NEXT_ISSUE_LABEL=$(gh issue view "$NEXT_ISSUE" --repo "$GH_REPO" \
-        --json labels --jq '[.labels[].name | select(startswith("ac-ui/"))] | first // ""')
+      # MCP: github_get_issue(number=$NEXT_ISSUE) → .labels
+      # Pick the first label starting with "ac-ui/"
+      NEXT_ISSUE_LABEL=<label from MCP response>
 
       cat > "$NEXT_WORKTREE/.agent-task" <<TASK
 WORKFLOW=issue-to-pr
@@ -1435,7 +1465,7 @@ WORKTREE=$NEXT_WORKTREE
 BASE=dev
 CLOSES_ISSUES=$NEXT_ISSUE
 ROLE=python-developer
-ROLE_FILE=<repo-root>/.agentception/roles/python-developer.md
+ROLE_FILE=<repo-root>/.cursor/roles/python-developer.md
 BATCH_ID=${BATCH_ID:-none}
 COORD_FINGERPRINT=${COORD_FINGERPRINT:-unset}
 WAVE=${WAVE:-unset}
@@ -1465,23 +1495,22 @@ TASK
   else
     # ── POOL MODE: spawned by QA Coordinator; spawn the next REVIEWER for the next open PR ──
 
-    NEXT_PR=$(gh pr list \
-      --repo "$GH_REPO" \
-      --base dev \
-      --state open \
-      --json number,labels \
-      --jq '[.[] | select(.labels | map(.name) | index("agent:wip") | not)] | first | .number // empty')
+    # MCP: github_list_prs(state="open") → filter out any with label "agent:wip"
+    # Take the first unclaimed PR targeting dev.
+    NEXT_PR=<first unclaimed PR number from MCP response>
 
     if [ -n "$NEXT_PR" ]; then
-      NEXT_BRANCH=$(gh pr view "$NEXT_PR" --repo "$GH_REPO" --json headRefName --jq .headRefName)
+      # MCP: github_get_pr(pr_number=$NEXT_PR) → .headRefName, .title, .body
+      NEXT_BRANCH=<headRefName from MCP response>
       NEXT_WORKTREE="$HOME/.agentception/worktrees/agentception/pr-$NEXT_PR"
       git -C "$REPO" worktree add "$NEXT_WORKTREE" "origin/$NEXT_BRANCH"
       # ⚠️  Do NOT add agent:wip here. The reviewer claims the label itself in STEP 3
       # after passing the idempotency gate. Adding it here causes stale labels when the
       # reviewer is never launched or crashes before claiming.
 
-      NEXT_PR_TITLE=$(gh pr view "$NEXT_PR" --repo "$GH_REPO" --json title --jq '.title' 2>/dev/null || echo "")
-      NEXT_PR_BODY=$(gh pr view "$NEXT_PR" --repo "$GH_REPO" --json body --jq '.body' 2>/dev/null || echo "")
+      NEXT_PR_TITLE=<title from MCP response>
+      NEXT_PR_BODY=<body from MCP response>
+      # gh pr diff is kept for file listing — no MCP equivalent for diff content.
       NEXT_FILES=$(gh pr diff "$NEXT_PR" --repo "$GH_REPO" --name-only 2>/dev/null | tr '\n' ',' | sed 's/,$//')
       NEXT_CLOSES=$(echo "$NEXT_PR_BODY" | grep -oE '[Cc]loses?\s+#[0-9]+' | grep -oE '[0-9]+' | tr '\n' ',' | sed 's/,$//')
       NEXT_MERGE_AFTER=$(echo "$NEXT_PR_BODY" | grep -oiE 'merge after #[0-9]+|depends on pr #[0-9]+' | grep -oE '[0-9]+' | head -1)
@@ -1502,7 +1531,7 @@ FILES_CHANGED=$NEXT_FILES
 MERGE_AFTER=$NEXT_MERGE_AFTER
 HAS_MIGRATION=$NEXT_HAS_MIG_VAL
 ROLE=pr-reviewer
-ROLE_FILE=<repo-root>/.agentception/roles/pr-reviewer.md
+ROLE_FILE=<repo-root>/.cursor/roles/pr-reviewer.md
 COGNITIVE_ARCH=${COGNITIVE_ARCH:-knuth:python}
 BATCH_ID=${BATCH_ID:-none}
 COORD_FINGERPRINT=${COORD_FINGERPRINT:-unset}
@@ -1534,21 +1563,22 @@ TASK
 STEP 9 — SELF-DESTRUCT (always run this after STEP 8, merge or not, early stop or not):
   # Unconditionally clear agent:wip — covers D/F grade, merge failure, and timeout paths
   # where STEP 6 was never reached. Removing a non-existent label is a no-op.
-  gh pr edit "$N" --repo "$GH_REPO" --remove-label "agent:wip" 2>/dev/null || true
+  # MCP: github_remove_label(issue_number=N, label="agent:wip")
   WORKTREE=$(pwd)
   BRANCH_TO_DELETE=$(git rev-parse --abbrev-ref HEAD)
+  WORKTREE=$(pwd)
   cd "$REPO"
-  git worktree remove --force "$WORKTREE"   # must come FIRST — branch is checked out here
+  git worktree remove --force "$WORKTREE"
   git worktree prune
   git branch -D "$BRANCH_TO_DELETE" 2>/dev/null || true  # safe now that worktree is gone
 
 ⚠️  NEVER copy files to the main repo for testing.
 ⚠️  NEVER start a review without completing STEP 2. Skipping the check causes
     duplicate review passes and redundant merge attempts.
-⚠️  NEVER run gh pr merge without first outputting your grade.
+⚠️  NEVER call merge_pull_request without first outputting your grade.
 
 CRITICAL: You MUST output your grade and "Approved for merge" OR "Not approved — do not merge"
-BEFORE running any gh pr merge command.
+BEFORE calling merge_pull_request via MCP. The agent MUST merge — do not just leave a comment.
 
 Report: PR number, grade (must be A before merge), merge status, any improvements made.
 ```
@@ -1596,8 +1626,8 @@ If two PRs in the batch share a file:
 
 ### Step 1 — Confirm PRs are open
 
-```bash
-gh pr list --state open
+```
+# MCP: github_list_prs(state="open")
 ```
 
 ### Step 2 — Confirm `dev` is up to date
@@ -1635,7 +1665,7 @@ docker compose exec agentception ls /worktrees/
 REPO=$(git rev-parse --show-toplevel)
 git -C "$REPO" fetch origin
 git -C "$REPO" merge origin/dev
-gh pr list --state open   # any PRs the batch failed to merge?
+# MCP: github_list_prs(state="open")   # any PRs the batch failed to merge?
 ```
 
 ### 2 — Worktree cleanup
@@ -1837,6 +1867,7 @@ Each sub-agent gets its own ephemeral worktree. Worktrees are created at kickoff
 named by issue number, and **deleted by the sub-agent when its job is done**.
 The branch and PR live on GitHub regardless — the local worktree is just a
 working directory.
+
 
 ---
 
@@ -2076,7 +2107,7 @@ for entry in "${SELECTED_ISSUES[@]}"; do
     FIGURE="hopper"
   fi
   COGNITIVE_ARCH_VAL="${FIGURE}:${SKILLS}"
-  ROLE_FILE_VAL="$REPO/.agentception/roles/${AGENT_ROLE}.md"
+  ROLE_FILE_VAL="$REPO/.cursor/roles/${AGENT_ROLE}.md"
 
   cat > "$WT/.agent-task" << TASKEOF
 WORKFLOW=issue-to-pr
@@ -2144,6 +2175,7 @@ If you see "No module named X", you are on the host. Stop. Use `docker compose e
 
 ---
 
+
 ## Environment (agents read this first)
 
 **You are running inside a Cursor worktree.** Your working directory is NOT the main repo.
@@ -2155,7 +2187,6 @@ WTNAME=$(basename "$(pwd)")                               # this worktree's name
 # Docker path to your worktree: /worktrees/$WTNAME
 
 # GitHub repo slug — HARDCODED. NEVER derive from local path or directory name.
-# The local path is derived from REPO_DIR — never use directory name as the GitHub org.
 export GH_REPO=cgcardona/agentception
 ```
 
@@ -2210,21 +2241,56 @@ the `dev` branch with uncommitted changes.
 > because it needs a live DB connection. After generating, immediately `git mv` the
 > migration file into your worktree and delete the copy from the main repo.
 
+### GitHub via MCP — always prefer MCP over `gh`
+
+Both MCP servers are configured. Use them instead of `gh` for all GitHub reads and
+writes — they add caching, structured output, and logging.
+
+**AgentCeption MCP server** (`user-agentception-*` — cached and logged):
+
+| MCP tool | Replaces |
+|----------|---------|
+| `github_list_issues(state, label)` | `gh issue list --label X` |
+| `github_get_issue(issue_number)` | `gh issue view N --json ...` |
+| `github_list_prs(state)` | `gh pr list` |
+| `github_get_pr(pr_number)` | `gh pr view N --json ...` |
+| `github_add_label(issue_number, label)` | `gh issue edit N --add-label X` |
+| `github_remove_label(issue_number, label)` | `gh issue edit N --remove-label X` |
+| `github_claim_issue(issue_number)` | `gh issue edit N --add-label "agent:wip"` |
+| `github_unclaim_issue(issue_number)` | `gh issue edit N --remove-label "agent:wip"` |
+
+**GitHub MCP server** (`user-github-*` — direct GitHub API):
+
+| MCP tool | Replaces |
+|----------|---------|
+| `create_pull_request` | `gh pr create` |
+| `merge_pull_request` | `gh pr merge N` |
+| `add_issue_comment` | `gh issue comment N` / `gh pr comment N` |
+| `issue_write` (state: closed) | `gh issue close N` |
+| `update_pull_request` | `gh pr edit N` (title/body/state) |
+| `pull_request_read` | `gh pr view N` (detailed review data) |
+
+**Keep `gh` for:** `gh pr checkout N` (git-level branch checkout),
+`gh pr diff N --name-only` (diff content), `gh label create/edit` (label setup),
+and all `git` commands.
+
+
 ### Command policy
 
-Consult `.agentception/agent-command-policy.md` for the full tier list. Summary:
-- **Green (auto-allow):** `ls`, `git status/log/diff/fetch`, `gh pr view`, `mypy`, `pytest`, `rg`
+Consult `.cursor/agent-command-policy.md` for the full tier list. Summary:
+- **Green (auto-allow):** `ls`, `git status/log/diff/fetch`, `github_get_issue`, `github_list_prs`, `mypy`, `pytest`, `rg`
 - **Yellow (review before running):** `docker compose build`, `rm <single file>`, `git rebase`
 - **Red (never):** `rm -rf`, `git push --force`, `git push origin dev`, `docker system prune`
 
 ---
+
 
 ## Kickoff Prompt
 
 ```
 PARALLEL AGENT COORDINATION — ISSUE TO PR
 
-Read .agentception/agent-command-policy.md before issuing any shell commands.
+Read .cursor/agent-command-policy.md before issuing any shell commands.
 Green-tier commands run without confirmation. Yellow = check scope first.
 Red = never, ask the user instead.
 
@@ -2312,18 +2378,14 @@ STEP 1 — DERIVE PATHS:
   export GH_REPO=cgcardona/agentception
 
   # ⚠️  VALIDATION — run this immediately to catch slug errors early:
-  gh repo view "$GH_REPO" --json name --jq '.name'
-  # Expected output: agentception
-  # If you see an error → GH_REPO is wrong. Stop and fix it before continuing.
-
-  # All gh commands inherit $GH_REPO automatically. You may also pass --repo "$GH_REPO" explicitly.
+  # MCP: github_list_issues(state="open") → if it errors, GH_REPO is wrong. Stop and fix.
 
 STEP 2 — CHECK CANONICAL STATE BEFORE DOING ANY WORK:
   ⚠️  Query GitHub first. Do NOT create a branch, write a file, or run mypy until
   you have confirmed no prior work exists. This is the idempotency gate.
 
   # Mark issue as in-progress so the conductor and other agents see it's claimed.
-  gh issue edit <N> --repo "$GH_REPO" --add-label "status/in-progress" 2>/dev/null || true
+  # MCP: github_add_label(issue_number=N, label="status/in-progress")
 
   # Leave an audit trail: which cognitive identity claimed this issue.
   AGENT_SESSION="eng-$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%04x' $RANDOM)"
@@ -2337,7 +2399,6 @@ STEP 2 — CHECK CANONICAL STATE BEFORE DOING ANY WORK:
     --coordinator "${COORD_FINGERPRINT:-unset}" \
     --started-at "$CLAIMED_AT" 2>/dev/null)
   # Fallback: if resolve_arch.py is unavailable or returned nothing, build the table in shell.
-  # This ensures a consistent <details> table appears even when Python/PyYAML is absent.
   # ⚠️  Row labels MUST match render_fingerprint() exactly — this is the single source of truth.
   if [ -z "$CLAIM_FINGERPRINT" ]; then
     CLAIM_FINGERPRINT="<details>
@@ -2351,21 +2412,20 @@ STEP 2 — CHECK CANONICAL STATE BEFORE DOING ANY WORK:
 | **CTO Wave** | \`${WAVE:-unset}\` |
 | **Coordinator Batch** | \`${BATCH_ID:-none}\` |
 | **Coordinator** | \`${COORD_FINGERPRINT:-unset}\` |
-| **Timestamp** | \`$(date -u '+%Y-%m-%dT%H:%M:%SZ')\` |
+| **Timestamp** | \`$CLAIMED_AT\` |
 
 </details>"
   fi
-  gh issue comment <N> --repo "$GH_REPO" \
-    --body "🔖 **Claimed by agent**
-
-$CLAIM_FINGERPRINT" 2>/dev/null || true
+  # MCP: add_issue_comment(owner="cgcardona", repo="agentception", issue_number=N,
+  #   body="🔖 **Claimed by agent**\n\n$CLAIM_FINGERPRINT")
 
   # 0. Is the issue itself already closed? (fastest exit — check this FIRST)
-  ISSUE_STATE=$(gh issue view <N> --json state --jq '.state')
+  # MCP: github_get_issue(issue_number=N) → .state
+  ISSUE_STATE=<github_get_issue(N).state>
   if [ "$ISSUE_STATE" = "CLOSED" ]; then
     echo "⚠️  Issue #<N> is already CLOSED on GitHub. No work needed."
-    gh issue edit <N> --repo "$GH_REPO" --remove-label "status/in-progress" 2>/dev/null || true
-    gh issue edit <N> --repo "$GH_REPO" --remove-label "agent:wip" 2>/dev/null || true
+    # MCP: github_remove_label(issue_number=N, label="status/in-progress")
+    # MCP: github_remove_label(issue_number=N, label="agent:wip")
     WORKTREE=$(pwd)
     cd "$REPO"
     git worktree remove --force "$WORKTREE"
@@ -2374,7 +2434,8 @@ $CLAIM_FINGERPRINT" 2>/dev/null || true
   fi
 
   # 1. Is there already an open or merged PR that closes this issue?
-  gh pr list --search "closes #<N>" --state all --json number,url,state,headRefName
+  # MCP: search_pull_requests(q="repo:cgcardona/agentception closes:#<N>", state="all")
+  # → returns list of {number, url, state, headRefName}
 
   # 2. Is there already a branch for this issue in the remote?
   git ls-remote origin | grep -i "issue-<N>\|fix/.*<N>\|feat/.*<N>"
@@ -2398,15 +2459,15 @@ $CLAIM_FINGERPRINT" 2>/dev/null || true
   └──────────────────────────────────────────────────────────────────────────┘
 
   Self-destruct when stopping early:
-    gh issue edit <N> --repo "$GH_REPO" --remove-label "status/in-progress" 2>/dev/null || true
-    gh issue edit <N> --repo "$GH_REPO" --remove-label "agent:wip" 2>/dev/null || true
+    # MCP: github_remove_label(issue_number=N, label="status/in-progress")
+    # MCP: github_remove_label(issue_number=N, label="agent:wip")
     WORKTREE=$(pwd)
     cd "$REPO"
     git worktree remove --force "$WORKTREE"
     git worktree prune
 
   ⚠️  MERGED PR + OPEN ISSUE = REVERT SCENARIO — never auto-close:
-    If gh pr list finds a merged PR but the issue is still OPEN, a human
+    If search_pull_requests finds a merged PR but the issue is still OPEN, a human
     explicitly reopened the issue after the PR was reverted. Your job is to
     re-implement the work from scratch. Proceed to STEP 3. Do NOT close the issue.
 
@@ -2418,9 +2479,7 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
   # Read DEPENDS_ON from .agent-task. If set, verify those PRs/issues are merged
   # before implementing — your code may import from them at runtime.
   #
-  # ⚠️  DEPENDS_ON is a comma-separated list (e.g. "614,615"). NEVER pass the raw
-  # string to `gh issue view` — always split on commas and iterate each number.
-  # Passing "614,615" as a single argument produces: invalid issue format: "614\n615"
+  # ⚠️  DEPENDS_ON is a comma-separated list (e.g. "614,615"). Iterate each number separately.
   DEPENDS_ON_RAW=$(grep "^DEPENDS_ON=" .agent-task | cut -d= -f2)
   if [ -n "$DEPENDS_ON_RAW" ] && [ "$DEPENDS_ON_RAW" != "none" ]; then
     echo "ℹ️  DEPENDS_ON: $DEPENDS_ON_RAW"
@@ -2430,8 +2489,9 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
     for DEP in "${DEP_NUMS[@]}"; do
       DEP=$(echo "$DEP" | tr -d '[:space:]')
       [ -z "$DEP" ] && continue
-      DEP_STATE=$(gh issue view "$DEP" --repo "$GH_REPO" --json state --jq '.state' 2>/dev/null || echo "UNKNOWN")
-      DEP_REASON=$(gh issue view "$DEP" --repo "$GH_REPO" --json stateReason --jq '.stateReason' 2>/dev/null || echo "UNKNOWN")
+      # MCP: github_get_issue(issue_number=DEP) → .state and .stateReason
+      DEP_STATE=<github_get_issue(DEP).state>
+      DEP_REASON=<github_get_issue(DEP).stateReason>
       if [ "$DEP_STATE" != "CLOSED" ] || [ "$DEP_REASON" != "COMPLETED" ]; then
         echo "⚠️  Dependency #$DEP is $DEP_STATE (reason=$DEP_REASON) — not yet merged to dev. Note in PR body."
         ALL_DEPS_MET=false
@@ -2447,8 +2507,8 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
       echo "   B) If the dependency's code IS required (e.g. imports a module that doesn't exist yet)"
       echo "      → clean abort: remove agent:wip, remove this worktree, and skip this issue."
       echo "      CLEAN ABORT sequence:"
-      echo "        gh issue edit $N --repo \"\$GH_REPO\" --remove-label \"agent:wip\" 2>/dev/null || true"
-      echo "        gh issue edit $N --repo \"\$GH_REPO\" --remove-label \"status/in-progress\" 2>/dev/null || true"
+      echo "        MCP: github_remove_label(issue_number=N, label=\"agent:wip\")"
+      echo "        MCP: github_remove_label(issue_number=N, label=\"status/in-progress\")"
       echo "        cd \"\$REPO\""
       echo "        git worktree remove --force \"\$WORKTREE\""
       echo "        git worktree prune"
@@ -2619,10 +2679,11 @@ AgentCeption-Session: $AGENT_SESSION"
   git fetch origin
   git merge origin/dev
 
-  ⚡ CONFLICT SHORTCUT: open .agentception/conflict-rules.md FIRST.
+  ⚡ CONFLICT SHORTCUT: open .cursor/conflict-rules.md FIRST.
   Every common conflict has a one-line rule. NO sed/grep/hexdump loops.
   agentception/muse/api/routes/__init__.py NEVER conflicts (auto-discovery).
   app.py, muse-vcs.md, type-contracts.md use union merge (.gitattributes).
+
 
   ── CONFLICT PLAYBOOK (reference this immediately when git reports conflicts) ──
   │                                                                              │
@@ -2655,16 +2716,16 @@ AgentCeption-Session: $AGENT_SESSION"
   │     Keep either side, remove markers. Done.                                │
   │                                                                              │
   │   RULE 2 ─ KNOWN ADDITIVE FILE → apply the file-specific rule in STEP B:  │
-  │     muse_cli/app.py  •  muse-vcs.md  •  type-contracts.md                 │
+  │     cli/app.py  •  docs/architecture/<module>.md  •  type-contracts.md    │
   │                                                                              │
   │   RULE 3 ─ ALL OTHER FILES (judgment conflict):                             │
-  │     Preserve dev's version PLUS your additions.                            │
+  │     Preserve dev's version PLUS your additions.           │
   │     Semantically incompatible → STOP and report to user. Never guess.     │
   │                                                                              │
   │ STEP B — For each conflicted file NOT resolved by STEP A.5 (Rules 0–1):   │
   │                                                                              │
-  │ ┌─ agentception/muse/cli/app.py ─────────────────────────────────────────────┐  │
-  │ │ Each parallel agent adds exactly one app.add_typer() line.            │  │
+  │ ┌─ agentception/cli/app.py (or any CLI registration file) ──────────────┐  │
+  │ │ Each parallel agent adds exactly one registration line.               │  │
   │ │ Pattern:                                                               │  │
   │ │   <<<<<<< HEAD                                                         │  │
   │ │   app.add_typer(foo_app, name="foo", ...)                              │  │
@@ -2672,26 +2733,37 @@ AgentCeption-Session: $AGENT_SESSION"
   │ │   app.add_typer(bar_app, name="bar", ...)                              │  │
   │ │   >>>>>>> origin/dev                                                   │  │
   │ │ Rule: KEEP BOTH LINES. Remove markers. Never drop a line.             │  │
-  │ │ Verify: grep -c "add_typer" agentception/muse/cli/app.py                   │  │
+  │ │ Verify: grep -c "add_typer" agentception/cli/app.py                   │  │
   │ │   count must equal the total number of registered sub-apps            │  │
   │ └───────────────────────────────────────────────────────────────────────┘  │
   │                                                                              │
-  │ ┌─ docs/architecture/muse-vcs.md ───────────────────────────────────────┐  │
+  │ ┌─ docs/architecture/<module>.md (any additive architecture doc) ───────┐  │
   │ │ Count markers first:                                                   │  │
-  │ │   grep -c "^<<<<<" docs/architecture/muse-vcs.md                      │  │
+  │ │   grep -c "^<<<<<" docs/architecture/<module>.md                      │  │
   │ │ That is how many conflict blocks you must resolve.                     │  │
   │ │                                                                        │  │
   │ │ Pattern A — both sides have a real ## section:                        │  │
-  │ │   Rule: KEEP BOTH sections, sorted alphabetically by command name.    │  │
+  │ │   <<<<<<< HEAD                                                         │  │
+  │ │   ## feature-foo — ...                                                 │  │
+  │ │   =======                                                              │  │
+  │ │   ## feature-bar — ...                                                 │  │
+  │ │   >>>>>>> origin/dev                                                   │  │
+  │ │   Rule: KEEP BOTH, sorted alphabetically by section name.             │  │
   │ │                                                                        │  │
   │ │ Pattern B — one side is empty or a blank stub:                        │  │
+  │ │   <<<<<<< HEAD                                                         │  │
+  │ │   (blank or single-line stub)                                          │  │
+  │ │   =======                                                              │  │
+  │ │   ## feature-bar — full content                                        │  │
+  │ │   >>>>>>> origin/dev                                                   │  │
   │ │   Rule: KEEP the non-empty side entirely. Discard the empty side.    │  │
   │ │                                                                        │  │
   │ │ Pattern C — both sides edited the SAME section differently:           │  │
-  │ │   Rule: keep the more complete / accurate version.                    │  │
+  │ │   Rule: read both, keep the more complete / accurate version.         │  │
+  │ │   If genuinely unclear, keep both and note in the commit message.     │  │
   │ │                                                                        │  │
   │ │ Final check (must return empty):                                       │  │
-  │ │   grep -n "<<<<<<\|=======\|>>>>>>>" docs/architecture/muse-vcs.md   │  │
+  │ │   grep -n "<<<<<<\|=======\|>>>>>>>" docs/architecture/<module>.md   │  │
   │ └───────────────────────────────────────────────────────────────────────┘  │
   │                                                                              │
   │ ┌─ docs/reference/type-contracts.md ────────────────────────────────────┐  │
@@ -2700,8 +2772,8 @@ AgentCeption-Session: $AGENT_SESSION"
   │ └───────────────────────────────────────────────────────────────────────┘  │
   │                                                                              │
   │ ┌─ Any other file (JUDGMENT CONFLICTS) ─────────────────────────────────┐  │
-  │ │ • Preserve dev's version PLUS your additions.                        │  │
-  │ │ • If dev already contains your feature → stop and self-destruct.     │  │
+  │ │ • Preserve dev's version PLUS your additions.       │  │
+  │ │ • If dev already contains the feature → stop and self-destruct.     │  │
   │ │ • If semantically incompatible → stop, report to user.              │  │
   │ └───────────────────────────────────────────────────────────────────────┘  │
   │                                                                              │
@@ -2714,8 +2786,8 @@ AgentCeption-Session: $AGENT_SESSION"
   │                                                                              │
   │ STEP E — Re-run mypy only if Python files were in conflict:                 │
   │   app.py changed → run mypy. Markdown-only conflicts → skip mypy.          │
-  │   agentception: docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"   │
-  │   agentception: docker compose exec agentception sh -c "... mypy ..."           │
+  │   cd "$REPO" && docker compose exec agentception sh -c \                   │
+  │     "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"  │
   │   Re-run targeted tests only if logic files changed.                        │
   │                                                                              │
   │ STEP F — Advanced diagnostics if needed:                                    │
@@ -2723,6 +2795,7 @@ AgentCeption-Session: $AGENT_SESSION"
   │   git diff origin/dev...HEAD           ← full delta vs dev                 │
   │   git show origin/dev:path/to/file     ← see dev's version of a file       │
   └──────────────────────────────────────────────────────────────────────────────
+
 
 STEP 5 — PUSH & CREATE PR:
   git push origin feat/<short-description>
@@ -2732,12 +2805,13 @@ STEP 5 — PUSH & CREATE PR:
   PR_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" "${COGNITIVE_ARCH:-unset}" \
     --fingerprint \
     --role "${ROLE:-python-developer}" \
-    --session "${AGENT_SESSION:-unset}" \
+    --session "$AGENT_SESSION" \
     --batch "${BATCH_ID:-none}" \
     --wave "${WAVE:-unset}" \
     --coordinator "${COORD_FINGERPRINT:-unset}" \
     --started-at "$PR_CREATED_AT" 2>/dev/null)
-  # Fallback: match render_fingerprint() rows exactly.
+  # Fallback: if resolve_arch.py is unavailable or returned nothing, build the table in shell.
+  # ⚠️  Row labels MUST match render_fingerprint() exactly — this is the single source of truth.
   if [ -z "$PR_FINGERPRINT" ]; then
     PR_FINGERPRINT="<details>
 <summary>🤖 Agent Fingerprint</summary>
@@ -2755,34 +2829,14 @@ STEP 5 — PUSH & CREATE PR:
 </details>"
   fi
 
-  gh pr create \
-    --base dev \
-    --head feat/<short-description> \
-    --title "feat: <issue title>" \
-    --body "$(cat <<EOF
-  ## Summary
-  Closes #${N} — <one-line description>.
-
-  ## Root Cause / Motivation
-  <What was wrong or missing and why>
-
-  ## Solution
-  <What was changed and why this approach>
-
-  ## Verification
-  - [ ] mypy clean
-  - [ ] Tests pass
-  - [ ] Docs updated
-
-  ---
-  $PR_FINGERPRINT
-  EOF
-  )"
+  # MCP: create_pull_request(owner="cgcardona", repo="agentception",
+  #   title="feat: <issue title>", base="dev", head="feat/<short-description>",
+  #   body="## Summary\nCloses #${N} — <one-line description>.\n\n## Root Cause / Motivation\n<What was wrong or missing and why>\n\n## Solution\n<What was changed and why this approach>\n\n## Verification\n- [ ] mypy clean\n- [ ] Tests pass\n- [ ] Docs updated\n\n---\n$PR_FINGERPRINT")
+  # → returns {number: MY_PR_NUM, url: PR_URL, ...}
 
   # Write the new PR number back to .agent-task so the chain can use it for MERGE_AFTER.
   MY_BRANCH=$(git -C "$WORKTREE" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-  MY_PR_NUM=$(gh pr list --repo "$GH_REPO" --head "$MY_BRANCH" --state open \
-    --json number --jq '.[0].number // empty' 2>/dev/null || echo "")
+  MY_PR_NUM=<pr number from create_pull_request result>
   if [ -n "$MY_PR_NUM" ]; then
     sed -i '' "s/^LINKED_PR=.*/LINKED_PR=$MY_PR_NUM/" .agent-task 2>/dev/null || true
     echo "✅ LINKED_PR=$MY_PR_NUM written back to .agent-task"
@@ -2799,11 +2853,13 @@ STEP 5 — PUSH & CREATE PR:
   IMPL_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" "${COGNITIVE_ARCH:-unset}" \
     --fingerprint \
     --role "${ROLE:-python-developer}" \
-    --session "${AGENT_SESSION:-unset}" \
+    --session "$AGENT_SESSION" \
     --batch "${BATCH_ID:-none}" \
     --wave "${WAVE:-unset}" \
     --coordinator "${COORD_FINGERPRINT:-unset}" \
-    --started-at "${PR_CREATED_AT:-$(date -u '+%Y-%m-%dT%H:%M:%SZ')}" 2>/dev/null)
+    --started-at "$PR_CREATED_AT" 2>/dev/null)
+  # Fallback: if resolve_arch.py is unavailable or returned nothing, build the table in shell.
+  # ⚠️  Row labels MUST match render_fingerprint() exactly — this is the single source of truth.
   if [ -z "$IMPL_FINGERPRINT" ]; then
     IMPL_FINGERPRINT="<details>
 <summary>🤖 Agent Fingerprint</summary>
@@ -2816,38 +2872,24 @@ STEP 5 — PUSH & CREATE PR:
 | **CTO Wave** | \`${WAVE:-unset}\` |
 | **Coordinator Batch** | \`${BATCH_ID:-none}\` |
 | **Coordinator** | \`${COORD_FINGERPRINT:-unset}\` |
-| **Timestamp** | \`${PR_CREATED_AT:-$(date -u '+%Y-%m-%dT%H:%M:%SZ')}\` |
+| **Timestamp** | \`$PR_CREATED_AT\` |
 
 </details>"
   fi
-  gh issue comment <N> --repo "$GH_REPO" \
-    --body "🤖 **Implemented by agent** — PR #${MY_PR_NUM:-?}
-
-$IMPL_FINGERPRINT" 2>/dev/null || true
+  # MCP: add_issue_comment(owner="cgcardona", repo="agentception", issue_number=N,
+  #   body="🤖 **Implemented by agent** — PR #${MY_PR_NUM:-?}\n\n$IMPL_FINGERPRINT")
 
   # Transition status label: in-progress → pr-open
-  gh issue edit <N> --repo "$GH_REPO" \
-    --remove-label "status/in-progress" 2>/dev/null || true
-  gh issue edit <N> --repo "$GH_REPO" \
-    --add-label "status/pr-open" 2>/dev/null || true
+  # MCP: github_remove_label(issue_number=N, label="status/in-progress")
+  # MCP: github_add_label(issue_number=N, label="status/pr-open")
 
-  ⚠️  VERIFY AUTO-CLOSE LINKAGE — run immediately after gh pr create:
+  ⚠️  VERIFY AUTO-CLOSE LINKAGE — verify immediately after PR creation:
   # GitHub auto-closes issue #<N> when the PR is merged ONLY if "Closes #<N>"
   # appears verbatim in the PR body. Verify now so you don't leave a ghost issue.
-
-  PR_BODY=$(gh pr list \
-    --repo "$GH_REPO" \
-    --head feat/<short-description> \
-    --json body \
-    --jq '.[0].body')
-
-  echo "$PR_BODY" | grep -i "closes #<N>"
-  # Expected output: a line containing "Closes #<N>"
-  # If grep returns nothing → the PR body is missing the close keyword.
-  # Fix immediately:
-  #   gh pr edit feat/<short-description> --body "$(echo "$PR_BODY")
-  #
-  # Closes #<N>"
+  # MCP: github_get_pr(pr_number=MY_PR_NUM) → .body
+  # Check: result.body must contain "Closes #<N>" (case-insensitive)
+  # If missing → MCP: update_pull_request(owner=..., repo=..., pullNumber=MY_PR_NUM,
+  #                      body=<existing body + "\n\nCloses #<N>">)
 
 STEP 6 — SPAWN A QA REVIEWER FOR YOUR OWN PR (run this before self-destructing):
 
@@ -2874,10 +2916,11 @@ STEP 6 — SPAWN A QA REVIEWER FOR YOUR OWN PR (run this before self-destructing
     # resolve_arch.py will switch to --mode reviewer to load the checklist instead of
     # the implementer fragments.
     REVIEWER_ARCH="${COGNITIVE_ARCH:-knuth:python}"
-    PR_TITLE_VAL=$(gh pr view "$MY_PR" --repo "$GH_REPO" --json title --jq '.title' 2>/dev/null || echo "")
+    # MCP: github_get_pr(pr_number=MY_PR) → use .title, .body, .headRefName
+    PR_TITLE_VAL=<github_get_pr(MY_PR).title>
+    # gh pr diff still needed for file list — no MCP equivalent for diff content
     PR_FILES_VAL=$(gh pr diff "$MY_PR" --repo "$GH_REPO" --name-only 2>/dev/null | tr '\n' ',' | sed 's/,$//')
-    CLOSES_VAL=$(gh pr view "$MY_PR" --repo "$GH_REPO" --json body --jq '.body' 2>/dev/null \
-      | grep -oE '[Cc]loses?\s+#[0-9]+' | grep -oE '[0-9]+' | tr '\n' ',' | sed 's/,$//')
+    CLOSES_VAL=<parse "Closes #NNN" from github_get_pr(MY_PR).body, join with commas>
     HAS_MIG=$(echo "$PR_FILES_VAL" | grep -c "alembic/versions/" || echo 0)
     [ "$HAS_MIG" -gt 0 ] && HAS_MIG_VAL=true || HAS_MIG_VAL=false
     cat > "$REVIEW_WORKTREE/.agent-task" <<TASK
@@ -2894,7 +2937,7 @@ FILES_CHANGED=$PR_FILES_VAL
 MERGE_AFTER=none
 HAS_MIGRATION=$HAS_MIG_VAL
 ROLE=pr-reviewer
-ROLE_FILE=<repo-root>/.agentception/roles/pr-reviewer.md
+ROLE_FILE=<repo-root>/.cursor/roles/pr-reviewer.md
 COGNITIVE_ARCH=${REVIEWER_ARCH}
 BATCH_ID=${BATCH_ID:-none}
 WAVE=${WAVE:-unset}
@@ -2927,6 +2970,7 @@ STEP 7 — SELF-DESTRUCT (always run this after STEP 6, whether or not a replace
   git worktree remove --force "$WORKTREE"
   git worktree prune
 
+
 ⚠️  NEVER copy files to the main repo for testing.
 ⚠️  NEVER start implementation without completing STEP 2. Skipping the check
     causes duplicate branches, duplicate PRs, and wasted cycles.
@@ -2947,15 +2991,10 @@ any protocol changes requiring handoff.
 The GitHub label is the **single source of truth** for what belongs in a phase.
 Run this before touching the Setup script:
 
-```bash
+```
 # List every open issue for the current phase — this IS your candidate pool.
-GH_REPO=cgcardona/agentception   # ← single place to change if the repo slug ever changes
-gh issue list \
-  --repo "$GH_REPO" \
-  --label "phase-1" \
-  --state open \
-  --json number,title,url \
-  --jq '.[] | "#\(.number)  \(.title)\n  \(.url)"'
+# MCP: github_list_issues(state="open", label="phase-1")
+# → returns [{number, title, url, labels, ...}] — print each as "#N  title\n  url"
 ```
 
 - If the list is **empty** → phase is complete. Do not launch.
@@ -2970,9 +3009,8 @@ From the label audit output, choose issues that satisfy **both** criteria in
 **Issue selection** above (foundational first + zero file overlap). Read each
 candidate's body to identify affected files:
 
-```bash
-GH_REPO=cgcardona/agentception   # ← single place to change if the repo slug ever changes
-gh issue view <N> --repo "$GH_REPO" --json body,title
+```
+# MCP: github_get_issue(issue_number=N) → .body and .title
 ```
 
 Confirm no two selected issues share a file. Document your selection in the
@@ -2988,10 +3026,14 @@ REPO=$(git rev-parse --show-toplevel)
 cd "$REPO"
 
 echo "=== Files touched by currently open PRs ==="
+# MCP: github_list_prs(state="open") → for each PR:
+#   - .number, .title  (from github_list_prs result)
+#   - files: gh pr diff NUM --name-only (no MCP equivalent for diff content)
 for num in $(gh pr list --state open --json number --jq '.[].number'); do
   files=$(gh pr diff "$num" --name-only 2>/dev/null)
   if [ -n "$files" ]; then
-    title=$(gh pr view "$num" --json title --jq .title 2>/dev/null)
+    # MCP: github_get_pr(pr_number=num) → .title
+    title=$(github_get_pr result .title)
     echo ""
     echo "PR #$num — $title:"
     echo "$files" | sed 's/^/  /'
@@ -3215,6 +3257,71 @@ docker compose exec agentception pytest agentception/tests/test_<your_module>.py
 
 The full suite is CI's job. Running it in every agent session doesn't scale.
 Never skip mypy. A test that passes with a type error is a ticking clock.
+
+## Audit Trail — Required at Every Touch Point
+
+You must post fingerprint comments to GitHub at each lifecycle event below.
+These are the only audibility signal visible to the human operator on the
+Mission Control dashboard. Skipping them breaks observability.
+
+Read your `.agent-task` to extract these fields from the TOML sections:
+- `[agent].cognitive_arch` → `COGNITIVE_ARCH`
+- `[agent].role` → `ROLE`
+- `[pipeline].batch_id` → `BATCH_ID`
+- `[pipeline].coord_fingerprint` → `COORD_FINGERPRINT`
+- `[repo].gh_repo` → `GH_REPO`
+- `[target].issue_number` → `ISSUE_NUMBER`
+- `[worktree].branch` → `BRANCH`
+
+```bash
+# ── 1. CLAIM — post immediately after adding agent:wip label ────────────────
+AGENT_SESSION="eng-$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%04x' $RANDOM)"
+CLAIMED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+REPO="<path to repo root>"  # e.g. /Users/gabriel/dev/tellurstori/agentception
+
+CLAIM_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" \
+  "${COGNITIVE_ARCH:-unset}" \
+  --fingerprint \
+  --role "${ROLE:-python-developer}" \
+  --session "$AGENT_SESSION" \
+  --batch "${BATCH_ID:-none}" \
+  --coordinator "${COORD_FINGERPRINT:-unset}" \
+  --started-at "$CLAIMED_AT" 2>/dev/null)
+
+# Fallback if resolve_arch.py is unavailable
+if [ -z "$CLAIM_FINGERPRINT" ]; then
+  CLAIM_FINGERPRINT="<details>
+<summary>🤖 Agent Fingerprint</summary>
+
+| | |
+|---|---|
+| **Role** | \`${ROLE:-python-developer}\` |
+| **Architecture** | \`${COGNITIVE_ARCH:-unset}\` |
+| **Session** | \`$AGENT_SESSION\` |
+| **Coordinator** | \`${COORD_FINGERPRINT:-unset}\` |
+| **Claimed at** | \`$CLAIMED_AT\` |
+
+</details>"
+fi
+
+gh issue comment "$ISSUE_NUMBER" --repo "$GH_REPO" \
+  --body "🔖 **Claimed by agent**
+
+$CLAIM_FINGERPRINT" 2>/dev/null || true
+
+# ── 2. PR CREATED — embed fingerprint in PR body ────────────────────────────
+# When calling create_pull_request (via MCP user-github or gh CLI), include
+# $CLAIM_FINGERPRINT at the end of the PR body:
+#
+#   body = "## Summary\n...\n\nCloses #$ISSUE_NUMBER\n\n$CLAIM_FINGERPRINT"
+
+# ── 3. DONE — post implementation complete comment on the issue ─────────────
+# After the PR URL is known:
+gh issue comment "$ISSUE_NUMBER" --repo "$GH_REPO" \
+  --body "🤖 **Implemented by agent** — PR #$PR_NUMBER
+
+$CLAIM_FINGERPRINT" 2>/dev/null || true
+```
 
 
 ---

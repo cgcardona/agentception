@@ -194,12 +194,12 @@ Maps directly to org hierarchy:
 
 ```
 CTO agent (generalPurpose)
-├── VP Engineering (generalPurpose)   spawns per-ticket worker agents
-├── VP Product (generalPurpose)       spawns per-ticket writer agents
-└── VP QA (generalPurpose)            spawns per-PR reviewer agents
+├── Engineering Coordinator (generalPurpose)   spawns per-ticket worker agents
+├── Product Coordinator (generalPurpose)       spawns per-ticket writer agents
+└── QA Coordinator (generalPurpose)            spawns per-PR reviewer agents
 ```
 
-Each VP can fan out to 3 worker agents simultaneously.
+Each coordinator can fan out to 3 worker agents simultaneously.
 Workers are `shell` or `generalPurpose` depending on whether they need
 to spawn further (e.g., a debugging agent that spawns a search + a fix agent).
 

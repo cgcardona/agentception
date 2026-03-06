@@ -370,11 +370,11 @@ COGNITIVE_ARCH=dijkstra
 
 ### `.agent-task` file
 
-The engineering-manager or QA-manager writes `COGNITIVE_ARCH` to `.agent-task`
+The engineering coordinator or QA coordinator writes `COGNITIVE_ARCH` to `.agent-task`
 at spawn time. Leaf agents read it at startup.
 
 ```bash
-# .agent-task (written by engineering-manager)
+# .agent-task (written by engineering coordinator)
 ISSUE=671
 WORKTREE="/path/to/worktree"
 ROLE_FILE="$HOME/.cursor/roles/python-developer.md"
@@ -430,9 +430,9 @@ Located at `scripts/gen_prompts/team.yaml`. Defines:
 `generate.py` reads `team.yaml` at generation time and validates that every
 referenced figure, archetype, and skill file exists on disk.
 
-### Selection heuristics for engineering-manager
+### Selection heuristics for engineering coordinator
 
-The engineering-manager runs the heuristics from `team.yaml` against the issue
+The engineering coordinator runs the heuristics from `team.yaml` against the issue
 body to auto-select `COGNITIVE_ARCH`. First-match wins.
 
 | Signal | Suggested architecture |
@@ -528,7 +528,7 @@ scripts/gen_prompts/
    `resolve_arch.py` script is deterministic. No network calls, no LLM
    generation at spawn time.
 
-5. **Observable.** The engineering-manager logs which architecture it selected
+5. **Observable.** The engineering coordinator logs which architecture it selected
    and why. The `.agent-task` file is committed to the worktree for post-hoc
    analysis.
 
@@ -559,7 +559,7 @@ scripts/gen_prompts/
 
 - **Domain-specific figures**: `einstein_audio` — Einstein's cognition applied
   to audio/music theory. Figures can have domain variants that inherit from the base.
-- **Dynamic selection**: The engineering-manager calls a lightweight classifier
+- **Dynamic selection**: The engineering coordinator calls a lightweight classifier
   to select the best architecture for an issue, logged to AgentCeption for
   A/B testing and convergence measurement.
 - **User-defined figures**: A `custom_figures/` directory alongside the

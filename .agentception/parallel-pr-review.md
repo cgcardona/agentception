@@ -69,14 +69,14 @@ Kickoff (coordinator)
 
 Agent (per worktree)
   └─ cat .agent-task                        ← knows exactly what to do
-  └─ gh pr view <N> --json state,...        ← CHECK FIRST: merged/closed/approved?
+  └─ MCP: pull_request_read(N)              ← CHECK FIRST: merged/closed/approved?
                                                if so → stop + self-destruct
-  └─ gh pr checkout <N>                     ← checks out the PR branch (only if open)
+  └─ git fetch + checkout PR branch         ← checks out the PR branch (only if open)
   └─ git fetch origin && git merge origin/dev  ← sync latest dev into feature branch
   └─ review → grade
   └─ git fetch origin && git merge origin/dev  ← final sync before merge
   └─ git push origin "$BRANCH"             ← push resolution so GitHub sees clean state
-  └─ sleep 5 && gh pr merge <N> --squash  ← merge only after remote is up to date
+  └─ MCP: merge_pull_request(N, squash)    ← merge only after remote is up to date
   └─ git push origin --delete "$BRANCH"   ← remote branch cleanup
   └─ git -C <main-repo> branch -D "$BRANCH"  ← local branch cleanup
   └─ git worktree remove --force <path>     ← self-destructs when done
@@ -477,9 +477,8 @@ STEP 1 — DERIVE PATHS:
   export GH_REPO=cgcardona/agentception
 
   # ⚠️  VALIDATION — run this immediately to catch slug errors early:
-  gh repo view "$GH_REPO" --json name --jq '.name'
-  # Expected output: agentception
-  # If you see an error → GH_REPO is wrong. Stop and fix it before continuing.
+  # MCP: get_me() — verify authentication is working and you have access to the repo.
+  # The repo slug is hardcoded below. If MCP calls fail with "Not Found" → GH_REPO is wrong.
 
   # All gh commands inherit $GH_REPO automatically. You may also pass --repo "$GH_REPO" explicitly.
 
@@ -489,7 +488,9 @@ STEP 2 — CHECK CANONICAL STATE BEFORE DOING ANY WORK:
   This is the idempotency gate.
 
   # 1. What is the current state of this PR?
-  gh pr view <N> --json state,mergedAt,reviews,reviewDecision,headRefName
+  # MCP: pull_request_read(owner="cgcardona", repo="agentception",
+  #       pullNumber=N)
+  # → check state, mergedAt, reviewDecision, headRefName from the response.
 
   Decision matrix — act on the FIRST match:
   ┌────────────────────────────────────────────────────────────────────────┐
@@ -502,7 +503,7 @@ STEP 2 — CHECK CANONICAL STATE BEFORE DOING ANY WORK:
   └────────────────────────────────────────────────────────────────────────┘
 
   Self-destruct when stopping early:
-    gh pr edit "$N" --repo "$GH_REPO" --remove-label "agent:wip" 2>/dev/null || true
+    # MCP: github_remove_label(issue_number=N, label="agent:wip")
     WORKTREE=$(pwd)
     cd "$REPO"
     git worktree remove --force "$WORKTREE"
@@ -513,7 +514,8 @@ STEP 3 — CHECKOUT & SYNC (only if STEP 2 shows the PR is open and unreviewed):
   # Claim the PR — this is the true "agent is working on it" signal.
   # Only runs after STEP 2's idempotency gate passes, so it never creates stale labels.
   # All exit paths (STEP 2 early-stop, merge, D/F grade, timeout) remove this label.
-  gh pr edit "$N" --repo "$GH_REPO" --add-label "agent:wip" 2>/dev/null || true
+  # MCP: github_claim_issue(issue_number=N)
+  #   (equivalent to: github_add_label(issue_number=N, label="agent:wip"))
 
   ⚠️  COMMIT GUARD — run this first if any files are modified in your worktree:
   Git will abort the merge if any tracked file has uncommitted local changes.
@@ -875,8 +877,8 @@ STEP 5 — REVIEW:
     ESCALATE only if the C-grade issue is architecturally broken (wrong data model,
     missing foreign key chain, irrecoverable schema conflict). In that case:
       - DO NOT merge
-      - File a GitHub issue describing exactly what must change
-      - Apply labels with gh issue edit after creation (two-step pattern — never --label on create)
+      - File a GitHub issue via MCP issue_write describing exactly what must change
+      - Apply labels via MCP github_add_label after creation (two-step pattern — never label on create)
       - Apply "bug" label plus the current batch label (${BATCH_ID:-none} or agentception/*)
       - Self-destruct and report the issue URL to the coordinator
       - Never loop or block silently
@@ -973,29 +975,32 @@ STEP 6 — PRE-MERGE SYNC (only if grade is A or B):
   # 4. Wait for GitHub to recompute merge status after the push
   sleep 5
 
-  Output "Approved for merge" and then run these in order:
+  Output "Approved for merge" and then merge via MCP:
 
-  # ⚠️  NEVER run `gh pr review --approve`. GitHub forbids approving your own PR
-  #    (the agent authenticates as the repo owner who also authored the PR).
-  #    The merge itself IS the approval signal — skip the review step entirely.
+  # ⚠️  All agents share one GitHub identity. GitHub blocks formal APPROVE
+  #    reviews when author == reviewer. Skip the review — the grade IS the
+  #    approval signal. Proceed directly to merge.
+  # ⚠️  Do NOT submit a COMMENT review "recommending approval" — that
+  #    leaves the PR unmerged. The agent MUST merge, not just comment.
 
-  # 5. Squash merge — this is the ONLY valid merge strategy here.
-  #    NEVER use --auto (requires branch protection rules we don't have).
-  #    NEVER use --merge (wrong strategy, creates a merge commit on dev).
-  #    NEVER use --delete-branch (breaks in multi-worktree setups).
-       gh pr merge <N> --squash
+  # 5. Squash merge via MCP — the ONLY valid merge strategy.
+  #    MCP: merge_pull_request(owner="cgcardona", repo="agentception",
+  #         pullNumber=N, merge_method="squash")
 
-  ── If gh pr merge still reports conflicts after the push ──────────────────
+  ── If merge_pull_request returns an error about conflicts ─────────────────
   │ GitHub sometimes needs more time to recompute merge status. Wait and retry: │
   │                                                                             │
   │   sleep 10                                                                  │
-  │   gh pr merge <N> --squash                                                  │
+  │   # MCP: merge_pull_request(owner="cgcardona",            │
+  │   #       repo="agentception",                               │
+  │   #       pullNumber=N, merge_method="squash")                              │
   │                                                                             │
   │ If it STILL fails: the feature branch has diverged again (yet another PR   │
   │ landed in the gap). Re-run the full sync:                                  │
   │   git fetch origin && git merge origin/dev                                  │
   │   git push origin "$BRANCH"                                                 │
-  │   sleep 5 && gh pr merge <N> --squash                                       │
+  │   sleep 5                                                                   │
+  │   # MCP: merge_pull_request (same args as above)                            │
   │                                                                             │
   │ After two sync+push+retry cycles with no success → stop, report the PR     │
   │ URL and the exact error, and let the user merge manually.                  │
@@ -1090,35 +1095,26 @@ STEP 6 — PRE-MERGE SYNC (only if grade is A or B):
        CLOSES_ISSUES=$(grep "^CLOSES_ISSUES=" .agent-task | cut -d= -f2)
        if [ -n "$CLOSES_ISSUES" ]; then
          # For each issue number in CLOSES_ISSUES (comma-separated):
-         # MCP: issue_write(owner="cgcardona", repo="agentception", issue_number={},
-         #   state="closed", state_reason="completed")
-         # MCP: add_issue_comment(issue_number={}, body="$CLOSE_COMMENT")
-         # MCP: github_remove_label(issue_number={}, label="agent:wip")
-         echo "$CLOSES_ISSUES" | tr ',' '\n' | xargs -I{} sh -c \
-           'gh issue close {} --comment "$CLOSE_COMMENT" --repo "$GH_REPO" 2>/dev/null || true; gh issue edit {} --remove-label "agent:wip" --repo "$GH_REPO" 2>/dev/null || true'
+         # MCP: issue_write(owner="cgcardona", repo="agentception",
+         #       issue_number=<N>, state="closed", state_reason="completed")
+         # MCP: add_issue_comment(owner="cgcardona", repo="agentception",
+         #       issue_number=<N>, body="$CLOSE_COMMENT")
+         # MCP: github_remove_label(issue_number=<N>, label="agent:wip")
+         echo "Close each issue via MCP issue_write + add_issue_comment + github_remove_label"
        else
          # Fallback: re-parse the PR body if CLOSES_ISSUES was empty in task file
          # MCP: github_get_pr(pr_number=N) → .body → parse "Closes #NNN" patterns
-         gh pr view "$N" --json body --jq '.body' \
-           | grep -oE '[Cc]loses?\s+#[0-9]+' \
-           | grep -oE '[0-9]+' \
-           | xargs -I{} sh -c \
-               'gh issue close {} --comment "$CLOSE_COMMENT" --repo "$GH_REPO" 2>/dev/null || true; gh issue edit {} --remove-label "agent:wip" --repo "$GH_REPO" 2>/dev/null || true'
+         # Then for each parsed issue number, call MCP issue_write to close it.
+         echo "Parse PR body for Closes #NNN patterns, then close each via MCP issue_write"
        fi
-
-  ⚠️  Never use --delete-branch with gh pr merge in a multi-worktree setup.
-      gh attempts to checkout dev locally to delete the feature branch, but dev
-      is already checked out in the main worktree and git will refuse.
 
   # 10. Mark linked issues as merged (conductor reads this as "done").
   CLOSES_ISSUES_FOR_LABEL=$(grep "^CLOSES_ISSUES=" .agent-task | cut -d= -f2)
   if [ -n "$CLOSES_ISSUES_FOR_LABEL" ]; then
     # For each issue in CLOSES_ISSUES_FOR_LABEL:
-    # MCP: github_remove_label(issue_number={}, label="status/pr-open")
-    # MCP: github_add_label(issue_number={}, label="status/merged")
-    echo "$CLOSES_ISSUES_FOR_LABEL" | tr ',' '\n' | xargs -I{} sh -c \
-      'gh issue edit {} --repo "$GH_REPO" --remove-label "status/pr-open" 2>/dev/null || true
-       gh issue edit {} --repo "$GH_REPO" --add-label "status/merged" 2>/dev/null || true'
+    # MCP: github_remove_label(issue_number=<N>, label="status/pr-open")
+    # MCP: github_add_label(issue_number=<N>, label="status/merged")
+    echo "Update issue labels via MCP github_remove_label + github_add_label"
   fi
 
   # 9. Pull the merge into the main repo's local dev — so the coordinator's
@@ -1211,41 +1207,14 @@ AgentCeption-Session: ${AGENT_SESSION:-unset}"
   FAILED_TESTS=$(echo "$TEST_OUTPUT" | grep "^FAILED " | sed 's/^FAILED //')
   if [ -n "$FAILED_TESTS" ]; then
     echo "⚠️  New failures detected post-merge. Creating regression issues..."
-    while IFS= read -r test_line; do
-      [ -z "$test_line" ] && continue
-      # Create a bug fix issue for each failing test
-      BUG_URL=$(gh issue create \
-        --repo "$GH_REPO" \
-        --title "fix: regression — $test_line (introduced near batch merge)" \
-        --body "## Regression Report
-
-**Failing test:** \`$test_line\`
-**Detected after merging:** PR #$N (batch: ${BATCH_ID:-unknown})
-**Detection method:** post-merge targeted test run in PR_REVIEW STEP 7
-
-## Reproduction
-\`\`\`bash
-docker compose exec agentception pytest $test_line -v
-\`\`\`
-
-## Context
-This failure was not present before this PR was merged. The most likely cause is a
-side-effect of the changes in PR #$N. Start investigation there.
-
-## Acceptance Criteria
-- [ ] Test passes again
-- [ ] No other tests regressed by the fix
-- [ ] mypy clean after fix
-")
-      # Apply labels (two-step pattern — label failures are non-fatal)
-      gh issue edit "$BUG_URL" --add-label "bug" 2>/dev/null || true
-      # Apply the next available batch label (pipeline picks it up automatically)
-      NEXT_BATCH=$(gh label list --repo "$GH_REPO" \
-        --search "batch-" --json name --jq '[.[].name] | sort | last' 2>/dev/null || echo "")
-      [ -n "$NEXT_BATCH" ] && \
-        gh issue edit "$BUG_URL" --add-label "$NEXT_BATCH" 2>/dev/null || true
-      echo "✅ Regression issue created: $BUG_URL"
-    done <<< "$FAILED_TESTS"
+    # For each failing test, create a regression issue via MCP:
+    # MCP: issue_write(owner="cgcardona", repo="agentception",
+    #       title="fix: regression — <test_line> (introduced near batch merge)",
+    #       body="## Regression Report\n\n**Failing test:** `<test_line>`\n**Detected after merging:** PR #N (batch: BATCH_ID)\n**Detection method:** post-merge targeted test run in PR_REVIEW STEP 7\n\n## Reproduction\n```bash\ndocker compose exec agentception pytest <test_line> -v\n```\n\n## Context\nThis failure was not present before this PR was merged.\n\n## Acceptance Criteria\n- [ ] Test passes again\n- [ ] No other tests regressed by the fix\n- [ ] mypy clean after fix")
+    #
+    # Then apply labels (two-step pattern — label failures are non-fatal):
+    # MCP: github_add_label(issue_number=<created_issue_number>, label="bug")
+    # MCP: github_add_label(issue_number=<created_issue_number>, label="<batch_label>")
   else
     echo "✅ No regressions detected. Post-merge test run clean."
   fi
@@ -1254,7 +1223,7 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
 
   # Read SPAWN_MODE from .agent-task to determine what to spawn next.
   # SPAWN_MODE=chain  → spawned by an engineer; spawn the next ENGINEER for the next issue
-  # SPAWN_MODE=pool   → spawned by a QA VP; spawn the next REVIEWER for the next PR (legacy pool behavior)
+  # SPAWN_MODE=pool   → spawned by a QA Coordinator; spawn the next REVIEWER for the next PR (legacy pool behavior)
   # (absent/empty)    → default to pool behavior
   SPAWN_MODE=$(grep "^SPAWN_MODE=" .agent-task 2>/dev/null | cut -d= -f2)
 
@@ -1265,11 +1234,12 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
     # that still has open issues. NEVER pick from a later label while an earlier one
     # still has work. This prevents later-phase issues from being claimed prematurely.
     ACTIVE_LABEL=""
+    # For each phase label in order, check if open issues exist:
        for label in ac-ui/0-critical-bugs ac-ui/1-design-tokens \
                         ac-ui/2-data-model ac-ui/3-core-pages \
                         ac-ui/4-controls-intelligence ac-ui/5-polish; do
-      COUNT=$(gh issue list --state open --repo "$GH_REPO" \
-                --label "$label" --json number --jq 'length')
+      # MCP: github_list_issues(label="$label", state="open") → .count
+      COUNT=<count from MCP response>
       if [ "$COUNT" -gt 0 ]; then
         ACTIVE_LABEL="$label"
         break
@@ -1282,8 +1252,8 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
       TASK_BATCH_ID=$(grep "^BATCH_ID=" .agent-task 2>/dev/null | cut -d= -f2 || echo "")
       BATCH_LABEL_PREFIX=$(echo "$TASK_BATCH_ID" | grep -oE 'batch-[0-9]+' | head -1)
       if [ -n "$BATCH_LABEL_PREFIX" ]; then
-        BATCH_COUNT=$(gh issue list --state open --repo "$GH_REPO" \
-          --label "$BATCH_LABEL_PREFIX" --json number --jq 'length' 2>/dev/null || echo 0)
+        # MCP: github_list_issues(label="$BATCH_LABEL_PREFIX", state="open") → .count
+        BATCH_COUNT=<count from MCP response>
         if [ "$BATCH_COUNT" -gt 0 ]; then
           ACTIVE_LABEL="$BATCH_LABEL_PREFIX"
         fi
@@ -1295,24 +1265,25 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
       echo "ℹ️  No open ac-ui/ or batch issues remain — chain complete."
     else
       # Pick the next unclaimed issue from ACTIVE_LABEL only.
-      NEXT_ISSUE=$(gh issue list \
-        --repo "$GH_REPO" \
-        --state open \
-        --label "$ACTIVE_LABEL" \
-        --json number,labels \
-        --jq '[.[] | select(.labels | map(.name) | index("agent:wip") | not)
-              ] | sort_by(.number) | first | .number // empty')
+      # MCP: github_list_issues(label="$ACTIVE_LABEL", state="open")
+      # Filter out any with label "agent:wip" (already claimed).
+      # Take the lowest-numbered remaining issue.
+      NEXT_ISSUE=<lowest unclaimed issue number from MCP response>
     fi
 
     # Dependency gate: only proceed if all "Depends on #NNN" references are CLOSED.
     if [ -n "$NEXT_ISSUE" ]; then
-      BODY=$(gh issue view "$NEXT_ISSUE" --repo "$GH_REPO" --json body --jq '.body' 2>/dev/null || echo "")
-      DEPS=$(echo "$BODY" | grep -oE 'Depends on[^.]+' | grep -oE '[0-9]+')
+      # MCP: github_get_issue(number=$NEXT_ISSUE) → .body
+      # Parse "Depends on #NNN" references from body text.
+      # For each dependency:
+      #   MCP: github_get_issue(number=<dep>) → check .state and .state_reason
+      #   If state != "closed" or state_reason != "completed" → skip this issue.
+      DEPS=<parsed dependency issue numbers>
       for dep in $DEPS; do
-        DEP_STATE=$(gh issue view "$dep" --repo "$GH_REPO" --json state --jq '.state' 2>/dev/null || echo "OPEN")
-        DEP_REASON=$(gh issue view "$dep" --repo "$GH_REPO" --json stateReason --jq '.stateReason' 2>/dev/null || echo "UNKNOWN")
-        if [ "$DEP_STATE" != "CLOSED" ] || [ "$DEP_REASON" != "COMPLETED" ]; then
-          echo "ℹ️  Issue #$NEXT_ISSUE blocked by dependency #$dep (state=$DEP_STATE reason=$DEP_REASON) — chain complete for now."
+        # MCP: github_get_issue(number=$dep) → .state
+        DEP_STATE=<state from MCP>
+        if [ "$DEP_STATE" != "closed" ]; then
+          echo "ℹ️  Issue #$NEXT_ISSUE blocked by dependency #$dep (state=$DEP_STATE) — chain complete for now."
           NEXT_ISSUE=""
           break
         fi
@@ -1330,11 +1301,12 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
       NEXT_WORKTREE="$HOME/.agentception/worktrees/agentception/issue-$NEXT_ISSUE"
       git -C "$REPO" worktree add -b "feat/issue-$NEXT_ISSUE" "$NEXT_WORKTREE" origin/dev
       # Add label only after worktree is confirmed created — prevents permanent lock on creation failure
-      gh issue edit "$NEXT_ISSUE" --repo "$GH_REPO" --add-label "agent:wip" 2>/dev/null || true
+      # MCP: github_claim_issue(issue_number=$NEXT_ISSUE)
 
       # Resolve the primary label so the engineer can route mypy/tests correctly.
-      NEXT_ISSUE_LABEL=$(gh issue view "$NEXT_ISSUE" --repo "$GH_REPO" \
-        --json labels --jq '[.labels[].name | select(startswith("ac-ui/"))] | first // ""')
+      # MCP: github_get_issue(number=$NEXT_ISSUE) → .labels
+      # Pick the first label starting with "ac-ui/"
+      NEXT_ISSUE_LABEL=<label from MCP response>
 
       cat > "$NEXT_WORKTREE/.agent-task" <<TASK
 WORKFLOW=issue-to-pr
@@ -1374,25 +1346,24 @@ TASK
     fi
 
   else
-    # ── POOL MODE: spawned by QA VP; spawn the next REVIEWER for the next open PR ──
+    # ── POOL MODE: spawned by QA Coordinator; spawn the next REVIEWER for the next open PR ──
 
-    NEXT_PR=$(gh pr list \
-      --repo "$GH_REPO" \
-      --base dev \
-      --state open \
-      --json number,labels \
-      --jq '[.[] | select(.labels | map(.name) | index("agent:wip") | not)] | first | .number // empty')
+    # MCP: github_list_prs(state="open") → filter out any with label "agent:wip"
+    # Take the first unclaimed PR targeting dev.
+    NEXT_PR=<first unclaimed PR number from MCP response>
 
     if [ -n "$NEXT_PR" ]; then
-      NEXT_BRANCH=$(gh pr view "$NEXT_PR" --repo "$GH_REPO" --json headRefName --jq .headRefName)
+      # MCP: github_get_pr(pr_number=$NEXT_PR) → .headRefName, .title, .body
+      NEXT_BRANCH=<headRefName from MCP response>
       NEXT_WORKTREE="$HOME/.agentception/worktrees/agentception/pr-$NEXT_PR"
       git -C "$REPO" worktree add "$NEXT_WORKTREE" "origin/$NEXT_BRANCH"
       # ⚠️  Do NOT add agent:wip here. The reviewer claims the label itself in STEP 3
       # after passing the idempotency gate. Adding it here causes stale labels when the
       # reviewer is never launched or crashes before claiming.
 
-      NEXT_PR_TITLE=$(gh pr view "$NEXT_PR" --repo "$GH_REPO" --json title --jq '.title' 2>/dev/null || echo "")
-      NEXT_PR_BODY=$(gh pr view "$NEXT_PR" --repo "$GH_REPO" --json body --jq '.body' 2>/dev/null || echo "")
+      NEXT_PR_TITLE=<title from MCP response>
+      NEXT_PR_BODY=<body from MCP response>
+      # gh pr diff is kept for file listing — no MCP equivalent for diff content.
       NEXT_FILES=$(gh pr diff "$NEXT_PR" --repo "$GH_REPO" --name-only 2>/dev/null | tr '\n' ',' | sed 's/,$//')
       NEXT_CLOSES=$(echo "$NEXT_PR_BODY" | grep -oE '[Cc]loses?\s+#[0-9]+' | grep -oE '[0-9]+' | tr '\n' ',' | sed 's/,$//')
       NEXT_MERGE_AFTER=$(echo "$NEXT_PR_BODY" | grep -oiE 'merge after #[0-9]+|depends on pr #[0-9]+' | grep -oE '[0-9]+' | head -1)
@@ -1434,7 +1405,7 @@ TASK
       #   1. Prefix:  "Read the .agent-task file in your worktree first.
       #               GH_REPO=cgcardona/agentception  Repo: <repo-root>"
       #   2. Body:    paste the entire ## Embedded Reviewer Kickoff section verbatim
-      #               (your QA VP embedded it when it seeded you — or your own prompt IS it)
+      #               (your QA Coordinator embedded it when it seeded you — or your own prompt IS it)
       # The replacement reviewer's prompt also contains ## Pass-Along: Implementer Kickoff
       # so it can chain-spawn the next implementer without reading any file.
     else
@@ -1457,10 +1428,10 @@ STEP 9 — SELF-DESTRUCT (always run this after STEP 8, merge or not, early stop
 ⚠️  NEVER copy files to the main repo for testing.
 ⚠️  NEVER start a review without completing STEP 2. Skipping the check causes
     duplicate review passes and redundant merge attempts.
-⚠️  NEVER run gh pr merge without first outputting your grade.
+⚠️  NEVER call merge_pull_request without first outputting your grade.
 
 CRITICAL: You MUST output your grade and "Approved for merge" OR "Not approved — do not merge"
-BEFORE running any gh pr merge command.
+BEFORE calling merge_pull_request via MCP. The agent MUST merge — do not just leave a comment.
 
 Report: PR number, grade (must be A before merge), merge status, any improvements made.
 ```
@@ -1508,8 +1479,8 @@ If two PRs in the batch share a file:
 
 ### Step 1 — Confirm PRs are open
 
-```bash
-gh pr list --state open
+```
+# MCP: github_list_prs(state="open")
 ```
 
 ### Step 2 — Confirm `dev` is up to date
@@ -1547,7 +1518,7 @@ docker compose exec agentception ls /worktrees/
 REPO=$(git rev-parse --show-toplevel)
 git -C "$REPO" fetch origin
 git -C "$REPO" merge origin/dev
-gh pr list --state open   # any PRs the batch failed to merge?
+# MCP: github_list_prs(state="open")   # any PRs the batch failed to merge?
 ```
 
 ### 2 — Worktree cleanup

@@ -309,13 +309,16 @@ gh pr edit <N> [--base <branch>] [--title "..."] [--body "..."] [--add-label "..
                                    ← safe write; needed to retarget base branch or update PR metadata
                                    ← must be on allowlist: runs a GraphQL mutation (POST api.github.com/graphql)
                                    ← which the sandbox blocks for non-allowlisted commands
-gh pr merge <N> --squash                   ← ONLY after "Grade: X / Approved" output; never --delete-branch (breaks with multi-worktree)
 gh pr comment <N> --body "..."
-gh pr review <N> [--approve | --request-changes | --comment]
-gh issue create --title "..." --body "..."  ← never pass --label here (see note below)
-gh issue close <N> [--comment "..."]       ← ONLY after merge confirmed
-gh issue comment <N> --body "..."
-gh issue edit <N> --add-label "..."        ← apply labels here, after creation, with || true
+
+# ⚠️  PREFER MCP OVER GH CLI for these operations:
+#   merge_pull_request(owner, repo, pullNumber, merge_method="squash")  ← replaces gh pr merge
+#   issue_write(owner, repo, title, body)                               ← replaces gh issue create
+#   issue_write(owner, repo, issue_number, state="closed")              ← replaces gh issue close
+#   add_issue_comment(owner, repo, issue_number, body)                  ← replaces gh issue comment
+#   github_add_label(issue_number, label)                               ← replaces gh issue edit --add-label
+#   github_remove_label(issue_number, label)                            ← replaces gh issue edit --remove-label
+# Only use gh CLI for operations with no MCP equivalent (gh pr checkout, gh pr diff).
 # ⚠️  LABEL RULE: a single missing label causes gh issue create to fail entirely.
 #    Always create the issue first, then apply labels with gh issue edit || true.
 #    Valid labels: bug enhancement documentation performance ai-pipeline muse muse-cli
@@ -566,7 +569,7 @@ npm publish / pip publish       ← publishing packages
 
 ### Merging without grade output
 ```
-gh pr merge <N>   ← without having first output "Grade: X" and "Approved for merge"
+merge_pull_request(N)   ← without having first output "Grade: X" and "Approved for merge"
 ```
 
 ### Closing a PR without a mandatory explanation comment

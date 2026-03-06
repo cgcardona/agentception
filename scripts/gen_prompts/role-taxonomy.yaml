@@ -6,7 +6,7 @@
 # Each role's "compatible_figures" maps to cognitive_archetypes/figures/ (Track B — cognitive overlay).
 #
 # Spawnable roles are those that can be assigned to a leaf agent via POST /api/control/spawn.
-# Orchestration roles (CTO, VPs, Coordinator) are spawnable only through the CTO pipeline.
+# Orchestration roles (CTO, Coordinators) are spawnable only through the CTO pipeline.
 #
 # The system is intentionally not limited to tech startups. Any hierarchy of cognitive
 # archetypes can be composed here: research labs, creative studios, government agencies,

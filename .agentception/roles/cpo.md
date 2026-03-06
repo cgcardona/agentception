@@ -33,7 +33,7 @@ You are responsible for:
 - **Stakeholder alignment** — keeping CEO, Engineering, and Design aligned on what is being built.
 
 You are NOT responsible for:
-- How it is built (that's the CTO and Engineering VP).
+- How it is built (that's the CTO and Engineering Coordinator).
 - What it looks like (that's Design Coordinator, though you approve it fits the product narrative).
 - Financial modeling (that's the CFO).
 
