@@ -1014,7 +1014,7 @@ The machine handles all mechanical work. Humans are needed for:
 | Cursor Task agents share the same model limits | Very large batches may hit context limits in manager agents | Keep batch ≤ 8/cycle; managers summarize, not replicate, worker output |
 | No persistent agent memory across Cursor sessions | Managers must re-read GitHub state on every startup | Registry + Lease issues provide durable state |
 | Docker concurrency | ≥ 12 simultaneous mypy/pytest may slow Docker | Token bucket caps total concurrent Docker execs |
-| Cursor's 4-agent parallel Task limit | Can't dispatch > 4 workers simultaneously | Dispatch in waves of 4; collect before next wave |
+| Agent parallelism | No platform limit — spawn all workers simultaneously | Dispatch all in one wave; collect all results before proceeding |
 | No native cron in Cursor | Managers must be launched manually | Supervisor auto-relaunches managers; human runs kickoff once |
 | GitHub API rate limits (5000 req/hr) | Heavy polling can hit limits | `sleep 2` between `gh` calls; batch reads via GraphQL where possible |
 | Lease TTL depends on wall-clock time | A stalled host clock breaks expiry detection | Use GitHub comment timestamp (server-side), not local clock |

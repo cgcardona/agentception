@@ -42,7 +42,7 @@ repo:
 ```yaml
 pipeline:
   claim_label: "agent:wip"
-  max_pool_size: 4
+  max_pool_size: 0
   phases:
     - "ac-workflow/0-foundation"
     - "ac-workflow/1-generation"
@@ -51,7 +51,7 @@ pipeline:
 | Key | Description |
 |-----|-------------|
 | `claim_label` | GitHub label applied to issues when an agent claims them. Remove to release. Default: `"agent:wip"`. |
-| `max_pool_size` | Max concurrent leaf agents per coordinator run. |
+| `max_pool_size` | Unused — agents are spawned without a concurrency cap. Set to `0`. |
 | `phases` | **Strict phase order** for the active initiative. The CTO and chain-spawn logic iterate this list top-to-bottom. Add/remove phases here, then update the matching `labels.phases` section and re-run `generate.py`. |
 
 > **Phase naming convention:** Use `{initiative}/{N}-{semantic-slug}` where N is the 0-based index. Example: `ac-workflow/0-foundation`, `ac-workflow/1-generation`. The numeric prefix makes lexicographic sort a correct fallback; `phase_order` in the DB is canonical for filed plans.

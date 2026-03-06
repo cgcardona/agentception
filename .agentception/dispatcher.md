@@ -68,9 +68,9 @@ for this tier — pass them verbatim to the spawned agent in the briefing below.
 
 ---
 
-## Step 3 — Claim and spawn (up to 4 at a time)
+## Step 3 — Claim and spawn (all in parallel)
 
-For each pending launch (batch up to 4 simultaneously using parallel Task calls):
+For each pending launch (spawn all simultaneously using parallel Task calls):
 
 ### 3a. Claim the run
 
@@ -127,11 +127,11 @@ Step 3: Run your tier's GitHub queries via MCP to discover what needs doing.
     github_list_issues(label="{scope_value}", state="open")
   Filter out any issues labelled "agent:wip" (already claimed) or "blocked"
   (phase-gated — not yet unlocked). Only work on issues with neither label.
-  Then: spawn one engineer per eligible issue (max 4 at a time via Task calls).
+  Then: spawn one engineer per eligible issue (all in parallel via Task calls).
 
   coordinator tier (qa-coordinator role) — call:
     github_list_prs(state="open")
-  Then: spawn one pr-reviewer per open PR (max 4 at a time via Task calls).
+  Then: spawn one pr-reviewer per open PR (all in parallel via Task calls).
 
 Step 4: For each child you spawn:
   - Write a .agent-task in a fresh git worktree:
@@ -189,8 +189,7 @@ Always pass agent_run_id="{run_id}" to every MCP report call.
 
 ## Step 4 — Wait for all spawned Tasks to complete
 
-After spawning a batch of up to 4 Tasks simultaneously, wait for all of them
-to return before proceeding.
+After spawning all Tasks simultaneously, wait for all of them to return before proceeding.
 
 ---
 
@@ -223,7 +222,6 @@ Then exit. You are done.
 
 ## Rules
 
-- Never spawn more than 4 Tasks simultaneously — this is the observed Cursor concurrency ceiling.
 - Always use `subagent_type="generalPurpose"` for all agent Tasks (leaf and manager).
 - Always claim (acknowledge) before spawning — prevents double-dispatch.
 - Always read the `.agent-task` file before spawning — TIER and SCOPE_VALUE drive the briefing.

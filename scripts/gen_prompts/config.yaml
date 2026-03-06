@@ -18,7 +18,7 @@ repo:
 
 pipeline:
   claim_label: "agent:wip"
-  max_pool_size: 4               # concurrent leaf agents per VP run
+  max_pool_size: 0               # no concurrency limit — spawn all agents in parallel
 
   # Strict phase order — CTO and chain-spawn iterate this list top to bottom.
   # To switch projects, replace the entire phases list and update `codebases.active`.

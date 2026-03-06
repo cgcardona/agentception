@@ -99,8 +99,8 @@ receive the `Task` tool and can recursively spawn.
 | `generalPurpose` agents have the `Task` tool | ✅ Confirmed | Tree tests — children spawned grandchildren |
 | `shell` agents have the `Task` tool | ❌ False | Hierarchical test failed; child tried `bash &` backgrounding instead |
 | 3-layer deep nesting works (grandchildren of grandchildren) | ✅ Confirmed | Depth test — 6 timestamp files written across 3 layers |
-| Concurrency ceiling at root level ≈ 3 | ✅ Observed | Stress test — 10 simultaneous Task calls → peak 3 concurrent |
-| Any single layer saturates at ≈ 3 concurrent | 🔲 Likely | Consistent with root observation; not yet isolated per-layer |
+| Concurrency ceiling at root level | ❌ No limit observed | Earlier stress test result was a false positive — spawn all agents simultaneously |
+| Per-layer concurrency limit | ❌ No limit | Spawn all at once across all layers |
 
 ---
 
@@ -240,9 +240,7 @@ This gives the web dashboard live visibility without polling filesystem state.
 
 | Question | Notes |
 |---|---|
-| Does the ~3 ceiling apply independently per layer, or globally? | Not yet isolated. Hierarchical test pending. |
 | What is the absolute depth limit? | Tested to 3. Likely deeper is fine. |
-| Does concurrency ceiling vary by session/machine/Cursor version? | Unknown. Needs repeated measurement. |
 | Can a `generalPurpose` child use ALL parent tools, or a subset? | Unclear. Need to test MCP access from nested agents. |
 
 ---
