@@ -1,4 +1,4 @@
-"""UI routes: .cursor/ docs viewer."""
+"""UI routes: .agentception/ docs viewer."""
 from __future__ import annotations
 
 import logging
@@ -16,19 +16,19 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-_CURSOR_DIR = Path(_settings.repo_dir) / ".cursor"
+_AGENTCEPTION_DIR = Path(_settings.repo_dir) / ".agentception"
 
 
 def _scan_cursor_docs() -> list[dict[str, str]]:
-    """Auto-discover all markdown files in .cursor/ sorted alphabetically.
+    """Auto-discover all markdown files in .agentception/ sorted alphabetically.
 
     Returns a list of {slug, label, file} dicts. Label is derived from the
     filename by replacing hyphens and underscores with spaces and title-casing.
     """
-    if not _CURSOR_DIR.exists():
+    if not _AGENTCEPTION_DIR.exists():
         return []
     docs: list[dict[str, str]] = []
-    for f in sorted(_CURSOR_DIR.glob("*.md")):
+    for f in sorted(_AGENTCEPTION_DIR.glob("*.md")):
         slug = f.stem
         label = slug.replace("-", " ").replace("_", " ").title()
         docs.append({"slug": slug, "label": label, "file": f.name})
@@ -45,7 +45,7 @@ def _render_doc(slug: str) -> tuple[str | None, str | None, str | None]:
     doc_meta = next((d for d in docs if d["slug"] == slug), None)
     if doc_meta is None:
         return None, None, f"Unknown doc: {slug}"
-    file_path = _CURSOR_DIR / doc_meta["file"]
+    file_path = _AGENTCEPTION_DIR / doc_meta["file"]
     try:
         raw = file_path.read_text(encoding="utf-8")
         return doc_meta["label"], _md_to_html(raw), None
@@ -61,7 +61,7 @@ async def docs_index(request: Request) -> Response:
     docs = _scan_cursor_docs()
     if docs:
         return RedirectResponse(url=f"/docs/{docs[0]['slug']}", status_code=302)
-    raise HTTPException(status_code=404, detail="No .cursor/ docs found")
+    raise HTTPException(status_code=404, detail="No .agentception/ docs found")
 
 
 @router.get("/docs/{slug}", response_class=HTMLResponse)

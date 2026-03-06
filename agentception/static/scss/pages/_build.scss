@@ -85,9 +85,24 @@
   }
 
   &__stat {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.3rem;
     font-size: 0.75rem;
-    color: var(--text-muted);
     font-variant-numeric: tabular-nums;
+
+    &-open {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+
+    &-sep {
+      color: var(--text-faint);
+    }
+
+    &-total {
+      color: var(--text-muted);
+    }
   }
 
   &__live {

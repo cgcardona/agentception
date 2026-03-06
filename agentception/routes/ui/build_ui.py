@@ -121,10 +121,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # ---------------------------------------------------------------------------
-# Role catalogue (derived from .cursor/roles/ on disk)
+# Role catalogue (derived from .agentception/roles/ on disk)
 # ---------------------------------------------------------------------------
 
-_ROLES_DIR = Path(__file__).parent.parent.parent.parent / ".cursor" / "roles"
+_ROLES_DIR = Path(__file__).parent.parent.parent.parent / ".agentception" / "roles"
 
 _ROLE_GROUPS: dict[str, list[str]] = {
     "C-Suite": ["ceo", "cto", "cpo", "coo", "cfo", "cmo", "cdo", "ciso"],
@@ -411,9 +411,13 @@ async def initiative_active_tree(initiative: str) -> Response:
     """
     repo = settings.gh_repo
     groups = await get_issues_grouped_by_phase(repo, initiative=initiative)
-    all_issue_numbers = [i["number"] for g in groups for i in g["issues"]]
+    # Only open issues drive the hierarchy — closed issues' stale runs must
+    # never surface a ghost agent in the panel.
+    open_issue_numbers = [
+        i["number"] for g in groups for i in g["issues"] if i["state"] != "closed"
+    ]
     batch_id = await get_latest_active_batch_id(
-        repo, initiative, issue_numbers=all_issue_numbers
+        repo, initiative, issue_numbers=open_issue_numbers
     )
     if not batch_id:
         return JSONResponse({"nodes": [], "batch_id": None})

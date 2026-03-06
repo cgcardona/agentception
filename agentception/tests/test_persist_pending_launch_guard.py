@@ -63,12 +63,15 @@ def _make_session(existing_run: ACAgentRun | None) -> MagicMock:
     scalar = MagicMock()
     scalar.scalar_one_or_none.return_value = existing_run
 
-    execute_result = MagicMock()
-    execute_result.scalars.return_value.all.return_value = []  # orphan sweep → empty
+    orphan_sweep_result = MagicMock()
+    orphan_sweep_result.scalars.return_value.all.return_value = []  # orphan sweep → empty
+
+    ttl_sweep_result = MagicMock()
+    ttl_sweep_result.scalars.return_value.all.return_value = []  # TTL sweep → empty
 
     session = MagicMock(spec=AsyncSession)
-    # First call returns the existing run; second call (orphan sweep) returns empty.
-    session.execute = AsyncMock(side_effect=[scalar, execute_result])
+    # Call 1: per-agent row lookup; call 2: orphan sweep; call 3: pending_launch TTL sweep.
+    session.execute = AsyncMock(side_effect=[scalar, orphan_sweep_result, ttl_sweep_result])
     session.add = MagicMock()
     return session
 
@@ -217,11 +220,15 @@ async def test_orphan_with_pr_number_set_to_done() -> None:
     orphan_result_mock = MagicMock()
     orphan_result_mock.scalars.return_value.all.return_value = [orphan]
 
+    ttl_sweep_result = MagicMock()
+    ttl_sweep_result.scalars.return_value.all.return_value = []
+
     scalar = MagicMock()
     scalar.scalar_one_or_none.return_value = None  # no existing run for the agent
 
     session = MagicMock(spec=AsyncSession)
-    session.execute = AsyncMock(side_effect=[scalar, orphan_result_mock])
+    # Call 1: per-agent row lookup; call 2: orphan sweep; call 3: TTL sweep.
+    session.execute = AsyncMock(side_effect=[scalar, orphan_result_mock, ttl_sweep_result])
     session.add = MagicMock()
 
     # Pass an agent with a DIFFERENT id so the orphan is never in live_ids.
@@ -242,11 +249,15 @@ async def test_orphan_without_pr_number_flipped_to_unknown() -> None:
     orphan_result_mock = MagicMock()
     orphan_result_mock.scalars.return_value.all.return_value = [orphan]
 
+    ttl_sweep_result = MagicMock()
+    ttl_sweep_result.scalars.return_value.all.return_value = []
+
     scalar = MagicMock()
     scalar.scalar_one_or_none.return_value = None
 
     session = MagicMock(spec=AsyncSession)
-    session.execute = AsyncMock(side_effect=[scalar, orphan_result_mock])
+    # Call 1: per-agent row lookup; call 2: orphan sweep; call 3: TTL sweep.
+    session.execute = AsyncMock(side_effect=[scalar, orphan_result_mock, ttl_sweep_result])
     session.add = MagicMock()
 
     different_agent = AgentNode(id="different-run-id", role="cto", status=AgentStatus.IMPLEMENTING)
@@ -255,4 +266,72 @@ async def test_orphan_without_pr_number_flipped_to_unknown() -> None:
 
     assert orphan.status == "unknown", (
         "Orphan without PR should be flipped to unknown for cleanup"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Regression: pending_launch TTL sweep
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_pending_launch_ttl_expired_run_flipped_to_unknown() -> None:
+    """A pending_launch run older than 15 min with no live worktree becomes unknown.
+
+    Dispatcher that aborts before acknowledging would otherwise lock the issue
+    in the 'active' swim lane forever with no worktree to back it.
+    """
+    stale_pending = _make_run(status="pending_launch")
+    stale_pending.spawned_at = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+        minutes=30
+    )
+
+    orphan_sweep_result = MagicMock()
+    orphan_sweep_result.scalars.return_value.all.return_value = []  # no orphans
+
+    ttl_sweep_result = MagicMock()
+    ttl_sweep_result.scalars.return_value.all.return_value = [stale_pending]
+
+    scalar = MagicMock()
+    scalar.scalar_one_or_none.return_value = None  # no existing run for the live agent
+
+    session = MagicMock(spec=AsyncSession)
+    session.execute = AsyncMock(side_effect=[scalar, orphan_sweep_result, ttl_sweep_result])
+    session.add = MagicMock()
+
+    different_agent = AgentNode(id="different-run-id", role="cto", status=AgentStatus.IMPLEMENTING)
+    await _persist._upsert_agent_runs(session, [different_agent])
+
+    assert stale_pending.status == "unknown", (
+        "Expired pending_launch must become unknown so the issue returns to todo lane"
+    )
+
+
+@pytest.mark.anyio
+async def test_pending_launch_recent_run_not_expired() -> None:
+    """A recently queued pending_launch run must NOT be touched by the TTL sweep."""
+    fresh_pending = _make_run(status="pending_launch")
+    fresh_pending.spawned_at = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+        minutes=5
+    )
+
+    orphan_sweep_result = MagicMock()
+    orphan_sweep_result.scalars.return_value.all.return_value = []
+
+    ttl_sweep_result = MagicMock()
+    # TTL sweep query only returns runs older than the cutoff — fresh run not included.
+    ttl_sweep_result.scalars.return_value.all.return_value = []
+
+    scalar = MagicMock()
+    scalar.scalar_one_or_none.return_value = None
+
+    session = MagicMock(spec=AsyncSession)
+    session.execute = AsyncMock(side_effect=[scalar, orphan_sweep_result, ttl_sweep_result])
+    session.add = MagicMock()
+
+    different_agent = AgentNode(id="different-run-id", role="cto", status=AgentStatus.IMPLEMENTING)
+    await _persist._upsert_agent_runs(session, [different_agent])
+
+    assert fresh_pending.status == "pending_launch", (
+        "Fresh pending_launch must not be touched by the TTL sweep"
     )

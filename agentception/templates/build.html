@@ -15,8 +15,12 @@
       <span class="build-header__repo">{{ repo }}</span>
     </div>
     <div class="build-header__right">
-      <span class="build-header__stat">{{ total_issues }} issues</span>
-      <span class="build-header__live" title="Board refreshes every 10 s">● LIVE</span>
+      <span class="build-header__stat">
+        <span class="build-header__stat-open">{{ open_issues }} open</span>
+        <span class="build-header__stat-sep">/</span>
+        <span class="build-header__stat-total">{{ total_issues }} total</span>
+      </span>
+      <span class="build-header__live" title="Board refreshes every 5 s">● LIVE</span>
     </div>
   </header>
 
@@ -231,7 +235,7 @@
   </div>{# /.build-columns #}
 
   {# ── launch modal — scope-based agent wave launch ─────────────────────── #}
-  <div class="build-modal-backdrop" x-show="labelDispatchOpen" x-transition @click.self="closeLabelDispatch()">
+  <div class="build-modal-backdrop" x-show="labelDispatchOpen" x-transition @click.self="closeLabelDispatch()" @keydown.escape.window="if (labelDispatchOpen) closeLabelDispatch()">
     <div class="build-modal build-modal--launch" @click.stop>
 
       <div class="build-modal__header">
@@ -364,13 +368,28 @@
       </div>
 
       <div class="build-modal__footer">
-        <button class="btn btn-secondary" @click="closeLabelDispatch()">Cancel</button>
-        <button class="btn btn-primary"
-                :disabled="!launchReady || labelDispatching || labelDispatchSuccess"
-                @click="submitLabelDispatch()">
-          <span x-show="!labelDispatching">Launch →</span>
-          <span x-show="labelDispatching">Queuing…</span>
-        </button>
+        <template x-if="!labelDispatchSuccess">
+          <button class="btn btn-secondary" @click="closeLabelDispatch()">Cancel</button>
+        </template>
+        <template x-if="labelDispatchSuccess">
+          <button class="btn btn-secondary btn-secondary--danger"
+                  :disabled="cancellingDispatch"
+                  @click="cancelPendingDispatch()">
+            <span x-show="!cancellingDispatch">✕ Cancel dispatch</span>
+            <span x-show="cancellingDispatch">Cancelling…</span>
+          </button>
+        </template>
+        <template x-if="!labelDispatchSuccess">
+          <button class="btn btn-primary"
+                  :disabled="!launchReady || labelDispatching"
+                  @click="submitLabelDispatch()">
+            <span x-show="!labelDispatching">Launch →</span>
+            <span x-show="labelDispatching">Queuing…</span>
+          </button>
+        </template>
+        <template x-if="labelDispatchSuccess">
+          <button class="btn btn-primary" @click="closeLabelDispatch()">Close</button>
+        </template>
       </div>
 
     </div>
