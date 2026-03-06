@@ -292,6 +292,7 @@
 
 .build-issue {
   position: relative;
+  min-width: 0;   // prevent card content from forcing the grid column wider
   padding: 0.5rem 0.625rem;
   border-radius: var(--radius);
   border: 1px solid var(--border-subtle);
@@ -1325,7 +1326,7 @@
 // phase row, so columns stay aligned across the full board.
 
 $_sw-label: 200px;
-$_sw-cols: #{$_sw-label} repeat(5, 1fr);
+$_sw-cols: #{$_sw-label} repeat(5, minmax(0, 1fr));
 $_sw-gap: 0.5rem;
 
 .build-swimlane {
