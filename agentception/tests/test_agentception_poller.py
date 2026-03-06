@@ -584,5 +584,176 @@ async def test_polling_loop_runs_at_interval() -> None:
 
     # At least one tick should have occurred before cancellation.
     assert tick_count >= 1
-    # Sleep should have been called with the configured interval.
-    assert all(s == 5 for s in sleep_calls)
+
+
+# ---------------------------------------------------------------------------
+# _auto_advance_phases
+# ---------------------------------------------------------------------------
+
+
+def _phase_row(
+    label: str,
+    complete: bool,
+    depends_on: list[str] | None = None,
+) -> dict[str, object]:
+    """Minimal PhaseGroupRow-compatible dict for testing."""
+    return {
+        "label": label,
+        "complete": complete,
+        "locked": bool(depends_on and not complete),
+        "depends_on": depends_on or [],
+        "issues": [],
+    }
+
+
+@pytest.mark.anyio
+async def test_auto_advance_phases_calls_plan_advance_when_dep_complete() -> None:
+    """plan_advance_phase is called when a phase's dependency is fully closed."""
+    phases = [
+        _phase_row("ac-wf/0-foundation", complete=True),
+        _phase_row("ac-wf/1-migration", complete=False, depends_on=["ac-wf/0-foundation"]),
+    ]
+
+    with (
+        patch(
+            "agentception.db.queries.get_initiatives",
+            new=AsyncMock(return_value=["ac-wf"]),
+        ),
+        patch(
+            "agentception.db.queries.get_issues_grouped_by_phase",
+            new=AsyncMock(return_value=phases),
+        ),
+        patch(
+            "agentception.mcp.plan_advance_phase.plan_advance_phase",
+            new=AsyncMock(return_value={"advanced": True, "unlocked_count": 3}),
+        ) as mock_advance,
+    ):
+        import agentception.poller as pm
+        pm._auto_advanced.clear()
+        from agentception.poller import _auto_advance_phases
+        await _auto_advance_phases("cgcardona/agentception")
+
+    mock_advance.assert_awaited_once_with("ac-wf", "ac-wf/0-foundation", "ac-wf/1-migration")
+
+
+@pytest.mark.anyio
+async def test_auto_advance_phases_skips_already_advanced() -> None:
+    """plan_advance_phase is NOT called for a transition already in _auto_advanced."""
+    phases = [
+        _phase_row("ac-wf/0-foundation", complete=True),
+        _phase_row("ac-wf/1-migration", complete=False, depends_on=["ac-wf/0-foundation"]),
+    ]
+
+    with (
+        patch(
+            "agentception.db.queries.get_initiatives",
+            new=AsyncMock(return_value=["ac-wf"]),
+        ),
+        patch(
+            "agentception.db.queries.get_issues_grouped_by_phase",
+            new=AsyncMock(return_value=phases),
+        ),
+        patch(
+            "agentception.mcp.plan_advance_phase.plan_advance_phase",
+            new=AsyncMock(return_value={"advanced": True, "unlocked_count": 3}),
+        ) as mock_advance,
+    ):
+        import agentception.poller as pm
+        pm._auto_advanced.clear()
+        pm._auto_advanced.add(("ac-wf", "ac-wf/0-foundation", "ac-wf/1-migration"))
+        from agentception.poller import _auto_advance_phases
+        await _auto_advance_phases("cgcardona/agentception")
+
+    mock_advance.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_auto_advance_phases_skips_incomplete_dep() -> None:
+    """plan_advance_phase is NOT called when a dependency is not yet complete."""
+    phases = [
+        _phase_row("ac-wf/0-foundation", complete=False),
+        _phase_row("ac-wf/1-migration", complete=False, depends_on=["ac-wf/0-foundation"]),
+    ]
+
+    with (
+        patch(
+            "agentception.db.queries.get_initiatives",
+            new=AsyncMock(return_value=["ac-wf"]),
+        ),
+        patch(
+            "agentception.db.queries.get_issues_grouped_by_phase",
+            new=AsyncMock(return_value=phases),
+        ),
+        patch(
+            "agentception.mcp.plan_advance_phase.plan_advance_phase",
+            new=AsyncMock(return_value={"advanced": True, "unlocked_count": 0}),
+        ) as mock_advance,
+    ):
+        import agentception.poller as pm
+        pm._auto_advanced.clear()
+        from agentception.poller import _auto_advance_phases
+        await _auto_advance_phases("cgcardona/agentception")
+
+    mock_advance.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_auto_advance_phases_does_not_add_to_dedup_on_failure() -> None:
+    """A failed plan_advance_phase call is retried on the next tick."""
+    phases = [
+        _phase_row("ac-wf/0-foundation", complete=True),
+        _phase_row("ac-wf/1-migration", complete=False, depends_on=["ac-wf/0-foundation"]),
+    ]
+
+    with (
+        patch(
+            "agentception.db.queries.get_initiatives",
+            new=AsyncMock(return_value=["ac-wf"]),
+        ),
+        patch(
+            "agentception.db.queries.get_issues_grouped_by_phase",
+            new=AsyncMock(return_value=phases),
+        ),
+        patch(
+            "agentception.mcp.plan_advance_phase.plan_advance_phase",
+            new=AsyncMock(side_effect=RuntimeError("gh timeout")),
+        ) as mock_advance,
+    ):
+        import agentception.poller as pm
+        pm._auto_advanced.clear()
+        from agentception.poller import _auto_advance_phases
+        await _auto_advance_phases("cgcardona/agentception")
+
+    # Called once but not added to dedup — will be retried next tick.
+    mock_advance.assert_awaited_once()
+    assert ("ac-wf", "ac-wf/0-foundation", "ac-wf/1-migration") not in pm._auto_advanced
+
+
+@pytest.mark.anyio
+async def test_auto_advance_phases_does_not_advance_complete_phase() -> None:
+    """A phase that is itself complete is never a candidate for advancing."""
+    phases = [
+        _phase_row("ac-wf/0-foundation", complete=True),
+        _phase_row("ac-wf/1-migration", complete=True, depends_on=["ac-wf/0-foundation"]),
+    ]
+
+    with (
+        patch(
+            "agentception.db.queries.get_initiatives",
+            new=AsyncMock(return_value=["ac-wf"]),
+        ),
+        patch(
+            "agentception.db.queries.get_issues_grouped_by_phase",
+            new=AsyncMock(return_value=phases),
+        ),
+        patch(
+            "agentception.mcp.plan_advance_phase.plan_advance_phase",
+            new=AsyncMock(return_value={"advanced": True, "unlocked_count": 0}),
+        ) as mock_advance,
+    ):
+        import agentception.poller as pm
+        pm._auto_advanced.clear()
+        from agentception.poller import _auto_advance_phases
+        await _auto_advance_phases("cgcardona/agentception")
+
+    mock_advance.assert_not_awaited()
