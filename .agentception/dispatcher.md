@@ -10,9 +10,16 @@ Canonical reference: `docs/agent-tree-protocol.md`
 
 ---
 
+## MCP server identifier
+
+All AgentCeption MCP tools are on server **`agentception`**.
+When using `CallMcpTool`, always pass `server="agentception"`.
+
+---
+
 ## Step 1 — Read the queue
 
-Call the `build_get_pending_launches` MCP tool.
+Call the `build_get_pending_launches` MCP tool (server: `agentception`).
 
 It returns a list of pending launches shaped like:
 
