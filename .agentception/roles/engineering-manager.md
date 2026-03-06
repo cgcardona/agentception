@@ -47,7 +47,7 @@ SEED:
        for NUM in <numbers from github_list_issues result>; do
          # If an open PR already references this issue (via branch name or close keyword),
          # the claim is ACTIVE even if the implementer worktree was pruned. Never clear it.
-         # MCP: github_list_prs(state="open") → filter where .headRefName == "feat/issue-${NUM}"
+         # MCP: github_list_prs(state="open") → filter where .headRefName startswith "feat/issue-${NUM}"
          OPEN_PR=<pr_number from github_list_prs result, or empty>
          if [ -n "$OPEN_PR" ]; then
            echo "Keeping agent:wip on #$NUM (open PR #$OPEN_PR exists — worktree pruning is expected)"
@@ -83,7 +83,7 @@ SEED:
        # the stale sweep to (incorrectly) clear agent:wip and expose the issue again.
        # Always re-verify before seeding — branch naming is the canonical signal.
        for NUM in <candidate numbers from step 3>; do
-         # MCP: github_list_prs(state="open") → filter where .headRefName == "feat/issue-${NUM}"
+         # MCP: github_list_prs(state="open") → filter where .headRefName startswith "feat/issue-${NUM}"
          OPEN_PR=<pr_number from github_list_prs result, or empty>
          if [ -n "$OPEN_PR" ]; then
            echo "SKIP #$NUM — open PR #$OPEN_PR already exists for this issue"
