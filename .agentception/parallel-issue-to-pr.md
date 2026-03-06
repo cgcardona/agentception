@@ -486,7 +486,7 @@ Red = never, ask the user instead.
 STEP 0 — READ YOUR TASK FILE:
   cat .agent-task
 
-  Parse all KEY=value fields from the header:
+  Parse all TOML v2 fields from the task file:
     GH_REPO          → GitHub repo slug (export immediately)
     ISSUE_NUMBER     → your issue number (substitute for <N> throughout)
     ISSUE_TITLE      → issue title
@@ -497,11 +497,11 @@ STEP 0 — READ YOUR TASK FILE:
                        from sub-task sections in this file, then self-destruct)
 
   Export for all subsequent commands:
-    export GH_REPO=$(grep "^GH_REPO=" .agent-task | cut -d= -f2)
+    export GH_REPO=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['repo']['gh_repo'])")
     export GH_REPO=${GH_REPO:-cgcardona/agentception}
-    N=$(grep "^ISSUE_NUMBER=" .agent-task | cut -d= -f2)
-    ATTEMPT_N=$(grep "^ATTEMPT_N=" .agent-task | cut -d= -f2)
-    BATCH_ID=$(grep "^BATCH_ID=" .agent-task | cut -d= -f2)
+    N=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['target']['issue_number'])")
+    ATTEMPT_N=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['task']['attempt_n'])")
+    BATCH_ID=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['pipeline']['batch_id'])")
 
   Generate your unique agent session ID (identifies THIS specific agent run):
     AGENT_SESSION="eng-$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%04x' $RANDOM)"
@@ -521,7 +521,7 @@ STEP 0 — READ YOUR TASK FILE:
     unrelated work. When in doubt: commit, then fix forward.
 
 STEP 0.5 — LOAD YOUR ROLE AND COGNITIVE ARCHITECTURE:
-  ROLE=$(grep '^ROLE=' .agent-task | cut -d= -f2)
+  ROLE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['role'])")
   echo "✅ Operating as role: $ROLE"
   # Your role definition is embedded at the bottom of this prompt under
   # ## Embedded Role Definitions — no file read needed. ROLE_FILE in .agent-task
@@ -530,7 +530,7 @@ STEP 0.5 — LOAD YOUR ROLE AND COGNITIVE ARCHITECTURE:
 
   # Load cognitive architecture — assembles figure persona + all skill domain fragments
   # Format: "figure:skill1:skill2" (new multi-skill format, colon-separated)
-  COGNITIVE_ARCH=$(grep '^COGNITIVE_ARCH=' .agent-task | cut -d= -f2)
+  COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
   if [ -n "$COGNITIVE_ARCH" ]; then
     echo "🧠 Cognitive architecture: $COGNITIVE_ARCH"
     echo ""
@@ -687,7 +687,7 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
   # before implementing — your code may import from them at runtime.
   #
   # ⚠️  DEPENDS_ON is a comma-separated list (e.g. "614,615"). Iterate each number separately.
-  DEPENDS_ON_RAW=$(grep "^DEPENDS_ON=" .agent-task | cut -d= -f2)
+  DEPENDS_ON_RAW=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(','.join(str(x) for x in d.get('target',{}).get('depends_on',[])))")
   if [ -n "$DEPENDS_ON_RAW" ] && [ "$DEPENDS_ON_RAW" != "none" ]; then
     echo "ℹ️  DEPENDS_ON: $DEPENDS_ON_RAW"
     echo "   Checking whether dependencies are already on dev..."
@@ -737,7 +737,7 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
   echo "=== PRE-EXISTING TEST BASELINE (targeted files) ==="
   # Run targeted tests BEFORE branching to capture baseline failures.
   # Any test that fails before your change is pre-existing — you own fixing it.
-  FILE_OWNERSHIP=$(grep "^FILE_OWNERSHIP=" .agent-task | cut -d= -f2)
+  FILE_OWNERSHIP=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(','.join(d.get('target',{}).get('file_ownership',[])))")
   # (Run targeted tests for the module you're about to modify)
 
   # ── STEP 3.2 — CREATE BRANCH ──────────────────────────────────────────────

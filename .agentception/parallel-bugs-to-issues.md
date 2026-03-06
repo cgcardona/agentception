@@ -420,7 +420,7 @@ Task(worktree="~/.agentception/worktrees/agentception/bugs-phase-2", prompt=KICK
 
 ```bash
 REPO=$(git worktree list | head -1 | awk '{print $1}')
-export GH_REPO=$(grep "^GH_REPO=" .agent-task | cut -d= -f2)
+export GH_REPO=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['repo']['gh_repo'])")
 export GH_REPO=${GH_REPO:-cgcardona/agentception}
 ```
 
@@ -444,28 +444,27 @@ PARALLEL AGENT COORDINATION — BUGS TO ISSUES
 STEP 0 — READ YOUR TASK FILE:
   cat .agent-task
 
-  Parse these fields from the header (KEY=value lines):
-    WORKFLOW                — must be "bugs-to-issues"
-    BATCH_NUM               — your phase number
-    GH_REPO                 — GitHub repo slug (cgcardona/agentception)
-    PHASE_LABEL             — the phase label to apply to every issue
-    LABELS_TO_APPLY         — comma-separated list of ALL labels for every issue
-    PHASE_DEPENDS_ON_ISSUES — upstream issue numbers (already resolved to #N)
-    FILE_OWNERSHIP          — files this phase owns (awareness, not action)
-    SPAWN_SUB_AGENTS        — if true, follow sub-coordinator path
+  Parse these TOML v2 fields:
+    task.workflow           — must be "bugs-to-issues"
+    repo.gh_repo            — GitHub repo slug (cgcardona/agentception)
+    target.phase_label      — the phase label to apply to every issue
+    target.labels_to_apply  — list of ALL labels for every issue
+    target.phase_depends_on_issues — upstream issue numbers (already resolved to #N)
+    target.file_ownership   — files this phase owns (awareness, not action)
+    spawn.sub_agents        — if true, follow sub-coordinator path
 
 STEP 0.5 — LOAD YOUR ROLE:
-  ROLE=$(grep '^ROLE=' .agent-task | cut -d= -f2)
+  ROLE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['role'])")
   REPO=$(git worktree list | head -1 | awk '{print $1}')
   ROLE_FILE="$REPO/.agentception/roles/${ROLE}.md"
   [ -f "$ROLE_FILE" ] && cat "$ROLE_FILE" && echo "✅ Operating as: $ROLE"
 
   Export for all subsequent commands:
-    export GH_REPO=$(grep "^GH_REPO=" .agent-task | cut -d= -f2)
-    PHASE_LABEL=$(grep "^PHASE_LABEL=" .agent-task | cut -d= -f2)
-    LABELS_TO_APPLY=$(grep "^LABELS_TO_APPLY=" .agent-task | cut -d= -f2)
-    PHASE_DEPENDS_ON_ISSUES=$(grep "^PHASE_DEPENDS_ON_ISSUES=" .agent-task | cut -d= -f2)
-    ATTEMPT_N=$(grep "^ATTEMPT_N=" .agent-task | cut -d= -f2)
+    export GH_REPO=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['repo']['gh_repo'])")
+    PHASE_LABEL=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('target',{}).get('phase_label',''))")
+    LABELS_TO_APPLY=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(','.join(d.get('target',{}).get('labels_to_apply',[])))")
+    PHASE_DEPENDS_ON_ISSUES=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(','.join(str(x) for x in d.get('target',{}).get('phase_depends_on_issues',[])))")
+    ATTEMPT_N=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['task']['attempt_n'])")
 
   ⚠️  ANTI-LOOP GUARD: if ATTEMPT_N > 2 → STOP immediately. Report exact failure.
 

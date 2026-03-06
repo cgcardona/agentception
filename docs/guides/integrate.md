@@ -73,30 +73,57 @@ The `x-cloak` attribute prevents a flash of the bar before Alpine initialises. T
 
 ---
 
-## ENRICHED_MANIFEST: .agent-task format
+## Agent-task format for plan coordinator spawning
 
-When `POST /api/plan/launch` spawns a coordinator agent via `plan_spawn_coordinator()`, it writes an `.agent-task` file to the coordinator's git worktree. That file uses a structured key-value format with one special multi-line block: `ENRICHED_MANIFEST:`.
+When `POST /api/plan/launch` spawns a coordinator agent via `plan_spawn_coordinator()`, it writes an `.agent-task` file to the coordinator's git worktree. That file uses **TOML v2 format** (spec version `2.0`) with a special `[enriched]` section containing the JSON manifest payload.
 
 ### File format
 
-```
-WORKFLOW=bugs-to-issues
-BATCH_ID=coordinator-20260305-142201
-BRANCH=coordinator/20260305-142201
-WORKTREE=/tmp/worktrees/coordinator-20260305-142201
+```toml
+[task]
+version = "2.0"
+workflow = "bugs-to-issues"
+id = "3f4a9c2e-1b8d-4e7f-a6c5-9d2e8f0b1a3c"
+created_at = 2026-03-05T14:22:01Z
+attempt_n = 0
+required_output = "phase_plan"
+on_block = "stop"
 
-ENRICHED_MANIFEST:
-```json
+[agent]
+role = "coordinator"
+tier = "coordinator"
+cognitive_arch = "von_neumann:python"
+
+[repo]
+gh_repo = "cgcardona/agentception"
+base = "dev"
+
+[pipeline]
+batch_id = "coordinator-20260305-142201"
+wave = "coordinator-20260305-142201"
+
+[spawn]
+mode = "chain"
+sub_agents = true
+
+[worktree]
+path = "/tmp/worktrees/coordinator-20260305-142201"
+branch = "coordinator/20260305-142201"
+
+[enriched]
+total_issues = 12
+estimated_waves = 4
+manifest_json = """
 {
   "initiative": "my-feature",
   "phases": [...],
   "total_issues": 12,
   "estimated_waves": 4
 }
-```
+"""
 ```
 
-The single-line key-value pairs above `ENRICHED_MANIFEST:` are parsed as `KEY=VALUE`. Everything between the opening ` ```json ` fence and its closing ` ``` ` is the JSON payload — parse it as `EnrichedManifest`.
+The file is parsed by `tomllib.loads()`. The `[enriched]` section carries the full JSON manifest as a TOML multiline basic string. Parse `enriched.manifest_json` as `EnrichedManifest`.
 
 ### EnrichedManifest schema
 
@@ -139,7 +166,7 @@ The single-line key-value pairs above `ENRICHED_MANIFEST:` are parsed as `KEY=VA
 
 Coordinator agents reading this block must **execute** — not re-validate or re-interpret. See `coordinator.md` for the execution loop.
 
-### Producing an ENRICHED_MANIFEST: block
+### Producing the enriched coordinator task file
 
 Use the `plan_spawn_coordinator` MCP tool:
 
@@ -150,4 +177,4 @@ result = await plan_spawn_coordinator(manifest_json)
 
 Or call `POST /api/plan/launch` from the Build dashboard — it invokes `plan_spawn_coordinator` internally and returns the same shape.
 
-Do not write `.agent-task` files with `ENRICHED_MANIFEST:` blocks by hand. Always go through `plan_spawn_coordinator` so the manifest is validated before it reaches the coordinator.
+Do not write `.agent-task` files with `[enriched]` sections by hand. Always go through `plan_spawn_coordinator` so the manifest is validated before it reaches the coordinator.

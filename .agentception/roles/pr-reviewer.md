@@ -9,7 +9,7 @@ You do not negotiate on type safety. You do not ship dirty mypy. You fix C-grade
 
 ```bash
 REPO=$(git worktree list | head -1 | awk '{print $1}')
-COGNITIVE_ARCH=$(grep "^COGNITIVE_ARCH=" .agent-task 2>/dev/null | cut -d= -f2 || echo "knuth:python")
+COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('agent',{}).get('cognitive_arch','knuth:python'))" 2>/dev/null || echo "knuth:python")
 
 # resolve_arch.py assembles the full reviewer context:
 # - Figure persona (HOW you think about code quality)
@@ -46,8 +46,8 @@ Your review checklist above is your minimum bar. Every item in the checklist is 
 
 Before checking out the PR branch, record the pre-existing mypy state on `dev`:
 ```bash
-N=$(grep "^PR_NUMBER=" .agent-task | cut -d= -f2)
-GH_REPO=$(grep "^GH_REPO=" .agent-task | cut -d= -f2)
+N=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['target']['pr_number'])")
+GH_REPO=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['repo']['gh_repo'])")
 GH_REPO=${GH_REPO:-cgcardona/agentception}
 WTNAME=$(basename "$(pwd)")
 # Determine if this PR is an AgentCeption PR:

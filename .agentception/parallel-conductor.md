@@ -151,7 +151,7 @@ Red = never, ask the user instead.
 STEP 0 — READ YOUR TASK FILE:
   cat .agent-task
 
-  Parse all KEY=value fields:
+  Parse all TOML v2 fields:
     GH_REPO                → GitHub repo slug (always cgcardona/agentception)
     PHASE_FILTER           → restrict to one phase, or empty for all
     MAX_ISSUES_PER_DISPATCH → cap on parallel ISSUE_TO_PR agents (safety valve)
@@ -159,10 +159,10 @@ STEP 0 — READ YOUR TASK FILE:
     ATTEMPT_N              → how many times conductor has run without progress
 
   Export:
-    export GH_REPO=$(grep "^GH_REPO=" .agent-task | cut -d= -f2)
+    export GH_REPO=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['repo']['gh_repo'])")
     export GH_REPO=${GH_REPO:-cgcardona/agentception}
-    PHASE_FILTER=$(grep "^PHASE_FILTER=" .agent-task | cut -d= -f2)
-    ATTEMPT_N=$(grep "^ATTEMPT_N=" .agent-task | cut -d= -f2)
+    PHASE_FILTER=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('task',{}).get('phase_filter',''))")
+    ATTEMPT_N=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['task']['attempt_n'])")
 
   ⚠️  ANTI-LOOP GUARD: if ATTEMPT_N > 3 → STOP.
     This conductor has run 4+ times without advancing the pipeline.
@@ -360,7 +360,7 @@ STEP 5 — DISPATCH COORDINATORS:
     echo "  MCP: list_issues(owner='cgcardona', repo='agentception', labels=[<active_phase>], state='open')"
     echo "Match these issue numbers to confirm the set before creating worktrees."
     echo ""
-    echo "Coordinator constraint: MAX_ISSUES_PER_DISPATCH=$(grep "^MAX_ISSUES_PER_DISPATCH=" .agent-task | cut -d= -f2)"
+    echo "Coordinator constraint: MAX_ISSUES_PER_DISPATCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('task',{}).get('max_issues_per_dispatch','4'))")"
     echo "If more issues exist than the limit, prioritize by batch label (lowest batch-NN first)."
     # LAUNCH: use the Task tool to spawn the coordinator agent.
     # The coordinator reads PARALLEL_ISSUE_TO_PR.md and follows its coordinator role.
@@ -375,7 +375,7 @@ STEP 5 — DISPATCH COORDINATORS:
     echo "Target PRs:"
     for i in "${READY_PRS[@]}"; do echo "  #${i%%|*}: ${i##*|}"; done
     echo ""
-    echo "Coordinator constraint: MAX_PRS_PER_DISPATCH=$(grep "^MAX_PRS_PER_DISPATCH=" .agent-task | cut -d= -f2)"
+    echo "Coordinator constraint: MAX_PRS_PER_DISPATCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('task',{}).get('max_prs_per_dispatch','4'))")"
     echo "If more PRs exist than the limit, prioritize by batch label (lowest batch-NN first)."
     # LAUNCH: use the Task tool to spawn the coordinator agent.
     # The coordinator reads PARALLEL_PR_REVIEW.md and follows its coordinator role.

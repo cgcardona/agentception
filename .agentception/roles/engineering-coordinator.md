@@ -14,8 +14,8 @@ Load it as the very first thing you do — see STEP 0 below.
 
 ```bash
 REPO=$(git rev-parse --show-toplevel 2>/dev/null || git worktree list | head -1 | awk '{print $1}')
-COGNITIVE_ARCH=$(grep '^COGNITIVE_ARCH=' .agent-task | cut -d= -f2)
-ROLE=$(grep '^ROLE=' .agent-task | cut -d= -f2)
+COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
+ROLE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['role'])")
 RESOLVE_ARCH="$REPO/scripts/gen_prompts/resolve_arch.py"
 if [ -n "$COGNITIVE_ARCH" ] && [ -f "$RESOLVE_ARCH" ]; then
   ARCH_CONTEXT=$(python3 "$RESOLVE_ARCH" "$COGNITIVE_ARCH" --mode implementer 2>/dev/null)
@@ -709,7 +709,7 @@ Red = never, ask the user instead.
 STEP 0 — READ YOUR TASK FILE:
   cat .agent-task
 
-  Parse all KEY=value fields from the header:
+  Parse all TOML v2 fields from the task file:
     GH_REPO          → GitHub repo slug (export immediately)
     ISSUE_NUMBER     → your issue number (substitute for <N> throughout)
     ISSUE_TITLE      → issue title
@@ -720,11 +720,11 @@ STEP 0 — READ YOUR TASK FILE:
                        from sub-task sections in this file, then self-destruct)
 
   Export for all subsequent commands:
-    export GH_REPO=$(grep "^GH_REPO=" .agent-task | cut -d= -f2)
+    export GH_REPO=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['repo']['gh_repo'])")
     export GH_REPO=${GH_REPO:-cgcardona/agentception}
-    N=$(grep "^ISSUE_NUMBER=" .agent-task | cut -d= -f2)
-    ATTEMPT_N=$(grep "^ATTEMPT_N=" .agent-task | cut -d= -f2)
-    BATCH_ID=$(grep "^BATCH_ID=" .agent-task | cut -d= -f2)
+    N=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['target']['issue_number'])")
+    ATTEMPT_N=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['task']['attempt_n'])")
+    BATCH_ID=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['pipeline']['batch_id'])")
 
   Generate your unique agent session ID (identifies THIS specific agent run):
     AGENT_SESSION="eng-$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%04x' $RANDOM)"
@@ -744,7 +744,7 @@ STEP 0 — READ YOUR TASK FILE:
     unrelated work. When in doubt: commit, then fix forward.
 
 STEP 0.5 — LOAD YOUR ROLE AND COGNITIVE ARCHITECTURE:
-  ROLE=$(grep '^ROLE=' .agent-task | cut -d= -f2)
+  ROLE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['role'])")
   echo "✅ Operating as role: $ROLE"
   # Your role definition is embedded at the bottom of this prompt under
   # ## Embedded Role Definitions — no file read needed. ROLE_FILE in .agent-task
@@ -753,7 +753,7 @@ STEP 0.5 — LOAD YOUR ROLE AND COGNITIVE ARCHITECTURE:
 
   # Load cognitive architecture — assembles figure persona + all skill domain fragments
   # Format: "figure:skill1:skill2" (new multi-skill format, colon-separated)
-  COGNITIVE_ARCH=$(grep '^COGNITIVE_ARCH=' .agent-task | cut -d= -f2)
+  COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
   if [ -n "$COGNITIVE_ARCH" ]; then
     echo "🧠 Cognitive architecture: $COGNITIVE_ARCH"
     echo ""
@@ -910,7 +910,7 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
   # before implementing — your code may import from them at runtime.
   #
   # ⚠️  DEPENDS_ON is a comma-separated list (e.g. "614,615"). Iterate each number separately.
-  DEPENDS_ON_RAW=$(grep "^DEPENDS_ON=" .agent-task | cut -d= -f2)
+  DEPENDS_ON_RAW=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(','.join(str(x) for x in d.get('target',{}).get('depends_on',[])))")
   if [ -n "$DEPENDS_ON_RAW" ] && [ "$DEPENDS_ON_RAW" != "none" ]; then
     echo "ℹ️  DEPENDS_ON: $DEPENDS_ON_RAW"
     echo "   Checking whether dependencies are already on dev..."
@@ -960,7 +960,7 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
   echo "=== PRE-EXISTING TEST BASELINE (targeted files) ==="
   # Run targeted tests BEFORE branching to capture baseline failures.
   # Any test that fails before your change is pre-existing — you own fixing it.
-  FILE_OWNERSHIP=$(grep "^FILE_OWNERSHIP=" .agent-task | cut -d= -f2)
+  FILE_OWNERSHIP=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(','.join(d.get('target',{}).get('file_ownership',[])))")
   # (Run targeted tests for the module you're about to modify)
 
   # ── STEP 3.2 — CREATE BRANCH ──────────────────────────────────────────────
@@ -2234,7 +2234,7 @@ Red = never, ask the user instead.
 STEP 0 — READ YOUR TASK FILE:
   cat .agent-task
 
-  Parse all KEY=value fields from the header:
+  Parse all TOML v2 fields from the task file:
     GH_REPO          → GitHub repo slug (export immediately)
     PR_NUMBER        → your PR number (substitute for <N> throughout)
     PR_TITLE         → PR title
@@ -2248,24 +2248,24 @@ STEP 0 — READ YOUR TASK FILE:
                        for types/tests/docs and emit a composite grade)
 
   Export for all subsequent commands:
-    export GH_REPO=$(grep "^GH_REPO=" .agent-task | cut -d= -f2)
+    export GH_REPO=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['repo']['gh_repo'])")
     export GH_REPO=${GH_REPO:-cgcardona/agentception}
-    N=$(grep "^PR_NUMBER=" .agent-task | cut -d= -f2)
-    BRANCH=$(grep "^PR_BRANCH=" .agent-task | cut -d= -f2)
-    MERGE_AFTER=$(grep "^MERGE_AFTER=" .agent-task | cut -d= -f2)
-    HAS_MIGRATION=$(grep "^HAS_MIGRATION=" .agent-task | cut -d= -f2)
-    ATTEMPT_N=$(grep "^ATTEMPT_N=" .agent-task | cut -d= -f2)
-    BATCH_ID=$(grep "^BATCH_ID=" .agent-task | cut -d= -f2)
+    N=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['target']['pr_number'])")
+    BRANCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['target']['pr_branch'])")
+    MERGE_AFTER=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('target',{}).get('merge_after','none'))")
+    HAS_MIGRATION=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(str(d.get('target',{}).get('has_migration',False)).lower())")
+    ATTEMPT_N=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['task']['attempt_n'])")
+    BATCH_ID=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['pipeline']['batch_id'])")
 
   Generate your unique reviewer session ID (identifies THIS specific reviewer run):
     AGENT_SESSION="qa-$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%04x' $RANDOM)"
-    COGNITIVE_ARCH=$(grep "^COGNITIVE_ARCH=" .agent-task | cut -d= -f2)
-    WAVE=$(grep "^WAVE=" .agent-task | cut -d= -f2)
+    COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
+    WAVE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('pipeline',{}).get('wave',''))")
     echo "🤖 Reviewer session: $AGENT_SESSION  Batch: ${BATCH_ID:-unset}  Arch: ${COGNITIVE_ARCH:-unset}"
 
   Post an identity comment on the PR immediately so the audit trail is visible from the start:
     REPO=$(git worktree list | head -1 | awk '{print $1}')
-    COORD_FINGERPRINT=$(grep "^COORD_FINGERPRINT=" .agent-task | cut -d= -f2)
+    COORD_FINGERPRINT=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('pipeline',{}).get('coord_fingerprint',''))")
     REVIEW_START=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
   REVIEW_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" "${COGNITIVE_ARCH:-unset}" \
     --fingerprint \
@@ -2309,7 +2309,7 @@ STEP 0 — READ YOUR TASK FILE:
       before grading. A broken migration chain is an automatic C → mandatory fix.
 
 STEP 0.5 — LOAD YOUR ROLE AND COGNITIVE ARCHITECTURE:
-  ROLE=$(grep '^ROLE=' .agent-task | cut -d= -f2)
+  ROLE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['role'])")
   echo "✅ Operating as role: $ROLE"
   # Your role definition is embedded at the bottom of this prompt under
   # ## Embedded Role Definitions — no file read needed. ROLE_FILE in .agent-task
@@ -2319,7 +2319,7 @@ STEP 0.5 — LOAD YOUR ROLE AND COGNITIVE ARCHITECTURE:
 
   # Load cognitive architecture — assembles figure persona + all skill domain fragments
   # Format: "figure:skill1:skill2" (new multi-skill format, colon-separated)
-  COGNITIVE_ARCH=$(grep '^COGNITIVE_ARCH=' .agent-task | cut -d= -f2)
+  COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
   if [ -n "$COGNITIVE_ARCH" ]; then
     echo "🧠 Cognitive architecture: $COGNITIVE_ARCH"
     echo ""
@@ -2792,7 +2792,7 @@ STEP 5 — REVIEW:
 
 STEP 5.5 — MERGE ORDER GATE (sequential chain safety):
   Read the MERGE_AFTER field from .agent-task:
-    MERGE_AFTER=$(grep "^MERGE_AFTER=" .agent-task | cut -d= -f2)
+    MERGE_AFTER=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('target',{}).get('merge_after','none'))")
 
   If MERGE_AFTER is empty or "none" → skip this step, go directly to STEP 6.
 
@@ -2976,7 +2976,7 @@ STEP 6 — PRE-MERGE SYNC (only if grade is A or B):
   fi
        CLOSE_COMMENT="✅ Closed by PR #$N (merged).\n\n$CLOSE_FINGERPRINT"
 
-       CLOSES_ISSUES=$(grep "^CLOSES_ISSUES=" .agent-task | cut -d= -f2)
+       CLOSES_ISSUES=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(','.join(str(x) for x in d.get('target',{}).get('closes',[])))")
        if [ -n "$CLOSES_ISSUES" ]; then
          # For each issue number in CLOSES_ISSUES (comma-separated):
          # MCP: issue_write(owner="cgcardona", repo="agentception",
@@ -2993,7 +2993,7 @@ STEP 6 — PRE-MERGE SYNC (only if grade is A or B):
        fi
 
   # 10. Mark linked issues as merged (conductor reads this as "done").
-  CLOSES_ISSUES_FOR_LABEL=$(grep "^CLOSES_ISSUES=" .agent-task | cut -d= -f2)
+  CLOSES_ISSUES_FOR_LABEL=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(','.join(str(x) for x in d.get('target',{}).get('closes',[])))")
   if [ -n "$CLOSES_ISSUES_FOR_LABEL" ]; then
     # For each issue in CLOSES_ISSUES_FOR_LABEL:
     # MCP: github_remove_label(issue_number=<N>, label="status/pr-open")
@@ -3116,7 +3116,7 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
   # SPAWN_MODE=chain  → spawned by an engineer; spawn the next ENGINEER for the next issue
   # SPAWN_MODE=pool   → spawned by a QA Coordinator; spawn the next REVIEWER for the next PR (legacy pool behavior)
   # (absent/empty)    → default to pool behavior
-  SPAWN_MODE=$(grep "^SPAWN_MODE=" .agent-task 2>/dev/null | cut -d= -f2)
+  SPAWN_MODE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('spawn',{}).get('mode','single'))" 2>/dev/null)
 
   if [ "$SPAWN_MODE" = "chain" ]; then
     # ── CHAIN MODE: merge happened → spawn next engineer for next unclaimed issue ──
@@ -3140,7 +3140,7 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
     # Fallback: if no agentception/* label has open issues, try the batch label from the task file.
     # This supports non-agentception chain workflows (e.g. batch-01, batch-02).
     if [ -z "$ACTIVE_LABEL" ]; then
-      TASK_BATCH_ID=$(grep "^BATCH_ID=" .agent-task 2>/dev/null | cut -d= -f2 || echo "")
+      TASK_BATCH_ID=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('pipeline',{}).get('batch_id',''))" 2>/dev/null || echo "")
       BATCH_LABEL_PREFIX=$(echo "$TASK_BATCH_ID" | grep -oE 'batch-[0-9]+' | head -1)
       if [ -n "$BATCH_LABEL_PREFIX" ]; then
         # MCP: github_list_issues(label="$BATCH_LABEL_PREFIX", state="open") → .count
@@ -3518,7 +3518,7 @@ You do not negotiate on type safety. You do not ship dirty mypy. You fix C-grade
 
 ```bash
 REPO=$(git worktree list | head -1 | awk '{print $1}')
-COGNITIVE_ARCH=$(grep "^COGNITIVE_ARCH=" .agent-task 2>/dev/null | cut -d= -f2 || echo "knuth:python")
+COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('agent',{}).get('cognitive_arch','knuth:python'))" 2>/dev/null || echo "knuth:python")
 
 # resolve_arch.py assembles the full reviewer context:
 # - Figure persona (HOW you think about code quality)
@@ -3555,8 +3555,8 @@ Your review checklist above is your minimum bar. Every item in the checklist is 
 
 Before checking out the PR branch, record the pre-existing mypy state on `dev`:
 ```bash
-N=$(grep "^PR_NUMBER=" .agent-task | cut -d= -f2)
-GH_REPO=$(grep "^GH_REPO=" .agent-task | cut -d= -f2)
+N=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['target']['pr_number'])")
+GH_REPO=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['repo']['gh_repo'])")
 GH_REPO=${GH_REPO:-cgcardona/agentception}
 WTNAME=$(basename "$(pwd)")
 # Determine if this PR is an AgentCeption PR:
