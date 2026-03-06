@@ -236,36 +236,64 @@
     </div>
 
     {# ── Lifecycle stage buckets (hidden when collapsed) ──────────────────── #}
+    {# Each lane is wrapped in a .build-swimlane__cell that always occupies   #}
+    {# its grid column. When the row is collapsed Alpine shows the ghost pill  #}
+    {# instead of the full bucket so the user still sees per-lane counts.      #}
 
-    <ul class="build-swimlane__bucket{% if bns.todo %} build-swimlane__bucket--has-items{% endif %}" x-show="open">
-      {% for issue in bns.todo %}
-        {{ render_issue(issue, group.complete, group.locked, initiative, repo, lane="todo") }}
-      {% endfor %}
-    </ul>
+    <div class="build-swimlane__cell">
+      <ul class="build-swimlane__bucket{% if bns.todo %} build-swimlane__bucket--has-items{% endif %}" x-show="open">
+        {% for issue in bns.todo %}
+          {{ render_issue(issue, group.complete, group.locked, initiative, repo, lane="todo") }}
+        {% endfor %}
+      </ul>
+      <div class="build-swimlane__ghost" x-show="!open">
+        {% if bns.todo %}<span class="build-swimlane__ghost-pill">{{ bns.todo | length }}</span>{% endif %}
+      </div>
+    </div>
 
-    <ul class="build-swimlane__bucket build-swimlane__bucket--active{% if bns.active %} build-swimlane__bucket--has-items{% endif %}" x-show="open">
-      {% for issue in bns.active %}
-        {{ render_issue(issue, group.complete, group.locked, initiative, repo, lane="active") }}
-      {% endfor %}
-    </ul>
+    <div class="build-swimlane__cell">
+      <ul class="build-swimlane__bucket build-swimlane__bucket--active{% if bns.active %} build-swimlane__bucket--has-items{% endif %}" x-show="open">
+        {% for issue in bns.active %}
+          {{ render_issue(issue, group.complete, group.locked, initiative, repo, lane="active") }}
+        {% endfor %}
+      </ul>
+      <div class="build-swimlane__ghost" x-show="!open">
+        {% if bns.active %}<span class="build-swimlane__ghost-pill build-swimlane__ghost-pill--active">{{ bns.active | length }}</span>{% endif %}
+      </div>
+    </div>
 
-    <ul class="build-swimlane__bucket build-swimlane__bucket--pr{% if bns.pr_open %} build-swimlane__bucket--has-items{% endif %}" x-show="open">
-      {% for issue in bns.pr_open %}
-        {{ render_issue(issue, group.complete, group.locked, initiative, repo, lane="pr_open") }}
-      {% endfor %}
-    </ul>
+    <div class="build-swimlane__cell">
+      <ul class="build-swimlane__bucket build-swimlane__bucket--pr{% if bns.pr_open %} build-swimlane__bucket--has-items{% endif %}" x-show="open">
+        {% for issue in bns.pr_open %}
+          {{ render_issue(issue, group.complete, group.locked, initiative, repo, lane="pr_open") }}
+        {% endfor %}
+      </ul>
+      <div class="build-swimlane__ghost" x-show="!open">
+        {% if bns.pr_open %}<span class="build-swimlane__ghost-pill build-swimlane__ghost-pill--pr">{{ bns.pr_open | length }}</span>{% endif %}
+      </div>
+    </div>
 
-    <ul class="build-swimlane__bucket build-swimlane__bucket--review{% if bns.reviewing %} build-swimlane__bucket--has-items{% endif %}" x-show="open">
-      {% for issue in bns.reviewing %}
-        {{ render_issue(issue, group.complete, group.locked, initiative, repo, lane="reviewing") }}
-      {% endfor %}
-    </ul>
+    <div class="build-swimlane__cell">
+      <ul class="build-swimlane__bucket build-swimlane__bucket--review{% if bns.reviewing %} build-swimlane__bucket--has-items{% endif %}" x-show="open">
+        {% for issue in bns.reviewing %}
+          {{ render_issue(issue, group.complete, group.locked, initiative, repo, lane="reviewing") }}
+        {% endfor %}
+      </ul>
+      <div class="build-swimlane__ghost" x-show="!open">
+        {% if bns.reviewing %}<span class="build-swimlane__ghost-pill build-swimlane__ghost-pill--review">{{ bns.reviewing | length }}</span>{% endif %}
+      </div>
+    </div>
 
-    <ul class="build-swimlane__bucket build-swimlane__bucket--done{% if bns.done %} build-swimlane__bucket--has-items{% endif %}" x-show="open">
-      {% for issue in bns.done %}
-        {{ render_issue(issue, group.complete, group.locked, initiative, repo, lane="done") }}
-      {% endfor %}
-    </ul>
+    <div class="build-swimlane__cell">
+      <ul class="build-swimlane__bucket build-swimlane__bucket--done{% if bns.done %} build-swimlane__bucket--has-items{% endif %}" x-show="open">
+        {% for issue in bns.done %}
+          {{ render_issue(issue, group.complete, group.locked, initiative, repo, lane="done") }}
+        {% endfor %}
+      </ul>
+      <div class="build-swimlane__ghost" x-show="!open">
+        {% if bns.done %}<span class="build-swimlane__ghost-pill build-swimlane__ghost-pill--done">{{ bns.done | length }}</span>{% endif %}
+      </div>
+    </div>
 
   </div>{# /.build-swimlane__row #}
   {% endfor %}
