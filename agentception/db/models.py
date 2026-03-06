@@ -232,9 +232,22 @@ class ACPullRequest(Base):
     """open | closed | merged"""
 
     head_ref: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    base_ref: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    """Target branch (e.g. ``dev``, ``main``).  Added for base-mismatch detection."""
+
+    is_draft: Mapped[bool] = mapped_column(Integer, nullable=False, default=False)
+    """Whether the PR is a GitHub draft.  Stored as 0/1 for SQLite compat."""
+
     closes_issue_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    closes_issue_numbers_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="[]"
+    )
+    """JSON array of all issue numbers referenced by Closes/Fixes/Resolves keywords."""
+
     labels_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    body_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    """SHA-256 of normalised body text — enables body-change detection independently of content_hash."""
 
     created_at: Mapped[datetime.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -461,3 +474,127 @@ class ACPipelineSnapshot(Base):
     agents_active: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     alerts_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     """JSON array of alert strings from the tick."""
+
+
+# ---------------------------------------------------------------------------
+# ACPRIssueLink — explicit, auditable PR↔Issue linkage
+# ---------------------------------------------------------------------------
+
+
+class ACPRIssueLink(Base):
+    """One row per candidate PR↔Issue association, with provenance.
+
+    Multiple link methods may produce rows for the same (repo, pr_number,
+    issue_number) triple; the unique constraint deduplicates.  The linker
+    picks the best link per issue based on confidence and PR state.
+    """
+
+    __tablename__ = "pr_issue_links"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    repo: Mapped[str] = mapped_column(String(256), nullable=False)
+    pr_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    issue_number: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    link_method: Mapped[str] = mapped_column(String(64), nullable=False)
+    """How the link was discovered.
+
+    Values: ``explicit`` | ``body_closes`` | ``branch_regex`` |
+    ``run_pr_number`` | ``title_mention`` | ``unknown``
+    """
+
+    confidence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    """0–100 score — higher means more reliable signal."""
+
+    evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    """JSON blob describing the evidence (matched text, run_id, regex capture, etc.)."""
+
+    first_seen_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    last_seen_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "repo", "pr_number", "issue_number", "link_method",
+            name="uq_pr_issue_links",
+        ),
+        Index("ix_pr_issue_links_issue", "repo", "issue_number"),
+        Index("ix_pr_issue_links_pr", "repo", "pr_number"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# ACIssueWorkflowState — canonical, persisted swim-lane state per issue
+# ---------------------------------------------------------------------------
+
+
+class ACIssueWorkflowState(Base):
+    """One row per (repo, issue_number) — the UI's source of truth for swim lanes.
+
+    Computed idempotently each tick from DB signals (issues, PRs, runs,
+    pr_issue_links).  The board reads this table instead of re-inferring
+    lanes at request time.
+    """
+
+    __tablename__ = "issue_workflow_state"
+
+    repo: Mapped[str] = mapped_column(String(256), primary_key=True)
+    issue_number: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    initiative: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    """Denormalised for fast initiative-scoped queries."""
+
+    phase_key: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    """Scoped phase label (e.g. ``ac-ui/0-critical-bugs``)."""
+
+    lane: Mapped[str] = mapped_column(String(32), nullable=False, default="todo")
+    """Canonical swim lane: ``todo`` | ``active`` | ``pr_open`` | ``reviewing`` | ``done``."""
+
+    issue_state: Mapped[str] = mapped_column(String(32), nullable=False, default="open")
+    """GitHub issue state (``open`` | ``closed``), with stabilisation rules applied."""
+
+    run_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    """FK-like reference to the most relevant ``ac_agent_runs.id``."""
+
+    agent_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    """Computed agent status (implementing, reviewing, pending_launch, stale, done, unknown)."""
+
+    pr_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    """Best-linked PR number, if any."""
+
+    pr_state: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    """State of the best-linked PR (open, merged, closed, draft, unknown)."""
+
+    pr_base: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    """Target branch of the best-linked PR."""
+
+    pr_head_ref: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    """Source branch of the best-linked PR."""
+
+    pr_link_method: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    """How the PR was linked to this issue (see ACPRIssueLink.link_method)."""
+
+    pr_link_confidence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    """Confidence score of the PR link (0–100)."""
+
+    warnings_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    """JSON array of warning strings surfaced to the maintainer."""
+
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    """Hash of canonical state fields — update guard to avoid no-op writes."""
+
+    first_seen_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    last_computed_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_issue_workflow_state_lane", "lane"),
+        Index("ix_issue_workflow_state_initiative", "initiative"),
+        Index("ix_issue_workflow_state_phase", "phase_key"),
+    )

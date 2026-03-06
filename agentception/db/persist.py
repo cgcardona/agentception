@@ -31,7 +31,9 @@ from agentception.db.models import (
     ACAgentRun,
     ACInitiativePhase,
     ACIssue,
+    ACIssueWorkflowState,
     ACPipelineSnapshot,
+    ACPRIssueLink,
     ACPullRequest,
     ACRoleVersion,
     ACWave,
@@ -81,12 +83,19 @@ async def persist_tick(
             all_prs = list(open_prs) + list(merged_prs or [])
             await _upsert_prs(session, all_prs, gh_repo)
             await _upsert_agent_runs(session, state.agents)
-            # Auto-close issues whose PRs are merged (handles the dev-branch workflow
-            # where GitHub's auto-close doesn't fire because PRs target dev, not main).
             await _auto_close_pr_linked_issues(session, gh_repo)
             await session.commit()
     except Exception as exc:
         logger.warning("⚠️  DB persist_tick failed (non-fatal): %s", exc)
+
+    # Workflow state recomputation runs in a separate transaction so a
+    # failure here never rolls back the critical PR/issue/run upserts above.
+    try:
+        async with get_session() as session:
+            await _recompute_workflow_state(session, gh_repo)
+            await session.commit()
+    except Exception as exc:
+        logger.warning("⚠️  Workflow state recomputation failed (non-fatal): %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -202,22 +211,36 @@ async def _upsert_prs(
     prs: list[dict[str, object]],
     repo: str,
 ) -> None:
+    """Hash-diff upsert for PR rows.
+
+    Key changes vs. the old implementation:
+
+    1. **No tombstone poisoning** — PRs absent from the feed are NOT flipped to
+       ``closed``.  Missing data is unknown, not closed.  Only explicit GitHub
+       state transitions change the state column.
+    2. **Body always re-parsed** — ``closes_issue_number`` and the new
+       ``closes_issue_numbers_json`` are recomputed from body text every tick,
+       not just on first insert.
+    3. **Body hash in content_hash** — ensures body changes trigger a row update
+       even when title/labels/state are unchanged.
+    4. **New columns** — ``base_ref``, ``is_draft``, ``body_hash``.
+    """
     from sqlalchemy.ext.asyncio import AsyncSession
 
     assert isinstance(session, AsyncSession)
     now = _now()
-
-    # Track every PR number we see in this tick so we can tombstone the rest.
-    seen_numbers: set[int] = set()
 
     for raw in prs:
         num = raw.get("number")
         if not isinstance(num, int):
             continue
         title = str(raw.get("title", ""))
-        # Normalise GitHub's uppercase GraphQL state values (OPEN/MERGED/CLOSED) to lowercase.
         state_str = str(raw.get("state", "open")).lower()
         head_ref = raw.get("headRefName")
+        base_ref = raw.get("baseRefName")
+        is_draft_raw = raw.get("isDraft", False)
+        is_draft = bool(is_draft_raw) if isinstance(is_draft_raw, bool) else False
+
         labels_raw = raw.get("labels", [])
         label_names: list[str] = []
         if isinstance(labels_raw, list):
@@ -227,14 +250,14 @@ async def _upsert_prs(
                 if isinstance(lbl, (str, dict))
             ]
         labels_json = json.dumps(sorted(label_names))
-        content_hash = _hash(title, state_str, labels_json, str(head_ref))
 
-        result = await session.execute(
-            select(ACPullRequest).where(
-                ACPullRequest.github_number == num, ACPullRequest.repo == repo
-            )
+        body_str = str(raw.get("body") or "")
+        body_hash = _hash(body_str) if body_str else ""
+
+        content_hash = _hash(
+            title, state_str, labels_json, str(head_ref),
+            str(base_ref), body_hash,
         )
-        existing = result.scalar_one_or_none()
 
         merged_at_raw = raw.get("mergedAt")
         merged_at: datetime.datetime | None = None
@@ -246,18 +269,25 @@ async def _upsert_prs(
             except ValueError:
                 pass
 
-        # Parse the first "Closes/Fixes/Resolves #N" reference from the PR body.
-        # Agents targeting `dev` (not `main`) bypass GitHub's auto-close; we
-        # track the linkage here so _auto_close_pr_linked_issues can act on it.
-        body_str = str(raw.get("body") or "")
-        closes_match = re.search(
-            r"(?i)(?:closes|fixes|resolves)\s+#(\d+)", body_str
-        )
+        # Always re-derive ALL closing references from body (not just the first).
+        closes_issue_numbers: list[int] = [
+            int(m.group(1))
+            for m in re.finditer(
+                r"(?i)(?:closes|fixes|resolves)\s+(?:[\w\-]+/[\w\-]+)?#(\d+)",
+                body_str,
+            )
+        ]
         closes_issue_number: int | None = (
-            int(closes_match.group(1)) if closes_match else None
+            closes_issue_numbers[0] if closes_issue_numbers else None
         )
+        closes_issue_numbers_json = json.dumps(closes_issue_numbers)
 
-        seen_numbers.add(num)
+        result = await session.execute(
+            select(ACPullRequest).where(
+                ACPullRequest.github_number == num, ACPullRequest.repo == repo
+            )
+        )
+        existing = result.scalar_one_or_none()
 
         if existing is None:
             session.add(
@@ -267,46 +297,36 @@ async def _upsert_prs(
                     title=title,
                     state=state_str,
                     head_ref=str(head_ref) if isinstance(head_ref, str) else None,
+                    base_ref=str(base_ref) if isinstance(base_ref, str) else None,
+                    is_draft=is_draft,
                     closes_issue_number=closes_issue_number,
+                    closes_issue_numbers_json=closes_issue_numbers_json,
                     labels_json=labels_json,
                     content_hash=content_hash,
+                    body_hash=body_hash or None,
                     merged_at=merged_at,
                     first_seen_at=now,
                     last_synced_at=now,
                 )
             )
         elif existing.content_hash != content_hash or existing.state != state_str:
-            # Update when content changed OR state transitioned (open → merged/closed).
             existing.title = title
             existing.state = state_str
             existing.head_ref = str(head_ref) if isinstance(head_ref, str) else None
+            existing.base_ref = str(base_ref) if isinstance(base_ref, str) else None
+            existing.is_draft = is_draft
             existing.labels_json = labels_json
             existing.content_hash = content_hash
+            existing.body_hash = body_hash or None
             if merged_at is not None and existing.merged_at is None:
                 existing.merged_at = merged_at
-            # Populate closes_issue_number on first parse (never overwrite once set).
-            if closes_issue_number is not None and existing.closes_issue_number is None:
-                existing.closes_issue_number = closes_issue_number
+            # Always update closes references from body — deterministic recomputation.
+            existing.closes_issue_number = closes_issue_number
+            existing.closes_issue_numbers_json = closes_issue_numbers_json
             existing.last_synced_at = now
-
-    # Tombstone sweep: the poller passes ALL open + merged PRs every tick.
-    # Any DB row with state='open' that is absent from this tick's feed was
-    # closed without merging on GitHub — mark it closed so the board is not
-    # poisoned by stale "open" signals for PRs that no longer exist.
-    tombstone_result = await session.execute(
-        select(ACPullRequest).where(
-            ACPullRequest.repo == repo,
-            ACPullRequest.state == "open",
-        )
-    )
-    for stale_pr in tombstone_result.scalars().all():
-        if stale_pr.github_number not in seen_numbers:
-            stale_pr.state = "closed"
-            stale_pr.last_synced_at = now
-            logger.debug(
-                "🧹 PR #%s tombstoned → closed (absent from open+merged feed)",
-                stale_pr.github_number,
-            )
+        else:
+            # Content unchanged — still mark as seen this tick.
+            existing.last_synced_at = now
 
 
 # ---------------------------------------------------------------------------
@@ -430,23 +450,297 @@ async def _gh_close_issue(repo: str, issue_number: int) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Workflow state recomputation (linker + state machine)
+# ---------------------------------------------------------------------------
+
+
+async def _recompute_workflow_state(session: object, repo: str) -> list[str]:
+    """Recompute PR↔Issue links and canonical workflow state for all issues.
+
+    Called within ``persist_tick`` after issues, PRs, and runs are upserted.
+    Returns a list of invariant-violation alert strings (empty if clean).
+    """
+    from agentception.workflow.invariants import InvariantContext, WorkflowSnapshot, check_invariants
+    from agentception.workflow.linking import (
+        BestPR,
+        CandidateLink,
+        PRInfo,
+        PRRow,
+        RunRow,
+        best_pr_for_issue,
+        discover_links_for_pr,
+    )
+    from agentception.workflow.state_machine import IssueInput, RunInput, compute_workflow_state
+    from agentception.workflow.status import compute_agent_status
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    assert isinstance(session, AsyncSession)
+    now = _now()
+
+    # --- Load all data ---
+    issues_result = await session.execute(
+        select(ACIssue).where(ACIssue.repo == repo)
+    )
+    all_issues = issues_result.scalars().all()
+
+    prs_result = await session.execute(
+        select(ACPullRequest).where(ACPullRequest.repo == repo)
+    )
+    all_prs = prs_result.scalars().all()
+
+    runs_result = await session.execute(
+        select(ACAgentRun).order_by(ACAgentRun.spawned_at.desc())
+    )
+    all_runs = runs_result.scalars().all()
+
+    # --- Build lookup structures ---
+    runs_by_pr: dict[int, list[RunRow]] = {}
+    latest_run_by_issue: dict[int, ACAgentRun] = {}
+    run_pr_numbers: dict[str, int | None] = {}
+
+    for run in all_runs:
+        run_pr_numbers[run.id] = run.pr_number
+        if run.pr_number is not None:
+            run_row = RunRow(
+                id=run.id,
+                issue_number=run.issue_number,
+                pr_number=run.pr_number,
+            )
+            runs_by_pr.setdefault(run.pr_number, []).append(run_row)
+        if run.issue_number is not None and run.issue_number not in latest_run_by_issue:
+            latest_run_by_issue[run.issue_number] = run
+
+    pr_info_map: dict[int, PRInfo] = {}
+    pr_states: dict[int, str] = {}
+    pr_bases: dict[int, str | None] = {}
+    closes_refs_by_pr: dict[int, list[int]] = {}
+
+    for pr in all_prs:
+        pr_info_map[pr.github_number] = PRInfo(
+            number=pr.github_number,
+            state=pr.state,
+            base_ref=pr.base_ref,
+            head_ref=pr.head_ref,
+        )
+        pr_states[pr.github_number] = pr.state
+        pr_bases[pr.github_number] = pr.base_ref
+        # Parse closes refs from the stored JSON array.
+        try:
+            refs = json.loads(pr.closes_issue_numbers_json or "[]")
+        except (json.JSONDecodeError, TypeError):
+            refs = []
+        if isinstance(refs, list):
+            closes_refs_by_pr[pr.github_number] = [r for r in refs if isinstance(r, int)]
+
+    # --- Discover links for every PR ---
+    all_candidates: list[CandidateLink] = []
+    for pr in all_prs:
+        labels: list[str] = json.loads(pr.labels_json or "[]")
+        pr_row = PRRow(
+            number=pr.github_number,
+            title=pr.title,
+            head_ref=pr.head_ref,
+            base_ref=pr.base_ref,
+            body="",  # body not stored on ACPullRequest — linkage comes from closes_issue_numbers_json
+            labels=labels,
+        )
+        candidates = discover_links_for_pr(pr_row, repo, runs_by_pr)
+
+        # Also add body_closes candidates from the stored closes_issue_numbers.
+        for issue_num in closes_refs_by_pr.get(pr.github_number, []):
+            already_has = any(
+                c["issue_number"] == issue_num and c["link_method"] == "body_closes"
+                for c in candidates
+            )
+            if not already_has:
+                candidates.append(CandidateLink(
+                    repo=repo,
+                    pr_number=pr.github_number,
+                    issue_number=issue_num,
+                    link_method="body_closes",
+                    confidence=95,
+                    evidence_json=json.dumps({"source": "closes_issue_numbers_json"}),
+                ))
+
+        all_candidates.extend(candidates)
+
+    # --- Persist link rows (upsert) ---
+    link_issue_numbers_by_pr: dict[int, list[int]] = {}
+    for candidate in all_candidates:
+        pr_num = candidate["pr_number"]
+        issue_num = candidate["issue_number"]
+        link_issue_numbers_by_pr.setdefault(pr_num, []).append(issue_num)
+
+        existing_link = await session.execute(
+            select(ACPRIssueLink).where(
+                ACPRIssueLink.repo == repo,
+                ACPRIssueLink.pr_number == pr_num,
+                ACPRIssueLink.issue_number == issue_num,
+                ACPRIssueLink.link_method == candidate["link_method"],
+            )
+        )
+        link_row = existing_link.scalar_one_or_none()
+        if link_row is None:
+            session.add(ACPRIssueLink(
+                repo=repo,
+                pr_number=pr_num,
+                issue_number=issue_num,
+                link_method=candidate["link_method"],
+                confidence=candidate["confidence"],
+                evidence_json=candidate["evidence_json"],
+                first_seen_at=now,
+                last_seen_at=now,
+            ))
+        else:
+            link_row.confidence = candidate["confidence"]
+            link_row.evidence_json = candidate["evidence_json"]
+            link_row.last_seen_at = now
+
+    # --- Compute workflow state for each issue ---
+    issue_number_set = {i.github_number for i in all_issues}
+    workflow_snapshots: dict[int, WorkflowSnapshot] = {}
+
+    for issue in all_issues:
+        issue_num = issue.github_number
+        issue_labels: list[str] = json.loads(issue.labels_json or "[]")
+
+        # Derive initiative and phase from labels.
+        initiative: str | None = None
+        phase_key: str | None = None
+        for lbl in issue_labels:
+            if "/" in lbl:
+                initiative = lbl.split("/")[0]
+                phase_key = lbl
+                break
+
+        # Get best PR for this issue.
+        issue_candidates = [c for c in all_candidates if c["issue_number"] == issue_num]
+        best = best_pr_for_issue(issue_num, issue_candidates, pr_info_map)
+
+        # Get latest run for this issue.
+        run_obj = latest_run_by_issue.get(issue_num)
+        run_input: RunInput | None = None
+        if run_obj is not None:
+            computed_status = compute_agent_status(run_obj.status, run_obj.last_activity_at, now=now)
+            # Promote to "reviewing" if an active reviewer run exists for this PR.
+            if best and best["pr_state"] in ("open", "draft"):
+                for r in all_runs:
+                    if (
+                        r.role == "pr-reviewer"
+                        and r.pr_number == best["pr_number"]
+                        and r.status in ("implementing", "reviewing")
+                    ):
+                        computed_status = "reviewing"
+                        break
+            run_input = RunInput(
+                id=run_obj.id,
+                status=run_obj.status,
+                agent_status=computed_status,
+                pr_number=run_obj.pr_number,
+            )
+
+        # Detect merged-recently for stabilisation.
+        pr_merged_recently = False
+        if best and best["pr_state"] == "merged" and issue.state == "open":
+            pr_merged_recently = True
+
+        issue_input = IssueInput(
+            number=issue_num,
+            state=issue.state,
+            labels=issue_labels,
+            phase_key=phase_key,
+            initiative=initiative,
+        )
+
+        wf_state = compute_workflow_state(
+            issue_input, run_input, best, pr_merged_recently=pr_merged_recently,
+        )
+
+        # Persist to ac_issue_workflow_state.
+        existing_wf = await session.execute(
+            select(ACIssueWorkflowState).where(
+                ACIssueWorkflowState.repo == repo,
+                ACIssueWorkflowState.issue_number == issue_num,
+            )
+        )
+        wf_row = existing_wf.scalar_one_or_none()
+
+        if wf_row is None:
+            session.add(ACIssueWorkflowState(
+                repo=repo,
+                issue_number=issue_num,
+                initiative=initiative,
+                phase_key=phase_key,
+                lane=wf_state["lane"],
+                issue_state=wf_state["issue_state"],
+                run_id=wf_state["run_id"],
+                agent_status=wf_state["agent_status"],
+                pr_number=wf_state["pr_number"],
+                pr_state=wf_state["pr_state"],
+                pr_base=wf_state["pr_base"],
+                pr_head_ref=wf_state["pr_head_ref"],
+                pr_link_method=wf_state["pr_link_method"],
+                pr_link_confidence=wf_state["pr_link_confidence"],
+                warnings_json=json.dumps(wf_state["warnings"]),
+                content_hash=wf_state["content_hash"],
+                first_seen_at=now,
+                last_computed_at=now,
+            ))
+        elif wf_row.content_hash != wf_state["content_hash"]:
+            wf_row.initiative = initiative
+            wf_row.phase_key = phase_key
+            wf_row.lane = wf_state["lane"]
+            wf_row.issue_state = wf_state["issue_state"]
+            wf_row.run_id = wf_state["run_id"]
+            wf_row.agent_status = wf_state["agent_status"]
+            wf_row.pr_number = wf_state["pr_number"]
+            wf_row.pr_state = wf_state["pr_state"]
+            wf_row.pr_base = wf_state["pr_base"]
+            wf_row.pr_head_ref = wf_state["pr_head_ref"]
+            wf_row.pr_link_method = wf_state["pr_link_method"]
+            wf_row.pr_link_confidence = wf_state["pr_link_confidence"]
+            wf_row.warnings_json = json.dumps(wf_state["warnings"])
+            wf_row.content_hash = wf_state["content_hash"]
+            wf_row.last_computed_at = now
+
+        workflow_snapshots[issue_num] = WorkflowSnapshot(
+            lane=wf_state["lane"],
+            pr_number=wf_state["pr_number"],
+            pr_state=wf_state["pr_state"],
+            agent_status=wf_state["agent_status"],
+            issue_state=wf_state["issue_state"],
+        )
+
+    # --- Run invariants ---
+    inv_ctx = InvariantContext(
+        repo=repo,
+        issue_numbers=list(issue_number_set),
+        pr_numbers_in_db={pr.github_number for pr in all_prs},
+        run_pr_numbers=run_pr_numbers,
+        link_issue_numbers_by_pr=link_issue_numbers_by_pr,
+        workflow_states=workflow_snapshots,
+        pr_states=pr_states,
+        pr_bases=pr_bases,
+        closes_refs_by_pr=closes_refs_by_pr,
+    )
+    alerts = check_invariants(inv_ctx)
+
+    if alerts:
+        logger.warning(
+            "⚠️  Workflow invariant alerts (%d): %s",
+            len(alerts),
+            "; ".join(alerts[:3]),
+        )
+
+    return alerts
+
+
+# ---------------------------------------------------------------------------
 # Agent runs (status upsert)
 # ---------------------------------------------------------------------------
 
 
-_ACTIVE_STATUSES = {"implementing", "reviewing", "stale"}
-"""Statuses that indicate a run has a live, poller-visible worktree.
-
-Runs in these states that are absent from the current poller tick are
-orphaned (the worktree was removed without a clean status transition)
-and are flipped to ``unknown`` so the UI does not show phantom agents.
-
-``pending_launch`` is intentionally excluded: pending runs live only in
-the DB (the Dispatcher hasn't claimed them yet) and have no poller
-presence.  Including them in the sweep would immediately flip them to
-``unknown`` before the Dispatcher ever reads them.  The only valid
-transition out of ``pending_launch`` is via the acknowledge endpoint.
-"""
+from agentception.workflow.status import ACTIVE_STATUSES as _ACTIVE_STATUSES  # noqa: E402
 
 
 async def _upsert_agent_runs(
@@ -784,7 +1078,7 @@ async def acknowledge_agent_run(run_id: str) -> bool:
         return False
 
 
-_RESET_STATUSES = frozenset({"pending_launch", "implementing", "reviewing"})
+from agentception.workflow.status import RESET_STATUSES as _RESET_STATUSES  # noqa: E402
 
 
 async def reset_build_runs_to_unknown() -> int:

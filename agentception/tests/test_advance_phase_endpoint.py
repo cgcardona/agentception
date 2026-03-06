@@ -63,6 +63,7 @@ def _mock_issue() -> dict[str, object]:
     return {
         "number": 1,
         "title": "Test issue",
+        "body_excerpt": "",
         "state": "open",
         "url": "https://github.com/owner/repo/issues/1",
         "labels": [],
@@ -211,6 +212,14 @@ def test_build_board_renders_advance_button_when_prev_complete_and_locked(
             "agentception.routes.ui.build_ui.get_runs_for_issue_numbers",
             new=AsyncMock(return_value={}),
         ),
+        patch(
+            "agentception.routes.ui.build_ui.get_open_prs_by_issue",
+            new=AsyncMock(return_value={}),
+        ),
+        patch(
+            "agentception.routes.ui.build_ui.get_workflow_states_by_issue",
+            new=AsyncMock(return_value={}),
+        ),
     ):
         resp = client.get("/ship/my-initiative/board")
 
@@ -233,6 +242,14 @@ def test_build_board_no_advance_button_when_not_locked(client: TestClient) -> No
         ),
         patch(
             "agentception.routes.ui.build_ui.get_runs_for_issue_numbers",
+            new=AsyncMock(return_value={}),
+        ),
+        patch(
+            "agentception.routes.ui.build_ui.get_open_prs_by_issue",
+            new=AsyncMock(return_value={}),
+        ),
+        patch(
+            "agentception.routes.ui.build_ui.get_workflow_states_by_issue",
             new=AsyncMock(return_value={}),
         ),
     ):
@@ -259,6 +276,14 @@ def test_build_board_no_advance_button_when_prev_not_complete(
             "agentception.routes.ui.build_ui.get_runs_for_issue_numbers",
             new=AsyncMock(return_value={}),
         ),
+        patch(
+            "agentception.routes.ui.build_ui.get_open_prs_by_issue",
+            new=AsyncMock(return_value={}),
+        ),
+        patch(
+            "agentception.routes.ui.build_ui.get_workflow_states_by_issue",
+            new=AsyncMock(return_value={}),
+        ),
     ):
         resp = client.get("/ship/my-initiative/board")
 
@@ -283,6 +308,14 @@ def test_build_board_no_advance_button_single_phase(
         ),
         patch(
             "agentception.routes.ui.build_ui.get_runs_for_issue_numbers",
+            new=AsyncMock(return_value={}),
+        ),
+        patch(
+            "agentception.routes.ui.build_ui.get_open_prs_by_issue",
+            new=AsyncMock(return_value={}),
+        ),
+        patch(
+            "agentception.routes.ui.build_ui.get_workflow_states_by_issue",
             new=AsyncMock(return_value={}),
         ),
     ):

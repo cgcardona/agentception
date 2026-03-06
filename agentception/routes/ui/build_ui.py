@@ -38,6 +38,7 @@ from agentception.db.queries import (
     PhaseGroupRow,
     RunForIssueRow,
     RunTreeNodeRow,
+    WorkflowStateRow,
     get_agent_events_tail,
     get_agent_thoughts_tail,
     get_initiatives,
@@ -46,6 +47,7 @@ from agentception.db.queries import (
     get_open_prs_by_issue,
     get_run_tree_by_batch_id,
     get_runs_for_issue_numbers,
+    get_workflow_states_by_issue,
 )
 from agentception.readers.pipeline_config import read_pipeline_config
 from ._shared import _TEMPLATES
@@ -148,15 +150,20 @@ async def _build_enriched_groups(
     Returns ``(enriched_groups, total_issue_count, open_issue_count)``.
     Centralises the DB fan-out so both the full page and the HTMX partial
     share a single implementation.
+
+    Reads swim lanes from the canonical ``ac_issue_workflow_state`` table.
+    Falls back to ad-hoc ``_compute_swim_lane()`` for issues that haven't
+    been computed yet (graceful dual-run during migration).
     """
     groups = await get_issues_grouped_by_phase(repo, initiative=initiative)
     all_issue_numbers = [i["number"] for g in groups for i in g["issues"]]
     open_issue_count = sum(
         1 for g in groups for i in g["issues"] if i["state"] != "closed"
     )
-    runs, open_prs = await asyncio.gather(
+    runs, open_prs, workflow_states = await asyncio.gather(
         get_runs_for_issue_numbers(all_issue_numbers),
         get_open_prs_by_issue(all_issue_numbers, repo),
+        get_workflow_states_by_issue(all_issue_numbers, repo),
     )
     enriched: list[EnrichedPhaseGroupRow] = [
         EnrichedPhaseGroupRow(
@@ -171,10 +178,12 @@ async def _build_enriched_groups(
                     labels=i["labels"],
                     depends_on=i["depends_on"],
                     run=runs.get(i["number"]),
-                    swim_lane=_compute_swim_lane(
+                    swim_lane=_resolve_swim_lane(
+                        i["number"],
                         i["state"],
                         runs.get(i["number"]),
                         open_prs.get(i["number"]),
+                        workflow_states.get(i["number"]),
                     ),
                 )
                 for i in g["issues"]
@@ -186,6 +195,23 @@ async def _build_enriched_groups(
         for g in groups
     ]
     return enriched, len(all_issue_numbers), open_issue_count
+
+
+def _resolve_swim_lane(
+    issue_number: int,
+    issue_state: str,
+    run: RunForIssueRow | None,
+    open_pr: OpenPRForIssueRow | None,
+    workflow_state: WorkflowStateRow | None,
+) -> str:
+    """Return the canonical swim lane, preferring the persisted workflow state.
+
+    During dual-run / migration, falls back to ``_compute_swim_lane()``
+    for issues without a persisted state row yet.
+    """
+    if workflow_state is not None:
+        return workflow_state["lane"]
+    return _compute_swim_lane(issue_state, run, open_pr)
 
 
 # ---------------------------------------------------------------------------

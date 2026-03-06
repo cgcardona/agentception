@@ -259,16 +259,18 @@ def test_migration_0001_has_no_node_type_or_logical_tier() -> None:
     assert "logical_tier" not in content
 
 
-def test_migration_0001_is_only_migration() -> None:
-    """Exactly one migration file exists — the consolidated baseline."""
+def test_migration_chain_is_contiguous() -> None:
+    """Migration files form a contiguous 0001→0002 chain."""
     migration_dir = Path(__file__).parent.parent / "alembic" / "versions"
-    py_files = [
+    py_files = sorted(
         f for f in migration_dir.glob("*.py") if f.name != "__init__.py"
-    ]
-    assert len(py_files) == 1, (
-        f"Expected exactly 1 migration file, found {len(py_files)}: "
-        + ", ".join(f.name for f in sorted(py_files))
     )
+    assert len(py_files) >= 2, (
+        f"Expected at least 2 migration files, found {len(py_files)}: "
+        + ", ".join(f.name for f in py_files)
+    )
+    assert py_files[0].name.startswith("0001_"), f"First migration should be 0001, got {py_files[0].name}"
+    assert py_files[1].name.startswith("0002_"), f"Second migration should be 0002, got {py_files[1].name}"
 
 
 # ---------------------------------------------------------------------------
