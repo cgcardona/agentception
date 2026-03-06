@@ -153,29 +153,23 @@ STEP 0 — READ YOUR TASK FILE:
     Something is systematically wrong (label misconfiguration, GitHub API failure,
     all remaining issues blocked on human-gated dependencies, etc.).
     Create a GitHub issue:
-      gh issue create --repo "$GH_REPO" \
-        --title "⚠️ Conductor stuck: ATTEMPT_N=$ATTEMPT_N — needs human intervention" \
-        --body "The pipeline conductor has run $(( ATTEMPT_N )) times without advancing.
-  Possible causes:
-  - All remaining batches have unresolved DEPENDS_ON dependencies
-  - All remaining PRs are in D/F grade rejection state
-  - Label misconfiguration (phase/batch labels missing or wrong)
-  - GitHub API failures
-  
-  Run: gh issue list --repo $GH_REPO --label 'conductor-reminder' --state open
-  "
+      # MCP: issue_write(owner="cgcardona", repo="agentception",
+      #   title="⚠️ Conductor stuck: ATTEMPT_N=$ATTEMPT_N — needs human intervention",
+      #   body="The pipeline conductor has run $ATTEMPT_N times without advancing.\n\nPossible causes:\n- All remaining batches have unresolved DEPENDS_ON dependencies\n- All remaining PRs are in D/F grade rejection state\n- Label misconfiguration (phase/batch labels missing or wrong)\n- GitHub API failures\n\nUse MCP: list_issues(owner='cgcardona', repo='agentception', labels=['conductor-reminder'], state='open')")
+      # Returns: created issue URL/number
     Then self-destruct and escalate to the user.
 
 STEP 1 — STALE STATE CLEANUP (always run first):
   # 1a. Close stale conductor-reminder issues (they're outdated by this new run)
-  STALE_REMINDERS=$(gh issue list --repo "$GH_REPO" \
-    --label "conductor-reminder" --state open --json number --jq '.[].number' 2>/dev/null)
-  if [ -n "$STALE_REMINDERS" ]; then
-    echo "$STALE_REMINDERS" | tr ',' '\n' | xargs -I{} gh issue close {} \
-      --comment "Superseded by new conductor run. New reminder will be created if pipeline is still incomplete." \
-      --repo "$GH_REPO" 2>/dev/null || true
-    echo "✅ Closed stale reminder issues: $STALE_REMINDERS"
-  fi
+  # MCP: list_issues(owner="cgcardona", repo="agentception",
+  #   labels=["conductor-reminder"], state="open")
+  # Returns: STALE_REMINDERS — list of open conductor-reminder issues with their numbers
+  # For each issue N in STALE_REMINDERS:
+  #   MCP: issue_write(owner="cgcardona", repo="agentception",
+  #     issue_number=N, state="closed")
+  #   MCP: add_issue_comment(owner="cgcardona", repo="agentception",
+  #     issue_number=N, body="Superseded by new conductor run. New reminder will be created if pipeline is still incomplete.")
+  echo "✅ Closed stale reminder issues"
 
   # 1b. Clean up orphaned worktrees from crashed previous runs
   REPO=$(git worktree list | head -1 | awk '{print $1}')
@@ -199,30 +193,27 @@ STEP 2 — QUERY GITHUB PIPELINE STATE:
 
   echo "=== OPEN ISSUES BY PHASE/BATCH ==="
   if [ -n "$PHASE_FILTER" ]; then
-    gh issue list --repo "$GH_REPO" --label "$PHASE_FILTER" --state open \
-      --json number,title,labels --limit 100
+    # MCP: list_issues(owner="cgcardona", repo="agentception",
+    #   labels=[PHASE_FILTER], state="open")
+    # Returns: list of open issues with number, title, labels (up to 100)
   else
     # Query all phase labels in priority order
     for phase in "phase-1/db-schema" "phase-2/core-api" "phase-3/api-extensions" \
                  "phase-4/new-ui-pages" "phase-5/ui-enhancements" \
                  "phase-6/seed-data" "phase-7/machine-access"; do
-      COUNT=$(gh issue list --repo "$GH_REPO" --label "$phase" --state open \
-        --json number --jq 'length' 2>/dev/null || echo 0)
-      if [ "$COUNT" -gt 0 ]; then
-        echo ""
-        echo "── $phase ($COUNT open issues) ──"
-        gh issue list --repo "$GH_REPO" --label "$phase" --state open \
-          --json number,title,labels --jq \
-          '.[] | "\(.number) | \(.title) | \(.labels | map(.name) | join(","))"'
-      fi
+      # MCP: list_issues(owner="cgcardona", repo="agentception",
+      #   labels=[phase], state="open")
+      # Returns: list — set COUNT to length; for each item print "number | title | labels"
+      echo ""
+      echo "── $phase (COUNT open issues) ──"
     done
   fi
 
   echo ""
   echo "=== OPEN PRs ==="
-  gh pr list --repo "$GH_REPO" --state open --limit 50 \
-    --json number,title,headRefName,labels --jq \
-    '.[] | "#\(.number) | \(.title) | \(.headRefName)"'
+  # MCP: list_pull_requests(owner="cgcardona", repo="agentception",
+  #   state="open")
+  # Returns: list of open PRs — for each print "#number | title | headRefName"
 
 STEP 3 — RESOLVE DEPENDENCY GRAPH:
   # Determine which phases are fully merged (all issues closed) and which have work.
@@ -233,8 +224,10 @@ STEP 3 — RESOLVE DEPENDENCY GRAPH:
   for phase in "phase-1/db-schema" "phase-2/core-api" "phase-3/api-extensions" \
                "phase-4/new-ui-pages" "phase-5/ui-enhancements" \
                "phase-6/seed-data" "phase-7/machine-access"; do
-    COUNT=$(gh issue list --repo "$GH_REPO" --label "$phase" --state open \
-      --json number --jq 'length' 2>/dev/null || echo 0)
+    # MCP: list_issues(owner="cgcardona", repo="agentception",
+    #   labels=[phase], state="open")
+    # Returns: list — set COUNT to length of result
+    COUNT=0  # set to MCP result length
     PHASE_OPEN[$phase]=$COUNT
     echo "  $phase: $COUNT open issues"
   done
@@ -277,27 +270,24 @@ STEP 3 — RESOLVE DEPENDENCY GRAPH:
   READY_PRS=()
   for phase in "${ACTIVE_PHASES[@]}"; do
     # Issues with no associated PR → ready for ISSUE_TO_PR
-    PHASE_ISSUES=$(gh issue list --repo "$GH_REPO" --label "$phase" --state open \
-      --json number,title --jq '.[] | "\(.number)|\(.title)"' 2>/dev/null)
-    while IFS= read -r issue_entry; do
-      [ -z "$issue_entry" ] && continue
-      ISSUE_NUM="${issue_entry%%|*}"
+    # MCP: list_issues(owner="cgcardona", repo="agentception",
+    #   labels=[phase], state="open")
+    # Returns: PHASE_ISSUES — list of {number, title}
+    for each issue_entry in PHASE_ISSUES:
+      ISSUE_NUM = issue_entry.number
       # Check if a PR already exists for this issue
-      EXISTING_PR=$(gh pr list --repo "$GH_REPO" --state open \
-        --search "closes #$ISSUE_NUM" --json number --jq '.[0].number' 2>/dev/null)
+      # MCP: search_pull_requests(owner="cgcardona", repo="agentception",
+      #   query="closes #$ISSUE_NUM is:open")
+      # Returns: EXISTING_PR — first result's number (empty list means no PR exists)
       if [ -z "$EXISTING_PR" ]; then
         READY_ISSUES+=("$issue_entry")
       fi
-    done <<< "$PHASE_ISSUES"
 
     # PRs linked to this phase's issues → ready for PR_REVIEW
-    PHASE_PRS=$(gh pr list --repo "$GH_REPO" --state open --limit 50 \
-      --json number,title,labels --jq \
-      ".[] | select(.labels | map(.name) | any(. == \"$phase\")) | \"\(.number)|\(.title)\"" 2>/dev/null)
-    while IFS= read -r pr_entry; do
-      [ -z "$pr_entry" ] && continue
-      READY_PRS+=("$pr_entry")
-    done <<< "$PHASE_PRS"
+    # MCP: list_pull_requests(owner="cgcardona", repo="agentception",
+    #   state="open")
+    # Returns: all open PRs — filter client-side: select those whose labels include $phase
+    # Append matching "$number|$title" strings to READY_PRS
   done
 
   echo ""
@@ -316,8 +306,9 @@ STEP 4 — HUMAN APPROVAL GATE:
   # Check for phase-1 (DB schema / Alembic migrations)
   for issue_entry in "${READY_ISSUES[@]}"; do
     ISSUE_NUM="${issue_entry%%|*}"
-    LABELS=$(gh issue view "$ISSUE_NUM" --repo "$GH_REPO" --json labels \
-      --jq '.labels | map(.name) | join(",")' 2>/dev/null)
+    # MCP: issue_read(owner="cgcardona", repo="agentception",
+    #   issue_number=ISSUE_NUM)
+    # Returns: issue object — extract .labels | map(.name) | join(",") as LABELS
     if echo "$LABELS" | grep -q "phase-1/db-schema"; then
       echo "⚠️  HUMAN GATE: Issue #$ISSUE_NUM is in phase-1/db-schema (Alembic migration)."
       echo "   Verify MERGE_AFTER chain before dispatching. Requires human sign-off."
@@ -349,7 +340,8 @@ STEP 5 — DISPATCH COORDINATORS:
     echo "Target issues (pre-screened for file isolation within their phase):"
     for i in "${READY_ISSUES[@]}"; do echo "  #${i%%|*}: ${i##*|}"; done
     echo ""
-    echo "The coordinator query: gh issue list --repo $GH_REPO --label <active_phase> --state open"
+    echo "The coordinator confirmation query:"
+    echo "  MCP: list_issues(owner='cgcardona', repo='agentception', labels=[<active_phase>], state='open')"
     echo "Match these issue numbers to confirm the set before creating worktrees."
     echo ""
     echo "Coordinator constraint: MAX_ISSUES_PER_DISPATCH=$(grep "^MAX_ISSUES_PER_DISPATCH=" .agent-task | cut -d= -f2)"
@@ -398,11 +390,15 @@ STEP 6 — COLLECT COORDINATOR REPORTS:
 STEP 7 — REMINDER GATE:
   # After collecting all reports, determine if work remains.
 
-  REMAINING_ISSUES=$(gh issue list --repo "$GH_REPO" --state open \
-    --json labels --jq '[.[] | select(.labels | map(.name) | any(startswith("phase-")))] | length' \
-    2>/dev/null || echo 0)
-  REMAINING_PRS=$(gh pr list --repo "$GH_REPO" --state open --limit 100 \
-    --json number --jq 'length' 2>/dev/null || echo 0)
+  # MCP: list_issues(owner="cgcardona", repo="agentception",
+  #   state="open")
+  # Returns: all open issues — filter client-side: select those with any label starting with "phase-"
+  # Set REMAINING_ISSUES to filtered count
+  REMAINING_ISSUES=0  # set to MCP filtered count
+  # MCP: list_pull_requests(owner="cgcardona", repo="agentception",
+  #   state="open")
+  # Returns: all open PRs — set REMAINING_PRS to length
+  REMAINING_PRS=0  # set to MCP result length
 
   if [ "$REMAINING_ISSUES" -gt 0 ] || [ "$REMAINING_PRS" -gt 0 ]; then
     echo ""
@@ -423,25 +419,28 @@ into a new Cursor composer window rooted in the conductor worktree.
 $(for phase in "phase-1/db-schema" "phase-2/core-api" "phase-3/api-extensions" \
      "phase-4/new-ui-pages" "phase-5/ui-enhancements" \
      "phase-6/seed-data" "phase-7/machine-access"; do
-  COUNT=$(gh issue list --repo "$GH_REPO" --label "$phase" --state open \
-    --json number --jq 'length' 2>/dev/null || echo 0)
-  [ "$COUNT" -gt 0 ] && echo "- $phase: $COUNT open issues"
+  # MCP: list_issues(owner="cgcardona", repo="agentception",
+  #   labels=[phase], state="open")
+  # Returns: list — set COUNT to length; if COUNT > 0, emit "- $phase: $COUNT open issues"
+  echo "- $phase: COUNT open issues"
 done)
 
 ### Gated items (require human sign-off before conductor can proceed)
-$(gh issue list --repo "$GH_REPO" --label "phase-1/db-schema" --state open \
-  --json number,title --jq '.[] | "- Issue #\(.number): \(.title)"' 2>/dev/null || true)
+# MCP: list_issues(owner="cgcardona", repo="agentception",
+#   labels=["phase-1/db-schema"], state="open")
+# Returns: list — for each item emit "- Issue #number: title"
 
 ### Failed PRs (D/F grade — not merged, needs human review)
-$(gh pr list --repo "$GH_REPO" --state open \
-  --json number,title --jq '.[] | "- PR #\(.number): \(.title)"' 2>/dev/null | head -5 || true)
+# MCP: list_pull_requests(owner="cgcardona", repo="agentception",
+#   state="open")
+# Returns: list — for each item (up to 5) emit "- PR #number: title"
 "
 
-    REMINDER_URL=$(gh issue create \
-      --repo "$GH_REPO" \
-      --title "⏰ Conductor reminder — pipeline incomplete ($(date -u '+%Y-%m-%d'))" \
-      --body "$STATUS_BODY")
-    gh issue edit "$REMINDER_URL" --add-label "conductor-reminder" 2>/dev/null || true
+    # MCP: issue_write(owner="cgcardona", repo="agentception",
+    #   title="⏰ Conductor reminder — pipeline incomplete ($(date -u '+%Y-%m-%d'))",
+    #   body=STATUS_BODY)
+    # Returns: created issue object — capture .number as REMINDER_NUM
+    # MCP: github_add_label(issue_number=REMINDER_NUM, label="conductor-reminder")
 
     # Fingerprint the reminder issue so every conductor run is traceable.
     CONDUCTOR_CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
@@ -491,7 +490,10 @@ STEP 7.5 — POST-WAVE STALE BRANCH CLEANUP:
   git fetch --prune
   STALE_BRANCHES=$(git branch -r 2>/dev/null | grep -v "origin/main\|origin/dev\|HEAD" | sed 's|  origin/||' | tr -d ' ')
   for br in $STALE_BRANCHES; do
-    MERGED=$(gh pr list --head "$br" --state merged --json number --jq '.[0].number' --repo "$GH_REPO" 2>/dev/null)
+    # MCP: search_pull_requests(owner="cgcardona", repo="agentception",
+    #   query="head:$br is:merged")
+    # Returns: MERGED — first result's number (empty list means no merged PR for this branch)
+    MERGED=""  # set to first result's number from MCP response
     if [ -n "$MERGED" ]; then
       git push origin --delete "$br" 2>/dev/null \
         && echo "🧹 Deleted $br (PR #$MERGED merged)" \
@@ -560,5 +562,6 @@ These are patterns from real multi-agent systems. The conductor addresses each:
 REPO=$(git rev-parse --show-toplevel)
 git -C "$REPO" fetch origin && git -C "$REPO" merge origin/dev
 git worktree list
-gh issue list --repo cgcardona/agentception --label "conductor-reminder" --state open
+# MCP: list_issues(owner="cgcardona", repo="agentception",
+#   labels=["conductor-reminder"], state="open")
 ```

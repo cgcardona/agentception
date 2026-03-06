@@ -261,14 +261,14 @@ Kickoff (coordinator)
 
 Agent (per worktree)
   └─ cat .agent-task                        ← knows exactly what to do
-  └─ gh pr list --search "closes #<N>"     ← CHECK FIRST: existing PR or branch?
+  └─ search_pull_requests(q="closes #<N> repo:cgcardona/agentception")  ← CHECK FIRST: existing PR or branch?
      if merged PR found → close issue + self-destruct
      if open PR found   → stop + self-destruct
   └─ git checkout -b feat/<description>     ← creates feature branch (only if new)
   └─ implement → mypy → tests → commit      ← build the fix
   └─ git fetch origin && git merge origin/dev  ← sync dev before pushing
   └─ resolve conflicts if any → re-run mypy + tests
-  └─ git push → gh pr create
+  └─ git push → MCP: create_pull_request(...)
   └─ git worktree remove --force <path>     ← self-destructs when done
   └─ git worktree prune
 ```
@@ -328,7 +328,8 @@ Before finalising your four, confirm each pair is independent:
 
 ```bash
 # For each candidate issue, list the files it is expected to touch:
-gh issue view <N> --json body   # check "Files / modules" section
+# MCP: issue_read(owner="cgcardona", repo="agentception", issue_number=N)
+# check "Files / modules" section in result.body
 
 # Confirm no pair shares a file before assigning the batch.
 ```
@@ -371,13 +372,11 @@ BATCH_LABEL="batch-01"
 
 # ── DERIVE ISSUES FROM GITHUB — never hardcode issue numbers ─────────────────
 echo "📋 Querying GitHub for open '$BATCH_LABEL' issues..."
+# MCP: list_issues(owner="cgcardona", repo="agentception", labels=[BATCH_LABEL], state="open")
+# Iterate results as RAW_ISSUES
 mapfile -t RAW_ISSUES < <(
-  gh issue list \
-    --repo "$GH_REPO" \
-    --label "$BATCH_LABEL" \
-    --state open \
-    --json number,title,labels \
-    --jq '.[] | "\(.number)|\(.title)|\(.labels | map(.name) | join(","))"'
+  # MCP result: each item has .number, .title, .labels[].name
+  # Format each as: "NUMBER|TITLE|label1,label2,..."
 )
 
 if [ ${#RAW_ISSUES[@]} -eq 0 ]; then
@@ -428,7 +427,9 @@ for entry in "${SELECTED_ISSUES[@]}"; do
   # Assign ROLE based on issue labels:
   #   phase-1/db-schema, alembic, migration labels → database-architect
   #   all others → python-developer
-  ISSUE_LABELS=$(gh issue view "$NUM" --repo "$GH_REPO" --json labels --jq '[.labels[].name] | join(",")' 2>/dev/null || echo "")
+  # MCP: issue_read(owner="cgcardona", repo="agentception", issue_number=NUM)
+  # ISSUE_LABELS = result.labels[].name joined with ","
+  # ISSUE_BODY = result.body
   AGENT_ROLE="python-developer"
   if echo "$ISSUE_LABELS" | grep -qE "db-schema|alembic|migration"; then
     AGENT_ROLE="database-architect"
@@ -436,7 +437,7 @@ for entry in "${SELECTED_ISSUES[@]}"; do
 
   # Write rich .agent-task — agent reads ALL context from this file
   # Extract DEPENDS_ON from issue body (looks for "Depends on #NNN" patterns)
-  ISSUE_BODY=$(gh issue view "$NUM" --repo "$GH_REPO" --json body --jq '.body' 2>/dev/null)
+  # (ISSUE_BODY already set from MCP issue_read above)
   DEPENDS_ON=$(echo "$ISSUE_BODY" | grep -oE 'Depends on[^.]+' | grep -oE '[0-9]+' | tr '\n' ',' | sed 's/,$//')
   [ -z "$DEPENDS_ON" ] && DEPENDS_ON=none
 
@@ -446,7 +447,7 @@ for entry in "${SELECTED_ISSUES[@]}"; do
   FILE_OWNERSHIP_VALUE="${FILE_OWNERSHIP:-tbd}"
 
   # Resolve COGNITIVE_ARCH for this issue's tech stack
-  ISSUE_BODY=$(gh issue view "$NUM" --repo "$GH_REPO" --json body --jq '.body' 2>/dev/null)
+  # (ISSUE_BODY already set from MCP issue_read above)
   if echo "$ISSUE_BODY" | grep -qiE "d3\.js|force-directed|d3\.force|d3\.select"; then
     SKILLS="d3:javascript"
   elif echo "$ISSUE_BODY" | grep -qiE "monaco|vs/loader|editor.*cdn"; then
@@ -1238,8 +1239,8 @@ STEP 6 — SPAWN A QA REVIEWER FOR YOUR OWN PR (run this before self-destructing
 
   # Discover the PR number for the branch you just pushed.
   MY_BRANCH=$(git -C "$WORKTREE" rev-parse --abbrev-ref HEAD)
-  MY_PR=$(gh pr list --repo "$GH_REPO" --head "$MY_BRANCH" --state open \
-    --json number --jq '.[0].number // empty')
+  # MCP: list_pull_requests(owner="cgcardona", repo="agentception", state="open", head=MY_BRANCH)
+  # MY_PR = first result's number
 
   if [ -n "$MY_PR" ] && [ "$MY_PR" != "null" ]; then
     # Create a fresh review worktree at the PR branch tip.
@@ -1365,10 +1366,9 @@ REPO=$(git rev-parse --show-toplevel)
 cd "$REPO"
 
 echo "=== Files touched by currently open PRs ==="
-# MCP: github_list_prs(state="open") → for each PR:
-#   - .number, .title  (from github_list_prs result)
-#   - files: gh pr diff NUM --name-only (no MCP equivalent for diff content)
-for num in $(gh pr list --state open --json number --jq '.[].number'); do
+# MCP: list_pull_requests(owner="cgcardona", repo="agentception", state="open")
+# Iterate over result.number for overlap check
+for num in <result from MCP list_pull_requests>; do
   files=$(gh pr diff "$num" --name-only 2>/dev/null)
   if [ -n "$files" ]; then
     # MCP: github_get_pr(pr_number=num) → .title
@@ -1436,21 +1436,13 @@ PHASE_LABEL="phase-1"   # match the label used in Setup
 
 GH_REPO=cgcardona/agentception   # ← single place to change if the repo slug ever changes
 
-REMAINING=$(gh issue list \
-  --repo "$GH_REPO" \
-  --label "$PHASE_LABEL" \
-  --state open \
-  --json number \
-  --jq 'length')
+# MCP: list_issues(owner="cgcardona", repo="agentception", labels=[PHASE_LABEL], state="open")
+# REMAINING = count of results
+REMAINING=<count from MCP response>
 
 if [ "$REMAINING" -gt 0 ]; then
   echo "⚠️  $REMAINING open issue(s) still labeled '$PHASE_LABEL':"
-  gh issue list \
-    --repo "$GH_REPO" \
-    --label "$PHASE_LABEL" \
-    --state open \
-    --json number,title,url \
-    --jq '.[] | "#\(.number)  \(.title)\n  \(.url)"'
+  # MCP result already fetched above — iterate each: "#NUM  TITLE\n  URL"
   echo ""
   echo "→ These need implementation, review, or explicit closure before moving to the next phase."
   echo "→ Common causes:"
@@ -1468,7 +1460,7 @@ fi
 
 ```bash
 GH_REPO=cgcardona/agentception   # ← single place to change if the repo slug ever changes
-gh pr list --repo "$GH_REPO" --state open
+# MCP: list_pull_requests(owner="cgcardona", repo="agentception", state="open")
 ```
 
 All PRs from this batch should be open (awaiting review) or merged. None should be closed/rejected without a corresponding issue closure.
@@ -1499,8 +1491,9 @@ git -C "$REPO" status
 1. Check whether the work is already merged:
    ```bash
    # For each dirty file, find the PR that contains it:
-   gh pr list --state merged --json number,title --jq '.[].number' | \
-     xargs -I{} gh pr diff {} --name-only 2>/dev/null | grep <filename>
+   # MCP: list_pull_requests(owner="cgcardona", repo="agentception", state="merged")
+   # For each result: use gh pr diff <number> --name-only to get changed files
+   # gh pr diff <number> --name-only 2>/dev/null | grep <filename>
    ```
 2. **If already merged** → the dirty files are stale copies. Discard them:
    ```bash
@@ -1515,7 +1508,7 @@ git -C "$REPO" status
    git -C "$REPO" add -A
    git -C "$REPO" commit -m "feat: <description> (rescued from main repo dirty state)"
    git push origin fix/<description>
-   gh pr create --base dev --head fix/<description> ...
+   # MCP: create_pull_request(owner="cgcardona", repo="agentception", title="...", body="...", head="fix/<description>", base="dev")
    ```
 
 ### 5 — Hand off to PR review
@@ -1900,9 +1893,10 @@ for entry in "${PRS[@]}"; do
   REVIEW_ROLE="pr-reviewer"
 
   # Fetch PR metadata for the task file
-  PR_BRANCH=$(gh pr view "$NUM" --repo "$GH_REPO" --json headRefName --jq '.headRefName' 2>/dev/null || echo "unknown")
+  # MCP: pull_request_read(owner="cgcardona", repo="agentception", pullNumber=NUM)
+  # PR_BRANCH = result.headRefName
+  # PR_BODY = result.body
   PR_FILES=$(gh pr diff "$NUM" --repo "$GH_REPO" --name-only 2>/dev/null | tr '\n' ',' | sed 's/,$//')
-  PR_BODY=$(gh pr view "$NUM" --repo "$GH_REPO" --json body --jq '.body' 2>/dev/null || echo "")
   CLOSES_ISSUE=$(echo "$PR_BODY" | grep -oE '[Cc]loses?\s+#[0-9]+' | grep -oE '[0-9]+' | tr '\n' ',' | sed 's/,$//')
   # MERGE_AFTER: PR number that must be merged before this one (for Alembic chain safety).
   # Set automatically if the PR body contains "Merges after #NNN" or "Depends on PR #NNN".
@@ -3265,8 +3259,12 @@ git -C "$REPO" status
 
 1. Check whether the work is already merged:
    ```bash
-   gh pr list --state merged --json number,title --jq '.[].number' | \
-     xargs -I{} gh pr diff {} --name-only 2>/dev/null | grep <filename>
+   # MCP: list_pull_requests(owner="cgcardona", repo="agentception",
+   #       state="merged") → for each result, extract .number into MERGED_NUMS
+   # Then for each merged PR number, check if its diff contains the dirty file:
+   for num in $MERGED_NUMS; do
+     gh pr diff "$num" --repo "$GH_REPO" --name-only 2>/dev/null | grep <filename>
+   done
    ```
 2. **If already merged** → stale copies. Discard:
    ```bash
@@ -3280,7 +3278,9 @@ git -C "$REPO" status
    git -C "$REPO" add -A
    git -C "$REPO" commit -m "feat: <description> (rescued from main repo dirty state)"
    git push origin fix/<description>
-   gh pr create --base dev --head fix/<description> ...
+   # MCP: create_pull_request(owner="cgcardona", repo="agentception",
+   #       title="feat: <description> (rescued from main repo dirty state)",
+   #       base="dev", head="fix/<description>", body="Rescued dirty-state work.")
    ```
 
 ---
@@ -3343,16 +3343,14 @@ N=$(grep "^PR_NUMBER=" .agent-task | cut -d= -f2)
 GH_REPO=$(grep "^GH_REPO=" .agent-task | cut -d= -f2)
 GH_REPO=${GH_REPO:-cgcardona/agentception}
 WTNAME=$(basename "$(pwd)")
-# Live lookup — ALL_ISSUE_LABELS is not written to reviewer .agent-task files
-IS_AC=$(gh pr view "$N" --repo "$GH_REPO" --json labels \
-  --jq '[.labels[].name] | join(",")' 2>/dev/null | grep -c "ac-ui/" || true)
-if [ "$IS_AC" -gt 0 ]; then
-  docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/" 2>&1 | tail -5
-else
-  REPO=$(git worktree list | head -1 | awk '{print $1}')
-  cd "$REPO" && docker compose exec agentception sh -c \
-    "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/" 2>&1 | tail -5
-fi
+# Determine if this PR is an AgentCeption PR:
+# Call pull_request_read(owner="cgcardona", repo="agentception", pullNumber=N)
+# If any label name contains "ac-ui/", run:
+#   docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/" 2>&1 | tail -5
+# Otherwise (generic PR — no "ac-ui/" labels), run:
+REPO=$(git worktree list | head -1 | awk '{print $1}')
+cd "$REPO" && docker compose exec agentception sh -c \
+  "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/" 2>&1 | tail -5
 ```
 Your job is to ensure the PR does not *introduce* new errors. But if you touch a file with pre-existing errors, you own them.
 
