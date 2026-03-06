@@ -204,7 +204,7 @@ FILES_CHANGED=$PR_FILES
 MERGE_AFTER=$MERGE_AFTER_VAL
 HAS_MIGRATION=$HAS_MIGRATION_VAL
 ROLE=$REVIEW_ROLE
-ROLE_FILE=<repo-root>/.cursor/roles/${REVIEW_ROLE}.md
+ROLE_FILE=<repo-root>/.agentception/roles/${REVIEW_ROLE}.md
 COGNITIVE_ARCH=$R_COGNITIVE_ARCH
 BATCH_ID=$R_BATCH_ID
 COORD_FINGERPRINT=$COORD_FINGERPRINT
@@ -255,7 +255,6 @@ If you see "No module named X", you are on the host. Stop. Use `docker compose e
 
 ---
 
-
 ## Environment (agents read this first)
 
 **You are running inside a Cursor worktree.** Your working directory is NOT the main repo.
@@ -293,25 +292,12 @@ the container. After creating your feature branch, your worktree's code is
 REPO=$(git worktree list | head -1 | awk '{print $1}')
 WTNAME=$(basename "$(pwd)")
 
-# Detect codebase from PR labels
-# MCP: github_get_pr(pr_number=N) → check if any label starts with "ac-ui/"
-IS_AC=<1 if PR has a ac-ui/* label, else 0>
+# mypy — agentception codebase
+cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
 
-# mypy — route by codebase (both codebases are independent; never cross-run)
-if [ "$IS_AC" -gt 0 ]; then
-  cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
-else
-  cd "$REPO" && docker compose exec agentception sh -c \
-    "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/"
-fi
-
-# pytest — route by codebase
-if [ "$IS_AC" -gt 0 ]; then
-  cd "$REPO" && docker compose exec agentception pytest agentception/tests/test_<module>.py -v
-else
-  cd "$REPO" && docker compose exec agentception sh -c \
-    "PYTHONPATH=/worktrees/$WTNAME pytest /worktrees/$WTNAME/tests/path/to/test_file.py -v"
-fi
+# pytest — agentception codebase
+cd "$REPO" && docker compose exec agentception sh -c \
+  "PYTHONPATH=/worktrees/$WTNAME pytest /worktrees/$WTNAME/agentception/tests/test_<module>.py -v"
 ```
 
 **⚠️ NEVER copy files into the main repo** for testing purposes. That pollutes
@@ -357,7 +343,7 @@ and all `git` commands.
 
 ### Command policy
 
-Consult `.cursor/agent-command-policy.md` for the full tier list. Summary:
+Consult `.agentception/agent-command-policy.md` for the full tier list. Summary:
 - **Green (auto-allow):** `ls`, `git status/log/diff/fetch`, `github_get_issue`, `github_list_prs`, `mypy`, `pytest`, `rg`
 - **Yellow (review before running):** `docker compose build`, `rm <single file>`, `git rebase`
 - **Red (never):** `rm -rf`, `git push --force`, `git push origin dev`, `docker system prune`
@@ -374,7 +360,7 @@ Consult `.cursor/agent-command-policy.md` for the full tier list. Summary:
 ```
 PARALLEL AGENT COORDINATION — PR REVIEW
 
-Read .cursor/agent-command-policy.md before issuing any shell commands.
+Read .agentception/agent-command-policy.md before issuing any shell commands.
 Green-tier commands run without confirmation. Yellow = check scope first.
 Red = never, ask the user instead.
 
@@ -545,7 +531,7 @@ STEP 3 — CHECKOUT & SYNC (only if STEP 2 shows the PR is open and unreviewed):
   #    docs/architecture/<module>.md         Keep ALL ## sections, sorted alphabetically.
   #    docs/reference/type-contracts.md      Keep ALL entries from both sides.
   #
-  #    ⚡ SHORTCUT: open .cursor/conflict-rules.md — every common conflict in this
+  #    ⚡ SHORTCUT: open .agentception/conflict-rules.md — every common conflict in this
   #    repo has a one-line mechanical rule. Do NOT use sed/grep/hexdump loops.
   #    agentception/api/routes/__init__.py NEVER conflicts (auto-discovery).
   #    type-contracts.md and module architecture docs use union merge via .gitattributes.
@@ -712,25 +698,15 @@ STEP 4 — TARGETED TEST SCOPING (before review):
   #         INCORRECT: docker compose exec agentception pytest agentception/... (wrong container/deps)
   #         INCORRECT: python3 -m pytest ... (host — missing deps)
   #
-  # 4. If the PR only changes .cursor/, docs/, or other non-.py files: skip pytest entirely.
+  # 4. If the PR only changes .agentception/, docs/, or other non-.py files: skip pytest entirely.
   #    mypy is irrelevant too. The review is markdown-content focused.
   #
   # ⚠️  NEVER run the full test suite. Only the derived test files for this PR's codebase.
 
-  # 5. Run only the derived targets — route by IS_AC detected above:
-  if [ "$IS_AC" -gt 0 ]; then
-    #    agentception PRs — worktree path, not /app/ (which is the live main-repo mount):
-    cd "$REPO" && docker compose exec agentception sh -c \
-      "PYTHONPATH=/worktrees/$WTNAME pytest \
-       /worktrees/$WTNAME/agentception/tests/test_<module>.py -v"
-  else
-    #    other PRs (non-agentception codebase):
-    cd "$REPO" && docker compose exec agentception sh -c \
-      "PYTHONPATH=/worktrees/$WTNAME pytest \
-       /worktrees/$WTNAME/tests/test_<module1>.py \
-       /worktrees/$WTNAME/tests/test_<module2>.py \
-       -v"
-  fi
+  # 5. Run only the derived targets — agentception codebase
+  cd "$REPO" && docker compose exec agentception sh -c \
+    "PYTHONPATH=/worktrees/$WTNAME pytest \
+     /worktrees/$WTNAME/agentception/tests/test_<module>.py -v"
 
 STEP 5 — REVIEW:
   Read and follow every step in .github/pr-review-prompt.md exactly.
@@ -763,16 +739,7 @@ STEP 5 — REVIEW:
   git stash  # if you already have the PR branch checked out
   git checkout dev
   echo "=== PRE-EXISTING MYPY BASELINE (dev before PR) ==="
-  # Route by codebase — both codebases are independent; never cross-run.
-  # Baseline uses /app/agentception/ (the live dev bind-mount) — correct here because
-  # we haven't checked out the PR branch yet. After checkout, switch to /worktrees/$WTNAME/.
-  if [ "$IS_AC" -gt 0 ]; then
-    cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/" 2>&1 | tail -10
-  else
-    cd "$REPO" && docker compose exec agentception sh -c \
-      "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/" \
-      2>&1 | tail -10
-  fi
+  cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/" 2>&1 | tail -10
   # Note: any error shown here is pre-existing on dev — you own fixing it if it
   # is in a file this PR touches. Errors in untouched files → note in report, do not block merge.
 
@@ -804,14 +771,8 @@ STEP 5 — REVIEW:
 
   # Run mypy against the PR branch code in the worktree — NOT /app/agentception/
   # (that mount always reflects dev, never the PR branch).
-  if [ "$IS_AC" -gt 0 ]; then
-    cd "$REPO" && docker compose exec agentception sh -c \
-      "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
-  else
-    #    other PRs (non-agentception codebase):
-    cd "$REPO" && docker compose exec agentception sh -c \
-      "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/"
-  fi
+  cd "$REPO" && docker compose exec agentception sh -c \
+    "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
 
   5. Pre-existing failures — you own them if they are in files this PR touches:
      ─── mypy errors ───
@@ -1318,7 +1279,7 @@ WORKTREE=$NEXT_WORKTREE
 BASE=dev
 CLOSES_ISSUES=$NEXT_ISSUE
 ROLE=python-developer
-ROLE_FILE=<repo-root>/.cursor/roles/python-developer.md
+ROLE_FILE=<repo-root>/.agentception/roles/python-developer.md
 BATCH_ID=${BATCH_ID:-none}
 COORD_FINGERPRINT=${COORD_FINGERPRINT:-unset}
 WAVE=${WAVE:-unset}
@@ -1384,7 +1345,7 @@ FILES_CHANGED=$NEXT_FILES
 MERGE_AFTER=$NEXT_MERGE_AFTER
 HAS_MIGRATION=$NEXT_HAS_MIG_VAL
 ROLE=pr-reviewer
-ROLE_FILE=<repo-root>/.cursor/roles/pr-reviewer.md
+ROLE_FILE=<repo-root>/.agentception/roles/pr-reviewer.md
 COGNITIVE_ARCH=${COGNITIVE_ARCH:-knuth:python}
 BATCH_ID=${BATCH_ID:-none}
 COORD_FINGERPRINT=${COORD_FINGERPRINT:-unset}

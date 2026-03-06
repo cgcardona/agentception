@@ -31,7 +31,6 @@ Every Swift file you write or touch must:
 - Network layer lives in a dedicated `NetworkService` type — views never call `URLSession` directly.
 - App state is owned by dedicated `Actor`-backed stores — no other type mutates it.
 - SSE event parsing maps directly to the event shapes defined in `agentception/protocol/events.py` — never invent intermediate shapes.
-- When working on Muse protocol features: time unit is **beats**, never seconds. MIDI data is Muse-native.
 
 ## Failure Modes to Avoid
 
@@ -40,16 +39,15 @@ Every Swift file you write or touch must:
 - Putting business logic in SwiftUI `View` bodies — views are display-only.
 - `@State` for shared state — use `@StateObject` or an `Actor`-backed model.
 - Blocking `@MainActor` with synchronous heavy computation — offload to `Task.detached`.
-- Time in seconds for MIDI data — always beats (per the Muse protocol).
 
 ## Verification Before Done
 
 ```bash
 # Build clean — zero warnings:
-xcodebuild -scheme Muse -destination 'platform=macOS' build | grep -E "error:|warning:" | grep -v "^$"
+xcodebuild -scheme AgentCeption -destination 'platform=macOS' build | grep -E "error:|warning:" | grep -v "^$"
 
 # Run unit tests:
-xcodebuild -scheme MuseTests -destination 'platform=macOS' test
+xcodebuild -scheme AgentCeptionTests -destination 'platform=macOS' test
 
 # Confirm SSE event shapes match agentception/protocol/events.py (manual cross-check)
 ```

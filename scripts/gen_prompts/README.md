@@ -88,7 +88,6 @@ scripts/gen_prompts/
       python-developer.md.j2
       coordinator.md.j2
       database-architect.md.j2
-      muse-specialist.md.j2
     PARALLEL_BUGS_TO_ISSUES.md.j2
     PARALLEL_CONDUCTOR.md.j2
     PARALLEL_ISSUE_TO_PR.md.j2
@@ -138,12 +137,12 @@ To move the pipeline to a different project's work:
 # config.yaml
 pipeline:
   phases:
-    - "muse/0-foundation"
-    - "muse/1-features"
+    - "ac-ui/0-critical-bugs"
+    - "ac-ui/1-design-tokens"
     # ...
 
 codebases:
-  active: "muse"   # ← only change needed here
+  active: "agentception_ui"   # ← only change needed here
 ```
 
 Then run the generator and commit. All 12 prompt files update atomically.

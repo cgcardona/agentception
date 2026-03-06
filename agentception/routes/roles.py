@@ -213,7 +213,7 @@ async def get_taxonomy() -> TaxonomyResponse:
     The GUI uses this to render the hierarchy browser (C-Suite → VP → Workers)
     and to filter compatible figures/skills when composing a cognitive architecture.
     Each role includes a live ``file_exists`` flag indicating whether the
-    corresponding ``.cursor/roles/<slug>.md`` file has been authored.
+    corresponding ``.agentception/roles/<slug>.md`` file has been authored.
     """
     if not _TAXONOMY_FILE.exists():
         raise HTTPException(status_code=503, detail="role-taxonomy.yaml not found")

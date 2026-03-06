@@ -162,14 +162,6 @@ def test_infer_role_pr_reviewer() -> None:
     assert infer_role_from_messages(messages) == "pr-reviewer"
 
 
-def test_infer_role_muse_specialist() -> None:
-    """An assistant message containing 'muse-specialist' maps to that role."""
-    messages = [
-        {"role": "assistant", "text": "You are a muse-specialist agent."},
-    ]
-    assert infer_role_from_messages(messages) == "muse-specialist"
-
-
 def test_infer_role_unknown_when_no_keywords() -> None:
     """A message with no known keywords returns 'unknown'."""
     messages = [

@@ -35,23 +35,12 @@ the container. After creating your feature branch, your worktree's code is
 REPO=$(git worktree list | head -1 | awk '{print $1}')
 WTNAME=$(basename "$(pwd)")
 
-{{ is_ac_detection_code }}
+# mypy — agentception codebase
+cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
 
-# mypy — route by codebase (both codebases are independent; never cross-run)
-if [ "$IS_AC" -gt 0 ]; then
-  cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
-else
-  cd "$REPO" && docker compose exec agentception sh -c \
-    "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/"
-fi
-
-# pytest — route by codebase
-if [ "$IS_AC" -gt 0 ]; then
-  cd "$REPO" && docker compose exec agentception pytest agentception/tests/test_<module>.py -v
-else
-  cd "$REPO" && docker compose exec agentception sh -c \
-    "PYTHONPATH=/worktrees/$WTNAME pytest /worktrees/$WTNAME/tests/path/to/test_file.py -v"
-fi
+# pytest — agentception codebase
+cd "$REPO" && docker compose exec agentception sh -c \
+  "PYTHONPATH=/worktrees/$WTNAME pytest /worktrees/$WTNAME/agentception/tests/test_<module>.py -v"
 ```
 
 **⚠️ NEVER copy files into the main repo** for testing purposes. That pollutes
@@ -67,7 +56,7 @@ the `dev` branch with uncommitted changes.
 
 ### Command policy
 
-Consult `.cursor/agent-command-policy.md` for the full tier list. Summary:
+Consult `.agentception/agent-command-policy.md` for the full tier list. Summary:
 - **Green (auto-allow):** `ls`, `git status/log/diff/fetch`, `github_get_issue`, `github_list_prs`, `mypy`, `pytest`, `rg`
 - **Yellow (review before running):** `docker compose build`, `rm <single file>`, `git rebase`
 - **Red (never):** `rm -rf`, `git push --force`, `git push origin dev`, `docker system prune`

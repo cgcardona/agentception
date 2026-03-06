@@ -40,7 +40,7 @@ AgentCeption Postgres instance.
 
 ## gen_prompts/generate.py
 
-Regenerates all `.cursor/roles/*.md` and `.cursor/PARALLEL_*.md` files from
+Regenerates all `.agentception/roles/*.md` and `.agentception/parallel-*.md` files from
 `config.yaml` and the Jinja2 templates in `scripts/gen_prompts/templates/`.
 
 ```bash
@@ -76,7 +76,7 @@ Top-level support files:
 | `scripts/gen_prompts/role-taxonomy.yaml` | Maps issue keywords to recommended cognitive architectures |
 | `scripts/gen_prompts/team.yaml` | Skill keyword routing for automatic skill-domain selection |
 | `scripts/gen_prompts/sync_labels.sh` | Auto-generated; run once to sync GitHub labels |
-| `scripts/gen_prompts/templates/` | Jinja2 templates for all `.cursor/` prompt files |
+| `scripts/gen_prompts/templates/` | Jinja2 templates for all `.agentception/` prompt files |
 
 ## Architecture string format
 

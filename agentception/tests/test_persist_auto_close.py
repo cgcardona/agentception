@@ -20,6 +20,7 @@ Run:
         agentception/tests/test_persist_auto_close.py -v
 """
 
+import asyncio
 import datetime
 import re
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -188,9 +189,10 @@ async def test_auto_close_via_agent_runs_closes_issue_in_db() -> None:
     session = MagicMock(spec=AsyncSession)
     session.execute = AsyncMock(side_effect=[run_result, pr_body_result, issue_result])
 
-    with patch.object(_persist, "_gh_close_issue", new_callable=AsyncMock) as mock_gh, \
-         patch("asyncio.ensure_future") as mock_future:
+    with patch.object(_persist, "_gh_close_issue", new_callable=AsyncMock), \
+         patch("asyncio.ensure_future", side_effect=lambda c: asyncio.create_task(c)):
         await _persist._auto_close_pr_linked_issues(session, _REPO)
+        await asyncio.sleep(0)  # yield so scheduled _gh_close_issue runs
 
     assert issue.state == "closed", "Issue state must be updated to closed in the DB"
     assert issue.closed_at is not None, "closed_at must be stamped"
@@ -216,8 +218,10 @@ async def test_auto_close_via_pr_body_closes_issue_in_db() -> None:
     session = MagicMock(spec=AsyncSession)
     session.execute = AsyncMock(side_effect=[run_result, pr_body_result, issue_result])
 
-    with patch("asyncio.ensure_future"):
+    with patch.object(_persist, "_gh_close_issue", new_callable=AsyncMock), \
+         patch("asyncio.ensure_future", side_effect=lambda c: asyncio.create_task(c)):
         await _persist._auto_close_pr_linked_issues(session, _REPO)
+        await asyncio.sleep(0)  # yield so scheduled _gh_close_issue runs
 
     assert issue.state == "closed"
 
@@ -258,8 +262,10 @@ async def test_auto_close_updates_content_hash_to_prevent_reopen() -> None:
     session = MagicMock(spec=AsyncSession)
     session.execute = AsyncMock(side_effect=[run_result, pr_body_result, issue_result])
 
-    with patch("asyncio.ensure_future"):
+    with patch.object(_persist, "_gh_close_issue", new_callable=AsyncMock), \
+         patch("asyncio.ensure_future", side_effect=lambda c: asyncio.create_task(c)):
         await _persist._auto_close_pr_linked_issues(session, _REPO)
+        await asyncio.sleep(0)  # yield so scheduled _gh_close_issue runs
 
     assert issue.content_hash != original_hash, (
         "content_hash must be recomputed with state='closed' "

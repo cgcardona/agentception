@@ -172,7 +172,7 @@ coordinator uses to fill in `.agent-task` files and determine label names.
 ```bash
 # ── Phase Planner script ──────────────────────────────────────────────────────
 REPO=$(git rev-parse --show-toplevel)
-PLAN_FILE="$REPO/.cursor/phase-plan-$(date +%Y%m%d%H%M%S).json"
+PLAN_FILE="$REPO/.agentception/phase-plan-$(date +%Y%m%d%H%M%S).json"
 
 echo "🗺️  Phase Planner: analyzing bug report..."
 echo "   Output → $PLAN_FILE"
@@ -307,7 +307,7 @@ from pathlib import Path
 
 plan = json.load(open(os.environ['PLAN_FILE']))
 repo = subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip()
-prtrees = Path.home() / '.cursor' / 'worktrees' / Path(repo).name
+prtrees = Path.home() / '.agentception' / 'worktrees' / Path(repo).name
 dev_sha = subprocess.check_output(['git', 'rev-parse', 'dev']).decode().strip()
 gh_repo = plan['gh_repo']
 
@@ -430,7 +430,7 @@ STEP 0 — READ YOUR TASK FILE:
 STEP 0.5 — LOAD YOUR ROLE:
   ROLE=$(grep '^ROLE=' .agent-task | cut -d= -f2)
   REPO=$(git worktree list | head -1 | awk '{print $1}')
-  ROLE_FILE="$REPO/.cursor/roles/${ROLE}.md"
+  ROLE_FILE="$REPO/.agentception/roles/${ROLE}.md"
   [ -f "$ROLE_FILE" ] && cat "$ROLE_FILE" && echo "✅ Operating as: $ROLE"
 
   Export for all subsequent commands:
@@ -547,7 +547,7 @@ EOF
   ⚠️  If gh issue create fails twice for the same issue, skip and report — no loops.
 
   ── LABEL REFERENCE ──────────────────────────────────────────────────────────
-  │ Standard: bug  enhancement  documentation  muse-hub  testing  mypy        │
+  │ Standard: bug  enhancement  documentation  testing  mypy                    │
   │ Phase labels: read from PHASE_LABEL field — must exist via Pre-flight      │
   │ Batch labels: batch-01 through batch-20 — created by Pre-flight            │
   │ ⚠️  Never invent labels. A missing label is non-fatal (|| true) but leaves │

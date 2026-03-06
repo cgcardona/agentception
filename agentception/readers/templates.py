@@ -156,7 +156,7 @@ def export_template(name: str, version: str) -> tuple[bytes, str]:
 
 
 def import_template(archive_bytes: bytes, target_repo: str) -> TemplateImportResult:
-    """Extract a template archive into *target_repo*'s ``.cursor/`` directory.
+    """Extract a template archive into *target_repo*'s ``.agentception/`` directory.
 
     Parameters
     ----------

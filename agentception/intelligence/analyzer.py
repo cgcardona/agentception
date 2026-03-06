@@ -32,8 +32,6 @@ from agentception.readers.github import get_issue_body
 _HIGH_CONFLICT_FILES: frozenset[str] = frozenset(
     {
         "agentception/app.py",
-        "agentception/muse/cli/app.py",
-        "docs/architecture/muse-vcs.md",
         "docs/reference/type-contracts.md",
         "alembic/versions/",   # any migration file
     }
@@ -75,7 +73,7 @@ class IssueAnalysis(BaseModel):
         Estimated merge-conflict risk:
         ``"none"`` — no known conflict-prone files touched.
         ``"low"`` — touches a shared config but not a high-risk additive file.
-        ``"high"`` — touches a high-risk additive file (app.py, muse-vcs.md …).
+        ``"high"`` — touches a high-risk additive file (app.py, type-contracts.md …).
     modifies_files:
         File paths extracted from a ``### Files to Create / Modify`` section.
         Empty list when no such section is present.

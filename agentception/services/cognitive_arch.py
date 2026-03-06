@@ -46,7 +46,6 @@ ROLE_DEFAULT_FIGURE: dict[str, str] = {
     "mobile-developer":          "scott_forstall",
     "rails-developer":           "dhh",
     "technical-writer":          "feynman",
-    "muse-specialist":           "lovelace",
     # Coordinator / manager roles
     "engineering-coordinator":   "von_neumann",
     "qa-coordinator":            "w_edwards_deming",
@@ -102,7 +101,7 @@ def _derive_skills_from_body(body: str) -> str:
         return "postgresql:python"
     if any(k in b for k in ("dockerfile", "from python", "compose")):
         return "devops"
-    if any(k in b for k in ("midi", "muse", "variation", "beat")):
+    if any(k in b for k in ("midi", "variation", "beat")):
         return "midi:python"
     if any(k in b for k in ("llm", "embedding", "rag", "openrouter", "claude")):
         return "llm:python"

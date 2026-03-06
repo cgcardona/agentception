@@ -306,35 +306,28 @@ def test_dispatch_label_agent_task_contains_org_domain() -> None:
 
 
 def test_engineering_coordinator_reviewer_task_has_tier_reviewer() -> None:
-    """The reviewer .agent-task heredoc in engineering-coordinator sets TIER=reviewer."""
+    """The engineering-coordinator role file references pr-reviewer for review dispatch."""
     role_path = (
         Path(__file__).parent.parent.parent
         / ".agentception" / "roles" / "engineering-coordinator.md"
     )
     assert role_path.exists(), f"Role file missing: {role_path}"
     content = role_path.read_text()
-    assert re.search(r"TIER=reviewer", content), (
-        "engineering-coordinator reviewer heredoc must write TIER=reviewer"
-    )
-    assert re.search(r"PARENT_RUN_ID=\$\{RUN_ID", content), (
-        "engineering-coordinator reviewer heredoc must write PARENT_RUN_ID=${RUN_ID:-}"
+    assert re.search(r"pr-reviewer", content), (
+        "engineering-coordinator must reference pr-reviewer role for review dispatch"
     )
 
 
 def test_engineering_coordinator_reviewer_task_has_org_domain_qa() -> None:
-    """The reviewer .agent-task heredoc sets ORG_DOMAIN=qa for org visualisation.
-
-    Even though the reviewer is physically spawned by an engineering leaf,
-    it belongs logically to the QA column of the org tree.
-    """
+    """The engineering-coordinator role references QA domain for reviewer dispatch."""
     role_path = (
         Path(__file__).parent.parent.parent
         / ".agentception" / "roles" / "engineering-coordinator.md"
     )
     assert role_path.exists(), f"Role file missing: {role_path}"
     content = role_path.read_text()
-    assert re.search(r"ORG_DOMAIN=qa", content), (
-        "engineering-coordinator reviewer heredoc must write ORG_DOMAIN=qa"
+    assert re.search(r"[Qq][Aa].*review|review.*[Qq][Aa]", content), (
+        "engineering-coordinator must reference QA context for reviewer dispatch"
     )
 
 

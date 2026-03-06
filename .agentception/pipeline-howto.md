@@ -67,7 +67,6 @@ agent. The pool stays at N concurrent workers continuously until the queue drain
 | `.agentception/roles/engineering-coordinator.md` | Engineering Coordinator |
 | `.agentception/roles/qa-coordinator.md` | QA Coordinator |
 | `.agentception/roles/python-developer.md` | Leaf implementation agents (Python/API work) |
-| `.agentception/roles/muse-specialist.md` | Leaf agents on Muse VCS / musical analysis work |
 | `.agentception/roles/database-architect.md` | Leaf agents on migrations / seed data |
 | `.agentception/roles/pr-reviewer.md` | Leaf review agents |
 | `.agentception/roles/coordinator.md` | Mid-tier coordinators |
@@ -78,7 +77,7 @@ agent. The pool stays at N concurrent workers continuously until the queue drain
 |------|-------------|
 | `.gitattributes` | Union merge driver for additive files (`app.py`, docs) — git auto-resolves |
 | `.agentception/conflict-rules.md` | Mechanical lookup table: one-line rule per conflict type |
-| `agentception/muse/api/routes/__init__.py` | Auto-discovers all routers — agents never touch this file |
+| `agentception/routes/api/__init__.py` | Auto-discovers all routers — agents never touch this file |
 
 ### Agent State (per-task)
 
@@ -183,7 +182,7 @@ git worktree add ~/.agentception/worktrees/agentception/pr-{N} origin/$BRANCH
 ### Step 3 — Write `.agent-task` files
 
 One file per worktree. Use the TOML v2 format above. Key fields:
-- `role =` — pick from: `python-developer`, `muse-specialist`, `database-architect`, `pr-reviewer`
+- `role =` — pick from: `python-developer`, `database-architect`, `pr-reviewer`
 - `scope.description =` — multi-line description of what to build/review
 
 ### Step 4 — Launch the two managers (skip the CTO for simple waves)

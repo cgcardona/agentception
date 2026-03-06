@@ -160,7 +160,7 @@ export function rolesEditor() {
 
     async _doLoad(slug) {
       if (!this.editor) return;
-      const path = `.cursor/roles/${slug}.md`;
+      const path = `.agentception/roles/${slug}.md`;
       this.setStatus(`Loading ${path}…`, '');
       try {
         const r = await fetch(`/api/roles/${encodeURIComponent(slug)}`);

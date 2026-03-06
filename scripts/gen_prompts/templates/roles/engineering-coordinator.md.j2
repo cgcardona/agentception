@@ -160,7 +160,7 @@ SEED:
 
 - Issues that create **new files** → always safe to run in parallel
 - Issues that modify the **same existing file** → serialize (MERGE_AFTER in .agent-task)
-- `agentception/muse/api/routes/__init__.py` → auto-discovers, never touch it
+- `agentception/routes/api/__init__.py` → auto-discovers, never touch it
 - Seed data issues → strictly serialized via MERGE_AFTER chain in .agent-task files
 
 ## Worktree convention
@@ -179,8 +179,6 @@ If a worktree is missing: `git -C "<repo-root>" worktree add -b feat/issue-{N} "
 - Never run mypy or pytest yourself
 - Never create PRs yourself
 - Never merge anything
-- Never touch `agentception/muse/api/routes/__init__.py`
-
 ---
 
 ## Embedded Implementer Kickoff

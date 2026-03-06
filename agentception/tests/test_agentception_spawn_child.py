@@ -6,7 +6,7 @@ Covers:
   - tier parameter contract (executive / coordinator / engineer / reviewer).
   - _build_child_task() field presence and correctness for each scope type.
   - spawn_child() happy path (mocked git + DB) for coordinator and leaf.
-  - spawn_child() produces TIER= (not NODE_TYPE=) in .agent-task.
+  - spawn_child() produces tier = (not node_type =) in .agent-task.
   - spawn_child() worktree failure cleanup.
   - POST /api/runs/{parent_run_id}/children HTTP endpoint (valid, invalid, and propagated errors).
   - build_spawn_child MCP tool (happy path + error cases).
@@ -130,53 +130,51 @@ def _make_task(
 
 def test_build_child_task_required_fields_present() -> None:
     task = _make_task()
-    assert "RUN_ID=test-run-123" in task
-    assert "ROLE=engineering-coordinator" in task
-    assert "TIER=coordinator" in task
-    assert "SCOPE_TYPE=label" in task
-    assert "SCOPE_VALUE=ac-workflow" in task
-    assert "PARENT_RUN_ID=label-cto-111111" in task
-    assert "COGNITIVE_ARCH=von_neumann:python" in task
-    assert "AC_URL=http://localhost:10003" in task
-    assert "ROLE_FILE=" in task
-    assert "HOST_ROLE_FILE=" in task
+    assert 'id = "test-run-123"' in task
+    assert 'role = "engineering-coordinator"' in task
+    assert 'tier = "coordinator"' in task
+    assert 'scope_type = "label"' in task
+    assert 'scope_value = "ac-workflow"' in task
+    assert 'parent_run_id = "label-cto-111111"' in task
+    assert 'cognitive_arch = "von_neumann:python"' in task
+    assert 'ac_url = "http://localhost:10003"' in task
+    assert 'role_file = "' in task
+    assert 'host_role_file = "' in task
 
 
 def test_build_child_task_does_not_contain_node_type_field() -> None:
-    """NODE_TYPE= must not appear — only TIER= is written."""
+    """node_type must not appear — only tier = is written."""
     task = _make_task()
-    lines = task.splitlines()
-    nt_lines = [ln for ln in lines if ln.startswith("NODE_TYPE=")]
-    assert nt_lines == [], f"Unexpected NODE_TYPE= lines: {nt_lines}"
+    assert "NODE_TYPE=" not in task
+    assert "node_type = " not in task
 
 
 def test_build_child_task_org_domain_written_when_provided() -> None:
-    """ORG_DOMAIN= is written to the .agent-task when org_domain is supplied."""
+    """org_domain is written to the .agent-task when org_domain is supplied."""
     task = _make_task(org_domain="qa")
-    assert "ORG_DOMAIN=qa" in task
+    assert 'org_domain = "qa"' in task
 
 
 def test_build_child_task_org_domain_absent_when_none() -> None:
-    """ORG_DOMAIN= must not appear at all when org_domain is None."""
+    """When org_domain is None, the TOML value is an empty string."""
     task = _make_task(org_domain=None)
-    od_lines = [ln for ln in task.splitlines() if ln.startswith("ORG_DOMAIN=")]
-    assert od_lines == [], f"Unexpected ORG_DOMAIN= lines: {od_lines}"
+    assert 'org_domain = ""' in task
 
 
 def test_build_child_task_tier_and_org_domain_are_separate() -> None:
-    """TIER and ORG_DOMAIN are written as two independent lines."""
+    """tier and org_domain are written as two independent TOML keys."""
     task = _make_task(tier="reviewer", org_domain="qa")
-    assert "TIER=reviewer" in task
-    assert "ORG_DOMAIN=qa" in task
+    assert 'tier = "reviewer"' in task
+    assert 'org_domain = "qa"' in task
     # Behavioral tier must not bleed into org domain
-    assert "TIER=qa" not in task
-    assert "ORG_DOMAIN=reviewer" not in task
+    assert 'tier = "qa"' not in task
+    assert 'org_domain = "reviewer"' not in task
 
 
 def test_build_child_task_engineer_tier() -> None:
     task = _make_task(tier="engineer", role="python-developer", scope_type="issue",
                       scope_value="42", issue_number=42)
-    assert "TIER=engineer" in task
+    assert 'tier = "engineer"' in task
 
 
 def test_build_child_task_coordinator_label_scope_query_hint() -> None:
@@ -194,9 +192,9 @@ def test_build_child_task_issue_scope_includes_issue_fields() -> None:
         issue_number=42,
         issue_title="Fix the thing",
     )
-    assert "ISSUE_NUMBER=42" in task
-    assert "ISSUE_TITLE=Fix the thing" in task
-    assert "ISSUE_URL=" in task
+    assert "issue_number = 42" in task
+    assert 'issue_title = "Fix the thing"' in task
+    assert 'issue_url = "' in task
     assert "github_get_issue(number=42)" in task
 
 
@@ -208,8 +206,8 @@ def test_build_child_task_pr_scope_includes_pr_fields() -> None:
         role="pr-reviewer",
         pr_number=112,
     )
-    assert "PR_NUMBER=112" in task
-    assert "PR_URL=" in task
+    assert "pr_number = 112" in task
+    assert 'pr_url = "' in task
     assert "github_get_pr(number=112)" in task
 
 
@@ -229,8 +227,8 @@ def test_build_child_task_coord_fingerprint_written_when_provided() -> None:
         scope_value="42",
         issue_number=42,
     )
-    # Without coord_fingerprint — field must be absent.
-    assert "COORD_FINGERPRINT=" not in task
+    # Without coord_fingerprint — TOML writes it as an empty string.
+    assert 'coord_fingerprint = ""' in task
 
 
 def test_build_child_task_coord_fingerprint_present() -> None:
@@ -254,7 +252,7 @@ def test_build_child_task_coord_fingerprint_present() -> None:
         coord_fingerprint=fp,
         issue_number=42,
     )
-    assert f"COORD_FINGERPRINT={fp}" in task
+    assert f'coord_fingerprint = "{fp}"' in task
 
 
 # ---------------------------------------------------------------------------
@@ -359,7 +357,7 @@ async def test_spawn_child_leaf_pr_happy_path() -> None:
 
 @pytest.mark.anyio
 async def test_spawn_child_tier_written_to_agent_task() -> None:
-    """The .agent-task file must contain TIER= (not NODE_TYPE=)."""
+    """The .agent-task file must contain tier = (not node_type =)."""
     mock_proc = MagicMock()
     mock_proc.returncode = 0
     mock_proc.communicate = AsyncMock(return_value=(b"", b""))
@@ -389,11 +387,10 @@ async def test_spawn_child_tier_written_to_agent_task() -> None:
 
     assert written_content, "write_text was never called"
     content = written_content[0]
-    assert "TIER=engineer" in content
-    # NODE_TYPE= must not appear (internal only, derived from tier)
-    lines = content.splitlines()
-    nt_lines = [ln for ln in lines if ln.startswith("NODE_TYPE=")]
-    assert nt_lines == [], f"Unexpected NODE_TYPE= lines: {nt_lines}"
+    assert 'tier = "engineer"' in content
+    # NODE_TYPE / node_type must not appear (internal only, derived from tier)
+    assert "NODE_TYPE=" not in content
+    assert "node_type =" not in content
 
 
 @pytest.mark.anyio
@@ -678,19 +675,19 @@ def test_all_tiers_produce_valid_task_content() -> None:
             scope_type=scope_type,
             scope_value=scope_value,
         )
-        # Every task must have these universal fields
-        assert "RUN_ID=" in task, f"Missing RUN_ID for {role}"
-        assert "TIER=" in task, f"Missing TIER for {role}"
-        assert "PARENT_RUN_ID=" in task, f"Missing PARENT_RUN_ID for {role}"
-        assert "COGNITIVE_ARCH=" in task, f"Missing COGNITIVE_ARCH for {role}"
-        assert "ROLE_FILE=" in task, f"Missing ROLE_FILE for {role}"
-        assert "HOST_ROLE_FILE=" in task, f"Missing HOST_ROLE_FILE for {role}"
-        assert "AC_URL=" in task, f"Missing AC_URL for {role}"
-        assert "SCOPE_TYPE=" in task, f"Missing SCOPE_TYPE for {role}"
-        assert "SCOPE_VALUE=" in task, f"Missing SCOPE_VALUE for {role}"
-        # NODE_TYPE= must be absent (internal only, not written to .agent-task)
-        nt_lines = [ln for ln in task.splitlines() if ln.startswith("NODE_TYPE=")]
-        assert nt_lines == [], f"Unexpected NODE_TYPE= lines for {role}: {nt_lines}"
+        # Every task must have these universal TOML fields
+        assert 'id = "' in task, f"Missing id for {role}"
+        assert 'tier = "' in task, f"Missing tier for {role}"
+        assert 'parent_run_id = "' in task, f"Missing parent_run_id for {role}"
+        assert 'cognitive_arch = "' in task, f"Missing cognitive_arch for {role}"
+        assert 'role_file = "' in task, f"Missing role_file for {role}"
+        assert 'host_role_file = "' in task, f"Missing host_role_file for {role}"
+        assert 'ac_url = "' in task, f"Missing ac_url for {role}"
+        assert 'scope_value = "' in task, f"Missing scope_value for {role}"
+        assert 'workflow = "' in task, f"Missing workflow for {role}"
+        # NODE_TYPE / node_type must be absent
+        assert "NODE_TYPE=" not in task, f"Unexpected NODE_TYPE= for {role}"
+        assert "node_type =" not in task, f"Unexpected node_type = for {role}"
 
 
 def test_pruned_subtree_root_has_same_fields_as_full_tree_root() -> None:
@@ -712,7 +709,7 @@ def test_pruned_subtree_root_has_same_fields_as_full_tree_root() -> None:
         scope_value="ac-workflow",
         parent_run_id="label-cto-abc123",
     )
-    # Both must have all universal fields
-    for field in ("RUN_ID=", "TIER=", "COGNITIVE_ARCH=", "ROLE_FILE=", "HOST_ROLE_FILE=", "SCOPE_TYPE=", "SCOPE_VALUE="):
-        assert field in task_root
-        assert field in task_child
+    # Both must have all universal TOML fields
+    for field in ('id = "', 'tier = "', 'cognitive_arch = "', 'role_file = "', 'host_role_file = "', 'scope_value = "', 'workflow = "'):
+        assert field in task_root, f"Missing {field!r} in root task"
+        assert field in task_child, f"Missing {field!r} in child task"

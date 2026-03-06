@@ -321,8 +321,7 @@ gh pr comment <N> --body "..."
 # Only use gh CLI for operations with no MCP equivalent (gh pr checkout, gh pr diff).
 # ⚠️  LABEL RULE: a single missing label causes gh issue create to fail entirely.
 #    Always create the issue first, then apply labels with gh issue edit || true.
-#    Valid labels: bug enhancement documentation performance ai-pipeline muse muse-cli
-#                 muse-hub muse-music-extensions agentception muse mypy
+#    Valid labels: bug enhancement documentation performance ai-pipeline agentception mypy
 #                 cli testing multimodal help-wanted good-first-issue weekend-mvp
 ```
 
@@ -364,17 +363,6 @@ docker compose exec agentception alembic history
 docker compose exec agentception alembic current
 docker compose exec agentception alembic heads
 docker compose exec agentception alembic upgrade head   ← forward migration only
-```
-
-### Docker — exec agentception (Muse services)
-```
-docker compose exec agentception mypy agentception/ (or muse/ when implemented)
-docker compose exec agentception pytest <file> -v [flags]
-docker compose exec agentception sh -c "<any command>"
-docker compose exec agentception ls <path>
-docker compose exec agentception cat <file>
-docker compose exec agentception rg <pattern>
-docker compose exec agentception grep <pattern>
 ```
 
 ### Docker — exec agentception (tests, type checks, inspection)
@@ -545,7 +533,6 @@ su <anything>
 env | grep -i "key\|secret\|token\|password"
 printenv
 cat .env
-cat .muse/config.toml           ← contains Hub auth token
 ```
 
 ### Alembic destructive

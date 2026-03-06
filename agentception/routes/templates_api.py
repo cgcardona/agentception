@@ -39,10 +39,10 @@ router = APIRouter(prefix="/api/templates", tags=["templates"])
 async def export_template_endpoint(body: TemplateExportRequest) -> Response:
     """Export the current pipeline configuration as a versioned ``.tar.gz`` archive.
 
-    Creates an archive containing all managed ``.cursor/`` files (roles,
+    Creates an archive containing all managed ``.agentception/`` files (roles,
     PARALLEL_*.md, pipeline-config.json, agent-command-policy.md) plus a
     ``template-manifest.json`` with provenance metadata.  The archive is
-    persisted to ``~/.cursor/agentception-templates/`` and returned as a
+    persisted to ``~/.agentception/templates/`` and returned as a
     file download.
 
     Parameters
@@ -88,7 +88,7 @@ async def import_template_endpoint(
 ) -> TemplateImportResult:
     """Import a template archive into a target repository.
 
-    Extracts the ``.tar.gz`` into ``{target_repo}/.cursor/``, creating parent
+    Extracts the ``.tar.gz`` into ``{target_repo}/.agentception/``, creating parent
     directories as needed.  Files that already exist are overwritten — the
     response ``conflicts`` list identifies which files were clobbered so the
     caller can warn the user.
@@ -137,7 +137,7 @@ async def list_templates_endpoint() -> list[TemplateListEntry]:
     """Return metadata for all previously exported templates.
 
     Reads ``template-manifest.json`` from each ``.tar.gz`` in the templates
-    store directory (``~/.cursor/agentception-templates/``).  Unreadable
+    store directory (``~/.agentception/templates/``).  Unreadable
     archives are silently skipped.  Results are sorted most-recent-first.
     """
     return list_stored_templates()
