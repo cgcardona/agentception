@@ -12,10 +12,11 @@ transcript data for richer status information.
 
 import asyncio
 import logging
+import tomllib
 from pathlib import Path
 
 from agentception.config import settings
-from agentception.models import TaskFile
+from agentception.models import IssueSub, PRSub, TaskFile
 
 logger = logging.getLogger(__name__)
 
@@ -52,15 +53,11 @@ async def list_active_worktrees() -> list[TaskFile]:
 
 
 async def parse_agent_task(worktree_path: Path) -> TaskFile | None:
-    """Parse a ``KEY=VALUE`` ``.agent-task`` file into a TaskFile model.
+    """Parse a TOML v2 ``.agent-task`` file into a TaskFile model.
 
     Returns ``None`` when the file is absent, unreadable, or so malformed
-    that no valid TaskFile can be constructed. Missing individual fields
-    default gracefully — only a complete read failure returns ``None``.
-
-    The parser is intentionally lenient: blank lines and lines without ``=``
-    are silently skipped. This matches how agents write task files via heredoc
-    (which may include trailing blank lines or comments).
+    that no valid TaskFile can be constructed. Malformed TOML is logged as
+    a warning and returns ``None`` — it never propagates an exception.
     """
     task_file_path = worktree_path / ".agent-task"
     if not task_file_path.exists():
@@ -74,16 +71,14 @@ async def parse_agent_task(worktree_path: Path) -> TaskFile | None:
         logger.warning("⚠️  Cannot read %s: %s", task_file_path, exc)
         return None
 
-    fields: dict[str, str] = {}
-    for raw_line in content.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        fields[key.strip().upper()] = value.strip()
+    try:
+        data: dict[str, object] = tomllib.loads(content)
+    except tomllib.TOMLDecodeError as exc:
+        logger.warning("⚠️  TOML parse error in %s: %s", task_file_path, exc)
+        return None
 
     try:
-        return _build_task_file(fields, worktree_path)
+        return _build_task_file_from_toml(data, worktree_path)
     except Exception as exc:
         logger.warning("⚠️  Failed to build TaskFile from %s: %s", task_file_path, exc)
         return None
@@ -119,66 +114,125 @@ async def worktree_last_commit_time(worktree_path: Path) -> float:
 # ── Private helpers ────────────────────────────────────────────────────────────
 
 
-def _build_task_file(fields: dict[str, str], worktree_path: Path) -> TaskFile:
-    """Construct a TaskFile from the parsed KEY=VALUE map.
+def _sec(data: dict[str, object], key: str) -> dict[str, object]:
+    """Safely extract a TOML table (section) by key.
 
-    Field names in .agent-task files are UPPER_SNAKE_CASE. We map them to
-    the lower_snake_case Pydantic model fields here. PR review task files use
-    ``PR=<number>`` for the PR number instead of ``ISSUE_NUMBER``.
+    Returns an empty dict when the key is absent or its value is not a table.
     """
-    closes_issues = _parse_int_list(fields.get("CLOSES_ISSUES", ""))
-
-    raw: dict[str, str | int | bool | list[int] | None] = {
-        "task": fields.get("TASK") or fields.get("WORKFLOW"),
-        "gh_repo": fields.get("GH_REPO"),
-        "issue_number": _parse_int(fields.get("ISSUE_NUMBER")),
-        "pr_number": _parse_int(fields.get("PR")),
-        "branch": fields.get("BRANCH"),
-        "worktree": str(worktree_path),
-        "role": fields.get("ROLE"),
-        "base": fields.get("BASE"),
-        "batch_id": fields.get("BATCH_ID"),
-        "closes_issues": closes_issues,
-        "spawn_sub_agents": _parse_bool(fields.get("SPAWN_SUB_AGENTS", "false")),
-        "spawn_mode": fields.get("SPAWN_MODE"),
-        "merge_after": fields.get("MERGE_AFTER"),
-        "attempt_n": _parse_int(fields.get("ATTEMPT_N")) or 0,
-        "required_output": fields.get("REQUIRED_OUTPUT"),
-        "on_block": fields.get("ON_BLOCK"),
-        "cognitive_arch": fields.get("COGNITIVE_ARCH"),
-        # NODE_TYPE — structural position (coordinator | leaf).
-        # TIER — behavioral execution tier (executive | coordinator | engineer | reviewer).
-        # ORG_DOMAIN — organisational slot for UI hierarchy (c-suite | engineering | qa).
-        # The two concepts are fully separate: a PR reviewer chain-spawned by an
-        # engineering leaf will have TIER=reviewer and ORG_DOMAIN=qa.
-        "tier": fields.get("TIER"),
-        "org_domain": fields.get("ORG_DOMAIN"),
-        "parent_run_id": fields.get("PARENT_RUN_ID") or None,
-    }
-    cleaned = {k: v for k, v in raw.items() if v is not None}
-    return TaskFile.model_validate(cleaned)
+    val = data.get(key)
+    if isinstance(val, dict):
+        return val
+    return {}
 
 
-def _parse_int(value: str | None) -> int | None:
-    """Convert a string to int, returning None on failure."""
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except ValueError:
-        return None
+def _str_val(sec: dict[str, object], key: str) -> str | None:
+    """Return a string field from a TOML section, or None if absent/wrong type."""
+    val = sec.get(key)
+    return val if isinstance(val, str) else None
 
 
-def _parse_int_list(value: str) -> list[int]:
-    """Parse a comma-separated string of integers, skipping invalid tokens."""
-    result: list[int] = []
-    for token in value.split(","):
-        token = token.strip()
-        if token.isdigit():
-            result.append(int(token))
-    return result
+def _int_val(sec: dict[str, object], key: str) -> int | None:
+    """Return an integer field from a TOML section, or None if absent/wrong type.
+
+    Explicitly excludes booleans since ``bool`` is a subclass of ``int`` in Python.
+    """
+    val = sec.get(key)
+    if isinstance(val, int) and not isinstance(val, bool):
+        return val
+    return None
 
 
-def _parse_bool(value: str) -> bool:
-    """Interpret 'true'/'false' (case-insensitive) as bool."""
-    return value.strip().lower() == "true"
+def _bool_val(sec: dict[str, object], key: str, default: bool = False) -> bool:
+    """Return a boolean field from a TOML section, falling back to ``default``."""
+    val = sec.get(key)
+    if isinstance(val, bool):
+        return val
+    return default
+
+
+def _int_list_val(sec: dict[str, object], key: str) -> list[int]:
+    """Return a list-of-int field from a TOML section, skipping non-int items."""
+    val = sec.get(key)
+    if not isinstance(val, list):
+        return []
+    return [item for item in val if isinstance(item, int) and not isinstance(item, bool)]
+
+
+def _str_list_val(sec: dict[str, object], key: str) -> list[str]:
+    """Return a list-of-str field from a TOML section, skipping non-string items."""
+    val = sec.get(key)
+    if not isinstance(val, list):
+        return []
+    return [item for item in val if isinstance(item, str)]
+
+
+def _build_task_file_from_toml(data: dict[str, object], worktree_path: Path) -> TaskFile:
+    """Map TOML v2 ``.agent-task`` sections to ``TaskFile`` fields.
+
+    Section → field mapping follows ``.agentception/agent-task-spec.md`` v2.0.
+    Unknown fields are silently ignored; all TaskFile fields are optional so
+    partially-populated files yield a valid model.
+    """
+    task_sec = _sec(data, "task")
+    agent_sec = _sec(data, "agent")
+    repo_sec = _sec(data, "repo")
+    pipeline_sec = _sec(data, "pipeline")
+    spawn_sec = _sec(data, "spawn")
+    target_sec = _sec(data, "target")
+    worktree_sec = _sec(data, "worktree")
+    output_sec = _sec(data, "output")
+    domain_sec = _sec(data, "domain")
+
+    issue_queue: list[IssueSub] = []
+    raw_issue_queue = data.get("issue_queue")
+    if isinstance(raw_issue_queue, list):
+        for item in raw_issue_queue:
+            if isinstance(item, dict):
+                try:
+                    issue_queue.append(IssueSub.model_validate(item))
+                except Exception:
+                    pass
+
+    pr_queue: list[PRSub] = []
+    raw_pr_queue = data.get("pr_queue")
+    if isinstance(raw_pr_queue, list):
+        for item in raw_pr_queue:
+            if isinstance(item, dict):
+                try:
+                    pr_queue.append(PRSub.model_validate(item))
+                except Exception:
+                    pass
+
+    return TaskFile(
+        task=_str_val(task_sec, "workflow"),
+        id=_str_val(task_sec, "id"),
+        attempt_n=_int_val(task_sec, "attempt_n") or 0,
+        required_output=_str_val(task_sec, "required_output"),
+        on_block=_str_val(task_sec, "on_block"),
+        role=_str_val(agent_sec, "role"),
+        tier=_str_val(agent_sec, "tier"),
+        org_domain=_str_val(agent_sec, "org_domain"),
+        cognitive_arch=_str_val(agent_sec, "cognitive_arch"),
+        session_id=_str_val(agent_sec, "session_id"),
+        gh_repo=_str_val(repo_sec, "gh_repo"),
+        base=_str_val(repo_sec, "base"),
+        batch_id=_str_val(pipeline_sec, "batch_id"),
+        parent_run_id=_str_val(pipeline_sec, "parent_run_id"),
+        wave=_str_val(pipeline_sec, "wave"),
+        vp_fingerprint=_str_val(pipeline_sec, "vp_fingerprint"),
+        spawn_sub_agents=_bool_val(spawn_sec, "sub_agents"),
+        spawn_mode=_str_val(spawn_sec, "mode"),
+        issue_number=_int_val(target_sec, "issue_number"),
+        pr_number=_int_val(target_sec, "pr_number"),
+        depends_on=_int_list_val(target_sec, "depends_on"),
+        closes_issues=_int_list_val(target_sec, "closes"),
+        file_ownership=_str_list_val(target_sec, "file_ownership"),
+        worktree=_str_val(worktree_sec, "path") or str(worktree_path),
+        branch=_str_val(worktree_sec, "branch"),
+        linked_pr=_int_val(worktree_sec, "linked_pr"),
+        draft_id=_str_val(output_sec, "draft_id"),
+        output_path=_str_val(output_sec, "path"),
+        domain=_str_val(domain_sec, "name"),
+        issue_queue=issue_queue,
+        pr_queue=pr_queue,
+    )

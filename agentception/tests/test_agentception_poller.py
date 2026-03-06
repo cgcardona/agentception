@@ -413,7 +413,7 @@ async def test_plan_draft_ready_event_emitted(tmp_path: Path, reset_plan_draft_t
     worktree.mkdir()
     task_file = worktree / ".agent-task"
     task_file.write_text(
-        f"WORKFLOW=plan-spec\nDRAFT_ID={draft_id}\nOUTPUT_PATH={output_file}\nSTATUS=pending\n",
+        f'[task]\nworkflow = "plan-spec"\n\n[output]\ndraft_id = "{draft_id}"\npath = "{output_file}"\n',
         encoding="utf-8",
     )
     # Write the output file to simulate the Cursor agent finishing.
@@ -441,7 +441,7 @@ async def test_plan_draft_ready_not_reemitted(tmp_path: Path, reset_plan_draft_t
     worktree.mkdir()
     task_file = worktree / ".agent-task"
     task_file.write_text(
-        f"WORKFLOW=plan-spec\nDRAFT_ID={draft_id}\nOUTPUT_PATH={output_file}\n",
+        f'[task]\nworkflow = "plan-spec"\n\n[output]\ndraft_id = "{draft_id}"\npath = "{output_file}"\n',
         encoding="utf-8",
     )
     output_file.write_text("initiative: test\n", encoding="utf-8")
@@ -469,7 +469,7 @@ async def test_plan_draft_timeout_event_emitted(tmp_path: Path, reset_plan_draft
     worktree.mkdir()
     task_file = worktree / ".agent-task"
     task_file.write_text(
-        f"WORKFLOW=plan-spec\nDRAFT_ID={draft_id}\nOUTPUT_PATH={output_file}\n",
+        f'[task]\nworkflow = "plan-spec"\n\n[output]\ndraft_id = "{draft_id}"\npath = "{output_file}"\n',
         encoding="utf-8",
     )
 
@@ -477,7 +477,7 @@ async def test_plan_draft_timeout_event_emitted(tmp_path: Path, reset_plan_draft
     old_mtime = time.time() - 121
     os.utime(task_file, (old_mtime, old_mtime))
 
-    # OUTPUT_PATH does NOT exist.
+    # output.path does NOT exist.
     assert not output_file.exists()
 
     with patch("agentception.poller.settings") as mock_settings:
@@ -504,7 +504,7 @@ async def test_plan_draft_timeout_not_reemitted(tmp_path: Path, reset_plan_draft
     worktree.mkdir()
     task_file = worktree / ".agent-task"
     task_file.write_text(
-        f"WORKFLOW=plan-spec\nDRAFT_ID={draft_id}\nOUTPUT_PATH={output_file}\n",
+        f'[task]\nworkflow = "plan-spec"\n\n[output]\ndraft_id = "{draft_id}"\npath = "{output_file}"\n',
         encoding="utf-8",
     )
     old_mtime = time.time() - 121
@@ -531,7 +531,7 @@ async def test_plan_draft_no_event_before_timeout(tmp_path: Path, reset_plan_dra
     task_file = worktree / ".agent-task"
     # Write the task file now — mtime is fresh, within the 120 s window.
     task_file.write_text(
-        f"WORKFLOW=plan-spec\nDRAFT_ID={draft_id}\nOUTPUT_PATH={output_file}\n",
+        f'[task]\nworkflow = "plan-spec"\n\n[output]\ndraft_id = "{draft_id}"\npath = "{output_file}"\n',
         encoding="utf-8",
     )
 
