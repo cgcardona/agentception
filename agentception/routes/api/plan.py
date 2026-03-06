@@ -16,8 +16,8 @@ Side effects
    Docker-mounted path (``/worktrees`` in-container, ``~/.agentception/worktrees/agentception``
    on the host) — so mypy/pytest can reference it via ``/worktrees/<name>``
    inside the container without path mismatches.
-2. A ``.agent-task`` file is written to the new worktree using the K=V format
-   that is compatible with the future TOML migration (issue #888).
+2. A ``.agent-task`` file is written to the new worktree in TOML v2 format
+   as specified by ``.agentception/agent-task-spec.md``.
 
 POST /api/plan/launch
 ---------------------
@@ -42,6 +42,7 @@ import asyncio
 import json
 import logging
 import uuid
+from pathlib import Path
 
 import yaml
 from fastapi import APIRouter, HTTPException
@@ -50,6 +51,7 @@ from pydantic import BaseModel, field_validator
 from agentception.config import settings
 from agentception.mcp.plan_tools import plan_spawn_coordinator
 from agentception.models import EnrichedManifest, EnrichedPhase
+from agentception.readers.llm_phase_planner import generate_plan_yaml
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +103,7 @@ async def post_plan_draft(request: PlanDraftRequest) -> PlanDraftResponse:
     2. Run ``git worktree add <worktrees_dir>/plan-draft-<draft_id>`` off origin/dev.
        Uses the canonical ``settings.worktrees_dir`` so the path is visible inside
        Docker at ``/worktrees/plan-draft-<draft_id>`` — never ``/tmp/``.
-    3. Write a K=V .agent-task to that path so a Cursor agent can pick it up.
+    3. Write a TOML v2 .agent-task to that path so a Cursor agent can pick it up.
     4. Return PlanDraftResponse immediately.
 
     Returns 422 if text is empty/whitespace (validated by PlanDraftRequest).
@@ -113,10 +115,11 @@ async def post_plan_draft(request: PlanDraftRequest) -> PlanDraftResponse:
     worktree_path = settings.worktrees_dir / slug
     host_worktree_path = settings.host_worktrees_dir / slug
     task_file_path = worktree_path / ".agent-task"
-    # The output file is where the Cursor agent writes the finished PlanSpec YAML.
-    # The AgentCeption poller watches *this file* (not the directory) and emits
-    # ``plan_draft_ready`` when it appears on disk.
-    output_file_path = host_worktree_path / ".plan-output.yaml"
+    # The output file lives at the container-side worktree path so both the
+    # in-process background task and the poller (which runs inside Docker) can
+    # read and write it via the bind mount.  host_worktree_path is still used
+    # below to build host-readable paths in the task file for any Cursor agents.
+    output_file_path = worktree_path / ".plan-output.yaml"
 
     logger.info("✅ Plan draft %s — creating worktree at %s", draft_id, worktree_path)
 
@@ -145,22 +148,41 @@ async def post_plan_draft(request: PlanDraftRequest) -> PlanDraftResponse:
     # mocked the subprocess in tests.
     worktree_path.mkdir(parents=True, exist_ok=True)
 
+    # Escape backslashes and double-quotes in the plan text for TOML basic strings.
+    escaped_text = request.text.replace("\\", "\\\\").replace('"', '\\"')
     task_content = (
-        f"WORKFLOW=plan-spec\n"
-        f"DRAFT_ID={draft_id}\n"
+        '[task]\n'
+        'version = "2.0"\n'
+        'workflow = "plan-spec"\n\n'
+        '[spawn]\n'
+        'mode = "single"\n'
+        'sub_agents = false\n\n'
+        '[output]\n'
         # OUTPUT_PATH must be a file path (not the directory) so the AgentCeption
         # poller can watch for the file's appearance and emit plan_draft_ready.
-        f"OUTPUT_PATH={output_file_path}\n"
-        f"STATUS=pending\n"
-        # Guide the Cursor agent: call plan_get_schema() first to get the PlanSpec
-        # TOML schema, then produce valid TOML matching that schema.
-        f"mcp_tools_hint=call plan_get_schema() to get the PlanSpec TOML schema first\n"
-        f"output_schema=plan_get_schema\n"
-        f"plan_draft.text={request.text}\n"
+        f'draft_id = "{draft_id}"\n'
+        f'path = "{output_file_path}"\n'
+        'format = "yaml"\n'
+        'schema_tool = "plan_get_schema"\n\n'
+        '[plan_draft]\n'
+        'mcp_tools_hint = "call plan_get_schema() to get the PlanSpec TOML schema first"\n'
+        f'dump = "{escaped_text}"\n'
     )
     task_file_path.write_text(task_content, encoding="utf-8")
 
     logger.info("✅ .agent-task written for draft %s", draft_id)
+
+    # Fire the LLM plan generation in the background.  When it completes it
+    # writes .plan-output.yaml, which the poller detects and converts into a
+    # plan_draft_ready SSE event for the waiting browser client.
+    asyncio.create_task(
+        _run_plan_generation(
+            draft_id=draft_id,
+            plan_text=request.text,
+            output_file_path=output_file_path,
+        ),
+        name=f"plan-draft-{draft_id}",
+    )
 
     return PlanDraftResponse(
         draft_id=draft_id,
@@ -168,6 +190,28 @@ async def post_plan_draft(request: PlanDraftRequest) -> PlanDraftResponse:
         output_path=str(output_file_path),
         status="pending",
     )
+
+
+async def _run_plan_generation(
+    draft_id: str,
+    plan_text: str,
+    output_file_path: Path,
+) -> None:
+    """Background task: call the LLM planner and write the result to disk.
+
+    The AgentCeption poller watches ``output_file_path`` and emits
+    ``plan_draft_ready`` the moment the file appears.  Any error is logged
+    but not propagated — the poller's timeout mechanism handles the failure
+    case from the client's perspective.
+    """
+    logger.info("✅ plan-draft %s — starting LLM generation", draft_id)
+    try:
+        yaml_text = await generate_plan_yaml(plan_text)
+        output_file_path.parent.mkdir(parents=True, exist_ok=True)
+        output_file_path.write_text(yaml_text, encoding="utf-8")
+        logger.info("✅ plan-draft %s — wrote output to %s", draft_id, output_file_path)
+    except Exception as exc:
+        logger.error("❌ plan-draft %s — LLM generation failed: %s", draft_id, exc)
 
 
 # ---------------------------------------------------------------------------

@@ -3,7 +3,7 @@ from __future__ import annotations
 """Tests for the tier / org_domain / parent_run_id lineage fields.
 
 Covers:
-  - TaskFile parser reads TIER → tier and ORG_DOMAIN → org_domain
+  - TaskFile TOML parser reads [agent].tier and [agent].org_domain
     as fully separate fields (not fallback aliases).
   - A chain-spawned PR reviewer can have tier=reviewer AND org_domain=qa
     simultaneously.
@@ -12,7 +12,7 @@ Covers:
   - Migration 0012 replaces node_type + logical_tier with tier + org_domain.
   - dispatch-label .agent-task writer includes TIER= and ORG_DOMAIN=.
   - engineering-coordinator reviewer heredoc sets TIER=reviewer ORG_DOMAIN=qa.
-  - Regression: PARENT_RUN_ID empty string is normalised to None.
+  - Regression: parent_run_id empty string is normalised to None.
 """
 
 import re
@@ -21,62 +21,64 @@ from pathlib import Path
 import pytest
 
 from agentception.models import AgentNode, AgentStatus, TaskFile
-from agentception.readers.worktrees import _build_task_file
+from agentception.readers.worktrees import parse_agent_task
 
 
 # ---------------------------------------------------------------------------
-# TaskFile — .agent-task parser
+# Helper
 # ---------------------------------------------------------------------------
 
 
-def _make_task_file(fields: dict[str, str], tmp_path: Path) -> TaskFile:
-    """Helper: build a TaskFile from a key→value dict via _build_task_file."""
-    return _build_task_file(fields, tmp_path)
+async def _make_task_file_from_toml(toml_content: str, tmp_path: Path) -> TaskFile:
+    """Write toml_content to a .agent-task in tmp_path and parse it."""
+    (tmp_path / ".agent-task").write_text(toml_content, encoding="utf-8")
+    result = await parse_agent_task(tmp_path)
+    assert result is not None, "parse_agent_task returned None for valid TOML"
+    return result
 
 
-def test_task_file_parses_tier(tmp_path: Path) -> None:
-    """TIER field is read into TaskFile.tier (behavioral execution tier)."""
-    tf = _make_task_file(
-        {
-            "WORKFLOW": "pr-review",
-            "ROLE": "pr-reviewer",
-            "TIER": "reviewer",
-            "PARENT_RUN_ID": "issue-42",
-        },
+# ---------------------------------------------------------------------------
+# TaskFile — TOML v2 parser lineage fields
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_task_file_parses_tier(tmp_path: Path) -> None:
+    """[agent].tier is read into TaskFile.tier (behavioral execution tier)."""
+    tf = await _make_task_file_from_toml(
+        '[task]\nworkflow = "pr-review"\n\n'
+        "[agent]\nrole = \"pr-reviewer\"\ntier = \"reviewer\"\n\n"
+        "[pipeline]\nparent_run_id = \"issue-42\"\n",
         tmp_path,
     )
     assert tf.tier == "reviewer"
     assert tf.parent_run_id == "issue-42"
 
 
-def test_task_file_parses_org_domain(tmp_path: Path) -> None:
-    """ORG_DOMAIN field is read into TaskFile.org_domain (UI hierarchy slot)."""
-    tf = _make_task_file(
-        {
-            "WORKFLOW": "pr-review",
-            "ROLE": "pr-reviewer",
-            "ORG_DOMAIN": "qa",
-            "PARENT_RUN_ID": "issue-42",
-        },
+@pytest.mark.anyio
+async def test_task_file_parses_org_domain(tmp_path: Path) -> None:
+    """[agent].org_domain is read into TaskFile.org_domain (UI hierarchy slot)."""
+    tf = await _make_task_file_from_toml(
+        '[task]\nworkflow = "pr-review"\n\n'
+        "[agent]\nrole = \"pr-reviewer\"\norg_domain = \"qa\"\n\n"
+        "[pipeline]\nparent_run_id = \"issue-42\"\n",
         tmp_path,
     )
     assert tf.org_domain == "qa"
     assert tf.parent_run_id == "issue-42"
 
 
-def test_task_file_parses_both_fields_independently(tmp_path: Path) -> None:
-    """TIER and ORG_DOMAIN are parsed as separate fields — the core invariant.
+@pytest.mark.anyio
+async def test_task_file_parses_both_fields_independently(tmp_path: Path) -> None:
+    """tier and org_domain are parsed as separate fields — the core invariant.
 
     A chain-spawned PR reviewer has tier=reviewer (behavioral) and
     org_domain=qa (org slot) at the same time.
     """
-    tf = _make_task_file(
-        {
-            "ROLE": "pr-reviewer",
-            "TIER": "reviewer",
-            "ORG_DOMAIN": "qa",
-            "PARENT_RUN_ID": "issue-42",
-        },
+    tf = await _make_task_file_from_toml(
+        '[task]\nworkflow = "pr-review"\n\n'
+        "[agent]\nrole = \"pr-reviewer\"\ntier = \"reviewer\"\norg_domain = \"qa\"\n\n"
+        "[pipeline]\nparent_run_id = \"issue-42\"\n",
         tmp_path,
     )
     assert tf.tier == "reviewer"
@@ -84,27 +86,26 @@ def test_task_file_parses_both_fields_independently(tmp_path: Path) -> None:
     assert tf.parent_run_id == "issue-42"
 
 
-def test_task_file_tier_does_not_bleed_into_org_domain(tmp_path: Path) -> None:
-    """TIER value must not appear in org_domain and vice versa."""
-    tf = _make_task_file(
-        {
-            "ROLE": "pr-reviewer",
-            "TIER": "engineer",
-            "ORG_DOMAIN": "engineering",
-        },
+@pytest.mark.anyio
+async def test_task_file_tier_does_not_bleed_into_org_domain(tmp_path: Path) -> None:
+    """tier value must not appear in org_domain and vice versa."""
+    tf = await _make_task_file_from_toml(
+        '[task]\nworkflow = "issue-to-pr"\n\n'
+        "[agent]\nrole = \"pr-reviewer\"\ntier = \"engineer\"\norg_domain = \"engineering\"\n",
         tmp_path,
     )
     assert tf.tier == "engineer"
     assert tf.org_domain == "engineering"
-    # The two values must not bleed
     assert tf.tier != "engineering"
     assert tf.org_domain != "engineer"
 
 
-def test_task_file_defaults_both_to_none(tmp_path: Path) -> None:
+@pytest.mark.anyio
+async def test_task_file_defaults_both_to_none(tmp_path: Path) -> None:
     """Both tier and org_domain default to None when absent."""
-    tf = _make_task_file(
-        {"WORKFLOW": "issue-to-pr", "ROLE": "python-developer"},
+    tf = await _make_task_file_from_toml(
+        '[task]\nworkflow = "issue-to-pr"\n\n'
+        "[agent]\nrole = \"python-developer\"\n",
         tmp_path,
     )
     assert tf.tier is None
@@ -112,28 +113,26 @@ def test_task_file_defaults_both_to_none(tmp_path: Path) -> None:
     assert tf.parent_run_id is None
 
 
-def test_task_file_empty_parent_run_id_is_none(tmp_path: Path) -> None:
-    """Regression: PARENT_RUN_ID= (empty string) normalises to None."""
-    tf = _make_task_file(
-        {
-            "ROLE": "pr-reviewer",
-            "TIER": "reviewer",
-            "PARENT_RUN_ID": "",
-        },
+@pytest.mark.anyio
+async def test_task_file_empty_parent_run_id_is_none(tmp_path: Path) -> None:
+    """Regression: parent_run_id absent from [pipeline] normalises to None."""
+    tf = await _make_task_file_from_toml(
+        '[task]\nworkflow = "pr-review"\n\n'
+        "[agent]\nrole = \"pr-reviewer\"\ntier = \"reviewer\"\n",
         tmp_path,
     )
-    # Empty string normalised to None by the 'or None' guard in worktrees.py
     assert tf.parent_run_id is None
 
 
-def test_task_file_coordinator_tier(tmp_path: Path) -> None:
-    """_build_task_file parses TIER=coordinator correctly."""
-    tf = _make_task_file(
-        {"RUN_ID": "label-ac-ui-0-critical-a1b2", "ROLE": "engineering-coordinator", "TIER": "coordinator"},
+@pytest.mark.anyio
+async def test_task_file_coordinator_tier(tmp_path: Path) -> None:
+    """TOML parser reads tier = 'coordinator' correctly from [agent]."""
+    tf = await _make_task_file_from_toml(
+        '[task]\nworkflow = "coordinator"\n\n'
+        "[agent]\nrole = \"engineering-coordinator\"\ntier = \"coordinator\"\n",
         tmp_path,
     )
     assert tf.tier == "coordinator"
-    # Coordinator with no explicit ORG_DOMAIN — org domain is optional
     assert tf.org_domain is None
 
 
@@ -352,11 +351,9 @@ def test_cto_role_no_qa_vp_when_issues_present() -> None:
     )
     assert role_path.exists(), f"CTO role file missing: {role_path}"
     content = role_path.read_text()
-    # The new allocation table should NOT have the "otherwise → 1 QA coordinator" row
     assert "otherwise" not in content or "chain" in content, (
         "CTO allocation table must not unconditionally spawn QA coordinator when issues remain"
     )
-    # The explanation for no concurrent QA coordinator must be present
     assert "chain-spawn" in content, (
         "CTO role must explain that engineers chain-spawn their own reviewers"
     )

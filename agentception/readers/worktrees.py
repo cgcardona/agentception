@@ -12,10 +12,11 @@ transcript data for richer status information.
 
 import asyncio
 import logging
+import tomllib
 from pathlib import Path
 
 from agentception.config import settings
-from agentception.models import TaskFile
+from agentception.models import IssueSub, PRSub, TaskFile
 
 logger = logging.getLogger(__name__)
 
@@ -52,15 +53,11 @@ async def list_active_worktrees() -> list[TaskFile]:
 
 
 async def parse_agent_task(worktree_path: Path) -> TaskFile | None:
-    """Parse a ``KEY=VALUE`` ``.agent-task`` file into a TaskFile model.
+    """Parse a TOML v2 ``.agent-task`` file into a TaskFile model.
 
-    Returns ``None`` when the file is absent, unreadable, or so malformed
-    that no valid TaskFile can be constructed. Missing individual fields
-    default gracefully — only a complete read failure returns ``None``.
-
-    The parser is intentionally lenient: blank lines and lines without ``=``
-    are silently skipped. This matches how agents write task files via heredoc
-    (which may include trailing blank lines or comments).
+    Returns ``None`` when the file is absent, unreadable, or malformed TOML.
+    Uses ``tomllib.loads()`` exclusively — the legacy KEY=VALUE format is no
+    longer supported.
     """
     task_file_path = worktree_path / ".agent-task"
     if not task_file_path.exists():
@@ -74,16 +71,14 @@ async def parse_agent_task(worktree_path: Path) -> TaskFile | None:
         logger.warning("⚠️  Cannot read %s: %s", task_file_path, exc)
         return None
 
-    fields: dict[str, str] = {}
-    for raw_line in content.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        fields[key.strip().upper()] = value.strip()
+    try:
+        data = tomllib.loads(content)
+    except tomllib.TOMLDecodeError as exc:
+        logger.warning("⚠️  Malformed TOML in %s: %s", task_file_path, exc)
+        return None
 
     try:
-        return _build_task_file(fields, worktree_path)
+        return _build_task_file_from_toml(data, worktree_path)
     except Exception as exc:
         logger.warning("⚠️  Failed to build TaskFile from %s: %s", task_file_path, exc)
         return None
@@ -119,66 +114,145 @@ async def worktree_last_commit_time(worktree_path: Path) -> float:
 # ── Private helpers ────────────────────────────────────────────────────────────
 
 
-def _build_task_file(fields: dict[str, str], worktree_path: Path) -> TaskFile:
-    """Construct a TaskFile from the parsed KEY=VALUE map.
+def _section(data: dict[str, object], key: str) -> dict[str, object]:
+    """Extract a TOML section by key, returning an empty dict if absent or wrong type.
 
-    Field names in .agent-task files are UPPER_SNAKE_CASE. We map them to
-    the lower_snake_case Pydantic model fields here. PR review task files use
-    ``PR=<number>`` for the PR number instead of ``ISSUE_NUMBER``.
+    After ``tomllib.loads()``, all section values are dicts with string keys.
+    We rebuild explicitly to give mypy a concrete ``dict[str, object]`` type.
     """
-    closes_issues = _parse_int_list(fields.get("CLOSES_ISSUES", ""))
-
-    raw: dict[str, str | int | bool | list[int] | None] = {
-        "task": fields.get("TASK") or fields.get("WORKFLOW"),
-        "gh_repo": fields.get("GH_REPO"),
-        "issue_number": _parse_int(fields.get("ISSUE_NUMBER")),
-        "pr_number": _parse_int(fields.get("PR")),
-        "branch": fields.get("BRANCH"),
-        "worktree": str(worktree_path),
-        "role": fields.get("ROLE"),
-        "base": fields.get("BASE"),
-        "batch_id": fields.get("BATCH_ID"),
-        "closes_issues": closes_issues,
-        "spawn_sub_agents": _parse_bool(fields.get("SPAWN_SUB_AGENTS", "false")),
-        "spawn_mode": fields.get("SPAWN_MODE"),
-        "merge_after": fields.get("MERGE_AFTER"),
-        "attempt_n": _parse_int(fields.get("ATTEMPT_N")) or 0,
-        "required_output": fields.get("REQUIRED_OUTPUT"),
-        "on_block": fields.get("ON_BLOCK"),
-        "cognitive_arch": fields.get("COGNITIVE_ARCH"),
-        # NODE_TYPE — structural position (coordinator | leaf).
-        # TIER — behavioral execution tier (executive | coordinator | engineer | reviewer).
-        # ORG_DOMAIN — organisational slot for UI hierarchy (c-suite | engineering | qa).
-        # The two concepts are fully separate: a PR reviewer chain-spawned by an
-        # engineering leaf will have TIER=reviewer and ORG_DOMAIN=qa.
-        "tier": fields.get("TIER"),
-        "org_domain": fields.get("ORG_DOMAIN"),
-        "parent_run_id": fields.get("PARENT_RUN_ID") or None,
-    }
-    cleaned = {k: v for k, v in raw.items() if v is not None}
-    return TaskFile.model_validate(cleaned)
+    val = data.get(key)
+    if not isinstance(val, dict):
+        return {}
+    out: dict[str, object] = {}
+    for k, v in val.items():
+        if isinstance(k, str):
+            out[k] = v
+    return out
 
 
-def _parse_int(value: str | None) -> int | None:
-    """Convert a string to int, returning None on failure."""
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except ValueError:
-        return None
+def _opt_str(val: object) -> str | None:
+    """Return the value as str if it is a string, otherwise None."""
+    return val if isinstance(val, str) else None
 
 
-def _parse_int_list(value: str) -> list[int]:
-    """Parse a comma-separated string of integers, skipping invalid tokens."""
-    result: list[int] = []
-    for token in value.split(","):
-        token = token.strip()
-        if token.isdigit():
-            result.append(int(token))
-    return result
+def _opt_int(val: object) -> int | None:
+    """Return the value as int if it is an int (but not bool), otherwise None."""
+    if isinstance(val, int) and not isinstance(val, bool):
+        return val
+    return None
 
 
-def _parse_bool(value: str) -> bool:
-    """Interpret 'true'/'false' (case-insensitive) as bool."""
-    return value.strip().lower() == "true"
+def _int_list(val: object) -> list[int]:
+    """Return a list of ints extracted from a TOML array, skipping non-ints."""
+    if not isinstance(val, list):
+        return []
+    return [item for item in val if isinstance(item, int) and not isinstance(item, bool)]
+
+
+def _str_list(val: object) -> list[str]:
+    """Return a list of strings extracted from a TOML array, skipping non-strings."""
+    if not isinstance(val, list):
+        return []
+    return [item for item in val if isinstance(item, str)]
+
+
+def _build_task_file_from_toml(data: dict[str, object], worktree_path: Path) -> TaskFile:
+    """Map a parsed TOML v2 .agent-task dict to a TaskFile model.
+
+    Each TOML section is extracted via ``_section()`` and individual fields
+    are narrowed with type-safe helpers.  Unknown keys are silently ignored;
+    missing optional sections produce empty dicts.  The ``worktree.path``
+    field takes precedence over the filesystem path passed in when present.
+    """
+    task = _section(data, "task")
+    agent = _section(data, "agent")
+    repo = _section(data, "repo")
+    pipeline = _section(data, "pipeline")
+    spawn = _section(data, "spawn")
+    target = _section(data, "target")
+    worktree_sec = _section(data, "worktree")
+    output = _section(data, "output")
+    domain = _section(data, "domain")
+
+    # [[issue_queue]] and [[pr_queue]] are arrays of inline tables.
+    raw_issue_queue = data.get("issue_queue", [])
+    raw_pr_queue = data.get("pr_queue", [])
+
+    issue_queue: list[IssueSub] = []
+    if isinstance(raw_issue_queue, list):
+        for item in raw_issue_queue:
+            if isinstance(item, dict):
+                item_dict: dict[str, object] = {}
+                for k, v in item.items():
+                    if isinstance(k, str):
+                        item_dict[k] = v
+                try:
+                    issue_queue.append(IssueSub.model_validate(item_dict))
+                except Exception as exc:
+                    logger.debug("⚠️  Skipping malformed issue_queue entry: %s", exc)
+
+    pr_queue: list[PRSub] = []
+    if isinstance(raw_pr_queue, list):
+        for item in raw_pr_queue:
+            if isinstance(item, dict):
+                item_dict2: dict[str, object] = {}
+                for k, v in item.items():
+                    if isinstance(k, str):
+                        item_dict2[k] = v
+                try:
+                    pr_queue.append(PRSub.model_validate(item_dict2))
+                except Exception as exc:
+                    logger.debug("⚠️  Skipping malformed pr_queue entry: %s", exc)
+
+    # [worktree].path overrides the filesystem path when present.
+    worktree_path_val = worktree_sec.get("path")
+    worktree_str = (
+        worktree_path_val
+        if isinstance(worktree_path_val, str)
+        else str(worktree_path)
+    )
+
+    # linked_pr is 0 or a PR number written back by the agent.
+    linked_pr_val = worktree_sec.get("linked_pr")
+    linked_pr: int | None = _opt_int(linked_pr_val)
+
+    spawn_sub_agents_val = spawn.get("sub_agents")
+    spawn_sub_agents = (
+        bool(spawn_sub_agents_val) if isinstance(spawn_sub_agents_val, bool) else False
+    )
+
+    attempt_n_val = task.get("attempt_n")
+    attempt_n = _opt_int(attempt_n_val) or 0
+
+    return TaskFile(
+        task=_opt_str(task.get("workflow")),
+        id=_opt_str(task.get("id")),
+        attempt_n=attempt_n,
+        required_output=_opt_str(task.get("required_output")),
+        on_block=_opt_str(task.get("on_block")),
+        role=_opt_str(agent.get("role")),
+        tier=_opt_str(agent.get("tier")),
+        org_domain=_opt_str(agent.get("org_domain")),
+        cognitive_arch=_opt_str(agent.get("cognitive_arch")),
+        session_id=_opt_str(agent.get("session_id")),
+        gh_repo=_opt_str(repo.get("gh_repo")),
+        base=_opt_str(repo.get("base")),
+        batch_id=_opt_str(pipeline.get("batch_id")),
+        parent_run_id=_opt_str(pipeline.get("parent_run_id")),
+        wave=_opt_str(pipeline.get("wave")),
+        spawn_sub_agents=spawn_sub_agents,
+        spawn_mode=_opt_str(spawn.get("mode")),
+        issue_number=_opt_int(target.get("issue_number")),
+        pr_number=_opt_int(target.get("pr_number")),
+        depends_on=_int_list(target.get("depends_on")),
+        closes_issues=_int_list(target.get("closes")),
+        file_ownership=_str_list(target.get("file_ownership")),
+        worktree=worktree_str,
+        branch=_opt_str(worktree_sec.get("branch")),
+        linked_pr=linked_pr,
+        draft_id=_opt_str(output.get("draft_id")),
+        output_path=_opt_str(output.get("path")),
+        domain=_opt_str(domain.get("name")),
+        issue_queue=issue_queue,
+        pr_queue=pr_queue,
+    )

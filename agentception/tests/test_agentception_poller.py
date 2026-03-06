@@ -413,7 +413,12 @@ async def test_plan_draft_ready_event_emitted(tmp_path: Path, reset_plan_draft_t
     worktree.mkdir()
     task_file = worktree / ".agent-task"
     task_file.write_text(
-        f"WORKFLOW=plan-spec\nDRAFT_ID={draft_id}\nOUTPUT_PATH={output_file}\nSTATUS=pending\n",
+        '[task]\nworkflow = "plan-spec"\n\n'
+        "[spawn]\nmode = \"single\"\nsub_agents = false\n\n"
+        "[output]\n"
+        f'draft_id = "{draft_id}"\n'
+        f'path = "{output_file}"\n'
+        'format = "yaml"\n',
         encoding="utf-8",
     )
     # Write the output file to simulate the Cursor agent finishing.
@@ -441,7 +446,12 @@ async def test_plan_draft_ready_not_reemitted(tmp_path: Path, reset_plan_draft_t
     worktree.mkdir()
     task_file = worktree / ".agent-task"
     task_file.write_text(
-        f"WORKFLOW=plan-spec\nDRAFT_ID={draft_id}\nOUTPUT_PATH={output_file}\n",
+        '[task]\nworkflow = "plan-spec"\n\n'
+        "[spawn]\nmode = \"single\"\nsub_agents = false\n\n"
+        "[output]\n"
+        f'draft_id = "{draft_id}"\n'
+        f'path = "{output_file}"\n'
+        'format = "yaml"\n',
         encoding="utf-8",
     )
     output_file.write_text("initiative: test\n", encoding="utf-8")
@@ -459,7 +469,7 @@ async def test_plan_draft_ready_not_reemitted(tmp_path: Path, reset_plan_draft_t
 
 @pytest.mark.anyio
 async def test_plan_draft_timeout_event_emitted(tmp_path: Path, reset_plan_draft_tracking: None) -> None:
-    """scan_plan_draft_worktrees() emits plan_draft_timeout when OUTPUT_PATH absent after 120 s."""
+    """scan_plan_draft_worktrees() emits plan_draft_timeout when OUTPUT_PATH absent after 180 s."""
     import os
 
     draft_id = "test-draft-003"
@@ -469,12 +479,17 @@ async def test_plan_draft_timeout_event_emitted(tmp_path: Path, reset_plan_draft
     worktree.mkdir()
     task_file = worktree / ".agent-task"
     task_file.write_text(
-        f"WORKFLOW=plan-spec\nDRAFT_ID={draft_id}\nOUTPUT_PATH={output_file}\n",
+        '[task]\nworkflow = "plan-spec"\n\n'
+        "[spawn]\nmode = \"single\"\nsub_agents = false\n\n"
+        "[output]\n"
+        f'draft_id = "{draft_id}"\n'
+        f'path = "{output_file}"\n'
+        'format = "yaml"\n',
         encoding="utf-8",
     )
 
-    # Backdate the task file mtime to simulate 121 seconds ago.
-    old_mtime = time.time() - 121
+    # Backdate the task file mtime to simulate 181 seconds ago (> _PLAN_DRAFT_TIMEOUT_SECONDS=180).
+    old_mtime = time.time() - 181
     os.utime(task_file, (old_mtime, old_mtime))
 
     # OUTPUT_PATH does NOT exist.
@@ -504,10 +519,15 @@ async def test_plan_draft_timeout_not_reemitted(tmp_path: Path, reset_plan_draft
     worktree.mkdir()
     task_file = worktree / ".agent-task"
     task_file.write_text(
-        f"WORKFLOW=plan-spec\nDRAFT_ID={draft_id}\nOUTPUT_PATH={output_file}\n",
+        '[task]\nworkflow = "plan-spec"\n\n'
+        "[spawn]\nmode = \"single\"\nsub_agents = false\n\n"
+        "[output]\n"
+        f'draft_id = "{draft_id}"\n'
+        f'path = "{output_file}"\n'
+        'format = "yaml"\n',
         encoding="utf-8",
     )
-    old_mtime = time.time() - 121
+    old_mtime = time.time() - 181
     os.utime(task_file, (old_mtime, old_mtime))
 
     with patch("agentception.poller.settings") as mock_settings:
@@ -531,7 +551,12 @@ async def test_plan_draft_no_event_before_timeout(tmp_path: Path, reset_plan_dra
     task_file = worktree / ".agent-task"
     # Write the task file now — mtime is fresh, within the 120 s window.
     task_file.write_text(
-        f"WORKFLOW=plan-spec\nDRAFT_ID={draft_id}\nOUTPUT_PATH={output_file}\n",
+        '[task]\nworkflow = "plan-spec"\n\n'
+        "[spawn]\nmode = \"single\"\nsub_agents = false\n\n"
+        "[output]\n"
+        f'draft_id = "{draft_id}"\n'
+        f'path = "{output_file}"\n'
+        'format = "yaml"\n',
         encoding="utf-8",
     )
 
@@ -540,6 +565,42 @@ async def test_plan_draft_no_event_before_timeout(tmp_path: Path, reset_plan_dra
         events = await scan_plan_draft_worktrees()
 
     assert events == []
+
+
+@pytest.mark.anyio
+async def test_scan_plan_draft_worktrees_toml_output_section(
+    tmp_path: Path, reset_plan_draft_tracking: None
+) -> None:
+    """scan_plan_draft_worktrees() works with TOML task file containing [output] section."""
+    draft_id = "test-draft-toml-001"
+    output_file = tmp_path / ".plan-output.yaml"
+
+    worktree = tmp_path / f"plan-draft-{draft_id}"
+    worktree.mkdir()
+    task_file = worktree / ".agent-task"
+    task_file.write_text(
+        '[task]\nworkflow = "plan-spec"\nattempt_n = 0\n\n'
+        "[agent]\nrole = \"python-developer\"\n\n"
+        "[spawn]\nmode = \"single\"\nsub_agents = false\n\n"
+        "[output]\n"
+        f'draft_id = "{draft_id}"\n'
+        f'path = "{output_file}"\n'
+        'format = "yaml"\n'
+        'schema_tool = "plan_get_schema"\n',
+        encoding="utf-8",
+    )
+    output_file.write_text("initiative: toml-test\nphases: []\n", encoding="utf-8")
+
+    with patch("agentception.poller.settings") as mock_settings:
+        mock_settings.worktrees_dir = tmp_path
+        events = await scan_plan_draft_worktrees()
+
+    assert len(events) == 1
+    ev = events[0]
+    assert ev.event == "plan_draft_ready"
+    assert ev.draft_id == draft_id
+    assert ev.output_path == str(output_file)
+    assert ev.yaml_text == "initiative: toml-test\nphases: []\n"
 
 
 @pytest.mark.anyio

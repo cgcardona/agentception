@@ -155,9 +155,9 @@ async def test_poller_detects_output_path_and_emits_sse_event(
     task_file = tmp_path / f"plan-draft-{draft_id}" / ".agent-task"
     assert task_file.exists(), ".agent-task not written by POST /api/plan/draft"
     task_content = task_file.read_text(encoding="utf-8")
-    assert f"DRAFT_ID={draft_id}" in task_content
-    assert f"OUTPUT_PATH={output_path}" in task_content
-    assert "WORKFLOW=plan-spec" in task_content
+    assert f'draft_id = "{draft_id}"' in task_content
+    assert f'path = "{output_path}"' in task_content
+    assert 'workflow = "plan-spec"' in task_content
 
     # ── Step 4 (simulated): Cursor writes YAML to OUTPUT_PATH ────────────────
     yaml_content = "initiative: ocean-song\nphases: []\n"
@@ -382,34 +382,27 @@ async def test_plan_draft_agent_task_structure_is_poller_compatible(
     body = response.json()
     draft_id: str = body["draft_id"]
 
-    # Parse the .agent-task using the same logic as scan_plan_draft_worktrees
-    task_file = tmp_path / f"plan-draft-{draft_id}" / ".agent-task"
-    content = task_file.read_text(encoding="utf-8")
-    fields: dict[str, str] = {}
-    for raw_line in content.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        fields[key.strip().upper()] = value.strip()
+    # Parse the .agent-task using parse_agent_task — same logic as scan_plan_draft_worktrees.
+    worktree_dir = tmp_path / f"plan-draft-{draft_id}"
+    from agentception.readers.worktrees import parse_agent_task
+
+    task_file_data = await parse_agent_task(worktree_dir)
 
     # These two fields are the minimum required for the poller to emit an event.
-    assert "DRAFT_ID" in fields, (
-        f"DRAFT_ID key missing from .agent-task — poller will skip this worktree. "
-        f"Found keys: {list(fields.keys())}"
+    assert task_file_data is not None, (
+        ".agent-task could not be parsed — poller will skip this worktree"
     )
-    assert "OUTPUT_PATH" in fields, (
-        f"OUTPUT_PATH key missing from .agent-task — poller will skip this worktree. "
-        f"Found keys: {list(fields.keys())}"
-    )
-    assert fields["DRAFT_ID"] == draft_id, (
-        f"DRAFT_ID in .agent-task ({fields['DRAFT_ID']!r}) "
+    assert task_file_data.draft_id == draft_id, (
+        f"draft_id in .agent-task ({task_file_data.draft_id!r}) "
         f"does not match API response draft_id ({draft_id!r})"
     )
-    # OUTPUT_PATH must end with .plan-output.yaml and contain the draft slug
-    assert fields["OUTPUT_PATH"].endswith(".plan-output.yaml"), (
-        f"OUTPUT_PATH must end with .plan-output.yaml, got: {fields['OUTPUT_PATH']!r}"
+    assert task_file_data.output_path is not None, (
+        "output_path missing from .agent-task — poller will skip this worktree"
     )
-    assert f"plan-draft-{draft_id}" in fields["OUTPUT_PATH"], (
-        f"OUTPUT_PATH must contain the plan-draft slug, got: {fields['OUTPUT_PATH']!r}"
+    # output_path must end with .plan-output.yaml and contain the draft slug
+    assert task_file_data.output_path.endswith(".plan-output.yaml"), (
+        f"output_path must end with .plan-output.yaml, got: {task_file_data.output_path!r}"
+    )
+    assert f"plan-draft-{draft_id}" in task_file_data.output_path, (
+        f"output_path must contain the plan-draft slug, got: {task_file_data.output_path!r}"
     )
