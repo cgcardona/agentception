@@ -150,12 +150,12 @@ BRANCH=$(grep                 ← parse PR_BRANCH from .agent-task
 MERGE_AFTER=$(grep            ← parse MERGE_AFTER gate from .agent-task
 LABELS_TO_APPLY=$(grep        ← parse comma-separated label list from .agent-task
 CLOSES_ISSUES=$(grep          ← parse linked issue numbers from .agent-task
-STATE=$(gh                    ← capture live PR/issue state: STATE=$(gh pr view ...)
-PR_BRANCH=$(gh                ← fetch PR branch name from GitHub
-PR_FILES=$(gh                 ← fetch PR file list from GitHub
-CLOSES_ISSUE=$(gh             ← fetch close-links from PR body
-OPEN_PRS=$(gh                 ← list open PRs for overlap check
-REMAINING=$(gh                ← count remaining open issues in phase closure audit
+STATE=       ← capture live PR/issue state via MCP: pull_request_read(pullNumber=N)
+PR_BRANCH=   ← fetch PR branch name via MCP: pull_request_read(pullNumber=N) → headRefName
+PR_FILES=    ← fetch PR file list via MCP: pull_request_read(method="get_files", pullNumber=N)
+CLOSES_ISSUE= ← parse "Closes #N" from PR body returned by pull_request_read
+OPEN_PRS=    ← list open PRs via MCP: list_pull_requests(state="open") or github_list_prs
+REMAINING=   ← count open issues via MCP: list_issues(label=PHASE_LABEL, state="open") → .count
 NUM=$(echo                    ← extract issue/PR number from pipe: NUM="${entry%%|*}"
 TITLE=$(echo                  ← extract title from pipe: TITLE="${entry##*|}"
 LABELS=$(echo                 ← extract label string from pipe output
@@ -277,20 +277,22 @@ git branch -D <feature-branch>            ← delete LOCAL branch ref after PR s
 
 ### GitHub CLI — Read Only
 ```
-gh auth status
-gh repo view
-# ⚠️  PREFER MCP for these — use gh only when MCP is unavailable in this context:
-# pull_request_read(pullNumber=N)           replaces: gh pr view <N>
-# list_pull_requests(state=...)             replaces: gh pr list
-gh pr diff <N>                              ← keep as gh — no MCP equivalent (diff content)
-# issue_read(issue_number=N)               replaces: gh issue view <N>
-# list_issues(label=..., state=...)        replaces: gh issue list
-gh label list [--limit N]                  ← keep as gh — no MCP equivalent
-gh run list
-gh run view <id>
-gh release list
-gh release view [<tag>]
-gh api <GET-endpoint>                       ← read-only API calls only
+# ⚠️  PREFER MCP for ALL of these. Keep gh only when listed as ← keep below.
+# pull_request_read(pullNumber=N)                  replaces: gh pr view <N>
+# list_pull_requests(state=...)                    replaces: gh pr list
+# pull_request_read(method="get_diff", pullNumber=N)   replaces: gh pr diff <N>
+# pull_request_read(method="get_files", pullNumber=N)  replaces: gh pr diff <N> --name-only
+# issue_read(issue_number=N)                       replaces: gh issue view <N>
+# list_issues(label=..., state=...)                replaces: gh issue list
+# list_releases()                                  replaces: gh release list
+# get_latest_release()                             replaces: gh release view (latest)
+# get_release_by_tag(tag=T)                        replaces: gh release view <tag>
+# get_me()                                         replaces: gh auth status (proves auth works)
+# get_label(name=X)                                replaces: gh label list --search X (point lookup)
+gh label list [--limit N]                  ← keep as gh — no MCP equivalent for full label list
+gh run list                                ← keep as gh — CI/Actions not covered by GitHub MCP
+gh run view <id>                           ← keep as gh — CI/Actions not covered by GitHub MCP
+gh api <GET-endpoint>                      ← keep as gh — catch-all for unlisted read-only API calls
 ```
 
 ### GitHub CLI — Label Management (Label Pre-flight scripts)

@@ -144,7 +144,9 @@ for entry in "${PRS[@]}"; do
   # MCP: pull_request_read(owner="cgcardona", repo="agentception", pullNumber=NUM)
   # PR_BRANCH = result.headRefName
   # PR_BODY = result.body
-  PR_FILES=$(gh pr diff "$NUM" --repo "$GH_REPO" --name-only 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+  # MCP: pull_request_read(owner="cgcardona", repo="agentception",
+  #      method="get_files", pullNumber=NUM) → join with commas
+  PR_FILES=<comma-separated file list from MCP pull_request_read get_files>
   CLOSES_ISSUE=$(echo "$PR_BODY" | grep -oE '[Cc]loses?\s+#[0-9]+' | grep -oE '[0-9]+' | tr '\n' ',' | sed 's/,$//')
   # MERGE_AFTER: PR number that must be merged before this one (for Alembic chain safety).
   # Set automatically if the PR body contains "Merges after #NNN" or "Depends on PR #NNN".
@@ -1356,8 +1358,9 @@ TASK
 
       NEXT_PR_TITLE=<title from MCP response>
       NEXT_PR_BODY=<body from MCP response>
-      # gh pr diff is kept for file listing — no MCP equivalent for diff content.
-      NEXT_FILES=$(gh pr diff "$NEXT_PR" --repo "$GH_REPO" --name-only 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+      # MCP: pull_request_read(owner="cgcardona", repo="agentception",
+      #      method="get_files", pullNumber=NEXT_PR) → join with commas
+      NEXT_FILES=<comma-separated file list from MCP pull_request_read get_files>
       NEXT_CLOSES=$(echo "$NEXT_PR_BODY" | grep -oE '[Cc]loses?\s+#[0-9]+' | grep -oE '[0-9]+' | tr '\n' ',' | sed 's/,$//')
       NEXT_MERGE_AFTER=$(echo "$NEXT_PR_BODY" | grep -oiE 'merge after #[0-9]+|depends on pr #[0-9]+' | grep -oE '[0-9]+' | head -1)
       [ -z "$NEXT_MERGE_AFTER" ] && NEXT_MERGE_AFTER=none
@@ -1474,7 +1477,8 @@ echo "=== Files touched by PRs in this batch ==="
 for pr in <N1> <N2> <N3>; do   # substitute actual PR numbers
   echo ""
   echo "PR #$pr:"
-  gh pr diff "$pr" --name-only 2>/dev/null | sed 's/^/  /'
+  # MCP: pull_request_read(owner="cgcardona", repo="agentception",
+  #      method="get_files", pullNumber=pr) → print each file prefixed with two spaces
 done
 echo ""
 echo "⚠️  Any file appearing under two PRs = merge conflict guaranteed."
@@ -1557,7 +1561,7 @@ git -C "$REPO" status
    #       state="merged") → for each result, extract .number into MERGED_NUMS
    # Then for each merged PR number, check if its diff contains the dirty file:
    for num in $MERGED_NUMS; do
-     gh pr diff "$num" --repo "$GH_REPO" --name-only 2>/dev/null | grep <filename>
+     # MCP: pull_request_read(method="get_files", pullNumber=num) → filter for <filename>
    done
    ```
 2. **If already merged** → stale copies. Discard:

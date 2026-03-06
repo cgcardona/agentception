@@ -1085,8 +1085,9 @@ STEP 6 — SPAWN A QA REVIEWER FOR YOUR OWN PR (run this before self-destructing
     REVIEWER_ARCH="${COGNITIVE_ARCH:-knuth:python}"
     # MCP: github_get_pr(pr_number=MY_PR) → use .title, .body, .headRefName
     PR_TITLE_VAL=<github_get_pr(MY_PR).title>
-    # gh pr diff still needed for file list — no MCP equivalent for diff content
-    PR_FILES_VAL=$(gh pr diff "$MY_PR" --repo "$GH_REPO" --name-only 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+    # MCP: pull_request_read(owner="cgcardona", repo="agentception",
+    #      method="get_files", pullNumber=MY_PR) → join file paths with commas
+    PR_FILES_VAL=<comma-separated file list from MCP pull_request_read get_files>
     CLOSES_VAL=<parse "Closes #NNN" from github_get_pr(MY_PR).body, join with commas>
     HAS_MIG=$(echo "$PR_FILES_VAL" | grep -c "alembic/versions/" || echo 0)
     [ "$HAS_MIG" -gt 0 ] && HAS_MIG_VAL=true || HAS_MIG_VAL=false
@@ -1211,7 +1212,9 @@ echo "=== Files touched by currently open PRs ==="
 # MCP: list_pull_requests(owner="cgcardona", repo="agentception", state="open")
 # Iterate over result.number for overlap check
 for num in <result from MCP list_pull_requests>; do
-  files=$(gh pr diff "$num" --name-only 2>/dev/null)
+  # MCP: pull_request_read(owner="cgcardona", repo="agentception",
+  #      method="get_files", pullNumber=num) → assign file paths to: files
+  files=<file list from MCP pull_request_read get_files for PR num>
   if [ -n "$files" ]; then
     # MCP: github_get_pr(pr_number=num) → .title
     title=$(github_get_pr result .title)
@@ -1334,8 +1337,7 @@ git -C "$REPO" status
    ```bash
    # For each dirty file, find the PR that contains it:
    # MCP: list_pull_requests(owner="cgcardona", repo="agentception", state="merged")
-   # For each result: use gh pr diff <number> --name-only to get changed files
-   # gh pr diff <number> --name-only 2>/dev/null | grep <filename>
+   # MCP: pull_request_read(method="get_files", pullNumber=number) → check if <filename> is in result
    ```
 2. **If already merged** → the dirty files are stale copies. Discard them:
    ```bash
@@ -1483,7 +1485,7 @@ gh issue comment "$ISSUE_NUMBER" --repo "$GH_REPO" \
 $CLAIM_FINGERPRINT" 2>/dev/null || true
 
 # ── 2. PR CREATED — embed fingerprint in PR body ────────────────────────────
-# When calling create_pull_request (via MCP user-github or gh CLI), include
+# When calling create_pull_request (via MCP user-github), include
 # $CLAIM_FINGERPRINT at the end of the PR body:
 #
 #   body = "## Summary\n...\n\nCloses #$ISSUE_NUMBER\n\n$CLAIM_FINGERPRINT"
