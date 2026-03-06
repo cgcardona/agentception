@@ -26,6 +26,27 @@
   flex-shrink: 0;
 }
 
+.plan-step--btn {
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  line-height: inherit;
+  cursor: pointer;
+  outline: none;
+
+  &:focus-visible .plan-step-bubble {
+    box-shadow: 0 0 0 2px var(--accent-bright, #a78bfa);
+  }
+  &:not(:disabled):hover .plan-step-bubble { filter: brightness(1.2); }
+  &:not(:disabled):hover .plan-step-label  { opacity: .75; }
+  &:disabled { cursor: default; }
+}
+
 .plan-step-bubble {
   display: inline-flex;
   align-items: center;
@@ -409,44 +430,115 @@
 
 // ── Done state ────────────────────────────────────────────────────────────
 .plan-done {
-  padding: 2.5rem 0;
+  padding: 2.5rem 0 3rem;
 }
 
-.plan-done-badge { font-size: 3rem; margin-bottom: .75rem; text-align: center; }
-.plan-done-title { font-size: 1.5rem; font-weight: 700; margin: 0 0 .5rem; text-align: center; }
-
-.plan-done-sub {
-  color: var(--text-secondary, #999);
-  font-size: .9rem;
-  margin: 0 0 2rem;
+// Hero — initiative name + quick stats
+.plan-done-hero {
+  margin-bottom: 2.25rem;
   text-align: center;
 }
 
-// Per-phase issue list in done state.
-.plan-done-issues {
+.plan-done-initiative {
+  font-size: 1.9rem;
+  font-weight: 800;
+  letter-spacing: -.02em;
+  color: var(--text-primary, #e5e5e5);
+  font-family: monospace;
+  margin-bottom: .5rem;
+
+  // Subtle gradient shimmer on the initiative slug
+  background: linear-gradient(90deg, #a78bfa 0%, #38bdf8 60%, #a78bfa 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: plan-done-shimmer 4s linear infinite;
+}
+
+@keyframes plan-done-shimmer {
+  0%   { background-position: 0% center; }
+  100% { background-position: 200% center; }
+}
+
+.plan-done-hero-stats {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  font-size: .875rem;
+  color: var(--text-secondary, #999);
+}
+
+.plan-done-sep { color: var(--border, #3a3a5e); }
+
+.plan-done-active-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success, #22c55e);
+  box-shadow: 0 0 6px var(--success, #22c55e);
+  animation: plan-done-pulse 2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes plan-done-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: .6; transform: scale(.85); }
+}
+
+// Phase cards
+.plan-done-phases {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 1rem;
   margin-bottom: 2rem;
 }
 
-.plan-done-phase {
-  background: var(--bg-secondary, #1a1a2e);
+.plan-done-phase-card {
+  border-radius: 10px;
   border: 1px solid var(--border, #2a2a3e);
-  border-radius: 8px;
   overflow: hidden;
+  background: var(--bg-secondary, #111827);
+  border-left-width: 3px;
+
+  &--active  { border-left-color: var(--success, #22c55e); }
+  &--blocked { border-left-color: var(--border, #2a2a3e); }
 }
 
-.plan-done-phase-label {
-  font-size: .7rem;
+.plan-done-phase-header {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .55rem .9rem;
+  background: rgba(255, 255, 255, .025);
+  border-bottom: 1px solid var(--border, #2a2a3e);
+}
+
+.plan-done-phase-slug {
+  font-size: .8rem;
+  font-family: monospace;
+  color: var(--text-primary, #e5e5e5);
+  font-weight: 600;
+}
+
+.plan-done-phase-badge {
+  font-size: .65rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: .07em;
+  letter-spacing: .08em;
+  padding: .15rem .45rem;
+  border-radius: 4px;
+
+  &--active  { background: rgba(34, 197, 94, .15); color: #4ade80; }
+  &--blocked { background: rgba(255, 255, 255, .06); color: var(--text-muted, #666); }
+}
+
+.plan-done-phase-count {
+  margin-left: auto;
+  font-size: .75rem;
   color: var(--text-muted, #666);
-  padding: .5rem .9rem;
-  border-bottom: 1px solid var(--border, #2a2a3e);
-  margin: 0;
-  background: rgba(255, 255, 255, .02);
 }
 
 .plan-done-issue-list {
@@ -456,7 +548,7 @@
 }
 
 .plan-done-issue-item {
-  border-bottom: 1px solid var(--border, #2a2a3e);
+  border-bottom: 1px solid var(--border, #1e2130);
 
   &:last-child { border-bottom: none; }
 }
@@ -471,6 +563,7 @@
   transition: background .15s;
 
   &:hover { background: rgba(255, 255, 255, .04); }
+  &:hover .plan-done-issue-arrow { opacity: 1; }
 }
 
 .plan-done-issue-num {
@@ -483,77 +576,70 @@
 .plan-done-issue-title {
   font-size: .875rem;
   color: var(--text-primary, #e5e5e5);
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-// Batch ID pill — shown in done state so the user can copy and navigate.
+.plan-done-issue-arrow {
+  font-size: .8rem;
+  color: var(--text-muted, #666);
+  opacity: 0;
+  transition: opacity .15s;
+  flex-shrink: 0;
+}
+
+// Footer: batch ID + actions
+.plan-done-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.25rem;
+  padding-top: .5rem;
+}
+
 .plan-done-batch {
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: .5rem;
-  margin: 0 auto 1.5rem;
-  padding: .5rem .9rem;
+  padding: .35rem .75rem;
   background: var(--bg-secondary, #1a1a2e);
   border: 1px solid var(--border, #2a2a3e);
-  border-radius: 8px;
-  max-width: fit-content;
+  border-radius: 6px;
 }
 
 .plan-done-batch-label {
-  font-size: .7rem;
+  font-size: .65rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: .07em;
-  color: var(--text-muted, #666);
+  letter-spacing: .08em;
+  color: var(--text-muted, #555);
 }
 
 .plan-done-batch-id {
   font-family: monospace;
-  font-size: .875rem;
-  color: var(--accent-bright, #a78bfa);
+  font-size: .8rem;
+  color: var(--text-secondary, #999);
 }
 
 .plan-done-batch-copy {
+  appearance: none;
   background: none;
   border: none;
   cursor: pointer;
-  padding: 0 .2rem;
-  font-size: 1rem;
+  padding: 0 .1rem;
+  font-size: .875rem;
   line-height: 1;
-  color: var(--text-secondary, #999);
+  color: var(--text-muted, #555);
   transition: color .15s;
 
   &:hover { color: var(--text-primary, #e5e5e5); }
 }
 
-// Worktree path from POST /api/plan/launch — shown in done state.
-.plan-done-meta {
-  margin: 0 auto 1.5rem;
-  padding: .5rem .9rem;
-  background: var(--bg-secondary, #1a1a2e);
-  border: 1px solid var(--border, #2a2a3e);
-  border-radius: 8px;
-  max-width: 100%;
+.plan-done-actions {
+  display: flex;
+  justify-content: center;
+  gap: .75rem;
+  flex-wrap: wrap;
 }
-
-.plan-done-meta-label {
-  display: block;
-  font-size: .7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .07em;
-  color: var(--text-muted, #666);
-  margin-bottom: .25rem;
-}
-
-.plan-done-meta-value {
-  font-family: monospace;
-  font-size: .8rem;
-  color: var(--text-secondary, #999);
-  word-break: break-all;
-}
-
-.plan-done-actions { display: flex; justify-content: center; gap: .75rem; flex-wrap: wrap; }

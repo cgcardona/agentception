@@ -207,7 +207,11 @@ async def _bootstrap_labels(spec: PlanSpec) -> None:
     for idx, phase in enumerate(spec.phases):
         color = _PHASE_PALETTE[idx % len(_PHASE_PALETTE)]
         scoped_label = f"{spec.initiative}/{phase.label}"
-        coros.append(ensure_label_exists(scoped_label, color, phase.description))
+        # GitHub caps label descriptions at 100 characters.
+        desc = phase.description
+        if len(desc) > 100:
+            desc = desc[:97] + "…"
+        coros.append(ensure_label_exists(scoped_label, color, desc))
     await asyncio.gather(*coros)
 
 
