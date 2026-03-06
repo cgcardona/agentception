@@ -40,16 +40,19 @@ def client() -> Generator[TestClient, None, None]:
 # ---------------------------------------------------------------------------
 
 
-def test_parse_task_fields_extracts_key_value_pairs() -> None:
-    """_parse_task_fields must parse structured key=value lines correctly."""
+def test_parse_task_fields_extracts_toml_fields() -> None:
+    """_parse_task_fields must parse TOML v2 .agent-task content correctly."""
     content = textwrap.dedent("""\
-        WORKFLOW=bugs-to-issues
-        GH_REPO=cgcardona/agentception
-        BATCH_ID=plan-20260303-164033
-        LABEL_PREFIX=q2-rewrite
+        [task]
+        version = "2.0"
+        workflow = "bugs-to-issues"
 
-        PLAN_DUMP:
-        - Some item
+        [pipeline]
+        batch_id = "plan-20260303-164033"
+
+        [plan_draft]
+        label_prefix = "q2-rewrite"
+        dump = "- Some item"
     """)
     fields = _parse_task_fields(content)
     assert fields["WORKFLOW"] == "bugs-to-issues"
@@ -57,26 +60,17 @@ def test_parse_task_fields_extracts_key_value_pairs() -> None:
     assert fields["LABEL_PREFIX"] == "q2-rewrite"
 
 
-def test_parse_task_fields_stops_at_plan_dump_marker() -> None:
-    """_parse_task_fields must not parse lines after PLAN_DUMP:."""
-    content = "KEY=value\nPLAN_DUMP:\nFAKE_KEY=should_not_appear\n"
-    fields = _parse_task_fields(content)
-    assert "KEY" in fields
+def test_parse_task_fields_returns_empty_on_invalid_toml() -> None:
+    """_parse_task_fields returns an empty dict when the content is not valid TOML."""
+    fields = _parse_task_fields("not valid toml !!!")
+    assert fields == {}
     assert "FAKE_KEY" not in fields
 
 
-def test_parse_task_fields_stops_at_blank_line() -> None:
-    """_parse_task_fields must stop at the first blank line (before PLAN_DUMP section)."""
-    content = "A=1\nB=2\n\nC=3\n"
-    fields = _parse_task_fields(content)
-    assert fields["A"] == "1"
-    assert fields["B"] == "2"
-    assert "C" not in fields
-
-
 def test_parse_task_fields_empty_content() -> None:
-    """_parse_task_fields must return an empty dict for empty content."""
+    """_parse_task_fields must return an empty dict for empty or invalid content."""
     assert _parse_task_fields("") == {}
+    assert _parse_task_fields("A=1\nB=2\n") == {}
 
 
 def test_count_plan_items_counts_non_empty_lines() -> None:
@@ -140,7 +134,9 @@ def test_plan_run_text_returns_plan(client: TestClient, tmp_path: Path) -> None:
     run_dir.mkdir()
     task_file = run_dir / ".agent-task"
     task_file.write_text(
-        "WORKFLOW=bugs-to-issues\nBATCH_ID=plan-20260303-164033\n\nPLAN_DUMP:\n- Fix login\n- Add dark mode\n",
+        '[task]\nversion = "2.0"\nworkflow = "bugs-to-issues"\n\n'
+        '[pipeline]\nbatch_id = "plan-20260303-164033"\n\n'
+        '[plan_draft]\ndump = "- Fix login\\n- Add dark mode"\n',
         encoding="utf-8",
     )
 

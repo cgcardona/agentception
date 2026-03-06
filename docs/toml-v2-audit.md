@@ -49,16 +49,16 @@ These files are correctly implemented and serve as the template for remediation:
 
 | # | file | line(s) | violation_type | description | commit_that_introduced_it |
 |---|------|---------|---------------|-------------|--------------------------|
-| 1 | `agentception/routes/api/dispatch.py` | 184–204 | `source` | `/api/dispatch` (issue scope) writes flat `KEY=VALUE\n` strings directly — bypasses `_build_agent_task()` from `_shared.py`. Fields: `RUN_ID`, `ISSUE_NUMBER`, `ISSUE_TITLE`, `ROLE`, `ROLE_FILE`, `GH_REPO`, `BRANCH`, `WORKTREE`, `BATCH_ID`, `SPAWN_MODE`, `COGNITIVE_ARCH`, `AC_URL`. | `6df61b6` |
-| 2 | `agentception/routes/api/dispatch.py` | 480–510 | `source` | `/api/dispatch-label` (label scope) writes flat `KEY=VALUE\n` strings. Fields: `RUN_ID`, `ROLE`, `TIER`, `ORG_DOMAIN`, `SCOPE_TYPE`, `SCOPE_VALUE`, `INITIATIVE_LABEL`, `GH_REPO`, `BRANCH`, `WORKTREE`, `BATCH_ID`, `PARENT_RUN_ID`, `AC_URL`, `ROLE_FILE`, `HOST_ROLE_FILE`, `COGNITIVE_ARCH`. This is the primary writer for the agent-dispatch pipeline and is read by all downstream agent templates. | `6df61b6` |
-| 3 | `agentception/mcp/plan_tools.py` | 275–280 | `source` | `plan_spawn_coordinator()` writes flat `KEY=VALUE\n` format for the coordinator `.agent-task`. Fields: `WORKFLOW`, `BATCH_ID`, `BRANCH`, `WORKTREE`, plus a non-TOML `ENRICHED_MANIFEST:` block with a fenced JSON payload. This file was never updated during the TOML v2 migration wave. | `a098e4d` (initial import; never migrated) |
-| 4 | `agentception/tests/test_agentception_control.py` | 37 | `fixture` | Test fixture writes `"WORKFLOW=issue-to-pr\nISSUE_NUMBER=999\nGH_REPO=cgcardona/agentception\n"` as `.agent-task` content — old flat format. | `26a61fb` |
-| 5 | `agentception/tests/test_toast.py` | 50 | `fixture` | Test fixture writes `"WORKFLOW=issue-to-pr\nISSUE_NUMBER=999\nGH_REPO=cgcardona/agentception\n"` — old flat format. | `26a61fb` |
-| 6 | `agentception/tests/test_agentception_telemetry.py` | 52 | `fixture` | `_make_task_file()` helper writes `f"BATCH_ID={batch_id}\nISSUE_NUMBER={issue_number}\n"` — old flat format. | `26a61fb` |
-| 7 | `agentception/tests/test_agentception_ui_plan.py` | 46, 143 | `fixture` | Line 46 (docstring example) and line 143 (mock return value) both use `"WORKFLOW=bugs-to-issues\nBATCH_ID=...\n"` flat format. | `26a61fb` |
-| 8 | `agentception/tests/test_label_context_and_dispatch.py` | 295, 297, 373–376 | `test` | Assertions check for flat format strings: `"SCOPE_VALUE=ac-workflow/5-plan-step-v2"`, `"TIER=coordinator"`, `"SCOPE_TYPE=issue"`, `"SCOPE_VALUE=42"`, `"TIER=engineer"` — these assert the old K=V format in the written task content. These tests are coupled to the non-TOML output of finding #2. | `6df61b6` |
-| 9 | `agentception/tests/test_lineage_fields.py` | 282–288 | `test` | Asserts `"TIER=" in source` to verify TIER is written — this assertion passes only because dispatch still writes flat K=V (finding #2). After remediation, the assertion must change to check the TOML `[agent] tier` field. | `f6fe516` |
-| 10 | `agentception/tests/e2e/test_agentception_workflow_e2e.py` | 104, 183 | `test` | E2E tests check `.agent-task` contains `WORKFLOW=bugs-to-issues` (line 104) and `WORKFLOW=conductor` (line 183) — flat K=V format. | `a098e4d` (initial import; never updated) |
+| 1 | `agentception/routes/api/dispatch.py` | 184–204 | `source` | **fixed** — `/api/dispatch` (issue scope) now delegates to `_build_agent_task()` from `_shared.py` and appends a `[meta]` TOML section for `run_id`, `role_file`, `ac_url`, `spawn_mode`. | `6df61b6` |
+| 2 | `agentception/routes/api/dispatch.py` | 480–510 | `source` | **fixed** — `/api/dispatch-label` (label scope) now writes TOML v2 via `render_toml_str()` with `[task]`, `[agent]`, `[repo]`, `[pipeline]`, `[target]`, `[worktree]`, `[meta]` sections. | `6df61b6` |
+| 3 | `agentception/mcp/plan_tools.py` | 275–280 | `source` | **fixed** — `plan_spawn_coordinator()` now delegates to `_build_coordinator_task()` from `_shared.py`, writing valid TOML v2 with `[plan_draft].dump` containing the manifest JSON. | `a098e4d` |
+| 4 | `agentception/tests/test_agentception_control.py` | 37 | `fixture` | **fixed** — Fixture writes TOML v2. `_parse_issue_number()` in `control.py` updated to read `target.issue_number` via `tomllib`. | `26a61fb` |
+| 5 | `agentception/tests/test_toast.py` | 50 | `fixture` | **fixed** — Fixture writes TOML v2. | `26a61fb` |
+| 6 | `agentception/tests/test_agentception_telemetry.py` | 52 | `fixture` | **fixed** — Fixture writes TOML v2 with `[pipeline].batch_id` and `[target].issue_number`. | `26a61fb` |
+| 7 | `agentception/tests/test_agentception_ui_plan.py` | 46, 143 | `fixture` | **fixed** — Both fixtures updated to TOML v2. `_parse_task_fields()` in `plan_ui.py` updated to parse TOML. Plan-text endpoint reads from `plan_draft.dump`. | `26a61fb` |
+| 8 | `agentception/tests/test_label_context_and_dispatch.py` | 295, 297, 373–376 | `test` | **fixed** — Assertions now parse the written TOML with `tomllib` and check `target.scope_value`, `target.initiative_label`, `agent.tier`, `target.scope_type`. | `6df61b6` |
+| 9 | `agentception/tests/test_lineage_fields.py` | 282–288 | `test` | **fixed** — Assertion checks for `"tier"` (the TOML field key) and `"org_domain"` rather than `"TIER="` / `"ORG_DOMAIN="`. | `f6fe516` |
+| 10 | `agentception/tests/e2e/test_agentception_workflow_e2e.py` | 104, 183 | `test` | **fixed** — E2E tests already check TOML format (`'workflow = "bugs-to-issues"'`, `'workflow = "conductor"'`) — no changes needed. | `a098e4d` |
 | 11 | `.agentception/parallel-issue-to-pr.md` | 500–504, 524, 533, 672, 722 | `template` | **fixed** — All `grep "^KEY="` reads replaced with `python3 -c "import tomllib; ..."` TOML-aware reads. Fields: `GH_REPO` → `repo.gh_repo`, `ISSUE_NUMBER` → `target.issue_number`, `ATTEMPT_N` → `task.attempt_n`, `BATCH_ID` → `pipeline.batch_id`, `ROLE` → `agent.role`, `COGNITIVE_ARCH` → `agent.cognitive_arch`, `DEPENDS_ON` → `target.depends_on`, `FILE_OWNERSHIP` → `target.file_ownership`. | `aaf8a75` (writer migrated; reader left behind) |
 | 12 | `.agentception/parallel-pr-review.md` | 402–414, 463, 889, 1074, 1091, 1207, 1231, 1603, 1640–1641 | `template` | **fixed** — All `grep "^KEY="` reads replaced with TOML-aware reads. 20 replacements. Fields: `GH_REPO`, `PR_NUMBER`, `PR_BRANCH`, `MERGE_AFTER`, `HAS_MIGRATION`, `ATTEMPT_N`, `BATCH_ID`, `COGNITIVE_ARCH`, `WAVE`, `COORD_FINGERPRINT`, `ROLE`, `CLOSES_ISSUES`, `SPAWN_MODE`, `TASK_BATCH_ID` → their TOML v2 equivalents. | `aaf8a75` (writer migrated; reader left behind) |
 | 13 | `.agentception/parallel-bugs-to-issues.md` | 423, 458, 464–468 | `template` | **fixed** — All `grep "^KEY="` reads replaced with TOML-aware reads. Fields: `GH_REPO` → `repo.gh_repo`, `ROLE` → `agent.role`, `PHASE_LABEL` → `target.phase_label`, `LABELS_TO_APPLY` → `target.labels_to_apply`, `PHASE_DEPENDS_ON_ISSUES` → `target.phase_depends_on_issues`, `ATTEMPT_N` → `task.attempt_n`. | `aaf8a75` (writer migrated; reader left behind) |
@@ -155,9 +155,9 @@ The worktree `.agent-task` at `/Users/gabriel/.agentception/worktrees/agentcepti
 
 ## Remediation Priority
 
-Deferred to phase 1 (out of scope for this audit). Suggested order:
+All 19 findings are now fixed. Remediation was completed in two phases:
 
-1. **Fix writers first** — findings #1, #2, #3 (`dispatch.py` × 2, `plan_tools.py` × 1). Route handlers should delegate to `_build_agent_task()` / `_build_coordinator_task()` from `_shared.py`.
-2. **Update test fixtures** — findings #4–#10. Fixtures must use TOML v2 string content; assertions must check sectioned fields.
-3. **Update template readers** — findings #11–#13. Replace `grep "^KEY=" .agent-task | cut -d= -f2` with TOML-aware reads (e.g., `python3 -c "import tomllib, sys; d=tomllib.loads(open('.agent-task').read()); print(d['section']['field'])"`).
-4. **Update documentation** — finding #14 (`docs/guides/integrate.md`).
+- **Phase 1 (PR #169):** Template readers (findings #11–#19) and spec documentation (finding #14).
+- **Phase 2 (PR #170):** Source writers (findings #1–#3), test fixtures (findings #4–#7), test assertions (findings #8–#10), and ancillary TOML readers (`control.py`, `plan_ui.py`).
+
+**Audit complete. Zero regressions remain as of 2026-03-07.**

@@ -160,19 +160,38 @@ def _normalize_plan_dict(raw: object) -> object:
 
 
 def _parse_task_fields(content: str) -> dict[str, str]:
-    """Parse key=value lines from the structured header of a ``.agent-task`` file.
+    """Parse an ``.agent-task`` TOML v2 file and return a flat string dict.
 
-    Only processes lines before the first blank line or ``PLAN_DUMP:`` marker so
-    that multi-line plan text is never misinterpreted as a key=value pair.
+    Extracts the fields most useful for the plan UI:
+    - ``BATCH_ID`` ← ``pipeline.batch_id``
+    - ``LABEL_PREFIX`` ← ``plan_draft.label_prefix``
+    - ``WORKFLOW`` ← ``task.workflow``
+
+    Returns an empty dict when the content cannot be parsed.
     """
+    import tomllib
+
+    try:
+        data = tomllib.loads(content)
+    except Exception:
+        return {}
+
     fields: dict[str, str] = {}
-    for line in content.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped == "PLAN_DUMP:":
-            break
-        if "=" in stripped:
-            key, _, val = stripped.partition("=")
-            fields[key.strip()] = val.strip()
+    pipeline = data.get("pipeline", {})
+    if isinstance(pipeline, dict):
+        batch_id = pipeline.get("batch_id")
+        if isinstance(batch_id, str):
+            fields["BATCH_ID"] = batch_id
+    plan_draft = data.get("plan_draft", {})
+    if isinstance(plan_draft, dict):
+        label_prefix = plan_draft.get("label_prefix")
+        if isinstance(label_prefix, str):
+            fields["LABEL_PREFIX"] = label_prefix
+    task_sec = data.get("task", {})
+    if isinstance(task_sec, dict):
+        workflow = task_sec.get("workflow")
+        if isinstance(workflow, str):
+            fields["WORKFLOW"] = workflow
     return fields
 
 
@@ -207,12 +226,18 @@ async def _build_recent_plans() -> list[dict[str, str]]:
                 task_file = d / ".agent-task"
                 if task_file.exists():
                     try:
+                        import tomllib
                         content = task_file.read_text(encoding="utf-8")
                         fields = _parse_task_fields(content)
                         label_prefix = fields.get("LABEL_PREFIX", "")
                         batch_id = fields.get("BATCH_ID", d.name)
-                        if "PLAN_DUMP:" in content:
-                            plan_part = content.split("PLAN_DUMP:", 1)[1].strip()
+                        try:
+                            data = tomllib.loads(content)
+                            plan_draft = data.get("plan_draft", {})
+                            plan_part = plan_draft.get("dump", "") if isinstance(plan_draft, dict) else ""
+                        except Exception:
+                            plan_part = ""
+                        if plan_part:
                             first = next((ln.strip() for ln in plan_part.splitlines() if ln.strip()), "")
                             preview = first[:90]
                             count = _count_plan_items(plan_part)
@@ -549,8 +574,17 @@ async def plan_run_text(run_id: str) -> JSONResponse:
         logger.warning("⚠️ Could not read .agent-task for run %s: %s", run_id, exc)
         raise HTTPException(status_code=404, detail="Could not read task file.") from exc
 
-    if "PLAN_DUMP:" not in content:
-        raise HTTPException(status_code=404, detail="No PLAN_DUMP section in task file.")
+    import tomllib
 
-    plan_text = content.split("PLAN_DUMP:", 1)[1].strip()
+    try:
+        data = tomllib.loads(content)
+    except Exception as exc:
+        logger.warning("⚠️ Could not parse .agent-task for run %s: %s", run_id, exc)
+        raise HTTPException(status_code=404, detail="Could not parse task file.") from exc
+
+    plan_draft = data.get("plan_draft", {})
+    plan_text = plan_draft.get("dump", "") if isinstance(plan_draft, dict) else ""
+    if not plan_text:
+        raise HTTPException(status_code=404, detail="No plan_draft.dump in task file.")
+
     return JSONResponse({"plan_text": plan_text})

@@ -49,7 +49,10 @@ def _make_task_file(
     wt_dir.mkdir(parents=True, exist_ok=True)
     task_file = wt_dir / ".agent-task"
     task_file.write_text(
-        f"BATCH_ID={batch_id}\nISSUE_NUMBER={issue_number}\n", encoding="utf-8"
+        f'[task]\nversion = "2.0"\nworkflow = "issue-to-pr"\nattempt_n = 0\n\n'
+        f'[pipeline]\nbatch_id = "{batch_id}"\n\n'
+        f'[target]\nissue_number = {issue_number}\n',
+        encoding="utf-8",
     )
     # Force a deterministic mtime so tests are not flaky under fast filesystems.
     os.utime(task_file, (mtime, mtime))
