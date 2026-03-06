@@ -141,9 +141,10 @@ for entry in "${PRS[@]}"; do
   REVIEW_ROLE="pr-reviewer"
 
   # Fetch PR metadata for the task file
-  PR_BRANCH=$(gh pr view "$NUM" --repo "$GH_REPO" --json headRefName --jq '.headRefName' 2>/dev/null || echo "unknown")
+  # MCP: pull_request_read(owner="cgcardona", repo="agentception", pullNumber=NUM)
+  # PR_BRANCH = result.headRefName
+  # PR_BODY = result.body
   PR_FILES=$(gh pr diff "$NUM" --repo "$GH_REPO" --name-only 2>/dev/null | tr '\n' ',' | sed 's/,$//')
-  PR_BODY=$(gh pr view "$NUM" --repo "$GH_REPO" --json body --jq '.body' 2>/dev/null || echo "")
   CLOSES_ISSUE=$(echo "$PR_BODY" | grep -oE '[Cc]loses?\s+#[0-9]+' | grep -oE '[0-9]+' | tr '\n' ',' | sed 's/,$//')
   # MERGE_AFTER: PR number that must be merged before this one (for Alembic chain safety).
   # Set automatically if the PR body contains "Merges after #NNN" or "Depends on PR #NNN".
@@ -1506,8 +1507,12 @@ git -C "$REPO" status
 
 1. Check whether the work is already merged:
    ```bash
-   gh pr list --state merged --json number,title --jq '.[].number' | \
-     xargs -I{} gh pr diff {} --name-only 2>/dev/null | grep <filename>
+   # MCP: list_pull_requests(owner="cgcardona", repo="agentception",
+   #       state="merged") → for each result, extract .number into MERGED_NUMS
+   # Then for each merged PR number, check if its diff contains the dirty file:
+   for num in $MERGED_NUMS; do
+     gh pr diff "$num" --repo "$GH_REPO" --name-only 2>/dev/null | grep <filename>
+   done
    ```
 2. **If already merged** → stale copies. Discard:
    ```bash
@@ -1521,7 +1526,9 @@ git -C "$REPO" status
    git -C "$REPO" add -A
    git -C "$REPO" commit -m "feat: <description> (rescued from main repo dirty state)"
    git push origin fix/<description>
-   gh pr create --base dev --head fix/<description> ...
+   # MCP: create_pull_request(owner="cgcardona", repo="agentception",
+   #       title="feat: <description> (rescued from main repo dirty state)",
+   #       base="dev", head="fix/<description>", body="Rescued dirty-state work.")
    ```
 
 ---
@@ -1584,16 +1591,14 @@ N=$(grep "^PR_NUMBER=" .agent-task | cut -d= -f2)
 GH_REPO=$(grep "^GH_REPO=" .agent-task | cut -d= -f2)
 GH_REPO=${GH_REPO:-cgcardona/agentception}
 WTNAME=$(basename "$(pwd)")
-# Live lookup — ALL_ISSUE_LABELS is not written to reviewer .agent-task files
-IS_AC=$(gh pr view "$N" --repo "$GH_REPO" --json labels \
-  --jq '[.labels[].name] | join(",")' 2>/dev/null | grep -c "ac-ui/" || true)
-if [ "$IS_AC" -gt 0 ]; then
-  docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/" 2>&1 | tail -5
-else
-  REPO=$(git worktree list | head -1 | awk '{print $1}')
-  cd "$REPO" && docker compose exec agentception sh -c \
-    "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/" 2>&1 | tail -5
-fi
+# Determine if this PR is an AgentCeption PR:
+# Call pull_request_read(owner="cgcardona", repo="agentception", pullNumber=N)
+# If any label name contains "ac-ui/", run:
+#   docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/" 2>&1 | tail -5
+# Otherwise (generic PR — no "ac-ui/" labels), run:
+REPO=$(git worktree list | head -1 | awk '{print $1}')
+cd "$REPO" && docker compose exec agentception sh -c \
+  "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/" 2>&1 | tail -5
 ```
 Your job is to ensure the PR does not *introduce* new errors. But if you touch a file with pre-existing errors, you own them.
 

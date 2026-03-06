@@ -279,17 +279,18 @@ git branch -D <feature-branch>            ← delete LOCAL branch ref after PR s
 ```
 gh auth status
 gh repo view
-gh pr view <N> [--json <fields>]
-gh pr list [--state <state>] [--json <fields>]
-gh pr diff <N>
-gh issue view <N>
-gh issue list [--search "..."] [--state ...] [--label ...]
-gh label list [--limit N]         ← enumerate valid repo labels before gh issue edit
+# ⚠️  PREFER MCP for these — use gh only when MCP is unavailable in this context:
+# pull_request_read(pullNumber=N)           replaces: gh pr view <N>
+# list_pull_requests(state=...)             replaces: gh pr list
+gh pr diff <N>                              ← keep as gh — no MCP equivalent (diff content)
+# issue_read(issue_number=N)               replaces: gh issue view <N>
+# list_issues(label=..., state=...)        replaces: gh issue list
+gh label list [--limit N]                  ← keep as gh — no MCP equivalent
 gh run list
 gh run view <id>
 gh release list
 gh release view [<tag>]
-gh api <GET-endpoint>              ← read-only API calls only
+gh api <GET-endpoint>                       ← read-only API calls only
 ```
 
 ### GitHub CLI — Label Management (Label Pre-flight scripts)
@@ -301,28 +302,18 @@ gh label edit <name> --color <hex> --description "..."    ← updates existing l
 #    Without it, gh issue edit --add-label fails silently and issues are mislabeled.
 ```
 
-### GitHub CLI — Safe Writes
+### GitHub CLI — Allowed Writes (prefer MCP equivalents instead)
 ```
-gh pr checkout <N>                 ← checkout into own worktree
-gh pr create --title "..." --body "..."
-gh pr edit <N> [--base <branch>] [--title "..."] [--body "..."] [--add-label "..."]
-                                   ← safe write; needed to retarget base branch or update PR metadata
-                                   ← must be on allowlist: runs a GraphQL mutation (POST api.github.com/graphql)
-                                   ← which the sandbox blocks for non-allowlisted commands
-gh pr comment <N> --body "..."
-
-# ⚠️  PREFER MCP OVER GH CLI for these operations:
-#   merge_pull_request(owner, repo, pullNumber, merge_method="squash")  ← replaces gh pr merge
-#   issue_write(owner, repo, title, body)                               ← replaces gh issue create
-#   issue_write(owner, repo, issue_number, state="closed")              ← replaces gh issue close
-#   add_issue_comment(owner, repo, issue_number, body)                  ← replaces gh issue comment
-#   github_add_label(issue_number, label)                               ← replaces gh issue edit --add-label
-#   github_remove_label(issue_number, label)                            ← replaces gh issue edit --remove-label
-# Only use gh CLI for operations with no MCP equivalent (gh pr checkout, gh pr diff).
-# ⚠️  LABEL RULE: a single missing label causes gh issue create to fail entirely.
-#    Always create the issue first, then apply labels with gh issue edit || true.
-#    Valid labels: bug enhancement documentation performance ai-pipeline agentception mypy
-#                 cli testing multimodal help-wanted good-first-issue weekend-mvp
+gh pr checkout <N>                 ← ONLY allowed write with no MCP equivalent; use for branch checkout
+# All other writes — use MCP tools instead:
+# create_pull_request(base, head, title, body)     replaces: gh pr create
+# update_pull_request(pullNumber, ...)             replaces: gh pr edit
+# add_issue_comment(issue_number, body)            replaces: gh pr comment / gh issue comment
+# merge_pull_request(pullNumber, merge_method="squash")  replaces: gh pr merge
+# issue_write(title, body)                         replaces: gh issue create
+# issue_write(issue_number, state="closed")        replaces: gh issue close
+# github_add_label(issue_number, label)            replaces: gh issue edit --add-label
+# github_remove_label(issue_number, label)         replaces: gh issue edit --remove-label
 ```
 
 ### Docker — Inspection
@@ -591,14 +582,14 @@ gh pr close <N>   ← FORBIDDEN unless gh pr comment with the exact reason runs 
 6. **When in doubt, stop and ask.** Explain exactly what you need and why.
    A paused agent is infinitely better than a destructive one.
 
-7. **Never use `while read` in pipelines for issue/PR data.** Use `xargs` instead — it is on
-   the allowlist and avoids the sandbox prompt that `read` (a shell builtin) triggers.
+7. **Never use `while read` or `xargs gh issue close` in pipelines for issue/PR data.** Use MCP
+   instead — `issue_write` and `add_issue_comment` are direct tool calls with no subprocess overhead
+   and no sandbox prompt risk.
    ```bash
-   # ✅ Correct — uses xargs (allowlisted, no prompt):
-   gh pr view <N> --json body --jq '.body' \
-     | grep -oE '[Cc]loses?\s+#[0-9]+' \
-     | grep -oE '[0-9]+' \
-     | xargs -I{} gh issue close {} --comment "Fixed by PR #<N>." --repo "$GH_REPO"
+   # ✅ Correct — use MCP to close linked issues (no shell subprocesses needed):
+   # For each issue number in the "Closes #N" list from the PR body:
+   # MCP: issue_write(issue_number=N, state="closed")
+   #      add_issue_comment(issue_number=N, body="✅ Closed by PR #<N> (merged).")
 
    # ❌ Wrong — while read triggers a sandbox prompt:
    | while read ISSUE_NUM; do gh issue close "$ISSUE_NUM" ...; done

@@ -147,7 +147,7 @@ Lets you answer: *"Which specific agent opened this PR / merged this PR?"*
 git log --all --grep="AgentCeption-Batch: eng-20260301T053412Z-a7f2"
 
 # Find the PR opened by a specific agent session:
-gh pr list --repo cgcardona/agentception --state all --search "eng-20260301T053412Z-a7f2"
+search_pull_requests(q="eng-20260301T053412Z-a7f2 repo:cgcardona/agentception", state="all")
 
 # Find which batch a commit came from:
 git show <sha> | grep "AgentCeption-"
@@ -161,8 +161,8 @@ git show <sha> | grep "AgentCeption-"
 
 ```bash
 # What's open?
-gh issue list --state open --label "batch-NN" --repo cgcardona/agentception
-gh pr list --base dev --state open --repo cgcardona/agentception
+list_issues(label="batch-NN", state="open")   # GitHub MCP
+list_pull_requests(state="open", base="dev")  # GitHub MCP
 
 # What's in flight?
 git worktree list
@@ -175,7 +175,8 @@ git worktree list
 git worktree add -b feat/issue-{N} ~/.agentception/worktrees/agentception/issue-{N} origin/dev
 
 # For each PR to review (checkout the PR's branch):
-BRANCH=$(gh pr view {N} --json headRefName --jq '.headRefName')
+# Call pull_request_read(pullNumber=N) and read the headRefName field
+BRANCH=<headRefName from pull_request_read result>
 git worktree add ~/.agentception/worktrees/agentception/pr-{N} origin/$BRANCH
 ```
 
@@ -221,10 +222,10 @@ Use this when you want the pipeline to run end-to-end without manual interventio
 ```
 You are the CTO. Read <repo-root>/.agentception/roles/cto.md.
 
-Survey the pipeline state with gh issue list and gh pr list.
+Survey the pipeline state using MCP: list_issues(state="open") and list_pull_requests(state="open").
 Dispatch the Engineering Coordinator and QA Coordinator simultaneously using the Task tool.
 Each coordinator launches leaf agents pointing at the canonical prompts — not inline instructions.
-Continue until gh issue list --state open returns 0 results and gh pr list --state open returns 0 results.
+Continue until list_issues(state="open") returns 0 results and list_pull_requests(state="open") returns 0 results.
 GH_REPO=cgcardona/agentception
 Repo: <repo-root>
 ```
@@ -316,10 +317,10 @@ That is the complete prompt. The canonical file has everything else.
 
 ```bash
 # Check open PRs
-gh pr list --base dev --state open --repo cgcardona/agentception
+list_pull_requests(state="open", base="dev")  # GitHub MCP
 
 # Check open issues remaining in a batch
-gh issue list --label "batch-07" --state open --repo cgcardona/agentception
+list_issues(label="batch-07", state="open")   # GitHub MCP
 
 # Check worktrees in flight
 git worktree list
@@ -331,7 +332,7 @@ git worktree list
 
 If an agent crashes mid-task:
 
-1. Check if its PR was opened: `gh pr list --state open --repo cgcardona/agentception`
+1. Check if its PR was opened: `list_pull_requests(state="open")`  *(GitHub MCP)*
 2. Check if its worktree still exists: `git worktree list`
 3. If worktree exists + no PR: re-launch the leaf agent with the same prompt
 4. If worktree missing + PR open: create a review worktree and assign a reviewer

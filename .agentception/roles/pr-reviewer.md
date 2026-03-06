@@ -50,16 +50,14 @@ N=$(grep "^PR_NUMBER=" .agent-task | cut -d= -f2)
 GH_REPO=$(grep "^GH_REPO=" .agent-task | cut -d= -f2)
 GH_REPO=${GH_REPO:-cgcardona/agentception}
 WTNAME=$(basename "$(pwd)")
-# Live lookup — ALL_ISSUE_LABELS is not written to reviewer .agent-task files
-IS_AC=$(gh pr view "$N" --repo "$GH_REPO" --json labels \
-  --jq '[.labels[].name] | join(",")' 2>/dev/null | grep -c "ac-ui/" || true)
-if [ "$IS_AC" -gt 0 ]; then
-  docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/" 2>&1 | tail -5
-else
-  REPO=$(git worktree list | head -1 | awk '{print $1}')
-  cd "$REPO" && docker compose exec agentception sh -c \
-    "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/" 2>&1 | tail -5
-fi
+# Determine if this PR is an AgentCeption PR:
+# Call pull_request_read(owner="cgcardona", repo="agentception", pullNumber=N)
+# If any label name contains "ac-ui/", run:
+#   docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/" 2>&1 | tail -5
+# Otherwise (generic PR — no "ac-ui/" labels), run:
+REPO=$(git worktree list | head -1 | awk '{print $1}')
+cd "$REPO" && docker compose exec agentception sh -c \
+  "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/" 2>&1 | tail -5
 ```
 Your job is to ensure the PR does not *introduce* new errors. But if you touch a file with pre-existing errors, you own them.
 

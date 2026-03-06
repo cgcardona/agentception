@@ -15,7 +15,7 @@
 >
 > **You do NOT:**
 > - Create any GitHub issues yourself.
-> - Run `gh issue create` yourself.
+> - Create GitHub issues via the shell — use MCP `issue_write()` instead.
 > - Apply labels yourself.
 > - Skip the Phase Planner — it is mandatory even if issues seem obvious.
 >
@@ -404,7 +404,7 @@ export GH_REPO=${GH_REPO:-{{ gh_repo }}}
 | GitHub repo slug | read from `.agent-task` GH_REPO field — always `{{ gh_repo }}` |
 | GitHub CLI | `gh` — already authenticated |
 
-**No Docker needed.** Issues are created via `gh issue create` — no code
+**No Docker needed.** Issues are created via MCP `issue_write()` — no code
 changes, no mypy, no tests.
 
 ---
@@ -463,9 +463,8 @@ STEP 2 — RESOLVE UPSTREAM ISSUE NUMBERS:
   IFS=',' read -ra UPSTREAM <<< "$PHASE_DEPENDS_ON_ISSUES"
   for issue_title in "${UPSTREAM[@]}"; do
     [ -z "$issue_title" ] && continue
-    NUM=$(gh issue list --repo "$GH_REPO" \
-      --search "\"$issue_title\" in:title" --state open \
-      --json number --jq '.[0].number // empty' 2>/dev/null)
+    # MCP: search_issues(owner="{{ gh_repo.split('/')[0] }}", repo="{{ gh_repo.split('/')[1] }}", query="\"$issue_title\" in:title", state="open")
+    # Use the first result's number as NUM.
     [ -n "$NUM" ] && UPSTREAM_MAP+=("$issue_title → #$NUM")
     echo "  Upstream: $issue_title → #${NUM:-NOT FOUND}"
   done
@@ -493,24 +492,18 @@ STEP 3 — CREATE ISSUES:
        `<PHASE_LABEL>` — <phase description from task file>
 
   Idempotency check first:
-    gh issue list --repo "$GH_REPO" --search "<title>" --state all \
-      --json number,title,url | head -3
+    # MCP: search_issues(owner="{{ gh_repo.split('/')[0] }}", repo="{{ gh_repo.split('/')[1] }}", query="<title> in:title")
+    # If any result matches the exact title → skip, record URL.
     If matching issue exists → skip, record URL.
 
   Create WITHOUT --label (two-step pattern):
-    ISSUE_URL=$(gh issue create \
-      --repo "$GH_REPO" \
-      --title "<TITLE>" \
-      --body "$(cat <<'EOF'
-<full constructed body with Dependencies + Phase sections>
-EOF
-)")
+    # MCP: issue_write(owner="{{ gh_repo.split('/')[0] }}", repo="{{ gh_repo.split('/')[1] }}", title="<TITLE>", body="<full constructed body with Dependencies + Phase sections>")
+    # Returns: issue number and URL — record as ISSUE_URL.
 
   Apply labels individually (|| true = non-fatal):
     IFS=',' read -ra ISSUE_LABELS <<< "<LABELS field>"
-    for label in "${ISSUE_LABELS[@]}"; do
-      gh issue edit "$ISSUE_URL" --repo "$GH_REPO" --add-label "$label" 2>/dev/null || true
-    done
+    # For each label in ISSUE_LABELS:
+    # MCP: github_add_label(issue_number=<N>, label=label)
 
   Fingerprint the created issue immediately — every issue must show which agent created it:
     ISSUE_CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
@@ -519,7 +512,7 @@ EOF
     #   body="🏷️ **Created by agent**\n\n$ISSUE_FINGERPRINT")
 
   Record the created URL.
-  ⚠️  If gh issue create fails twice for the same issue, skip and report — no loops.
+  ⚠️  If MCP issue_write() fails twice for the same issue, skip and report — no loops.
 
   ── LABEL REFERENCE ──────────────────────────────────────────────────────────
   │ Standard: bug  enhancement  documentation  testing  mypy                    │
@@ -536,12 +529,13 @@ STEP 4 — CROSS-LINK DOWNSTREAM ISSUES:
   For each created issue that had DEPENDS_ON_PHASES set:
     # Find the upstream issue numbers (already resolved in STEP 2)
     # Append to the body:
-    CURRENT_BODY=$(gh issue view "$ISSUE_NUM" --repo "$GH_REPO" --json body --jq '.body')
+    # MCP: issue_read(owner="{{ gh_repo.split('/')[0] }}", repo="{{ gh_repo.split('/')[1] }}", issue_number=ISSUE_NUM)
+    # CURRENT_BODY = result.body
     UPDATED_BODY="$CURRENT_BODY
 
 ---
 **Depends on:** $(join the real "#N — title" strings for upstream issues)"
-    gh issue edit "$ISSUE_NUM" --repo "$GH_REPO" --body "$UPDATED_BODY" 2>/dev/null || true
+    # MCP: issue_write(owner="{{ gh_repo.split('/')[0] }}", repo="{{ gh_repo.split('/')[1] }}", issue_number=ISSUE_NUM, body=UPDATED_BODY)
     echo "✅ Cross-linked #$ISSUE_NUM"
 
 STEP 5 — SELF-DESTRUCT:
@@ -558,13 +552,12 @@ and the resolved upstream #N cross-links written. An empty URL list is a failure
 
 ```bash
 # 1. Verify every issue has correct labels
-gh issue list --repo {{ gh_repo }} --label "{{ label_prefix }}0-foundation" \
-  --json number,title,labels --jq '.[] | "#\(.number) \(.title)"'
+# MCP: list_issues(owner="{{ gh_repo.split('/')[0] }}", repo="{{ gh_repo.split('/')[1] }}", labels="{{ label_prefix }}0-foundation", state="open")
+# Check each result's labels list for the expected labels.
 
 # 2. Verify dependency text in issue bodies
-gh issue list --repo {{ gh_repo }} --state open \
-  --json number,title,body \
-  --jq '.[] | select(.body | contains("Depends on")) | "#\(.number) \(.title)"'
+# MCP: list_issues(owner="{{ gh_repo.split('/')[0] }}", repo="{{ gh_repo.split('/')[1] }}", state="open")
+# Filter results: select issues where body contains "Depends on".
 
 # 3. Clean up worktrees
 git worktree prune
@@ -572,8 +565,7 @@ git worktree list  # should show only main repo
 
 # 4. Issues are immediately available for parallel-issue-to-pr.md
 # Dispatch by phase label (foundational phases first):
-gh issue list --repo {{ gh_repo }} --label "{{ label_prefix }}0-foundation" \
-  --state open --json number,title,url
+# MCP: list_issues(owner="{{ gh_repo.split('/')[0] }}", repo="{{ gh_repo.split('/')[1] }}", labels="{{ label_prefix }}0-foundation", state="open")
 ```
 
 ---
