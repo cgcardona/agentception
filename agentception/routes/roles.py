@@ -432,7 +432,7 @@ def resolve_cognitive_arch(cognitive_arch_str: str | None) -> dict[str, object]:
                 result["archetype_emoji"] = _ARCHETYPE_EMOJI.get(archetype, "🤖")
                 result["description"] = str(raw.get("description", "")).strip()
                 result["overrides"] = overrides
-                result["prompt_prefix"] = prefix.strip()[:600]
+                result["prompt_prefix"] = prefix.strip()
                 result["is_named_figure"] = True
         except Exception:
             logger.warning("⚠️ Failed to load figure YAML for: %s", figure_id)

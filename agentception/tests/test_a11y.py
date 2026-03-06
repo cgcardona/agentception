@@ -27,27 +27,17 @@ def _read(name: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_base_has_skip_link_class() -> None:
-    """base.html must contain a skip-link element for keyboard users."""
+def test_base_no_skip_link() -> None:
+    """base.html must NOT contain a skip-link — removed by design.
+
+    AgentCeption is a developer tool accessed by technical users; the skip-link
+    added unnecessary UI noise (visible when tabbing from the URL bar) and was
+    intentionally removed.  This test prevents it from being accidentally
+    re-introduced.
+    """
     content = _read("base.html")
-    assert 'class="skip-link"' in content, (
-        'base.html is missing <a class="skip-link"> skip-to-content anchor'
-    )
-
-
-def test_base_has_main_content_id() -> None:
-    """base.html <main> must carry id='main-content' so the skip link target exists."""
-    content = _read("base.html")
-    assert 'id="main-content"' in content, (
-        'base.html <main> is missing id="main-content"'
-    )
-
-
-def test_base_skip_link_points_to_main_content() -> None:
-    """The skip link href must match the main-content anchor."""
-    content = _read("base.html")
-    assert 'href="#main-content"' in content, (
-        'Skip link in base.html must use href="#main-content"'
+    assert 'class="skip-link"' not in content, (
+        'base.html unexpectedly contains a skip-link — it was removed by design'
     )
 
 

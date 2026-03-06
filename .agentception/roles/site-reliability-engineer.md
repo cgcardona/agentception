@@ -64,7 +64,7 @@ docker compose logs --tail 50 agentception | grep -E "ERROR|CRITICAL"
 curl -s -o /dev/null -w "%{http_code}" http://localhost:10001/health  # must return 200
 
 # Confirm observability (metrics endpoint):
-curl -s http://localhost:10001/metrics | grep -c "^maestro_"  # count > 0
+curl -s http://localhost:10001/metrics | grep -c "^ac_"  # count > 0
 ```
 
 ## Cognitive Architecture

@@ -2,17 +2,79 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
+import yaml
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 from starlette.requests import Request
 
+from agentception.config import settings as _settings
 from agentception.routes.roles import get_atoms, get_personas, get_taxonomy
 from ._shared import _TEMPLATES
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+_ARCH_SUBPATH = Path("scripts") / "gen_prompts" / "cognitive_archetypes"
+
+
+def _load_atom_descs(root: Path) -> dict[str, str]:
+    """Return a flat {dimension:value → description} map from all atom YAML files.
+
+    Keys are ``"dimension:value_id"`` strings (e.g. ``"epistemic_style:empirical"``)
+    so Jinja2 can look them up with a single dict access.
+    """
+    atoms_dir = root / _ARCH_SUBPATH / "atoms"
+    result: dict[str, str] = {}
+    for path in sorted(atoms_dir.glob("*.yaml")):
+        try:
+            raw: object = yaml.safe_load(path.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict):
+                continue
+            dimension = str(raw.get("dimension", path.stem))
+            values_raw: object = raw.get("values", {})
+            if not isinstance(values_raw, dict):
+                continue
+            for val_id, val_data in values_raw.items():
+                if isinstance(val_data, dict):
+                    result[f"{dimension}:{val_id}"] = str(
+                        val_data.get("description", "")
+                    )
+        except Exception:
+            pass
+    return result
+
+
+def _load_archetype_desc(root: Path, archetype_id: str) -> str:
+    """Return the description string for a named archetype, or empty string."""
+    arch_file = root / _ARCH_SUBPATH / "archetypes" / f"{archetype_id}.yaml"
+    if not arch_file.exists():
+        return ""
+    try:
+        raw: object = yaml.safe_load(arch_file.read_text(encoding="utf-8"))
+        if isinstance(raw, dict):
+            return str(raw.get("description", "")).strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _load_skill_descs(root: Path) -> dict[str, str]:
+    """Return a {skill_id → description} map from all skill-domain YAML files."""
+    skill_dir = root / _ARCH_SUBPATH / "skill_domains"
+    result: dict[str, str] = {}
+    for path in sorted(skill_dir.glob("*.yaml")):
+        try:
+            raw: object = yaml.safe_load(path.read_text(encoding="utf-8"))
+            if isinstance(raw, dict) and raw.get("display_name"):
+                result[str(raw.get("id", path.stem))] = str(
+                    raw.get("description", "")
+                ).strip()
+        except Exception:
+            pass
+    return result
 
 
 @router.get("/roles", response_class=HTMLResponse)
@@ -114,9 +176,13 @@ async def cognitive_arch_detail(request: Request, arch_id: str) -> HTMLResponse:
 
     # Accept both colon-separated (raw) and hyphen-separated (URL-safe) forms.
     arch_str = arch_id.replace("-", ":") if ":" not in arch_id else arch_id
-    # But figure IDs use underscores — only replace hyphens that are between parts.
-    # Re-split on colons to normalise; if no colons, try underscore-safe split.
     persona = resolve_cognitive_arch(arch_str)
+
+    root = Path(_settings.repo_dir)
+    archetype_id = str(persona.get("archetype", ""))
+    archetype_desc = _load_archetype_desc(root, archetype_id) if archetype_id else ""
+    atom_descs = _load_atom_descs(root)
+    skill_descs = _load_skill_descs(root)
 
     return _TEMPLATES.TemplateResponse(
         request,
@@ -125,5 +191,8 @@ async def cognitive_arch_detail(request: Request, arch_id: str) -> HTMLResponse:
             "arch_id": arch_id,
             "arch_str": arch_str,
             "persona": persona,
+            "archetype_desc": archetype_desc,
+            "atom_descs": atom_descs,
+            "skill_descs": skill_descs,
         },
     )
