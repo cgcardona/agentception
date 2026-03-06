@@ -218,7 +218,6 @@ for entry in "${SELECTED_ISSUES[@]}"; do
   # Extract DEPENDS_ON from issue body (looks for "Depends on #NNN" patterns)
   # (ISSUE_BODY already set from MCP issue_read above)
   DEPENDS_ON=$(echo "$ISSUE_BODY" | grep -oE 'Depends on[^.]+' | grep -oE '[0-9]+' | tr '\n' ',' | sed 's/,$//')
-  [ -z "$DEPENDS_ON" ] && DEPENDS_ON=none
 
   # FILE_OWNERSHIP: coordinator should fill this in manually from the taxonomy
   # to prevent agents from stepping on each other. Format: comma-separated paths.
@@ -264,33 +263,51 @@ for entry in "${SELECTED_ISSUES[@]}"; do
   COGNITIVE_ARCH_VAL="${FIGURE}:${SKILLS}"
   ROLE_FILE_VAL="$REPO/.agentception/roles/${AGENT_ROLE}.md"
 
-  cat > "$WT/.agent-task" << TASKEOF
-WORKFLOW=issue-to-pr
-GH_REPO=$GH_REPO
-ISSUE_NUMBER=$NUM
-ISSUE_TITLE=$TITLE
-ISSUE_URL=https://github.com/$GH_REPO/issues/$NUM
-PHASE_LABEL=$PHASE
-BATCH_LABEL=$BATCH
-ALL_ISSUE_LABELS=$LABELS
-DEPENDS_ON=$DEPENDS_ON
-FILE_OWNERSHIP=$FILE_OWNERSHIP_VALUE
-ROLE=$AGENT_ROLE
-ROLE_FILE=$ROLE_FILE_VAL
-WORKTREE=$WT
-BASE=dev
-CLOSES_ISSUES=$NUM
-BATCH_ID=$BATCH_ID
-COORD_FINGERPRINT=${COORD_FINGERPRINT:-unset}
-COGNITIVE_ARCH=$COGNITIVE_ARCH_VAL
-WAVE=${CTO_WAVE:-unset}
-CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-SPAWN_MODE=chain
-LINKED_PR=none
-SPAWN_SUB_AGENTS=false
-ATTEMPT_N=0
-REQUIRED_OUTPUT=pr_url
-ON_BLOCK=stop
+  cat > "$WT/.agent-task" <<TASKEOF
+[task]
+version = "2.0"
+workflow = "issue-to-pr"
+id = "$(uuidgen | tr '[:upper:]' '[:lower:]')"
+created_at = "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+attempt_n = 0
+required_output = "pr_url"
+on_block = "stop"
+
+[agent]
+role = "$AGENT_ROLE"
+tier = "engineer"
+cognitive_arch = "$COGNITIVE_ARCH_VAL"
+
+[repo]
+gh_repo = "$GH_REPO"
+base = "dev"
+
+[pipeline]
+batch_id = "${BATCH_ID:-none}"
+wave = "${CTO_WAVE:-unset}"
+coord_fingerprint = "${COORD_FINGERPRINT:-unset}"
+
+[spawn]
+mode = "chain"
+sub_agents = false
+
+[target]
+issue_number = $NUM
+issue_title = "$TITLE"
+issue_url = "https://github.com/$GH_REPO/issues/$NUM"
+phase_label = "$PHASE"
+batch_label = "$BATCH"
+all_issue_labels = "$LABELS"
+depends_on = [$DEPENDS_ON]
+file_ownership = "$FILE_OWNERSHIP_VALUE"
+closes = [$NUM]
+
+[worktree]
+path = "$WT"
+linked_pr = 0
+
+[files]
+role_file = "$ROLE_FILE_VAL"
 TASKEOF
 
   echo "✅ worktree issue-$NUM ready (.agent-task written)"
@@ -740,30 +757,45 @@ STEP 6 — SPAWN A QA REVIEWER FOR YOUR OWN PR (run this before self-destructing
     HAS_MIG=$(echo "$PR_FILES_VAL" | grep -c "alembic/versions/" || echo 0)
     [ "$HAS_MIG" -gt 0 ] && HAS_MIG_VAL=true || HAS_MIG_VAL=false
     cat > "$REVIEW_WORKTREE/.agent-task" <<TASK
-WORKFLOW=pr-review
-GH_REPO={{ gh_repo }}
-PR_NUMBER=$MY_PR
-PR_TITLE=$PR_TITLE_VAL
-PR_URL=https://github.com/{{ gh_repo }}/pull/$MY_PR
-PR_BRANCH=$MY_BRANCH
-WORKTREE=$REVIEW_WORKTREE
-BASE=dev
-CLOSES_ISSUES=$CLOSES_VAL
-FILES_CHANGED=$PR_FILES_VAL
-MERGE_AFTER=none
-HAS_MIGRATION=$HAS_MIG_VAL
-ROLE=pr-reviewer
-ROLE_FILE=<repo-root>/.agentception/roles/pr-reviewer.md
-COGNITIVE_ARCH=${REVIEWER_ARCH}
-BATCH_ID=${BATCH_ID:-none}
-WAVE=${WAVE:-unset}
-CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-SPAWN_MODE=chain
-LINKED_PR=$MY_PR
-SPAWN_SUB_AGENTS=false
-ATTEMPT_N=0
-REQUIRED_OUTPUT=grade,merge_status,pr_url
-ON_BLOCK=stop
+[task]
+version = "2.0"
+workflow = "pr-review"
+id = "$(uuidgen | tr '[:upper:]' '[:lower:]')"
+created_at = "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+attempt_n = 0
+required_output = "grade,merge_status,pr_url"
+on_block = "stop"
+
+[agent]
+role = "pr-reviewer"
+tier = "engineer"
+cognitive_arch = "${REVIEWER_ARCH}"
+
+[repo]
+gh_repo = "{{ gh_repo }}"
+base = "dev"
+
+[pipeline]
+batch_id = "${BATCH_ID:-none}"
+wave = "${WAVE:-unset}"
+
+[spawn]
+mode = "chain"
+sub_agents = false
+
+[target]
+pr_number = $MY_PR
+pr_title = "$PR_TITLE_VAL"
+pr_url = "https://github.com/{{ gh_repo }}/pull/$MY_PR"
+pr_branch = "$MY_BRANCH"
+closes = [$CLOSES_VAL]
+files_changed = "$PR_FILES_VAL"
+merge_after = 0
+has_migration = $HAS_MIG_VAL
+
+[worktree]
+path = "$REVIEW_WORKTREE"
+linked_pr = $MY_PR
 TASK
 
     echo "✅ Spawning QA reviewer for PR #$MY_PR (chain mode — reviewer will spawn next engineer)"

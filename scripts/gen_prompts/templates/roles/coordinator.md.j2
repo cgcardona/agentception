@@ -23,22 +23,47 @@ Pass the correct `BATCH_LABEL` and `PHASE_LABEL`. Verify these labels exist on G
 
 When you are spawned via the planning pipeline (`POST /api/plan/launch` or the `plan_spawn_coordinator` MCP tool), your `.agent-task` file contains an **`ENRICHED_MANIFEST:`** block. That block is the single source of truth for what to do — execute it; do not re-validate or re-interpret.
 
-**File location:** The file is written at the root of your worktree: `$WORKTREE/.agent-task` (the `WORKTREE` key in the header is that path).
+**File location:** The file is written at the root of your worktree: `$WORKTREE/.agent-task` (the `[worktree].path` key is that path).
 
 ### Format
 
-The file is plain text. First comes a **key-value header**: one key per line, `KEY=VALUE`, no spaces around `=`. A blank line separates the header from the **`ENRICHED_MANIFEST:`** block. The block starts with the single line `ENRICHED_MANIFEST:`; the next line is a JSON fence (triple backticks and the info string `json`), then the JSON object, then a closing fence line (triple backticks). Parse that JSON as the manifest.
+The file is TOML v2 format with structured `[section]` headers. The manifest is stored in the `[plan_draft]` section as a TOML multiline string (`dump` key). Parse that string as JSON to get the manifest.
 
 **Minimal example:**
 
-````
-WORKFLOW=bugs-to-issues
-BATCH_ID=coordinator-20260305-142201
-BRANCH=coordinator/20260305-142201
-WORKTREE=/path/to/worktrees/coordinator-20260305-142201
+````toml
+[task]
+version = "2.0"
+workflow = "bugs-to-issues"
+id = "abc12345-6789-0def-ghij-klmnopqrstuv"
+created_at = "2026-03-05T14:22:01Z"
+attempt_n = 0
+required_output = "phase_plan"
+on_block = "stop"
 
-ENRICHED_MANIFEST:
-```json
+[agent]
+role = "coordinator"
+tier = "coordinator"
+cognitive_arch = "von_neumann:python"
+
+[repo]
+gh_repo = "cgcardona/agentception"
+base = "dev"
+
+[pipeline]
+batch_id = "coordinator-20260305-142201"
+wave = "coordinator-20260305-142201"
+
+[spawn]
+mode = "chain"
+sub_agents = true
+
+[worktree]
+path = "/path/to/worktrees/coordinator-20260305-142201"
+branch = "coordinator/20260305-142201"
+
+[plan_draft]
+dump = """
 {
   "initiative": "my-feature",
   "phases": [
@@ -53,7 +78,7 @@ ENRICHED_MANIFEST:
   "total_issues": 0,
   "estimated_waves": 1
 }
-```
+"""
 ````
 
 ### Manifest shape (what you execute)

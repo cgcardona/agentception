@@ -69,9 +69,9 @@ launch its own leaf agents — creating a tree of unlimited depth.
 Coordinator
   ├── Phase Planner (sequential — produces the dependency DAG)
   ├── Label Pre-flight (sequential — creates labels on GitHub)
-  ├── writes phase-0/.agent-task  (SPAWN_SUB_AGENTS=false, N issues)
-  ├── writes phase-1/.agent-task  (SPAWN_SUB_AGENTS=false, M issues)
-  ├── writes phase-2/.agent-task  (SPAWN_SUB_AGENTS=false, K issues)
+  ├── writes phase-0/.agent-task  ([spawn] sub_agents = false, N issues)
+  ├── writes phase-1/.agent-task  ([spawn] sub_agents = false, M issues)
+  ├── writes phase-2/.agent-task  ([spawn] sub_agents = false, K issues)
   └── launches phase agents simultaneously (phases that have no deps run in parallel)
 
 Phase agent
@@ -86,45 +86,55 @@ Issues in later phases include `Depends on #N` in their body, linking to earlier
 ## Agent Task File Reference
 
 Everything an agent needs to know goes in its `.agent-task` file.
-The file is plain text; fields are `KEY=value` lines followed by free-form content.
-Agents parse what they need and ignore fields they don't recognise.
+The file is TOML v2 format with structured `[section]` headers.
+Agents parse what they need and ignore sections they don't recognise.
 
 ### All supported fields
 
-```
+```toml
 # ── Identity ──────────────────────────────────────────────────────────────────
-WORKFLOW=bugs-to-issues          # bugs-to-issues | issue-to-pr | pr-review
-BATCH_NUM=3                      # batch number (used in worktree name)
+[task]
+version = "2.0"
+workflow = "bugs-to-issues"          # bugs-to-issues | issue-to-pr | pr-review
+id = "unique-uuid"
+created_at = "2026-01-01T00:00:00Z"
+attempt_n = 0
+required_output = "issue_urls"
+on_block = "stop"
 
-# ── GitHub Labels ─────────────────────────────────────────────────────────────
+# ── Agent ─────────────────────────────────────────────────────────────────────
+[agent]
+role = "coordinator"
+
+# ── Repository ────────────────────────────────────────────────────────────────
+[repo]
+gh_repo = "{{ gh_repo }}"
+
+# ── Pipeline ─────────────────────────────────────────────────────────────────
+[pipeline]
+batch_num = 3                        # batch number (used in worktree name)
+
+# ── GitHub Labels & Targets ───────────────────────────────────────────────────
 # Labels MUST exist on GitHub before agents try to apply them.
 # Run the Label Pre-flight script (below) before creating worktrees.
-PHASE_LABEL={{ label_prefix }}0-foundation   # phase label — drives issue-to-pr ordering
-BATCH_LABEL=batch-01             # batch label (child category)
-LABELS_TO_APPLY=enhancement,{{ label_prefix }}0-foundation,batch-01
+[target]
+phase_label = "{{ label_prefix }}0-foundation"     # phase label — drives issue-to-pr ordering
+labels_to_apply = "enhancement,{{ label_prefix }}0-foundation,batch-01"
 # ↑ Comma-separated. Each applied individually (|| true) so one failure
 #   never blocks the others. Add domain labels here too.
 
-# ── Dependency Chain ──────────────────────────────────────────────────────────
 # GitHub issue numbers that EVERY issue in this batch depends on.
 # These are written into each issue body as "Depends on #N" so the DAG
 # builder in AgentCeption can parse and visualise the dependency graph.
-PHASE_DEPENDS_ON_ISSUES=         # comma-separated GitHub issue numbers (empty = no deps)
+phase_depends_on_issues = ""         # comma-separated GitHub issue numbers (empty = no deps)
 
-# ── File Ownership (conflict avoidance) ───────────────────────────────────────
 # Declare which files/dirs this batch exclusively owns.
 # Used by the coordinator to verify no two batches share a file.
-FILE_OWNERSHIP=agentception/static/app.css
+file_ownership = "agentception/static/app.css"
 
 # ── Sub-agent Orchestration ───────────────────────────────────────────────────
-SPAWN_SUB_AGENTS=false
-
-# ── Output Contract ───────────────────────────────────────────────────────────
-REQUIRED_OUTPUT=issue_urls
-ON_BLOCK=stop
-
-# ── Environment ───────────────────────────────────────────────────────────────
-GH_REPO={{ gh_repo }}
+[spawn]
+sub_agents = false
 ```
 
 ### Free-form content (after the key=value header)
@@ -302,7 +312,8 @@ PLAN_FILE="<path from Phase Planner output>"
 
 # Create one worktree per phase, write the task file from the plan
 python3 << 'PYEOF'
-import json, os, subprocess, textwrap
+import json, os, subprocess, textwrap, uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 plan = json.load(open(os.environ['PLAN_FILE']))
@@ -342,24 +353,40 @@ for ph in plan['phases']:
         bugs_block += f"DEPENDS_ON_PHASES: {','.join(str(d) for d in dep_phases_for_issue)}\n"
         bugs_block += f"BODY:\n{issue['body'].strip()}\n"
 
+    task_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    file_ownership = ','.join(set(
+        f for issue in ph['issues']
+        for f in issue.get('file_ownership', [])
+    ))
+
     task = textwrap.dedent(f"""\
-        WORKFLOW=bugs-to-issues
-        BATCH_NUM={ph['id']}
-        ROLE=coordinator
-        GH_REPO={gh_repo}
+        [task]
+        version = "2.0"
+        workflow = "bugs-to-issues"
+        id = "{task_id}"
+        created_at = "{now}"
+        attempt_n = 0
+        required_output = "issue_urls"
+        on_block = "stop"
 
-        PHASE_LABEL={ph['label']}
-        LABELS_TO_APPLY={labels}
-        PHASE_DEPENDS_ON_ISSUES={dep_issues_note}
+        [agent]
+        role = "coordinator"
 
-        FILE_OWNERSHIP={','.join(set(
-            f for issue in ph['issues']
-            for f in issue.get('file_ownership', [])
-        ))}
-        SPAWN_SUB_AGENTS=false
-        ATTEMPT_N=0
-        REQUIRED_OUTPUT=issue_urls
-        ON_BLOCK=stop
+        [repo]
+        gh_repo = "{gh_repo}"
+
+        [pipeline]
+        batch_num = {ph['id']}
+
+        [target]
+        phase_label = "{ph['label']}"
+        labels_to_apply = "{labels}"
+        phase_depends_on_issues = "{dep_issues_note}"
+        file_ownership = "{file_ownership}"
+
+        [spawn]
+        sub_agents = false
     """) + bugs_block
 
     (wt / '.agent-task').write_text(task)
@@ -442,7 +469,7 @@ STEP 0.5 — LOAD YOUR ROLE:
 
   ⚠️  ANTI-LOOP GUARD: if ATTEMPT_N > 2 → STOP immediately. Report exact failure.
 
-  If SPAWN_SUB_AGENTS=true → follow sub-coordinator path (create sub-worktrees).
+  If [spawn] sub_agents = true → follow sub-coordinator path (create sub-worktrees).
 
 STEP 1 — VERIFY AUTH AND LABELS:
   gh auth status

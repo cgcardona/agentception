@@ -41,7 +41,7 @@ extensible at zero cost.
 [domain]        # Domain context (non-tech orgs: marketing, legal, ops, etc.)
 
 # ── Optional payload sections (workflow-specific) ─────────────────────────────
-[plan_draft]    # WORKFLOW=plan-spec: brain dump dispatch to Cursor
+[plan_draft]    # workflow = "plan-spec": brain dump dispatch to Cursor
 [enriched]      # Coordinator manifest (structured issue set)
 
 # ── Sub-task queues (coordinator and conductor workflows only) ────────────────
@@ -325,7 +325,7 @@ file_ownership = ["agentception/mcp/plan_tools.py"]
 
 ### `[[pr_queue]]`
 
-Repeated table. Each entry is one PR to review, for `WORKFLOW=coordinator` QA runs.
+Repeated table. Each entry is one PR to review, for `workflow = "coordinator"` QA runs.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|

@@ -185,7 +185,7 @@ Task(worktree="/path/to/pr-319", prompt=KICKOFF_PROMPT)
 ```
 
 **Nested orchestration:** A review agent whose `.agent-task` contains
-`SPAWN_SUB_AGENTS=true` acts as a sub-coordinator — useful when a large PR
+`[spawn] sub_agents = true` acts as a sub-coordinator — useful when a large PR
 needs multiple independent reviewers (e.g. one for types, one for tests, one
 for docs). Each sub-reviewer writes its grade and findings into its own
 worktree; the sub-coordinator collects them and emits a composite grade.
@@ -336,32 +336,47 @@ for entry in "${PRS[@]}"; do
   R_BATCH_ID="qa-$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%04x' $RANDOM)"
   COORD_FINGERPRINT="QA-COORD-${R_BATCH_ID}"
 
-  cat > "$WT/.agent-task" << TASKEOF
-WORKFLOW=pr-review
-GH_REPO=$GH_REPO
-PR_NUMBER=$NUM
-PR_TITLE=$TITLE
-PR_URL=https://github.com/$GH_REPO/pull/$NUM
-PR_BRANCH=$PR_BRANCH
-WORKTREE=$WT
-BASE=dev
-CLOSES_ISSUES=$CLOSES_ISSUE
-FILES_CHANGED=$PR_FILES
-MERGE_AFTER=$MERGE_AFTER_VAL
-HAS_MIGRATION=$HAS_MIGRATION_VAL
-ROLE=$REVIEW_ROLE
-ROLE_FILE=<repo-root>/.agentception/roles/${REVIEW_ROLE}.md
-COGNITIVE_ARCH=$R_COGNITIVE_ARCH
-BATCH_ID=$R_BATCH_ID
-COORD_FINGERPRINT=$COORD_FINGERPRINT
-WAVE=${CTO_WAVE:-unset}
-CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-SPAWN_MODE=pool
-LINKED_PR=none
-SPAWN_SUB_AGENTS=false
-ATTEMPT_N=0
-REQUIRED_OUTPUT=grade,merge_status,pr_url
-ON_BLOCK=stop
+  cat > "$WT/.agent-task" <<TASKEOF
+[task]
+version = "2.0"
+workflow = "pr-review"
+id = "$(uuidgen | tr '[:upper:]' '[:lower:]')"
+created_at = "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+attempt_n = 0
+required_output = "grade,merge_status,pr_url"
+on_block = "stop"
+
+[agent]
+role = "$REVIEW_ROLE"
+tier = "engineer"
+cognitive_arch = "$R_COGNITIVE_ARCH"
+
+[repo]
+gh_repo = "$GH_REPO"
+base = "dev"
+
+[pipeline]
+batch_id = "$R_BATCH_ID"
+wave = "${CTO_WAVE:-unset}"
+coord_fingerprint = "$COORD_FINGERPRINT"
+
+[spawn]
+mode = "pool"
+sub_agents = false
+
+[target]
+pr_number = $NUM
+pr_title = "$TITLE"
+pr_url = "https://github.com/$GH_REPO/pull/$NUM"
+pr_branch = "$PR_BRANCH"
+closes = [$CLOSES_ISSUE]
+files_changed = "$PR_FILES"
+merge_after = "$MERGE_AFTER_VAL"
+has_migration = $HAS_MIGRATION_VAL
+
+[worktree]
+path = "$WT"
+linked_pr = 0
 TASKEOF
 
   echo "✅ worktree pr-$NUM ready (role: $REVIEW_ROLE)"
@@ -1416,26 +1431,42 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
       NEXT_ISSUE_LABEL=<label from MCP response>
 
       cat > "$NEXT_WORKTREE/.agent-task" <<TASK
-WORKFLOW=issue-to-pr
-GH_REPO=cgcardona/agentception
-ISSUE_NUMBER=$NEXT_ISSUE
-ISSUE_LABEL=$NEXT_ISSUE_LABEL
-BRANCH=feat/issue-$NEXT_ISSUE
-WORKTREE=$NEXT_WORKTREE
-BASE=dev
-CLOSES_ISSUES=$NEXT_ISSUE
-ROLE=python-developer
-ROLE_FILE=<repo-root>/.agentception/roles/python-developer.md
-BATCH_ID=${BATCH_ID:-none}
-COORD_FINGERPRINT=${COORD_FINGERPRINT:-unset}
-WAVE=${WAVE:-unset}
-CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-COGNITIVE_ARCH=${COGNITIVE_ARCH:-hopper:python}
-SPAWN_MODE=chain
-LINKED_PR=none
-ATTEMPT_N=0
-REQUIRED_OUTPUT=pr_url
-ON_BLOCK=stop
+[task]
+version = "2.0"
+workflow = "issue-to-pr"
+id = "$(uuidgen | tr '[:upper:]' '[:lower:]')"
+created_at = "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+attempt_n = 0
+required_output = "pr_url"
+on_block = "stop"
+
+[agent]
+role = "python-developer"
+tier = "engineer"
+cognitive_arch = "${COGNITIVE_ARCH:-hopper:python}"
+
+[repo]
+gh_repo = "cgcardona/agentception"
+base = "dev"
+
+[pipeline]
+batch_id = "${BATCH_ID:-none}"
+wave = "${WAVE:-unset}"
+coord_fingerprint = "${COORD_FINGERPRINT:-unset}"
+
+[spawn]
+mode = "chain"
+sub_agents = false
+
+[target]
+issue_number = $NEXT_ISSUE
+issue_label = "$NEXT_ISSUE_LABEL"
+closes = [$NEXT_ISSUE]
+
+[worktree]
+path = "$NEXT_WORKTREE"
+branch = "feat/issue-$NEXT_ISSUE"
+linked_pr = 0
 TASK
 
       echo "✅ Chain: spawning engineer for issue #$NEXT_ISSUE (will spawn its own reviewer when done)"
@@ -1478,31 +1509,46 @@ TASK
       NEXT_HAS_MIG=$(echo "$NEXT_FILES" | grep -c "alembic/versions/" || echo 0)
       [ "$NEXT_HAS_MIG" -gt 0 ] && NEXT_HAS_MIG_VAL=true || NEXT_HAS_MIG_VAL=false
       cat > "$NEXT_WORKTREE/.agent-task" <<TASK
-WORKFLOW=pr-review
-GH_REPO=cgcardona/agentception
-PR_NUMBER=$NEXT_PR
-PR_TITLE=$NEXT_PR_TITLE
-PR_URL=https://github.com/cgcardona/agentception/pull/$NEXT_PR
-PR_BRANCH=$NEXT_BRANCH
-WORKTREE=$NEXT_WORKTREE
-BASE=dev
-CLOSES_ISSUES=$NEXT_CLOSES
-FILES_CHANGED=$NEXT_FILES
-MERGE_AFTER=$NEXT_MERGE_AFTER
-HAS_MIGRATION=$NEXT_HAS_MIG_VAL
-ROLE=pr-reviewer
-ROLE_FILE=<repo-root>/.agentception/roles/pr-reviewer.md
-COGNITIVE_ARCH=${COGNITIVE_ARCH:-knuth:python}
-BATCH_ID=${BATCH_ID:-none}
-COORD_FINGERPRINT=${COORD_FINGERPRINT:-unset}
-WAVE=${WAVE:-unset}
-CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-SPAWN_MODE=pool
-LINKED_PR=$NEXT_PR
-SPAWN_SUB_AGENTS=false
-ATTEMPT_N=0
-REQUIRED_OUTPUT=grade,merge_status,pr_url
-ON_BLOCK=stop
+[task]
+version = "2.0"
+workflow = "pr-review"
+id = "$(uuidgen | tr '[:upper:]' '[:lower:]')"
+created_at = "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+attempt_n = 0
+required_output = "grade,merge_status,pr_url"
+on_block = "stop"
+
+[agent]
+role = "pr-reviewer"
+tier = "engineer"
+cognitive_arch = "${COGNITIVE_ARCH:-knuth:python}"
+
+[repo]
+gh_repo = "cgcardona/agentception"
+base = "dev"
+
+[pipeline]
+batch_id = "${BATCH_ID:-none}"
+wave = "${WAVE:-unset}"
+coord_fingerprint = "${COORD_FINGERPRINT:-unset}"
+
+[spawn]
+mode = "pool"
+sub_agents = false
+
+[target]
+pr_number = $NEXT_PR
+pr_title = "$NEXT_PR_TITLE"
+pr_url = "https://github.com/cgcardona/agentception/pull/$NEXT_PR"
+pr_branch = "$NEXT_BRANCH"
+closes = [$NEXT_CLOSES]
+files_changed = "$NEXT_FILES"
+merge_after = "$NEXT_MERGE_AFTER"
+has_migration = $NEXT_HAS_MIG_VAL
+
+[worktree]
+path = "$NEXT_WORKTREE"
+linked_pr = $NEXT_PR
 TASK
 
       echo "✅ Pool: spawning replacement reviewer for PR #$NEXT_PR"
@@ -1818,7 +1864,7 @@ Task(worktree="/path/to/issue-405", prompt=KICKOFF_PROMPT)
 ```
 
 **Nested orchestration:** An agent whose `.agent-task` contains
-`SPAWN_SUB_AGENTS=true` acts as a sub-coordinator: it creates its own
+`[spawn] sub_agents = true` acts as a sub-coordinator: it creates its own
 sub-worktrees with sub-task files and launches leaf agents. This creates
 a tree of unlimited depth and width.
 
@@ -2025,7 +2071,6 @@ for entry in "${SELECTED_ISSUES[@]}"; do
   # Extract DEPENDS_ON from issue body (looks for "Depends on #NNN" patterns)
   # (ISSUE_BODY already set from MCP issue_read above)
   DEPENDS_ON=$(echo "$ISSUE_BODY" | grep -oE 'Depends on[^.]+' | grep -oE '[0-9]+' | tr '\n' ',' | sed 's/,$//')
-  [ -z "$DEPENDS_ON" ] && DEPENDS_ON=none
 
   # FILE_OWNERSHIP: coordinator should fill this in manually from the taxonomy
   # to prevent agents from stepping on each other. Format: comma-separated paths.
@@ -2071,33 +2116,51 @@ for entry in "${SELECTED_ISSUES[@]}"; do
   COGNITIVE_ARCH_VAL="${FIGURE}:${SKILLS}"
   ROLE_FILE_VAL="$REPO/.agentception/roles/${AGENT_ROLE}.md"
 
-  cat > "$WT/.agent-task" << TASKEOF
-WORKFLOW=issue-to-pr
-GH_REPO=$GH_REPO
-ISSUE_NUMBER=$NUM
-ISSUE_TITLE=$TITLE
-ISSUE_URL=https://github.com/$GH_REPO/issues/$NUM
-PHASE_LABEL=$PHASE
-BATCH_LABEL=$BATCH
-ALL_ISSUE_LABELS=$LABELS
-DEPENDS_ON=$DEPENDS_ON
-FILE_OWNERSHIP=$FILE_OWNERSHIP_VALUE
-ROLE=$AGENT_ROLE
-ROLE_FILE=$ROLE_FILE_VAL
-WORKTREE=$WT
-BASE=dev
-CLOSES_ISSUES=$NUM
-BATCH_ID=$BATCH_ID
-COORD_FINGERPRINT=${COORD_FINGERPRINT:-unset}
-COGNITIVE_ARCH=$COGNITIVE_ARCH_VAL
-WAVE=${CTO_WAVE:-unset}
-CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-SPAWN_MODE=chain
-LINKED_PR=none
-SPAWN_SUB_AGENTS=false
-ATTEMPT_N=0
-REQUIRED_OUTPUT=pr_url
-ON_BLOCK=stop
+  cat > "$WT/.agent-task" <<TASKEOF
+[task]
+version = "2.0"
+workflow = "issue-to-pr"
+id = "$(uuidgen | tr '[:upper:]' '[:lower:]')"
+created_at = "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+attempt_n = 0
+required_output = "pr_url"
+on_block = "stop"
+
+[agent]
+role = "$AGENT_ROLE"
+tier = "engineer"
+cognitive_arch = "$COGNITIVE_ARCH_VAL"
+
+[repo]
+gh_repo = "$GH_REPO"
+base = "dev"
+
+[pipeline]
+batch_id = "${BATCH_ID:-none}"
+wave = "${CTO_WAVE:-unset}"
+coord_fingerprint = "${COORD_FINGERPRINT:-unset}"
+
+[spawn]
+mode = "chain"
+sub_agents = false
+
+[target]
+issue_number = $NUM
+issue_title = "$TITLE"
+issue_url = "https://github.com/$GH_REPO/issues/$NUM"
+phase_label = "$PHASE"
+batch_label = "$BATCH"
+all_issue_labels = "$LABELS"
+depends_on = [$DEPENDS_ON]
+file_ownership = "$FILE_OWNERSHIP_VALUE"
+closes = [$NUM]
+
+[worktree]
+path = "$WT"
+linked_pr = 0
+
+[files]
+role_file = "$ROLE_FILE_VAL"
 TASKEOF
 
   echo "✅ worktree issue-$NUM ready (.agent-task written)"
@@ -2850,30 +2913,45 @@ STEP 6 — SPAWN A QA REVIEWER FOR YOUR OWN PR (run this before self-destructing
     HAS_MIG=$(echo "$PR_FILES_VAL" | grep -c "alembic/versions/" || echo 0)
     [ "$HAS_MIG" -gt 0 ] && HAS_MIG_VAL=true || HAS_MIG_VAL=false
     cat > "$REVIEW_WORKTREE/.agent-task" <<TASK
-WORKFLOW=pr-review
-GH_REPO=cgcardona/agentception
-PR_NUMBER=$MY_PR
-PR_TITLE=$PR_TITLE_VAL
-PR_URL=https://github.com/cgcardona/agentception/pull/$MY_PR
-PR_BRANCH=$MY_BRANCH
-WORKTREE=$REVIEW_WORKTREE
-BASE=dev
-CLOSES_ISSUES=$CLOSES_VAL
-FILES_CHANGED=$PR_FILES_VAL
-MERGE_AFTER=none
-HAS_MIGRATION=$HAS_MIG_VAL
-ROLE=pr-reviewer
-ROLE_FILE=<repo-root>/.agentception/roles/pr-reviewer.md
-COGNITIVE_ARCH=${REVIEWER_ARCH}
-BATCH_ID=${BATCH_ID:-none}
-WAVE=${WAVE:-unset}
-CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-SPAWN_MODE=chain
-LINKED_PR=$MY_PR
-SPAWN_SUB_AGENTS=false
-ATTEMPT_N=0
-REQUIRED_OUTPUT=grade,merge_status,pr_url
-ON_BLOCK=stop
+[task]
+version = "2.0"
+workflow = "pr-review"
+id = "$(uuidgen | tr '[:upper:]' '[:lower:]')"
+created_at = "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+attempt_n = 0
+required_output = "grade,merge_status,pr_url"
+on_block = "stop"
+
+[agent]
+role = "pr-reviewer"
+tier = "engineer"
+cognitive_arch = "${REVIEWER_ARCH}"
+
+[repo]
+gh_repo = "cgcardona/agentception"
+base = "dev"
+
+[pipeline]
+batch_id = "${BATCH_ID:-none}"
+wave = "${WAVE:-unset}"
+
+[spawn]
+mode = "chain"
+sub_agents = false
+
+[target]
+pr_number = $MY_PR
+pr_title = "$PR_TITLE_VAL"
+pr_url = "https://github.com/cgcardona/agentception/pull/$MY_PR"
+pr_branch = "$MY_BRANCH"
+closes = [$CLOSES_VAL]
+files_changed = "$PR_FILES_VAL"
+merge_after = 0
+has_migration = $HAS_MIG_VAL
+
+[worktree]
+path = "$REVIEW_WORKTREE"
+linked_pr = $MY_PR
 TASK
 
     echo "✅ Spawning QA reviewer for PR #$MY_PR (chain mode — reviewer will spawn next engineer)"

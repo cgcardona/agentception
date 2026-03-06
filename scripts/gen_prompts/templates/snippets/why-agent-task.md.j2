@@ -16,7 +16,7 @@ Task(worktree="/path/to/issue-405", prompt=KICKOFF_PROMPT)
 ```
 
 **Nested orchestration:** An agent whose `.agent-task` contains
-`SPAWN_SUB_AGENTS=true` acts as a sub-coordinator: it creates its own
+`[spawn] sub_agents = true` acts as a sub-coordinator: it creates its own
 sub-worktrees with sub-task files and launches leaf agents. This creates
 a tree of unlimited depth and width.
 
