@@ -190,8 +190,11 @@ async def get_open_issues(label: str | None = None) -> list[dict[str, object]]:
 async def get_open_prs() -> list[dict[str, object]]:
     """List open pull requests targeting the ``dev`` branch.
 
-    Returns each PR as a dict with at minimum: ``number``, ``title``,
-    ``headRefName``, ``labels``, and ``state``.
+    Returns each PR as a dict with: ``number``, ``title``, ``headRefName``,
+    ``baseRefName``, ``labels``, ``state``, ``body``, ``isDraft``.
+
+    The ``body`` and ``baseRefName`` fields are required for correct PR↔Issue
+    linkage and base-mismatch detection in the workflow state machine.
     """
     repo = settings.gh_repo
     args = [
@@ -199,11 +202,33 @@ async def get_open_prs() -> list[dict[str, object]]:
         "--repo", repo,
         "--base", "dev",
         "--state", "open",
-        "--json", "number,title,headRefName,labels,state",
+        "--json", "number,title,headRefName,baseRefName,labels,state,body,isDraft",
     ]
     result = await gh_json(args, ".", "get_open_prs")
     if not isinstance(result, list):
         raise RuntimeError(f"get_open_prs: expected list from gh, got {type(result).__name__}")
+    return [item for item in result if isinstance(item, dict)]
+
+
+async def get_open_prs_any_base() -> list[dict[str, object]]:
+    """List ALL open pull requests regardless of target branch.
+
+    Ensures PRs opened against ``main``, ``staging``, or any other branch
+    are not lost.  The workflow state machine uses ``baseRefName`` to detect
+    base-mismatch and issue a warning, but the card still moves.
+    """
+    repo = settings.gh_repo
+    args = [
+        "pr", "list",
+        "--repo", repo,
+        "--state", "open",
+        "--json", "number,title,headRefName,baseRefName,labels,state,body,isDraft",
+    ]
+    result = await gh_json(args, ".", "get_open_prs_any_base")
+    if not isinstance(result, list):
+        raise RuntimeError(
+            f"get_open_prs_any_base: expected list from gh, got {type(result).__name__}"
+        )
     return [item for item in result if isinstance(item, dict)]
 
 
@@ -213,21 +238,11 @@ async def get_open_prs_with_body() -> list[dict[str, object]]:
     Like ``get_open_prs()`` but also fetches the PR body so callers can parse
     ``Closes #NNN`` references to identify linked issues.  Used by the
     out-of-order PR guard (``agentception.intelligence.guards``).
+
+    .. deprecated::
+        Prefer ``get_open_prs()`` which now always includes body.
     """
-    repo = settings.gh_repo
-    args = [
-        "pr", "list",
-        "--repo", repo,
-        "--base", "dev",
-        "--state", "open",
-        "--json", "number,title,headRefName,labels,body",
-    ]
-    result = await gh_json(args, ".", "get_open_prs_with_body")
-    if not isinstance(result, list):
-        raise RuntimeError(
-            f"get_open_prs_with_body: expected list from gh, got {type(result).__name__}"
-        )
-    return [item for item in result if isinstance(item, dict)]
+    return await get_open_prs()
 
 
 async def get_merged_prs() -> list[dict[str, object]]:
@@ -270,7 +285,7 @@ async def get_merged_prs_full(limit: int = 100) -> list[dict[str, object]]:
         "--repo", repo,
         "--base", "dev",
         "--state", "merged",
-        "--json", "number,title,headRefName,labels,mergedAt,state,body",
+        "--json", "number,title,headRefName,baseRefName,labels,mergedAt,state,body,isDraft",
         "--limit", str(limit),
     ]
     cache_key = f"get_merged_prs_full:limit={limit}"

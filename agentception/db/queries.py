@@ -23,6 +23,7 @@ from agentception.db.models import (
     ACAgentMessage,
     ACAgentRun,
     ACIssue,
+    ACIssueWorkflowState,
     ACPipelineSnapshot,
     ACPullRequest,
     ACWave,
@@ -351,6 +352,25 @@ class OpenPRForIssueRow(TypedDict):
     head_ref: str | None
 
 
+class WorkflowStateRow(TypedDict):
+    """Canonical workflow state for a board issue, read from ``ac_issue_workflow_state``.
+
+    This is the UI's source of truth for swim lanes — no ad-hoc inference.
+    """
+
+    lane: str
+    issue_state: str
+    run_id: str | None
+    agent_status: str | None
+    pr_number: int | None
+    pr_state: str | None
+    pr_base: str | None
+    pr_head_ref: str | None
+    pr_link_method: str | None
+    pr_link_confidence: int | None
+    warnings: list[str]
+
+
 class RunForIssueRow(TypedDict):
     """Most-recent run entry from get_runs_for_issue_numbers.
 
@@ -403,18 +423,16 @@ class RunTreeNodeRow(TypedDict):
 # Step-data helpers — used internally by get_runs_for_issue_numbers
 # ---------------------------------------------------------------------------
 
-#: A run in an active status with no event newer than this is marked "stale".
-_STALE_THRESHOLD_SECONDS: int = 1800  # 30 minutes
-
-#: Statuses considered "active" for staleness detection.
-_ACTIVE_STATUSES: frozenset[str] = frozenset(
-    {"implementing", "pending_launch", "reviewing"}
+from agentception.workflow.status import (
+    LIVE_STATUSES as _LIVE_STATUSES,
+    STALE_THRESHOLD,
 )
 
-#: Statuses considered "genuinely live" for hierarchy-panel visibility.
-_LIVE_STATUSES: frozenset[str] = frozenset(
-    {"implementing", "pending_launch", "reviewing"}
-)
+#: Statuses considered "active" for staleness detection (same as live for queries).
+_ACTIVE_STATUSES = _LIVE_STATUSES
+
+#: Seconds threshold — derived from the canonical timedelta.
+_STALE_THRESHOLD_SECONDS: int = int(STALE_THRESHOLD.total_seconds())
 
 #: Branch naming convention for engineer feature branches.
 #: Group 1 captures the issue number so we can link the PR back to its issue.
@@ -1733,6 +1751,51 @@ async def get_open_prs_by_issue(
         return out
     except Exception as exc:
         logger.warning("⚠️  get_open_prs_by_issue DB query failed (non-fatal): %s", exc)
+        return {}
+
+
+async def get_workflow_states_by_issue(
+    issue_numbers: list[int],
+    repo: str,
+) -> dict[int, WorkflowStateRow]:
+    """Return canonical workflow state keyed by issue number.
+
+    Reads from ``ac_issue_workflow_state`` — the persisted, canonical source
+    of truth for swim lanes.  Falls back to ``{}`` on error so the board
+    degrades gracefully.
+    """
+    if not issue_numbers:
+        return {}
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACIssueWorkflowState).where(
+                    ACIssueWorkflowState.repo == repo,
+                    ACIssueWorkflowState.issue_number.in_(issue_numbers),
+                )
+            )
+            rows = result.scalars().all()
+
+        out: dict[int, WorkflowStateRow] = {}
+        for row in rows:
+            import json as _json
+            warnings: list[str] = _json.loads(row.warnings_json or "[]")
+            out[row.issue_number] = WorkflowStateRow(
+                lane=row.lane,
+                issue_state=row.issue_state,
+                run_id=row.run_id,
+                agent_status=row.agent_status,
+                pr_number=row.pr_number,
+                pr_state=row.pr_state,
+                pr_base=row.pr_base,
+                pr_head_ref=row.pr_head_ref,
+                pr_link_method=row.pr_link_method,
+                pr_link_confidence=row.pr_link_confidence,
+                warnings=warnings,
+            )
+        return out
+    except Exception as exc:
+        logger.warning("⚠️  get_workflow_states_by_issue DB query failed (non-fatal): %s", exc)
         return {}
 
 
