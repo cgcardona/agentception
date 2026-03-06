@@ -1446,21 +1446,25 @@ $_sw-gap: 0.5rem;
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
+  min-height: 2.5rem;
   border-radius: var(--radius);
-  border: 1px dashed transparent;
-  background: transparent;
+  border: 1px dashed var(--border-subtle);
+  background: var(--bg-elevated);
 
-  // Only show chrome when the bucket has cards — empty columns are invisible.
-  &:not(:empty) {
-    min-height: 2.5rem;
-    border-color: var(--border-subtle);
-    background: var(--bg-elevated);
+  &--active  { border-color: rgba(139, 92, 246, 0.2); }
+  &--pr      { border-color: rgba(56, 189, 248, 0.2); }
+  &--review  { border-color: rgba(251, 191, 36, 0.2); }
+  &--done    { border-color: rgba(16, 217, 160, 0.15); background: rgba(16, 217, 160, 0.02); }
+
+  // Empty buckets are invisible — no border, no background, no height.
+  // The --hidden modifier is set by Jinja2 when the bucket list is empty,
+  // which is reliable unlike the CSS :not(:empty) selector (whitespace nodes).
+  &--hidden {
+    min-height: 0;
+    padding: 0;
+    border-color: transparent;
+    background: transparent;
   }
-
-  &--active:not(:empty)  { border-color: rgba(139, 92, 246, 0.2); }
-  &--pr:not(:empty)      { border-color: rgba(56, 189, 248, 0.2); }
-  &--review:not(:empty)  { border-color: rgba(251, 191, 36, 0.2); }
-  &--done:not(:empty)    { border-color: rgba(16, 217, 160, 0.15); background: rgba(16, 217, 160, 0.02); }
 }
 
 // ── Inspector chat box ────────────────────────────────────────────────────────
