@@ -472,11 +472,12 @@ STEP 0.5 — LOAD YOUR ROLE:
   If [spawn] sub_agents = true → follow sub-coordinator path (create sub-worktrees).
 
 STEP 1 — VERIFY AUTH AND LABELS:
-  gh auth status
+  # MCP: get_me() — confirm authentication; if this fails, stop immediately.
   IFS=',' read -ra LABELS <<< "$LABELS_TO_APPLY"
   for label in "${LABELS[@]}"; do
-    FOUND=$(gh label list --repo "$GH_REPO" --search "$label" --json name --jq '.[].name' 2>/dev/null)
-    [ -z "$FOUND" ] && echo "⚠️  Label '$label' missing — run Label Pre-flight"
+    # MCP: get_label(owner="cgcardona", repo="agentception", name=label)
+    # If the tool returns an error or empty result → label is missing → run Label Pre-flight
+    [ label_missing ] && echo "⚠️  Label '$label' missing — run Label Pre-flight"
   done
 
 STEP 2 — RESOLVE UPSTREAM ISSUE NUMBERS:

@@ -116,7 +116,7 @@ gh issue comment "$ISSUE_NUMBER" --repo "$GH_REPO" \
 $CLAIM_FINGERPRINT" 2>/dev/null || true
 
 # ── 2. PR CREATED — embed fingerprint in PR body ────────────────────────────
-# When calling create_pull_request (via MCP user-github or gh CLI), include
+# When calling create_pull_request (via MCP user-github), include
 # $CLAIM_FINGERPRINT at the end of the PR body:
 #
 #   body = "## Summary\n...\n\nCloses #$ISSUE_NUMBER\n\n$CLAIM_FINGERPRINT"

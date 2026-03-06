@@ -289,7 +289,9 @@ for entry in "${PRS[@]}"; do
   # MCP: pull_request_read(owner="cgcardona", repo="agentception", pullNumber=NUM)
   # PR_BRANCH = result.headRefName
   # PR_BODY = result.body
-  PR_FILES=$(gh pr diff "$NUM" --repo "$GH_REPO" --name-only 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+  # MCP: pull_request_read(owner="cgcardona", repo="agentception",
+  #      method="get_files", pullNumber=NUM) → join with commas
+  PR_FILES=<comma-separated file list from MCP pull_request_read get_files>
   CLOSES_ISSUE=$(echo "$PR_BODY" | grep -oE '[Cc]loses?\s+#[0-9]+' | grep -oE '[0-9]+' | tr '\n' ',' | sed 's/,$//')
   # MERGE_AFTER: PR number that must be merged before this one (for Alembic chain safety).
   # Set automatically if the PR body contains "Merges after #NNN" or "Depends on PR #NNN".
@@ -1501,8 +1503,9 @@ TASK
 
       NEXT_PR_TITLE=<title from MCP response>
       NEXT_PR_BODY=<body from MCP response>
-      # gh pr diff is kept for file listing — no MCP equivalent for diff content.
-      NEXT_FILES=$(gh pr diff "$NEXT_PR" --repo "$GH_REPO" --name-only 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+      # MCP: pull_request_read(owner="cgcardona", repo="agentception",
+      #      method="get_files", pullNumber=NEXT_PR) → join with commas
+      NEXT_FILES=<comma-separated file list from MCP pull_request_read get_files>
       NEXT_CLOSES=$(echo "$NEXT_PR_BODY" | grep -oE '[Cc]loses?\s+#[0-9]+' | grep -oE '[0-9]+' | tr '\n' ',' | sed 's/,$//')
       NEXT_MERGE_AFTER=$(echo "$NEXT_PR_BODY" | grep -oiE 'merge after #[0-9]+|depends on pr #[0-9]+' | grep -oE '[0-9]+' | head -1)
       [ -z "$NEXT_MERGE_AFTER" ] && NEXT_MERGE_AFTER=none
@@ -1619,7 +1622,8 @@ echo "=== Files touched by PRs in this batch ==="
 for pr in <N1> <N2> <N3>; do   # substitute actual PR numbers
   echo ""
   echo "PR #$pr:"
-  gh pr diff "$pr" --name-only 2>/dev/null | sed 's/^/  /'
+  # MCP: pull_request_read(owner="cgcardona", repo="agentception",
+  #      method="get_files", pullNumber=pr) → print each file prefixed with two spaces
 done
 echo ""
 echo "⚠️  Any file appearing under two PRs = merge conflict guaranteed."
@@ -1702,7 +1706,7 @@ git -C "$REPO" status
    #       state="merged") → for each result, extract .number into MERGED_NUMS
    # Then for each merged PR number, check if its diff contains the dirty file:
    for num in $MERGED_NUMS; do
-     gh pr diff "$num" --repo "$GH_REPO" --name-only 2>/dev/null | grep <filename>
+     # MCP: pull_request_read(method="get_files", pullNumber=num) → filter for <filename>
    done
    ```
 2. **If already merged** → stale copies. Discard:
@@ -2907,8 +2911,9 @@ STEP 6 — SPAWN A QA REVIEWER FOR YOUR OWN PR (run this before self-destructing
     REVIEWER_ARCH="${COGNITIVE_ARCH:-knuth:python}"
     # MCP: github_get_pr(pr_number=MY_PR) → use .title, .body, .headRefName
     PR_TITLE_VAL=<github_get_pr(MY_PR).title>
-    # gh pr diff still needed for file list — no MCP equivalent for diff content
-    PR_FILES_VAL=$(gh pr diff "$MY_PR" --repo "$GH_REPO" --name-only 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+    # MCP: pull_request_read(owner="cgcardona", repo="agentception",
+    #      method="get_files", pullNumber=MY_PR) → join file paths with commas
+    PR_FILES_VAL=<comma-separated file list from MCP pull_request_read get_files>
     CLOSES_VAL=<parse "Closes #NNN" from github_get_pr(MY_PR).body, join with commas>
     HAS_MIG=$(echo "$PR_FILES_VAL" | grep -c "alembic/versions/" || echo 0)
     [ "$HAS_MIG" -gt 0 ] && HAS_MIG_VAL=true || HAS_MIG_VAL=false
@@ -3033,7 +3038,9 @@ echo "=== Files touched by currently open PRs ==="
 # MCP: list_pull_requests(owner="cgcardona", repo="agentception", state="open")
 # Iterate over result.number for overlap check
 for num in <result from MCP list_pull_requests>; do
-  files=$(gh pr diff "$num" --name-only 2>/dev/null)
+  # MCP: pull_request_read(owner="cgcardona", repo="agentception",
+  #      method="get_files", pullNumber=num) → assign file paths to: files
+  files=<file list from MCP pull_request_read get_files for PR num>
   if [ -n "$files" ]; then
     # MCP: github_get_pr(pr_number=num) → .title
     title=$(github_get_pr result .title)
@@ -3156,8 +3163,7 @@ git -C "$REPO" status
    ```bash
    # For each dirty file, find the PR that contains it:
    # MCP: list_pull_requests(owner="cgcardona", repo="agentception", state="merged")
-   # For each result: use gh pr diff <number> --name-only to get changed files
-   # gh pr diff <number> --name-only 2>/dev/null | grep <filename>
+   # MCP: pull_request_read(method="get_files", pullNumber=number) → check if <filename> is in result
    ```
 2. **If already merged** → the dirty files are stale copies. Discard them:
    ```bash
@@ -3305,7 +3311,7 @@ gh issue comment "$ISSUE_NUMBER" --repo "$GH_REPO" \
 $CLAIM_FINGERPRINT" 2>/dev/null || true
 
 # ── 2. PR CREATED — embed fingerprint in PR body ────────────────────────────
-# When calling create_pull_request (via MCP user-github or gh CLI), include
+# When calling create_pull_request (via MCP user-github), include
 # $CLAIM_FINGERPRINT at the end of the PR body:
 #
 #   body = "## Summary\n...\n\nCloses #$ISSUE_NUMBER\n\n$CLAIM_FINGERPRINT"
