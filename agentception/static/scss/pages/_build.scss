@@ -292,6 +292,7 @@
 
 .build-issue {
   position: relative;
+  min-width: 0;   // prevent card content from forcing the grid column wider
   padding: 0.5rem 0.625rem;
   border-radius: var(--radius);
   border: 1px solid var(--border-subtle);
@@ -1325,7 +1326,7 @@
 // phase row, so columns stay aligned across the full board.
 
 $_sw-label: 200px;
-$_sw-cols: #{$_sw-label} repeat(5, 1fr);
+$_sw-cols: #{$_sw-label} repeat(5, minmax(0, 1fr));
 $_sw-gap: 0.5rem;
 
 .build-swimlane {
@@ -1442,20 +1443,31 @@ $_sw-gap: 0.5rem;
 .build-swimlane__bucket {
   list-style: none;
   margin: 0;
-  padding: 0.25rem;
+  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
-  min-height: 2.5rem;
+  // Default: invisible placeholder — preserves its grid column slot so the
+  // header labels stay aligned over every row, but shows nothing to the user.
+  min-height: 0;
   border-radius: var(--radius);
-  border: 1px dashed var(--border-subtle);
-  background: var(--bg-elevated);
+  border: 1px dashed transparent;
+  background: transparent;
 
-  &--active  { border-color: rgba(139, 92, 246, 0.2); }
-  &--pr      { border-color: rgba(56, 189, 248, 0.2); }
-  &--review  { border-color: rgba(251, 191, 36, 0.2); }
-  &--done    { border-color: rgba(16, 217, 160, 0.15); background: rgba(16, 217, 160, 0.02); }
+  // --has-items is added by Jinja2 when the bucket is non-empty.
+  // Only then do we show chrome (padding, min-height, border, background).
+  &--has-items {
+    padding: 0.25rem;
+    min-height: 2.5rem;
+    border-color: var(--border-subtle);
+    background: var(--bg-elevated);
+  }
 }
+
+.build-swimlane__bucket--active.build-swimlane__bucket--has-items  { border-color: rgba(139, 92, 246, 0.2); }
+.build-swimlane__bucket--pr.build-swimlane__bucket--has-items      { border-color: rgba(56, 189, 248, 0.2); }
+.build-swimlane__bucket--review.build-swimlane__bucket--has-items  { border-color: rgba(251, 191, 36, 0.2); }
+.build-swimlane__bucket--done.build-swimlane__bucket--has-items    { border-color: rgba(16, 217, 160, 0.15); background: rgba(16, 217, 160, 0.02); }
 
 // ── Inspector chat box ────────────────────────────────────────────────────────
 

@@ -147,3 +147,113 @@ async def test_new_run_inserted_when_not_in_db() -> None:
     inserted: ACAgentRun = session.add.call_args[0][0]
     assert inserted.id == agent.id
     assert inserted.status == AgentStatus.IMPLEMENTING.value
+
+
+# ---------------------------------------------------------------------------
+# Regression: pr_number must not be overwritten with None by the poller
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_pr_number_not_regressed_to_none_by_poller() -> None:
+    """Kanban regression: engineer opens PR, pr_number is saved by build_report_done.
+
+    On the very next tick the poller reads the .agent-task file (which was written
+    before the PR existed, so pr_number is None) and must NOT overwrite the
+    saved pr_number.  Without the guard the Kanban card collapses back to "todo"
+    immediately after the engineer completes.
+    """
+    existing = _make_run(status="reviewing")
+    existing.pr_number = 42  # set by persist_agent_event(done) earlier
+    session = _make_session(existing)
+
+    # Poller derives AgentNode from .agent-task — pr_number is always None there.
+    agent = _make_agent(status=AgentStatus.REVIEWING)
+    assert agent.pr_number is None  # precondition
+
+    await _persist._upsert_agent_runs(session, [agent])
+
+    assert existing.pr_number == 42, (
+        "pr_number was regressed to None — Kanban card would return to todo lane"
+    )
+
+
+@pytest.mark.anyio
+async def test_pr_number_advanced_when_agent_task_has_one() -> None:
+    """pr_number from .agent-task (non-None) must still be written to the DB."""
+    existing = _make_run(status="implementing")
+    existing.pr_number = None
+    session = _make_session(existing)
+
+    agent = AgentNode(
+        id=existing.id,
+        role="python-developer",
+        status=AgentStatus.REVIEWING,
+        pr_number=99,  # set e.g. by a future .agent-task update
+    )
+
+    await _persist._upsert_agent_runs(session, [agent])
+
+    assert existing.pr_number == 99
+
+
+# ---------------------------------------------------------------------------
+# Regression: orphan sweep must not drop runs that have an open PR
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_orphan_with_pr_number_kept_as_reviewing() -> None:
+    """Kanban regression: worktree removed but PR still open.
+
+    When the engineer's worktree disappears the orphan sweep must NOT flip
+    status to 'unknown' if pr_number is set.  Doing so would collapse the
+    Kanban card back to the 'todo' lane (_ar becomes None in the template).
+    Instead it should stay 'reviewing' until the PR is merged and the issue
+    is closed.
+    """
+    orphan = _make_run(status="reviewing")
+    orphan.pr_number = 77
+    # Orphan has no live worktree: it is NOT in live_ids.
+    orphan_result_mock = MagicMock()
+    orphan_result_mock.scalars.return_value.all.return_value = [orphan]
+
+    scalar = MagicMock()
+    scalar.scalar_one_or_none.return_value = None  # no existing run for the agent
+
+    session = MagicMock(spec=AsyncSession)
+    session.execute = AsyncMock(side_effect=[scalar, orphan_result_mock])
+    session.add = MagicMock()
+
+    # Pass an agent with a DIFFERENT id so the orphan is never in live_ids.
+    different_agent = AgentNode(id="different-run-id", role="cto", status=AgentStatus.IMPLEMENTING)
+
+    await _persist._upsert_agent_runs(session, [different_agent])
+
+    assert orphan.status == "reviewing", (
+        "Orphan with open PR was flipped to 'unknown' — Kanban card lost"
+    )
+
+
+@pytest.mark.anyio
+async def test_orphan_without_pr_number_flipped_to_unknown() -> None:
+    """Worktrees removed with no open PR should still become unknown (normal cleanup)."""
+    orphan = _make_run(status="implementing")
+    orphan.pr_number = None
+    orphan_result_mock = MagicMock()
+    orphan_result_mock.scalars.return_value.all.return_value = [orphan]
+
+    scalar = MagicMock()
+    scalar.scalar_one_or_none.return_value = None
+
+    session = MagicMock(spec=AsyncSession)
+    session.execute = AsyncMock(side_effect=[scalar, orphan_result_mock])
+    session.add = MagicMock()
+
+    different_agent = AgentNode(id="different-run-id", role="cto", status=AgentStatus.IMPLEMENTING)
+
+    await _persist._upsert_agent_runs(session, [different_agent])
+
+    assert orphan.status == "unknown", (
+        "Orphan without PR should be flipped to unknown for cleanup"
+    )
