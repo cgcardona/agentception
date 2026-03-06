@@ -272,11 +272,8 @@
     </div>
 
     <div class="plan-done-actions">
-      <a
-        class="btn btn-primary"
-        :href="initiative ? '/ship/' + encodeURIComponent(initiative) : '/ship'"
-      >Open in Build →</a>
-      <a href="/org-chart" class="btn btn-secondary">View org chart →</a>
+      <a href="/controls" class="btn btn-primary">Track Agents →</a>
+      <a href="https://github.com/{{ gh_repo }}/issues" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">View Issues →</a>
       <button class="btn btn-ghost" @click="reset()">← New plan</button>
     </div>
   </div>
