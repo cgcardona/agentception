@@ -206,31 +206,31 @@
 
     {# ── Lifecycle stage buckets (hidden when collapsed) ──────────────────── #}
 
-    <ul class="build-swimlane__bucket{% if not bns.todo %} build-swimlane__bucket--hidden{% endif %}" x-show="open">
+    <ul class="build-swimlane__bucket{% if bns.todo %} build-swimlane__bucket--has-items{% endif %}" x-show="open">
       {% for issue in bns.todo %}
         {{ render_issue(issue, group.complete, group.locked, initiative, repo) }}
       {% endfor %}
     </ul>
 
-    <ul class="build-swimlane__bucket build-swimlane__bucket--active{% if not bns.active %} build-swimlane__bucket--hidden{% endif %}" x-show="open">
+    <ul class="build-swimlane__bucket build-swimlane__bucket--active{% if bns.active %} build-swimlane__bucket--has-items{% endif %}" x-show="open">
       {% for issue in bns.active %}
         {{ render_issue(issue, group.complete, group.locked, initiative, repo) }}
       {% endfor %}
     </ul>
 
-    <ul class="build-swimlane__bucket build-swimlane__bucket--pr{% if not bns.pr_open %} build-swimlane__bucket--hidden{% endif %}" x-show="open">
+    <ul class="build-swimlane__bucket build-swimlane__bucket--pr{% if bns.pr_open %} build-swimlane__bucket--has-items{% endif %}" x-show="open">
       {% for issue in bns.pr_open %}
         {{ render_issue(issue, group.complete, group.locked, initiative, repo) }}
       {% endfor %}
     </ul>
 
-    <ul class="build-swimlane__bucket build-swimlane__bucket--review{% if not bns.reviewing %} build-swimlane__bucket--hidden{% endif %}" x-show="open">
+    <ul class="build-swimlane__bucket build-swimlane__bucket--review{% if bns.reviewing %} build-swimlane__bucket--has-items{% endif %}" x-show="open">
       {% for issue in bns.reviewing %}
         {{ render_issue(issue, group.complete, group.locked, initiative, repo) }}
       {% endfor %}
     </ul>
 
-    <ul class="build-swimlane__bucket build-swimlane__bucket--done{% if not bns.done %} build-swimlane__bucket--hidden{% endif %}" x-show="open">
+    <ul class="build-swimlane__bucket build-swimlane__bucket--done{% if bns.done %} build-swimlane__bucket--has-items{% endif %}" x-show="open">
       {% for issue in bns.done %}
         {{ render_issue(issue, group.complete, group.locked, initiative, repo) }}
       {% endfor %}
