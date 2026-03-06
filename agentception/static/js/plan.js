@@ -7,11 +7,11 @@
  *   write      — textarea, user composes their plan
  *   generating — POST /api/plan/preview → OpenRouter → Claude streaming (SSE)
  *   review     — CodeMirror 6 YAML editor, editable, validate-on-change
- *   launching  — waiting for POST /api/plan/launch response
- *   done       — coordinator spawned, success summary (batch_id, worktree, branch)
+ *   launching  — streaming POST /api/plan/file-issues, progress shown
+ *   done       — GitHub issues created, summary shown
  *
- * Phase 1A flow (direct — no Cursor agent)
- * -----------------------------------------
+ * Phase 1A flow (direct — no agent)
+ * -----------------------------------
  *   POST /api/plan/preview  { dump, label_prefix }
  *     → text/event-stream SSE:
  *         {"t": "chunk", "text": "..."}         — raw YAML token
@@ -23,12 +23,17 @@
  *     The browser accumulates chunk texts, streams them live, then on done
  *     loads the canonical validated YAML into the CodeMirror editor.
  *
- * Phase 1B flow
- * -------------
- *   POST /api/plan/launch  { yaml_text }
- *     AgentCeption validates the YAML as EnrichedManifest, checks for cycles,
- *     then spawns the coordinator worktree.  Returns JSON with worktree,
- *     branch, agent_task_path, batch_id.  The UI flips to the done step.
+ * Phase 1B flow (direct — no agent)
+ * -----------------------------------
+ *   POST /api/plan/file-issues  { yaml_text }
+ *     → text/event-stream SSE:
+ *         {"t": "start",   "total": N, "initiative": "..."}
+ *         {"t": "label",   "text": "..."}
+ *         {"t": "issue",   "index": N, "total": N, "number": N, "url": "...", ...}
+ *         {"t": "done",    "total": N, "batch_id": "...", "issues": [...]}
+ *         {"t": "error",   "detail": "..."}
+ *     Creates GitHub issues directly from PlanSpec via gh CLI.  No coordinator,
+ *     no worktree.  The UI flips to the done step with a list of created issues.
  *
  * CodeMirror 6 is bundled by esbuild — no CDN, no Web Workers, no AMD loader.
  */
@@ -258,7 +263,9 @@ export function planForm() {
       }
     },
 
-    // ── Phase 1B: POST /api/plan/launch — validate EnrichedManifest, spawn coordinator ─
+    // ── Phase 1B: POST /api/plan/file-issues — create GitHub issues directly ─
+    // Streams SSE from /api/plan/file-issues.  No coordinator, no worktree,
+    // no agent.  Issues are created directly from the PlanSpec YAML.
 
     async launch() {
       const yamlText = this._getEditorValue();
@@ -268,48 +275,106 @@ export function planForm() {
         return;
       }
       this.errorMsg = '';
-      this.filingProgress = 'Launching…';
+      this.filingProgress = 'Creating labels…';
       this.step = 'launching';
       this.submitting = true;
+      this._abortController = new AbortController();
 
       try {
-        const resp = await fetch('/api/plan/launch', {
+        const resp = await fetch('/api/plan/file-issues', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ yaml_text: yamlText }),
+          signal: this._abortController.signal,
         });
-        const body = await resp.json().catch(() => ({}));
+
         if (!resp.ok) {
-          const d = body.detail;
-          const msg = typeof d === 'string'
-            ? d
-            : Array.isArray(d)
-              ? d.map((e) => (e && e.msg) || JSON.stringify(e)).join('; ')
-              : `HTTP ${resp.status}`;
-          throw new Error(msg || `HTTP ${resp.status}`);
+          const errBody = await resp.json().catch(() => ({}));
+          throw new Error(errBody.detail || `HTTP ${resp.status}`);
         }
 
-        this.result = {
-          worktree:        body.worktree,
-          branch:          body.branch,
-          agent_task_path: body.agent_task_path,
-          batch_id:        body.batch_id,
-        };
-        this.batchId = body.batch_id ?? '';
-        try {
-          localStorage.setItem('ac_active_batch', this.batchId);
-          if (this.initiative) {
-            localStorage.setItem('ac_active_initiative', this.initiative);
-          }
-        } catch (_) {
-          // localStorage may be unavailable — silent fail.
-        }
-        this.step = 'done';
+        await this._readFileStream(resp);
+
       } catch (err) {
-        this.errorMsg = err.message;
+        if (err.name === 'AbortError') return;
+        this.errorMsg = err.message || 'Unexpected error during issue creation.';
         this.step = 'review';
       } finally {
         this.submitting = false;
+        this._abortController = null;
+      }
+    },
+
+    // Read the SSE stream from /api/plan/file-issues.
+    async _readFileStream(resp) {
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split('\n');
+          buf = lines.pop() ?? '';
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            let evt;
+            try { evt = JSON.parse(line.slice(6)); } catch { continue; }
+
+            if (evt.t === 'start') {
+              this.filingProgress = `Creating ${evt.total} issues…`;
+
+            } else if (evt.t === 'label') {
+              this.filingProgress = evt.text ?? 'Setting up labels…';
+
+            } else if (evt.t === 'issue') {
+              this.filingProgress = `Issue ${evt.index}/${evt.total} — ${evt.title}`;
+
+            } else if (evt.t === 'done') {
+              this.batchId    = evt.batch_id ?? '';
+              this.issueCount = evt.total    ?? 0;
+              if (evt.initiative) this.initiative = evt.initiative;
+
+              // Group issues by phase, preserving creation order.
+              const issues = evt.issues ?? [];
+              const phaseOrder = [];
+              const phaseMap   = new Map();
+              for (const iss of issues) {
+                if (!phaseMap.has(iss.phase)) {
+                  phaseOrder.push(iss.phase);
+                  phaseMap.set(iss.phase, []);
+                }
+                phaseMap.get(iss.phase).push(iss);
+              }
+              const phaseGroups = phaseOrder.map((phase, idx) => ({
+                phase,
+                issues:   phaseMap.get(phase),
+                isActive: idx === 0,
+              }));
+
+              this.result = { issues, phaseGroups };
+              try {
+                if (this.batchId)    localStorage.setItem('ac_active_batch',      this.batchId);
+                if (this.initiative) localStorage.setItem('ac_active_initiative', this.initiative);
+              } catch (_) {}
+              this.step = 'done';
+              return;
+
+            } else if (evt.t === 'error') {
+              throw new Error(evt.detail || 'Issue creation failed.');
+            }
+          }
+        }
+      } finally {
+        reader.cancel().catch(() => {});
+      }
+
+      if (this.step === 'launching') {
+        throw new Error('Issue stream ended without a confirmation. Please check GitHub.');
       }
     },
 
@@ -321,6 +386,19 @@ export function planForm() {
       this.$nextTick(() => {
         if (this.$refs.textarea) this.autoGrow(this.$refs.textarea);
       });
+    },
+
+    // ── Skip directly to the Review editor (bypass Phase 1A generation) ───
+
+    async skipToReview() {
+      if (this._abortController) {
+        this._abortController.abort();
+        this._abortController = null;
+      }
+      this.errorMsg = '';
+      this.step = 'review';
+      await this.$nextTick();
+      this._mountEditor(this._getEditorValue() || '');
     },
 
     // ── Reset: start a new plan ────────────────────────────────────────────
