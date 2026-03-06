@@ -717,16 +717,15 @@ STEP 2 — CHECK CANONICAL STATE BEFORE DOING ANY WORK:
   # 1. What is the current state of this PR?
   # MCP: pull_request_read(owner="cgcardona", repo="agentception",
   #       pullNumber=N)
-  # → check state, mergedAt, reviewDecision, headRefName from the response.
+  # → check state, mergedAt, headRefName from the response.
+  # ⚠️  Do NOT check reviewDecision — all agents share one GitHub identity so
+  #    formal GitHub reviews are never submitted. Ignore that field entirely.
 
   Decision matrix — act on the FIRST match:
   ┌────────────────────────────────────────────────────────────────────────┐
   │ state = "MERGED"   → STOP. Report already merged. Self-destruct.      │
   │ state = "CLOSED"   → STOP. Report already closed/rejected. Self-dest. │
-  │ reviewDecision =   │                                                   │
-  │   "APPROVED"       → STOP. Report already approved. Self-destruct.    │
-  │ state = "OPEN",    │                                                   │
-  │   no approval yet  → Continue to STEP 3 (full review).                │
+  │ state = "OPEN"     → Continue to STEP 3 (full review).                │
   └────────────────────────────────────────────────────────────────────────┘
 
   Self-destruct when stopping early:
@@ -1106,10 +1105,21 @@ STEP 5 — REVIEW:
       └────────────────────────────────────────────────────────────────────────
 
   8. Grade decision:
-     A       → proceed to STEP 5.5 (merge order gate)
-     B       → fix in place per GRADE B protocol above, upgrade to A, then STEP 5.5
-     C       → fix in place per GRADE C protocol above, re-grade, then STEP 5.5
-     D or F  → DO NOT merge. File a GitHub issue (bug + batch label). Self-destruct. Report to user.
+     A       → post grade comment (step 8a below), then proceed to STEP 5.5 (merge order gate)
+     B       → fix in place per GRADE B protocol above, upgrade to A, then step 8a, then STEP 5.5
+     C       → fix in place per GRADE C protocol above, re-grade, then step 8a, then STEP 5.5
+     D or F  → post grade comment (step 8a below). DO NOT merge. File a GitHub issue (bug + batch label). Self-destruct. Report to user.
+
+  8a. POST GRADE AS PR COMMENT — mandatory for every grade, every time:
+  ⚠️  NEVER submit a formal GitHub review (pull_request_review_write / APPROVE / REQUEST_CHANGES).
+      All agents share one GitHub identity — GitHub will reject self-reviews, stalling the pipeline.
+  ⚠️  NEVER just output the grade as chat text and then merge. Post it explicitly so it is
+      permanently visible on the PR thread before any merge action.
+
+  Post the grade as a regular PR comment via MCP:
+  # MCP: add_issue_comment(owner="cgcardona", repo="agentception",
+  #   issue_number=N,
+  #   body="## 🤖 Code Review\n\n**Grade: <A/B/C/D/F>**\n\n### Summary\n<one-paragraph assessment>\n\n### Checklist\n- [ ] Types: <pass/fail + detail>\n- [ ] Tests: <pass/fail + detail>\n- [ ] Docs: <pass/fail + detail>\n- [ ] mypy: <clean / N errors>\n\n### Findings\n<bullet-point list of all findings, including fixes applied>\n\n### Verdict\n<Approved for merge — merging now | Not approved — reason>")
 
 STEP 5.5 — MERGE ORDER GATE (sequential chain safety):
   Read the MERGE_AFTER field from .agent-task:
@@ -1183,11 +1193,10 @@ STEP 6 — PRE-MERGE SYNC (only if grade is A or B):
 
   Output "Approved for merge" and then merge via MCP:
 
-  # ⚠️  All agents share one GitHub identity. GitHub blocks formal APPROVE
-  #    reviews when author == reviewer. Skip the review — the grade IS the
-  #    approval signal. Proceed directly to merge.
-  # ⚠️  Do NOT submit a COMMENT review "recommending approval" — that
-  #    leaves the PR unmerged. The agent MUST merge, not just comment.
+  # ⚠️  NEVER call pull_request_review_write. NEVER submit an APPROVE, REQUEST_CHANGES,
+  #    or COMMENT review via the GitHub review API. All agents share one GitHub identity —
+  #    GitHub rejects self-reviews, which stalls the pipeline. The grade comment posted
+  #    in STEP 5 (8a) IS the review record. Proceed directly to merge_pull_request.
 
   # 5. Squash merge via MCP — the ONLY valid merge strategy.
   #    MCP: merge_pull_request(owner="cgcardona", repo="agentception",
@@ -2944,7 +2953,10 @@ STEP 5 — PUSH & CREATE PR:
 
   # MCP: create_pull_request(owner="cgcardona", repo="agentception",
   #   title="feat: <issue title>", base="dev", head="feat/<short-description>",
+  #   draft=false,
   #   body="## Summary\nCloses #${N} — <one-line description>.\n\n## Root Cause / Motivation\n<What was wrong or missing and why>\n\n## Solution\n<What was changed and why this approach>\n\n## Verification\n- [ ] mypy clean\n- [ ] Tests pass\n- [ ] Docs updated\n\n---\n$PR_FINGERPRINT")
+  # ⚠️  NEVER create a draft PR (draft=false is mandatory). A draft PR cannot be
+  #    merged by the reviewer agent and stalls the entire pipeline.
   # → returns {number: MY_PR_NUM, url: PR_URL, ...}
 
   # Write the new PR number back to .agent-task so the chain can use it for MERGE_AFTER.
