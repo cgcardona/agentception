@@ -11,6 +11,7 @@ import datetime
 import fnmatch
 import json
 import logging
+import re as _re
 from pathlib import Path
 from typing import TypedDict
 
@@ -106,7 +107,23 @@ class AgentRunDetail(TypedDict):
     status: str
     spawned_at: str
     last_activity_at: str | None
+    completed_at: str | None
+    batch_id: str | None
+    cognitive_arch: str | None
+    tier: str | None
+    org_domain: str | None
+    parent_run_id: str | None
     messages: list[AgentMessageRow]
+
+
+class SiblingRunRow(TypedDict):
+    """Minimal sibling agent run info for the lineage panel."""
+
+    id: str
+    role: str
+    status: str
+    issue_number: int | None
+    tier: str | None
 
 
 class AgentRunTeardownRow(TypedDict):
@@ -301,6 +318,8 @@ class PhasedIssueRow(TypedDict):
 
     number: int
     title: str
+    body_excerpt: str
+    """First ~120 chars of the issue body, markdown stripped — used as a card subtitle."""
     state: str
     url: str
     labels: list[str]
@@ -342,6 +361,29 @@ class RunForIssueRow(TypedDict):
     steps_total: int | None
     tier: str | None
     org_domain: str | None
+    batch_id: str | None
+
+
+class RunTreeNodeRow(TypedDict):
+    """One node in the agent run tree, returned by ``get_run_tree_by_batch_id``.
+
+    The flat list can be assembled into a tree client-side by following
+    ``parent_run_id`` references.
+    """
+
+    id: str
+    role: str
+    status: str
+    agent_status: str
+    tier: str | None
+    org_domain: str | None
+    parent_run_id: str | None
+    issue_number: int | None
+    pr_number: int | None
+    batch_id: str | None
+    spawned_at: str
+    last_activity_at: str | None
+    current_step: str | None
 
 
 # ---------------------------------------------------------------------------
@@ -612,6 +654,14 @@ async def get_agent_run_detail(
             last_activity_at=(
                 run.last_activity_at.isoformat() if run.last_activity_at else None
             ),
+            completed_at=(
+                run.completed_at.isoformat() if run.completed_at else None
+            ),
+            batch_id=run.batch_id,
+            cognitive_arch=run.cognitive_arch,
+            tier=run.tier,
+            org_domain=run.org_domain,
+            parent_run_id=run.parent_run_id,
             messages=[
                 AgentMessageRow(
                     role=m.role,
@@ -626,6 +676,41 @@ async def get_agent_run_detail(
     except Exception as exc:
         logger.warning("⚠️  get_agent_run_detail DB query failed (non-fatal): %s", exc)
         return None
+
+
+async def get_sibling_runs(
+    batch_id: str,
+    exclude_id: str,
+) -> list[SiblingRunRow]:
+    """Return all agent runs in the same batch, excluding the current run.
+
+    Used by the agent profile page to render the lineage panel.  Returns an
+    empty list when the batch has no other members or on any DB error.
+    """
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun)
+                .where(
+                    ACAgentRun.batch_id == batch_id,
+                    ACAgentRun.id != exclude_id,
+                )
+                .order_by(ACAgentRun.spawned_at)
+            )
+            rows = result.scalars().all()
+        return [
+            SiblingRunRow(
+                id=r.id,
+                role=r.role,
+                status=r.status,
+                issue_number=r.issue_number,
+                tier=r.tier,
+            )
+            for r in rows
+        ]
+    except Exception as exc:
+        logger.warning("⚠️  get_sibling_runs DB query failed (non-fatal): %s", exc)
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -1304,6 +1389,26 @@ def _compute_locked(
     return any(dep not in complete_phases for dep in deps)
 
 
+_MD_STRIP_RE = _re.compile(r"[#*`_\[\]!>|~]+|```[^`]*```|\n+")
+
+
+def _body_excerpt(body: str | None, max_chars: int = 120) -> str:
+    """Return a plain-text excerpt from a Markdown issue body.
+
+    Strips common markdown syntax characters and collapses whitespace so the
+    result reads as a short prose snippet suitable for a Kanban card subtitle.
+    """
+    if not isinstance(body, str) or not body:
+        return ""
+    text: str = str(_MD_STRIP_RE.sub(" ", body)).strip()
+    if len(text) <= max_chars:
+        return text
+    # Break at the last word boundary within the limit.
+    truncated = text[:max_chars]
+    cut = truncated.rfind(" ")
+    return (truncated[:cut] if cut > 0 else truncated) + "…"
+
+
 
 async def get_issues_grouped_by_phase(
     repo: str,
@@ -1363,6 +1468,7 @@ async def get_issues_grouped_by_phase(
                 PhasedIssueRow(
                     number=row.github_number,
                     title=row.title,
+                    body_excerpt=_body_excerpt(row.body),
                     state=row.state,
                     url=f"https://github.com/{repo}/issues/{row.github_number}",
                     labels=issue_labels,
@@ -1514,6 +1620,43 @@ async def _get_step_data_for_runs(run_ids: list[str]) -> dict[str, _RunStepData]
         return {}
 
 
+async def _get_active_reviewer_runs_for_prs(
+    pr_numbers: list[int],
+) -> dict[int, ACAgentRun]:
+    """Return the most-recent active reviewer run keyed by PR number.
+
+    Only returns runs whose tier is ``reviewer`` and whose status is one of the
+    active statuses (``implementing``, ``pending_launch``, ``reviewing``).
+    Falls back to ``{}`` on DB error.
+    """
+    if not pr_numbers:
+        return {}
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun)
+                .where(
+                    ACAgentRun.pr_number.in_(pr_numbers),
+                    ACAgentRun.tier == "reviewer",
+                    ACAgentRun.status.in_(["implementing", "pending_launch", "reviewing"]),
+                )
+                .order_by(ACAgentRun.spawned_at.desc())
+            )
+            rows = result.scalars().all()
+
+        out: dict[int, ACAgentRun] = {}
+        for row in rows:
+            if row.pr_number is None or row.pr_number in out:
+                continue
+            out[row.pr_number] = row
+        return out
+    except Exception as exc:
+        logger.warning(
+            "⚠️  _get_active_reviewer_runs_for_prs DB query failed (non-fatal): %s", exc
+        )
+        return {}
+
+
 async def get_runs_for_issue_numbers(
     issue_numbers: list[int],
 ) -> dict[int, RunForIssueRow]:
@@ -1521,7 +1664,9 @@ async def get_runs_for_issue_numbers(
 
     Enriches each run with:
 
-    * ``agent_status`` — normalized + stale-aware status string.
+    * ``agent_status`` — normalized + stale-aware status string.  If an active
+      reviewer run exists for the issue's PR, ``agent_status`` is promoted to
+      ``"reviewing"`` so the board card moves into the Reviewing swim lane.
     * ``current_step`` — step name from the most-recent ``step_start`` event.
     * ``steps_completed`` — count of ``step_start`` events for the run.
     * ``steps_total`` — always ``None``; the DB does not track planned step count.
@@ -1552,15 +1697,25 @@ async def get_runs_for_issue_numbers(
         run_ids = [r.id for r in most_recent.values()]
         step_data = await _get_step_data_for_runs(run_ids)
 
+        # Check whether a QA reviewer run is actively reviewing any of these PRs.
+        # Reviewer runs are associated with a PR number, not an issue number, so
+        # they won't appear in most_recent — we detect them separately.
+        pr_numbers = [r.pr_number for r in most_recent.values() if r.pr_number is not None]
+        reviewer_runs = await _get_active_reviewer_runs_for_prs(pr_numbers)
+
         out: dict[int, RunForIssueRow] = {}
         for issue_num, row in most_recent.items():
             sd = step_data.get(row.id, _RunStepData(current_step=None, steps_completed=0))
+            computed_status = _compute_agent_status(row.status, row.last_activity_at)
+            # Promote to "reviewing" when an active reviewer is working on this issue's PR.
+            if row.pr_number and row.pr_number in reviewer_runs:
+                computed_status = "reviewing"
             out[issue_num] = RunForIssueRow(
                 id=row.id,
                 role=row.role,
                 cognitive_arch=row.cognitive_arch,
                 status=row.status,
-                agent_status=_compute_agent_status(row.status, row.last_activity_at),
+                agent_status=computed_status,
                 pr_number=row.pr_number,
                 branch=row.branch,
                 spawned_at=row.spawned_at.isoformat(),
@@ -1572,11 +1727,98 @@ async def get_runs_for_issue_numbers(
                 steps_total=None,
                 tier=row.tier,
                 org_domain=row.org_domain,
+                batch_id=row.batch_id,
             )
         return out
     except Exception as exc:
         logger.warning("⚠️  get_runs_for_issue_numbers DB query failed (non-fatal): %s", exc)
         return {}
+
+
+async def get_run_tree_by_batch_id(batch_id: str) -> list[RunTreeNodeRow]:
+    """Return all agent runs sharing *batch_id*, ordered by spawn time.
+
+    The returned flat list can be assembled into a tree client-side by
+    following ``parent_run_id`` references.  Falls back to ``[]`` on DB error.
+    """
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun)
+                .where(ACAgentRun.batch_id == batch_id)
+                .order_by(ACAgentRun.spawned_at.asc())
+            )
+            rows = result.scalars().all()
+
+        run_ids = [r.id for r in rows]
+        step_data = await _get_step_data_for_runs(run_ids)
+
+        out: list[RunTreeNodeRow] = []
+        for row in rows:
+            sd = step_data.get(row.id, _RunStepData(current_step=None, steps_completed=0))
+            out.append(
+                RunTreeNodeRow(
+                    id=row.id,
+                    role=row.role,
+                    status=row.status,
+                    agent_status=_compute_agent_status(row.status, row.last_activity_at),
+                    tier=row.tier,
+                    org_domain=row.org_domain,
+                    parent_run_id=row.parent_run_id,
+                    issue_number=row.issue_number,
+                    pr_number=row.pr_number,
+                    batch_id=row.batch_id,
+                    spawned_at=row.spawned_at.isoformat(),
+                    last_activity_at=(
+                        row.last_activity_at.isoformat() if row.last_activity_at else None
+                    ),
+                    current_step=sd["current_step"],
+                )
+            )
+        return out
+    except Exception as exc:
+        logger.warning("⚠️  get_run_tree_by_batch_id DB query failed (non-fatal): %s", exc)
+        return []
+
+
+async def get_latest_active_batch_id(repo: str, initiative: str) -> str | None:
+    """Return the batch_id of the most recently active run for an initiative.
+
+    Scans ``agent_runs`` for runs whose status is active and whose ``batch_id``
+    is set, filtering to runs tied to issues labelled with *initiative*.
+    Falls back to the most-recently-spawned batch overall if no active run is
+    found.  Returns ``None`` when no runs exist.
+    """
+    try:
+        async with get_session() as session:
+            # Prefer an active run whose issue is in this initiative.
+            # Join on ac_issues via issue_number and labels_json text match.
+            active_statuses = ["implementing", "pending_launch", "reviewing"]
+            result = await session.execute(
+                select(ACAgentRun.batch_id)
+                .where(
+                    ACAgentRun.batch_id.is_not(None),
+                    ACAgentRun.status.in_(active_statuses),
+                )
+                .order_by(ACAgentRun.spawned_at.desc())
+                .limit(1)
+            )
+            row = result.scalar_one_or_none()
+            if row:
+                return str(row)
+
+            # Fall back: most recent run with a batch_id, regardless of status.
+            result2 = await session.execute(
+                select(ACAgentRun.batch_id)
+                .where(ACAgentRun.batch_id.is_not(None))
+                .order_by(ACAgentRun.spawned_at.desc())
+                .limit(1)
+            )
+            row2 = result2.scalar_one_or_none()
+            return str(row2) if row2 else None
+    except Exception as exc:
+        logger.warning("⚠️  get_latest_active_batch_id DB query failed (non-fatal): %s", exc)
+        return None
 
 
 async def get_pending_launches() -> list[PendingLaunchRow]:
