@@ -1023,7 +1023,10 @@ STEP 5 — PUSH & CREATE PR:
 
   # MCP: create_pull_request(owner="cgcardona", repo="agentception",
   #   title="feat: <issue title>", base="dev", head="feat/<short-description>",
+  #   draft=false,
   #   body="## Summary\nCloses #${N} — <one-line description>.\n\n## Root Cause / Motivation\n<What was wrong or missing and why>\n\n## Solution\n<What was changed and why this approach>\n\n## Verification\n- [ ] mypy clean\n- [ ] Tests pass\n- [ ] Docs updated\n\n---\n$PR_FINGERPRINT")
+  # ⚠️  NEVER create a draft PR (draft=false is mandatory). A draft PR cannot be
+  #    merged by the reviewer agent and stalls the entire pipeline.
   # → returns {number: MY_PR_NUM, url: PR_URL, ...}
 
   # Write the new PR number back to .agent-task so the chain can use it for MERGE_AFTER.
