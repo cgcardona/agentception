@@ -39,7 +39,7 @@
     <section class="build-board"
              id="build-board"
              hx-get="/ship/{{ initiative | urlencode }}/board"
-             hx-trigger="load, every 10s, refreshBoard from:body"
+             hx-trigger="load, every 5s, refreshBoard from:body"
              hx-swap="innerHTML"
     >
       {% include "_build_board.html" %}
@@ -48,8 +48,61 @@
     {# ── right: inspector panel ─────────────────────────────────────────── #}
     <aside class="build-inspector">
 
-      {# empty state #}
-      <template x-if="!activeIssue">
+      {# ── Agent hierarchy tree (always shown when there are nodes) ─────── #}
+      <template x-if="treeHasNodes">
+        <div class="build-inspector__tree-section">
+          <div class="build-inspector__tree-header">
+            <h4 class="build-inspector__section-label build-inspector__section-label--tree">Agent Hierarchy</h4>
+            <template x-if="agentTreeBatchId">
+              <span class="agent-tree__batch-id" x-text="agentTreeBatchId.slice(-8)"></span>
+            </template>
+          </div>
+
+          <div class="agent-tree">
+            <template x-for="(tierRow, tIdx) in treeTiers" :key="tierRow.tier">
+              <div>
+                {# connector line between tiers #}
+                <template x-if="tIdx > 0">
+                  <div class="agent-tree__connector"></div>
+                </template>
+
+                <div class="agent-tree__tier-row">
+                  <div class="agent-tree__tier-label" x-text="tierRow.label"></div>
+                  <div class="agent-tree__tier-nodes">
+                    <template x-for="node in tierRow.nodes" :key="node.id">
+                      <div class="agent-tree__node"
+                           :class="['agent-tree__node--' + tierRow.tier, activeIssue && activeIssue.run && activeIssue.run.id === node.id ? 'agent-tree__node--selected' : '']">
+                        <div class="agent-tree__node-header">
+                          <span class="agent-tree__node-dot"
+                                :class="'agent-tree__node-dot--' + node.agent_status"
+                                :title="node.agent_status"></span>
+                          <span class="agent-tree__node-role"
+                                x-text="node.role.replace(/-/g, '\u00a0')"></span>
+                        </div>
+                        <template x-if="node.issue_number">
+                          <span class="agent-tree__node-scope"
+                                x-text="'#' + node.issue_number"></span>
+                        </template>
+                        <template x-if="node.pr_number && !node.issue_number">
+                          <span class="agent-tree__node-scope"
+                                x-text="'PR\u00a0#' + node.pr_number"></span>
+                        </template>
+                        <template x-if="node.current_step">
+                          <span class="agent-tree__node-step"
+                                x-text="node.current_step"></span>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+
+      {# empty state — only shown when no tree nodes AND no issue selected #}
+      <template x-if="!treeHasNodes && !activeIssue">
         <div class="build-inspector__empty">
           <div class="build-inspector__empty-icon">🛰</div>
           <p class="build-inspector__empty-title">Mission Control Idle</p>
@@ -57,7 +110,7 @@
         </div>
       </template>
 
-      {# issue selected #}
+      {# issue selected — inspector content below the tree #}
       <template x-if="activeIssue">
         <div class="build-inspector__content">
 
@@ -109,7 +162,7 @@
                   <span class="build-timeline__icon" x-text="eventIcon(ev.event_type)"></span>
                   <div class="build-timeline__body">
                     <span class="build-timeline__type" x-text="ev.event_type.replace('_', ' ')"></span>
-                    <span class="build-timeline__detail" x-text="eventDetail(ev)"></span>
+                    <span class="build-timeline__detail" x-html="renderMd(eventDetail(ev))"></span>
                     <span class="build-timeline__time" x-text="fmtTime(ev.recorded_at)"></span>
                   </div>
                 </li>
@@ -129,17 +182,18 @@
             </div>
           </div>
 
-          <template x-if="activeIssue.run && !streamOpen">
+          <template x-if="activeIssue.run && ['implementing','reviewing','stale','pending_launch'].includes(activeIssue.run.agent_status) && !streamOpen">
             <p class="build-inspector__stream-status">⚪ Stream disconnected</p>
           </template>
-          <template x-if="activeIssue.run && streamOpen">
+          <template x-if="activeIssue.run && ['implementing','reviewing','stale','pending_launch'].includes(activeIssue.run.agent_status) && streamOpen">
             <p class="build-inspector__stream-status build-inspector__stream-status--live">
               🟢 Live
             </p>
           </template>
 
-          {# ── Agent controls (stop) ───────────────────────────────────────── #}
-          <template x-if="activeIssue.run">
+          {# ── Agent controls — only shown while agent is live ─────────────── #}
+          {# done/unknown runs have no agent listening; hide stop + chat.    #}
+          <template x-if="activeIssue.run && ['implementing','reviewing','stale','pending_launch'].includes(activeIssue.run.agent_status)">
             <div class="build-inspector__chat">
               <div class="build-inspector__agent-actions">
                 <button class="build-inspector__stop-btn"
@@ -326,5 +380,6 @@
 
 <script>
   window._buildRepo = {{ repo | tojson }};
+  window._buildInitiative = {{ initiative | tojson }};
 </script>
 {% endblock %}

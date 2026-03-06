@@ -19,6 +19,7 @@ import datetime
 import hashlib
 import json
 import logging
+import re
 from typing import TYPE_CHECKING, TypedDict
 
 from sqlalchemy import select
@@ -80,6 +81,9 @@ async def persist_tick(
             all_prs = list(open_prs) + list(merged_prs or [])
             await _upsert_prs(session, all_prs, gh_repo)
             await _upsert_agent_runs(session, state.agents)
+            # Auto-close issues whose PRs are merged (handles the dev-branch workflow
+            # where GitHub's auto-close doesn't fire because PRs target dev, not main).
+            await _auto_close_pr_linked_issues(session, gh_repo)
             await session.commit()
     except Exception as exc:
         logger.warning("⚠️  DB persist_tick failed (non-fatal): %s", exc)
@@ -239,6 +243,17 @@ async def _upsert_prs(
             except ValueError:
                 pass
 
+        # Parse the first "Closes/Fixes/Resolves #N" reference from the PR body.
+        # Agents targeting `dev` (not `main`) bypass GitHub's auto-close; we
+        # track the linkage here so _auto_close_pr_linked_issues can act on it.
+        body_str = str(raw.get("body") or "")
+        closes_match = re.search(
+            r"(?i)(?:closes|fixes|resolves)\s+#(\d+)", body_str
+        )
+        closes_issue_number: int | None = (
+            int(closes_match.group(1)) if closes_match else None
+        )
+
         if existing is None:
             session.add(
                 ACPullRequest(
@@ -247,6 +262,7 @@ async def _upsert_prs(
                     title=title,
                     state=state_str,
                     head_ref=str(head_ref) if isinstance(head_ref, str) else None,
+                    closes_issue_number=closes_issue_number,
                     labels_json=labels_json,
                     content_hash=content_hash,
                     merged_at=merged_at,
@@ -263,7 +279,130 @@ async def _upsert_prs(
             existing.content_hash = content_hash
             if merged_at is not None and existing.merged_at is None:
                 existing.merged_at = merged_at
+            # Populate closes_issue_number on first parse (never overwrite once set).
+            if closes_issue_number is not None and existing.closes_issue_number is None:
+                existing.closes_issue_number = closes_issue_number
             existing.last_synced_at = now
+
+
+# ---------------------------------------------------------------------------
+# Auto-close issues whose PRs have been merged
+# ---------------------------------------------------------------------------
+
+#: Regex that matches GitHub closing keywords in PR body text.
+_CLOSES_RE: re.Pattern[str] = re.compile(
+    r"(?i)(?:closes|fixes|resolves)\s+#(\d+)"
+)
+
+
+async def _auto_close_pr_linked_issues(session: object, repo: str) -> None:
+    """Close issues in the DB (and on GitHub) when their linked PR is merged.
+
+    Agents open PRs against the ``dev`` branch rather than ``main``, which
+    bypasses GitHub's native auto-close.  This function bridges the gap by
+    detecting two kinds of linkage and closing the issue on GitHub + in the DB:
+
+    1. **Agent-run linkage** — ``agent_runs.pr_number`` → ``agent_runs.issue_number``
+    2. **PR-body linkage** — ``pull_requests.closes_issue_number`` (parsed from
+       the PR body's "Closes #N" / "Fixes #N" / "Resolves #N" keyword).
+
+    The DB row is updated immediately so the board reflects the change within the
+    current tick.  The GitHub close runs as a fire-and-forget subprocess; the next
+    ``get_closed_issues`` fetch will confirm and solidify the change.
+    """
+    from sqlalchemy import or_
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    assert isinstance(session, AsyncSession)
+    now = _now()
+
+    # Collect issue numbers to auto-close from both linkage methods.
+    to_close: set[int] = set()
+
+    # Method 1 — agent_runs linking issue ↔ merged PR.
+    result = await session.execute(
+        select(ACAgentRun.issue_number)
+        .join(ACPullRequest, ACPullRequest.github_number == ACAgentRun.pr_number)
+        .join(ACIssue, ACIssue.github_number == ACAgentRun.issue_number)
+        .where(
+            ACAgentRun.pr_number.is_not(None),
+            ACAgentRun.issue_number.is_not(None),
+            ACPullRequest.state == "merged",
+            ACPullRequest.repo == repo,
+            ACIssue.state == "open",
+            ACIssue.repo == repo,
+        )
+    )
+    for row in result.all():
+        if isinstance(row.issue_number, int):
+            to_close.add(row.issue_number)
+
+    # Method 2 — pull_requests.closes_issue_number (parsed from PR body).
+    result2 = await session.execute(
+        select(ACPullRequest.closes_issue_number)
+        .join(
+            ACIssue,
+            ACIssue.github_number == ACPullRequest.closes_issue_number,
+        )
+        .where(
+            ACPullRequest.closes_issue_number.is_not(None),
+            ACPullRequest.state == "merged",
+            ACPullRequest.repo == repo,
+            ACIssue.state == "open",
+            ACIssue.repo == repo,
+        )
+    )
+    for row in result2.all():
+        if isinstance(row.closes_issue_number, int):
+            to_close.add(row.closes_issue_number)
+
+    if not to_close:
+        return
+
+    logger.info(
+        "✅ auto-closing %d issue(s) whose PRs are merged: %s",
+        len(to_close),
+        sorted(to_close),
+    )
+
+    # Update the DB immediately so the board reflects the change this tick.
+    for issue_num in to_close:
+        issue_result = await session.execute(
+            select(ACIssue).where(
+                ACIssue.github_number == issue_num, ACIssue.repo == repo
+            )
+        )
+        issue = issue_result.scalar_one_or_none()
+        if issue is None:
+            continue
+        issue.state = "closed"
+        issue.last_synced_at = now
+        if issue.closed_at is None:
+            issue.closed_at = now
+        # Recompute content_hash so the next _upsert_issues doesn't re-open it
+        # if GitHub still reports it as open during the close propagation window.
+        issue.content_hash = _hash(issue.title, "closed", issue.labels_json)
+
+    # Fire-and-forget: close the issues on GitHub so the source of truth stays
+    # consistent and subsequent poller ticks don't flip the state back to open.
+    for issue_num in to_close:
+        asyncio.ensure_future(
+            _gh_close_issue(repo, issue_num)
+        )
+
+
+async def _gh_close_issue(repo: str, issue_number: int) -> None:
+    """Close a GitHub issue via the ``gh`` CLI (fire-and-forget helper)."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "gh", "issue", "close", str(issue_number), "--repo", repo,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.wait()
+        logger.info("✅ gh issue close %d (exit %d)", issue_number, proc.returncode or 0)
+    except Exception as exc:
+        logger.warning("⚠️  _gh_close_issue(%d) failed: %s", issue_number, exc)
 
 
 # ---------------------------------------------------------------------------

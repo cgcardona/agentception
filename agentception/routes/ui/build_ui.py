@@ -4,14 +4,18 @@ from __future__ import annotations
 
 Endpoints
 ---------
-GET  /ship                       — redirect to /ship/{first-initiative}
-GET  /ship/{initiative}          — full page (Mission Control)
-GET  /ship/{initiative}/board    — HTMX board partial (polled every 10 s)
-GET  /ship/runs/{run_id}/stream  — SSE: structured events + thinking messages
+GET  /ship                          — redirect to /ship/{first-initiative}
+GET  /ship/{initiative}             — full page (Mission Control)
+GET  /ship/{initiative}/board       — HTMX board partial (polled every 5 s)
+GET  /ship/{initiative}/tree        — JSON agent tree for latest active batch
+GET  /ship/runs/{run_id}/tree       — JSON agent tree for a specific run's batch
+GET  /ship/runs/{run_id}/stream     — SSE: structured events + thinking messages
 
 The board shows all issues grouped by phase with live PR/agent-run status.
 The inspector panel streams events from ``ac_agent_events`` and thinking
-messages from ``ac_agent_messages`` for a selected agent run.
+messages from ``ac_agent_messages`` for a selected agent run.  The hierarchy
+panel renders the full agent tree (executive → coordinator → leaf) from the
+most recently active batch for the current initiative.
 """
 
 import asyncio
@@ -20,21 +24,26 @@ import logging
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
-from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
+from fastapi import APIRouter
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
+from sqlalchemy import select
 from starlette.requests import Request
 
 from typing import TypedDict
 
 from agentception.config import settings
+from agentception.db.engine import get_session
+from agentception.db.models import ACAgentRun
 from agentception.db.queries import (
     PhaseGroupRow,
     RunForIssueRow,
+    RunTreeNodeRow,
     get_agent_events_tail,
     get_agent_thoughts_tail,
     get_initiatives,
     get_issues_grouped_by_phase,
+    get_latest_active_batch_id,
+    get_run_tree_by_batch_id,
     get_runs_for_issue_numbers,
 )
 from agentception.readers.pipeline_config import read_pipeline_config
@@ -297,6 +306,50 @@ async def _inspector_sse(run_id: str) -> AsyncGenerator[str, None]:
             yield 'data: {"t":"ping"}\n\n'
 
         await asyncio.sleep(2)
+
+
+@router.get("/ship/runs/{run_id}/tree", response_class=Response, response_model=None)
+async def agent_run_tree(run_id: str) -> Response:
+    """Return the full agent tree for the batch containing *run_id*.
+
+    Looks up the run's ``batch_id``, then fetches all sibling runs in that
+    batch and returns them as a flat list ordered by spawn time.  The client
+    assembles the tree via ``parent_run_id`` references.
+
+    Returns ``{"nodes": [], "batch_id": null}`` when the run is not found or
+    has no batch.
+    """
+    batch_id: str | None = None
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun.batch_id).where(ACAgentRun.id == run_id)
+            )
+            raw = result.scalar_one_or_none()
+            batch_id = str(raw) if raw is not None else None
+    except Exception:
+        batch_id = None
+
+    if not batch_id:
+        return JSONResponse({"nodes": [], "batch_id": None})
+
+    nodes = await get_run_tree_by_batch_id(batch_id)
+    return JSONResponse({"nodes": nodes, "batch_id": batch_id})
+
+
+@router.get("/ship/{initiative}/tree", response_class=Response, response_model=None)
+async def initiative_active_tree(initiative: str) -> Response:
+    """Return the agent tree for the most recently active batch under *initiative*.
+
+    Used by the build board to populate the hierarchy panel when no specific
+    issue is selected.  Falls back to an empty tree when there are no runs.
+    """
+    repo = settings.gh_repo
+    batch_id = await get_latest_active_batch_id(repo, initiative)
+    if not batch_id:
+        return JSONResponse({"nodes": [], "batch_id": None})
+    nodes = await get_run_tree_by_batch_id(batch_id)
+    return JSONResponse({"nodes": nodes, "batch_id": batch_id})
 
 
 @router.get("/ship/runs/{run_id}/stream")

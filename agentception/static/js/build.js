@@ -1,3 +1,17 @@
+import { marked } from 'marked';
+
+/**
+ * Render a markdown string to HTML.
+ * Exported so app.js can expose it on window for use in any template.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function renderMd(text) {
+  if (!text) return '';
+  return /** @type {string} */ (marked.parse(text, { breaks: true, gfm: true }));
+}
+
 /**
  * build.js — Mission Control Alpine component
  *
@@ -18,6 +32,12 @@ export function buildPage() {
     thoughts: [],
     streamOpen: false,
     _evtSource: null,
+
+    // ── agent hierarchy tree ─────────────────────────────────────────────
+    /** @type {Array<{id:string,role:string,status:string,agent_status:string,tier:string|null,org_domain:string|null,parent_run_id:string|null,issue_number:number|null,pr_number:number|null,batch_id:string|null,spawned_at:string,last_activity_at:string|null,current_step:string|null}>} */
+    agentTreeNodes: [],
+    agentTreeBatchId: null,
+    _treeTimer: null,
 
     // ── chat / agent control ─────────────────────────────────────────────
     chatMessage: '',
@@ -82,10 +102,49 @@ export function buildPage() {
       return false;
     },
 
+    // ── agent tree computed groupings ────────────────────────────────────
+
+    /**
+     * Group tree nodes into ordered tier rows for rendering.
+     * Returns [{tier, label, nodes}] in executive → coordinator → leaf order.
+     */
+    get treeTiers() {
+      const ORDER = ['executive', 'coordinator', 'engineer', 'reviewer'];
+      /** @type {Record<string, typeof this.agentTreeNodes>} */
+      const byTier = {};
+      for (const node of this.agentTreeNodes) {
+        const t = node.tier || 'unknown';
+        if (!byTier[t]) byTier[t] = [];
+        byTier[t].push(node);
+      }
+      const LABELS = {
+        executive:   'Executive',
+        coordinator: 'Coordinators',
+        engineer:    'Engineers',
+        reviewer:    'Reviewers',
+        unknown:     'Agents',
+      };
+      return ORDER
+        .filter(t => byTier[t]?.length > 0)
+        .map(t => ({ tier: t, label: LABELS[t] ?? t, nodes: byTier[t] }));
+    },
+
+    get treeHasNodes() {
+      return this.agentTreeNodes.length > 0;
+    },
+
     // ── repo (set by inline script in template) ──────────────────────────
     get repo() { return window._buildRepo ?? ''; },
 
     // ── lifecycle ────────────────────────────────────────────────────────
+
+    init() {
+      // Start the initiative-level tree poll immediately so the hierarchy panel
+      // is populated even before the user selects an issue.
+      if (window._buildInitiative) {
+        this._startTreePoll(`/ship/${encodeURIComponent(window._buildInitiative)}/tree`);
+      }
+    },
 
     onInspect(issue) {
       if (this.activeIssue?.number === issue.number) return;
@@ -95,16 +154,22 @@ export function buildPage() {
       this.thoughts = [];
       if (issue.run) {
         this._openStream(issue.run.id);
+        this._startTreePoll(`/ship/runs/${encodeURIComponent(issue.run.id)}/tree`);
       }
     },
 
     clearInspect() {
       this._closeStream();
+      this._stopTreePoll();
       this.activeIssue = null;
       this.events = [];
       this.thoughts = [];
       this.chatMessage = '';
       this.chatError = null;
+      // Revert to initiative-level tree when deselecting an issue.
+      if (window._buildInitiative) {
+        this._startTreePoll(`/ship/${encodeURIComponent(window._buildInitiative)}/tree`);
+      }
     },
 
     // ── chat with agent ──────────────────────────────────────────────────
@@ -201,6 +266,39 @@ export function buildPage() {
         const el = this.$refs.cotScroll;
         if (el) el.scrollTop = el.scrollHeight;
       });
+    },
+
+    // ── agent hierarchy tree ─────────────────────────────────────────────
+
+    /**
+     * Start polling *url* every 5 s to refresh the agent tree.
+     * Cancels any existing poll first.
+     * @param {string} url
+     */
+    _startTreePoll(url) {
+      this._stopTreePoll();
+      // Fetch immediately, then repeat.
+      this._fetchTree(url);
+      this._treeTimer = setInterval(() => this._fetchTree(url), 5000);
+    },
+
+    _stopTreePoll() {
+      if (this._treeTimer !== null) {
+        clearInterval(this._treeTimer);
+        this._treeTimer = null;
+      }
+    },
+
+    async _fetchTree(url) {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) return;
+        const data = await res.json();
+        this.agentTreeNodes = data.nodes ?? [];
+        this.agentTreeBatchId = data.batch_id ?? null;
+      } catch {
+        // Non-fatal — tree will retry on next interval.
+      }
     },
 
     // ── label-dispatch (launch) modal ────────────────────────────────────
@@ -335,5 +433,7 @@ export function buildPage() {
         default:           return JSON.stringify(p);
       }
     },
+
+    renderMd,
   };
 }

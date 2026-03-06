@@ -270,7 +270,7 @@ async def get_merged_prs_full(limit: int = 100) -> list[dict[str, object]]:
         "--repo", repo,
         "--base", "dev",
         "--state", "merged",
-        "--json", "number,title,headRefName,labels,mergedAt,state",
+        "--json", "number,title,headRefName,labels,mergedAt,state,body",
         "--limit", str(limit),
     ]
     cache_key = f"get_merged_prs_full:limit={limit}"
@@ -464,11 +464,11 @@ async def get_issue(number: int) -> dict[str, object]:
     args = [
         "issue", "view", str(number),
         "--repo", repo,
-        "--json", "number,state,title,labels",
+        "--json", "number,state,title,labels,body",
     ]
     result = await gh_json(
         args,
-        "{number: .number, state: .state, title: .title, labels: [.labels[].name]}",
+        "{number: .number, state: .state, title: .title, body: .body, labels: [.labels[].name]}",
         f"get_issue:{number}",
     )
     if not isinstance(result, dict):
