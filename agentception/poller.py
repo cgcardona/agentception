@@ -134,11 +134,13 @@ async def merge_agents(
     4. Otherwise → UNKNOWN
     """
     # Index open PRs by branch name for O(1) lookup.
-    pr_branches: set[str] = {
-        str(pr["headRefName"])
-        for pr in github.open_prs
-        if isinstance(pr.get("headRefName"), str)
-    }
+    # Maps headRefName → PR number so we can propagate pr_number to AgentNode.
+    pr_branch_to_number: dict[str, int] = {}
+    for pr in github.open_prs:
+        head = pr.get("headRefName")
+        number = pr.get("number")
+        if isinstance(head, str) and isinstance(number, int):
+            pr_branch_to_number[head] = number
 
     # Index WIP issue numbers for O(1) lookup.
     wip_issue_numbers: set[int] = set()
@@ -150,7 +152,8 @@ async def merge_agents(
     nodes: list[AgentNode] = []
     for tf in worktrees:
         branch = tf.branch or ""
-        if branch and branch in pr_branches:
+        gh_pr_number: int | None = pr_branch_to_number.get(branch) if branch else None
+        if branch and gh_pr_number is not None:
             status = AgentStatus.REVIEWING
         elif tf.issue_number is not None:
             # Any worktree with a valid issue number is implementing. We do not
@@ -173,13 +176,17 @@ async def merge_agents(
         node_id = (
             Path(tf.worktree).name if tf.worktree else None
         ) or (f"issue-{tf.issue_number}" if tf.issue_number else None) or "unknown"
+        # Prefer PR number derived from live GitHub branch match over the
+        # static value in the .agent-task file (which may be 0 or missing
+        # until the agent explicitly updates linked_pr).
+        resolved_pr_number = gh_pr_number if gh_pr_number is not None else tf.pr_number
         nodes.append(
             AgentNode(
                 id=node_id,
                 role=tf.role or "unknown",
                 status=status,
                 issue_number=tf.issue_number,
-                pr_number=tf.pr_number,
+                pr_number=resolved_pr_number,
                 branch=tf.branch,
                 batch_id=tf.batch_id,
                 worktree_path=tf.worktree,

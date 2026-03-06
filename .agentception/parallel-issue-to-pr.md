@@ -1446,6 +1446,71 @@ docker compose exec agentception pytest agentception/tests/test_<your_module>.py
 The full suite is CI's job. Running it in every agent session doesn't scale.
 Never skip mypy. A test that passes with a type error is a ticking clock.
 
+## Audit Trail — Required at Every Touch Point
+
+You must post fingerprint comments to GitHub at each lifecycle event below.
+These are the only audibility signal visible to the human operator on the
+Mission Control dashboard. Skipping them breaks observability.
+
+Read your `.agent-task` to extract these fields from the TOML sections:
+- `[agent].cognitive_arch` → `COGNITIVE_ARCH`
+- `[agent].role` → `ROLE`
+- `[pipeline].batch_id` → `BATCH_ID`
+- `[pipeline].coord_fingerprint` → `COORD_FINGERPRINT`
+- `[repo].gh_repo` → `GH_REPO`
+- `[target].issue_number` → `ISSUE_NUMBER`
+- `[worktree].branch` → `BRANCH`
+
+```bash
+# ── 1. CLAIM — post immediately after adding agent:wip label ────────────────
+AGENT_SESSION="eng-$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%04x' $RANDOM)"
+CLAIMED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+REPO="<path to repo root>"  # e.g. /Users/gabriel/dev/tellurstori/agentception
+
+CLAIM_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" \
+  "${COGNITIVE_ARCH:-unset}" \
+  --fingerprint \
+  --role "${ROLE:-python-developer}" \
+  --session "$AGENT_SESSION" \
+  --batch "${BATCH_ID:-none}" \
+  --coordinator "${COORD_FINGERPRINT:-unset}" \
+  --started-at "$CLAIMED_AT" 2>/dev/null)
+
+# Fallback if resolve_arch.py is unavailable
+if [ -z "$CLAIM_FINGERPRINT" ]; then
+  CLAIM_FINGERPRINT="<details>
+<summary>🤖 Agent Fingerprint</summary>
+
+| | |
+|---|---|
+| **Role** | \`${ROLE:-python-developer}\` |
+| **Architecture** | \`${COGNITIVE_ARCH:-unset}\` |
+| **Session** | \`$AGENT_SESSION\` |
+| **Coordinator** | \`${COORD_FINGERPRINT:-unset}\` |
+| **Claimed at** | \`$CLAIMED_AT\` |
+
+</details>"
+fi
+
+gh issue comment "$ISSUE_NUMBER" --repo "$GH_REPO" \
+  --body "🔖 **Claimed by agent**
+
+$CLAIM_FINGERPRINT" 2>/dev/null || true
+
+# ── 2. PR CREATED — embed fingerprint in PR body ────────────────────────────
+# When calling create_pull_request (via MCP user-github or gh CLI), include
+# $CLAIM_FINGERPRINT at the end of the PR body:
+#
+#   body = "## Summary\n...\n\nCloses #$ISSUE_NUMBER\n\n$CLAIM_FINGERPRINT"
+
+# ── 3. DONE — post implementation complete comment on the issue ─────────────
+# After the PR URL is known:
+gh issue comment "$ISSUE_NUMBER" --repo "$GH_REPO" \
+  --body "🤖 **Implemented by agent** — PR #$PR_NUMBER
+
+$CLAIM_FINGERPRINT" 2>/dev/null || true
+```
+
 
 ---
 

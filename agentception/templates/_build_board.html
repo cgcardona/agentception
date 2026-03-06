@@ -175,7 +175,7 @@
       {% set bns.reviewing = bns.reviewing + [issue] %}
     {% elif _ar and _ar.pr_number %}
       {% set bns.pr_open = bns.pr_open + [issue] %}
-    {% elif _ar and _ar.agent_status in ('implementing', 'pending_launch', 'stale') %}
+    {% elif _ar and _ar.agent_status in ('implementing', 'pending_launch', 'stale', 'reviewing') %}
       {% set bns.active = bns.active + [issue] %}
     {% else %}
       {% set bns.todo = bns.todo + [issue] %}
@@ -208,7 +208,12 @@
       </div>
       <div class="build-swimlane__phase-label-meta">
         {% if total_count > 0 %}
-        <span class="build-phase__progress">{{ closed_count }}&thinsp;/&thinsp;{{ total_count }}</span>
+        {% set open_count = total_count - closed_count %}
+        {% if open_count == 0 %}
+        <span class="build-phase__progress">{{ total_count }}&thinsp;/&thinsp;{{ total_count }}&nbsp;closed</span>
+        {% else %}
+        <span class="build-phase__progress">{{ open_count }}&thinsp;/&thinsp;{{ total_count }}&nbsp;open</span>
+        {% endif %}
         {% else %}
         <span class="build-phase__progress build-phase__progress--empty">no issues</span>
         {% endif %}
