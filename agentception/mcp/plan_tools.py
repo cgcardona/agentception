@@ -42,6 +42,7 @@ from pydantic import ValidationError
 
 from agentception.models import EnrichedManifest, PlanSpec
 from agentception.readers.github import gh_json
+from agentception.routes.api._shared import _build_coordinator_task
 
 logger = logging.getLogger(__name__)
 
@@ -270,17 +271,15 @@ async def plan_spawn_coordinator(manifest_json: str) -> dict[str, object]:
 
     logger.info("✅ plan_spawn_coordinator: worktree created at %s", worktree_path)
 
-    manifest_json_pretty = json.dumps(manifest_dict, indent=2)
-    agent_task_content = (
-        f"WORKFLOW=bugs-to-issues\n"
-        f"BATCH_ID={slug}\n"
-        f"BRANCH={branch}\n"
-        f"WORKTREE={worktree_path}\n"
-        f"\n"
-        f"ENRICHED_MANIFEST:\n"
-        f"```json\n"
-        f"{manifest_json_pretty}\n"
-        f"```\n"
+    plan_text = json.dumps(manifest_dict, indent=2)
+    label_prefix_str = str(manifest_dict.get("label_prefix", "")) if isinstance(manifest_dict, dict) else ""
+    agent_task_content = _build_coordinator_task(
+        slug=slug,
+        plan_text=plan_text,
+        label_prefix=label_prefix_str,
+        worktree=Path(worktree_path),
+        host_worktree=Path(worktree_path),
+        branch=branch,
     )
 
     agent_task_path = str(Path(worktree_path) / ".agent-task")

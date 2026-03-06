@@ -29,21 +29,25 @@ router = APIRouter(prefix="/api/control", tags=["control"])
 
 
 def _parse_issue_number(worktree: Path) -> int | None:
-    """Read .agent-task in ``worktree`` and return the ISSUE_NUMBER value, or None.
+    """Read .agent-task in ``worktree`` and return the issue number, or None.
 
-    Parses only KEY=value lines — never evaluates them. Returns ``None`` when
-    the file is absent, unreadable, or contains no ISSUE_NUMBER key.
+    Parses the TOML v2 ``.agent-task`` format and reads ``target.issue_number``.
+    Returns ``None`` when the file is absent, unreadable, or the field is missing.
     """
+    import tomllib
+
     task_file = worktree / ".agent-task"
     if not task_file.exists():
         return None
     try:
-        for line in task_file.read_text(encoding="utf-8").splitlines():
-            if line.startswith("ISSUE_NUMBER="):
-                raw = line.split("=", 1)[1].strip()
-                return int(raw) if raw.isdigit() else None
-    except OSError:
-        logger.warning("⚠️ Could not read .agent-task at %s", task_file)
+        data = tomllib.loads(task_file.read_text(encoding="utf-8"))
+        target = data.get("target", {})
+        if not isinstance(target, dict):
+            return None
+        issue_num = target.get("issue_number")
+        return int(issue_num) if isinstance(issue_num, int) else None
+    except Exception:
+        logger.warning("⚠️ Could not parse .agent-task at %s", task_file)
     return None
 
 

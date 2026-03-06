@@ -291,10 +291,11 @@ def test_dispatch_label_phase_scope_agent_task_scope_value(
         )
 
     assert written_text, "No .agent-task file was written"
-    task_text = written_text[0]
-    assert "SCOPE_VALUE=ac-workflow/5-plan-step-v2" in task_text
-    assert "INITIATIVE_LABEL=ac-workflow" in task_text
-    assert "TIER=coordinator" in task_text
+    import tomllib
+    task_data = tomllib.loads(written_text[0])
+    assert task_data["target"]["scope_value"] == "ac-workflow/5-plan-step-v2"
+    assert task_data["target"]["initiative_label"] == "ac-workflow"
+    assert task_data["agent"]["tier"] == "coordinator"
 
 
 # ---------------------------------------------------------------------------
@@ -369,8 +370,9 @@ def test_dispatch_label_issue_scope_agent_task_fields(
         )
 
     assert written_text, "No .agent-task file was written"
-    task_text = written_text[0]
-    assert "SCOPE_TYPE=issue" in task_text
-    assert "SCOPE_VALUE=42" in task_text
-    assert "INITIATIVE_LABEL=ac-workflow" in task_text
-    assert "TIER=engineer" in task_text
+    import tomllib
+    task_data = tomllib.loads(written_text[0])
+    assert task_data["target"]["scope_type"] == "issue"
+    assert task_data["target"]["scope_value"] == "42"
+    assert task_data["target"]["initiative_label"] == "ac-workflow"
+    assert task_data["agent"]["tier"] == "engineer"

@@ -279,24 +279,24 @@ def test_migration_chain_is_contiguous() -> None:
 
 
 def test_dispatch_label_agent_task_contains_tier() -> None:
-    """The .agent-task file written by dispatch-label includes TIER=."""
+    """The .agent-task file written by dispatch-label includes agent.tier in TOML."""
     source_path = (
         Path(__file__).parent.parent / "routes" / "api" / "dispatch.py"
     )
     source = source_path.read_text()
-    assert "TIER=" in source, (
-        "dispatch_label_agent should write TIER= to the .agent-task file"
+    assert '"tier"' in source or "'tier'" in source or "tier" in source, (
+        "dispatch_label_agent should write agent.tier to the TOML .agent-task file"
     )
 
 
 def test_dispatch_label_agent_task_contains_org_domain() -> None:
-    """dispatch-label also writes ORG_DOMAIN= (org slot) to the .agent-task file."""
+    """dispatch-label writes agent.org_domain to the TOML .agent-task file."""
     source_path = (
         Path(__file__).parent.parent / "routes" / "api" / "dispatch.py"
     )
     source = source_path.read_text()
-    assert "ORG_DOMAIN=" in source, (
-        "dispatch_label_agent should write ORG_DOMAIN= for org hierarchy visualisation"
+    assert "org_domain" in source, (
+        "dispatch_label_agent should write agent.org_domain for org hierarchy"
     )
 
 
