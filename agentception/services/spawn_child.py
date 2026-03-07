@@ -225,6 +225,7 @@ def _build_child_task(
     issue_title: str = "",
     issue_number: int | None = None,
     pr_number: int | None = None,
+    is_resumed: bool = False,
 ) -> str:
     """Build the TOML v2 content of a ``.agent-task`` file for any tree node.
 
@@ -253,6 +254,7 @@ def _build_child_task(
             "id": run_id,
             "created_at": now,
             "attempt_n": 0,
+            "is_resumed": is_resumed,
             "required_output": _required_output_for_scope(scope_type),
             "on_block": "stop",
         },
@@ -364,6 +366,7 @@ async def spawn_child(
     skills_hint: list[str] | None = None,
     coord_fingerprint: str | None = None,
     cognitive_arch: str | None = None,
+    is_resumed: bool = False,
 ) -> SpawnChildResult:
     """Atomically create a child agent node in the agent tree.
 
@@ -501,6 +504,7 @@ async def spawn_child(
         issue_title=issue_title,
         issue_number=issue_number,
         pr_number=pr_number,
+        is_resumed=is_resumed,
     )
 
     agent_task_path = str(Path(worktree_path) / ".agent-task")
