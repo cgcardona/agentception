@@ -46,7 +46,35 @@ from agentception.db.queries import (
     get_runs_for_issue_numbers,
     get_workflow_states_by_issue,
 )
+from agentception.services.cognitive_arch import figure_display_name, ROLE_DEFAULT_FIGURE
 from ._shared import _TEMPLATES
+
+
+class FigureItem(TypedDict):
+    """A cognitive architecture figure entry for the Org Designer picker."""
+
+    id: str
+    name: str
+
+
+# Built once at import time — the figure catalog is static.
+_FIGURES: list[FigureItem] = sorted(
+    [
+        FigureItem(id=fig_id, name=figure_display_name(fig_id))
+        for fig_id in {
+            *ROLE_DEFAULT_FIGURE.values(),
+            # A handful of prominent figures not used as role defaults.
+            "da_vinci", "darwin", "einstein", "feynman", "newton", "sun_tzu",
+            "marie_curie", "linus_pauling", "carl_sagan", "fabrice_bellard",
+            "rich_hickey", "joe_armstrong", "barbara_liskov", "leslie_lamport",
+            "nassim_taleb", "bill_gates", "nick_szabo", "gavin_wood",
+            "vitalik_buterin", "satoshi_nakamoto", "hal_finney", "david_chaum",
+            "emin_gun_sirer", "ilya_sutskever", "demis_hassabis", "sam_altman",
+            "brendan_eich", "bjarne_stroustrup", "hamming", "gabriel_cardona",
+        }
+    ],
+    key=lambda f: f["name"],
+)
 
 
 class EnrichedIssueRow(TypedDict):
@@ -193,6 +221,7 @@ async def build_page(
             "groups": enriched_groups,
             "total_issues": total_issues,
             "open_issues": open_issues,
+            "figures": _FIGURES,
         },
     )
 

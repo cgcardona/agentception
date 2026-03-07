@@ -23,6 +23,7 @@
  *   roles.js        — roleDetail, rolesEditor
  *   plan.js         — planForm
  *   build.js        — buildPage
+ *   org_designer.js — orgDesigner
  *   transcripts.js  — transcriptBrowser, transcriptDetail
  *   templates.js    — exportPanel, importPanel, envSandbox
  *   api.js          — apiEndpoint
@@ -45,6 +46,7 @@ import { configPanel } from './config.js';
 import { roleDetail, rolesEditor } from './roles.js';
 import { planForm } from './plan.ts';
 import { buildPage, renderMd } from './build.js';
+import { orgDesigner } from './org_designer.js';
 import { transcriptBrowser, transcriptDetail } from './transcripts.js';
 import { exportPanel, importPanel, envSandbox } from './templates.js';
 import { apiEndpoint } from './api.js';
@@ -65,6 +67,7 @@ Object.assign(window, {
   roleDetail, rolesEditor,
   planForm,
   buildPage, renderMd,
+  orgDesigner,
   transcriptBrowser, transcriptDetail,
   exportPanel, importPanel, envSandbox,
   apiEndpoint,
