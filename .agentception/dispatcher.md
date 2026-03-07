@@ -89,7 +89,26 @@ it was already claimed.
 cat {host_worktree_path}/.agent-task
 ```
 
-Extract: `TIER`, `SCOPE_TYPE`, `SCOPE_VALUE`, `GH_REPO`, `ROLE`, `ROLE_FILE`.
+Extract: `TIER`, `SCOPE_TYPE`, `SCOPE_VALUE`, `GH_REPO`, `ROLE`, `ROLE_FILE`,
+`COGNITIVE_ARCH` (from the `[agent]` section), and `HOST_ROLE_FILE`.
+
+Then **resolve the cognitive architecture now**, before writing the briefing.
+Derive the host repo root from `HOST_ROLE_FILE` by stripping the trailing
+`.agentception/roles/<role>.md` segments, then run:
+
+```bash
+python3 <host_repo_root>/scripts/gen_prompts/resolve_arch.py \
+  "{cognitive_arch}" --mode implementer
+```
+
+Capture the full output as `{arch_text}`. Extract the figure display name from
+the first `## Cognitive Architecture: <Name>` heading inside that output as
+`{arch_display_name}`. If `resolve_arch.py` fails for any reason, set
+`{arch_text}` to the empty string and `{arch_display_name}` to
+`{cognitive_arch}`.
+
+You now have everything needed to pre-fill the self-introduction into the
+briefing below — no shell execution required by the spawned agent.
 
 ### 3c. Spawn the agent via Task tool
 
@@ -101,14 +120,29 @@ agents have the Task tool and can spawn their own children.
 ```
 You are an AgentCeption manager agent. Your briefing:
 
-WORKTREE:    {host_worktree_path}
-ROLE:        {role}
-TIER:        {tier}
-RUN_ID:      {run_id}
-SCOPE_TYPE:  label
-SCOPE_VALUE: {scope_value}
-GH_REPO:     {gh_repo}
-mcp_server:  user-agentception
+WORKTREE:       {host_worktree_path}
+ROLE:           {role}
+TIER:           {tier}
+RUN_ID:         {run_id}
+SCOPE_TYPE:     label
+SCOPE_VALUE:    {scope_value}
+GH_REPO:        {gh_repo}
+COGNITIVE_ARCH: {cognitive_arch}
+mcp_server:     user-agentception
+
+⚠️ MANDATORY — your very first action is to output the following block
+verbatim as visible text. Do NOT call any tool first. Do NOT read any file
+first. Send this text NOW as your opening message, then proceed to Step 1.
+
+---
+🧠 **Cognitive architecture loaded.**
+
+**My name:** {arch_display_name}
+**My role:** {role}
+**My cognitive architecture:** {cognitive_arch}
+
+{arch_text}
+---
 
 Step 1: Read your role file:
   {role_file}
@@ -156,14 +190,29 @@ Always pass agent_run_id="{run_id}".
 ```
 You are an AgentCeption agent. Your full briefing is in your .agent-task file.
 
-WORKTREE:    {host_worktree_path}
-ROLE:        {role}
-TIER:        {tier}
-RUN_ID:      {run_id}
-SCOPE_TYPE:  {scope_type}    (issue or pr)
-SCOPE_VALUE: {scope_value}   (issue or PR number)
-GH_REPO:     {gh_repo}
-mcp_server:  user-agentception
+WORKTREE:       {host_worktree_path}
+ROLE:           {role}
+TIER:           {tier}
+RUN_ID:         {run_id}
+SCOPE_TYPE:     {scope_type}    (issue or pr)
+SCOPE_VALUE:    {scope_value}   (issue or PR number)
+GH_REPO:        {gh_repo}
+COGNITIVE_ARCH: {cognitive_arch}
+mcp_server:     user-agentception
+
+⚠️ MANDATORY — your very first action is to output the following block
+verbatim as visible text. Do NOT call any tool first. Do NOT read any file
+first. Send this text NOW as your opening message, then proceed to Step 1.
+
+---
+🧠 **Cognitive architecture loaded.**
+
+**My name:** {arch_display_name}
+**My role:** {role}
+**My cognitive architecture:** {cognitive_arch}
+
+{arch_text}
+---
 
 Step 1: Read your role file:
   {role_file}
