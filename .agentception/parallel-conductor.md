@@ -151,7 +151,7 @@ Red = never, ask the user instead.
 STEP 0 — READ YOUR TASK FILE:
   cat .agent-task
 
-  Parse all TOML v2 fields:
+  Parse all KEY=value fields:
     GH_REPO                → GitHub repo slug (always cgcardona/agentception)
     PHASE_FILTER           → restrict to one phase, or empty for all
     MAX_ISSUES_PER_DISPATCH → cap on parallel ISSUE_TO_PR agents (safety valve)

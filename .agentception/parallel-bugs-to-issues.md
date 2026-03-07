@@ -444,14 +444,15 @@ PARALLEL AGENT COORDINATION — BUGS TO ISSUES
 STEP 0 — READ YOUR TASK FILE:
   cat .agent-task
 
-  Parse these TOML v2 fields:
-    task.workflow           — must be "bugs-to-issues"
-    repo.gh_repo            — GitHub repo slug (cgcardona/agentception)
-    target.phase_label      — the phase label to apply to every issue
-    target.labels_to_apply  — list of ALL labels for every issue
-    target.phase_depends_on_issues — upstream issue numbers (already resolved to #N)
-    target.file_ownership   — files this phase owns (awareness, not action)
-    spawn.sub_agents        — if true, follow sub-coordinator path
+  Parse these fields from the header (KEY=value lines):
+    WORKFLOW                — must be "bugs-to-issues"
+    BATCH_NUM               — your phase number
+    GH_REPO                 — GitHub repo slug (cgcardona/agentception)
+    PHASE_LABEL             — the phase label to apply to every issue
+    LABELS_TO_APPLY         — comma-separated list of ALL labels for every issue
+    PHASE_DEPENDS_ON_ISSUES — upstream issue numbers (already resolved to #N)
+    FILE_OWNERSHIP          — files this phase owns (awareness, not action)
+    SPAWN_SUB_AGENTS        — if true, follow sub-coordinator path
 
 STEP 0.5 — LOAD YOUR ROLE:
   ROLE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['role'])")

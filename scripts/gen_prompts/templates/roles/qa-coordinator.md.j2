@@ -13,8 +13,8 @@ Load it as the very first thing you do — see STEP 0 below.
 
 ```bash
 REPO=$(git rev-parse --show-toplevel 2>/dev/null || git worktree list | head -1 | awk '{print $1}')
-COGNITIVE_ARCH=$(grep '^COGNITIVE_ARCH=' .agent-task | cut -d= -f2)
-ROLE=$(grep '^ROLE=' .agent-task | cut -d= -f2)
+COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
+ROLE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['role'])")
 RESOLVE_ARCH="$REPO/scripts/gen_prompts/resolve_arch.py"
 if [ -n "$COGNITIVE_ARCH" ] && [ -f "$RESOLVE_ARCH" ]; then
   ARCH_CONTEXT=$(python3 "$RESOLVE_ARCH" "$COGNITIVE_ARCH" --mode reviewer 2>/dev/null)
