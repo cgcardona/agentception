@@ -431,6 +431,16 @@ TOOLS: list[ACToolDef] = [
                         "when spawning leaves."
                     ),
                 },
+                "cognitive_arch": {
+                    "type": "string",
+                    "description": (
+                        "When provided, forward this exact cognitive architecture string "
+                        "to the child without re-resolving. Coordinators must pass their "
+                        "own cognitive_arch here so the field propagates unchanged through "
+                        "every tier of the agent tree. Omit only when spawning a root node "
+                        "that has no parent arch to forward."
+                    ),
+                },
             },
             "required": ["parent_run_id", "role", "tier", "scope_type", "scope_value", "gh_repo"],
             "additionalProperties": False,
@@ -754,6 +764,8 @@ async def call_tool_async(
             skills_hint = [str(s) for s in skills_raw]
         coord_fp_raw = arguments.get("coord_fingerprint")
         coord_fingerprint: str | None = str(coord_fp_raw) if isinstance(coord_fp_raw, str) else None
+        cognitive_arch_raw = arguments.get("cognitive_arch", "")
+        cognitive_arch: str = str(cognitive_arch_raw) if isinstance(cognitive_arch_raw, str) else ""
         result = await build_spawn_child(
             parent_run_id=parent_run_id,
             role=role,
@@ -766,6 +778,7 @@ async def call_tool_async(
             issue_title=issue_title,
             skills_hint=skills_hint,
             coord_fingerprint=coord_fingerprint,
+            cognitive_arch=cognitive_arch,
         )
         is_error = not bool(result.get("ok", False))
         return ACToolResult(

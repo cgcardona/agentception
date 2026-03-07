@@ -362,6 +362,7 @@ async def spawn_child(
     issue_title: str = "",
     skills_hint: list[str] | None = None,
     coord_fingerprint: str | None = None,
+    cognitive_arch: str | None = None,
 ) -> SpawnChildResult:
     """Atomically create a child agent node in the agent tree.
 
@@ -386,13 +387,20 @@ async def spawn_child(
         scope_type:         ``"label"``, ``"issue"``, or ``"pr"``.
         scope_value:        Label string, or issue/PR number as a string.
         gh_repo:            ``"owner/repo"`` string.
-        issue_body:         Issue body text (used for COGNITIVE_ARCH skill extraction).
+        issue_body:         Issue body text (used for COGNITIVE_ARCH skill extraction
+                            when ``cognitive_arch`` is not provided).
         issue_title:        Issue title (written to ISSUE_TITLE field).
-        skills_hint:        Explicit skill list override for COGNITIVE_ARCH.
+        skills_hint:        Explicit skill list override for COGNITIVE_ARCH
+                            (used when ``cognitive_arch`` is not provided).
         coord_fingerprint:  The spawning coordinator's fingerprint string.  Written
                             as ``COORD_FINGERPRINT=`` in the child's ``.agent-task``
                             so leaf agents can include it in their GitHub fingerprint
                             comments without having to re-derive it.
+        cognitive_arch:     When provided, forward this exact arch string to the child
+                            without re-resolving.  Coordinators must pass their own
+                            ``cognitive_arch`` here so the field propagates unchanged
+                            through every tier of the agent tree.  When omitted,
+                            resolution falls back to ``_resolve_cognitive_arch()``.
 
     Returns:
         :class:`SpawnChildResult` with all fields needed to fire a Task call.
@@ -422,16 +430,25 @@ async def spawn_child(
         except ValueError:
             pass
 
-    # Resolve cognitive architecture
-    cognitive_arch = _resolve_cognitive_arch(
-        issue_body,
-        role,
-        skills_hint=skills_hint,
-    )
-    logger.info(
-        "🌳 spawn_child: role=%r tier=%r org_domain=%r scope=%s:%s arch=%r",
-        role, tier, org_domain, scope_type, scope_value, cognitive_arch,
-    )
+    # Resolve cognitive architecture — forward the parent's arch when provided
+    # so the field propagates unchanged through every tier of the agent tree.
+    resolved_arch: str
+    if cognitive_arch:
+        resolved_arch = cognitive_arch
+        logger.info(
+            "🌳 spawn_child: role=%r tier=%r org_domain=%r scope=%s:%s arch=%r (forwarded from parent)",
+            role, tier, org_domain, scope_type, scope_value, resolved_arch,
+        )
+    else:
+        resolved_arch = _resolve_cognitive_arch(
+            issue_body,
+            role,
+            skills_hint=skills_hint,
+        )
+        logger.info(
+            "🌳 spawn_child: role=%r tier=%r org_domain=%r scope=%s:%s arch=%r (resolved)",
+            role, tier, org_domain, scope_type, scope_value, resolved_arch,
+        )
 
     # Resolve origin/dev SHA to pin the worktree start point.
     # Using a concrete SHA instead of the main repo's HEAD prevents agents
@@ -479,7 +496,7 @@ async def spawn_child(
         host_worktree_path=host_worktree_path,
         batch_id=batch_id,
         parent_run_id=parent_run_id,
-        cognitive_arch=cognitive_arch,
+        cognitive_arch=resolved_arch,
         ac_url=ac_url,
         coord_fingerprint=coord_fingerprint,
         issue_title=issue_title,
@@ -514,7 +531,7 @@ async def spawn_child(
         worktree_path=worktree_path,
         batch_id=batch_id,
         host_worktree_path=host_worktree_path,
-        cognitive_arch=cognitive_arch,
+        cognitive_arch=resolved_arch,
         tier=tier,
         org_domain=org_domain,
         parent_run_id=parent_run_id,
@@ -531,7 +548,7 @@ async def spawn_child(
         tier=tier,
         org_domain=org_domain,
         role=role,
-        cognitive_arch=cognitive_arch,
+        cognitive_arch=resolved_arch,
         agent_task_path=agent_task_path,
         scope_type=scope_type,
         scope_value=scope_value,
