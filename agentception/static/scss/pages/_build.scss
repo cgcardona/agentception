@@ -17,6 +17,9 @@
   padding: 0 1.25rem;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border-subtle);
+  /* Scroll horizontally within the strip; never let the strip expand the page. */
+  width: 100%;
+  max-width: 100vw;
   overflow-x: auto;
   scrollbar-width: none;
   &::-webkit-scrollbar { display: none; }
