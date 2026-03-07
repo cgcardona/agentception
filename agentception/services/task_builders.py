@@ -120,6 +120,7 @@ def _build_coordinator_task(
     worktree: Path,
     host_worktree: Path,
     branch: str,
+    coordinator_arch: dict[str, str] | None = None,
 ) -> str:
     """Build the TOML v2 ``.agent-task`` content for a plan coordinator worktree.
 
@@ -130,11 +131,21 @@ def _build_coordinator_task(
 
     The raw brain dump is stored in ``[plan_draft].dump`` as a TOML multiline
     basic string so it is available verbatim to the coordinator agent.
+
+    ``coordinator_arch`` is the ``PlanSpec.coordinator_arch`` dict from Phase 1A/1B.
+    When provided, the ``cognitive_arch`` for the coordinator role is read from it
+    (key ``"coordinator"`` or the first entry with an engineering-coordinator key).
+    Falls back to the ``ROLE_DEFAULT_FIGURE`` heuristic when absent.
     """
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     repo = settings.gh_repo
+
+    # Resolve coordinator cognitive arch: prefer planner assignment over default.
+    _coord_arch: dict[str, str] = coordinator_arch or {}
     coord_arch = (
-        f"{ROLE_DEFAULT_FIGURE.get('engineering-coordinator', 'von_neumann')}:python"
+        _coord_arch.get("coordinator")
+        or _coord_arch.get("engineering-coordinator")
+        or f"{ROLE_DEFAULT_FIGURE.get('engineering-coordinator', 'von_neumann')}:python"
     )
 
     plan_draft_fields: dict[str, _TomlValue] = {"dump": plan_text}

@@ -320,3 +320,55 @@ prompt_injection: |
 - **`/cognitive-arch`** — Catalog of all available architectures (figures + archetypes)
 - **`/cognitive-arch/{arch_id}`** — Detail view for a specific architecture: full atom fingerprint, prompt injection, skill domains, and which roles use it
 - **`/agents/{id}`** — An individual agent's assigned cognitive architecture
+
+---
+
+## Cognitive arch in the planning pipeline (Phase 1A/1B)
+
+Cognitive architecture assignments are determined at **plan time**, not at dispatch time. The LLM planner assigns an arch to every issue and to each orchestration tier during Phase 1A. The user can edit any assignment in the Phase 1B YAML editor before filing.
+
+### Resolution priority at dispatch time
+
+When an agent is spawned, `_resolve_cognitive_arch()` in `agentception/services/cognitive_arch.py` applies the following priority:
+
+1. **`<!-- ac:cognitive_arch: figure:skills -->`** — HTML comment embedded in the GitHub issue body at issue-creation time (highest priority). Set by the LLM planner; used verbatim with no heuristics.
+2. **`skills_hint`** — Explicit skill list passed by the caller from `PlanIssue.skills`. Combined with `ROLE_DEFAULT_FIGURE` lookup.
+3. **`<!-- ac:skills: ... -->`** — Skills comment embedded in the issue body.
+4. **Keyword scan** — Last-resort fallback for issues created before Phase 1A arch assignment was introduced.
+
+### PlanSpec fields
+
+```yaml
+initiative: my-feature
+
+# Orchestration tier assignments — populated by the LLM planner, editable in Phase 1B.
+coordinator_arch:
+  cto: jeff_dean:llm:python
+  engineering-coordinator: hamming:fastapi:python
+  qa-coordinator: w_edwards_deming:testing
+
+phases:
+  - label: 0-foundation
+    description: Scaffold DB and core models
+    issues:
+      - id: my-feature-p0-001
+        title: Add SQLAlchemy models
+        skills: [postgresql, python]
+        cognitive_arch: leslie_lamport:postgresql:python   # per-issue, baked into the ticket
+        body: |
+          ...
+```
+
+- `coordinator_arch` — maps role slugs to arch strings for orchestration agents (CTO, engineering-coordinator, qa-coordinator, and any future C-level or coordinator variant). Keys are open-ended; new coordinator types require no schema changes.
+- `cognitive_arch` (per issue) — the fully-resolved arch string baked into the issue body at filing time. Leaf engineers read this from the issue and load the matching persona.
+
+### MCP tool: `plan_get_cognitive_figures`
+
+Agents and the Phase 1A LLM planner can call this tool to get the filtered figure catalog for any role:
+
+```
+plan_get_cognitive_figures(role: str)
+→ {role: str, figures: [{id, display_name, description}, ...]}
+```
+
+The catalog is filtered to `compatible_figures` from `role-taxonomy.yaml`, so the caller only sees figures that are semantically appropriate for that role. Works for any role slug — `"cto"`, `"qa-coordinator"`, `"python-developer"`, etc.

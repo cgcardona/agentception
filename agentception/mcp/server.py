@@ -61,6 +61,7 @@ from agentception.mcp.github_tools import (
 )
 from agentception.mcp.plan_advance_phase import plan_advance_phase
 from agentception.mcp.plan_tools import (
+    plan_get_cognitive_figures,
     plan_get_labels,
     plan_get_schema,
     plan_validate_manifest,
@@ -134,6 +135,32 @@ TOOLS: list[ACToolDef] = [
         inputSchema={
             "type": "object",
             "properties": {},
+            "additionalProperties": False,
+        },
+    ),
+    ACToolDef(
+        name="plan_get_cognitive_figures",
+        description=(
+            "Return the catalog of cognitive architecture figures compatible with a given role slug. "
+            "Reads role-taxonomy.yaml to filter figures by role, then returns each figure's id, "
+            "display name, and one-line description. "
+            "Use this before assigning cognitive_arch fields in a PlanSpec so assignments are "
+            "grounded in the actual available figures for each role. "
+            "Returns {role: str, figures: [{id: str, display_name: str, description: str}, ...]} "
+            "or {role: str, figures: [], error: str} when the role is unknown."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "role": {
+                    "type": "string",
+                    "description": (
+                        "Role slug from role-taxonomy.yaml — e.g. 'cto', "
+                        "'engineering-coordinator', 'qa-coordinator', 'python-developer'."
+                    ),
+                }
+            },
+            "required": ["role"],
             "additionalProperties": False,
         },
     ),
@@ -839,6 +866,24 @@ def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
         result = plan_validate_manifest(json_text)
         text = _tool_result_to_text(result)
         is_error = not bool(result.get("valid", False))
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=text)],
+            isError=is_error,
+        )
+
+    if name == "plan_get_cognitive_figures":
+        role = arguments.get("role")
+        if not isinstance(role, str) or not role:
+            err_text = _tool_result_to_text(
+                {"error": "Missing or invalid required argument 'role' (must be a non-empty string)"}
+            )
+            return ACToolResult(
+                content=[ACToolContent(type="text", text=err_text)],
+                isError=True,
+            )
+        result_figures = plan_get_cognitive_figures(role)
+        text = _tool_result_to_text(result_figures)
+        is_error = "error" in result_figures
         return ACToolResult(
             content=[ACToolContent(type="text", text=text)],
             isError=is_error,
