@@ -42,7 +42,7 @@ from pydantic import ValidationError
 
 from agentception.models import EnrichedManifest, PlanSpec
 from agentception.readers.github import gh_json
-from agentception.routes.api._shared import _build_coordinator_task
+from agentception.services.task_builders import _build_coordinator_task
 
 logger = logging.getLogger(__name__)
 
