@@ -1996,9 +1996,199 @@ $od-pending-color:#4b5563;  // gray for unconfigured
   }
 }
 
+.od-header__preset-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: rgba(167,139,250,0.9);
+  background: rgba(109,40,217,0.2);
+  border: 1px solid rgba(109,40,217,0.35);
+  border-radius: 5px;
+  padding: 0.2rem 0.6rem;
+  letter-spacing: 0.02em;
+}
+
+.od-header__save-as {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.od-header__save-input {
+  font-size: 0.8rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 6px;
+  border: 1px solid rgba(167,139,250,0.4);
+  background: rgba(255,255,255,0.06);
+  color: #fff;
+  outline: none;
+  width: 180px;
+  &:focus { border-color: #7c3aed; box-shadow: 0 0 0 2px rgba(124,58,237,0.3); }
+  &::placeholder { color: rgba(255,255,255,0.3); }
+}
+
+.od-header__btn--update {
+  background: rgba(167,139,250,0.12);
+  color: rgba(167,139,250,0.9);
+  border: 1px solid rgba(167,139,250,0.25);
+  &:hover:not(:disabled) { background: rgba(167,139,250,0.22); color: #c4b5fd; }
+}
+
+.od-header__btn--saveas {
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.5);
+  border: 1px solid rgba(255,255,255,0.1);
+  &:hover:not(:disabled) { background: rgba(255,255,255,0.1); color: #fff; }
+}
+
+.od-header__btn--save-confirm {
+  background: rgba(109,40,217,0.5);
+  color: #fff;
+  border: none;
+  &:disabled { opacity: 0.3; cursor: not-allowed; }
+  &:hover:not(:disabled) { background: rgba(124,58,237,0.7); }
+}
+
+.od-header__btn--save-cancel {
+  background: transparent;
+  color: rgba(255,255,255,0.4);
+  border: none;
+  &:hover { color: #fff; }
+}
+
+.od-header__btn--presets {
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.45);
+  border: 1px solid rgba(255,255,255,0.1);
+  &:hover:not(:disabled) { background: rgba(255,255,255,0.1); color: #fff; }
+}
+
 .od-header__launch-err {
   font-size: 0.7rem;
   color: #f87171;
+}
+
+// ── Preset picker ─────────────────────────────────────────────────────────────
+
+.od-presets {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2rem 2.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+
+.od-presets__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.od-presets__section-title {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.35);
+  margin: 0 0 0.25rem;
+}
+
+.od-preset-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  align-items: start;
+  gap: 0.2rem 0.75rem;
+  width: 100%;
+  text-align: left;
+  padding: 1rem 1.25rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  position: relative;
+
+  &:hover {
+    background: rgba(109,40,217,0.18);
+    border-color: rgba(109,40,217,0.5);
+    transform: translateY(-1px);
+  }
+
+  &--blank {
+    border-style: dashed;
+    border-color: rgba(255,255,255,0.12);
+    &:hover {
+      border-color: rgba(167,139,250,0.5);
+      background: rgba(167,139,250,0.08);
+    }
+  }
+
+  &--user {
+    grid-template-columns: 1fr auto auto;
+  }
+}
+
+.od-preset-card__tag {
+  grid-column: 1;
+  grid-row: 1;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(167,139,250,0.7);
+  margin-bottom: 0.15rem;
+}
+
+.od-preset-card__name {
+  grid-column: 1;
+  grid-row: 2;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  display: block;
+
+  .od-preset-card--blank & {
+    grid-row: 1 / span 2;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: rgba(255,255,255,0.7);
+  }
+}
+
+.od-preset-card__desc {
+  grid-column: 1;
+  grid-row: 3;
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.4);
+  margin-top: 0.25rem;
+  display: block;
+}
+
+.od-preset-card__meta {
+  grid-column: 2;
+  grid-row: 1;
+  font-size: 0.65rem;
+  color: rgba(255,255,255,0.3);
+  white-space: nowrap;
+  padding-top: 0.1rem;
+}
+
+.od-preset-card__delete {
+  grid-column: 3;
+  grid-row: 1;
+  font-size: 1rem;
+  line-height: 1;
+  color: rgba(255,255,255,0.25);
+  padding: 0 0.1rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s;
+  &:hover { color: #f87171; }
 }
 
 .od-header__launch-ok {

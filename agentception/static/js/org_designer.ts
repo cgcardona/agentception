@@ -448,6 +448,117 @@ function clearStorage(repo: string, initiative: string): void {
   try { localStorage.removeItem(storageKey(repo, initiative)); } catch { /* ignore */ }
 }
 
+// ── Org preset types + storage ────────────────────────────────────────────────
+
+interface OrgPreset {
+  id: string;
+  name: string;
+  tree: OrgNode;
+  updatedAt: string;
+}
+
+/** Lightweight template description — no live OrgNode IDs. */
+interface PresetTemplate {
+  role: string;
+  figure?: string;
+  children?: PresetTemplate[];
+}
+
+/** Clone a preset template into fresh OrgNodes with new unique IDs. */
+function buildTree(tmpl: PresetTemplate): OrgNode {
+  return {
+    ...makeNode(tmpl.role, tmpl.figure ?? ''),
+    children: (tmpl.children ?? []).map(c => buildTree(c)),
+  };
+}
+
+function nodeCount(tmpl: PresetTemplate): number {
+  return 1 + (tmpl.children ?? []).reduce((s, c) => s + nodeCount(c), 0);
+}
+
+const BUILT_IN_TEMPLATES: ReadonlyArray<{
+  id: string;
+  name: string;
+  description: string;
+  nodeCount: number;
+  template: PresetTemplate;
+}> = [
+  {
+    id: 'builtin-cto-full',
+    name: 'CTO + Full Team',
+    description: 'CTO surveys tickets & PRs, spawns Eng Manager + QA Lead with workers',
+    get nodeCount() { return nodeCount(this.template); },
+    template: {
+      role: 'cto',
+      children: [
+        {
+          role: 'engineering-coordinator',
+          children: [
+            { role: 'python-developer' },
+            { role: 'typescript-developer' },
+          ],
+        },
+        {
+          role: 'qa-coordinator',
+          children: [{ role: 'pr-reviewer' }],
+        },
+      ],
+    },
+  },
+  {
+    id: 'builtin-eng-sprint',
+    name: 'Engineering Sprint',
+    description: 'Eng Manager pulls a phase and spawns dev workers + a reviewer',
+    get nodeCount() { return nodeCount(this.template); },
+    template: {
+      role: 'engineering-coordinator',
+      children: [
+        { role: 'python-developer' },
+        { role: 'typescript-developer' },
+        { role: 'pr-reviewer' },
+      ],
+    },
+  },
+  {
+    id: 'builtin-qa-pass',
+    name: 'QA Review Pass',
+    description: 'QA Lead surveys all open PRs and spawns reviewers',
+    get nodeCount() { return nodeCount(this.template); },
+    template: {
+      role: 'qa-coordinator',
+      children: [{ role: 'pr-reviewer' }, { role: 'pr-reviewer' }],
+    },
+  },
+  {
+    id: 'builtin-single-cto',
+    name: 'Single CTO',
+    description: 'One CTO working solo — great for smoke tests',
+    get nodeCount() { return nodeCount(this.template); },
+    template: { role: 'cto' },
+  },
+];
+
+function presetsKey(repo: string): string {
+  return `ac_presets_${repo}`;
+}
+
+function loadUserPresets(repo: string): OrgPreset[] {
+  try {
+    const raw = localStorage.getItem(presetsKey(repo));
+    if (!raw) return [];
+    return (JSON.parse(raw) as OrgPreset[]).map(p => ({
+      ...p,
+      tree: restoreNode(p.tree as Partial<OrgNode>),
+    }));
+  } catch { return []; }
+}
+
+function saveUserPresets(repo: string, presets: OrgPreset[]): void {
+  try {
+    localStorage.setItem(presetsKey(repo), JSON.stringify(presets));
+  } catch { /* quota exceeded — non-critical */ }
+}
+
 // ── D3 canvas constants ───────────────────────────────────────────────────────
 
 const NODE_W     = 240;
@@ -631,6 +742,14 @@ interface OrgDesignerComponent {
   repo: string;
   figures: FigureItem[];
 
+  // ── Preset management
+  presetsOpen: boolean;
+  userPresets: OrgPreset[];
+  activePresetId: string | null;
+  saveAsMode: boolean;
+  saveAsName: string;
+  builtInTemplates: ReadonlyArray<{ id: string; name: string; description: string; nodeCount: number }>;
+
   // ── Node editor
   selectedNodeId: string | null;
   editType: 'coordinator' | 'worker';
@@ -660,10 +779,18 @@ interface OrgDesignerComponent {
   readonly availableEditTypes: Array<'coordinator' | 'worker'>;
   readonly launchReady: boolean;
   readonly launchPreviewText: string;
+  readonly activePresetName: string;
+  readonly activePresetIsBuiltIn: boolean;
 
   // ── Methods
   openDesigner(label: string, repo: string, figures: FigureItem[]): void;
   close(): void;
+  loadPreset(id: string): void;
+  loadBlank(): void;
+  saveCurrentAsPreset(): void;
+  updateActivePreset(): void;
+  deletePreset(id: string, e: MouseEvent): void;
+  _openCanvas(): void;
   addChild(parentId: string): void;
   removeNodeById(id: string): void;
   selectNodeById(id: string): void;
@@ -688,6 +815,14 @@ export function orgDesigner(): OrgDesignerComponent {
     initiative: '',
     repo:       '',
     figures:    [],
+
+    // ── Preset management ─────────────────────────────────────────────────────
+    presetsOpen:      true,
+    userPresets:      [] as OrgPreset[],
+    activePresetId:   null as string | null,
+    saveAsMode:       false,
+    saveAsName:       '',
+    builtInTemplates: BUILT_IN_TEMPLATES,
 
     // ── Node editor state ─────────────────────────────────────────────────────
     selectedNodeId: null,
@@ -741,39 +876,128 @@ export function orgDesigner(): OrgDesignerComponent {
       return `Launch ${roleLabel(this._root.role)} (${figName})${note} →`;
     },
 
+    get activePresetName(): string {
+      if (!this.activePresetId) return '';
+      const builtin = BUILT_IN_TEMPLATES.find(t => t.id === this.activePresetId);
+      if (builtin) return builtin.name;
+      return this.userPresets.find(p => p.id === this.activePresetId)?.name ?? '';
+    },
+
+    get activePresetIsBuiltIn(): boolean {
+      return BUILT_IN_TEMPLATES.some(t => t.id === this.activePresetId);
+    },
+
     // ── Lifecycle ──────────────────────────────────────────────────────────────
 
     openDesigner(label: string, repo: string, figures: FigureItem[]): void {
-      this.initiative   = label;
-      this.repo         = repo;
-      this.figures      = figures;
-      this.launchError  = null;
-      this.launchSuccess= false;
-      this.launchResult = null;
-      this.launching    = false;
+      this.initiative     = label;
+      this.repo           = repo;
+      this.figures        = figures;
+      this.launchError    = null;
+      this.launchSuccess  = false;
+      this.launchResult   = null;
+      this.launching      = false;
       this.selectedNodeId = null;
-
-      // Restore from localStorage or start fresh.
-      const saved = loadFromStorage(repo, label);
-      this._root = saved ?? makeNode('', '');
-      this.open  = true;
+      this.saveAsMode     = false;
+      this.saveAsName     = '';
+      this.userPresets    = loadUserPresets(repo);
+      this.open           = true;
 
       void this._loadPhases();
 
-      void (this as unknown as AlpineMagics).$nextTick(() => {
-        this._container = document.getElementById('od-canvas');
-        requestAnimationFrame(() => {
-          this._render();
-          // Open editor for root immediately when starting fresh.
-          if (!saved && this._root) {
-            this._openEditor(this._root.id, null, 'coordinator');
-          }
-        });
-      });
+      // If there is a saved in-progress session for this initiative, jump
+      // straight to the canvas.  Otherwise show the preset picker first.
+      const saved = loadFromStorage(repo, label);
+      if (saved) {
+        this._root        = saved;
+        this.presetsOpen  = false;
+        this._openCanvas();
+      } else {
+        this._root        = null;
+        this.activePresetId = null;
+        this.presetsOpen  = true;
+      }
     },
 
     close(): void {
       this.open = false;
+    },
+
+    // ── Preset management ─────────────────────────────────────────────────────
+
+    loadPreset(id: string): void {
+      const builtin = BUILT_IN_TEMPLATES.find(t => t.id === id);
+      if (builtin) {
+        this._root = buildTree(builtin.template);
+      } else {
+        const user = this.userPresets.find(p => p.id === id);
+        if (!user) return;
+        // Clone via serialize/deserialize so edits don't mutate the stored preset.
+        this._root = restoreNode(JSON.parse(JSON.stringify(user.tree)) as Partial<OrgNode>);
+      }
+      this.activePresetId = id;
+      this.presetsOpen    = false;
+      this.selectedNodeId = null;
+      this._saveToStorage();
+      this._openCanvas();
+    },
+
+    loadBlank(): void {
+      this._root          = makeNode('', '');
+      this.activePresetId = null;
+      this.presetsOpen    = false;
+      this.selectedNodeId = null;
+      clearStorage(this.repo, this.initiative);
+      this._openCanvas();
+    },
+
+    saveCurrentAsPreset(): void {
+      if (!this.saveAsName.trim() || !this._root) return;
+      const preset: OrgPreset = {
+        id:        `user_${Date.now()}`,
+        name:      this.saveAsName.trim(),
+        tree:      this._root,
+        updatedAt: new Date().toISOString(),
+      };
+      this.userPresets    = [...this.userPresets, preset];
+      saveUserPresets(this.repo, this.userPresets);
+      this.activePresetId = preset.id;
+      this.saveAsMode     = false;
+      this.saveAsName     = '';
+    },
+
+    updateActivePreset(): void {
+      if (!this.activePresetId || !this._root || this.activePresetIsBuiltIn) return;
+      const idx = this.userPresets.findIndex(p => p.id === this.activePresetId);
+      if (idx === -1) return;
+      const updated: OrgPreset = {
+        ...this.userPresets[idx],
+        tree:      this._root,
+        updatedAt: new Date().toISOString(),
+      };
+      const next = [...this.userPresets];
+      next[idx]       = updated;
+      this.userPresets = next;
+      saveUserPresets(this.repo, this.userPresets);
+    },
+
+    deletePreset(id: string, e: MouseEvent): void {
+      e.stopPropagation();
+      this.userPresets = this.userPresets.filter(p => p.id !== id);
+      saveUserPresets(this.repo, this.userPresets);
+      if (this.activePresetId === id) this.activePresetId = null;
+    },
+
+    _openCanvas(): void {
+      void (this as unknown as AlpineMagics).$nextTick(() => {
+        this._container = document.getElementById('od-canvas');
+        requestAnimationFrame(() => {
+          this._render();
+          if (this._root && !this._root.role) {
+            this._openEditor(this._root.id, null, 'coordinator');
+          }
+        });
+      });
     },
 
     // ── Phase loading ─────────────────────────────────────────────────────────
@@ -876,8 +1100,9 @@ export function orgDesigner(): OrgDesignerComponent {
         const node = findNode(this._root, this.selectedNodeId);
         if (node && !node.role) {
           if (node.id === this._root.id) {
-            // Blank root cancelled — close the whole designer.
-            this.close();
+            // Blank root cancelled — go back to preset picker rather than closing.
+            this.presetsOpen    = true;
+            this.selectedNodeId = null;
             return;
           }
           // Blank child cancelled — remove it.
@@ -889,16 +1114,18 @@ export function orgDesigner(): OrgDesignerComponent {
       this.selectedNodeId = null;
     },
 
-    /** Reset the designer to a blank slate and clear localStorage. */
+    /** Clear the current canvas and return to the preset picker. */
     clearDesign(): void {
       clearStorage(this.repo, this.initiative);
-      this._root = makeNode('', '');
+      this._root          = null;
       this.selectedNodeId = null;
+      this.activePresetId = null;
       this.launchSuccess  = false;
       this.launchResult   = null;
       this.launchError    = null;
-      this._render();
-      if (this._root) this._openEditor(this._root.id, null, 'coordinator');
+      this.saveAsMode     = false;
+      this.saveAsName     = '';
+      this.presetsOpen    = true;
     },
 
     // ── localStorage ──────────────────────────────────────────────────────────
