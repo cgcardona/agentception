@@ -189,7 +189,7 @@
     {%- elif not group.issues %} build-swimlane__row--empty
     {%- else %} build-swimlane__row--active
     {%- endif %}"
-    x-data="{ open: {{ 'true' if (not group.locked and not group.complete and group.issues) else 'false' }} }"
+    x-data="{ open: {{ 'false' if group.locked else 'true' }} }"
     x-init='(function(){
       var k = {{ ("phase:" + group.label) | tojson }};
       var s = sessionStorage.getItem(k);
