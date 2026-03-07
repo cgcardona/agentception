@@ -22,19 +22,9 @@ ACAgentMessage
     One row per message in an agent's Cursor transcript.  Written async so it
     never blocks the tick loop.  Enables full-text search and heuristics.
 
-ACRoleVersion
-    Content-addressed snapshot of a role prompt file.  New row only when the
-    SHA-256 hash of the file content changes — tracks prompt evolution over time.
-
 ACPipelineSnapshot
     Time-series: one row per poller tick.  Lightweight (no text blobs).
     Enables trend charts, SLA analysis, and anomaly detection.
-
-ACTaskRun
-    One row per agent task dispatched outside the GitHub issue workflow
-    (e.g. cognitive-arch enrichment, batch file editing).  Created pending
-    when the task file is generated; updated to completed/failed when the
-    agent commits or times out.  Physical task file deleted on completion.
 """
 
 import datetime
@@ -301,33 +291,6 @@ class ACAgentMessage(Base):
 
 
 # ---------------------------------------------------------------------------
-# ACRoleVersion — content-addressed role prompt snapshots
-# ---------------------------------------------------------------------------
-
-
-class ACRoleVersion(Base):
-    """Content-addressed snapshot of a role prompt file.
-
-    A new row is inserted only when the SHA-256 hash of the file content
-    changes, making this a full audit trail of every prompt change over time.
-    """
-
-    __tablename__ = "role_versions"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    role_name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
-    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-    content: Mapped[str] = mapped_column(Text, nullable=False)
-    first_seen_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
-
-    __table_args__ = (
-        UniqueConstraint("role_name", "content_hash", name="uq_role_versions"),
-    )
-
-
-# ---------------------------------------------------------------------------
 # ACPipelineSnapshot — time-series tick state
 # ---------------------------------------------------------------------------
 
@@ -410,53 +373,6 @@ class ACInitiativePhase(Base):
 
     __table_args__ = (
         Index("ix_initiative_phases_repo_initiative", "repo", "initiative"),
-    )
-
-
-# ---------------------------------------------------------------------------
-# ACTaskRun — ephemeral agent task lifecycle record
-# ---------------------------------------------------------------------------
-
-
-class ACTaskRun(Base):
-    """One row per agent task dispatched outside the GitHub issue workflow.
-
-    Created when a task file is generated (status=pending), updated to
-    completed when the agent commits, or failed if the physical file is
-    found without a corresponding commit after a timeout.  The physical
-    .agent-task file is deleted on transition to completed/failed so the
-    tasks directory never accumulates stale files.
-
-    Intentionally separate from ACAgentRun, which is tightly coupled to
-    the GitHub issue/PR lifecycle.  ACTaskRun covers batch file-editing
-    jobs, cognitive-arch enrichment runs, and any future non-issue tasks.
-    """
-
-    __tablename__ = "task_runs"
-
-    id: Mapped[str] = mapped_column(String(256), primary_key=True)
-    """Stable task identifier, e.g. ``cog-arch-systems-language-designers``."""
-
-    task_type: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
-    """Category of task, e.g. ``cognitive-arch-enrichment``."""
-
-    branch: Mapped[str | None] = mapped_column(String(256), nullable=True)
-    """Git branch the agent committed to, e.g. ``agent/cog-arch-systems-language-designers``."""
-
-    commit_sha: Mapped[str | None] = mapped_column(String(40), nullable=True)
-    """SHA of the agent's commit when status=completed."""
-
-    payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
-    """Task-specific metadata as JSON (figures list, batch name, etc.)."""
-
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", index=True)
-    """pending | completed | failed"""
-
-    created_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
-    completed_at: Mapped[datetime.datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
     )
 
 

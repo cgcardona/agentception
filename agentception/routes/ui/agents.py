@@ -18,7 +18,9 @@ from agentception.db.queries import (
     AgentRunDetail,
     AgentRunRow,
     BoardIssueRow,
+    IssueDetailRow,
     SiblingRunRow,
+    get_issue_detail,
 )
 from agentception.models import AgentNode, PipelineState, VALID_ROLES
 from agentception.poller import get_state
@@ -622,13 +624,6 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
     pr_number: int | None = node.pr_number if node else None
     batch_id: str | None = node.batch_id if node else None
 
-    async def _safe_get_issue(n: int) -> dict[str, object]:
-        try:
-            from agentception.readers.github import get_issue as _get_issue
-            return await _get_issue(n)
-        except Exception:
-            return {}
-
     async def _safe_get_pr_checks(n: int) -> list[dict[str, object]]:
         try:
             from agentception.readers.github import get_pr_checks as _get_pr_checks
@@ -649,8 +644,8 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
         except Exception:
             return []
 
-    async def _noop_dict() -> dict[str, object]:
-        return {}
+    async def _noop_none() -> IssueDetailRow | None:
+        return None
 
     async def _noop_list_dict() -> list[dict[str, object]]:
         return []
@@ -666,12 +661,19 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
             return None
 
     events: list[AgentEventRow]
-    issue_detail: dict[str, object]
+    issue_detail: IssueDetailRow | None
     pr_checks: list[dict[str, object]]
     pr_reviews: list[dict[str, object]]
     siblings: list[SiblingRunRow]
 
     parent_run_id: str | None = node.parent_run_id if node else None
+
+    async def _safe_get_issue_from_db(n: int) -> IssueDetailRow | None:
+        try:
+            from agentception.config import settings as _settings
+            return await get_issue_detail(_settings.gh_repo, n)
+        except Exception:
+            return None
 
     (
         events,
@@ -681,7 +683,7 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
         siblings,
     ) = await asyncio.gather(
         get_agent_events_tail(agent_id),
-        _safe_get_issue(issue_number) if issue_number else _noop_dict(),
+        _safe_get_issue_from_db(issue_number) if issue_number else _noop_none(),
         _safe_get_pr_checks(pr_number) if pr_number else _noop_list_dict(),
         _safe_get_pr_reviews(pr_number) if pr_number else _noop_list_dict(),
         _safe_get_siblings(batch_id) if batch_id else _noop_list_sibling(),
