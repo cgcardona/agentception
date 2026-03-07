@@ -26,15 +26,19 @@ import json
 import logging
 from typing import cast
 
-from agentception.mcp.build_tools import (
-    build_acknowledge_run,
-    build_get_pending_launches,
-    build_report_blocker,
-    build_report_decision,
-    build_report_done,
-    build_report_step,
-    build_spawn_child,
+from agentception.mcp.build_commands import (
+    build_claim_run,
+    build_complete_run,
+    build_spawn_child_run,
+    build_teardown_worktree,
 )
+from agentception.mcp.log_tools import (
+    log_run_blocker,
+    log_run_decision,
+    log_run_message,
+    log_run_step,
+)
+from agentception.mcp.query_tools import query_pending_runs
 from agentception.mcp.github_tools import (
     github_add_label,
     github_claim_issue,
@@ -345,15 +349,16 @@ TOOLS: list[ACToolDef] = [
             "additionalProperties": False,
         },
     ),
-    # ── Build tools — Dispatcher reads queue; agents report lifecycle events ─
+    # ── Query tools — read-only state inspection ──────────────────────────────
     ACToolDef(
-        name="build_get_pending_launches",
+        name="query_pending_runs",
         description=(
             "Return all issues queued for launch from the AgentCeption UI. "
-            "Call this once to discover your work. Each item has run_id, issue_number, "
-            "role, host_worktree_path, and batch_id. The role tells you what kind of "
-            "agent to spawn — a leaf worker implements one issue directly; a manager "
-            "(VP, CTO) reads its role file and spawns its own children via the Task tool."
+            "The Dispatcher calls this once to discover what the UI has queued. "
+            "Each item has run_id, issue_number, role, host_worktree_path, and batch_id. "
+            "The role tells you what kind of agent to spawn — a leaf worker implements "
+            "one issue directly; a coordinator reads its role file and spawns its own "
+            "children via the Task tool."
         ),
         inputSchema={
             "type": "object",
@@ -361,22 +366,23 @@ TOOLS: list[ACToolDef] = [
             "additionalProperties": False,
         },
     ),
+    # ── Build commands — explicit state transitions only ──────────────────────
     ACToolDef(
-        name="build_acknowledge_run",
+        name="build_claim_run",
         description=(
             "Atomically claim a pending run before spawning its Task agent. "
-            "Call this with the run_id from build_get_pending_launches immediately "
-            "before firing the Task so the run cannot be double-claimed by a concurrent "
+            "Call this with the run_id from query_pending_runs immediately before "
+            "firing the Task so the run cannot be double-claimed by a concurrent "
             "Dispatcher. Transitions the run from pending_launch to implementing. "
-            "Returns {ok: true, run_id} on success, or {ok: false, reason} if the run "
-            "was already claimed — skip that item and continue with the next."
+            "Returns {ok: true, run_id, previous_state} on success, or "
+            "{ok: false, reason} if the run was already claimed — skip that item."
         ),
         inputSchema={
             "type": "object",
             "properties": {
                 "run_id": {
                     "type": "string",
-                    "description": "run_id returned by build_get_pending_launches",
+                    "description": "run_id returned by query_pending_runs",
                 },
             },
             "required": ["run_id"],
@@ -384,16 +390,16 @@ TOOLS: list[ACToolDef] = [
         },
     ),
     ACToolDef(
-        name="build_spawn_child",
+        name="build_spawn_child_run",
         description=(
             "Create a child agent node in the agent tree. "
             "Any coordinator agent calls this to atomically create a worktree, "
             "write a .agent-task file with TIER, COGNITIVE_ARCH, and full "
-            "lineage fields, register a DB record, and auto-acknowledge the run. "
-            "Returns {ok, run_id, host_worktree_path, tier, org_domain, role, "
+            "lineage fields, register a DB record, and auto-claim the run. "
+            "Returns {ok, child_run_id, worktree_path, tier, org_domain, role, "
             "cognitive_arch, agent_task_path, scope_type, scope_value}. "
             "After calling this tool, immediately fire a Task with the briefing: "
-            "'Read your .agent-task at {host_worktree_path}/.agent-task and follow "
+            "'Read your .agent-task at {worktree_path}/.agent-task and follow "
             "the instructions for your role.' "
             "This is the canonical way to grow the agent tree at runtime."
         ),
@@ -411,12 +417,12 @@ TOOLS: list[ACToolDef] = [
                 "tier": {
                     "type": "string",
                     "enum": ["executive", "coordinator", "engineer", "reviewer"],
-                    "description": "Behavioral execution tier. 'executive' = top-level initiative coordinator (CTO-level); 'coordinator' = domain/phase coordinator that spawns children; 'engineer' = leaf worker implementing one issue; 'reviewer' = leaf agent reviewing one PR.",
+                    "description": "Behavioral execution tier.",
                 },
                 "org_domain": {
                     "type": "string",
                     "enum": ["c-suite", "engineering", "qa"],
-                    "description": "Organisational slot for UI hierarchy. Pass 'qa' when chain-spawning a PR reviewer so the dashboard places it under the QA column. Optional — omit to leave unset.",
+                    "description": "Organisational slot for UI hierarchy. Optional.",
                 },
                 "scope_type": {
                     "type": "string",
@@ -449,9 +455,7 @@ TOOLS: list[ACToolDef] = [
                     "description": (
                         "The spawning coordinator's fingerprint string. Written as "
                         "COORD_FINGERPRINT in the child's .agent-task so leaf agents "
-                        "can include it in their GitHub fingerprint comments. "
-                        "Coordinator agents should pass their own fingerprint here "
-                        "when spawning leaves."
+                        "can include it in their GitHub fingerprint comments."
                     ),
                 },
                 "cognitive_arch": {
@@ -460,8 +464,7 @@ TOOLS: list[ACToolDef] = [
                         "When provided, forward this exact cognitive architecture string "
                         "to the child without re-resolving. Coordinators must pass their "
                         "own cognitive_arch here so the field propagates unchanged through "
-                        "every tier of the agent tree. Omit only when spawning a root node "
-                        "that has no parent arch to forward."
+                        "every tier of the agent tree."
                     ),
                 },
             },
@@ -470,11 +473,60 @@ TOOLS: list[ACToolDef] = [
         },
     ),
     ACToolDef(
-        name="build_report_step",
+        name="build_complete_run",
+        description=(
+            "Record that the agent has finished work and transition the run to completed. "
+            "Persists the done event (linking the PR and updating workflow state). "
+            "Does NOT tear down the worktree — call build_teardown_worktree after this "
+            "if cleanup is needed (the Dispatcher controls teardown timing). "
+            "Call this as your final action after pushing your branch and opening the PR."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "issue_number": {"type": "integer"},
+                "pr_url": {
+                    "type": "string",
+                    "description": "Full URL of the pull request you opened.",
+                },
+                "summary": {
+                    "type": "string",
+                    "description": "Optional one-sentence summary of what you did.",
+                },
+                "agent_run_id": {"type": "string"},
+            },
+            "required": ["issue_number", "pr_url"],
+            "additionalProperties": False,
+        },
+    ),
+    ACToolDef(
+        name="build_teardown_worktree",
+        description=(
+            "Clean up the git worktree for a completed or stopped run. "
+            "Fires teardown as a background task and returns immediately. "
+            "The Dispatcher or orchestration layer should call this after build_complete_run. "
+            "Engineers should not call this directly."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "agent_run_id": {
+                    "type": "string",
+                    "description": "The run ID of the completed agent (must have a worktree).",
+                },
+            },
+            "required": ["agent_run_id"],
+            "additionalProperties": False,
+        },
+    ),
+    # ── Log tools — append-only telemetry, no state change ───────────────────
+    ACToolDef(
+        name="log_run_step",
         description=(
             "Signal that you are starting a new execution step. "
             "Call this whenever you begin a distinct phase of work so the "
-            "mission-control dashboard can track your progress in real time."
+            "mission-control dashboard can track your progress in real time. "
+            "This tool never changes run state — use build_block_run for state transitions."
         ),
         inputSchema={
             "type": "object",
@@ -497,10 +549,11 @@ TOOLS: list[ACToolDef] = [
         },
     ),
     ACToolDef(
-        name="build_report_blocker",
+        name="log_run_blocker",
         description=(
-            "Signal that you are blocked and cannot proceed without human input. "
-            "Describe what is blocking you — this creates a visible alert on the dashboard."
+            "Append a blocker event to the run's event log. "
+            "This tool only records the event — it does NOT change run state. "
+            "To also transition the run to blocked state, call build_block_run separately."
         ),
         inputSchema={
             "type": "object",
@@ -517,11 +570,11 @@ TOOLS: list[ACToolDef] = [
         },
     ),
     ACToolDef(
-        name="build_report_decision",
+        name="log_run_decision",
         description=(
             "Record a significant architectural or implementation decision you made. "
             "Use this for choices that affect code structure, dependencies, or approach "
-            "so the team can review your reasoning."
+            "so the team can review your reasoning. Never changes run state."
         ),
         inputSchema={
             "type": "object",
@@ -542,26 +595,23 @@ TOOLS: list[ACToolDef] = [
         },
     ),
     ACToolDef(
-        name="build_report_done",
+        name="log_run_message",
         description=(
-            "Signal that you have finished the issue and opened a pull request. "
-            "Call this as your final action after pushing your branch and opening the PR."
+            "Append a free-form message to the agent's event log. "
+            "Use for noteworthy information that doesn't fit a structured event type. "
+            "Never changes run state."
         ),
         inputSchema={
             "type": "object",
             "properties": {
                 "issue_number": {"type": "integer"},
-                "pr_url": {
+                "message": {
                     "type": "string",
-                    "description": "Full URL of the pull request you opened.",
-                },
-                "summary": {
-                    "type": "string",
-                    "description": "Optional one-sentence summary of what you did.",
+                    "description": "The message text to log.",
                 },
                 "agent_run_id": {"type": "string"},
             },
-            "required": ["issue_number", "pr_url"],
+            "required": ["issue_number", "message"],
             "additionalProperties": False,
         },
     ),
@@ -675,13 +725,19 @@ def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
         "plan_get_labels",
         "plan_spawn_coordinator",
         "plan_advance_phase",
-        "build_get_pending_launches",
-        "build_acknowledge_run",
-        "build_spawn_child",
-        "build_report_step",
-        "build_report_blocker",
-        "build_report_decision",
-        "build_report_done",
+        # Query tools
+        "query_pending_runs",
+        # Build commands
+        "build_claim_run",
+        "build_spawn_child_run",
+        "build_complete_run",
+        "build_teardown_worktree",
+        # Log tools
+        "log_run_step",
+        "log_run_blocker",
+        "log_run_decision",
+        "log_run_message",
+        # GitHub tools
         "github_list_issues",
         "github_get_issue",
         "github_list_prs",
@@ -713,9 +769,8 @@ async def call_tool_async(
 ) -> ACToolResult:
     """Async dispatcher for tools that require async I/O.
 
-    Handles all async tools (``plan_get_labels``, ``plan_spawn_coordinator``,
-    and the four ``build_report_*`` tools).  Falls through to :func:`call_tool`
-    for synchronous tools.
+    Handles all async tools (plan, build, log, and query tools).
+    Falls through to :func:`call_tool` for synchronous tools.
 
     Args:
         name:      The tool name.
@@ -747,30 +802,34 @@ async def call_tool_async(
             isError=is_error,
         )
 
-    if name == "build_get_pending_launches":
-        result = await build_get_pending_launches()
+    # ── Query tools ─────────────────────────────────────────────────────────
+
+    if name == "query_pending_runs":
+        result = await query_pending_runs()
         return ACToolResult(
             content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
             isError=False,
         )
 
-    if name == "build_acknowledge_run":
+    # ── Build commands ───────────────────────────────────────────────────────
+
+    if name == "build_claim_run":
         run_id_arg = arguments.get("run_id")
         if not isinstance(run_id_arg, str) or not run_id_arg:
             return ACToolResult(
                 content=[ACToolContent(
                     type="text",
-                    text=_tool_result_to_text({"error": "build_acknowledge_run requires a non-empty string run_id"}),
+                    text=_tool_result_to_text({"error": "build_claim_run requires a non-empty string run_id"}),
                 )],
                 isError=True,
             )
-        result = await build_acknowledge_run(run_id_arg)
+        result = await build_claim_run(run_id_arg)
         return ACToolResult(
             content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
             isError=not bool(result.get("ok", False)),
         )
 
-    if name == "build_spawn_child":
+    if name == "build_spawn_child_run":
         parent_run_id = arguments.get("parent_run_id")
         role = arguments.get("role")
         tier_arg = arguments.get("tier")
@@ -806,7 +865,7 @@ async def call_tool_async(
         coord_fingerprint: str | None = str(coord_fp_raw) if isinstance(coord_fp_raw, str) else None
         cognitive_arch_raw = arguments.get("cognitive_arch", "")
         cognitive_arch: str = str(cognitive_arch_raw) if isinstance(cognitive_arch_raw, str) else ""
-        result = await build_spawn_child(
+        result = await build_spawn_child_run(
             parent_run_id=parent_run_id,
             role=role,
             tier=tier_arg,
@@ -826,55 +885,7 @@ async def call_tool_async(
             isError=is_error,
         )
 
-    if name == "build_report_step":
-        issue_num = arguments.get("issue_number")
-        step = arguments.get("step_name")
-        if not isinstance(issue_num, int) or not isinstance(step, str):
-            return ACToolResult(
-                content=[ACToolContent(type="text", text='{"error":"issue_number (int) and step_name (str) are required"}')],
-                isError=True,
-            )
-        run_id = arguments.get("agent_run_id")
-        result = await build_report_step(issue_num, step, str(run_id) if run_id else None)
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=False,
-        )
-
-    if name == "build_report_blocker":
-        issue_num = arguments.get("issue_number")
-        desc = arguments.get("description")
-        if not isinstance(issue_num, int) or not isinstance(desc, str):
-            return ACToolResult(
-                content=[ACToolContent(type="text", text='{"error":"issue_number (int) and description (str) are required"}')],
-                isError=True,
-            )
-        run_id = arguments.get("agent_run_id")
-        result = await build_report_blocker(issue_num, desc, str(run_id) if run_id else None)
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=False,
-        )
-
-    if name == "build_report_decision":
-        issue_num = arguments.get("issue_number")
-        decision = arguments.get("decision")
-        rationale = arguments.get("rationale")
-        if not isinstance(issue_num, int) or not isinstance(decision, str) or not isinstance(rationale, str):
-            return ACToolResult(
-                content=[ACToolContent(type="text", text='{"error":"issue_number, decision, rationale are required"}')],
-                isError=True,
-            )
-        run_id = arguments.get("agent_run_id")
-        result = await build_report_decision(
-            issue_num, decision, rationale, str(run_id) if run_id else None
-        )
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=False,
-        )
-
-    if name == "build_report_done":
+    if name == "build_complete_run":
         issue_num = arguments.get("issue_number")
         pr_url = arguments.get("pr_url")
         if not isinstance(issue_num, int) or not isinstance(pr_url, str):
@@ -884,9 +895,90 @@ async def call_tool_async(
             )
         summary = arguments.get("summary", "")
         run_id = arguments.get("agent_run_id")
-        result = await build_report_done(
+        result = await build_complete_run(
             issue_num, pr_url, str(summary), str(run_id) if run_id else None
         )
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=False,
+        )
+
+    if name == "build_teardown_worktree":
+        run_id_arg2 = arguments.get("agent_run_id")
+        if not isinstance(run_id_arg2, str) or not run_id_arg2:
+            return ACToolResult(
+                content=[ACToolContent(
+                    type="text",
+                    text=_tool_result_to_text({"error": "build_teardown_worktree requires a non-empty agent_run_id"}),
+                )],
+                isError=True,
+            )
+        result = await build_teardown_worktree(run_id_arg2)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=not bool(result.get("ok", False)),
+        )
+
+    # ── Log tools ────────────────────────────────────────────────────────────
+
+    if name == "log_run_step":
+        issue_num = arguments.get("issue_number")
+        step = arguments.get("step_name")
+        if not isinstance(issue_num, int) or not isinstance(step, str):
+            return ACToolResult(
+                content=[ACToolContent(type="text", text='{"error":"issue_number (int) and step_name (str) are required"}')],
+                isError=True,
+            )
+        run_id = arguments.get("agent_run_id")
+        result = await log_run_step(issue_num, step, str(run_id) if run_id else None)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=False,
+        )
+
+    if name == "log_run_blocker":
+        issue_num = arguments.get("issue_number")
+        desc = arguments.get("description")
+        if not isinstance(issue_num, int) or not isinstance(desc, str):
+            return ACToolResult(
+                content=[ACToolContent(type="text", text='{"error":"issue_number (int) and description (str) are required"}')],
+                isError=True,
+            )
+        run_id = arguments.get("agent_run_id")
+        result = await log_run_blocker(issue_num, desc, str(run_id) if run_id else None)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=False,
+        )
+
+    if name == "log_run_decision":
+        issue_num = arguments.get("issue_number")
+        decision = arguments.get("decision")
+        rationale = arguments.get("rationale")
+        if not isinstance(issue_num, int) or not isinstance(decision, str) or not isinstance(rationale, str):
+            return ACToolResult(
+                content=[ACToolContent(type="text", text='{"error":"issue_number, decision, rationale are required"}')],
+                isError=True,
+            )
+        run_id = arguments.get("agent_run_id")
+        result = await log_run_decision(
+            issue_num, decision, rationale, str(run_id) if run_id else None
+        )
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=False,
+        )
+
+    if name == "log_run_message":
+        issue_num = arguments.get("issue_number")
+        msg = arguments.get("message")
+        if not isinstance(issue_num, int) or not isinstance(msg, str):
+            return ACToolResult(
+                content=[ACToolContent(type="text", text='{"error":"issue_number (int) and message (str) are required"}')],
+                isError=True,
+            )
+        run_id = arguments.get("agent_run_id")
+        result = await log_run_message(issue_num, msg, str(run_id) if run_id else None)
         return ACToolResult(
             content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
             isError=False,
