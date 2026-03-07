@@ -577,6 +577,19 @@ export function planForm(): PlanFormComponent {
               } catch { /* silent fail */ }
               this._clearDraft();
               this.step = 'done';
+
+              // Update the URL to the shareable initiative overview so the user
+              // can copy-paste it for teammates.  A direct GET to this URL renders
+              // the server-side read-only view (plan_initiative_page in plan_ui.py).
+              // Use window.history explicitly — the local `history` binding is the
+              // CodeMirror history extension, not the browser History API.
+              // Wrapped in try/catch so sandboxed contexts don't throw.
+              try {
+                if (this.initiative) {
+                  window.history.pushState({}, '', `/plan/${this.initiative}`);
+                }
+              } catch { /* sandboxed context — silent fail */ }
+
               return;
 
             } else if (evt.t === 'error') {

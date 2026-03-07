@@ -2337,6 +2337,138 @@ async def get_prs_grouped_by_phase(
         return []
 
 
+# ---------------------------------------------------------------------------
+# Initiative summary — shareable /plan/<initiative> view
+# ---------------------------------------------------------------------------
+
+
+class InitiativeIssueRow(TypedDict):
+    """One issue entry inside an InitiativePhaseRow, for the shareable plan view."""
+
+    number: int
+    title: str
+    url: str
+    state: str
+    """``"open"`` or ``"closed"``."""
+
+
+class InitiativePhaseRow(TypedDict):
+    """One phase in an InitiativeSummary, for the shareable plan view."""
+
+    label: str
+    """Scoped phase label, e.g. ``"auth-rewrite/0-foundation"``."""
+    short_label: str
+    """Unscoped display label, e.g. ``"0-foundation"``."""
+    order: int
+    is_active: bool
+    """Not locked by unmet deps and not yet complete."""
+    is_complete: bool
+    """All issues in this phase are closed."""
+    issues: list[InitiativeIssueRow]
+
+
+class InitiativeSummary(TypedDict):
+    """Full summary for the shareable /plan/<initiative> page."""
+
+    initiative: str
+    phase_count: int
+    issue_count: int
+    open_count: int
+    closed_count: int
+    filed_at: str | None
+    """ISO datetime of the earliest phase creation — the filing timestamp."""
+    phases: list[InitiativePhaseRow]
+
+
+async def get_initiative_summary(
+    repo: str,
+    initiative: str,
+) -> InitiativeSummary | None:
+    """Return a complete summary of a filed initiative for the shareable plan page.
+
+    Returns ``None`` when no ``initiative_phases`` rows exist for *initiative*
+    (i.e. the initiative has never been filed via Phase 1B).  Falls back to
+    ``None`` on DB error so the route can return a 404 gracefully.
+
+    Phase ordering follows the canonical ``phase_order`` stored by
+    ``persist_initiative_phases``.  Active/complete/locked state is derived
+    from ``get_issues_grouped_by_phase`` which handles the dep-graph logic.
+    """
+    from agentception.db.models import ACInitiativePhase
+
+    try:
+        async with get_session() as session:
+            phase_result = await session.execute(
+                select(ACInitiativePhase)
+                .where(ACInitiativePhase.initiative == initiative)
+                .order_by(ACInitiativePhase.phase_order)
+            )
+            phase_rows = phase_result.scalars().all()
+
+        if not phase_rows:
+            return None
+
+        filed_at: str | None = min(r.created_at for r in phase_rows).isoformat()
+
+        # Re-use the existing query to get issues grouped by phase with
+        # locked/complete state already computed from the dep graph.
+        phase_groups = await get_issues_grouped_by_phase(repo, initiative)
+        group_by_label: dict[str, PhaseGroupRow] = {g["label"]: g for g in phase_groups}
+
+        phases_out: list[InitiativePhaseRow] = []
+        total_issues = 0
+        open_count = 0
+        closed_count = 0
+
+        for row in phase_rows:
+            label = row.phase_label  # scoped, e.g. "auth-rewrite/0-foundation"
+            short_label = label.split("/", 1)[1] if "/" in label else label
+
+            _empty: PhaseGroupRow = PhaseGroupRow(
+                label=label, issues=[], locked=False, complete=False, depends_on=[]
+            )
+            group = group_by_label.get(label, _empty)
+
+            is_complete = group["complete"]
+            is_active = not group["locked"] and not is_complete
+
+            issue_rows: list[InitiativeIssueRow] = [
+                InitiativeIssueRow(
+                    number=iss["number"],
+                    title=iss["title"],
+                    url=iss["url"],
+                    state=iss["state"],
+                )
+                for iss in group["issues"]
+            ]
+
+            total_issues += len(issue_rows)
+            open_count += sum(1 for i in issue_rows if i["state"] == "open")
+            closed_count += sum(1 for i in issue_rows if i["state"] == "closed")
+
+            phases_out.append(InitiativePhaseRow(
+                label=label,
+                short_label=short_label,
+                order=row.phase_order,
+                is_active=is_active,
+                is_complete=is_complete,
+                issues=issue_rows,
+            ))
+
+        return InitiativeSummary(
+            initiative=initiative,
+            phase_count=len(phases_out),
+            issue_count=total_issues,
+            open_count=open_count,
+            closed_count=closed_count,
+            filed_at=filed_at,
+            phases=phases_out,
+        )
+    except Exception as exc:
+        logger.warning("⚠️  get_initiative_summary DB query failed (non-fatal): %s", exc)
+        return None
+
+
 async def get_agent_thoughts_tail(
     run_id: str,
     after_seq: int = -1,

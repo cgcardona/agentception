@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}{{ summary.initiative }} — AgentCeption{% endblock %}
+
+{% block content %}
+{#
+  Shareable initiative overview — server-rendered, no Alpine state machine.
+
+  Rendered by GET /plan/<initiative> (plan_initiative_page in plan_ui.py).
+  Reachable via a direct URL share or after history.pushState in plan.ts
+  when Phase 1B completes.  All data comes from the DB via get_initiative_summary.
+
+  CSS: reuses .plan-done-* classes from app.css §Plan
+#}
+
+<div class="plan-page plan-initiative-page">
+
+  {# ── Hero ──────────────────────────────────────────────────────────── #}
+  <div class="plan-done-hero">
+    <div class="plan-done-initiative">{{ summary.initiative }}</div>
+    <div class="plan-done-hero-stats">
+      {{ summary.phase_count }}
+      {{ 'phase' if summary.phase_count == 1 else 'phases' }}
+      <span class="plan-done-sep">·</span>
+      {{ summary.issue_count }}
+      {{ 'issue' if summary.issue_count == 1 else 'issues' }}
+      <span class="plan-done-sep">·</span>
+      {{ summary.open_count }} open · {{ summary.closed_count }} closed
+      {% if filed_at_display %}
+      <span class="plan-done-sep">·</span>
+      <span class="plan-initiative-filed-at">filed {{ filed_at_display }}</span>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── Phase cards ────────────────────────────────────────────────────── #}
+  <div class="plan-done-phases">
+    {% for phase in summary.phases %}
+    <div class="plan-done-phase-card
+                {%- if phase.is_complete %} plan-done-phase-card--complete
+                {%- elif phase.is_active %} plan-done-phase-card--active
+                {%- else %} plan-done-phase-card--blocked{% endif %}">
+
+      <div class="plan-done-phase-header">
+        <code class="plan-done-phase-slug">{{ phase.short_label }}</code>
+        <span class="plan-done-phase-badge
+                     {%- if phase.is_complete %} plan-done-phase-badge--complete
+                     {%- elif phase.is_active %} plan-done-phase-badge--active
+                     {%- else %} plan-done-phase-badge--blocked{% endif %}">
+          {%- if phase.is_complete %}COMPLETE{%- elif phase.is_active %}ACTIVE{%- else %}BLOCKED{%- endif -%}
+        </span>
+        <span class="plan-done-phase-count">
+          {{ phase.issues | length }}
+          {{ 'issue' if phase.issues | length == 1 else 'issues' }}
+        </span>
+      </div>
+
+      <ul class="plan-done-issue-list">
+        {% for iss in phase.issues %}
+        <li class="plan-done-issue-item">
+          <a class="plan-done-issue-link{% if iss.state == 'closed' %} plan-done-issue-link--closed{% endif %}"
+             href="{{ iss.url }}" target="_blank" rel="noopener noreferrer">
+            <span class="plan-done-issue-num">#{{ iss.number }}</span>
+            <span class="plan-done-issue-title">{{ iss.title }}</span>
+            {% if iss.state == 'closed' %}
+            <span class="plan-done-issue-check" aria-label="Closed">✓</span>
+            {% else %}
+            <span class="plan-done-issue-arrow" aria-hidden="true">↗</span>
+            {% endif %}
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+
+    </div>
+    {% endfor %}
+  </div>
+
+  {# ── Footer: actions ────────────────────────────────────────────────── #}
+  <div class="plan-done-footer">
+    <div class="plan-done-actions">
+      <a href="/" class="btn btn-primary">Dispatch agents →</a>
+      <a href="https://github.com/{{ gh_repo }}/issues?q=is%3Aopen+label%3A{{ summary.initiative }}"
+         target="_blank" rel="noopener noreferrer"
+         class="btn btn-secondary">View on GitHub ↗</a>
+      <a href="/plan" class="btn btn-ghost">New plan</a>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

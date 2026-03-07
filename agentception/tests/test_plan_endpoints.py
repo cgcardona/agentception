@@ -487,6 +487,168 @@ async def test_file_issues_forwards_all_event_types(async_client: AsyncClient) -
 
 
 # ---------------------------------------------------------------------------
+# GET /plan/{initiative} — shareable initiative overview
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_plan_initiative_page_returns_404_when_not_found(
+    async_client: AsyncClient,
+) -> None:
+    """GET /plan/<slug> returns 404 when get_initiative_summary returns None."""
+    with patch(
+        "agentception.db.queries.get_initiative_summary",
+        new=AsyncMock(return_value=None),
+    ):
+        resp = await async_client.get("/plan/no-such-initiative")
+    assert resp.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_plan_initiative_page_returns_400_for_invalid_slug(
+    async_client: AsyncClient,
+) -> None:
+    """GET /plan/<slug> returns 400 when the slug contains invalid characters."""
+    resp = await async_client.get("/plan/has/slash")
+    assert resp.status_code in {400, 404}  # 404 due to router — /plan/has/slash is two segments
+
+    resp2 = await async_client.get("/plan/-bad-start")
+    assert resp2.status_code == 400
+
+
+@pytest.mark.anyio
+async def test_plan_initiative_page_renders_summary(
+    async_client: AsyncClient,
+) -> None:
+    """GET /plan/<slug> renders the initiative name and phase cards."""
+    from agentception.db.queries import (
+        InitiativeIssueRow,
+        InitiativePhaseRow,
+        InitiativeSummary,
+    )
+
+    summary: InitiativeSummary = InitiativeSummary(
+        initiative="auth-rewrite",
+        phase_count=2,
+        issue_count=3,
+        open_count=2,
+        closed_count=1,
+        filed_at="2026-03-06T12:00:00",
+        phases=[
+            InitiativePhaseRow(
+                label="auth-rewrite/0-foundation",
+                short_label="0-foundation",
+                order=0,
+                is_active=True,
+                is_complete=False,
+                issues=[
+                    InitiativeIssueRow(
+                        number=101,
+                        title="Add SQLAlchemy User model",
+                        url="https://github.com/test/repo/issues/101",
+                        state="open",
+                    ),
+                    InitiativeIssueRow(
+                        number=102,
+                        title="JWT middleware",
+                        url="https://github.com/test/repo/issues/102",
+                        state="closed",
+                    ),
+                ],
+            ),
+            InitiativePhaseRow(
+                label="auth-rewrite/1-api",
+                short_label="1-api",
+                order=1,
+                is_active=False,
+                is_complete=False,
+                issues=[
+                    InitiativeIssueRow(
+                        number=103,
+                        title="Login endpoint",
+                        url="https://github.com/test/repo/issues/103",
+                        state="open",
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    with (
+        patch(
+            "agentception.db.queries.get_initiative_summary",
+            new=AsyncMock(return_value=summary),
+        ),
+    ):
+        resp = await async_client.get("/plan/auth-rewrite")
+
+    assert resp.status_code == 200
+    html = resp.text
+    assert "auth-rewrite" in html
+    assert "0-foundation" in html
+    assert "1-api" in html
+    assert "#101" in html
+    assert "Add SQLAlchemy User model" in html
+    assert "JWT middleware" in html
+    assert "ACTIVE" in html
+    assert "BLOCKED" in html
+    # Closed issue gets struck-through link class
+    assert "plan-done-issue-link--closed" in html
+    # Filed date rendered
+    assert "Mar" in html or "6" in html
+
+
+@pytest.mark.anyio
+async def test_plan_initiative_page_shows_complete_phase(
+    async_client: AsyncClient,
+) -> None:
+    """GET /plan/<slug> uses plan-done-phase-card--complete for completed phases."""
+    from agentception.db.queries import (
+        InitiativeIssueRow,
+        InitiativePhaseRow,
+        InitiativeSummary,
+    )
+
+    summary: InitiativeSummary = InitiativeSummary(
+        initiative="my-proj",
+        phase_count=1,
+        issue_count=1,
+        open_count=0,
+        closed_count=1,
+        filed_at=None,
+        phases=[
+            InitiativePhaseRow(
+                label="my-proj/0-done",
+                short_label="0-done",
+                order=0,
+                is_active=False,
+                is_complete=True,
+                issues=[
+                    InitiativeIssueRow(
+                        number=1,
+                        title="Completed task",
+                        url="https://github.com/test/repo/issues/1",
+                        state="closed",
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    with (
+        patch(
+            "agentception.db.queries.get_initiative_summary",
+            new=AsyncMock(return_value=summary),
+        ),
+    ):
+        resp = await async_client.get("/plan/my-proj")
+
+    assert resp.status_code == 200
+    assert "plan-done-phase-card--complete" in resp.text
+    assert "COMPLETE" in resp.text
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
