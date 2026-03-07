@@ -271,3 +271,42 @@ Five distinct spawn paths write the arch field but the leaf agent never announce
 ## Out of Scope
 
 No code changes were made in this issue.  All fixes are documented above as future work.  This document is the gate artifact for phase 1.
+
+---
+
+## Resolved via PR #176
+
+**PR:** [feat: propagate cognitive_arch through all coordinator spawn calls](https://github.com/cgcardona/agentception/pull/188)  
+**Closes:** #176
+
+The following spawn sites were updated so a parent coordinator can forward its exact `cognitive_arch` string to every child it spawns.  When provided, `_resolve_cognitive_arch()` is bypassed and the value flows unchanged from root to leaf.  When omitted, the existing keyword-extraction fallback is preserved.
+
+| File | Function / call | Status | Notes |
+|------|----------------|--------|-------|
+| `agentception/services/spawn_child.py` | `spawn_child()` | ✅ Fixed | Added `cognitive_arch: str \| None = None`; skips `_resolve_cognitive_arch()` when set. |
+| `agentception/mcp/build_tools.py` | `build_spawn_child()` | ✅ Fixed | Added `cognitive_arch: str = ""`, forwarded to `spawn_child()`. |
+| `agentception/mcp/server.py` | `call_tool_async()` | ✅ Fixed | Extracts `cognitive_arch` from tool arguments; MCP schema updated. |
+
+### Usage
+
+Coordinators must now pass `cognitive_arch` explicitly when spawning children:
+
+```python
+result = await build_spawn_child(
+    parent_run_id=self.run_id,
+    role="python-developer",
+    tier="engineer",
+    scope_type="issue",
+    scope_value=str(issue_number),
+    gh_repo=gh_repo,
+    cognitive_arch=self.cognitive_arch,  # always forward — never omit
+)
+```
+
+### Test coverage added
+
+| Test | What it verifies |
+|------|-----------------|
+| `test_spawn_child_forwards_cognitive_arch_without_resolving` | `_resolve_cognitive_arch` is never called when `cognitive_arch` is provided |
+| `test_spawn_child_resolves_arch_when_not_provided` | Fallback resolution still works when `cognitive_arch` is omitted |
+| `test_cognitive_arch_propagates_to_leaf` | End-to-end: root arch arrives unchanged on the leaf after two spawn hops |
