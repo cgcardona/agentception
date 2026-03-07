@@ -89,7 +89,7 @@ it was already claimed.
 cat {host_worktree_path}/.agent-task
 ```
 
-Extract: `TIER`, `SCOPE_TYPE`, `SCOPE_VALUE`, `GH_REPO`, `ROLE`, `ROLE_FILE`, `AC_URL`.
+Extract: `TIER`, `SCOPE_TYPE`, `SCOPE_VALUE`, `GH_REPO`, `ROLE`, `ROLE_FILE`.
 
 ### 3c. Spawn the agent via Task tool
 
@@ -108,7 +108,7 @@ RUN_ID:      {run_id}
 SCOPE_TYPE:  label
 SCOPE_VALUE: {scope_value}
 GH_REPO:     {gh_repo}
-AC_URL:      http://localhost:10003
+mcp_server:  user-agentception
 
 Step 1: Read your role file:
   {role_file}
@@ -163,7 +163,7 @@ RUN_ID:      {run_id}
 SCOPE_TYPE:  {scope_type}    (issue or pr)
 SCOPE_VALUE: {scope_value}   (issue or PR number)
 GH_REPO:     {gh_repo}
-AC_URL:      http://localhost:10003
+mcp_server:  user-agentception
 
 Step 1: Read your role file:
   {role_file}

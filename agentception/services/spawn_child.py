@@ -221,7 +221,6 @@ def _build_child_task(
     batch_id: str,
     parent_run_id: str,
     cognitive_arch: str,
-    ac_url: str,
     coord_fingerprint: str | None = None,
     issue_title: str = "",
     issue_number: int | None = None,
@@ -266,7 +265,9 @@ def _build_child_task(
         "repo": {
             "gh_repo": gh_repo,
             "base": "dev",
-            "ac_url": ac_url,
+            # mcp_server: agents communicate exclusively via the user-agentception
+            # MCP server — no HTTP calls.  This comment is documentation only.
+            "mcp_server": "user-agentception",
         },
         "pipeline": {
             "batch_id": batch_id,
@@ -414,7 +415,6 @@ async def spawn_child(
 
     worktree_path = str(Path(settings.worktrees_dir) / run_id)
     host_worktree_path = str(Path(settings.host_worktrees_dir) / run_id)
-    ac_url = settings.ac_url
 
     # Derive issue/pr numbers for supplemental task fields
     issue_number: int | None = None
@@ -497,7 +497,6 @@ async def spawn_child(
         batch_id=batch_id,
         parent_run_id=parent_run_id,
         cognitive_arch=resolved_arch,
-        ac_url=ac_url,
         coord_fingerprint=coord_fingerprint,
         issue_title=issue_title,
         issue_number=issue_number,

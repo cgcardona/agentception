@@ -102,7 +102,6 @@ def _make_task(
     batch_id: str = "label-ac-workflow-20260101T000000Z-abcd",
     parent_run_id: str = "label-cto-111111",
     cognitive_arch: str = "von_neumann:python",
-    ac_url: str = "http://localhost:10003",
     issue_title: str = "",
     issue_number: int | None = None,
     pr_number: int | None = None,
@@ -121,7 +120,6 @@ def _make_task(
         batch_id=batch_id,
         parent_run_id=parent_run_id,
         cognitive_arch=cognitive_arch,
-        ac_url=ac_url,
         issue_title=issue_title,
         issue_number=issue_number,
         pr_number=pr_number,
@@ -137,7 +135,6 @@ def test_build_child_task_required_fields_present() -> None:
     assert 'scope_value = "ac-workflow"' in task
     assert 'parent_run_id = "label-cto-111111"' in task
     assert 'cognitive_arch = "von_neumann:python"' in task
-    assert 'ac_url = "http://localhost:10003"' in task
     assert 'role_file = "' in task
     assert 'host_role_file = "' in task
 
@@ -248,7 +245,6 @@ def test_build_child_task_coord_fingerprint_present() -> None:
         batch_id="issue-42-20260305T000000Z-ab12",
         parent_run_id="coord-ac-xyz",
         cognitive_arch="ada_lovelace:python",
-        ac_url="http://localhost:10003",
         coord_fingerprint=fp,
         issue_number=42,
     )
@@ -543,127 +539,6 @@ def test_spawn_child_result_to_dict_org_domain_none() -> None:
 
 
 # ---------------------------------------------------------------------------
-# POST /api/runs/{parent_run_id}/children — HTTP endpoint
-# ---------------------------------------------------------------------------
-
-
-def test_spawn_child_endpoint_invalid_scope_type(client: TestClient) -> None:
-    """Invalid scope_type should return HTTP 422."""
-    response = client.post(
-        "/api/runs/cto-abc/children",
-        json={
-            "role": "engineering-coordinator",
-            "tier": "coordinator",
-            "scope_type": "invalid",
-            "scope_value": "ac-workflow",
-            "gh_repo": "owner/repo",
-        },
-    )
-    assert response.status_code == 422
-
-
-def test_spawn_child_endpoint_invalid_tier(client: TestClient) -> None:
-    """Invalid tier value should return HTTP 422."""
-    response = client.post(
-        "/api/runs/cto-abc/children",
-        json={
-            "role": "engineering-coordinator",
-            "tier": "manager",   # not a valid Tier — must be rejected
-            "scope_type": "label",
-            "scope_value": "ac-workflow",
-            "gh_repo": "owner/repo",
-        },
-    )
-    assert response.status_code == 422
-
-
-def test_spawn_child_endpoint_missing_tier(client: TestClient) -> None:
-    """Missing tier (now required) must return HTTP 422."""
-    response = client.post(
-        "/api/runs/cto-abc/children",
-        json={
-            "role": "engineering-coordinator",
-            # tier missing
-            "scope_type": "label",
-            "scope_value": "ac-workflow",
-            "gh_repo": "owner/repo",
-        },
-    )
-    assert response.status_code == 422
-
-
-def test_spawn_child_endpoint_missing_required_field(client: TestClient) -> None:
-    response = client.post(
-        "/api/runs/cto-abc/children",
-        json={
-            "role": "engineering-coordinator",
-            "tier": "coordinator",
-            # scope_type missing
-            "scope_value": "ac-workflow",
-            "gh_repo": "owner/repo",
-        },
-    )
-    assert response.status_code == 422
-
-
-def test_spawn_child_endpoint_happy_path(client: TestClient) -> None:
-    mock_result = SpawnChildResult(
-        run_id="coord-ac-workflow-abc123",
-        host_worktree_path="/host/worktrees/coord-ac-workflow-abc123",
-        worktree_path="/worktrees/coord-ac-workflow-abc123",
-        tier="coordinator",
-        org_domain="engineering",
-        role="engineering-coordinator",
-        cognitive_arch="von_neumann:python",
-        agent_task_path="/worktrees/coord-ac-workflow-abc123/.agent-task",
-        scope_type="label",
-        scope_value="ac-workflow",
-    )
-    with patch(
-        "agentception.routes.api.runs.spawn_child",
-        AsyncMock(return_value=mock_result),
-    ):
-        response = client.post(
-            "/api/runs/label-cto-abc123/children",
-            json={
-                "role": "engineering-coordinator",
-                "tier": "coordinator",
-                "org_domain": "engineering",
-                "scope_type": "label",
-                "scope_value": "ac-workflow",
-                "gh_repo": "owner/repo",
-            },
-        )
-    assert response.status_code == 200
-    data = response.json()
-    assert data["run_id"] == "coord-ac-workflow-abc123"
-    assert data["tier"] == "coordinator"
-    assert data["org_domain"] == "engineering"
-    assert "node_type" not in data, "Response must not contain old 'node_type' key"
-    assert data["cognitive_arch"] == "von_neumann:python"
-    assert data["status"] == "implementing"
-
-
-def test_spawn_child_endpoint_propagates_spawn_child_error(client: TestClient) -> None:
-    with patch(
-        "agentception.routes.api.runs.spawn_child",
-        AsyncMock(side_effect=SpawnChildError("git worktree add failed: branch exists")),
-    ):
-        response = client.post(
-            "/api/runs/cto-abc/children",
-            json={
-                "role": "python-developer",
-                "tier": "engineer",
-                "scope_type": "issue",
-                "scope_value": "42",
-                "gh_repo": "owner/repo",
-            },
-        )
-    assert response.status_code == 500
-    assert "git worktree add failed" in response.json()["detail"]
-
-
-# ---------------------------------------------------------------------------
 # Universal tree protocol — any node can be pruned as root
 # ---------------------------------------------------------------------------
 
@@ -691,7 +566,6 @@ def test_all_tiers_produce_valid_task_content() -> None:
         assert 'cognitive_arch = "' in task, f"Missing cognitive_arch for {role}"
         assert 'role_file = "' in task, f"Missing role_file for {role}"
         assert 'host_role_file = "' in task, f"Missing host_role_file for {role}"
-        assert 'ac_url = "' in task, f"Missing ac_url for {role}"
         assert 'scope_value = "' in task, f"Missing scope_value for {role}"
         assert 'workflow = "' in task, f"Missing workflow for {role}"
         # NODE_TYPE / node_type must be absent

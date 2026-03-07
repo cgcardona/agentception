@@ -1,25 +1,21 @@
 from __future__ import annotations
 
-"""Run lifecycle API routes — agent callbacks and run management.
+"""Run lifecycle API routes — UI-facing only.
 
-Two audiences:
+Agents interact with AgentCeption exclusively through the ``user-agentception``
+MCP server.  This HTTP surface is reserved for browser / UI interactions only.
 
-1. **The AgentCeption Coordinator / Dispatcher** — ``GET /api/runs/pending``
-   exposes the launch queue; ``POST /api/runs/{run_id}/acknowledge``
-   atomically claims a run; ``POST /api/runs/{parent_run_id}/children``
-   lets any manager agent create a child node atomically.
+UI surfaces retained:
+  POST /api/runs/{run_id}/message  — operator sends a message to an agent
+  POST /api/runs/{run_id}/cancel   — UI cancels a pending_launch before dispatch
+  POST /api/runs/{run_id}/stop     — UI marks a run stopped from the inspector
 
-2. **Running agents** — ``POST /api/runs/{run_id}/step|blocker|decision|done``
-   let agents push structured lifecycle events back to AgentCeption.
-
-3. **Ship UI operators** — ``POST /api/runs/{run_id}/message`` saves a user
-   message to the agent's transcript; ``POST /api/runs/{run_id}/stop``
-   marks a run DONE from the inspector panel.
-
-See ``docs/agent-tree-protocol.md`` for the full tier spec.
+Agent-facing routes (GET /pending, POST /acknowledge, /children, /step,
+/blocker, /decision, /done) have been removed.  Use the MCP equivalents:
+  query_pending_runs, build_claim_run, build_spawn_child_run,
+  log_run_step, log_run_blocker, log_run_decision, build_complete_run.
 """
 
-import asyncio
 import datetime
 import logging
 
@@ -27,255 +23,12 @@ from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
-from typing import Literal
-
 from agentception.db.engine import get_session
 from agentception.db.models import ACAgentMessage, ACAgentRun
-from agentception.db.persist import acknowledge_agent_run, persist_agent_event
-from agentception.db.queries import get_agent_run_teardown, get_pending_launches
-from agentception.services.spawn_child import (
-    SpawnChildError,
-    Tier,
-    spawn_child,
-)
-from agentception.services.teardown import teardown_agent_worktree
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/runs", tags=["runs"])
-
-
-# ---------------------------------------------------------------------------
-# GET /api/runs/pending — Dispatcher reads this to know what to spawn
-# ---------------------------------------------------------------------------
-
-
-@router.get("/pending")
-async def list_pending_launches() -> dict[str, object]:
-    """Return all runs waiting to be claimed by the Dispatcher.
-
-    The AgentCeption Dispatcher calls this once at startup to discover what
-    the UI has queued.  Each item includes the run_id, role, issue number,
-    and host-side worktree path so the Dispatcher can spawn the right agent
-    at the right level of the tree (leaf worker, VP, or CTO).
-    """
-    launches = await get_pending_launches()
-    return {"pending": launches, "count": len(launches)}
-
-
-# ---------------------------------------------------------------------------
-# POST /api/runs/{run_id}/acknowledge — atomically claim a pending run
-# ---------------------------------------------------------------------------
-
-
-@router.post("/{run_id}/acknowledge")
-async def acknowledge_launch(run_id: str) -> dict[str, object]:
-    """Atomically claim a pending run before spawning its Task agent.
-
-    The Dispatcher calls this immediately before it spawns the Task so the
-    run cannot be double-claimed if two Dispatchers run concurrently.
-    Transitions the run from ``pending_launch`` → ``implementing``.
-
-    Returns ``{"ok": true}`` on success or ``{"ok": false, "reason": "..."}``
-    when the run was not found or already claimed (idempotency guard).
-    """
-    ok = await acknowledge_agent_run(run_id)
-    if not ok:
-        return {"ok": False, "reason": f"Run {run_id!r} not found or not in pending_launch state"}
-    logger.info("✅ acknowledge_launch: %s claimed", run_id)
-    return {"ok": True, "run_id": run_id}
-
-
-# ---------------------------------------------------------------------------
-# POST /api/runs/{parent_run_id}/children — spawn a child node
-# ---------------------------------------------------------------------------
-
-
-class SpawnChildRequest(BaseModel):
-    """Request body for ``POST /api/runs/{parent_run_id}/children``."""
-
-    role: str
-    """Child's role slug (e.g. ``"engineering-coordinator"``, ``"python-developer"``)."""
-    tier: Tier
-    """Behavioral execution tier: ``"executive"`` | ``"coordinator"`` | ``"engineer"`` | ``"reviewer"``."""
-    org_domain: str | None = None
-    """Organisational slot for UI hierarchy (``"c-suite"`` | ``"engineering"`` | ``"qa"``)."""
-    scope_type: Literal["label", "issue", "pr"]
-    """``"label"``, ``"issue"``, or ``"pr"``."""
-    scope_value: str
-    """Label string, issue number, or PR number (as string)."""
-    gh_repo: str
-    """``"owner/repo"`` string."""
-    issue_body: str = ""
-    """Issue body for COGNITIVE_ARCH skill extraction (issue-scoped children)."""
-    issue_title: str = ""
-    """Issue title written to ISSUE_TITLE field."""
-    skills_hint: list[str] | None = None
-    """Explicit skill list; bypasses keyword extraction when provided."""
-
-
-class SpawnChildResponse(BaseModel):
-    """Successful response from ``POST /api/runs/{parent_run_id}/children``."""
-
-    run_id: str
-    host_worktree_path: str
-    worktree_path: str
-    tier: str
-    org_domain: str | None = None
-    role: str
-    cognitive_arch: str
-    agent_task_path: str
-    scope_type: str
-    scope_value: str
-    status: str = "implementing"
-
-
-@router.post("/{parent_run_id}/children", response_model=SpawnChildResponse)
-async def spawn_child_node(
-    parent_run_id: str, req: SpawnChildRequest
-) -> SpawnChildResponse:
-    """Atomically create a child node in the agent tree.
-
-    Any manager agent (CTO, coordinator, or future tier) calls this endpoint
-    to create a child with a worktree, ``.agent-task``, DB record, and
-    auto-acknowledgement — all in a single atomic operation.
-
-    The caller receives ``host_worktree_path`` and ``run_id``, then
-    immediately fires a Task tool call with the briefing:
-
-        "Read your .agent-task file at {host_worktree_path}/.agent-task
-         and follow the instructions for your role."
-
-    Raises:
-        HTTPException 422: Invalid ``scope_type`` value.
-        HTTPException 500: Worktree creation or file I/O failure.
-    """
-    try:
-        result = await spawn_child(
-            parent_run_id=parent_run_id,
-            role=req.role,
-            tier=req.tier,
-            org_domain=req.org_domain,
-            scope_type=req.scope_type,
-            scope_value=req.scope_value,
-            gh_repo=req.gh_repo,
-            issue_body=req.issue_body,
-            issue_title=req.issue_title,
-            skills_hint=req.skills_hint,
-        )
-    except SpawnChildError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    return SpawnChildResponse(**result.to_dict(), status="implementing")
-
-
-# ---------------------------------------------------------------------------
-# Agent callbacks — POST /api/runs/{run_id}/step|blocker|decision|done
-# ---------------------------------------------------------------------------
-
-
-class StepReport(BaseModel):
-    """Body for ``POST /api/runs/{run_id}/step``."""
-
-    issue_number: int
-    step_name: str
-
-
-class BlockerReport(BaseModel):
-    """Body for ``POST /api/runs/{run_id}/blocker``."""
-
-    issue_number: int
-    description: str
-
-
-class DecisionReport(BaseModel):
-    """Body for ``POST /api/runs/{run_id}/decision``."""
-
-    issue_number: int
-    decision: str
-    rationale: str
-
-
-class DoneReport(BaseModel):
-    """Body for ``POST /api/runs/{run_id}/done``."""
-
-    issue_number: int
-    pr_url: str
-    summary: str = ""
-
-
-@router.post("/{run_id}/step")
-async def report_step(run_id: str, req: StepReport) -> dict[str, object]:
-    """Agent reports starting a named execution step."""
-    await persist_agent_event(
-        issue_number=req.issue_number,
-        event_type="step_start",
-        payload={"step": req.step_name},
-        agent_run_id=run_id,
-    )
-    logger.info("✅ report_step: run=%r issue=%d step=%r", run_id, req.issue_number, req.step_name)
-    return {"ok": True}
-
-
-@router.post("/{run_id}/blocker")
-async def report_blocker(run_id: str, req: BlockerReport) -> dict[str, object]:
-    """Agent reports being blocked."""
-    await persist_agent_event(
-        issue_number=req.issue_number,
-        event_type="blocker",
-        payload={"description": req.description},
-        agent_run_id=run_id,
-    )
-    logger.warning(
-        "⚠️ report_blocker: run=%r issue=%d — %s", run_id, req.issue_number, req.description
-    )
-    return {"ok": True}
-
-
-@router.post("/{run_id}/decision")
-async def report_decision(run_id: str, req: DecisionReport) -> dict[str, object]:
-    """Agent records an architectural decision."""
-    await persist_agent_event(
-        issue_number=req.issue_number,
-        event_type="decision",
-        payload={"decision": req.decision, "rationale": req.rationale},
-        agent_run_id=run_id,
-    )
-    logger.info(
-        "✅ report_decision: run=%r issue=%d decision=%r", run_id, req.issue_number, req.decision
-    )
-    return {"ok": True}
-
-
-async def _teardown_agent_worktree(run_id: str) -> None:
-    """Delegate to the shared teardown service.
-
-    Thin wrapper kept so the ``asyncio.create_task`` call below doesn't change.
-    All logic lives in ``agentception.services.teardown``.
-    """
-    await teardown_agent_worktree(run_id)
-
-
-@router.post("/{run_id}/done")
-async def report_done(run_id: str, req: DoneReport) -> dict[str, object]:
-    """Agent reports completion, links the PR, and tears down its worktree.
-
-    The worktree removal and remote branch deletion run as a background task
-    so the agent receives an immediate ``{"ok": True}`` response and is not
-    blocked waiting for git operations to complete.
-    """
-    await persist_agent_event(
-        issue_number=req.issue_number,
-        event_type="done",
-        payload={"pr_url": req.pr_url, "summary": req.summary},
-        agent_run_id=run_id,
-    )
-    logger.info("✅ report_done: run=%r issue=%d pr_url=%r", run_id, req.issue_number, req.pr_url)
-    asyncio.create_task(
-        _teardown_agent_worktree(run_id),
-        name=f"teardown-{run_id}",
-    )
-    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------
