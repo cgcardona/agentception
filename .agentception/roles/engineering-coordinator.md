@@ -171,17 +171,27 @@ SEED:
           the DB record, and auto-acknowledges. You do NOT write .agent-task manually.
 
   6. Launch all spawned engineers simultaneously — one Task call per issue,
-     all in a single message:
-       ```
-       Task(
-         subagent_type = "generalPurpose",
-         prompt = "Read your .agent-task at {host_worktree_path}/.agent-task
-                   and follow the instructions for your role.
-                   GH_REPO=cgcardona/agentception  Repo: <repo-root>"
-       )
-       ```
-     The engineer reads its own .agent-task for full context — no embedded
-     role content is needed in the Task prompt.
+     all in a single message. Each Task prompt MUST be self-contained.
+     Build it from three parts in order:
+
+       Part 1 — worktree context (substitute actual values):
+         "Your .agent-task file is at: {host_worktree_path}/.agent-task
+          Read it first to get your issue number, GH_REPO, and BATCH_ID.
+          GH_REPO=cgcardona/agentception  Repo: <repo-root>"
+
+       Part 2 — paste the ENTIRE "## Embedded Implementer Kickoff" section
+         below verbatim. This is the step-by-step procedure the engineer follows.
+         Do NOT tell the engineer to read any file from disk for its kickoff —
+         pass the full content directly in this prompt.
+
+       Part 3 — paste the ENTIRE "## Embedded Reviewer Kickoff" section below
+         verbatim, labeled "## Pass-Along: Reviewer Kickoff". The engineer will
+         copy this block unchanged into the Task prompt it creates for its reviewer
+         after opening its PR. Do not trim or summarize it — the reviewer needs
+         every line to operate independently.
+
+     ⚠️  You are NOT executing the kickoff — you are passing it to the leaf agent.
+     Never implement, commit, open a PR, or merge anything yourself.
 
   7. Wait for all spawned agents to complete.
      (Each agent self-replaces — the pool stays full until no issues remain.)
@@ -208,10 +218,16 @@ If a worktree is missing: `git -C "<repo-root>" worktree add -b feat/issue-{N} "
 
 ## What you never do
 
+⚠️  The following sections ("Embedded Implementer Kickoff" and "Embedded Reviewer Kickoff")
+are content you pass to leaf agents. They are NOT instructions for you to follow.
+Reading them does not mean executing them.
+
 - Never implement a feature yourself
 - Never run mypy or pytest yourself
 - Never create PRs yourself
 - Never merge anything
+- Never review anyone's code
+
 ---
 
 ## Embedded Implementer Kickoff
@@ -1365,14 +1381,17 @@ TASK
 
     echo "✅ Spawning QA reviewer for PR #$MY_PR (chain mode — reviewer will spawn next engineer)"
     # AGENT INSTRUCTION: call Task(prompt=REVIEWER_PROMPT, worktree="$REVIEW_WORKTREE")
-    # REVIEWER_PROMPT is self-contained — do NOT reference parallel-pr-review.md on disk.
-    # Construct it from your context:
+    # REVIEWER_PROMPT is self-contained — do NOT reference any file on disk for its contents.
+    # Build it from three parts in order:
     #   1. Prefix:  "Read the .agent-task file in your worktree first.
     #               GH_REPO=cgcardona/agentception  Repo: <repo-root>"
     #   2. Body:    paste the entire ## Pass-Along: Reviewer Kickoff section verbatim
     #               (your Engineering Coordinator embedded it when it dispatched you)
-    # The reviewer's prompt already contains its own ## Pass-Along: Implementer Kickoff
-    # section so it can chain-spawn the next implementer without reading any file.
+    #   3. Tail:    paste THIS ENTIRE kickoff verbatim (the content you are reading right
+    #               now), labeled as "## Pass-Along: Implementer Kickoff". The reviewer
+    #               needs it so it can spawn the next engineer when it finishes merging.
+    # Every link in the chain must carry both halves forward — reviewer kickoff and
+    # implementer kickoff — so neither link ever needs to read a file from disk.
   else
     echo "⚠️  Could not find open PR for branch $MY_BRANCH — skipping reviewer spawn."
   fi
