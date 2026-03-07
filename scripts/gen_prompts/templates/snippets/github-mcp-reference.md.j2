@@ -5,10 +5,10 @@ writes — they add caching, structured output, and logging.
 
 | MCP tool | Replaces |
 |----------|---------|
-| `github_list_issues(state, label)` | `gh issue list --label X` |
-| `github_get_issue(issue_number)` | `gh issue view N --json ...` |
-| `github_list_prs(state)` | `gh pr list` |
-| `github_get_pr(pr_number)` | `gh pr view N --json ...` |
+| `list_issues (user-github)(state, label)` | `gh issue list --label X` |
+| `issue_read (user-github)(issue_number)` | `gh issue view N --json ...` |
+| `list_pull_requests (user-github)(state)` | `gh pr list` |
+| `pull_request_read (user-github)(pr_number)` | `gh pr view N --json ...` |
 | `github_add_label(issue_number, label)` | `gh issue edit N --add-label X` |
 | `github_remove_label(issue_number, label)` | `gh issue edit N --remove-label X` |
 | `github_claim_issue(issue_number)` | `gh issue edit N --add-label "agent:wip"` |

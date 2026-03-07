@@ -57,10 +57,10 @@ to make and which children to spawn:
 
 | TIER | SCOPE_TYPE | What SCOPE_VALUE means | GitHub queries |
 |------|-----------|------------------------|----------------|
-| `executive` | `label` | GitHub label string | `github_list_issues` + `github_list_prs` filtered to the label |
-| `coordinator` | `label` | GitHub label string | `github_list_issues` only (engineering) or `github_list_prs` only (qa) |
-| `engineer` | `issue` | Issue number (string) | `github_get_issue(issue_number=SCOPE_VALUE)` |
-| `reviewer` | `pr` | PR number (string) | `github_get_pr(pr_number=SCOPE_VALUE)` |
+| `executive` | `label` | GitHub label string | `list_issues (user-github)` + `list_pull_requests (user-github)` filtered to the label |
+| `coordinator` | `label` | GitHub label string | `list_issues (user-github)` only (engineering) or `list_pull_requests (user-github)` only (qa) |
+| `engineer` | `issue` | Issue number (string) | `issue_read (user-github)(issue_number=SCOPE_VALUE)` |
+| `reviewer` | `pr` | PR number (string) | `pull_request_read (user-github)(pr_number=SCOPE_VALUE)` |
 
 The `.agent-task` file contains inline comments with the MCP tool calls
 for this tier — pass them verbatim to the spawned agent in the briefing below.
@@ -119,13 +119,13 @@ Step 2: Read your .agent-task file:
 Step 3: Run your tier's GitHub queries via MCP to discover what needs doing.
 
   executive tier — call BOTH MCP tools:
-    github_list_issues(label="{scope_value}", state="open")
-    github_list_prs(state="open")
+    list_issues (user-github)(label="{scope_value}", state="open")
+    list_pull_requests (user-github)(state="open")
   Then: spawn engineering-coordinator if open issues exist,
         spawn qa-coordinator if open PRs exist (cleanup sweep only).
 
   coordinator tier (engineering-coordinator role) — call:
-    github_list_issues(label="{scope_value}", state="open")
+    list_issues (user-github)(label="{scope_value}", state="open")
   Filter out any issues with label "agent:wip" (already claimed),
   "blocked" (phase-gated — prior phase not yet complete), or "ticket-blocked"
   (has unresolved ticket-level dependencies — do not dispatch until all are closed).
@@ -133,7 +133,7 @@ Step 3: Run your tier's GitHub queries via MCP to discover what needs doing.
   Then: spawn one engineer per eligible issue (all in parallel via Task calls).
 
   coordinator tier (qa-coordinator role) — call:
-    github_list_prs(state="open")
+    list_pull_requests (user-github)(state="open")
   Then: spawn one pr-reviewer per open PR (all in parallel via Task calls).
 
 Step 4: For each child you spawn:
@@ -172,8 +172,8 @@ Step 2: Read your .agent-task file:
   {host_worktree_path}/.agent-task
 
 Step 3: Read your assigned {scope_type} via MCP:
-  engineer  → github_get_issue(number={scope_value})
-  reviewer  → github_get_pr(number={scope_value})
+  engineer  → issue_read (user-github)(number={scope_value})
+  reviewer  → pull_request_read (user-github)(number={scope_value})
 
 Step 4: Follow your role instructions exactly.
   engineer  → implement the issue in your worktree, open a PR against dev.

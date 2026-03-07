@@ -334,10 +334,10 @@ writes — they add caching, structured output, and logging.
 
 | MCP tool | Replaces |
 |----------|---------|
-| `github_list_issues(state, label)` | `gh issue list --label X` |
-| `github_get_issue(issue_number)` | `gh issue view N --json ...` |
-| `github_list_prs(state)` | `gh pr list` |
-| `github_get_pr(pr_number)` | `gh pr view N --json ...` |
+| `list_issues (user-github)(state, label)` | `gh issue list --label X` |
+| `issue_read (user-github)(issue_number)` | `gh issue view N --json ...` |
+| `list_pull_requests (user-github)(state)` | `gh pr list` |
+| `pull_request_read (user-github)(pr_number)` | `gh pr view N --json ...` |
 | `github_add_label(issue_number, label)` | `gh issue edit N --add-label X` |
 | `github_remove_label(issue_number, label)` | `gh issue edit N --remove-label X` |
 | `github_claim_issue(issue_number)` | `gh issue edit N --add-label "agent:wip"` |
@@ -362,7 +362,7 @@ and all `git` commands.
 ### Command policy
 
 Consult `.agentception/agent-command-policy.md` for the full tier list. Summary:
-- **Green (auto-allow):** `ls`, `git status/log/diff/fetch`, `github_get_issue`, `github_list_prs`, `mypy`, `pytest`, `rg`
+- **Green (auto-allow):** `ls`, `git status/log/diff/fetch`, `issue_read (user-github)`, `list_pull_requests (user-github)`, `mypy`, `pytest`, `rg`
 - **Yellow (review before running):** `docker compose build`, `rm <single file>`, `git rebase`
 - **Red (never):** `rm -rf`, `git push --force`, `git push origin dev`, `docker system prune`
 
@@ -962,8 +962,8 @@ STEP 5.5 — MERGE ORDER GATE (sequential chain safety):
   DO NOT loop indefinitely — escalate and self-destruct instead.
 
     for i in $(seq 1 15); do
-      # MCP: github_get_pr(pr_number=MERGE_AFTER) → .state
-      STATE=<github_get_pr(MERGE_AFTER).state>
+      # MCP: pull_request_read (user-github)(pr_number=MERGE_AFTER) → .state
+      STATE=<pull_request_read (user-github)(MERGE_AFTER).state>
       echo "[$i/15] Gate PR #$MERGE_AFTER state: $STATE"
       if [ "$STATE" = "MERGED" ]; then
         echo "✅ Gate cleared — PR #$MERGE_AFTER is merged. Proceeding to merge."
@@ -1145,7 +1145,7 @@ STEP 6 — PRE-MERGE SYNC (only if grade is A or B):
          echo "Close each issue via MCP issue_write + add_issue_comment + github_remove_label"
        else
          # Fallback: re-parse the PR body if CLOSES_ISSUES was empty in task file
-         # MCP: github_get_pr(pr_number=N) → .body → parse "Closes #NNN" patterns
+         # MCP: pull_request_read (user-github)(pr_number=N) → .body → parse "Closes #NNN" patterns
          # Then for each parsed issue number, call MCP issue_write to close it.
          echo "Parse PR body for Closes #NNN patterns, then close each via MCP issue_write"
        fi
@@ -1287,7 +1287,7 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
        for label in ac-ui/0-critical-bugs ac-ui/1-design-tokens \
                         ac-ui/2-data-model ac-ui/3-core-pages \
                         ac-ui/4-controls-intelligence ac-ui/5-polish; do
-      # MCP: github_list_issues(label="$label", state="open") → .count
+      # MCP: list_issues (user-github)(label="$label", state="open") → .count
       COUNT=<count from MCP response>
       if [ "$COUNT" -gt 0 ]; then
         ACTIVE_LABEL="$label"
@@ -1301,7 +1301,7 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
       TASK_BATCH_ID=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('pipeline',{}).get('batch_id',''))" 2>/dev/null || echo "")
       BATCH_LABEL_PREFIX=$(echo "$TASK_BATCH_ID" | grep -oE 'batch-[0-9]+' | head -1)
       if [ -n "$BATCH_LABEL_PREFIX" ]; then
-        # MCP: github_list_issues(label="$BATCH_LABEL_PREFIX", state="open") → .count
+        # MCP: list_issues (user-github)(label="$BATCH_LABEL_PREFIX", state="open") → .count
         BATCH_COUNT=<count from MCP response>
         if [ "$BATCH_COUNT" -gt 0 ]; then
           ACTIVE_LABEL="$BATCH_LABEL_PREFIX"
@@ -1314,7 +1314,7 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
       echo "ℹ️  No open ac-ui/ or batch issues remain — chain complete."
     else
       # Pick the next unclaimed issue from ACTIVE_LABEL only.
-      # MCP: github_list_issues(label="$ACTIVE_LABEL", state="open")
+      # MCP: list_issues (user-github)(label="$ACTIVE_LABEL", state="open")
       # Filter out any with label "agent:wip" (already claimed),
       # "blocked" (phase-gated), or "ticket-blocked" (unresolved ticket-level
       # dependency — the poller removes this label once all deps close).
@@ -1324,14 +1324,14 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
 
     # Dependency gate: only proceed if all "Depends on #NNN" references are CLOSED.
     if [ -n "$NEXT_ISSUE" ]; then
-      # MCP: github_get_issue(number=$NEXT_ISSUE) → .body
+      # MCP: issue_read (user-github)(number=$NEXT_ISSUE) → .body
       # Parse "Depends on #NNN" references from body text.
       # For each dependency:
-      #   MCP: github_get_issue(number=<dep>) → check .state and .state_reason
+      #   MCP: issue_read (user-github)(number=<dep>) → check .state and .state_reason
       #   If state != "closed" or state_reason != "completed" → skip this issue.
       DEPS=<parsed dependency issue numbers>
       for dep in $DEPS; do
-        # MCP: github_get_issue(number=$dep) → .state
+        # MCP: issue_read (user-github)(number=$dep) → .state
         DEP_STATE=<state from MCP>
         if [ "$DEP_STATE" != "closed" ]; then
           echo "ℹ️  Issue #$NEXT_ISSUE blocked by dependency #$dep (state=$DEP_STATE) — chain complete for now."
@@ -1359,7 +1359,7 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
       # MCP: github_claim_issue(issue_number=$NEXT_ISSUE)
 
       # Resolve the primary label so the engineer can route mypy/tests correctly.
-      # MCP: github_get_issue(number=$NEXT_ISSUE) → .labels
+      # MCP: issue_read (user-github)(number=$NEXT_ISSUE) → .labels
       # Pick the first label starting with "ac-ui/"
       NEXT_ISSUE_LABEL=<label from MCP response>
 
@@ -1419,12 +1419,12 @@ TASK
   else
     # ── POOL MODE: spawned by QA Coordinator; spawn the next REVIEWER for the next open PR ──
 
-    # MCP: github_list_prs(state="open") → filter out any with label "agent:wip"
+    # MCP: list_pull_requests (user-github)(state="open") → filter out any with label "agent:wip"
     # Take the first unclaimed PR targeting dev.
     NEXT_PR=<first unclaimed PR number from MCP response>
 
     if [ -n "$NEXT_PR" ]; then
-      # MCP: github_get_pr(pr_number=$NEXT_PR) → .headRefName, .title, .body
+      # MCP: pull_request_read (user-github)(pr_number=$NEXT_PR) → .headRefName, .title, .body
       NEXT_BRANCH=<headRefName from MCP response>
       NEXT_WORKTREE="$HOME/.agentception/worktrees/agentception/pr-$NEXT_PR"
       git -C "$REPO" worktree add "$NEXT_WORKTREE" "origin/$NEXT_BRANCH"
@@ -1568,7 +1568,7 @@ If two PRs in the batch share a file:
 ### Step 1 — Confirm PRs are open
 
 ```
-# MCP: github_list_prs(state="open")
+# MCP: list_pull_requests (user-github)(state="open")
 ```
 
 ### Step 2 — Confirm `dev` is up to date
@@ -1606,7 +1606,7 @@ docker compose exec agentception ls /worktrees/
 REPO=$(git rev-parse --show-toplevel)
 git -C "$REPO" fetch origin
 git -C "$REPO" merge origin/dev
-# MCP: github_list_prs(state="open")   # any PRs the batch failed to merge?
+# MCP: list_pull_requests (user-github)(state="open")   # any PRs the batch failed to merge?
 ```
 
 ### 2 — Worktree cleanup

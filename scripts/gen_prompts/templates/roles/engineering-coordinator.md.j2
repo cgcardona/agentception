@@ -78,13 +78,13 @@ SEED:
        # If the worktree exists AND has commits, the claim is ACTIVE — do NOT touch it.
        MAIN_REPO=$(git -C "<repo-root>" rev-parse --show-toplevel 2>/dev/null || echo "<repo-root>")
 
-       # MCP: github_list_issues(state="open", label="{{ claim_label }}")
+       # MCP: list_issues (user-github)(state="open", label="{{ claim_label }}")
        # → returns list of {number, title, labels, ...}; iterate each .number as NUM
-       for NUM in <numbers from github_list_issues result>; do
+       for NUM in <numbers from list_issues (user-github) result>; do
          # If an open PR already references this issue (via branch name or close keyword),
          # the claim is ACTIVE even if the implementer worktree was pruned. Never clear it.
-         # MCP: github_list_prs(state="open") → filter where .headRefName startswith "feat/issue-${NUM}"
-         OPEN_PR=<pr_number from github_list_prs result, or empty>
+         # MCP: list_pull_requests (user-github)(state="open") → filter where .headRefName startswith "feat/issue-${NUM}"
+         OPEN_PR=<pr_number from list_pull_requests (user-github) result, or empty>
          if [ -n "$OPEN_PR" ]; then
            echo "Keeping {{ claim_label }} on #$NUM (open PR #$OPEN_PR exists — worktree pruning is expected)"
            continue
@@ -110,7 +110,7 @@ SEED:
        # NEVER query all {{ active_label_prefix }}* labels — you are scoped to exactly one label per coordinator run.
        # This prevents you from accidentally claiming issues from a later phase.
        ACTIVE_LABEL="<from dispatch prompt>"
-       # MCP: github_list_issues(state="open", label="$ACTIVE_LABEL")
+       # MCP: list_issues (user-github)(state="open", label="$ACTIVE_LABEL")
        # → filter result to exclude issues that have any of these labels:
        #     "{{ claim_label }}"  (already claimed by another agent)
        #     "blocked"            (phase-gated — prior phase not yet complete)
@@ -124,8 +124,8 @@ SEED:
        # the stale sweep to (incorrectly) clear {{ claim_label }} and expose the issue again.
        # Always re-verify before seeding — branch naming is the canonical signal.
        for NUM in <candidate numbers from step 3>; do
-         # MCP: github_list_prs(state="open") → filter where .headRefName startswith "feat/issue-${NUM}"
-         OPEN_PR=<pr_number from github_list_prs result, or empty>
+         # MCP: list_pull_requests (user-github)(state="open") → filter where .headRefName startswith "feat/issue-${NUM}"
+         OPEN_PR=<pr_number from list_pull_requests (user-github) result, or empty>
          if [ -n "$OPEN_PR" ]; then
            echo "SKIP #$NUM — open PR #$OPEN_PR already exists for this issue"
            # Remove from candidate list
@@ -140,13 +140,13 @@ SEED:
      Secondary signal (belt-and-suspenders): parse "Blocked by #NNN" from the
      issue body and verify each dep is CLOSED. Skip if any dep is still OPEN.
        for NUM in <candidate numbers>; do
-         # MCP: github_get_issue(number=NUM) → .body
+         # MCP: issue_read (user-github)(number=NUM) → .body
          # Extract "Blocked by #NNN" patterns from .body, iterate each dep number.
-         DEPS=<dep numbers parsed from github_get_issue(NUM).body>
+         DEPS=<dep numbers parsed from issue_read (user-github)(NUM).body>
          ALL_MET=true
          for dep in $DEPS; do
-           # MCP: github_get_issue(number=dep) → .state
-           STATE=<github_get_issue(dep).state>
+           # MCP: issue_read (user-github)(number=dep) → .state
+           STATE=<issue_read (user-github)(dep).state>
            [ "$STATE" != "closed" ] && ALL_MET=false && break
          done
          [ "$ALL_MET" = "true" ] && echo "SEED $NUM" || echo "SKIP $NUM (deps unmet)"
@@ -160,7 +160,7 @@ SEED:
   5. Take the first 4 unclaimed issues. For each:
        a. Claim:  MCP: github_add_label(issue_number=N, label="{{ claim_label }}")
        b. Read the issue body:
-            # MCP: github_get_issue(number=N) → use .body and .title
+            # MCP: issue_read (user-github)(number=N) → use .body and .title
        c. Call ``build_spawn_child`` MCP tool to create the engineer node atomically:
           ```
           build_spawn_child(
