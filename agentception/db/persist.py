@@ -8,7 +8,6 @@ ACPipelineSnapshot  — one row per tick, always (lightweight scalars only).
 ACIssue / ACPullRequest — upsert on hash-diff: only write when content changes.
 ACAgentRun          — upsert on every tick so status transitions are recorded.
 ACAgentMessage      — fire-and-forget async task, never blocks the tick loop.
-ACRoleVersion       — insert-if-not-exists on role file content hash.
 
 All writes are wrapped in a single ``try/except`` so a DB outage never takes
 down the poller — the dashboard degrades gracefully to filesystem-only mode.
@@ -36,7 +35,6 @@ from agentception.db.models import (
     ACPipelineSnapshot,
     ACPRIssueLink,
     ACPullRequest,
-    ACRoleVersion,
     ACWave,
 )
 
@@ -882,42 +880,6 @@ async def _upsert_agent_runs(
             stale_pending.id,
             stale_pending.spawned_at,
         )
-
-
-# ---------------------------------------------------------------------------
-# Role version snapshot (content-addressed insert-if-new)
-# ---------------------------------------------------------------------------
-
-
-async def persist_role_version(role_name: str, content: str) -> None:
-    """Snapshot a role file if its content has changed since last seen.
-
-    Called at startup and whenever a role file is read.  Safe to call
-    concurrently — the unique constraint on (role_name, content_hash) acts
-    as the idempotency guard.
-    """
-    content_hash = _hash(content)
-    try:
-        async with get_session() as session:
-            result = await session.execute(
-                select(ACRoleVersion).where(
-                    ACRoleVersion.role_name == role_name,
-                    ACRoleVersion.content_hash == content_hash,
-                )
-            )
-            if result.scalar_one_or_none() is None:
-                session.add(
-                    ACRoleVersion(
-                        role_name=role_name,
-                        content_hash=content_hash,
-                        content=content,
-                        first_seen_at=_now(),
-                    )
-                )
-                await session.commit()
-                logger.info("📸 Role version snapshot: %s (%s…)", role_name, content_hash[:8])
-    except Exception as exc:
-        logger.warning("⚠️  persist_role_version failed (non-fatal): %s", exc)
 
 
 # ---------------------------------------------------------------------------
