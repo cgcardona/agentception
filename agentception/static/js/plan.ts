@@ -150,6 +150,7 @@ interface PlanFormComponent extends AlpineMagics {
   result: PlanResult;
   streamingText: string;
   _abortController: AbortController | null;
+  ghRepo: string;
   initiative: string;
   phaseCount: number;
   issueCount: number;
@@ -217,7 +218,10 @@ export function parseSseEvent<T extends { t: string }>(line: string): T | null {
 
 // ── Component factory ─────────────────────────────────────────────────────
 
-export function planForm(): PlanFormComponent {
+// planForm accepts optional initial props from the Jinja2 template so Jinja2
+// can pass server-side values (e.g. ghRepo) into the Alpine component via
+// x-data='planForm({ ghRepo: {{ gh_repo | tojson }} })'.
+export function planForm(props: { ghRepo?: string } = {}): PlanFormComponent {
   return {
     // ── State ──────────────────────────────────────────────────────────────
     step: 'write',
@@ -232,6 +236,10 @@ export function planForm(): PlanFormComponent {
     // ── Streaming state (Phase 1A direct SSE) ─────────────────────────────
     streamingText: '',
     _abortController: null,
+
+    // ── GitHub repo context (e.g. "cgcardona/agentception") ───────────────
+    // Injected from Jinja2 so the shareable URL can include the org/repo.
+    ghRepo: props.ghRepo ?? '',
 
     // ── Review metadata (populated from the SSE "done" event) ─────────────
     initiative: '',
@@ -571,22 +579,34 @@ export function planForm(): PlanFormComponent {
               }));
 
               this.result = { issues, phaseGroups };
+
+              // Persist batch context to localStorage so the batch bar and
+              // any subsequent page load can pick it up.
               try {
                 if (this.batchId)    localStorage.setItem('ac_active_batch',      this.batchId);
                 if (this.initiative) localStorage.setItem('ac_active_initiative', this.initiative);
-              } catch { /* silent fail */ }
+                if (this.ghRepo && this.initiative && this.batchId) {
+                  const planUrl = `/plan/${this.ghRepo}/${this.initiative}/${this.batchId}`;
+                  const shipUrl = `/ship/${this.ghRepo}/${this.initiative}`;
+                  localStorage.setItem('ac_active_plan_url', planUrl);
+                  localStorage.setItem('ac_active_ship_url', shipUrl);
+                }
+              } catch { /* private/sandboxed context — silent fail */ }
+
               this._clearDraft();
               this.step = 'done';
 
-              // Update the URL to the shareable initiative overview so the user
-              // can copy-paste it for teammates.  A direct GET to this URL renders
-              // the server-side read-only view (plan_initiative_page in plan_ui.py).
+              // Update the URL to the full repo-scoped shareable batch overview.
               // Use window.history explicitly — the local `history` binding is the
               // CodeMirror history extension, not the browser History API.
               // Wrapped in try/catch so sandboxed contexts don't throw.
               try {
-                if (this.initiative) {
-                  window.history.pushState({}, '', `/plan/${this.initiative}`);
+                if (this.ghRepo && this.initiative && this.batchId) {
+                  window.history.pushState(
+                    {},
+                    '',
+                    `/plan/${this.ghRepo}/${this.initiative}/${this.batchId}`,
+                  );
                 }
               } catch { /* sandboxed context — silent fail */ }
 

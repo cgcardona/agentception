@@ -20,6 +20,7 @@ import hashlib
 import json
 import logging
 import re
+import uuid
 from typing import TYPE_CHECKING, TypedDict
 
 from sqlalchemy import select
@@ -1293,10 +1294,12 @@ class PhaseEntry(TypedDict):
 
 
 async def persist_initiative_phases(
+    repo: str,
     initiative: str,
+    batch_id: str,
     phases: list[PhaseEntry],
 ) -> None:
-    """Upsert the phase DAG and display order for an initiative.
+    """Insert phase DAG rows for a specific (repo, initiative, batch_id) filing.
 
     Called by ``file_issues`` after all GitHub issues have been created.
     Each entry must have:
@@ -1304,9 +1307,10 @@ async def persist_initiative_phases(
     - ``"order"``      — 0-indexed display position (canonical ordering source)
     - ``"depends_on"`` — list of scoped phase labels that must complete first
 
-    Uses upsert semantics so re-running a plan with the same initiative
-    replaces the old dep graph rather than failing with a duplicate key.
-    Best-effort — swallows exceptions so a DB outage never blocks filing.
+    Each call produces a distinct batch of rows identified by ``batch_id``.
+    Re-filing the same initiative creates new rows under the new batch_id;
+    no existing rows are modified.  Best-effort — swallows exceptions so a DB
+    outage never blocks filing.
     """
     import json as _json
 
@@ -1314,33 +1318,23 @@ async def persist_initiative_phases(
         now = _now()
         async with get_session() as session:
             for phase in phases:
-                label = phase["label"]
-                order = phase["order"]
-                depends_on = phase["depends_on"]
-                result = await session.execute(
-                    select(ACInitiativePhase).where(
-                        ACInitiativePhase.initiative == initiative,
-                        ACInitiativePhase.phase_label == label,
+                session.add(
+                    ACInitiativePhase(
+                        repo=repo,
+                        initiative=initiative,
+                        batch_id=batch_id,
+                        phase_label=phase["label"],
+                        phase_order=phase["order"],
+                        depends_on_json=_json.dumps(phase["depends_on"]),
+                        created_at=now,
                     )
                 )
-                existing = result.scalar_one_or_none()
-                if existing is not None:
-                    existing.phase_order = order
-                    existing.depends_on_json = _json.dumps(depends_on)
-                else:
-                    session.add(
-                        ACInitiativePhase(
-                            initiative=initiative,
-                            phase_label=label,
-                            phase_order=order,
-                            depends_on_json=_json.dumps(depends_on),
-                            created_at=now,
-                        )
-                    )
             await session.commit()
         logger.info(
-            "✅ persist_initiative_phases: %s — %d phases written",
+            "✅ persist_initiative_phases: %s/%s batch=%s — %d phases written",
+            repo,
             initiative,
+            batch_id,
             len(phases),
         )
     except Exception as exc:
@@ -1385,10 +1379,11 @@ async def reseed_missing_initiative_phases(repo: str) -> None:
                         initiative_phase_labels.setdefault(slug, set()).add(lbl)
 
             for initiative, phase_label_set in initiative_phase_labels.items():
-                # Skip if the dep graph already exists.
+                # Skip if the dep graph already exists for this repo+initiative.
                 existing = await session.execute(
                     select(ACInitiativePhase).where(
-                        ACInitiativePhase.initiative == initiative
+                        ACInitiativePhase.repo == repo,
+                        ACInitiativePhase.initiative == initiative,
                     ).limit(1)
                 )
                 if existing.scalar_one_or_none() is not None:
@@ -1403,13 +1398,16 @@ async def reseed_missing_initiative_phases(repo: str) -> None:
                     )
                     for idx, label in enumerate(sorted_phases)
                 ]
+                recovery_batch_id = f"batch-{uuid.uuid4().hex[:12]}"
 
                 logger.info(
-                    "✅ reseed_missing_initiative_phases: %s — recovered %d phases from issue labels",
+                    "✅ reseed_missing_initiative_phases: %s/%s — recovered %d phases, batch=%s",
+                    repo,
                     initiative,
                     len(phases),
+                    recovery_batch_id,
                 )
-                await persist_initiative_phases(initiative, phases)
+                await persist_initiative_phases(repo, initiative, recovery_batch_id, phases)
     except Exception as exc:
         logger.warning("⚠️  reseed_missing_initiative_phases failed (non-fatal): %s", exc)
 

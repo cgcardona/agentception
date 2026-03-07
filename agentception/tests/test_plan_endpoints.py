@@ -487,7 +487,53 @@ async def test_file_issues_forwards_all_event_types(async_client: AsyncClient) -
 
 
 # ---------------------------------------------------------------------------
-# GET /plan/{initiative} — shareable initiative overview
+# GET /plan/{org}/{repo}/{initiative} — redirect to latest batch
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_plan_initiative_redirect_returns_404_when_no_batches(
+    async_client: AsyncClient,
+) -> None:
+    """GET /plan/{org}/{repo}/{initiative} returns 404 when get_initiative_batches returns []."""
+    with patch(
+        "agentception.db.queries.get_initiative_batches",
+        new=AsyncMock(return_value=[]),
+    ):
+        resp = await async_client.get("/plan/testorg/testrepo/no-such-initiative")
+    assert resp.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_plan_initiative_redirect_returns_302_to_latest_batch(
+    async_client: AsyncClient,
+) -> None:
+    """GET /plan/{org}/{repo}/{initiative} redirects to /{batch_id} when batches exist."""
+    with patch(
+        "agentception.db.queries.get_initiative_batches",
+        new=AsyncMock(return_value=["batch-abc123def456", "batch-older"]),
+    ):
+        resp = await async_client.get(
+            "/plan/testorg/testrepo/auth-rewrite",
+            follow_redirects=False,
+        )
+    assert resp.status_code == 302
+    assert resp.headers["location"].endswith(
+        "/plan/testorg/testrepo/auth-rewrite/batch-abc123def456"
+    )
+
+
+@pytest.mark.anyio
+async def test_plan_initiative_redirect_returns_400_for_invalid_initiative(
+    async_client: AsyncClient,
+) -> None:
+    """GET /plan/{org}/{repo}/{initiative} returns 400 when the initiative slug is invalid."""
+    resp = await async_client.get("/plan/testorg/testrepo/-bad-start")
+    assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# GET /plan/{org}/{repo}/{initiative}/{batch_id} — shareable batch overview
 # ---------------------------------------------------------------------------
 
 
@@ -495,32 +541,31 @@ async def test_file_issues_forwards_all_event_types(async_client: AsyncClient) -
 async def test_plan_initiative_page_returns_404_when_not_found(
     async_client: AsyncClient,
 ) -> None:
-    """GET /plan/<slug> returns 404 when get_initiative_summary returns None."""
+    """GET /plan/{org}/{repo}/{initiative}/{batch_id} returns 404 when summary is None."""
     with patch(
         "agentception.db.queries.get_initiative_summary",
         new=AsyncMock(return_value=None),
     ):
-        resp = await async_client.get("/plan/no-such-initiative")
+        resp = await async_client.get(
+            "/plan/testorg/testrepo/no-such-initiative/batch-abc123"
+        )
     assert resp.status_code == 404
 
 
 @pytest.mark.anyio
-async def test_plan_initiative_page_returns_400_for_invalid_slug(
+async def test_plan_initiative_page_returns_400_for_invalid_batch_id(
     async_client: AsyncClient,
 ) -> None:
-    """GET /plan/<slug> returns 400 when the slug contains invalid characters."""
-    resp = await async_client.get("/plan/has/slash")
-    assert resp.status_code in {400, 404}  # 404 due to router — /plan/has/slash is two segments
-
-    resp2 = await async_client.get("/plan/-bad-start")
-    assert resp2.status_code == 400
+    """GET /plan/{org}/{repo}/{initiative}/{batch_id} returns 400 for invalid batch_id."""
+    resp = await async_client.get("/plan/testorg/testrepo/auth-rewrite/not-a-batch-id")
+    assert resp.status_code == 400
 
 
 @pytest.mark.anyio
 async def test_plan_initiative_page_renders_summary(
     async_client: AsyncClient,
 ) -> None:
-    """GET /plan/<slug> renders the initiative name and phase cards."""
+    """GET /plan/{org}/{repo}/{initiative}/{batch_id} renders the initiative name and phase cards."""
     from agentception.db.queries import (
         InitiativeIssueRow,
         InitiativePhaseRow,
@@ -528,7 +573,9 @@ async def test_plan_initiative_page_renders_summary(
     )
 
     summary: InitiativeSummary = InitiativeSummary(
+        repo="testorg/testrepo",
         initiative="auth-rewrite",
+        batch_id="batch-abc123",
         phase_count=2,
         issue_count=3,
         open_count=2,
@@ -574,13 +621,13 @@ async def test_plan_initiative_page_renders_summary(
         ],
     )
 
-    with (
-        patch(
-            "agentception.db.queries.get_initiative_summary",
-            new=AsyncMock(return_value=summary),
-        ),
+    with patch(
+        "agentception.db.queries.get_initiative_summary",
+        new=AsyncMock(return_value=summary),
     ):
-        resp = await async_client.get("/plan/auth-rewrite")
+        resp = await async_client.get(
+            "/plan/testorg/testrepo/auth-rewrite/batch-abc123"
+        )
 
     assert resp.status_code == 200
     html = resp.text
@@ -596,13 +643,15 @@ async def test_plan_initiative_page_renders_summary(
     assert "plan-done-issue-link--closed" in html
     # Filed date rendered
     assert "Mar" in html or "6" in html
+    # Batch ID is displayed in the footer
+    assert "batch-abc123" in html
 
 
 @pytest.mark.anyio
 async def test_plan_initiative_page_shows_complete_phase(
     async_client: AsyncClient,
 ) -> None:
-    """GET /plan/<slug> uses plan-done-phase-card--complete for completed phases."""
+    """GET /plan/{org}/{repo}/{initiative}/{batch_id} shows plan-done-phase-card--complete."""
     from agentception.db.queries import (
         InitiativeIssueRow,
         InitiativePhaseRow,
@@ -610,7 +659,9 @@ async def test_plan_initiative_page_shows_complete_phase(
     )
 
     summary: InitiativeSummary = InitiativeSummary(
+        repo="testorg/testrepo",
         initiative="my-proj",
+        batch_id="batch-d0e123abc456",
         phase_count=1,
         issue_count=1,
         open_count=0,
@@ -635,13 +686,13 @@ async def test_plan_initiative_page_shows_complete_phase(
         ],
     )
 
-    with (
-        patch(
-            "agentception.db.queries.get_initiative_summary",
-            new=AsyncMock(return_value=summary),
-        ),
+    with patch(
+        "agentception.db.queries.get_initiative_summary",
+        new=AsyncMock(return_value=summary),
     ):
-        resp = await async_client.get("/plan/my-proj")
+        resp = await async_client.get(
+            "/plan/testorg/testrepo/my-proj/batch-d0e123abc456"
+        )
 
     assert resp.status_code == 200
     assert "plan-done-phase-card--complete" in resp.text

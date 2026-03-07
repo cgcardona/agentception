@@ -5,9 +5,10 @@
 {#
   Shareable initiative overview — server-rendered, no Alpine state machine.
 
-  Rendered by GET /plan/<initiative> (plan_initiative_page in plan_ui.py).
-  Reachable via a direct URL share or after history.pushState in plan.ts
-  when Phase 1B completes.  All data comes from the DB via get_initiative_summary.
+  Rendered by GET /plan/{org}/{repo}/{initiative}/{batch_id}
+  (plan_initiative_page in plan_ui.py).  Reachable via a direct URL share
+  or after history.pushState in plan.ts when Phase 1B completes.  All data
+  comes from the DB via get_initiative_summary.
 
   CSS: reuses .plan-done-* classes from app.css §Plan
 #}
@@ -75,10 +76,16 @@
     {% endfor %}
   </div>
 
-  {# ── Footer: actions ────────────────────────────────────────────────── #}
+  {# ── Footer: batch ID + actions ─────────────────────────────────────── #}
   <div class="plan-done-footer">
+    <div class="plan-done-batch">
+      <span class="plan-done-batch-label">BATCH</span>
+      <code class="plan-done-batch-id">{{ summary.batch_id }}</code>
+    </div>
+
     <div class="plan-done-actions">
-      <a href="/" class="btn btn-primary">Dispatch agents →</a>
+      <a href="/ship/{{ gh_repo }}/{{ summary.initiative }}"
+         class="btn btn-primary">Dispatch agents →</a>
       <a href="https://github.com/{{ gh_repo }}/issues?q=is%3Aopen+label%3A{{ summary.initiative }}"
          target="_blank" rel="noopener noreferrer"
          class="btn btn-secondary">View on GitHub ↗</a>

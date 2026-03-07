@@ -4,7 +4,7 @@ from __future__ import annotations
 
 Endpoint
 --------
-POST /api/ship/{initiative}/advance — advance the phase gate for an initiative.
+POST /api/ship/{org}/{repo}/{initiative}/advance — advance the phase gate for an initiative.
 """
 
 import logging
@@ -25,9 +25,9 @@ router = APIRouter(prefix="/ship", tags=["ship"])
 
 
 class AdvancePhaseBody(BaseModel):
-    """Body for ``POST /api/ship/{initiative}/advance``.
+    """Body for ``POST /api/ship/{org}/{repo}/{initiative}/advance``.
 
-    ``initiative`` is encoded in the URL path.
+    ``org``, ``repo``, and ``initiative`` are encoded in the URL path.
     """
 
     from_phase: str
@@ -51,8 +51,10 @@ class AdvancePhaseBlocked(BaseModel):
     open_issues: list[int]
 
 
-@router.post("/{initiative}/advance", response_model=None)
+@router.post("/{org}/{repo}/{initiative}/advance", response_model=None)
 async def advance_phase(
+    org: str,
+    repo: str,
     initiative: str,
     req: AdvancePhaseBody,
     response: Response,

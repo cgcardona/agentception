@@ -345,40 +345,41 @@ test.describe('Phase 1B — file issues', () => {
     await expect(page.locator('[x-ref="textarea"]')).toHaveValue('');
   });
 
-  test('URL updates to /plan/<initiative> after done event', async ({ page }) => {
+  test('URL updates to /plan/{org}/{repo}/{initiative}/{batch_id} after done event', async ({ page }) => {
     await mockFileIssues(page);
     await page.click('button:has-text("Launch")');
     await expect(page.locator('#plan-done')).toBeVisible({ timeout: 10_000 });
-    // history.pushState should have updated the URL to /plan/auth-rewrite
-    await expect(page).toHaveURL(/\/plan\/auth-rewrite/, { timeout: 5000 });
+    // history.pushState should have updated the URL to include org/repo/initiative/batch_id
+    await expect(page).toHaveURL(/\/plan\/[^/]+\/[^/]+\/auth-rewrite\/batch-/, { timeout: 5000 });
   });
 });
 
 // ---------------------------------------------------------------------------
-// Shareable initiative page — GET /plan/<initiative>
+// Shareable initiative page — GET /plan/{org}/{repo}/{initiative}/{batch_id}
 // ---------------------------------------------------------------------------
 
-test.describe('GET /plan/<initiative> shareable page', () => {
+test.describe('GET /plan/{org}/{repo}/{initiative}/{batch_id} shareable page', () => {
   test('returns 404 for unknown initiative', async ({ page }) => {
-    const resp = await page.goto('/plan/no-such-initiative-xyz');
+    const resp = await page.goto('/plan/testorg/testrepo/no-such-initiative-xyz/batch-abc123');
     expect(resp?.status()).toBe(404);
   });
 
-  test('renders initiative name and phase cards for a known initiative', async ({ page }) => {
-    // Intercept the server-side route by loading /plan/auth-rewrite.
-    // The server queries the DB; we drive the full flow so we need the
-    // mock-file-issues data that was already stored by Phase 1B in the DB
-    // (integration) or we render via a direct server request that relies on
-    // the DB.  Since Playwright runs against the live server (which uses a
-    // real DB), this test is conditional: skip if the initiative has never
-    // been filed.
-    const resp = await page.goto('/plan/auth-rewrite');
-    if (resp?.status() === 404) {
-      // Initiative not in DB yet — acceptable in a fresh dev env.
+  test('returns 400 for invalid batch_id format', async ({ page }) => {
+    const resp = await page.goto('/plan/testorg/testrepo/auth-rewrite/not-a-batch-id');
+    expect(resp?.status()).toBe(400);
+  });
+
+  test('renders initiative name and phase cards for a known batch', async ({ page }) => {
+    // This test is integration-only: it relies on the DB having a real filing.
+    // Since Playwright runs against the live server (which uses a real DB),
+    // this test is conditional: skip if no batch has been filed for auth-rewrite.
+    const listResp = await page.request.get('/plan/testorg/testrepo/auth-rewrite');
+    if (listResp.status() === 404) {
       test.skip();
       return;
     }
-    expect(resp?.status()).toBe(200);
+    // The list redirect should land on the detail page.
+    expect(listResp.status()).toBe(200);
     await expect(page.locator('.plan-done-initiative')).toContainText('auth-rewrite');
     await expect(page.locator('.plan-done-phase-card')).toBeVisible();
   });

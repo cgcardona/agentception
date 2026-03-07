@@ -442,7 +442,9 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
     # Writes phase_order (list index) alongside the dependency graph so the
     # Build board has a single, explicit source of truth for phase ordering.
     await persist_initiative_phases(
+        repo=repo,
         initiative=spec.initiative,
+        batch_id=batch_id,
         phases=[
             {
                 "label": f"{spec.initiative}/{p.label}",

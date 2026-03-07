@@ -29,7 +29,7 @@
   <nav class="build-initiative-tabs" aria-label="Initiatives">
     {% for ini in initiatives %}
     <a class="build-initiative-tab{% if ini == initiative %} build-initiative-tab--active{% endif %}"
-       href="/ship/{{ ini | urlencode }}">
+       href="/ship/{{ repo }}/{{ ini | urlencode }}">
       {{ ini }}
     </a>
     {% endfor %}
@@ -42,7 +42,7 @@
     {# ── left: phase board ─────────────────────────────────────────────── #}
     <section class="build-board"
              id="build-board"
-             hx-get="/ship/{{ initiative | urlencode }}/board"
+             hx-get="/ship/{{ repo }}/{{ initiative | urlencode }}/board"
              hx-trigger="load, every 5s, refreshBoard from:body"
              hx-swap="innerHTML"
     >

@@ -1211,22 +1211,47 @@ class InitiativePhaseMeta(TypedDict):
     """Scoped phase labels that must be complete before this phase unlocks."""
 
 
-async def get_initiative_phase_meta(initiative: str) -> list[InitiativePhaseMeta]:
-    """Return ordered phase metadata for an initiative from ``initiative_phases``.
+async def get_initiative_phase_meta(
+    repo: str,
+    initiative: str,
+) -> list[InitiativePhaseMeta]:
+    """Return ordered phase metadata for the latest batch of an initiative.
 
-    Returns rows sorted by ``phase_order ASC`` — this is the canonical display
-    order.  Returns ``[]`` when no rows exist (initiative not yet filed or
-    predates this feature); callers fall back to lexicographic sort in that case.
+    Finds the most recent ``batch_id`` for ``(repo, initiative)`` (by
+    ``created_at DESC``) then returns all phases in that batch sorted by
+    ``phase_order ASC``.
 
+    Returns ``[]`` when no rows exist (initiative not yet filed or predates
+    this feature); callers fall back to lexicographic sort in that case.
     Falls back to ``[]`` on DB error.
     """
     from agentception.db.models import ACInitiativePhase
+    from sqlalchemy import func
 
     try:
         async with get_session() as session:
+            # Find the latest batch_id for this repo+initiative.
+            latest_batch_result = await session.execute(
+                select(ACInitiativePhase.batch_id)
+                .where(
+                    ACInitiativePhase.repo == repo,
+                    ACInitiativePhase.initiative == initiative,
+                )
+                .order_by(func.min(ACInitiativePhase.created_at).desc())
+                .group_by(ACInitiativePhase.batch_id)
+                .limit(1)
+            )
+            latest_batch_id: str | None = latest_batch_result.scalar_one_or_none()
+            if latest_batch_id is None:
+                return []
+
             result = await session.execute(
                 select(ACInitiativePhase)
-                .where(ACInitiativePhase.initiative == initiative)
+                .where(
+                    ACInitiativePhase.repo == repo,
+                    ACInitiativePhase.initiative == initiative,
+                    ACInitiativePhase.batch_id == latest_batch_id,
+                )
                 .order_by(ACInitiativePhase.phase_order)
             )
             rows = result.scalars().all()
@@ -1559,7 +1584,7 @@ async def get_issues_grouped_by_phase(
             # Caller supplied an explicit ordering — use it as-is.
             effective_phase_order = phase_order
         elif initiative:
-            meta = await get_initiative_phase_meta(initiative)
+            meta = await get_initiative_phase_meta(repo, initiative)
             if meta:
                 # Canonical path: DB has stored order from file_issues.
                 effective_phase_order = [m["label"] for m in meta]
@@ -2368,9 +2393,11 @@ class InitiativePhaseRow(TypedDict):
 
 
 class InitiativeSummary(TypedDict):
-    """Full summary for the shareable /plan/<initiative> page."""
+    """Full summary for the shareable /plan/{org}/{repo}/{initiative}/{batch_id} page."""
 
+    repo: str
     initiative: str
+    batch_id: str
     phase_count: int
     issue_count: int
     open_count: int
@@ -2380,15 +2407,46 @@ class InitiativeSummary(TypedDict):
     phases: list[InitiativePhaseRow]
 
 
+async def get_initiative_batches(repo: str, initiative: str) -> list[str]:
+    """Return batch_ids for a (repo, initiative) pair, newest first.
+
+    Used by ``GET /plan/{org}/{repo}/{initiative}`` to redirect to the most
+    recent batch.  Returns ``[]`` when no batches exist or on DB error.
+    """
+    from agentception.db.models import ACInitiativePhase
+    from sqlalchemy import func
+
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(
+                    ACInitiativePhase.batch_id,
+                    func.min(ACInitiativePhase.created_at).label("filed_at"),
+                )
+                .where(
+                    ACInitiativePhase.repo == repo,
+                    ACInitiativePhase.initiative == initiative,
+                )
+                .group_by(ACInitiativePhase.batch_id)
+                .order_by(func.min(ACInitiativePhase.created_at).desc())
+            )
+            return [row.batch_id for row in result.all()]
+    except Exception as exc:
+        logger.warning("⚠️  get_initiative_batches failed (non-fatal): %s", exc)
+        return []
+
+
 async def get_initiative_summary(
     repo: str,
     initiative: str,
+    batch_id: str,
 ) -> InitiativeSummary | None:
-    """Return a complete summary of a filed initiative for the shareable plan page.
+    """Return a complete summary of one filing batch for the shareable plan page.
 
-    Returns ``None`` when no ``initiative_phases`` rows exist for *initiative*
-    (i.e. the initiative has never been filed via Phase 1B).  Falls back to
-    ``None`` on DB error so the route can return a 404 gracefully.
+    Returns ``None`` when no ``initiative_phases`` rows exist for the given
+    ``(repo, initiative, batch_id)`` triple (i.e. the batch has never been
+    filed via Phase 1B, or the IDs are wrong).  Falls back to ``None`` on DB
+    error so the route can return a 404 gracefully.
 
     Phase ordering follows the canonical ``phase_order`` stored by
     ``persist_initiative_phases``.  Active/complete/locked state is derived
@@ -2400,7 +2458,11 @@ async def get_initiative_summary(
         async with get_session() as session:
             phase_result = await session.execute(
                 select(ACInitiativePhase)
-                .where(ACInitiativePhase.initiative == initiative)
+                .where(
+                    ACInitiativePhase.repo == repo,
+                    ACInitiativePhase.initiative == initiative,
+                    ACInitiativePhase.batch_id == batch_id,
+                )
                 .order_by(ACInitiativePhase.phase_order)
             )
             phase_rows = phase_result.scalars().all()
@@ -2456,7 +2518,9 @@ async def get_initiative_summary(
             ))
 
         return InitiativeSummary(
+            repo=repo,
             initiative=initiative,
+            batch_id=batch_id,
             phase_count=len(phases_out),
             issue_count=total_issues,
             open_count=open_count,

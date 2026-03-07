@@ -652,7 +652,7 @@ describe('_validateYaml', () => {
 // is shadowed by the CodeMirror history extension import.
 
 describe('URL update on done event — component invariants', () => {
-  it('step=done and initiative set after Phase 1B done SSE', async () => {
+  it('step=done, initiative, batchId set after Phase 1B done SSE', async () => {
     const c = makeComponent();
     c.step = 'launching';
 
@@ -670,10 +670,37 @@ describe('URL update on done event — component invariants', () => {
     await c._readFileStream(resp);
 
     expect(c.step).toBe('done');
-    // initiative is populated so pushState would target /plan/auth-rewrite
+    // initiative + batchId are populated; with ghRepo set the pushState would
+    // target /plan/{ghRepo}/auth-rewrite/batch-abc123.
     expect(c.initiative).toBe('auth-rewrite');
     expect(c.batchId).toBe('batch-abc123');
     expect(c.issueCount).toBe(2);
+  });
+
+  it('stores ac_active_plan_url and ac_active_ship_url in localStorage when ghRepo is set', async () => {
+    const c = planForm({ ghRepo: 'testorg/testrepo' }) as ReturnType<typeof planForm>;
+    (c as ReturnType<typeof planForm>).$refs = { textarea: null, yamlEditor: null };
+    (c as ReturnType<typeof planForm>).$nextTick = vi.fn().mockImplementation(async (cb?: () => void) => { if (cb) cb(); });
+    (c as ReturnType<typeof planForm>)._mountEditor = vi.fn();
+    (c as ReturnType<typeof planForm>)._validateYaml = vi.fn().mockResolvedValue(undefined);
+    c.step = 'launching';
+
+    const resp = makeSseResponse([{
+      t: 'done',
+      total: 1,
+      initiative: 'auth-rewrite',
+      batch_id: 'batch-abc123',
+      issues: [{ issue_id: 'i1', number: 101, url: 'https://github.com/t/r/issues/101', title: 'T', phase: 'p0' }],
+      coordinator_arch: {},
+    }]);
+    await c._readFileStream(resp);
+
+    expect(localStorage.getItem('ac_active_plan_url')).toBe(
+      '/plan/testorg/testrepo/auth-rewrite/batch-abc123',
+    );
+    expect(localStorage.getItem('ac_active_ship_url')).toBe(
+      '/ship/testorg/testrepo/auth-rewrite',
+    );
   });
 
   it('empty initiative in done event — no URL to push', async () => {
@@ -691,7 +718,7 @@ describe('URL update on done event — component invariants', () => {
     await c._readFileStream(resp);
 
     expect(c.step).toBe('done');
-    // Empty initiative means the if-guard prevents pushState.
+    // Empty initiative means the ghRepo+initiative+batchId guard prevents pushState.
     expect(c.initiative).toBe('');
   });
 });

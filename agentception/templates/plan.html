@@ -21,7 +21,7 @@
 
 <div
   class="plan-page"
-  x-data="planForm()"
+  x-data='planForm({ ghRepo: {{ gh_repo | tojson }} })'
   x-init="init()"
 >
 
@@ -319,7 +319,8 @@
       </div>
 
       <div class="plan-done-actions">
-        <a href="/" class="btn btn-primary">Dispatch agents →</a>
+        <a :href="ghRepo && initiative ? '/ship/' + ghRepo + '/' + initiative : '/ship'"
+           class="btn btn-primary">Dispatch agents →</a>
         <a
           :href="'https://github.com/{{ gh_repo }}/issues?q=is%3Aopen+label%3A' + encodeURIComponent(initiative)"
           target="_blank" rel="noopener noreferrer"

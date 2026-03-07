@@ -4,12 +4,12 @@ from __future__ import annotations
 
 Endpoints
 ---------
-GET  /ship                          — redirect to /ship/{first-initiative}
-GET  /ship/{initiative}             — full page (Mission Control)
-GET  /ship/{initiative}/board       — HTMX board partial (polled every 5 s)
-GET  /ship/{initiative}/tree        — JSON agent tree for latest active batch
-GET  /ship/runs/{run_id}/tree       — JSON agent tree for a specific run's batch
-GET  /ship/runs/{run_id}/stream     — SSE: structured events + thinking messages
+GET  /ship                                  — redirect to /ship/{org}/{repo}/{first-initiative}
+GET  /ship/{org}/{repo}/{initiative}        — full page (Mission Control)
+GET  /ship/{org}/{repo}/{initiative}/board  — HTMX board partial (polled every 5 s)
+GET  /ship/{org}/{repo}/{initiative}/tree   — JSON agent tree for latest active batch
+GET  /ship/runs/{run_id}/tree              — JSON agent tree for a specific run's batch
+GET  /ship/runs/{run_id}/stream            — SSE: structured events + thinking messages
 
 The board shows all issues grouped by phase with live PR/agent-run status.
 The inspector panel streams events from ``ac_agent_events`` and thinking
@@ -170,7 +170,7 @@ async def _build_enriched_groups(
 
 @router.get("/ship", response_class=HTMLResponse, response_model=None)
 async def ship_redirect() -> Response:
-    """Redirect ``/ship`` to ``/ship/{first-initiative}`` when initiatives exist.
+    """Redirect ``/ship`` to ``/ship/{org}/{repo}/{first-initiative}`` when initiatives exist.
 
     Falls through to /plan if none are found.
     """
@@ -178,30 +178,34 @@ async def ship_redirect() -> Response:
     patterns = await _initiative_patterns()
     initiatives = await get_initiatives(repo, initiative_patterns=patterns)
     if initiatives:
-        return RedirectResponse(url=f"/ship/{initiatives[0]}", status_code=302)
+        return RedirectResponse(url=f"/ship/{repo}/{initiatives[0]}", status_code=302)
     return RedirectResponse(url="/plan", status_code=302)
 
 
 # ---------------------------------------------------------------------------
-# GET /ship/{initiative} — full Mission Control page
+# GET /ship/{org}/{repo}/{initiative} — full Mission Control page
 # ---------------------------------------------------------------------------
 
 
-@router.get("/ship/{initiative}", response_class=HTMLResponse, response_model=None)
+@router.get("/ship/{org}/{repo}/{initiative}", response_class=HTMLResponse, response_model=None)
 async def build_page(
     request: Request,
+    org: str,
+    repo: str,
     initiative: str,
 ) -> Response:
-    """Render the Mission Control Ship page scoped to *initiative*."""
-    repo = settings.gh_repo
+    """Render the Mission Control Ship page scoped to *org/repo/initiative*."""
+    gh_repo = f"{org}/{repo}"
     patterns = await _initiative_patterns()
-    initiatives = await get_initiatives(repo, initiative_patterns=patterns)
-    enriched_groups, total_issues, open_issues = await _build_enriched_groups(repo, initiative)
+    initiatives = await get_initiatives(gh_repo, initiative_patterns=patterns)
+    enriched_groups, total_issues, open_issues = await _build_enriched_groups(gh_repo, initiative)
     return _TEMPLATES.TemplateResponse(
         request,
         "build.html",
         {
-            "repo": repo,
+            "repo": gh_repo,
+            "org": org,
+            "repo_name": repo,
             "initiative": initiative,
             "initiatives": initiatives,
             "groups": enriched_groups,
@@ -212,24 +216,26 @@ async def build_page(
 
 
 # ---------------------------------------------------------------------------
-# GET /ship/{initiative}/board — HTMX board partial (polled every 5 s)
+# GET /ship/{org}/{repo}/{initiative}/board — HTMX board partial (polled every 5 s)
 # ---------------------------------------------------------------------------
 
 
-@router.get("/ship/{initiative}/board", response_class=HTMLResponse)
+@router.get("/ship/{org}/{repo}/{initiative}/board", response_class=HTMLResponse)
 async def build_board_partial(
     request: Request,
+    org: str,
+    repo: str,
     initiative: str,
 ) -> HTMLResponse:
     """Return the phase-grouped board as an HTML partial for HTMX polling."""
-    repo = settings.gh_repo
-    enriched_groups, _, _ = await _build_enriched_groups(repo, initiative)
+    gh_repo = f"{org}/{repo}"
+    enriched_groups, _, _ = await _build_enriched_groups(gh_repo, initiative)
     return _TEMPLATES.TemplateResponse(
         request,
         "_build_board.html",
         {
             "groups": enriched_groups,
-            "repo": repo,
+            "repo": gh_repo,
             "initiative": initiative,
         },
     )
@@ -321,15 +327,15 @@ async def agent_run_tree(run_id: str) -> Response:
     return JSONResponse({"nodes": nodes, "batch_id": batch_id})
 
 
-@router.get("/ship/{initiative}/tree", response_class=Response, response_model=None)
-async def initiative_active_tree(initiative: str) -> Response:
-    """Return the agent tree for the most recently active batch under *initiative*.
+@router.get("/ship/{org}/{repo}/{initiative}/tree", response_class=Response, response_model=None)
+async def initiative_active_tree(org: str, repo: str, initiative: str) -> Response:
+    """Return the agent tree for the most recently active batch under *org/repo/initiative*.
 
     Used by the build board to populate the hierarchy panel when no specific
     issue is selected.  Falls back to an empty tree when there are no runs.
     """
-    repo = settings.gh_repo
-    groups = await get_issues_grouped_by_phase(repo, initiative=initiative)
+    gh_repo = f"{org}/{repo}"
+    groups = await get_issues_grouped_by_phase(gh_repo, initiative=initiative)
     # Only open issues drive the hierarchy — closed issues' stale runs must
     # never surface a ghost agent in the panel.
     open_issue_numbers = [

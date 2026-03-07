@@ -191,7 +191,7 @@ def test_build_board_partial_shows_status_badge(client: TestClient) -> None:
             return_value={82: {"lane": "active", "pr_number": None}},
         ),
     ):
-        resp = client.get("/ship/phase-1/board")
+        resp = client.get("/ship/testorg/testrepo/phase-1/board")
 
     assert resp.status_code == 200
     # The agent_status "implementing" must appear as a badge in the card.
@@ -219,7 +219,7 @@ def test_build_board_partial_shows_current_step(client: TestClient) -> None:
             return_value={82: {"lane": "active", "pr_number": None}},
         ),
     ):
-        resp = client.get("/ship/phase-1/board")
+        resp = client.get("/ship/testorg/testrepo/phase-1/board")
 
     assert resp.status_code == 200
     assert "Running mypy checks" in resp.text
@@ -247,7 +247,7 @@ def test_build_board_partial_no_run_renders_without_error(
             return_value={},
         ),
     ):
-        resp = client.get("/ship/phase-1/board")
+        resp = client.get("/ship/testorg/testrepo/phase-1/board")
 
     assert resp.status_code == 200
     assert "Unassigned issue" in resp.text
@@ -301,7 +301,7 @@ def test_build_board_partial_complete_phase_hides_launch_button(
             return_value={10: {"lane": "done", "pr_number": None}},
         ),
     ):
-        resp = client.get("/ship/my-initiative/board")
+        resp = client.get("/ship/testorg/testrepo/my-initiative/board")
 
     assert resp.status_code == 200
     assert "Launch" not in resp.text, "Launch button must not appear on a complete phase"
@@ -348,7 +348,7 @@ def test_build_board_partial_complete_phase_cards_not_clickable(
             return_value={11: {"lane": "done", "pr_number": None}},
         ),
     ):
-        resp = client.get("/ship/my-initiative/board")
+        resp = client.get("/ship/testorg/testrepo/my-initiative/board")
 
     assert resp.status_code == 200
     # The card must carry the done modifier

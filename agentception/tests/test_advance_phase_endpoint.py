@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Tests for POST /api/ship/{initiative}/advance endpoint.
+"""Tests for POST /api/ship/{org}/{repo}/{initiative}/advance endpoint.
 
 Coverage:
 - advance_phase: success path returns advanced=True and unlocked_count
@@ -93,13 +93,13 @@ def _mock_group(
 
 
 def test_advance_phase_success_returns_advanced_true(client: TestClient) -> None:
-    """POST /api/ship/{initiative}/advance returns advanced=True and unlocked_count on success."""
+    """POST /api/ship/{org}/{repo}/{initiative}/advance returns advanced=True on success."""
     with patch(
         "agentception.routes.api.ship_api._plan_advance_phase",
         new=AsyncMock(return_value=_ok_result(unlocked_count=3)),
     ):
         resp = client.post(
-            "/api/ship/my-initiative/advance",
+            "/api/ship/testorg/testrepo/my-initiative/advance",
             json=_advance_body(),
         )
 
@@ -116,7 +116,7 @@ def test_advance_phase_success_sets_hx_trigger_header(client: TestClient) -> Non
         new=AsyncMock(return_value=_ok_result()),
     ):
         resp = client.post(
-            "/api/ship/my-initiative/advance",
+            "/api/ship/testorg/testrepo/my-initiative/advance",
             json=_advance_body(),
         )
 
@@ -125,13 +125,13 @@ def test_advance_phase_success_sets_hx_trigger_header(client: TestClient) -> Non
 
 
 def test_advance_phase_blocked_returns_advanced_false(client: TestClient) -> None:
-    """POST /api/ship/{initiative}/advance returns advanced=False and open_issues when blocked."""
+    """POST /api/ship/{org}/{repo}/{initiative}/advance returns advanced=False when blocked."""
     with patch(
         "agentception.routes.api.ship_api._plan_advance_phase",
         new=AsyncMock(return_value=_blocked_result([11, 12])),
     ):
         resp = client.post(
-            "/api/ship/my-initiative/advance",
+            "/api/ship/testorg/testrepo/my-initiative/advance",
             json=_advance_body(),
         )
 
@@ -150,7 +150,7 @@ def test_advance_phase_blocked_does_not_set_hx_trigger(client: TestClient) -> No
         new=AsyncMock(return_value=_blocked_result()),
     ):
         resp = client.post(
-            "/api/ship/my-initiative/advance",
+            "/api/ship/testorg/testrepo/my-initiative/advance",
             json=_advance_body(),
         )
 
@@ -159,18 +159,18 @@ def test_advance_phase_blocked_does_not_set_hx_trigger(client: TestClient) -> No
 
 
 def test_advance_phase_missing_from_phase_returns_422(client: TestClient) -> None:
-    """POST /api/ship/{initiative}/advance with missing from_phase returns 422."""
+    """POST /api/ship/{org}/{repo}/{initiative}/advance with missing from_phase returns 422."""
     resp = client.post(
-        "/api/ship/my-initiative/advance",
+        "/api/ship/testorg/testrepo/my-initiative/advance",
         json={"to_phase": "phase-2"},
     )
     assert resp.status_code == 422
 
 
 def test_advance_phase_missing_to_phase_returns_422(client: TestClient) -> None:
-    """POST /api/ship/{initiative}/advance with missing to_phase returns 422."""
+    """POST /api/ship/{org}/{repo}/{initiative}/advance with missing to_phase returns 422."""
     resp = client.post(
-        "/api/ship/my-initiative/advance",
+        "/api/ship/testorg/testrepo/my-initiative/advance",
         json={"from_phase": "phase-1"},
     )
     assert resp.status_code == 422
@@ -183,7 +183,7 @@ def test_advance_phase_delegates_correct_args(client: TestClient) -> None:
         new=AsyncMock(return_value=_ok_result()),
     ) as mock_fn:
         client.post(
-            "/api/ship/x-initiative/advance",
+            "/api/ship/testorg/testrepo/x-initiative/advance",
             json=_advance_body("phase-2", "phase-3"),
         )
 
@@ -198,7 +198,7 @@ def test_advance_phase_delegates_correct_args(client: TestClient) -> None:
 def test_build_board_renders_advance_button_when_prev_complete_and_locked(
     client: TestClient,
 ) -> None:
-    """GET /ship/{initiative}/board renders Advance button when prev phase complete and next locked."""
+    """GET /ship/{org}/{repo}/{initiative}/board renders Advance button when prev complete, next locked."""
     groups = [
         _mock_group(label="phase-1", locked=False, complete=True),
         _mock_group(label="phase-2", locked=True, complete=False),
@@ -217,16 +217,16 @@ def test_build_board_renders_advance_button_when_prev_complete_and_locked(
             new=AsyncMock(return_value={}),
         ),
     ):
-        resp = client.get("/ship/my-initiative/board")
+        resp = client.get("/ship/testorg/testrepo/my-initiative/board")
 
     assert resp.status_code == 200
     assert "Unlock" in resp.text
     assert "hx-post" in resp.text
-    assert "/api/ship/my-initiative/advance" in resp.text
+    assert "api/ship/testorg/testrepo/my-initiative/advance" in resp.text
 
 
 def test_build_board_no_advance_button_when_not_locked(client: TestClient) -> None:
-    """GET /ship/{initiative}/board does NOT render Advance button when next phase is not locked."""
+    """GET /ship/{org}/{repo}/{initiative}/board does NOT render Advance when next not locked."""
     groups = [
         _mock_group(label="phase-1", locked=False, complete=True),
         _mock_group(label="phase-2", locked=False, complete=False),
@@ -245,7 +245,7 @@ def test_build_board_no_advance_button_when_not_locked(client: TestClient) -> No
             new=AsyncMock(return_value={}),
         ),
     ):
-        resp = client.get("/ship/my-initiative/board")
+        resp = client.get("/ship/testorg/testrepo/my-initiative/board")
 
     assert resp.status_code == 200
     assert "Unlock" not in resp.text
@@ -254,7 +254,7 @@ def test_build_board_no_advance_button_when_not_locked(client: TestClient) -> No
 def test_build_board_no_advance_button_when_prev_not_complete(
     client: TestClient,
 ) -> None:
-    """GET /ship/{initiative}/board does NOT render Advance when prev phase is not complete."""
+    """GET /ship/{org}/{repo}/{initiative}/board does NOT render Advance when prev not complete."""
     groups = [
         _mock_group(label="phase-1", locked=False, complete=False),
         _mock_group(label="phase-2", locked=True, complete=False),
@@ -273,7 +273,7 @@ def test_build_board_no_advance_button_when_prev_not_complete(
             new=AsyncMock(return_value={}),
         ),
     ):
-        resp = client.get("/ship/my-initiative/board")
+        resp = client.get("/ship/testorg/testrepo/my-initiative/board")
 
     assert resp.status_code == 200
     assert "Unlock" not in resp.text
@@ -282,7 +282,7 @@ def test_build_board_no_advance_button_when_prev_not_complete(
 def test_build_board_no_advance_button_single_phase(
     client: TestClient,
 ) -> None:
-    """GET /ship/{initiative}/board with a single phase does NOT render the Advance button.
+    """GET /ship/{org}/{repo}/{initiative}/board with one phase does NOT render Advance.
 
     There is no 'previous' phase to check completeness against when only one phase exists.
     """
@@ -303,7 +303,7 @@ def test_build_board_no_advance_button_single_phase(
             new=AsyncMock(return_value={}),
         ),
     ):
-        resp = client.get("/ship/my-initiative/board")
+        resp = client.get("/ship/testorg/testrepo/my-initiative/board")
 
     assert resp.status_code == 200
     assert "Advance" not in resp.text

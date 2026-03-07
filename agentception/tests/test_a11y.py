@@ -202,8 +202,8 @@ def test_base_batch_bar_has_nav_links() -> None:
     assert "batch-bar__link" in content, (
         "base.html batch bar is missing .batch-bar__link navigation anchors"
     )
-    assert "'/ship/'" in content, (
-        "base.html batch bar Ship link is missing /ship/ path prefix"
+    assert "'/ship'" in content, (
+        "base.html batch bar Ship link is missing /ship path prefix"
     )
 
 
