@@ -319,7 +319,7 @@
       </div>
 
       <div class="plan-done-actions">
-        <a :href="ghRepo && initiative ? '/ship/' + ghRepo + '/' + initiative : '/ship'"
+        <a :href="initiative ? '/ship/{{ repo_name }}/' + initiative : '/ship'"
            class="btn btn-primary">Dispatch agents →</a>
         <a
           :href="'https://github.com/{{ gh_repo }}/issues?q=is%3Aopen+label%3A' + encodeURIComponent(initiative)"

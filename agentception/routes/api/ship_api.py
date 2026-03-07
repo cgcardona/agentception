@@ -51,9 +51,8 @@ class AdvancePhaseBlocked(BaseModel):
     open_issues: list[int]
 
 
-@router.post("/{org}/{repo}/{initiative}/advance", response_model=None)
+@router.post("/{repo}/{initiative}/advance", response_model=None)
 async def advance_phase(
-    org: str,
     repo: str,
     initiative: str,
     req: AdvancePhaseBody,

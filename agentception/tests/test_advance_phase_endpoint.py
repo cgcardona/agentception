@@ -99,7 +99,7 @@ def test_advance_phase_success_returns_advanced_true(client: TestClient) -> None
         new=AsyncMock(return_value=_ok_result(unlocked_count=3)),
     ):
         resp = client.post(
-            "/api/ship/testorg/testrepo/my-initiative/advance",
+            "/api/ship/agentception/my-initiative/advance",
             json=_advance_body(),
         )
 
@@ -116,7 +116,7 @@ def test_advance_phase_success_sets_hx_trigger_header(client: TestClient) -> Non
         new=AsyncMock(return_value=_ok_result()),
     ):
         resp = client.post(
-            "/api/ship/testorg/testrepo/my-initiative/advance",
+            "/api/ship/agentception/my-initiative/advance",
             json=_advance_body(),
         )
 
@@ -131,7 +131,7 @@ def test_advance_phase_blocked_returns_advanced_false(client: TestClient) -> Non
         new=AsyncMock(return_value=_blocked_result([11, 12])),
     ):
         resp = client.post(
-            "/api/ship/testorg/testrepo/my-initiative/advance",
+            "/api/ship/agentception/my-initiative/advance",
             json=_advance_body(),
         )
 
@@ -150,7 +150,7 @@ def test_advance_phase_blocked_does_not_set_hx_trigger(client: TestClient) -> No
         new=AsyncMock(return_value=_blocked_result()),
     ):
         resp = client.post(
-            "/api/ship/testorg/testrepo/my-initiative/advance",
+            "/api/ship/agentception/my-initiative/advance",
             json=_advance_body(),
         )
 
@@ -161,7 +161,7 @@ def test_advance_phase_blocked_does_not_set_hx_trigger(client: TestClient) -> No
 def test_advance_phase_missing_from_phase_returns_422(client: TestClient) -> None:
     """POST /api/ship/{org}/{repo}/{initiative}/advance with missing from_phase returns 422."""
     resp = client.post(
-        "/api/ship/testorg/testrepo/my-initiative/advance",
+        "/api/ship/agentception/my-initiative/advance",
         json={"to_phase": "phase-2"},
     )
     assert resp.status_code == 422
@@ -170,7 +170,7 @@ def test_advance_phase_missing_from_phase_returns_422(client: TestClient) -> Non
 def test_advance_phase_missing_to_phase_returns_422(client: TestClient) -> None:
     """POST /api/ship/{org}/{repo}/{initiative}/advance with missing to_phase returns 422."""
     resp = client.post(
-        "/api/ship/testorg/testrepo/my-initiative/advance",
+        "/api/ship/agentception/my-initiative/advance",
         json={"from_phase": "phase-1"},
     )
     assert resp.status_code == 422
@@ -183,7 +183,7 @@ def test_advance_phase_delegates_correct_args(client: TestClient) -> None:
         new=AsyncMock(return_value=_ok_result()),
     ) as mock_fn:
         client.post(
-            "/api/ship/testorg/testrepo/x-initiative/advance",
+            "/api/ship/agentception/x-initiative/advance",
             json=_advance_body("phase-2", "phase-3"),
         )
 
@@ -217,12 +217,12 @@ def test_build_board_renders_advance_button_when_prev_complete_and_locked(
             new=AsyncMock(return_value={}),
         ),
     ):
-        resp = client.get("/ship/testorg/testrepo/my-initiative/board")
+        resp = client.get("/ship/agentception/my-initiative/board")
 
     assert resp.status_code == 200
     assert "Unlock" in resp.text
     assert "hx-post" in resp.text
-    assert "api/ship/testorg/testrepo/my-initiative/advance" in resp.text
+    assert "api/ship/agentception/my-initiative/advance" in resp.text
 
 
 def test_build_board_no_advance_button_when_not_locked(client: TestClient) -> None:
@@ -245,7 +245,7 @@ def test_build_board_no_advance_button_when_not_locked(client: TestClient) -> No
             new=AsyncMock(return_value={}),
         ),
     ):
-        resp = client.get("/ship/testorg/testrepo/my-initiative/board")
+        resp = client.get("/ship/agentception/my-initiative/board")
 
     assert resp.status_code == 200
     assert "Unlock" not in resp.text
@@ -273,7 +273,7 @@ def test_build_board_no_advance_button_when_prev_not_complete(
             new=AsyncMock(return_value={}),
         ),
     ):
-        resp = client.get("/ship/testorg/testrepo/my-initiative/board")
+        resp = client.get("/ship/agentception/my-initiative/board")
 
     assert resp.status_code == 200
     assert "Unlock" not in resp.text
@@ -303,7 +303,7 @@ def test_build_board_no_advance_button_single_phase(
             new=AsyncMock(return_value={}),
         ),
     ):
-        resp = client.get("/ship/testorg/testrepo/my-initiative/board")
+        resp = client.get("/ship/agentception/my-initiative/board")
 
     assert resp.status_code == 200
     assert "Advance" not in resp.text

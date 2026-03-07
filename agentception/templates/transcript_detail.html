@@ -137,7 +137,7 @@
       <h3 class="sidebar-card__title">Linked Issues</h3>
       <div class="sidebar-card__body">
         {% for n in transcript.linked_issues %}
-        <a href="/issues/{{ gh_repo }}/{{ n }}" class="sidebar-issue-link">#{{ n }}</a>
+        <a href="/issues/{{ repo_name }}/{{ n }}" class="sidebar-issue-link">#{{ n }}</a>
         {% endfor %}
       </div>
     </div>

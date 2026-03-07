@@ -232,3 +232,5 @@ _TEMPLATES.env.filters["dirname"] = _dirname
 _TEMPLATES.env.filters["fmt_role"] = _fmt_role
 _TEMPLATES.env.globals["gh_repo"] = _settings.gh_repo
 _TEMPLATES.env.globals["gh_base_url"] = f"https://github.com/{_settings.gh_repo}"
+# Bare repo name (without org prefix) used to build RESTful URL paths.
+_TEMPLATES.env.globals["repo_name"] = _settings.gh_repo.split("/")[-1]

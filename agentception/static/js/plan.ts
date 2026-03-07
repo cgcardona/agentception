@@ -586,8 +586,9 @@ export function planForm(props: { ghRepo?: string } = {}): PlanFormComponent {
                 if (this.batchId)    localStorage.setItem('ac_active_batch',      this.batchId);
                 if (this.initiative) localStorage.setItem('ac_active_initiative', this.initiative);
                 if (this.ghRepo && this.initiative && this.batchId) {
-                  const planUrl = `/plan/${this.ghRepo}/${this.initiative}/${this.batchId}`;
-                  const shipUrl = `/ship/${this.ghRepo}/${this.initiative}`;
+                  const repoName = this.ghRepo.split('/').pop() ?? this.ghRepo;
+                  const planUrl = `/plan/${repoName}/${this.initiative}/${this.batchId}`;
+                  const shipUrl = `/ship/${repoName}/${this.initiative}`;
                   localStorage.setItem('ac_active_plan_url', planUrl);
                   localStorage.setItem('ac_active_ship_url', shipUrl);
                 }
@@ -602,10 +603,11 @@ export function planForm(props: { ghRepo?: string } = {}): PlanFormComponent {
               // Wrapped in try/catch so sandboxed contexts don't throw.
               try {
                 if (this.ghRepo && this.initiative && this.batchId) {
+                  const repoName = this.ghRepo.split('/').pop() ?? this.ghRepo;
                   window.history.pushState(
                     {},
                     '',
-                    `/plan/${this.ghRepo}/${this.initiative}/${this.batchId}`,
+                    `/plan/${repoName}/${this.initiative}/${this.batchId}`,
                   );
                 }
               } catch { /* sandboxed context — silent fail */ }

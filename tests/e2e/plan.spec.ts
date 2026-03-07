@@ -345,27 +345,32 @@ test.describe('Phase 1B — file issues', () => {
     await expect(page.locator('[x-ref="textarea"]')).toHaveValue('');
   });
 
-  test('URL updates to /plan/{org}/{repo}/{initiative}/{batch_id} after done event', async ({ page }) => {
+  test('URL updates to /plan/{repo}/{initiative}/{batch_id} after done event', async ({ page }) => {
     await mockFileIssues(page);
     await page.click('button:has-text("Launch")');
     await expect(page.locator('#plan-done')).toBeVisible({ timeout: 10_000 });
-    // history.pushState should have updated the URL to include org/repo/initiative/batch_id
-    await expect(page).toHaveURL(/\/plan\/[^/]+\/[^/]+\/auth-rewrite\/batch-/, { timeout: 5000 });
+    // history.pushState should have updated the URL to include repo/initiative/batch_id
+    await expect(page).toHaveURL(/\/plan\/[^/]+\/auth-rewrite\/batch-/, { timeout: 5000 });
   });
 });
 
 // ---------------------------------------------------------------------------
-// Shareable initiative page — GET /plan/{org}/{repo}/{initiative}/{batch_id}
+// Shareable initiative page — GET /plan/{repo}/{initiative}/{batch_id}
 // ---------------------------------------------------------------------------
 
-test.describe('GET /plan/{org}/{repo}/{initiative}/{batch_id} shareable page', () => {
-  test('returns 404 for unknown initiative', async ({ page }) => {
-    const resp = await page.goto('/plan/testorg/testrepo/no-such-initiative-xyz/batch-abc123');
+test.describe('GET /plan/{repo}/{initiative}/{batch_id} shareable page', () => {
+  test('returns 404 for unknown repo', async ({ page }) => {
+    const resp = await page.goto('/plan/notarepo/no-such-initiative-xyz/batch-abc123');
+    expect(resp?.status()).toBe(404);
+  });
+
+  test('returns 404 for unknown initiative in configured repo', async ({ page }) => {
+    const resp = await page.goto('/plan/agentception/no-such-initiative-xyz/batch-abc123');
     expect(resp?.status()).toBe(404);
   });
 
   test('returns 400 for invalid batch_id format', async ({ page }) => {
-    const resp = await page.goto('/plan/testorg/testrepo/auth-rewrite/not-a-batch-id');
+    const resp = await page.goto('/plan/agentception/auth-rewrite/not-a-batch-id');
     expect(resp?.status()).toBe(400);
   });
 
@@ -373,7 +378,7 @@ test.describe('GET /plan/{org}/{repo}/{initiative}/{batch_id} shareable page', (
     // This test is integration-only: it relies on the DB having a real filing.
     // Since Playwright runs against the live server (which uses a real DB),
     // this test is conditional: skip if no batch has been filed for auth-rewrite.
-    const listResp = await page.request.get('/plan/testorg/testrepo/auth-rewrite');
+    const listResp = await page.request.get('/plan/agentception/auth-rewrite');
     if (listResp.status() === 404) {
       test.skip();
       return;

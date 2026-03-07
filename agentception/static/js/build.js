@@ -142,8 +142,8 @@ export function buildPage() {
     init() {
       // Start the initiative-level tree poll immediately so the hierarchy panel
       // is populated even before the user selects an issue.
-      if (window._buildInitiative) {
-        this._startTreePoll(`/ship/${encodeURIComponent(window._buildInitiative)}/tree`);
+      if (window._buildInitiative && window._buildRepoName) {
+        this._startTreePoll(`/ship/${encodeURIComponent(window._buildRepoName)}/${encodeURIComponent(window._buildInitiative)}/tree`);
       }
     },
 
@@ -168,8 +168,8 @@ export function buildPage() {
       this.chatMessage = '';
       this.chatError = null;
       // Revert to initiative-level tree when deselecting an issue.
-      if (window._buildInitiative) {
-        this._startTreePoll(`/ship/${encodeURIComponent(window._buildInitiative)}/tree`);
+      if (window._buildInitiative && window._buildRepoName) {
+        this._startTreePoll(`/ship/${encodeURIComponent(window._buildRepoName)}/${encodeURIComponent(window._buildInitiative)}/tree`);
       }
     },
 

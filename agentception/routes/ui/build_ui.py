@@ -170,32 +170,32 @@ async def _build_enriched_groups(
 
 @router.get("/ship", response_class=HTMLResponse, response_model=None)
 async def ship_redirect() -> Response:
-    """Redirect ``/ship`` to ``/ship/{org}/{repo}/{first-initiative}`` when initiatives exist.
+    """Redirect ``/ship`` to ``/ship/{repo}/{first-initiative}`` when initiatives exist.
 
     Falls through to /plan if none are found.
     """
-    repo = settings.gh_repo
+    gh_repo = settings.gh_repo
+    repo_name = gh_repo.split("/")[-1]
     patterns = await _initiative_patterns()
-    initiatives = await get_initiatives(repo, initiative_patterns=patterns)
+    initiatives = await get_initiatives(gh_repo, initiative_patterns=patterns)
     if initiatives:
-        return RedirectResponse(url=f"/ship/{repo}/{initiatives[0]}", status_code=302)
+        return RedirectResponse(url=f"/ship/{repo_name}/{initiatives[0]}", status_code=302)
     return RedirectResponse(url="/plan", status_code=302)
 
 
 # ---------------------------------------------------------------------------
-# GET /ship/{org}/{repo}/{initiative} — full Mission Control page
+# GET /ship/{repo}/{initiative} — full Mission Control page
 # ---------------------------------------------------------------------------
 
 
-@router.get("/ship/{org}/{repo}/{initiative}", response_class=HTMLResponse, response_model=None)
+@router.get("/ship/{repo}/{initiative}", response_class=HTMLResponse, response_model=None)
 async def build_page(
     request: Request,
-    org: str,
     repo: str,
     initiative: str,
 ) -> Response:
-    """Render the Mission Control Ship page scoped to *org/repo/initiative*."""
-    gh_repo = f"{org}/{repo}"
+    """Render the Mission Control Ship page scoped to *repo/initiative*."""
+    gh_repo = settings.gh_repo
     patterns = await _initiative_patterns()
     initiatives = await get_initiatives(gh_repo, initiative_patterns=patterns)
     enriched_groups, total_issues, open_issues = await _build_enriched_groups(gh_repo, initiative)
@@ -204,8 +204,6 @@ async def build_page(
         "build.html",
         {
             "repo": gh_repo,
-            "org": org,
-            "repo_name": repo,
             "initiative": initiative,
             "initiatives": initiatives,
             "groups": enriched_groups,
@@ -216,19 +214,18 @@ async def build_page(
 
 
 # ---------------------------------------------------------------------------
-# GET /ship/{org}/{repo}/{initiative}/board — HTMX board partial (polled every 5 s)
+# GET /ship/{repo}/{initiative}/board — HTMX board partial (polled every 5 s)
 # ---------------------------------------------------------------------------
 
 
-@router.get("/ship/{org}/{repo}/{initiative}/board", response_class=HTMLResponse)
+@router.get("/ship/{repo}/{initiative}/board", response_class=HTMLResponse)
 async def build_board_partial(
     request: Request,
-    org: str,
     repo: str,
     initiative: str,
 ) -> HTMLResponse:
     """Return the phase-grouped board as an HTML partial for HTMX polling."""
-    gh_repo = f"{org}/{repo}"
+    gh_repo = settings.gh_repo
     enriched_groups, _, _ = await _build_enriched_groups(gh_repo, initiative)
     return _TEMPLATES.TemplateResponse(
         request,
@@ -327,14 +324,14 @@ async def agent_run_tree(run_id: str) -> Response:
     return JSONResponse({"nodes": nodes, "batch_id": batch_id})
 
 
-@router.get("/ship/{org}/{repo}/{initiative}/tree", response_class=Response, response_model=None)
-async def initiative_active_tree(org: str, repo: str, initiative: str) -> Response:
-    """Return the agent tree for the most recently active batch under *org/repo/initiative*.
+@router.get("/ship/{repo}/{initiative}/tree", response_class=Response, response_model=None)
+async def initiative_active_tree(repo: str, initiative: str) -> Response:
+    """Return the agent tree for the most recently active batch under *repo/initiative*.
 
     Used by the build board to populate the hierarchy panel when no specific
     issue is selected.  Falls back to an empty tree when there are no runs.
     """
-    gh_repo = f"{org}/{repo}"
+    gh_repo = settings.gh_repo
     groups = await get_issues_grouped_by_phase(gh_repo, initiative=initiative)
     # Only open issues drive the hierarchy — closed issues' stale runs must
     # never surface a ghost agent in the panel.
