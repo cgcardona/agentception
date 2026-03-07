@@ -598,6 +598,11 @@ function nodeCardHtml(
   const removeBtn  = d.depth > 0
     ? `<button class="od-node__btn od-node__btn--remove" data-id="${node.id}" title="Remove">×</button>`
     : '';
+  // Only show "+ child" once the node has an identity — the parent role drives
+  // child-type filtering, so a pending (roleless) node can't constrain it.
+  const addBtn = configured
+    ? `<button class="od-node__btn od-node__btn--add" data-id="${node.id}" title="Add child">+ child</button>`
+    : '';
 
   return `
     <div class="od-node__tier od-node__tier--${tier}">${tier}</div>
@@ -605,7 +610,7 @@ function nodeCardHtml(
     ${configured ? `<div class="od-node__figure">${figName}</div>` : ''}
     ${scopeNote}
     <div class="od-node__actions">
-      <button class="od-node__btn od-node__btn--add"  data-id="${node.id}" title="Add child">+ child</button>
+      ${addBtn}
       <button class="od-node__btn od-node__btn--edit" data-id="${node.id}" title="Edit node">edit</button>
       ${removeBtn}
     </div>`;
