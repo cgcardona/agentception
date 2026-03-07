@@ -437,7 +437,7 @@ STEP 1 — DERIVE PATHS:
   export GH_REPO={{ gh_repo }}
 
   # ⚠️  VALIDATION — run this immediately to catch slug errors early:
-  # MCP: github_list_issues(state="open") → if it errors, GH_REPO is wrong. Stop and fix.
+  # MCP: list_issues (user-github)(state="open") → if it errors, GH_REPO is wrong. Stop and fix.
 
 STEP 2 — CHECK CANONICAL STATE BEFORE DOING ANY WORK:
   ⚠️  Query GitHub first. Do NOT create a branch, write a file, or run mypy until
@@ -454,8 +454,8 @@ STEP 2 — CHECK CANONICAL STATE BEFORE DOING ANY WORK:
   #   body="🔖 **Claimed by agent**\n\n$CLAIM_FINGERPRINT")
 
   # 0. Is the issue itself already closed? (fastest exit — check this FIRST)
-  # MCP: github_get_issue(issue_number=N) → .state
-  ISSUE_STATE=<github_get_issue(N).state>
+  # MCP: issue_read (user-github)(issue_number=N) → .state
+  ISSUE_STATE=<issue_read (user-github)(N).state>
   if [ "$ISSUE_STATE" = "CLOSED" ]; then
     echo "⚠️  Issue #<N> is already CLOSED on GitHub. No work needed."
     # MCP: github_remove_label(issue_number=N, label="status/in-progress")
@@ -523,9 +523,9 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
     for DEP in "${DEP_NUMS[@]}"; do
       DEP=$(echo "$DEP" | tr -d '[:space:]')
       [ -z "$DEP" ] && continue
-      # MCP: github_get_issue(issue_number=DEP) → .state and .stateReason
-      DEP_STATE=<github_get_issue(DEP).state>
-      DEP_REASON=<github_get_issue(DEP).stateReason>
+      # MCP: issue_read (user-github)(issue_number=DEP) → .state and .stateReason
+      DEP_STATE=<issue_read (user-github)(DEP).state>
+      DEP_REASON=<issue_read (user-github)(DEP).stateReason>
       if [ "$DEP_STATE" != "CLOSED" ] || [ "$DEP_REASON" != "COMPLETED" ]; then
         echo "⚠️  Dependency #$DEP is $DEP_STATE (reason=$DEP_REASON) — not yet merged to dev. Note in PR body."
         ALL_DEPS_MET=false
@@ -748,7 +748,7 @@ STEP 5 — PUSH & CREATE PR:
   ⚠️  VERIFY AUTO-CLOSE LINKAGE — verify immediately after PR creation:
   # GitHub auto-closes issue #<N> when the PR is merged ONLY if "Closes #<N>"
   # appears verbatim in the PR body. Verify now so you don't leave a ghost issue.
-  # MCP: github_get_pr(pr_number=MY_PR_NUM) → .body
+  # MCP: pull_request_read (user-github)(pr_number=MY_PR_NUM) → .body
   # Check: result.body must contain "Closes #<N>" (case-insensitive)
   # If missing → MCP: update_pull_request(owner=..., repo=..., pullNumber=MY_PR_NUM,
   #                      body=<existing body + "\n\nCloses #<N>">)
@@ -778,12 +778,12 @@ STEP 6 — SPAWN A QA REVIEWER FOR YOUR OWN PR (run this before self-destructing
     # resolve_arch.py will switch to --mode reviewer to load the checklist instead of
     # the implementer fragments.
     REVIEWER_ARCH="${COGNITIVE_ARCH:-knuth:python}"
-    # MCP: github_get_pr(pr_number=MY_PR) → use .title, .body, .headRefName
-    PR_TITLE_VAL=<github_get_pr(MY_PR).title>
+    # MCP: pull_request_read (user-github)(pr_number=MY_PR) → use .title, .body, .headRefName
+    PR_TITLE_VAL=<pull_request_read (user-github)(MY_PR).title>
     # MCP: pull_request_read(owner="{{ gh_repo.split('/')[0] }}", repo="{{ gh_repo.split('/')[1] }}",
     #      method="get_files", pullNumber=MY_PR) → join file paths with commas
     PR_FILES_VAL=<comma-separated file list from MCP pull_request_read get_files>
-    CLOSES_VAL=<parse "Closes #NNN" from github_get_pr(MY_PR).body, join with commas>
+    CLOSES_VAL=<parse "Closes #NNN" from pull_request_read (user-github)(MY_PR).body, join with commas>
     HAS_MIG=$(echo "$PR_FILES_VAL" | grep -c "alembic/versions/" || echo 0)
     [ "$HAS_MIG" -gt 0 ] && HAS_MIG_VAL=true || HAS_MIG_VAL=false
     cat > "$REVIEW_WORKTREE/.agent-task" <<TASK
@@ -867,7 +867,7 @@ Run this before touching the Setup script:
 
 ```
 # List every open issue for the current phase — this IS your candidate pool.
-# MCP: github_list_issues(state="open", label="phase-1")
+# MCP: list_issues (user-github)(state="open", label="phase-1")
 # → returns [{number, title, url, labels, ...}] — print each as "#N  title\n  url"
 ```
 
@@ -884,7 +884,7 @@ From the label audit output, choose issues that satisfy **both** criteria in
 candidate's body to identify affected files:
 
 ```
-# MCP: github_get_issue(issue_number=N) → .body and .title
+# MCP: issue_read (user-github)(issue_number=N) → .body and .title
 ```
 
 Confirm no two selected issues share a file. Document your selection in the
@@ -907,8 +907,8 @@ for num in <result from MCP list_pull_requests>; do
   #      method="get_files", pullNumber=num) → assign file paths to: files
   files=<file list from MCP pull_request_read get_files for PR num>
   if [ -n "$files" ]; then
-    # MCP: github_get_pr(pr_number=num) → .title
-    title=$(github_get_pr result .title)
+    # MCP: pull_request_read (user-github)(pr_number=num) → .title
+    title=$(pull_request_read (user-github) result .title)
     echo ""
     echo "PR #$num — $title:"
     echo "$files" | sed 's/^/  /'

@@ -94,12 +94,12 @@ LOOP:
        # worktree + open PR = active claim, not a stale one.
        MAIN_REPO="<repo-root>"
 
-       # MCP: github_list_issues(state="open", label="{{ claim_label }}")
+       # MCP: list_issues (user-github)(state="open", label="{{ claim_label }}")
        # → returns list of {number, title, labels, ...}; iterate each .number as NUM
-       for NUM in <numbers from github_list_issues result>; do
+       for NUM in <numbers from list_issues (user-github) result>; do
          # Open PR guard — branch name is the canonical link between issue and PR.
-         # MCP: github_list_prs(state="open") → filter where .headRefName startswith "feat/issue-${NUM}"
-         OPEN_PR=<pr_number from github_list_prs result, or empty>
+         # MCP: list_pull_requests (user-github)(state="open") → filter where .headRefName startswith "feat/issue-${NUM}"
+         OPEN_PR=<pr_number from list_pull_requests (user-github) result, or empty>
          if [ -n "$OPEN_PR" ]; then
            echo "CTO preflight: keeping {{ claim_label }} on #$NUM (open PR #$OPEN_PR — worktree pruning expected)"
            continue
@@ -123,16 +123,16 @@ LOOP:
        # SCOPE_VALUE was loaded from .agent-task in Step 2 of your briefing.
        # Discover phase sub-labels dynamically from open issues — never hardcode.
 
-       # MCP: github_list_issues(state="open", label="$SCOPE_VALUE")
+       # MCP: list_issues (user-github)(state="open", label="$SCOPE_VALUE")
        # → from the result, collect all label names that start with "$SCOPE_VALUE/",
        #   deduplicate, and sort. These are your PHASES.
-       PHASES=<unique sorted sub-labels from github_list_issues result>
+       PHASES=<unique sorted sub-labels from list_issues (user-github) result>
 
        # Find the first phase with open issues (phases sort lexicographically).
        ACTIVE_LABEL=""
        for label in $PHASES; do
-         # MCP: github_list_issues(state="open", label="$label")
-         COUNT=<length of github_list_issues result>
+         # MCP: list_issues (user-github)(state="open", label="$label")
+         COUNT=<length of list_issues (user-github) result>
          if [ "$COUNT" -gt 0 ]; then
            ACTIVE_LABEL="$label"
            ISSUES=$COUNT
@@ -142,14 +142,14 @@ LOOP:
 
        # Fallback: no phase sub-labels found — use SCOPE_VALUE as the single label.
        if [ -z "$ACTIVE_LABEL" ]; then
-         # MCP: github_list_issues(state="open", label="$SCOPE_VALUE")
-         COUNT=<length of github_list_issues result>
+         # MCP: list_issues (user-github)(state="open", label="$SCOPE_VALUE")
+         COUNT=<length of list_issues (user-github) result>
          [ "$COUNT" -gt 0 ] && ACTIVE_LABEL="$SCOPE_VALUE" && ISSUES=$COUNT
        fi
 
        # PRs: all open PRs against dev are always in scope.
-       # MCP: github_list_prs(state="open") → filter where .baseRefName == "dev"
-       PRS=<count from github_list_prs result>
+       # MCP: list_pull_requests (user-github)(state="open") → filter where .baseRefName == "dev"
+       PRS=<count from list_pull_requests (user-github) result>
 
        # If no active label found, all issues are closed — check PRs only.
        [ -z "$ACTIVE_LABEL" ] && ISSUES=0

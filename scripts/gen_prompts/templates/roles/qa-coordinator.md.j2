@@ -81,7 +81,7 @@ SEED:
        MAIN_REPO="<repo-root>"
        git -C "$MAIN_REPO" worktree list --porcelain | grep "^worktree" | awk '{print $2}' \
          > /tmp/active_worktrees
-       # MCP: github_list_prs(state="open") → filter to those with label "{{ claim_label }}"
+       # MCP: list_pull_requests (user-github)(state="open") → filter to those with label "{{ claim_label }}"
        for pr in <PR numbers with {{ claim_label }}>; do
          grep -q "pr-$pr" /tmp/active_worktrees || \
            # MCP: github_remove_label(issue_number=pr, label="{{ claim_label }}")
@@ -89,7 +89,7 @@ SEED:
        done
 
   3. Query open unclaimed PRs:
-       # MCP: github_list_prs(state="open")
+       # MCP: list_pull_requests (user-github)(state="open")
        # → filter result to exclude PRs that already have the "{{ claim_label }}" label
      If empty → report "review queue clear." Stop.
 
@@ -101,7 +101,7 @@ SEED:
   5. Take the first 4 unclaimed PRs. For each:
        a. Claim:  MCP: github_add_label(issue_number=N, label="{{ claim_label }}")
        b. Get PR body and title:
-            # MCP: github_get_pr(pr_number=N) → use .body, .title, .headRefName
+            # MCP: pull_request_read (user-github)(pr_number=N) → use .body, .title, .headRefName
        c. Call ``build_spawn_child`` MCP tool to create the reviewer node atomically:
           ```
           build_spawn_child(
@@ -148,7 +148,7 @@ required fields including COGNITIVE_ARCH, BATCH_ID, lineage fields, and scope.
 You do NOT need to write `.agent-task` files manually.
 
 If a worktree is missing for a new PR:
-  `# MCP: github_get_pr(pr_number=N) → .headRefName`
+  `# MCP: pull_request_read (user-github)(pr_number=N) → .headRefName`
   `git -C "<repo-root>" worktree add "$HOME/.agentception/worktrees/{{ repo_name }}/pr-{N}" origin/$BRANCH`
 
 ## MERGE_AFTER protocol

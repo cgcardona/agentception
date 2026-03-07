@@ -56,10 +56,6 @@ from agentception.mcp.query_tools import (
 from agentception.mcp.github_tools import (
     github_add_label,
     github_claim_issue,
-    github_get_issue,
-    github_get_pr,
-    github_list_issues,
-    github_list_prs,
     github_remove_label,
     github_unclaim_issue,
 )
@@ -217,87 +213,6 @@ TOOLS: list[ACToolDef] = [
         },
     ),
     # ── GitHub tools — cached reads + write-through mutations ────────────────
-    ACToolDef(
-        name="github_list_issues",
-        description=(
-            "List GitHub issues for the configured repository, optionally filtered "
-            "by label and state. Reads are cached (10 s TTL). "
-            "Returns {ok, issues: [{number, title, labels, body, state}], count, label, state}."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "label": {
-                    "type": "string",
-                    "description": "Label to filter by (e.g. 'ac-plan/phase-0'). Omit for all.",
-                },
-                "state": {
-                    "type": "string",
-                    "enum": ["open", "closed"],
-                    "description": "Issue state — 'open' (default) or 'closed'.",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Max results (applies to closed issues only). Default 100.",
-                },
-            },
-            "additionalProperties": False,
-        },
-    ),
-    ACToolDef(
-        name="github_get_issue",
-        description=(
-            "Fetch full metadata and body for a single GitHub issue. "
-            "Returns {ok, issue: {number, state, title, labels, body, comments}}."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "number": {
-                    "type": "integer",
-                    "description": "GitHub issue number.",
-                },
-            },
-            "required": ["number"],
-            "additionalProperties": False,
-        },
-    ),
-    ACToolDef(
-        name="github_list_prs",
-        description=(
-            "List pull requests targeting the dev branch. "
-            "Returns {ok, prs: [{number, title, headRefName, labels, state}], count, state}."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "state": {
-                    "type": "string",
-                    "enum": ["open", "merged", "all"],
-                    "description": "PR state — 'open' (default), 'merged', or 'all'.",
-                },
-            },
-            "additionalProperties": False,
-        },
-    ),
-    ACToolDef(
-        name="github_get_pr",
-        description=(
-            "Fetch PR metadata including comments, review decisions, and CI checks. "
-            "Returns {ok, pr: {number, comments, reviews, checks}}."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "number": {
-                    "type": "integer",
-                    "description": "GitHub PR number.",
-                },
-            },
-            "required": ["number"],
-            "additionalProperties": False,
-        },
-    ),
     ACToolDef(
         name="github_add_label",
         description=(
@@ -958,10 +873,6 @@ def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
         "log_run_decision",
         "log_run_message",
         # GitHub tools
-        "github_list_issues",
-        "github_get_issue",
-        "github_list_prs",
-        "github_get_pr",
         "github_add_label",
         "github_remove_label",
         "github_claim_issue",
@@ -1351,54 +1262,6 @@ async def call_tool_async(
         )
 
     # ── GitHub tools ─────────────────────────────────────────────────────────
-
-    if name == "github_list_issues":
-        label_raw = arguments.get("label")
-        label: str | None = str(label_raw) if isinstance(label_raw, str) else None
-        state_raw = arguments.get("state", "open")
-        state: str = str(state_raw) if isinstance(state_raw, str) else "open"
-        limit_raw = arguments.get("limit", 100)
-        limit: int = int(limit_raw) if isinstance(limit_raw, int) else 100
-        result = await github_list_issues(label=label, state=state, limit=limit)
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=not bool(result.get("ok", False)),
-        )
-
-    if name == "github_get_issue":
-        number = arguments.get("number")
-        if not isinstance(number, int):
-            return ACToolResult(
-                content=[ACToolContent(type="text", text='{"error":"number (int) is required"}')],
-                isError=True,
-            )
-        result = await github_get_issue(number)
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=not bool(result.get("ok", False)),
-        )
-
-    if name == "github_list_prs":
-        state_raw = arguments.get("state", "open")
-        pr_state: str = str(state_raw) if isinstance(state_raw, str) else "open"
-        result = await github_list_prs(state=pr_state)
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=not bool(result.get("ok", False)),
-        )
-
-    if name == "github_get_pr":
-        number = arguments.get("number")
-        if not isinstance(number, int):
-            return ACToolResult(
-                content=[ACToolContent(type="text", text='{"error":"number (int) is required"}')],
-                isError=True,
-            )
-        result = await github_get_pr(number)
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=not bool(result.get("ok", False)),
-        )
 
     if name == "github_add_label":
         issue_num = arguments.get("issue_number")
