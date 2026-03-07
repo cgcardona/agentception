@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """UI routes: Plan page and its API endpoints.
 
 Endpoints
@@ -24,6 +22,8 @@ on a ``data:`` line followed by ``\\n\\n``.  Event shapes::
 The browser accumulates ``chunk`` texts, shows them live, then on ``done``
 loads the canonical validated YAML into the Monaco editor.
 """
+
+from __future__ import annotations
 
 import json
 import logging
@@ -151,7 +151,7 @@ def _normalize_plan_dict(raw: object) -> object:
 
 
 def _parse_task_fields(content: str) -> dict[str, str]:
-    """Parse an ``.agent-task`` TOML v2 file and return a flat string dict.
+    """Parse an ``.agent-task`` TOML file and return a flat string dict.
 
     Extracts the fields most useful for the plan UI:
     - ``BATCH_ID`` ← ``pipeline.batch_id``
@@ -450,7 +450,7 @@ class PlanFileIssuesRequest(BaseModel):
 async def plan_file_issues(body: PlanFileIssuesRequest) -> StreamingResponse:
     """Step 1.B — file GitHub issues directly from a PlanSpec YAML via SSE.
 
-    Accepts the (possibly edited) YAML from the CodeMirror editor, validates it
+    Accepts the (possibly edited) YAML from the Monaco editor, validates it
     against PlanSpec, ensures the required GitHub labels exist, then creates all
     issues using the ``gh`` CLI — no agents, no LLM calls, no worktrees.
 
