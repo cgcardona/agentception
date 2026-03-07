@@ -28,7 +28,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncGenerator
-from typing import TYPE_CHECKING, Literal, TypeAlias, TypedDict
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -131,7 +131,11 @@ class _PreviewErrorEvent(TypedDict):
 
 
 #: Union of all event shapes produced by the Step 1.A preview stream.
-_PreviewSseEvent: TypeAlias = _ChunkEvent | _PreviewDoneEvent | _PreviewErrorEvent
+type _PreviewSseEvent = _ChunkEvent | _PreviewDoneEvent | _PreviewErrorEvent
+
+#: Recursive type covering every value ``yaml.safe_load`` can return.
+#: Python 3.12 recursive ``type`` aliases make this possible without Any.
+type _YamlNode = str | int | float | bool | None | list[_YamlNode] | dict[str, _YamlNode]
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +143,7 @@ _PreviewSseEvent: TypeAlias = _ChunkEvent | _PreviewDoneEvent | _PreviewErrorEve
 # ---------------------------------------------------------------------------
 
 
-def _normalize_plan_dict(raw: object) -> object:
+def _normalize_plan_dict(raw: _YamlNode) -> _YamlNode:
     """Coerce alternative YAML shapes into the canonical PlanSpec mapping.
 
     Claude occasionally returns a top-level dict keyed by the initiative slug
@@ -163,14 +167,6 @@ def _normalize_plan_dict(raw: object) -> object:
             issues: [...]
 
     All other shapes are returned unchanged so normal Pydantic validation runs.
-
-    .. note:: Typing constraint
-
-        ``raw`` is the direct output of ``yaml.safe_load``, whose stubs return
-        ``Any``.  Annotating it as ``object`` is the narrowest honest claim we
-        can make at this boundary without using ``Any`` (banned) or a recursive
-        ``TypeAlias`` (requires Python 3.12+).  All downstream contract
-        enforcement is delegated to ``PlanSpec.model_validate()``.
     """
     if not isinstance(raw, dict):
         return raw
@@ -195,12 +191,12 @@ def _normalize_plan_dict(raw: object) -> object:
         return raw
 
     # Convert {phase-0: {description, depends_on, issues}, ...} → list of phase dicts.
-    phases: list[dict[str, object]] = []
+    phases: list[_YamlNode] = []
     for phase_label in sorted(body.keys()):
         phase_body = body[phase_label]
         if not isinstance(phase_body, dict):
             continue
-        phase_entry: dict[str, object] = {"label": phase_label}
+        phase_entry: dict[str, _YamlNode] = {"label": phase_label}
         phase_entry.update(phase_body)
         phases.append(phase_entry)
 
@@ -402,7 +398,7 @@ async def plan_preview(body: PlanDraftRequest) -> StreamingResponse:
             # Detect prose response: yaml.safe_load returns a str (not a dict)
             # when the model outputs conversational text instead of YAML.
             import yaml as _yaml_mod
-            parsed: object = _yaml_mod.safe_load(yaml_str) if yaml_str.strip() else None
+            parsed: _YamlNode = _yaml_mod.safe_load(yaml_str) if yaml_str.strip() else None
             if not isinstance(parsed, dict):
                 logger.warning(
                     "⚠️ LLM returned prose instead of YAML (first 200 chars): %s",

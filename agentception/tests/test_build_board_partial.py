@@ -134,13 +134,12 @@ def test_compute_agent_status_active_old_becomes_stale() -> None:
     assert _compute_agent_status("pending_launch", old) == "stale"
 
 
-def test_compute_agent_status_naive_datetime_handled() -> None:
-    """Naive datetimes (no tzinfo) are treated as UTC — no TypeError raised."""
-    old_naive = datetime.datetime.utcnow() - datetime.timedelta(
+def test_compute_agent_status_utc_aware_stale_detected() -> None:
+    """UTC-aware datetimes older than the threshold are detected as stale."""
+    old = datetime.datetime.now(datetime.UTC) - datetime.timedelta(
         seconds=_STALE_THRESHOLD_SECONDS + 120
     )
-    # Must not raise; must detect staleness.
-    result = _compute_agent_status("implementing", old_naive)
+    result = _compute_agent_status("implementing", old)
     assert result == "stale"
 
 

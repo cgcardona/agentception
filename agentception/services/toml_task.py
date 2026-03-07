@@ -7,10 +7,8 @@ need to emit TOML v2 ``.agent-task`` files.  Keeping the helpers here prevents
 either layer from importing the other (which would create a layering violation).
 """
 
-from typing import TypeAlias
-
 # Supported scalar/collection types in a TOML .agent-task document.
-TomlValue: TypeAlias = str | int | bool | list[str] | list[int]
+type TomlValue = str | int | bool | list[str] | list[int]
 
 
 def _escape_toml_str(s: str) -> str:

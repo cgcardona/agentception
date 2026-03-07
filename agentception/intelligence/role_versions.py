@@ -64,7 +64,7 @@ async def read_role_versions() -> dict[str, object]:
     import json
 
     try:
-        text = await asyncio.get_event_loop().run_in_executor(
+        text = await asyncio.get_running_loop().run_in_executor(
             None, lambda: path.read_text(encoding="utf-8")
         )
         data: dict[str, object] = json.loads(text)
@@ -91,7 +91,7 @@ async def write_role_versions(data: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
     serialised = json.dumps(data, indent=2)
-    await asyncio.get_event_loop().run_in_executor(
+    await asyncio.get_running_loop().run_in_executor(
         None, lambda: path.write_text(serialised + "\n", encoding="utf-8")
     )
     logger.info("✅ role-versions.json written (%d bytes)", len(serialised))
