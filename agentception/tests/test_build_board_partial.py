@@ -651,3 +651,50 @@ async def test_get_issues_grouped_by_phase_filters_closed_deps() -> None:
     assert issue_10["depends_on"] == [], (
         "Closed dep #11 must not appear in depends_on — it is resolved"
     )
+
+
+# ---------------------------------------------------------------------------
+# _body_excerpt: section headers must be skipped so cards show prose, not labels
+# ---------------------------------------------------------------------------
+
+
+def test_body_excerpt_skips_leading_section_header() -> None:
+    """Cards must show prose text, not the markdown section label.
+
+    Regression: bodies structured as '## Context\\nActual text' were excerpted
+    as 'Context Actual text' because the regex stripped '#' chars but kept the
+    header word. The fix skips any leading header lines so the first prose
+    paragraph leads.
+    """
+    from agentception.db.queries import _body_excerpt
+
+    body = "## Context\nEven after the field is propagated the architecture may not be woven in.\n\n## Objective\nFix it."
+    result = _body_excerpt(body)
+    assert not result.startswith("Context"), f"Header word leaked into excerpt: {result!r}"
+    assert "Even after" in result
+
+
+def test_body_excerpt_stops_at_first_paragraph() -> None:
+    """Only the first prose paragraph is excerpted, not subsequent sections."""
+    from agentception.db.queries import _body_excerpt
+
+    body = "## Context\nFirst paragraph text.\n\n## Objective\nSecond section should not appear."
+    result = _body_excerpt(body)
+    assert "Second section" not in result
+
+
+def test_body_excerpt_no_headers_returns_first_paragraph() -> None:
+    """Bodies without section headers return the first paragraph verbatim."""
+    from agentception.db.queries import _body_excerpt
+
+    body = "Plain description here.\n\nSecond paragraph ignored."
+    result = _body_excerpt(body)
+    assert result == "Plain description here."
+
+
+def test_body_excerpt_all_headers_returns_empty() -> None:
+    """A body consisting only of headers returns an empty string."""
+    from agentception.db.queries import _body_excerpt
+
+    body = "## Context\n## Objective\n## Notes"
+    assert _body_excerpt(body) == ""

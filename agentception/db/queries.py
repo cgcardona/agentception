@@ -1429,21 +1429,46 @@ def _compute_locked(
     return any(dep not in complete_phases for dep in deps)
 
 
-_MD_STRIP_RE = _re.compile(r"[#*`_\[\]!>|~]+|```[^`]*```|\n+")
+_MD_STRIP_RE = _re.compile(r"[*`_\[\]!>|~]+|```[^`]*```")
+_MD_SPACES_RE = _re.compile(r" +")
 
 
 def _body_excerpt(body: str | None, max_chars: int = 120) -> str:
-    """Return a plain-text excerpt from a Markdown issue body.
+    """Return a plain-text excerpt from the first prose paragraph of an issue body.
 
-    Strips common markdown syntax characters and collapses whitespace so the
-    result reads as a short prose snippet suitable for a Kanban card subtitle.
+    Skips markdown section headers (lines beginning with ``#``) and leading
+    blank lines so the card subtitle shows actual description text rather than
+    repeating the section label (e.g. "Context", "Objective").  Stops at the
+    first blank line after content begins, giving one clean prose paragraph.
+
+    Remaining inline markdown (bold, code, etc.) is stripped by ``_MD_STRIP_RE``.
     """
     if not isinstance(body, str) or not body:
         return ""
-    text: str = str(_MD_STRIP_RE.sub(" ", body)).strip()
+
+    # Collect lines from the first prose paragraph, skipping header lines.
+    content_lines: list[str] = []
+    for line in body.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            # A new header after content has started ends the first paragraph.
+            if content_lines:
+                break
+            continue
+        if not stripped:
+            # Blank line ends the first paragraph once content has started;
+            # blank lines before any content are ignored.
+            if content_lines:
+                break
+            continue
+        content_lines.append(stripped)
+
+    if not content_lines:
+        return ""
+
+    text = _MD_SPACES_RE.sub(" ", _MD_STRIP_RE.sub(" ", " ".join(content_lines))).strip()
     if len(text) <= max_chars:
         return text
-    # Break at the last word boundary within the limit.
     truncated = text[:max_chars]
     cut = truncated.rfind(" ")
     return (truncated[:cut] if cut > 0 else truncated) + "…"
