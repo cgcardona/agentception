@@ -64,6 +64,7 @@ Only fall back to `gh` CLI when the MCP server does not cover the required opera
 - **Before starting any work:** run `git status`. If `dev` is not clean, stop. Either restore the dirty files (`git restore .`) or commit them on a branch first. Never carry dirty state from `dev` into a feature branch.
 - **After any file-generating command** (e.g. `generate.py`, `npm run build`, code generators): immediately run `git status`. Stage and commit every modified file — do not switch branches while files are dirty.
 - **`generate.py` rule:** run it only after you are already on a feature branch, never on `dev`. All generated outputs are part of the same commit as their source template changes.
+- **`.agentception/*.md` are derived artifacts — never edit them directly.** They are overwritten on every `generate.py` run. Any direct edit will be silently reverted the next time the generator runs, and will fail the `generated-files` CI check. The only correct workflow: edit the `.j2` template in `scripts/gen_prompts/templates/`, then run `docker compose exec agentception python3 /app/scripts/gen_prompts/generate.py`, then commit both the template and the regenerated output together.
 
 The enforcement protocol:
 1. `git status` → must show `nothing to commit, working tree clean` before any `git checkout`.

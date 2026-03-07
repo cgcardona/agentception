@@ -28,6 +28,7 @@ from starlette.requests import Request
 
 from agentception.db.engine import close_db, init_db
 from agentception.poller import polling_loop, subscribe, unsubscribe
+from agentception.services.worktree_reaper import reap_stale_worktrees
 from agentception.routes.api import router as api_router
 from agentception.routes.control import router as control_router
 from agentception.routes.intelligence import router as intelligence_router
@@ -41,20 +42,35 @@ logger = logging.getLogger(__name__)
 _HERE = Path(__file__).parent
 
 
+async def _reaper_loop() -> None:
+    """Periodic worktree reaper — runs every 15 minutes for the process lifetime."""
+    while True:
+        await asyncio.sleep(900)
+        await reap_stale_worktrees()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Start DB, background poller on startup; tear both down on shutdown."""
+    """Start DB, background poller, and worktree reaper on startup; tear all down on shutdown."""
     await init_db()
+
+    # Startup sweep: remove any worktrees left over from crashed agents in the
+    # previous session before accepting new traffic.
+    await reap_stale_worktrees()
+
     poller = asyncio.create_task(polling_loop(), name="agentception-poller")
-    logger.info("✅ AgentCeption poller started")
+    reaper = asyncio.create_task(_reaper_loop(), name="agentception-reaper")
+    logger.info("✅ AgentCeption poller and worktree reaper started")
     try:
         yield
     finally:
         poller.cancel()
-        try:
-            await poller
-        except asyncio.CancelledError:
-            pass
+        reaper.cancel()
+        for task in (poller, reaper):
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
         await close_db()
 
 
