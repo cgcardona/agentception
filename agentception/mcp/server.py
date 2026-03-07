@@ -42,7 +42,17 @@ from agentception.mcp.log_tools import (
     log_run_message,
     log_run_step,
 )
-from agentception.mcp.query_tools import query_pending_runs
+from agentception.mcp.query_tools import (
+    query_active_runs,
+    query_agent_task,
+    query_children,
+    query_dispatcher_state,
+    query_pending_runs,
+    query_run,
+    query_run_events,
+    query_run_tree,
+    query_system_health,
+)
 from agentception.mcp.github_tools import (
     github_add_label,
     github_claim_issue,
@@ -363,6 +373,130 @@ TOOLS: list[ACToolDef] = [
             "The role tells you what kind of agent to spawn — a leaf worker implements "
             "one issue directly; a coordinator reads its role file and spawns its own "
             "children via the Task tool."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+    ),
+    ACToolDef(
+        name="query_run",
+        description=(
+            "Return lightweight metadata for a single run by run_id. "
+            "Agents call this on startup to determine their current state (status, "
+            "issue_number, parent_run_id, worktree_path, tier, role, batch_id). "
+            "Returns ok=false when the run does not exist."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "string", "description": "The run ID to look up."},
+            },
+            "required": ["run_id"],
+            "additionalProperties": False,
+        },
+    ),
+    ACToolDef(
+        name="query_children",
+        description=(
+            "Return all runs spawned by a given parent run_id, ordered by spawn time. "
+            "Coordinator and VP-tier agents use this to track the state of engineers they dispatched."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "string", "description": "The parent run ID."},
+            },
+            "required": ["run_id"],
+            "additionalProperties": False,
+        },
+    ),
+    ACToolDef(
+        name="query_run_events",
+        description=(
+            "Return structured MCP events for a run (log_run_step, log_run_blocker, etc.). "
+            "Agents use this to reconstruct what happened in a previous session after a crash. "
+            "Pass after_id to page through events incrementally."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "string", "description": "The run to query events for."},
+                "after_id": {
+                    "type": "integer",
+                    "description": "Return only events with DB id > this value. Defaults to 0.",
+                    "default": 0,
+                },
+            },
+            "required": ["run_id"],
+            "additionalProperties": False,
+        },
+    ),
+    ACToolDef(
+        name="query_agent_task",
+        description=(
+            "Return the raw text content of the .agent-task TOML file for a run. "
+            "Agents use this to verify their own configuration on startup or after a restart. "
+            "Returns ok=false if the worktree has been torn down or the file does not exist."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "string", "description": "The run to read the agent task for."},
+            },
+            "required": ["run_id"],
+            "additionalProperties": False,
+        },
+    ),
+    ACToolDef(
+        name="query_active_runs",
+        description=(
+            "Return all runs currently in a live or blocked state "
+            "(pending_launch, implementing, reviewing, blocked). "
+            "Supervisory agents and the Dispatcher use this for a system-wide snapshot."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+    ),
+    ACToolDef(
+        name="query_run_tree",
+        description=(
+            "Return all runs in a batch as a flat list with parent_run_id references. "
+            "Assemble into a tree by following parent_run_id. "
+            "Used by the Dispatcher and supervisory agents to visualise the run hierarchy."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "batch_id": {"type": "string", "description": "The batch fingerprint to query."},
+            },
+            "required": ["batch_id"],
+            "additionalProperties": False,
+        },
+    ),
+    ACToolDef(
+        name="query_dispatcher_state",
+        description=(
+            "Return current dispatcher state: run counts per status, active run total, "
+            "and the latest active batch_id. "
+            "Designed for supervisory agents that need a high-level view of the system."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+    ),
+    ACToolDef(
+        name="query_system_health",
+        description=(
+            "Return a system-health snapshot: DB reachability, total runs per status. "
+            "Always returns a result — db_ok=false signals a degraded database. "
+            "Use for diagnostics and health checks."
         ),
         inputSchema={
             "type": "object",
@@ -801,6 +935,14 @@ def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
         "plan_advance_phase",
         # Query tools
         "query_pending_runs",
+        "query_run",
+        "query_children",
+        "query_run_events",
+        "query_agent_task",
+        "query_active_runs",
+        "query_run_tree",
+        "query_dispatcher_state",
+        "query_system_health",
         # Build commands
         "build_claim_run",
         "build_spawn_child_run",
@@ -884,6 +1026,94 @@ async def call_tool_async(
 
     if name == "query_pending_runs":
         result = await query_pending_runs()
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=False,
+        )
+
+    if name == "query_run":
+        qr_run_id = arguments.get("run_id")
+        if not isinstance(qr_run_id, str) or not qr_run_id:
+            return ACToolResult(
+                content=[ACToolContent(type="text", text='{"error":"query_run requires a non-empty run_id"}')],
+                isError=True,
+            )
+        result = await query_run(qr_run_id)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=not bool(result.get("ok", False)),
+        )
+
+    if name == "query_children":
+        qc_run_id = arguments.get("run_id")
+        if not isinstance(qc_run_id, str) or not qc_run_id:
+            return ACToolResult(
+                content=[ACToolContent(type="text", text='{"error":"query_children requires a non-empty run_id"}')],
+                isError=True,
+            )
+        result = await query_children(qc_run_id)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=False,
+        )
+
+    if name == "query_run_events":
+        qre_run_id = arguments.get("run_id")
+        if not isinstance(qre_run_id, str) or not qre_run_id:
+            return ACToolResult(
+                content=[ACToolContent(type="text", text='{"error":"query_run_events requires a non-empty run_id"}')],
+                isError=True,
+            )
+        after_id_raw = arguments.get("after_id", 0)
+        after_id = int(after_id_raw) if isinstance(after_id_raw, int) else 0
+        result = await query_run_events(qre_run_id, after_id)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=False,
+        )
+
+    if name == "query_agent_task":
+        qat_run_id = arguments.get("run_id")
+        if not isinstance(qat_run_id, str) or not qat_run_id:
+            return ACToolResult(
+                content=[ACToolContent(type="text", text='{"error":"query_agent_task requires a non-empty run_id"}')],
+                isError=True,
+            )
+        result = await query_agent_task(qat_run_id)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=not bool(result.get("ok", False)),
+        )
+
+    if name == "query_active_runs":
+        result = await query_active_runs()
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=False,
+        )
+
+    if name == "query_run_tree":
+        qrt_batch_id = arguments.get("batch_id")
+        if not isinstance(qrt_batch_id, str) or not qrt_batch_id:
+            return ACToolResult(
+                content=[ACToolContent(type="text", text='{"error":"query_run_tree requires a non-empty batch_id"}')],
+                isError=True,
+            )
+        result = await query_run_tree(qrt_batch_id)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=False,
+        )
+
+    if name == "query_dispatcher_state":
+        result = await query_dispatcher_state()
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=False,
+        )
+
+    if name == "query_system_health":
+        result = await query_system_health()
         return ACToolResult(
             content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
             isError=False,

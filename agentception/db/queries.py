@@ -15,7 +15,7 @@ import re as _re
 from pathlib import Path
 from typing import TypedDict
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 
 from agentception.db.engine import get_session
 from agentception.db.models import (
@@ -2447,3 +2447,151 @@ async def get_terminal_runs_with_worktrees() -> list[TerminalRunRow]:
             "⚠️  get_terminal_runs_with_worktrees DB query failed (non-fatal): %s", exc
         )
         return []
+
+
+# ---------------------------------------------------------------------------
+# MCP query tool helpers — lightweight reads used by query_tools.py
+# ---------------------------------------------------------------------------
+
+
+class RunSummaryRow(TypedDict):
+    """Lightweight run summary for MCP query tools.
+
+    Intentionally omits transcript messages (use get_agent_run_detail when
+    the full message history is needed).
+    """
+
+    run_id: str
+    status: str
+    role: str
+    issue_number: int | None
+    pr_number: int | None
+    branch: str | None
+    worktree_path: str | None
+    batch_id: str | None
+    tier: str | None
+    org_domain: str | None
+    parent_run_id: str | None
+    spawned_at: str
+    last_activity_at: str | None
+    completed_at: str | None
+
+
+def _run_to_summary(row: ACAgentRun) -> RunSummaryRow:
+    """Convert an ACAgentRun ORM row to a RunSummaryRow."""
+    return RunSummaryRow(
+        run_id=row.id,
+        status=row.status,
+        role=row.role,
+        issue_number=row.issue_number,
+        pr_number=row.pr_number,
+        branch=row.branch,
+        worktree_path=row.worktree_path,
+        batch_id=row.batch_id,
+        tier=row.tier,
+        org_domain=row.org_domain,
+        parent_run_id=row.parent_run_id,
+        spawned_at=row.spawned_at.isoformat(),
+        last_activity_at=(row.last_activity_at.isoformat() if row.last_activity_at else None),
+        completed_at=(row.completed_at.isoformat() if row.completed_at else None),
+    )
+
+
+async def get_run_by_id(run_id: str) -> RunSummaryRow | None:
+    """Return lightweight run metadata for a single run.
+
+    Agents call this on startup to determine their current state and decide
+    whether to resume, block, or complete.  Returns ``None`` if the run does
+    not exist or on DB error.
+    """
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun).where(ACAgentRun.id == run_id)
+            )
+            row = result.scalar_one_or_none()
+        if row is None:
+            return None
+        return _run_to_summary(row)
+    except Exception as exc:
+        logger.warning("⚠️  get_run_by_id DB query failed (non-fatal): %s", exc)
+        return None
+
+
+async def get_children_by_parent_id(parent_run_id: str) -> list[RunSummaryRow]:
+    """Return all runs spawned by *parent_run_id*, ordered by spawn time.
+
+    Used by ``query_children`` MCP tool.  Returns ``[]`` on DB error.
+    """
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun)
+                .where(ACAgentRun.parent_run_id == parent_run_id)
+                .order_by(ACAgentRun.spawned_at.asc())
+            )
+            rows = result.scalars().all()
+        return [_run_to_summary(r) for r in rows]
+    except Exception as exc:
+        logger.warning("⚠️  get_children_by_parent_id DB query failed (non-fatal): %s", exc)
+        return []
+
+
+class StatusCountRow(TypedDict):
+    """Status → count pair for aggregate queries."""
+
+    status: str
+    count: int
+
+
+async def get_active_runs() -> list[RunSummaryRow]:
+    """Return all runs currently in a live or blocked state.
+
+    Live statuses: ``pending_launch``, ``implementing``, ``reviewing``,
+    ``blocked``.  Used by ``query_active_runs`` MCP tool.
+
+    Returns ``[]`` on DB error.
+    """
+    active_statuses = ["pending_launch", "implementing", "reviewing", "blocked"]
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun)
+                .where(ACAgentRun.status.in_(active_statuses))
+                .order_by(ACAgentRun.spawned_at.desc())
+            )
+            rows = result.scalars().all()
+        return [_run_to_summary(r) for r in rows]
+    except Exception as exc:
+        logger.warning("⚠️  get_active_runs DB query failed (non-fatal): %s", exc)
+        return []
+
+
+async def get_run_status_counts() -> list[StatusCountRow]:
+    """Return total run count per status across all time.
+
+    Used by ``query_dispatcher_state`` and ``query_system_health``.
+    Returns ``[]`` on DB error.
+    """
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun.status, func.count().label("cnt"))
+                .group_by(ACAgentRun.status)
+                .order_by(ACAgentRun.status)
+            )
+            rows = result.all()
+        return [StatusCountRow(status=str(row.status), count=int(row.cnt)) for row in rows]
+    except Exception as exc:
+        logger.warning("⚠️  get_run_status_counts DB query failed (non-fatal): %s", exc)
+        return []
+
+
+async def check_db_reachable() -> bool:
+    """Return True if the DB responds to a trivial query, False otherwise."""
+    try:
+        async with get_session() as session:
+            await session.execute(text("SELECT 1"))
+        return True
+    except Exception:
+        return False
