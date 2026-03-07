@@ -334,6 +334,9 @@ export function planForm() {
             } else if (evt.t === 'issue') {
               this.filingProgress = `Issue ${evt.index}/${evt.total} — ${evt.title}`;
 
+            } else if (evt.t === 'blocked') {
+              this.filingProgress = `#${evt.number} blocked — waiting on ${(evt.blocked_by ?? []).map(n => '#' + n).join(', ')}`;
+
             } else if (evt.t === 'done') {
               this.batchId    = evt.batch_id ?? '';
               this.issueCount = evt.total    ?? 0;
