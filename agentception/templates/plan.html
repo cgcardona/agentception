@@ -204,8 +204,8 @@
         <h2 class="plan-review-title">Review your plan</h2>
         <p class="plan-review-meta">
           <span x-text="initiative"></span> ·
-          <span x-text="phaseCount"></span> phases ·
-          <span x-text="issueCount"></span> issues
+          <span x-text="phaseCount"></span> <span x-text="phaseCount === 1 ? 'phase' : 'phases'"></span> ·
+               <span x-text="issueCount"></span> <span x-text="issueCount === 1 ? 'issue' : 'issues'"></span>
         </p>
       </div>
       <div class="plan-review-actions">
@@ -261,9 +261,11 @@
     <div class="plan-done-hero">
       <div class="plan-done-initiative" x-text="initiative || 'Plan filed'"></div>
       <div class="plan-done-hero-stats">
-        <span x-text="(result.phaseGroups || []).length || phaseCount"></span> phases
+        <span x-text="(result.phaseGroups || []).length || phaseCount"></span>
+        <span x-text="((result.phaseGroups || []).length || phaseCount) === 1 ? 'phase' : 'phases'"></span>
         <span class="plan-done-sep">·</span>
-        <span x-text="issueCount"></span> issues
+        <span x-text="issueCount"></span>
+        <span x-text="issueCount === 1 ? 'issue' : 'issues'"></span>
         <span class="plan-done-sep">·</span>
         <span class="plan-done-active-dot"></span> phase 0 active
       </div>

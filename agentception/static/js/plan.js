@@ -531,7 +531,9 @@ export function planForm() {
         if (data.valid) {
           this.yamlValid = true;
           this.initiative = data.initiative ?? this.initiative;
-          this.yamlValidationMsg = `✓ Valid — ${data.phase_count} phases, ${data.issue_count} issues`;
+          const ph = data.phase_count === 1 ? 'phase' : 'phases';
+          const is = data.issue_count === 1 ? 'issue' : 'issues';
+          this.yamlValidationMsg = `✓ Valid — ${data.phase_count} ${ph}, ${data.issue_count} ${is}`;
         } else {
           this.yamlValid = false;
           this.yamlValidationMsg = `✗ ${data.detail || 'Invalid PlanSpec'}`;
