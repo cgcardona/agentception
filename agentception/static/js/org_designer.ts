@@ -480,13 +480,17 @@ const BUILT_IN_TEMPLATES: ReadonlyArray<{
   id: string;
   name: string;
   description: string;
+  icon: string;
+  accent: string;
   nodeCount: number;
   template: PresetTemplate;
 }> = [
   {
     id: 'builtin-cto-full',
     name: 'CTO + Full Team',
-    description: 'CTO surveys tickets & PRs, spawns Eng Manager + QA Lead with workers',
+    description: 'CTO surveys all tickets & PRs, spawns an Engineering Manager and QA Lead who each assemble their own workers.',
+    icon: '⬡',
+    accent: 'violet',
     get nodeCount() { return nodeCount(this.template); },
     template: {
       role: 'cto',
@@ -508,7 +512,9 @@ const BUILT_IN_TEMPLATES: ReadonlyArray<{
   {
     id: 'builtin-eng-sprint',
     name: 'Engineering Sprint',
-    description: 'Eng Manager pulls a phase and spawns dev workers + a reviewer',
+    description: 'Engineering Manager pulls a single phase, spawns dev workers and a PR Reviewer. Fast and focused.',
+    icon: '⚡',
+    accent: 'blue',
     get nodeCount() { return nodeCount(this.template); },
     template: {
       role: 'engineering-coordinator',
@@ -522,7 +528,9 @@ const BUILT_IN_TEMPLATES: ReadonlyArray<{
   {
     id: 'builtin-qa-pass',
     name: 'QA Review Pass',
-    description: 'QA Lead surveys all open PRs and spawns reviewers',
+    description: 'QA Lead surveys all open PRs and dispatches a dedicated reviewer for each one.',
+    icon: '◎',
+    accent: 'amber',
     get nodeCount() { return nodeCount(this.template); },
     template: {
       role: 'qa-coordinator',
@@ -532,9 +540,51 @@ const BUILT_IN_TEMPLATES: ReadonlyArray<{
   {
     id: 'builtin-single-cto',
     name: 'Single CTO',
-    description: 'One CTO working solo — great for smoke tests',
+    description: 'One CTO agent working solo. Surveys the initiative and decides what to do next. Perfect for smoke tests.',
+    icon: '✦',
+    accent: 'emerald',
     get nodeCount() { return nodeCount(this.template); },
     template: { role: 'cto' },
+  },
+  {
+    id: 'builtin-ceo-full',
+    name: 'CEO + Full Org',
+    description: 'A CEO delegates to a CTO who then assembles the full engineering and QA hierarchy beneath them.',
+    icon: '◈',
+    accent: 'rose',
+    get nodeCount() { return nodeCount(this.template); },
+    template: {
+      role: 'ceo',
+      children: [{
+        role: 'cto',
+        children: [
+          {
+            role: 'engineering-coordinator',
+            children: [{ role: 'python-developer' }, { role: 'typescript-developer' }],
+          },
+          {
+            role: 'qa-coordinator',
+            children: [{ role: 'pr-reviewer' }],
+          },
+        ],
+      }],
+    },
+  },
+  {
+    id: 'builtin-ml-team',
+    name: 'ML Team',
+    description: 'ML Coordinator assembles a research and engineering crew — great for data-heavy initiatives.',
+    icon: '◆',
+    accent: 'teal',
+    get nodeCount() { return nodeCount(this.template); },
+    template: {
+      role: 'ml-coordinator',
+      children: [
+        { role: 'ml-engineer' },
+        { role: 'ml-researcher' },
+        { role: 'data-scientist' },
+      ],
+    },
   },
 ];
 
@@ -748,7 +798,7 @@ interface OrgDesignerComponent {
   activePresetId: string | null;
   saveAsMode: boolean;
   saveAsName: string;
-  builtInTemplates: ReadonlyArray<{ id: string; name: string; description: string; nodeCount: number }>;
+  builtInTemplates: ReadonlyArray<{ id: string; name: string; description: string; icon: string; accent: string; nodeCount: number }>;
 
   // ── Node editor
   selectedNodeId: string | null;
