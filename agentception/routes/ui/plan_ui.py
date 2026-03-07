@@ -68,10 +68,10 @@ _PLAN_SEEDS = [
     {
         "label": "💡 Feature ideas",
         "text": (
-            "- Let users star/pin their favourite agents\n"
-            "- Add Slack notifications for PR merges\n"
-            "- Dark mode across the entire dashboard\n"
-            "- Export pipeline config as a shareable template"
+            "- Add dark mode across the entire dashboard\n"
+            "- Show a live activity feed of recent events on the home page\n"
+            "- Let users customize notification preferences per project\n"
+            "- Export any report as a shareable link with a public read-only view"
         ),
     },
     {
