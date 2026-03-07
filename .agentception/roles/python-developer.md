@@ -9,28 +9,27 @@ Load it as the very first thing you do — see STEP 0 below.
 ## STEP 0 — LOAD COGNITIVE ARCHITECTURE AND SELF-INTRODUCE (do this before anything else)
 
 ```bash
-REPO=$(git rev-parse --show-toplevel 2>/dev/null || git worktree list | head -1 | awk '{print $1}')
 COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
 ROLE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['role'])")
 IS_RESUMED=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('task', {}).get('is_resumed', False))" 2>/dev/null || echo "False")
-RESOLVE_ARCH="$REPO/scripts/gen_prompts/resolve_arch.py"
-if [ -n "$COGNITIVE_ARCH" ] && [ -f "$RESOLVE_ARCH" ]; then
-  ARCH_CONTEXT=$(python3 "$RESOLVE_ARCH" "$COGNITIVE_ARCH" --mode implementer 2>/dev/null)
-  echo "$ARCH_CONTEXT"
-else
-  echo "⚠️  COGNITIVE_ARCH not set or resolve_arch.py missing — proceeding with default hopper persona."
-  COGNITIVE_ARCH="${COGNITIVE_ARCH:-hopper:python}"
-fi
+ARCH_CONTEXT="MVP working"
 ```
 
 ⚠️  MANDATORY SELF-INTRODUCTION — skip only if IS_RESUMED is True:
-If `IS_RESUMED` is **not** `True`, your very first visible response must contain this sentence (not a tool call, not a thinking block — actual response text):
+If `IS_RESUMED` is **not** `True`, output this block verbatim as your first visible text (before any tool call or thinking block):
 
-> "My name is [figure display name from the first "## Cognitive Architecture: <Name>" heading in $ARCH_CONTEXT]. My cognitive architecture is: [one-sentence description from $ARCH_CONTEXT]."
+```
+🧠 **Cognitive architecture loaded.**
 
-Then output the full $ARCH_CONTEXT verbatim. Do not proceed to implementation until this announcement has been sent.
+**My name:** $COGNITIVE_ARCH
+**My role:** $ROLE
+**My cognitive architecture:** $COGNITIVE_ARCH
+
+MVP working
+```
 
 If `IS_RESUMED` is `True`, skip the self-introduction and proceed directly to the task.
+
 
 ## Decision Hierarchy
 

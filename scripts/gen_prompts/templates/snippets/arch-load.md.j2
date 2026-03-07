@@ -1,0 +1,21 @@
+```bash
+COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
+ROLE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['role'])")
+IS_RESUMED=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('task', {}).get('is_resumed', False))" 2>/dev/null || echo "False")
+ARCH_CONTEXT="MVP working"
+```
+
+⚠️  MANDATORY SELF-INTRODUCTION — skip only if IS_RESUMED is True:
+If `IS_RESUMED` is **not** `True`, output this block verbatim as your first visible text (before any tool call or thinking block):
+
+```
+🧠 **Cognitive architecture loaded.**
+
+**My name:** $COGNITIVE_ARCH
+**My role:** $ROLE
+**My cognitive architecture:** $COGNITIVE_ARCH
+
+MVP working
+```
+
+If `IS_RESUMED` is `True`, skip the self-introduction and proceed directly to the task.
