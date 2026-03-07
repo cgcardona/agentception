@@ -3059,14 +3059,17 @@ TASK
 
     echo "✅ Spawning QA reviewer for PR #$MY_PR (chain mode — reviewer will spawn next engineer)"
     # AGENT INSTRUCTION: call Task(prompt=REVIEWER_PROMPT, worktree="$REVIEW_WORKTREE")
-    # REVIEWER_PROMPT is self-contained — do NOT reference parallel-pr-review.md on disk.
-    # Construct it from your context:
+    # REVIEWER_PROMPT is self-contained — do NOT reference any file on disk for its contents.
+    # Build it from three parts in order:
     #   1. Prefix:  "Read the .agent-task file in your worktree first.
     #               GH_REPO=cgcardona/agentception  Repo: <repo-root>"
     #   2. Body:    paste the entire ## Pass-Along: Reviewer Kickoff section verbatim
     #               (your Engineering Coordinator embedded it when it dispatched you)
-    # The reviewer's prompt already contains its own ## Pass-Along: Implementer Kickoff
-    # section so it can chain-spawn the next implementer without reading any file.
+    #   3. Tail:    paste THIS ENTIRE kickoff verbatim (the content you are reading right
+    #               now), labeled as "## Pass-Along: Implementer Kickoff". The reviewer
+    #               needs it so it can spawn the next engineer when it finishes merging.
+    # Every link in the chain must carry both halves forward — reviewer kickoff and
+    # implementer kickoff — so neither link ever needs to read a file from disk.
   else
     echo "⚠️  Could not find open PR for branch $MY_BRANCH — skipping reviewer spawn."
   fi
