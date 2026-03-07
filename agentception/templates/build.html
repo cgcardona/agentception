@@ -27,7 +27,7 @@
           <span class="build-header__stat-total">{{ total_issues }} total</span>
         </span>
         <button class="build-header__design-btn"
-                @click="$dispatch('open-org-designer', { label: '{{ initiative }}', repo: {{ repo | tojson }}, figures: window._orgFigures })">
+                @click='$dispatch("open-org-designer", { label: {{ initiative | tojson }}, repo: {{ repo | tojson }}, figures: window._orgFigures })'>
           Design org →
         </button>
         <span class="build-header__live" title="Board refreshes every 5 s">● LIVE</span>
