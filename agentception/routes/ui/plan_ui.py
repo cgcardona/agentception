@@ -3,7 +3,8 @@
 Endpoints
 ---------
 POST /api/plan/preview                   — Step 1.A: brain dump → PlanSpec YAML (SSE stream)
-POST /api/plan/validate                  — Validate (possibly edited) YAML against PlanSpec
+POST /api/plan/validate                  — Validate (possibly edited) YAML against PlanSpec schema
+POST /api/plan/file-issues               — Step 1.B: file GitHub issues from a PlanSpec YAML (SSE)
 GET  /plan                               — full page
 GET  /plan/recent-runs                   — HTMX partial (sidebar refresh)
 GET  /api/plan/{run_id}/plan-text        — return original plan text for re-run
@@ -20,7 +21,7 @@ on a ``data:`` line followed by ``\\n\\n``.  Event shapes::
     {"t": "error", "detail": "<message>"}       -- stream failed
 
 The browser accumulates ``chunk`` texts, shows them live, then on ``done``
-loads the canonical validated YAML into the Monaco editor.
+loads the canonical validated YAML into the CodeMirror 6 editor.
 """
 
 from __future__ import annotations
@@ -326,7 +327,7 @@ class PlanDraftYamlResponse(BaseModel):
     """Response from ``POST /api/plan/preview`` (Step 1.A).
 
     ``yaml`` is a valid PlanSpec YAML string ready to be loaded into the
-    Monaco editor.  ``initiative`` is extracted for the UI to display.
+    CodeMirror 6 editor.  ``initiative`` is extracted for the UI to display.
     ``phase_count`` and ``issue_count`` are convenience totals.
     """
 
@@ -507,7 +508,7 @@ class PlanFileIssuesRequest(BaseModel):
 async def plan_file_issues(body: PlanFileIssuesRequest) -> StreamingResponse:
     """Step 1.B — file GitHub issues directly from a PlanSpec YAML via SSE.
 
-    Accepts the (possibly edited) YAML from the Monaco editor, validates it
+    Accepts the (possibly edited) YAML from the CodeMirror 6 editor, validates it
     against PlanSpec, ensures the required GitHub labels exist, then creates all
     issues using the ``gh`` CLI — no agents, no LLM calls, no worktrees.
 

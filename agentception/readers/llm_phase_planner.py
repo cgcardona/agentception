@@ -500,7 +500,7 @@ async def generate_plan_yaml(dump: str, label_prefix: str = "") -> str:
 
     Calls Claude Sonnet via OpenRouter with the full PlanSpec YAML prompt.
     Validates the returned YAML against :class:`~agentception.models.PlanSpec`
-    so the Monaco editor always shows a structurally correct document.
+    so the CodeMirror 6 editor always shows a structurally correct document.
 
     If ``label_prefix`` is provided it overrides the ``initiative`` field
     Claude inferred from the text.

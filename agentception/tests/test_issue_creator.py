@@ -4,11 +4,14 @@ from __future__ import annotations
 
 All tests mock the gh subprocess so no real GitHub API calls are made.
 The test suite verifies:
+  - _embed_skills / _embed_cognitive_arch body helpers.
   - Correct gh commands are invoked for issue creation and label bootstrap.
   - SSE event sequence (start → label → issue → done).
   - Blocked-by body edits are triggered for issues with depends_on.
   - A gh failure during issue creation yields an error event and halts.
   - A gh failure during body edit is non-fatal (logged, iteration continues).
+  - _gh_create_issue edge cases: empty stdout, malformed URL.
+  - DB persistence calls are made with correct data after a successful run.
 """
 
 from collections.abc import AsyncIterator
@@ -25,7 +28,10 @@ from agentception.readers.issue_creator import (
     IssueEvent,
     LabelEvent,
     StartEvent,
+    _embed_cognitive_arch,
     _embed_phase_gate,
+    _embed_skills,
+    _gh_create_issue,
     file_issues,
 )
 
@@ -513,3 +519,220 @@ async def test_file_issues_phase1_body_contains_phase_gate_notice() -> None:
             assert "ac-workflow/0-foundation" in body, (
                 f"Phase 1+ body should name the blocking phase: {body!r}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: body-embed helpers
+# ---------------------------------------------------------------------------
+
+
+def test_embed_skills_appends_html_comment() -> None:
+    """Skills are embedded as a machine-readable HTML comment invisible in the GitHub UI."""
+    body = _embed_skills("## Context\nDo the thing.", ["python", "fastapi"])
+    assert "<!-- ac:skills: fastapi, python -->" in body or "<!-- ac:skills: python, fastapi -->" in body
+    assert body.startswith("## Context")
+
+
+def test_embed_skills_empty_list_returns_body_unchanged() -> None:
+    """Empty skills list → body is returned unchanged."""
+    original = "## Context\nDo the thing."
+    assert _embed_skills(original, []) == original
+
+
+def test_embed_skills_single_skill() -> None:
+    """A single skill is embedded without a trailing comma."""
+    body = _embed_skills("Body.", ["python"])
+    assert "<!-- ac:skills: python -->" in body
+
+
+def test_embed_skills_preserves_original_body_content() -> None:
+    """The original body text is preserved before the injected comment."""
+    original = "## Context\nImplement auth.\n\n## Acceptance\n- [ ] Tests pass."
+    result = _embed_skills(original, ["python"])
+    assert original in result
+
+
+def test_embed_cognitive_arch_appends_html_comment() -> None:
+    """Cognitive arch string is embedded as a machine-readable HTML comment."""
+    body = _embed_cognitive_arch("## Context\nDo the thing.", "barbara_liskov:fastapi:python")
+    assert "<!-- ac:cognitive_arch: barbara_liskov:fastapi:python -->" in body
+    assert body.startswith("## Context")
+
+
+def test_embed_cognitive_arch_empty_string_returns_body_unchanged() -> None:
+    """Empty cognitive_arch → body is returned unchanged."""
+    original = "## Context\nDo the thing."
+    assert _embed_cognitive_arch(original, "") == original
+
+
+def test_embed_cognitive_arch_preserves_original_body_content() -> None:
+    """The original body text is fully preserved when the arch comment is appended."""
+    original = "## Context\nBuild the user model.\n\n## Notes\n- Use SQLAlchemy."
+    result = _embed_cognitive_arch(original, "jeff_dean:python")
+    assert original in result
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: _gh_create_issue edge cases
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_gh_create_issue_raises_on_empty_stdout() -> None:
+    """gh issue create returning empty stdout → RuntimeError."""
+    with patch(
+        "asyncio.create_subprocess_exec",
+        return_value=_mock_proc(stdout=b""),
+    ):
+        with pytest.raises(RuntimeError, match="empty output"):
+            await _gh_create_issue("owner/repo", "Title", "Body", [])
+
+
+@pytest.mark.anyio
+async def test_gh_create_issue_raises_on_nonzero_exit() -> None:
+    """gh issue create non-zero exit code → RuntimeError with stderr details."""
+    with patch(
+        "asyncio.create_subprocess_exec",
+        return_value=_mock_proc(returncode=1, stderr=b"repository not found"),
+    ):
+        with pytest.raises(RuntimeError, match="gh issue create failed"):
+            await _gh_create_issue("owner/repo", "Title", "Body", [])
+
+
+@pytest.mark.anyio
+async def test_gh_create_issue_raises_on_malformed_url() -> None:
+    """gh issue create returning a non-numeric suffix → RuntimeError."""
+    with patch(
+        "asyncio.create_subprocess_exec",
+        return_value=_mock_proc(stdout=b"https://github.com/owner/repo/issues/abc\n"),
+    ):
+        with pytest.raises(RuntimeError, match="Could not parse issue number"):
+            await _gh_create_issue("owner/repo", "Title", "Body", [])
+
+
+@pytest.mark.anyio
+async def test_gh_create_issue_returns_number_and_url() -> None:
+    """gh issue create returning a valid URL → (number, url) tuple."""
+    with patch(
+        "asyncio.create_subprocess_exec",
+        return_value=_mock_proc(stdout=b"https://github.com/owner/repo/issues/99\n"),
+    ):
+        number, url = await _gh_create_issue("owner/repo", "Title", "Body", ["label-a"])
+
+    assert number == 99
+    assert url == "https://github.com/owner/repo/issues/99"
+
+
+# ---------------------------------------------------------------------------
+# Integration: DB persistence is called after a successful run
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_file_issues_calls_persist_initiative_phases() -> None:
+    """persist_initiative_phases is called once with the correct phase data."""
+    spec = _make_spec(initiative="ac-build")
+    call_count = 0
+
+    def fake_proc(*_args: object, **_kwargs: object) -> MagicMock:
+        nonlocal call_count
+        call_count += 1
+        return _mock_proc(stdout=_issue_url(700 + call_count))
+
+    persist_mock = AsyncMock()
+    with (
+        patch("agentception.readers.issue_creator.ensure_label_exists", new_callable=AsyncMock),
+        patch("asyncio.create_subprocess_exec", side_effect=fake_proc),
+        patch("agentception.readers.issue_creator.persist_initiative_phases", persist_mock),
+        patch(
+            "agentception.readers.issue_creator.persist_issue_depends_on",
+            new_callable=AsyncMock,
+        ),
+    ):
+        await _collect(file_issues(spec))
+
+    persist_mock.assert_awaited_once()
+    call_kwargs = persist_mock.call_args
+    assert call_kwargs is not None
+    # Verify the initiative kwarg and that both phases are present.
+    initiative_arg: str = call_kwargs.kwargs.get("initiative") or call_kwargs.args[0]
+    assert initiative_arg == "ac-build"
+    phases_arg: list[object] = (
+        call_kwargs.kwargs.get("phases") or call_kwargs.args[1]
+    )
+    assert len(phases_arg) == 2
+
+
+@pytest.mark.anyio
+async def test_file_issues_calls_persist_issue_depends_on_for_deps() -> None:
+    """persist_issue_depends_on is called with the correct blocker map when depends_on is set."""
+    spec = _make_spec(with_depends_on=True)
+    create_count = 0
+
+    def fake_proc(*args: str, **_kwargs: object) -> MagicMock:
+        nonlocal create_count
+        cmd = list(args)
+        if "create" in cmd:
+            create_count += 1
+            return _mock_proc(stdout=_issue_url(800 + create_count))
+        return _mock_proc()
+
+    persist_deps_mock = AsyncMock()
+    with (
+        patch("agentception.readers.issue_creator.ensure_label_exists", new_callable=AsyncMock),
+        patch("agentception.readers.issue_creator.add_label_to_issue", new_callable=AsyncMock),
+        patch("asyncio.create_subprocess_exec", side_effect=fake_proc),
+        patch(
+            "agentception.readers.issue_creator.persist_initiative_phases",
+            new_callable=AsyncMock,
+        ),
+        patch("agentception.readers.issue_creator.persist_issue_depends_on", persist_deps_mock),
+    ):
+        await _collect(file_issues(spec))
+
+    persist_deps_mock.assert_awaited_once()
+    # The deps dict must map issue numbers → blocker numbers.
+    call_args = persist_deps_mock.call_args
+    assert call_args is not None
+    deps_arg: dict[int, list[int]] = call_args.args[1]
+    # There must be exactly one blocked issue with one blocker.
+    assert len(deps_arg) == 1
+    blockers = next(iter(deps_arg.values()))
+    assert len(blockers) == 1
+
+
+@pytest.mark.anyio
+async def test_file_issues_body_edit_failure_is_non_fatal() -> None:
+    """When _gh_edit_body fails (non-zero exit) iteration continues and done is still emitted."""
+    spec = _make_spec(with_depends_on=True)
+    create_count = 0
+
+    def fake_proc(*args: str, **_kwargs: object) -> MagicMock:
+        nonlocal create_count
+        cmd = list(args)
+        if "create" in cmd:
+            create_count += 1
+            return _mock_proc(stdout=_issue_url(900 + create_count))
+        if "edit" in cmd:
+            # Simulate body edit failure.
+            return _mock_proc(returncode=1, stderr=b"gh: body edit failed")
+        return _mock_proc()
+
+    with (
+        patch("agentception.readers.issue_creator.ensure_label_exists", new_callable=AsyncMock),
+        patch("agentception.readers.issue_creator.add_label_to_issue", new_callable=AsyncMock),
+        patch("asyncio.create_subprocess_exec", side_effect=fake_proc),
+        patch(
+            "agentception.readers.issue_creator.persist_initiative_phases",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agentception.readers.issue_creator.persist_issue_depends_on",
+            new_callable=AsyncMock,
+        ),
+    ):
+        events = await _collect(file_issues(spec))
+
+    # Body edit failure must not abort the stream — done event must still arrive.
+    done_events = [e for e in events if e["t"] == "done"]
+    assert done_events, "done event must be emitted even when body edit fails"
