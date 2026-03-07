@@ -46,7 +46,6 @@ from agentception.db.queries import (
     get_runs_for_issue_numbers,
     get_workflow_states_by_issue,
 )
-from agentception.readers.pipeline_config import read_pipeline_config
 from ._shared import _TEMPLATES
 
 
@@ -86,19 +85,6 @@ class EnrichedPhaseGroupRow(TypedDict):
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-async def _initiative_patterns() -> list[str]:
-    """Return the active project's initiative label patterns from pipeline-config.json."""
-    try:
-        cfg = await read_pipeline_config()
-        for project in cfg.projects:
-            if project.gh_repo == settings.gh_repo:
-                return project.initiative_labels
-        return []
-    except Exception as exc:
-        logger.warning("⚠️ Could not read initiative patterns from pipeline config: %s", exc)
-        return []
 
 
 # ---------------------------------------------------------------------------
@@ -176,8 +162,7 @@ async def ship_redirect() -> Response:
     """
     gh_repo = settings.gh_repo
     repo_name = gh_repo.split("/")[-1]
-    patterns = await _initiative_patterns()
-    initiatives = await get_initiatives(gh_repo, initiative_patterns=patterns)
+    initiatives = await get_initiatives(gh_repo)
     if initiatives:
         return RedirectResponse(url=f"/ship/{repo_name}/{initiatives[0]}", status_code=302)
     return RedirectResponse(url="/plan", status_code=302)
@@ -196,8 +181,7 @@ async def build_page(
 ) -> Response:
     """Render the Mission Control Ship page scoped to *repo/initiative*."""
     gh_repo = settings.gh_repo
-    patterns = await _initiative_patterns()
-    initiatives = await get_initiatives(gh_repo, initiative_patterns=patterns)
+    initiatives = await get_initiatives(gh_repo)
     enriched_groups, total_issues, open_issues = await _build_enriched_groups(gh_repo, initiative)
     return _TEMPLATES.TemplateResponse(
         request,
