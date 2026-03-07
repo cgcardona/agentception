@@ -24,12 +24,10 @@ from agentception.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Matches any branch created by AgentCeption across all naming conventions:
-#   feat/issue-N, feat/brain-dump-*   — legacy Cursor-session branches
-#   agent/*                           — dispatcher-created top-level worktree branches
-#   ac/*                              — pipeline branches (engineer, coordinator, reviewer)
-_AGENT_BRANCH_RE = re.compile(r"^(feat/(issue-\d+|brain-dump-.+)|agent/.+|ac/.+)$")
-_ISSUE_N_RE = re.compile(r"^feat/issue-(\d+)$")
+# Matches any branch created by AgentCeption:
+#   agent/*  — dispatcher-created top-level worktree branches
+#   ac/*     — pipeline branches (engineer, coordinator, reviewer)
+_AGENT_BRANCH_RE = re.compile(r"^(agent/.+|ac/.+)$")
 
 
 async def _git(args: list[str]) -> str:
@@ -105,9 +103,6 @@ async def list_git_worktrees() -> list[dict[str, object]]:
                 branch = branch[len("refs/heads/"):]
             current["branch"] = branch
             current["is_agent_branch"] = bool(_AGENT_BRANCH_RE.match(branch))
-            m = _ISSUE_N_RE.match(branch)
-            if m:
-                current["issue_number"] = int(m.group(1))
         elif line == "bare":
             current["bare"] = True
         elif line.startswith("locked"):

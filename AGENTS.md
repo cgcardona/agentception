@@ -21,6 +21,20 @@ You do NOT:
 
 ---
 
+## No legacy. No deprecated. No exceptions.
+
+This is the single most repeated rule in this codebase. Every agent must internalize it before writing a single line.
+
+- **Delete on sight.** When you touch a file and find dead code, a deprecated API shape, a backward-compatibility shim, or a legacy fallback — delete it in the same commit. Do not defer it.
+- **No fallback paths for old API shapes.** The current shape is the only shape. If a naming convention, field, or endpoint changed, every trace of the old one is deleted — not aliased, not conditionally supported.
+- **No "legacy" or "deprecated" annotations.** Code marked `# deprecated` or `# legacy — do not use` should be deleted, not annotated. A comment is not a substitute for deletion.
+- **No version shims.** No `if old_format: ... else: new_format`. Enforce the current shape everywhere.
+- **No dead constants, dead regexes, dead fields.** A regex that can never match is deleted. A model field never read is deleted. A route never called is deleted.
+
+When you remove something, remove it completely: the implementation, the tests for the old shape, the docs that describe it, and any config that references it.
+
+---
+
 ## Scope of Authority
 
 ### Decide yourself
@@ -296,6 +310,7 @@ There is no third option. A codebase with known broken tests that everyone steps
 6. [ ] Zero broken tests — fix any you find, not just yours
 7. [ ] Affected docs updated in the same commit
 8. [ ] No secrets, no `print()`, no dead code, no `Any`, no bare collections, no `cast()`, no `# type: ignore`
+8a. [ ] No legacy, no deprecated, no shims — if you touched a file with dead patterns, they are deleted in this PR
 9. [ ] JS/CSS bundles rebuilt if static source changed (`npm run build`)
 10. [ ] If API contract changed → handoff prompt produced
 11. [ ] **Open PR and merge immediately** — do not wait for CI (it does not run on dev PRs)

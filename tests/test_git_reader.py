@@ -15,12 +15,6 @@ from agentception.readers.git import _AGENT_BRANCH_RE
 # ---------------------------------------------------------------------------
 
 _SHOULD_MATCH = [
-    # legacy Cursor-session branches
-    "feat/issue-1",
-    "feat/issue-42",
-    "feat/issue-999",
-    "feat/brain-dump-foo",
-    "feat/brain-dump-very-long-description",
     # dispatcher-created top-level worktree branches
     "agent/cognitive-arch-propagation-e072",
     "agent/some-label-abc123",
@@ -35,11 +29,14 @@ _SHOULD_MATCH = [
 _SHOULD_NOT_MATCH = [
     "dev",
     "main",
-    "feature/something",       # wrong prefix
-    "fix/something",           # Cursor fix branches are NOT agent branches
-    "feat/plain",              # feat/ but not issue-N or brain-dump-*
-    "feat/issue-",             # missing number
-    "feat/issue-abc",          # non-numeric
+    "feature/something",
+    "fix/something",        # Cursor fix branches are NOT agent branches
+    "feat/issue-1",         # removed — legacy naming, no longer used
+    "feat/issue-42",
+    "feat/brain-dump-foo",  # removed — legacy naming, no longer used
+    "feat/plain",
+    "feat/issue-",
+    "feat/issue-abc",
     "",
 ]
 

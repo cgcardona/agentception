@@ -15,12 +15,23 @@ You may: implement features, fix bugs, refactor, extend architecture, add tests,
 You may NOT: introduce new frameworks/dependencies without justification, redesign architecture unless requested, weaken security, skip tests.
 When uncertain: (1) preserve existing patterns, (2) prefer smaller changes over rewrites, (3) choose correct over simple, (4) document assumptions, (5) ask the user.
 
+## No legacy. No deprecated. No exceptions.
+
+This is the single most repeated rule in this codebase. It is not a guideline — it is a hard constraint enforced on every change.
+
+- **Delete on sight.** If you touch a file and find dead code, a deprecated API shape, a backward-compatibility shim, or a legacy fallback — delete it in the same commit. Do not leave it for later.
+- **No fallback paths for old API shapes.** If the new shape is `agent/*` and `ac/*`, the old shape `feat/issue-N` is gone. There is no "also support the old way." Remove every trace.
+- **No "legacy" or "deprecated" comments.** If the code is marked deprecated, it should be deleted, not annotated. A comment that says "legacy — do not use" is not a substitute for deletion.
+- **No version shims.** No `if old_format: ... else: new_format`. Pick the current shape and enforce it everywhere.
+- **No dead constants, dead regexes, dead fields.** A regex that can never match is deleted. A struct field that is never read is deleted. A route that is never called is deleted.
+
+When you remove something, remove it completely: the implementation, the tests that test the old shape, the documentation that describes it, and any config that references it.
+
 ## Architecture (do not weaken)
 
 - **Layers:** Routes (thin) → Services → Models. Never collapse.
 - **Planning pipeline:** Phase 1A (LLM → PlanSpec YAML) → Phase 1B (human review) → Issue creation → Agent dispatch.
 - **Org tree dispatch:** CTO → VP → Engineer. Each tier receives the correct label scope and cognitive-architecture context.
-- **No deprecated APIs:** Remove dead code on sight. No fallbacks for old API shapes.
 
 ## GitHub interactions — MCP first
 
@@ -157,7 +168,7 @@ The browser loads **compiled bundles**, not source files directly:
 
 - **Never work directly on `dev` or `main`.** Every change — one line or a thousand — goes on a feature branch (Cursor sessions) or a worktree (AgentCeption pipeline). No exceptions. See Branch discipline above.
 - **Never run file-modifying commands on `dev` without a clean checkout.** Running `generate.py`, `npm run build`, or any generator on `dev` dirties the branch. Always be on a feature branch first.
-- **No legacy, no deprecated, no backwards compatibility.** Remove dead code, dead fields, dead endpoints on sight. Never add fallback paths for old API shapes.
+- **No legacy. No deprecated. No backwards compatibility.** See the top-level section above — this is a hard constraint, not a guideline.
 - Business logic in route handlers. Global mutable state outside designated stores.
 - Hardcoded model IDs, secrets, or URLs outside config.
 - **`Any`, `object`, bare collections, `cast()`, or `# type: ignore`.** See the Typing section — these are absolute bans, not guidelines.
