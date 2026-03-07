@@ -90,7 +90,7 @@
         @blur="focused = false"
         @input="autoGrow($refs.textarea)"
         @keydown.meta.enter.prevent="submit()"
-        placeholder="e.g.&#10;- Auth is broken on mobile and rate limiting is missing on public endpoints&#10;- Build a billing dashboard: Stripe, invoice emails, subscription management&#10;- The agent dispatch UI needs dark mode and Slack notifications&#10;- Export hangs for datasets over 10k rows&#10;&#10;Or just paste a wall of text — AgentCeption will sort it out."
+        placeholder="e.g.&#10;- Auth is broken on mobile and rate limiting is missing on public endpoints&#10;- Build a billing dashboard: Stripe, invoice emails, subscription management&#10;- User settings page needs dark mode and email notification preferences&#10;- Export hangs for reports over 10k rows&#10;&#10;Or just paste a wall of text — AgentCeption will sort it out."
         :disabled="submitting"
         spellcheck="true"
       ></textarea>
@@ -142,11 +142,13 @@
             class="plan-input"
             type="text"
             x-model="labelPrefix"
+            @input="labelPrefix = labelPrefix.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-')"
             placeholder="e.g. auth-rewrite"
             :disabled="submitting"
             maxlength="40"
           />
         </div>
+        <p class="plan-input-hint" x-show="labelPrefix">kebab-case only — lowercase letters, numbers, hyphens</p>
       </div>
     </div>
 

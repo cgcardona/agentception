@@ -248,6 +248,12 @@
 
 .plan-prefix-row { display: flex; gap: .5rem; align-items: center; }
 
+.plan-input-hint {
+  font-size: .75rem;
+  color: var(--text-muted, #666);
+  margin: .25rem 0 0;
+}
+
 // ── Submit row ────────────────────────────────────────────────────────────
 .plan-submit-row {
   display: flex;
