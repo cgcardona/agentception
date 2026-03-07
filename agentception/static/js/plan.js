@@ -45,6 +45,7 @@ import { yaml } from '@codemirror/lang-yaml';
 import { oneDark } from '@codemirror/theme-one-dark';
 
 const VALIDATE_DEBOUNCE_MS = 600;
+const DRAFT_YAML_KEY = 'ac_plan_draft_yaml';
 
 export function planForm() {
   return {
@@ -122,6 +123,7 @@ export function planForm() {
 
     init() {
       this._rotateMsgs();
+      this._restoreDraft();
     },
 
     _rotateMsgs() {
@@ -136,6 +138,28 @@ export function planForm() {
         i = (i + 1) % msgs.length;
         this.loadingMsg = msgs[i] ?? '';
       }, 4000);
+    },
+
+    // ── Draft persistence (localStorage) ──────────────────────────────────
+
+    _saveDraft() {
+      try { localStorage.setItem(DRAFT_YAML_KEY, this._getEditorValue()); } catch (_) {}
+    },
+
+    _clearDraft() {
+      try { localStorage.removeItem(DRAFT_YAML_KEY); } catch (_) {}
+    },
+
+    // On page load, if an in-progress YAML exists, jump straight to review.
+    _restoreDraft() {
+      let saved;
+      try { saved = localStorage.getItem(DRAFT_YAML_KEY); } catch (_) { return; }
+      if (!saved) return;
+      this.step = 'review';
+      this.$nextTick(() => {
+        this._mountEditor(saved);
+        this.$nextTick(() => this._validateYaml());
+      });
     },
 
     // ── Textarea helpers ───────────────────────────────────────────────────
@@ -244,6 +268,7 @@ export function planForm() {
               this.yamlValidationMsg = '✓ Plan ready — review and edit before launching';
               this.$nextTick(() => {
                 this._mountEditor(yamlText);
+                this._saveDraft();
                 this.$nextTick(() => this._validateYaml());
               });
               return;   // stream finished successfully
@@ -364,6 +389,7 @@ export function planForm() {
                 if (this.batchId)    localStorage.setItem('ac_active_batch',      this.batchId);
                 if (this.initiative) localStorage.setItem('ac_active_initiative', this.initiative);
               } catch (_) {}
+              this._clearDraft();
               this.step = 'done';
               return;
 
@@ -426,6 +452,7 @@ export function planForm() {
       this.result = {};
       this.batchId = '';
       this.batchIdCopied = false;
+      this._clearDraft();
       if (this._editor) this._setEditorValue('');
     },
 
@@ -478,6 +505,7 @@ export function planForm() {
         if (update.docChanged) {
           clearTimeout(self._validateTimer);
           self._validateTimer = setTimeout(() => self._validateYaml(), VALIDATE_DEBOUNCE_MS);
+          self._saveDraft();
         }
       });
 
