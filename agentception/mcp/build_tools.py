@@ -15,7 +15,7 @@ persist layer and return a lightweight ack dict.
 import asyncio
 import logging
 
-from agentception.db.persist import persist_agent_event
+from agentception.db.persist import acknowledge_agent_run, persist_agent_event
 from agentception.db.queries import get_pending_launches
 from agentception.services.spawn_child import ScopeType, SpawnChildError, Tier, spawn_child
 from agentception.services.teardown import teardown_agent_worktree
@@ -56,6 +56,33 @@ async def build_get_pending_launches() -> dict[str, object]:
             launch.get("branch"),
         )
     return {"pending": launches, "count": len(launches)}
+
+
+async def build_acknowledge_run(run_id: str) -> dict[str, object]:
+    """Atomically claim a pending run before spawning its Task agent.
+
+    The Dispatcher calls this immediately before spawning a Task so the run
+    cannot be double-claimed if two Dispatchers run concurrently.  Transitions
+    the run from ``pending_launch`` → ``implementing``.
+
+    Args:
+        run_id: The ``run_id`` returned by ``build_get_pending_launches``
+                (e.g. ``"label-cognitive-arch-propagation-7352b9"``).
+
+    Returns:
+        ``{"ok": True, "run_id": run_id}`` on success, or
+        ``{"ok": False, "reason": "..."}`` when the run is not found or was
+        already claimed by another Dispatcher.
+    """
+    ok = await acknowledge_agent_run(run_id)
+    if not ok:
+        logger.warning(
+            "⚠️ build_acknowledge_run: %r not found or already claimed — skipping",
+            run_id,
+        )
+        return {"ok": False, "reason": f"Run {run_id!r} not found or not in pending_launch state"}
+    logger.info("✅ build_acknowledge_run: %r claimed", run_id)
+    return {"ok": True, "run_id": run_id}
 
 
 async def build_report_step(
