@@ -465,7 +465,7 @@ class PlanValidateResponse(BaseModel):
 async def plan_validate(body: PlanValidateRequest) -> PlanValidateResponse:
     """Validate a (possibly edited) PlanSpec YAML against the schema.
 
-    Called by the Monaco editor's ``onDidChangeModelContent`` handler
+    Called by the CodeMirror 6 editor's ``EditorView.updateListener``
     (debounced at 600 ms) so the user sees immediate feedback while editing.
 
     Returns HTTP 200 with ``valid: false`` and a ``detail`` message on schema
