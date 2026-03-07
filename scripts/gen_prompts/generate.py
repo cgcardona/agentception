@@ -139,7 +139,10 @@ def _render(config: dict) -> dict[Path, str]:  # type: ignore[type-arg]
             continue
         rel = str(template_path.relative_to(TEMPLATES_DIR))
         template = env.get_template(rel)
-        rendered = GENERATED_HEADER + template.render(**context)
+        # dispatcher.md is used verbatim as a chat prompt — omit the header
+        # so it doesn't appear when the file is copied into a conversation.
+        header = "" if template_path.name == "dispatcher.md.j2" else GENERATED_HEADER
+        rendered = header + template.render(**context)
         rendered = rendered.rstrip("\n") + "\n"
         out = _output_path(template_path)
         results[out] = rendered
