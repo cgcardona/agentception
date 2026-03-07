@@ -27,9 +27,13 @@ import logging
 from typing import cast
 
 from agentception.mcp.build_commands import (
+    build_block_run,
+    build_cancel_run,
     build_claim_run,
     build_complete_run,
+    build_resume_run,
     build_spawn_child_run,
+    build_stop_run,
     build_teardown_worktree,
 )
 from agentception.mcp.log_tools import (
@@ -519,6 +523,76 @@ TOOLS: list[ACToolDef] = [
             "additionalProperties": False,
         },
     ),
+    ACToolDef(
+        name="build_block_run",
+        description=(
+            "Transition an implementing run to blocked. "
+            "Call when the agent cannot proceed without external input. "
+            "The run stays blocked until build_resume_run is called. "
+            "Only valid from implementing state."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "string", "description": "The run ID to block."},
+            },
+            "required": ["run_id"],
+            "additionalProperties": False,
+        },
+    ),
+    ACToolDef(
+        name="build_resume_run",
+        description=(
+            "Transition a blocked or stopped run back to implementing. "
+            "Idempotent: if the run is already implementing and agent_run_id matches, "
+            "returns ok=true without state change (restart-safe). "
+            "Valid from blocked or stopped states only."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "string", "description": "The run ID to resume."},
+                "agent_run_id": {
+                    "type": "string",
+                    "description": "The caller's own run ID (used for idempotency check).",
+                },
+            },
+            "required": ["run_id", "agent_run_id"],
+            "additionalProperties": False,
+        },
+    ),
+    ACToolDef(
+        name="build_cancel_run",
+        description=(
+            "Transition any active run to cancelled (terminal — cannot resume). "
+            "Use build_stop_run if you want to pause and later resume. "
+            "Valid from any non-terminal state."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "string", "description": "The run ID to cancel."},
+            },
+            "required": ["run_id"],
+            "additionalProperties": False,
+        },
+    ),
+    ACToolDef(
+        name="build_stop_run",
+        description=(
+            "Transition any active run to stopped (resumable via build_resume_run). "
+            "Use this to pause a run for inspection without permanently closing it. "
+            "Valid from any non-terminal state."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "string", "description": "The run ID to stop."},
+            },
+            "required": ["run_id"],
+            "additionalProperties": False,
+        },
+    ),
     # ── Log tools — append-only telemetry, no state change ───────────────────
     ACToolDef(
         name="log_run_step",
@@ -732,6 +806,10 @@ def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
         "build_spawn_child_run",
         "build_complete_run",
         "build_teardown_worktree",
+        "build_block_run",
+        "build_resume_run",
+        "build_cancel_run",
+        "build_stop_run",
         # Log tools
         "log_run_step",
         "log_run_blocker",
@@ -914,6 +992,64 @@ async def call_tool_async(
                 isError=True,
             )
         result = await build_teardown_worktree(run_id_arg2)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=not bool(result.get("ok", False)),
+        )
+
+    if name == "build_block_run":
+        run_id_arg3 = arguments.get("run_id")
+        if not isinstance(run_id_arg3, str) or not run_id_arg3:
+            return ACToolResult(
+                content=[ACToolContent(type="text", text='{"error":"build_block_run requires a non-empty run_id"}')],
+                isError=True,
+            )
+        result = await build_block_run(run_id_arg3)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=not bool(result.get("ok", False)),
+        )
+
+    if name == "build_resume_run":
+        run_id_arg4 = arguments.get("run_id")
+        agent_run_id_arg = arguments.get("agent_run_id")
+        if (
+            not isinstance(run_id_arg4, str)
+            or not run_id_arg4
+            or not isinstance(agent_run_id_arg, str)
+            or not agent_run_id_arg
+        ):
+            return ACToolResult(
+                content=[ACToolContent(type="text", text='{"error":"build_resume_run requires run_id and agent_run_id (non-empty strings)"}')],
+                isError=True,
+            )
+        result = await build_resume_run(run_id_arg4, agent_run_id_arg)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=not bool(result.get("ok", False)),
+        )
+
+    if name == "build_cancel_run":
+        run_id_arg5 = arguments.get("run_id")
+        if not isinstance(run_id_arg5, str) or not run_id_arg5:
+            return ACToolResult(
+                content=[ACToolContent(type="text", text='{"error":"build_cancel_run requires a non-empty run_id"}')],
+                isError=True,
+            )
+        result = await build_cancel_run(run_id_arg5)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=not bool(result.get("ok", False)),
+        )
+
+    if name == "build_stop_run":
+        run_id_arg6 = arguments.get("run_id")
+        if not isinstance(run_id_arg6, str) or not run_id_arg6:
+            return ACToolResult(
+                content=[ACToolContent(type="text", text='{"error":"build_stop_run requires a non-empty run_id"}')],
+                isError=True,
+            )
+        result = await build_stop_run(run_id_arg6)
         return ACToolResult(
             content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
             isError=not bool(result.get("ok", False)),
