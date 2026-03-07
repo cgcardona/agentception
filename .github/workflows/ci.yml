@@ -1,13 +1,13 @@
 # CI workflow for cgcardona/agentception
-# Runs on every PR targeting main and on pushes to main.
-# Jobs run in dependency order: typecheck → (typing-ceiling + test) → smoke
+# Runs on every PR targeting dev or main, and on pushes to main.
+# Jobs run in dependency order: generated-files → typecheck → (typing-ceiling + test) → smoke
 name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [dev, main]
 
 env:
   # Docker Compose reads DB_PASSWORD from the environment.
@@ -15,10 +15,31 @@ env:
   DB_PASSWORD: ci_test_password_ephemeral
 
 jobs:
+  # ── 0. Generated-file drift check ────────────────────────────────────────
+  generated-files:
+    name: Generated files up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Jinja2
+        run: pip install jinja2
+
+      - name: Check .agentception/ outputs match .j2 templates
+        # generate.py --check exits 1 if any output would change.
+        # A failure here means someone edited .agentception/*.md directly
+        # instead of editing the .j2 template source and re-running generate.py.
+        run: python scripts/gen_prompts/generate.py --check
+
   # ── 1. Type-checking ─────────────────────────────────────────────────────
   typecheck:
     name: mypy (strict)
     runs-on: ubuntu-latest
+    needs: generated-files
     steps:
       - uses: actions/checkout@v4
 

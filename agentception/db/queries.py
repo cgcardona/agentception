@@ -2257,3 +2257,51 @@ async def get_agent_run_teardown(run_id: str) -> AgentRunTeardownRow | None:
     except Exception as exc:
         logger.warning("⚠️  get_agent_run_teardown DB query failed (non-fatal): %s", exc)
         return None
+
+
+class TerminalRunRow(TypedDict):
+    """Minimal run fields needed by the worktree reaper."""
+
+    id: str
+    worktree_path: str
+    branch: str | None
+
+
+async def get_terminal_runs_with_worktrees() -> list[TerminalRunRow]:
+    """Return terminal runs whose worktree directory still exists on disk.
+
+    Terminal statuses are ``done`` and ``stale`` — both mean the agent has
+    finished and the worktree should have been cleaned up.  This query powers
+    the worktree reaper that runs on startup and periodically so that orphaned
+    worktrees from crashed agents are eventually removed without any agent
+    cooperation.
+
+    Only rows with a non-null ``worktree_path`` are returned; the reaper
+    filters further to paths that actually exist on disk before calling
+    ``teardown_agent_worktree``.
+
+    Returns an empty list on any DB error so the reaper degrades gracefully.
+    """
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun.id, ACAgentRun.worktree_path, ACAgentRun.branch).where(
+                    ACAgentRun.status.in_(["done", "stale"]),
+                    ACAgentRun.worktree_path.isnot(None),
+                )
+            )
+            rows = result.all()
+        return [
+            TerminalRunRow(
+                id=row.id,
+                worktree_path=row.worktree_path,
+                branch=row.branch,
+            )
+            for row in rows
+            if row.worktree_path is not None
+        ]
+    except Exception as exc:
+        logger.warning(
+            "⚠️  get_terminal_runs_with_worktrees DB query failed (non-fatal): %s", exc
+        )
+        return []
