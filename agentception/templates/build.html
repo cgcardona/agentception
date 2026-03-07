@@ -437,6 +437,12 @@
       </span>
     </template>
 
+    <button class="od-header__btn od-header__btn--reset"
+            @click="clearDesign()"
+            title="Clear design and start over">
+      ↺ Reset
+    </button>
+
     <button class="od-header__btn od-header__btn--launch"
             :disabled="!launchReady"
             @click="launch()"
