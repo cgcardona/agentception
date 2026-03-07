@@ -534,60 +534,58 @@ async def test_persist_agent_event_non_done_does_not_call_recompute() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Regression: build_report_done triggers worktree teardown automatically
+# Regression: build_teardown_worktree queues teardown independently
 #
-# Before this fix, agents that called the MCP build_report_done tool had their
-# worktrees and branches left behind permanently — cleanup only happened if the
-# orphan sweep caught them or an operator clicked "Kill". After the fix,
-# build_report_done fires teardown_agent_worktree as a background task when
-# agent_run_id is provided.
+# build_report_done was split into build_complete_run (state transition) and
+# build_teardown_worktree (explicit cleanup).  Teardown is now a separate MCP
+# command so the orchestration layer controls when cleanup happens.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.anyio
-async def test_build_report_done_triggers_teardown_when_run_id_given() -> None:
-    """build_report_done queues teardown_agent_worktree when agent_run_id is set."""
+async def test_build_teardown_worktree_queues_teardown_when_run_id_given() -> None:
+    """build_teardown_worktree queues teardown_agent_worktree as a background task."""
     from unittest.mock import AsyncMock, MagicMock, patch
 
-    from agentception.mcp.build_tools import build_report_done
+    from agentception.mcp.build_commands import build_teardown_worktree
 
     mock_task = MagicMock()
     with (
-        patch("agentception.mcp.build_tools.persist_agent_event", new_callable=AsyncMock),
-        patch("agentception.mcp.build_tools.teardown_agent_worktree", new_callable=AsyncMock) as mock_teardown,
-        patch("agentception.mcp.build_tools.asyncio.create_task", return_value=mock_task) as mock_create_task,
+        patch("agentception.mcp.build_commands.teardown_agent_worktree", new_callable=AsyncMock),
+        patch("agentception.mcp.build_commands.asyncio.create_task", return_value=mock_task) as mock_create_task,
     ):
-        result = await build_report_done(
+        result = await build_teardown_worktree(agent_run_id="issue-42-abc123")
+
+    assert result == {"ok": True, "run_id": "issue-42-abc123", "teardown": "queued"}
+    mock_create_task.assert_called_once()
+    assert mock_create_task.call_args.kwargs.get("name") == "teardown-issue-42-abc123"
+
+
+@pytest.mark.anyio
+async def test_build_complete_run_does_not_teardown_worktree() -> None:
+    """Regression: build_complete_run must NOT tear down worktrees (build_teardown_worktree does).
+
+    Before the build_report_done split, teardown was hidden inside the done handler.
+    build_complete_run must only persist the event + transition state — never create tasks.
+    """
+    from unittest.mock import AsyncMock, patch
+
+    from agentception.mcp.build_commands import build_complete_run
+
+    with (
+        patch("agentception.mcp.build_commands.persist_agent_event", new_callable=AsyncMock),
+        patch("agentception.mcp.build_commands.complete_agent_run", new_callable=AsyncMock, return_value=True),
+        patch("agentception.mcp.build_commands.asyncio") as mock_asyncio,
+    ):
+        result = await build_complete_run(
             issue_number=42,
             pr_url="https://github.com/cgcardona/agentception/pull/99",
             agent_run_id="issue-42-abc123",
         )
 
-    assert result == {"ok": True, "event": "done"}
-    mock_create_task.assert_called_once()
-    task_coro = mock_create_task.call_args.args[0]
-    assert mock_create_task.call_args.kwargs.get("name") == "teardown-issue-42-abc123"
-    task_coro.close()  # avoid ResourceWarning for unawaited coroutine
-
-
-@pytest.mark.anyio
-async def test_build_report_done_skips_teardown_without_run_id() -> None:
-    """build_report_done does not crash and skips teardown when agent_run_id is absent."""
-    from unittest.mock import AsyncMock, patch
-
-    from agentception.mcp.build_tools import build_report_done
-
-    with (
-        patch("agentception.mcp.build_tools.persist_agent_event", new_callable=AsyncMock),
-        patch("agentception.mcp.build_tools.asyncio.create_task") as mock_create_task,
-    ):
-        result = await build_report_done(
-            issue_number=42,
-            pr_url="https://github.com/cgcardona/agentception/pull/99",
-        )
-
-    assert result == {"ok": True, "event": "done"}
-    mock_create_task.assert_not_called()
+    assert result["ok"] is True
+    assert result["status"] == "completed"
+    mock_asyncio.create_task.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

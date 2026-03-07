@@ -19,7 +19,7 @@ When using `CallMcpTool`, always pass `server="agentception"`.
 
 ## Step 1 — Read the queue
 
-Call the `build_get_pending_launches` MCP tool (server: `agentception`).
+Call the `query_pending_runs` MCP tool (server: `agentception`).
 
 It returns a list of pending launches shaped like:
 
@@ -76,7 +76,7 @@ For each pending launch (spawn all simultaneously using parallel Task calls):
 Call the MCP tool (server: `agentception`):
 
 ```
-build_acknowledge_run(run_id="{run_id}")
+build_claim_run(run_id="{run_id}")
 ```
 
 This atomically marks the run as `implementing` so no other Dispatcher can
@@ -146,8 +146,8 @@ Step 5: Wait for all children to complete, then check GitHub again.
   Loop until both queues (issues + PRs) are empty for your scope.
 
 Step 6: Report each major step via MCP:
-  build_report_step     — when starting a query or spawn wave
-  build_report_decision — when deciding what to spawn
+  log_run_step     — when starting a query or spawn wave
+  log_run_decision — when deciding what to spawn
 Always pass agent_run_id="{run_id}".
 ```
 
@@ -180,10 +180,10 @@ Step 4: Follow your role instructions exactly.
   reviewer  → review the PR thoroughly, approve+merge or request changes.
 
 Step 5: Report progress via MCP tools at every significant step:
-  build_report_step     — when starting a step
-  build_report_blocker  — when blocked
-  build_report_decision — when making a design decision
-  build_report_done     — when finished (include pr_url for engineers)
+  log_run_step     — when starting a step
+  log_run_blocker  — when blocked
+  log_run_decision — when making a design decision
+  build_complete_run     — when finished (include pr_url for engineers)
 
 Always pass agent_run_id="{run_id}" to every MCP report call.
 ```
@@ -198,7 +198,7 @@ After spawning all Tasks simultaneously, wait for all of them to return before p
 
 ## Step 5 — Check for more
 
-After each batch completes, call `build_get_pending_launches` again.
+After each batch completes, call `query_pending_runs` again.
 If more items were queued while you were working (user dispatched more from
 the UI), spawn them too.
 

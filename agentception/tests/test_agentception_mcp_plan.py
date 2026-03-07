@@ -846,17 +846,18 @@ async def test_plan_spawn_coordinator_agent_task_write_failure_removes_worktree(
 
 
 @pytest.mark.anyio
-async def test_build_acknowledge_run_success_via_call_tool() -> None:
-    """build_acknowledge_run MCP tool returns ok=true on successful claim.
+async def test_build_claim_run_success_via_call_tool() -> None:
+    """build_claim_run MCP tool returns ok=true on successful claim.
 
-    Regression: before this tool existed the Dispatcher fell back to curl.
+    Regression: before this tool existed the Dispatcher fell back to curl;
+    then build_acknowledge_run was introduced; now renamed to build_claim_run.
     """
     with patch(
-        "agentception.mcp.build_tools.acknowledge_agent_run",
+        "agentception.mcp.build_commands.acknowledge_agent_run",
         new_callable=AsyncMock,
         return_value=True,
     ):
-        result = await call_tool_async("build_acknowledge_run", {"run_id": "test-run-abc123"})
+        result = await call_tool_async("build_claim_run", {"run_id": "test-run-abc123"})
 
     assert result["isError"] is False
     payload = json.loads(result["content"][0]["text"])
@@ -865,14 +866,14 @@ async def test_build_acknowledge_run_success_via_call_tool() -> None:
 
 
 @pytest.mark.anyio
-async def test_build_acknowledge_run_already_claimed_via_call_tool() -> None:
-    """build_acknowledge_run returns isError=True when run was already claimed."""
+async def test_build_claim_run_already_claimed_via_call_tool() -> None:
+    """build_claim_run returns isError=True when run was already claimed."""
     with patch(
-        "agentception.mcp.build_tools.acknowledge_agent_run",
+        "agentception.mcp.build_commands.acknowledge_agent_run",
         new_callable=AsyncMock,
         return_value=False,
     ):
-        result = await call_tool_async("build_acknowledge_run", {"run_id": "test-run-already"})
+        result = await call_tool_async("build_claim_run", {"run_id": "test-run-already"})
 
     assert result["isError"] is True
     payload = json.loads(result["content"][0]["text"])
@@ -881,14 +882,14 @@ async def test_build_acknowledge_run_already_claimed_via_call_tool() -> None:
 
 
 @pytest.mark.anyio
-async def test_build_acknowledge_run_missing_run_id_returns_error() -> None:
-    """build_acknowledge_run MCP tool returns isError=True when run_id is absent."""
-    result = await call_tool_async("build_acknowledge_run", {})
+async def test_build_claim_run_missing_run_id_returns_error() -> None:
+    """build_claim_run MCP tool returns isError=True when run_id is absent."""
+    result = await call_tool_async("build_claim_run", {})
 
     assert result["isError"] is True
 
 
-def test_build_acknowledge_run_in_tools_list() -> None:
-    """build_acknowledge_run is present in the TOOLS registry."""
+def test_build_claim_run_in_tools_list() -> None:
+    """build_claim_run is present in the TOOLS registry."""
     names = [t["name"] for t in TOOLS]
-    assert "build_acknowledge_run" in names
+    assert "build_claim_run" in names
