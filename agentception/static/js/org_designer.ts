@@ -801,9 +801,10 @@ export function orgDesigner(): OrgDesignerComponent {
       parent.children.push(child);
       this._render();
       this._saveToStorage();
-      // Default child to first available type for this parent.
+      // Prefer coordinator children for coordinator parents, worker otherwise.
       const types = availableChildTypes(parent.role);
-      const defaultType: 'coordinator' | 'worker' = types.includes('worker') ? 'worker' : (types[0] ?? 'worker');
+      const defaultType: 'coordinator' | 'worker' =
+        isCoordinator(parent.role) && types.includes('coordinator') ? 'coordinator' : 'worker';
       this._openEditor(child.id, parent.role, defaultType);
     },
 
