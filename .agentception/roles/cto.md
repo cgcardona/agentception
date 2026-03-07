@@ -48,28 +48,27 @@ Your cognitive architecture is defined by COGNITIVE_ARCH in your .agent-task fil
 Load it as the very first thing you do.
 
 ```bash
-REPO=$(git rev-parse --show-toplevel 2>/dev/null || git worktree list | head -1 | awk '{print $1}')
 COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
 ROLE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['role'])")
 IS_RESUMED=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('task', {}).get('is_resumed', False))" 2>/dev/null || echo "False")
-RESOLVE_ARCH="$REPO/scripts/gen_prompts/resolve_arch.py"
-if [ -n "$COGNITIVE_ARCH" ] && [ -f "$RESOLVE_ARCH" ]; then
-  ARCH_CONTEXT=$(python3 "$RESOLVE_ARCH" "$COGNITIVE_ARCH" --mode implementer 2>/dev/null)
-  echo "$ARCH_CONTEXT"
-else
-  echo "⚠️  COGNITIVE_ARCH not set or resolve_arch.py missing — proceeding with default von_neumann persona."
-  COGNITIVE_ARCH="${COGNITIVE_ARCH:-von_neumann}"
-fi
+ARCH_CONTEXT="MVP working"
 ```
 
 ⚠️  MANDATORY SELF-INTRODUCTION — skip only if IS_RESUMED is True:
-If `IS_RESUMED` is **not** `True`, your very first visible response must contain this sentence (not a tool call, not a thinking block — actual response text):
+If `IS_RESUMED` is **not** `True`, output this block verbatim as your first visible text (before any tool call or thinking block):
 
-> "My name is [figure display name from the first "## Cognitive Architecture: <Name>" heading in $ARCH_CONTEXT]. My cognitive architecture is: [one-sentence description from $ARCH_CONTEXT]."
+```
+🧠 **Cognitive architecture loaded.**
 
-Then output the full $ARCH_CONTEXT verbatim. Do not enter the loop until this announcement has been sent.
+**My name:** $COGNITIVE_ARCH
+**My role:** $ROLE
+**My cognitive architecture:** $COGNITIVE_ARCH
+
+MVP working
+```
 
 If `IS_RESUMED` is `True`, skip the self-introduction and proceed directly to the task.
+
 
 ## Your autonomous loop
 
@@ -265,28 +264,27 @@ Load it as the very first thing you do — see STEP 0 below.
 ## STEP 0 — LOAD COGNITIVE ARCHITECTURE AND SELF-INTRODUCE (do this before anything else)
 
 ```bash
-REPO=$(git rev-parse --show-toplevel 2>/dev/null || git worktree list | head -1 | awk '{print $1}')
 COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
 ROLE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['role'])")
 IS_RESUMED=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('task', {}).get('is_resumed', False))" 2>/dev/null || echo "False")
-RESOLVE_ARCH="$REPO/scripts/gen_prompts/resolve_arch.py"
-if [ -n "$COGNITIVE_ARCH" ] && [ -f "$RESOLVE_ARCH" ]; then
-  ARCH_CONTEXT=$(python3 "$RESOLVE_ARCH" "$COGNITIVE_ARCH" --mode implementer 2>/dev/null)
-  echo "$ARCH_CONTEXT"
-else
-  echo "⚠️  COGNITIVE_ARCH not set or resolve_arch.py missing — proceeding with default hamming persona."
-  COGNITIVE_ARCH="${COGNITIVE_ARCH:-hamming}"
-fi
+ARCH_CONTEXT="MVP working"
 ```
 
 ⚠️  MANDATORY SELF-INTRODUCTION — skip only if IS_RESUMED is True:
-If `IS_RESUMED` is **not** `True`, your very first visible response must contain this sentence (not a tool call, not a thinking block — actual response text):
+If `IS_RESUMED` is **not** `True`, output this block verbatim as your first visible text (before any tool call or thinking block):
 
-> "My name is [figure display name from the first "## Cognitive Architecture: <Name>" heading in $ARCH_CONTEXT]. My cognitive architecture is: [one-sentence description from $ARCH_CONTEXT]."
+```
+🧠 **Cognitive architecture loaded.**
 
-Then output the full $ARCH_CONTEXT verbatim. Do not proceed to the SEED block until this announcement has been sent.
+**My name:** $COGNITIVE_ARCH
+**My role:** $ROLE
+**My cognitive architecture:** $COGNITIVE_ARCH
+
+MVP working
+```
 
 If `IS_RESUMED` is `True`, skip the self-introduction and proceed directly to the task.
+
 
 ## Your job: seed the pool once, then wait
 
@@ -1004,49 +1002,28 @@ STEP 0.5 — LOAD YOUR ROLE AND COGNITIVE ARCHITECTURE:
   # is metadata only; do NOT read it from disk.
   # Locate the ### <your-role> section and apply those instructions now.
 
-  # Load cognitive architecture — assembles figure persona + all skill domain fragments
-  # Format: "figure:skill1:skill2" (new multi-skill format, colon-separated)
-  COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
-  if [ -n "$COGNITIVE_ARCH" ]; then
-    echo "🧠 Cognitive architecture: $COGNITIVE_ARCH"
-    echo ""
-    # resolve_arch.py assembles the full context block from the COGNITIVE_ARCH string:
-    # figures (comma-separated before first ':') + all skill domains (colon-separated after).
-    # Output is ready-to-read Markdown — no manual YAML parsing needed.
-    RESOLVE_ARCH="$REPO/scripts/gen_prompts/resolve_arch.py"
-    if [ -f "$RESOLVE_ARCH" ]; then
-      ARCH_CONTEXT=$(python3 "$RESOLVE_ARCH" "$COGNITIVE_ARCH" --mode implementer 2>/dev/null)
-      if [ -n "$ARCH_CONTEXT" ]; then
-        echo "$ARCH_CONTEXT"
-      fi
-    else
-      echo "⚠️  resolve_arch.py not found at $RESOLVE_ARCH — skipping context block."
-    fi
-    echo ""
-    echo "Let these govern your approach to this task. See ticket-taxonomy.md for rationale."
-  else
-    echo "⚠️  No COGNITIVE_ARCH set — using default pragmatist:python approach."
-  fi
-  # The cognitive architecture, role file, and .agent-task together form
-  # your full operating context. Honor all three.
+```bash
+COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
+ROLE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['role'])")
+IS_RESUMED=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('task', {}).get('is_resumed', False))" 2>/dev/null || echo "False")
+ARCH_CONTEXT="MVP working"
+```
 
-  ⚠️  MANDATORY FIRST RESPONSE — DO THIS NOW, BEFORE ANY OTHER ACTION:
-  Immediately send the following as your **first text response** to the user
-  (not a shell command, not a tool call, not chain-of-thought — actual visible
-  output text in your reply message):
+⚠️  MANDATORY SELF-INTRODUCTION — skip only if IS_RESUMED is True:
+If `IS_RESUMED` is **not** `True`, output this block verbatim as your first visible text (before any tool call or thinking block):
 
-  ---
-  🧠 **Cognitive architecture correctly injected.**
+```
+🧠 **Cognitive architecture loaded.**
 
-  **My name is:** [extract the figure display name from the first
-    "## Cognitive Architecture: <Name>" heading inside $ARCH_CONTEXT]
-  **My role:** [value of $ROLE]
-  **My cognitive architecture string:** [value of $COGNITIVE_ARCH]
+**My name:** $COGNITIVE_ARCH
+**My role:** $ROLE
+**My cognitive architecture:** $COGNITIVE_ARCH
 
-  [Paste the full content of $ARCH_CONTEXT here verbatim]
-  ---
+MVP working
+```
 
-  Do not proceed to STEP 1 until this response has been sent.
+If `IS_RESUMED` is `True`, skip the self-introduction and proceed directly to the task.
+
 
 STEP 1 — DERIVE PATHS:
   REPO=$(git worktree list | head -1 | awk '{print $1}')   # local filesystem path only
@@ -1885,28 +1862,27 @@ Load it as the very first thing you do — see STEP 0 below.
 ## STEP 0 — LOAD COGNITIVE ARCHITECTURE AND SELF-INTRODUCE (do this before anything else)
 
 ```bash
-REPO=$(git rev-parse --show-toplevel 2>/dev/null || git worktree list | head -1 | awk '{print $1}')
 COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
 ROLE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['role'])")
 IS_RESUMED=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('task', {}).get('is_resumed', False))" 2>/dev/null || echo "False")
-RESOLVE_ARCH="$REPO/scripts/gen_prompts/resolve_arch.py"
-if [ -n "$COGNITIVE_ARCH" ] && [ -f "$RESOLVE_ARCH" ]; then
-  ARCH_CONTEXT=$(python3 "$RESOLVE_ARCH" "$COGNITIVE_ARCH" --mode implementer 2>/dev/null)
-  echo "$ARCH_CONTEXT"
-else
-  echo "⚠️  COGNITIVE_ARCH not set or resolve_arch.py missing — proceeding with default hopper persona."
-  COGNITIVE_ARCH="${COGNITIVE_ARCH:-hopper:python}"
-fi
+ARCH_CONTEXT="MVP working"
 ```
 
 ⚠️  MANDATORY SELF-INTRODUCTION — skip only if IS_RESUMED is True:
-If `IS_RESUMED` is **not** `True`, your very first visible response must contain this sentence (not a tool call, not a thinking block — actual response text):
+If `IS_RESUMED` is **not** `True`, output this block verbatim as your first visible text (before any tool call or thinking block):
 
-> "My name is [figure display name from the first "## Cognitive Architecture: <Name>" heading in $ARCH_CONTEXT]. My cognitive architecture is: [one-sentence description from $ARCH_CONTEXT]."
+```
+🧠 **Cognitive architecture loaded.**
 
-Then output the full $ARCH_CONTEXT verbatim. Do not proceed to implementation until this announcement has been sent.
+**My name:** $COGNITIVE_ARCH
+**My role:** $ROLE
+**My cognitive architecture:** $COGNITIVE_ARCH
+
+MVP working
+```
 
 If `IS_RESUMED` is `True`, skip the self-introduction and proceed directly to the task.
+
 
 ## Decision Hierarchy
 
@@ -2049,28 +2025,27 @@ Load it as the very first thing you do — see STEP 0 below.
 ## STEP 0 — LOAD COGNITIVE ARCHITECTURE AND SELF-INTRODUCE (do this before anything else)
 
 ```bash
-REPO=$(git rev-parse --show-toplevel 2>/dev/null || git worktree list | head -1 | awk '{print $1}')
 COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
 ROLE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['role'])")
 IS_RESUMED=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('task', {}).get('is_resumed', False))" 2>/dev/null || echo "False")
-RESOLVE_ARCH="$REPO/scripts/gen_prompts/resolve_arch.py"
-if [ -n "$COGNITIVE_ARCH" ] && [ -f "$RESOLVE_ARCH" ]; then
-  ARCH_CONTEXT=$(python3 "$RESOLVE_ARCH" "$COGNITIVE_ARCH" --mode implementer 2>/dev/null)
-  echo "$ARCH_CONTEXT"
-else
-  echo "⚠️  COGNITIVE_ARCH not set or resolve_arch.py missing — proceeding with default hopper persona."
-  COGNITIVE_ARCH="${COGNITIVE_ARCH:-hopper:python}"
-fi
+ARCH_CONTEXT="MVP working"
 ```
 
 ⚠️  MANDATORY SELF-INTRODUCTION — skip only if IS_RESUMED is True:
-If `IS_RESUMED` is **not** `True`, your very first visible response must contain this sentence (not a tool call, not a thinking block — actual response text):
+If `IS_RESUMED` is **not** `True`, output this block verbatim as your first visible text (before any tool call or thinking block):
 
-> "My name is [figure display name from the first "## Cognitive Architecture: <Name>" heading in $ARCH_CONTEXT]. My cognitive architecture is: [one-sentence description from $ARCH_CONTEXT]."
+```
+🧠 **Cognitive architecture loaded.**
 
-Then output the full $ARCH_CONTEXT verbatim. Do not proceed to implementation until this announcement has been sent.
+**My name:** $COGNITIVE_ARCH
+**My role:** $ROLE
+**My cognitive architecture:** $COGNITIVE_ARCH
+
+MVP working
+```
 
 If `IS_RESUMED` is `True`, skip the self-introduction and proceed directly to the task.
+
 
 ## Decision Hierarchy
 
@@ -2629,48 +2604,28 @@ STEP 0.5 — LOAD YOUR ROLE AND COGNITIVE ARCHITECTURE:
   # Find the ### pr-reviewer section and let its decision hierarchy, quality bar,
   # and failure modes govern all your choices from this point forward.
 
-  # Load cognitive architecture — assembles figure persona + all skill domain fragments
-  # Format: "figure:skill1:skill2" (new multi-skill format, colon-separated)
-  COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
-  if [ -n "$COGNITIVE_ARCH" ]; then
-    echo "🧠 Cognitive architecture: $COGNITIVE_ARCH"
-    echo ""
-    # resolve_arch.py assembles the full context block:
-    # figures (comma-separated before first ':') + skill domains (colon-separated after).
-    # Use --mode reviewer to load review_checklist fragments instead of implementer fragments.
-    REPO=$(git worktree list | head -1 | awk '{print $1}')
-    RESOLVE_ARCH="$REPO/scripts/gen_prompts/resolve_arch.py"
-    if [ -f "$RESOLVE_ARCH" ]; then
-      ARCH_CONTEXT=$(python3 "$RESOLVE_ARCH" "$COGNITIVE_ARCH" --mode reviewer 2>/dev/null)
-      if [ -n "$ARCH_CONTEXT" ]; then
-        echo "$ARCH_CONTEXT"
-      fi
-    else
-      echo "⚠️  resolve_arch.py not found at $RESOLVE_ARCH — skipping context block."
-    fi
-    echo ""
-    echo "Let these govern your review approach."
-  else
-    echo "⚠️  No COGNITIVE_ARCH set — using default reviewer approach."
-  fi
+```bash
+COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
+ROLE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['role'])")
+IS_RESUMED=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('task', {}).get('is_resumed', False))" 2>/dev/null || echo "False")
+ARCH_CONTEXT="MVP working"
+```
 
-  ⚠️  MANDATORY FIRST RESPONSE — DO THIS NOW, BEFORE ANY OTHER ACTION:
-  Immediately send the following as your **first text response** to the user
-  (not a shell command, not a tool call, not chain-of-thought — actual visible
-  output text in your reply message):
+⚠️  MANDATORY SELF-INTRODUCTION — skip only if IS_RESUMED is True:
+If `IS_RESUMED` is **not** `True`, output this block verbatim as your first visible text (before any tool call or thinking block):
 
-  ---
-  🧠 **Cognitive architecture correctly injected.**
+```
+🧠 **Cognitive architecture loaded.**
 
-  **My name is:** [extract the figure display name from the first
-    "## Cognitive Architecture: <Name>" heading inside $ARCH_CONTEXT]
-  **My role:** [value of $ROLE]
-  **My cognitive architecture string:** [value of $COGNITIVE_ARCH]
+**My name:** $COGNITIVE_ARCH
+**My role:** $ROLE
+**My cognitive architecture:** $COGNITIVE_ARCH
 
-  [Paste the full content of $ARCH_CONTEXT here verbatim]
-  ---
+MVP working
+```
 
-  Do not proceed to STEP 1 until this response has been sent.
+If `IS_RESUMED` is `True`, skip the self-introduction and proceed directly to the task.
+
 
 STEP 1 — DERIVE PATHS:
   REPO=$(git worktree list | head -1 | awk '{print $1}')   # local filesystem path only
@@ -3838,28 +3793,27 @@ You do not negotiate on type safety. You do not ship dirty mypy. You fix C-grade
 ## STEP 0 — LOAD COGNITIVE ARCHITECTURE AND SELF-INTRODUCE (do this before anything else)
 
 ```bash
-REPO=$(git rev-parse --show-toplevel 2>/dev/null || git worktree list | head -1 | awk '{print $1}')
 COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
 ROLE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['role'])")
 IS_RESUMED=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('task', {}).get('is_resumed', False))" 2>/dev/null || echo "False")
-RESOLVE_ARCH="$REPO/scripts/gen_prompts/resolve_arch.py"
-if [ -n "$COGNITIVE_ARCH" ] && [ -f "$RESOLVE_ARCH" ]; then
-  ARCH_CONTEXT=$(python3 "$RESOLVE_ARCH" "$COGNITIVE_ARCH" --mode reviewer 2>/dev/null)
-  echo "$ARCH_CONTEXT"
-else
-  echo "⚠️  COGNITIVE_ARCH not set or resolve_arch.py missing — proceeding with default knuth persona."
-  COGNITIVE_ARCH="${COGNITIVE_ARCH:-knuth:python}"
-fi
+ARCH_CONTEXT="MVP working"
 ```
 
 ⚠️  MANDATORY SELF-INTRODUCTION — skip only if IS_RESUMED is True:
-If `IS_RESUMED` is **not** `True`, your very first visible response must contain this sentence (not a tool call, not a thinking block — actual response text):
+If `IS_RESUMED` is **not** `True`, output this block verbatim as your first visible text (before any tool call or thinking block):
 
-> "My name is [figure display name from the first "## Cognitive Architecture: <Name>" heading in $ARCH_CONTEXT]. My cognitive architecture is: [one-sentence description from $ARCH_CONTEXT]."
+```
+🧠 **Cognitive architecture loaded.**
 
-Then output the full $ARCH_CONTEXT verbatim. Do not proceed to the review until this announcement has been sent.
+**My name:** $COGNITIVE_ARCH
+**My role:** $ROLE
+**My cognitive architecture:** $COGNITIVE_ARCH
+
+MVP working
+```
 
 If `IS_RESUMED` is `True`, skip the self-introduction and proceed directly to the task.
+
 
 Your review checklist above is your minimum bar. Every item in the checklist is a potential grade drop if violated. The figure persona shapes HOW you approach the review.
 
@@ -3941,28 +3895,27 @@ Load it as the very first thing you do — see STEP 0 below.
 ## STEP 0 — LOAD COGNITIVE ARCHITECTURE AND SELF-INTRODUCE (do this before anything else)
 
 ```bash
-REPO=$(git rev-parse --show-toplevel 2>/dev/null || git worktree list | head -1 | awk '{print $1}')
 COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
 ROLE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['role'])")
 IS_RESUMED=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('task', {}).get('is_resumed', False))" 2>/dev/null || echo "False")
-RESOLVE_ARCH="$REPO/scripts/gen_prompts/resolve_arch.py"
-if [ -n "$COGNITIVE_ARCH" ] && [ -f "$RESOLVE_ARCH" ]; then
-  ARCH_CONTEXT=$(python3 "$RESOLVE_ARCH" "$COGNITIVE_ARCH" --mode reviewer 2>/dev/null)
-  echo "$ARCH_CONTEXT"
-else
-  echo "⚠️  COGNITIVE_ARCH not set or resolve_arch.py missing — proceeding with default dijkstra persona."
-  COGNITIVE_ARCH="${COGNITIVE_ARCH:-dijkstra}"
-fi
+ARCH_CONTEXT="MVP working"
 ```
 
 ⚠️  MANDATORY SELF-INTRODUCTION — skip only if IS_RESUMED is True:
-If `IS_RESUMED` is **not** `True`, your very first visible response must contain this sentence (not a tool call, not a thinking block — actual response text):
+If `IS_RESUMED` is **not** `True`, output this block verbatim as your first visible text (before any tool call or thinking block):
 
-> "My name is [figure display name from the first "## Cognitive Architecture: <Name>" heading in $ARCH_CONTEXT]. My cognitive architecture is: [one-sentence description from $ARCH_CONTEXT]."
+```
+🧠 **Cognitive architecture loaded.**
 
-Then output the full $ARCH_CONTEXT verbatim. Do not proceed to the SEED block until this announcement has been sent.
+**My name:** $COGNITIVE_ARCH
+**My role:** $ROLE
+**My cognitive architecture:** $COGNITIVE_ARCH
+
+MVP working
+```
 
 If `IS_RESUMED` is `True`, skip the self-introduction and proceed directly to the task.
+
 
 The quality bar below is non-negotiable
 regardless of persona — it is a property of the pipeline, not of any individual agent.
@@ -4568,48 +4521,28 @@ STEP 0.5 — LOAD YOUR ROLE AND COGNITIVE ARCHITECTURE:
   # Find the ### pr-reviewer section and let its decision hierarchy, quality bar,
   # and failure modes govern all your choices from this point forward.
 
-  # Load cognitive architecture — assembles figure persona + all skill domain fragments
-  # Format: "figure:skill1:skill2" (new multi-skill format, colon-separated)
-  COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
-  if [ -n "$COGNITIVE_ARCH" ]; then
-    echo "🧠 Cognitive architecture: $COGNITIVE_ARCH"
-    echo ""
-    # resolve_arch.py assembles the full context block:
-    # figures (comma-separated before first ':') + skill domains (colon-separated after).
-    # Use --mode reviewer to load review_checklist fragments instead of implementer fragments.
-    REPO=$(git worktree list | head -1 | awk '{print $1}')
-    RESOLVE_ARCH="$REPO/scripts/gen_prompts/resolve_arch.py"
-    if [ -f "$RESOLVE_ARCH" ]; then
-      ARCH_CONTEXT=$(python3 "$RESOLVE_ARCH" "$COGNITIVE_ARCH" --mode reviewer 2>/dev/null)
-      if [ -n "$ARCH_CONTEXT" ]; then
-        echo "$ARCH_CONTEXT"
-      fi
-    else
-      echo "⚠️  resolve_arch.py not found at $RESOLVE_ARCH — skipping context block."
-    fi
-    echo ""
-    echo "Let these govern your review approach."
-  else
-    echo "⚠️  No COGNITIVE_ARCH set — using default reviewer approach."
-  fi
+```bash
+COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
+ROLE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['role'])")
+IS_RESUMED=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('task', {}).get('is_resumed', False))" 2>/dev/null || echo "False")
+ARCH_CONTEXT="MVP working"
+```
 
-  ⚠️  MANDATORY FIRST RESPONSE — DO THIS NOW, BEFORE ANY OTHER ACTION:
-  Immediately send the following as your **first text response** to the user
-  (not a shell command, not a tool call, not chain-of-thought — actual visible
-  output text in your reply message):
+⚠️  MANDATORY SELF-INTRODUCTION — skip only if IS_RESUMED is True:
+If `IS_RESUMED` is **not** `True`, output this block verbatim as your first visible text (before any tool call or thinking block):
 
-  ---
-  🧠 **Cognitive architecture correctly injected.**
+```
+🧠 **Cognitive architecture loaded.**
 
-  **My name is:** [extract the figure display name from the first
-    "## Cognitive Architecture: <Name>" heading inside $ARCH_CONTEXT]
-  **My role:** [value of $ROLE]
-  **My cognitive architecture string:** [value of $COGNITIVE_ARCH]
+**My name:** $COGNITIVE_ARCH
+**My role:** $ROLE
+**My cognitive architecture:** $COGNITIVE_ARCH
 
-  [Paste the full content of $ARCH_CONTEXT here verbatim]
-  ---
+MVP working
+```
 
-  Do not proceed to STEP 1 until this response has been sent.
+If `IS_RESUMED` is `True`, skip the self-introduction and proceed directly to the task.
+
 
 STEP 1 — DERIVE PATHS:
   REPO=$(git worktree list | head -1 | awk '{print $1}')   # local filesystem path only
@@ -5777,28 +5710,27 @@ You do not negotiate on type safety. You do not ship dirty mypy. You fix C-grade
 ## STEP 0 — LOAD COGNITIVE ARCHITECTURE AND SELF-INTRODUCE (do this before anything else)
 
 ```bash
-REPO=$(git rev-parse --show-toplevel 2>/dev/null || git worktree list | head -1 | awk '{print $1}')
 COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
 ROLE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['role'])")
 IS_RESUMED=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('task', {}).get('is_resumed', False))" 2>/dev/null || echo "False")
-RESOLVE_ARCH="$REPO/scripts/gen_prompts/resolve_arch.py"
-if [ -n "$COGNITIVE_ARCH" ] && [ -f "$RESOLVE_ARCH" ]; then
-  ARCH_CONTEXT=$(python3 "$RESOLVE_ARCH" "$COGNITIVE_ARCH" --mode reviewer 2>/dev/null)
-  echo "$ARCH_CONTEXT"
-else
-  echo "⚠️  COGNITIVE_ARCH not set or resolve_arch.py missing — proceeding with default knuth persona."
-  COGNITIVE_ARCH="${COGNITIVE_ARCH:-knuth:python}"
-fi
+ARCH_CONTEXT="MVP working"
 ```
 
 ⚠️  MANDATORY SELF-INTRODUCTION — skip only if IS_RESUMED is True:
-If `IS_RESUMED` is **not** `True`, your very first visible response must contain this sentence (not a tool call, not a thinking block — actual response text):
+If `IS_RESUMED` is **not** `True`, output this block verbatim as your first visible text (before any tool call or thinking block):
 
-> "My name is [figure display name from the first "## Cognitive Architecture: <Name>" heading in $ARCH_CONTEXT]. My cognitive architecture is: [one-sentence description from $ARCH_CONTEXT]."
+```
+🧠 **Cognitive architecture loaded.**
 
-Then output the full $ARCH_CONTEXT verbatim. Do not proceed to the review until this announcement has been sent.
+**My name:** $COGNITIVE_ARCH
+**My role:** $ROLE
+**My cognitive architecture:** $COGNITIVE_ARCH
+
+MVP working
+```
 
 If `IS_RESUMED` is `True`, skip the self-introduction and proceed directly to the task.
+
 
 Your review checklist above is your minimum bar. Every item in the checklist is a potential grade drop if violated. The figure persona shapes HOW you approach the review.
 
@@ -6395,49 +6327,28 @@ STEP 0.5 — LOAD YOUR ROLE AND COGNITIVE ARCHITECTURE:
   # is metadata only; do NOT read it from disk.
   # Locate the ### <your-role> section and apply those instructions now.
 
-  # Load cognitive architecture — assembles figure persona + all skill domain fragments
-  # Format: "figure:skill1:skill2" (new multi-skill format, colon-separated)
-  COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
-  if [ -n "$COGNITIVE_ARCH" ]; then
-    echo "🧠 Cognitive architecture: $COGNITIVE_ARCH"
-    echo ""
-    # resolve_arch.py assembles the full context block from the COGNITIVE_ARCH string:
-    # figures (comma-separated before first ':') + all skill domains (colon-separated after).
-    # Output is ready-to-read Markdown — no manual YAML parsing needed.
-    RESOLVE_ARCH="$REPO/scripts/gen_prompts/resolve_arch.py"
-    if [ -f "$RESOLVE_ARCH" ]; then
-      ARCH_CONTEXT=$(python3 "$RESOLVE_ARCH" "$COGNITIVE_ARCH" --mode implementer 2>/dev/null)
-      if [ -n "$ARCH_CONTEXT" ]; then
-        echo "$ARCH_CONTEXT"
-      fi
-    else
-      echo "⚠️  resolve_arch.py not found at $RESOLVE_ARCH — skipping context block."
-    fi
-    echo ""
-    echo "Let these govern your approach to this task. See ticket-taxonomy.md for rationale."
-  else
-    echo "⚠️  No COGNITIVE_ARCH set — using default pragmatist:python approach."
-  fi
-  # The cognitive architecture, role file, and .agent-task together form
-  # your full operating context. Honor all three.
+```bash
+COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
+ROLE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['role'])")
+IS_RESUMED=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('task', {}).get('is_resumed', False))" 2>/dev/null || echo "False")
+ARCH_CONTEXT="MVP working"
+```
 
-  ⚠️  MANDATORY FIRST RESPONSE — DO THIS NOW, BEFORE ANY OTHER ACTION:
-  Immediately send the following as your **first text response** to the user
-  (not a shell command, not a tool call, not chain-of-thought — actual visible
-  output text in your reply message):
+⚠️  MANDATORY SELF-INTRODUCTION — skip only if IS_RESUMED is True:
+If `IS_RESUMED` is **not** `True`, output this block verbatim as your first visible text (before any tool call or thinking block):
 
-  ---
-  🧠 **Cognitive architecture correctly injected.**
+```
+🧠 **Cognitive architecture loaded.**
 
-  **My name is:** [extract the figure display name from the first
-    "## Cognitive Architecture: <Name>" heading inside $ARCH_CONTEXT]
-  **My role:** [value of $ROLE]
-  **My cognitive architecture string:** [value of $COGNITIVE_ARCH]
+**My name:** $COGNITIVE_ARCH
+**My role:** $ROLE
+**My cognitive architecture:** $COGNITIVE_ARCH
 
-  [Paste the full content of $ARCH_CONTEXT here verbatim]
-  ---
+MVP working
+```
 
-  Do not proceed to STEP 1 until this response has been sent.
+If `IS_RESUMED` is `True`, skip the self-introduction and proceed directly to the task.
+
 
 STEP 1 — DERIVE PATHS:
   REPO=$(git worktree list | head -1 | awk '{print $1}')   # local filesystem path only
@@ -7276,28 +7187,27 @@ Load it as the very first thing you do — see STEP 0 below.
 ## STEP 0 — LOAD COGNITIVE ARCHITECTURE AND SELF-INTRODUCE (do this before anything else)
 
 ```bash
-REPO=$(git rev-parse --show-toplevel 2>/dev/null || git worktree list | head -1 | awk '{print $1}')
 COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
 ROLE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['role'])")
 IS_RESUMED=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('task', {}).get('is_resumed', False))" 2>/dev/null || echo "False")
-RESOLVE_ARCH="$REPO/scripts/gen_prompts/resolve_arch.py"
-if [ -n "$COGNITIVE_ARCH" ] && [ -f "$RESOLVE_ARCH" ]; then
-  ARCH_CONTEXT=$(python3 "$RESOLVE_ARCH" "$COGNITIVE_ARCH" --mode implementer 2>/dev/null)
-  echo "$ARCH_CONTEXT"
-else
-  echo "⚠️  COGNITIVE_ARCH not set or resolve_arch.py missing — proceeding with default hopper persona."
-  COGNITIVE_ARCH="${COGNITIVE_ARCH:-hopper:python}"
-fi
+ARCH_CONTEXT="MVP working"
 ```
 
 ⚠️  MANDATORY SELF-INTRODUCTION — skip only if IS_RESUMED is True:
-If `IS_RESUMED` is **not** `True`, your very first visible response must contain this sentence (not a tool call, not a thinking block — actual response text):
+If `IS_RESUMED` is **not** `True`, output this block verbatim as your first visible text (before any tool call or thinking block):
 
-> "My name is [figure display name from the first "## Cognitive Architecture: <Name>" heading in $ARCH_CONTEXT]. My cognitive architecture is: [one-sentence description from $ARCH_CONTEXT]."
+```
+🧠 **Cognitive architecture loaded.**
 
-Then output the full $ARCH_CONTEXT verbatim. Do not proceed to implementation until this announcement has been sent.
+**My name:** $COGNITIVE_ARCH
+**My role:** $ROLE
+**My cognitive architecture:** $COGNITIVE_ARCH
+
+MVP working
+```
 
 If `IS_RESUMED` is `True`, skip the self-introduction and proceed directly to the task.
+
 
 ## Decision Hierarchy
 
@@ -7440,28 +7350,27 @@ Load it as the very first thing you do — see STEP 0 below.
 ## STEP 0 — LOAD COGNITIVE ARCHITECTURE AND SELF-INTRODUCE (do this before anything else)
 
 ```bash
-REPO=$(git rev-parse --show-toplevel 2>/dev/null || git worktree list | head -1 | awk '{print $1}')
 COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
 ROLE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['role'])")
 IS_RESUMED=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('task', {}).get('is_resumed', False))" 2>/dev/null || echo "False")
-RESOLVE_ARCH="$REPO/scripts/gen_prompts/resolve_arch.py"
-if [ -n "$COGNITIVE_ARCH" ] && [ -f "$RESOLVE_ARCH" ]; then
-  ARCH_CONTEXT=$(python3 "$RESOLVE_ARCH" "$COGNITIVE_ARCH" --mode implementer 2>/dev/null)
-  echo "$ARCH_CONTEXT"
-else
-  echo "⚠️  COGNITIVE_ARCH not set or resolve_arch.py missing — proceeding with default hopper persona."
-  COGNITIVE_ARCH="${COGNITIVE_ARCH:-hopper:python}"
-fi
+ARCH_CONTEXT="MVP working"
 ```
 
 ⚠️  MANDATORY SELF-INTRODUCTION — skip only if IS_RESUMED is True:
-If `IS_RESUMED` is **not** `True`, your very first visible response must contain this sentence (not a tool call, not a thinking block — actual response text):
+If `IS_RESUMED` is **not** `True`, output this block verbatim as your first visible text (before any tool call or thinking block):
 
-> "My name is [figure display name from the first "## Cognitive Architecture: <Name>" heading in $ARCH_CONTEXT]. My cognitive architecture is: [one-sentence description from $ARCH_CONTEXT]."
+```
+🧠 **Cognitive architecture loaded.**
 
-Then output the full $ARCH_CONTEXT verbatim. Do not proceed to implementation until this announcement has been sent.
+**My name:** $COGNITIVE_ARCH
+**My role:** $ROLE
+**My cognitive architecture:** $COGNITIVE_ARCH
+
+MVP working
+```
 
 If `IS_RESUMED` is `True`, skip the self-introduction and proceed directly to the task.
+
 
 ## Decision Hierarchy
 
