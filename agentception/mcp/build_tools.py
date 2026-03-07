@@ -12,11 +12,13 @@ All four functions are async — they write to ``ac_agent_events`` via the
 persist layer and return a lightweight ack dict.
 """
 
+import asyncio
 import logging
 
 from agentception.db.persist import persist_agent_event
 from agentception.db.queries import get_pending_launches
 from agentception.services.spawn_child import ScopeType, SpawnChildError, Tier, spawn_child
+from agentception.services.teardown import teardown_agent_worktree
 
 logger = logging.getLogger(__name__)
 
@@ -248,13 +250,20 @@ async def build_report_done(
     summary: str = "",
     agent_run_id: str | None = None,
 ) -> dict[str, object]:
-    """Record that the agent has finished work and opened a pull request.
+    """Record that the agent has finished work and tear down its worktree.
+
+    Persists the ``done`` event (linking the PR and updating workflow state),
+    then fires ``teardown_agent_worktree`` as a non-blocking background task
+    so the agent receives an immediate ack while cleanup runs asynchronously.
+
+    Teardown removes the git worktree, prunes refs, deletes the remote branch,
+    and deletes the local branch — leaving the main repo clean automatically.
 
     Args:
         issue_number: GitHub issue number the agent worked on.
         pr_url: Full URL of the opened pull request.
         summary: Optional one-sentence description of what was done.
-        agent_run_id: Optional worktree id.
+        agent_run_id: Run ID used to look up the worktree path and branch.
 
     Returns:
         ``{"ok": True, "event": "done"}``
@@ -266,6 +275,17 @@ async def build_report_done(
         agent_run_id=agent_run_id,
     )
     logger.info(
-        "✅ build_report_done: issue=%d pr_url=%r", issue_number, pr_url
+        "✅ build_report_done: issue=%d pr_url=%r run_id=%r", issue_number, pr_url, agent_run_id
     )
+    if agent_run_id:
+        asyncio.create_task(
+            teardown_agent_worktree(agent_run_id),
+            name=f"teardown-{agent_run_id}",
+        )
+        logger.info("🧹 build_report_done: teardown queued for run_id=%r", agent_run_id)
+    else:
+        logger.warning(
+            "⚠️  build_report_done: no agent_run_id — worktree not cleaned up for issue=%d",
+            issue_number,
+        )
     return {"ok": True, "event": "done"}
