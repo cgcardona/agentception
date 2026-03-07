@@ -1900,73 +1900,98 @@ $_sw-gap: 0.5rem;
 }
 
 // ── Org Designer ──────────────────────────────────────────────────────────────
-// Full-screen overlay launched from the Ship page subnav.
-// D3 renders the tree canvas; Alpine manages open/close + node editor.
+// Immersive full-screen canvas.  Feels like opening a separate design tool.
+// Design tokens for this surface use hardcoded near-blacks so the experience
+// is always dark and high-contrast regardless of the app theme.
+
+// Canvas palette (always dark — hardcoded, not theme-dependent)
+$od-bg:          #08080f;   // nearly-black canvas
+$od-surface:     #111120;   // node card / editor bg
+$od-surface-hi:  #181830;   // hover / raised surface
+$od-border:      rgba(255,255,255,0.09);
+$od-border-hi:   rgba(255,255,255,0.18);
+$od-coord-color: #a78bfa;   // purple for coordinators
+$od-worker-color:#34d399;   // emerald for workers
+$od-pending-color:#4b5563;  // gray for unconfigured
 
 .od-overlay {
   position: fixed;
   inset: 0;
-  z-index: 200;
+  z-index: 400;           // high enough to cover everything
   display: flex;
   flex-direction: column;
-  background: var(--bg-page);
+  background: $od-bg;
+  animation: od-enter 0.2s ease-out both;
 }
 
-// ── Overlay header bar ────────────────────────────────────────────────────────
+@keyframes od-enter {
+  from { opacity: 0; transform: scale(0.98); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+// ── Header bar ────────────────────────────────────────────────────────────────
 
 .od-header {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem 1.25rem;
-  background: var(--bg-surface);
-  border-bottom: 1px solid var(--border-default);
+  gap: 1rem;
+  padding: 0.875rem 1.5rem;
+  background: $od-surface;
+  border-bottom: 1px solid $od-border;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.04);
 }
 
 .od-header__title {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.02em;
   flex: 1;
 }
 
 .od-header__initiative {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-family: var(--font-mono);
-  color: var(--text-secondary);
-  background: var(--bg-inset);
-  padding: 0.2rem 0.5rem;
-  border-radius: 4px;
+  color: rgba(255,255,255,0.5);
+  background: rgba(255,255,255,0.06);
+  padding: 0.25rem 0.625rem;
+  border-radius: 5px;
+  border: 1px solid $od-border;
 }
 
 .od-header__btn {
   font-size: 0.75rem;
   font-weight: 600;
-  padding: 0.375rem 0.75rem;
-  border-radius: 6px;
+  padding: 0.45rem 1rem;
+  border-radius: 7px;
   border: none;
   cursor: pointer;
-  transition: opacity 0.15s;
+  transition: opacity 0.15s, transform 0.1s;
 
-  &:disabled { opacity: 0.45; cursor: not-allowed; }
+  &:disabled { opacity: 0.35; cursor: not-allowed; }
+  &:not(:disabled):active { transform: scale(0.97); }
 
   &--close {
-    background: transparent;
-    color: var(--text-secondary);
-    &:hover { color: var(--text-primary); }
+    background: rgba(255,255,255,0.07);
+    color: rgba(255,255,255,0.6);
+    &:hover:not(:disabled) { background: rgba(255,255,255,0.12); color: #fff; }
   }
 
   &--launch {
-    background: var(--accent);
+    background: linear-gradient(135deg, #6d28d9, #7c3aed);
     color: #fff;
-    &:hover:not(:disabled) { opacity: 0.85; }
+    box-shadow: 0 2px 12px rgba(109, 40, 217, 0.5);
+    &:hover:not(:disabled) {
+      background: linear-gradient(135deg, #7c3aed, #8b5cf6);
+      box-shadow: 0 4px 20px rgba(124, 58, 237, 0.65);
+    }
   }
 }
 
 .od-header__launch-err {
   font-size: 0.7rem;
-  color: var(--error, #f87171);
+  color: #f87171;
 }
 
 .od-header__launch-ok {
@@ -1974,10 +1999,10 @@ $_sw-gap: 0.5rem;
   align-items: center;
   gap: 0.5rem;
   font-size: 0.75rem;
-  color: var(--success, #4ade80);
+  color: #4ade80;
 }
 
-// ── Main canvas + editor split ────────────────────────────────────────────────
+// ── Canvas + editor split ─────────────────────────────────────────────────────
 
 .od-body {
   flex: 1;
@@ -1991,120 +2016,143 @@ $_sw-gap: 0.5rem;
   flex: 1;
   position: relative;
   overflow: auto;
-  background: var(--bg-page);
-  background-image:
-    radial-gradient(circle, var(--border-muted, rgba(255,255,255,0.06)) 1px, transparent 1px);
-  background-size: 24px 24px;
+  background: $od-bg;
+  // Subtle dot grid — makes the canvas feel like a real design surface
+  background-image: radial-gradient(circle, rgba(255,255,255,0.09) 1px, transparent 1px);
+  background-size: 28px 28px;
 }
 
-// D3-drawn bezier edges
+// D3 bezier edges — colored glow to match coordinator/worker palette
 .od-link {
   fill: none;
-  stroke: var(--border-default);
-  stroke-width: 1.5px;
-  stroke-dasharray: none;
+  stroke: rgba(139, 92, 246, 0.35);
+  stroke-width: 2px;
+  filter: drop-shadow(0 0 3px rgba(139, 92, 246, 0.2));
 }
 
 // ── Node cards ────────────────────────────────────────────────────────────────
 
 .od-node {
   position: absolute;
-  width: 210px;
+  width: 240px;
   box-sizing: border-box;
-  background: var(--bg-surface);
-  border: 1.5px solid var(--border-default);
-  border-radius: 10px;
-  padding: 0.625rem 0.75rem 0.5rem;
+  background: $od-surface;
+  border: 1.5px solid $od-border;
+  border-radius: 12px;
+  padding: 0.875rem 1rem 0.75rem;
   display: flex;
   flex-direction: column;
-  gap: 0.175rem;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  gap: 0.2rem;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
 
   &:hover {
-    border-color: var(--border-active, var(--accent));
-    box-shadow: 0 2px 12px rgba(0,0,0,0.25);
+    border-color: $od-border-hi;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+    transform: translateY(-1px);
   }
 
   &--selected {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 2px rgba(var(--accent-rgb, 99 102 241), 0.3);
+    border-color: #7c3aed;
+    box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.4), 0 8px 32px rgba(0,0,0,0.6);
   }
 
   &--coordinator {
-    border-left: 3px solid rgba(139, 92, 246, 0.7);
+    border-left: 3px solid $od-coord-color;
   }
 
   &--worker {
-    border-left: 3px solid rgba(52, 211, 153, 0.7);
+    border-left: 3px solid $od-worker-color;
   }
 
   &--pending {
-    border-color: var(--border-subtle);
-    border-left: 3px solid var(--border-default);
-    opacity: 0.7;
+    border-color: rgba(255,255,255,0.05);
+    border-left: 3px solid $od-pending-color;
+    box-shadow: none;
   }
-}
-
-.od-node__role--empty {
-  color: var(--text-faint);
-  font-style: italic;
-  font-weight: 400;
 }
 
 .od-node__tier {
   font-size: 0.55rem;
-  font-weight: 700;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
 
-  &--coordinator { color: rgba(167, 139, 250, 0.9); }
-  &--worker      { color: rgba(52, 211, 153, 0.9); }
+  &--coordinator { color: $od-coord-color; }
+  &--worker      { color: $od-worker-color; }
+  &--pending     { color: rgba(255,255,255,0.3); }
 }
 
 .od-node__role {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #fff;
   line-height: 1.25;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  letter-spacing: -0.01em;
+
+  &--empty {
+    color: rgba(255,255,255,0.3);
+    font-style: italic;
+    font-weight: 400;
+    font-size: 0.8rem;
+  }
 }
 
 .od-node__figure {
-  font-size: 0.65rem;
-  color: var(--text-secondary);
+  font-size: 0.68rem;
+  color: rgba(255,255,255,0.45);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  margin-top: 0.05rem;
 }
 
 .od-node__actions {
   display: flex;
-  gap: 0.25rem;
-  margin-top: 0.35rem;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
   flex-wrap: wrap;
 }
 
 .od-node__btn {
-  font-size: 0.625rem;
-  font-weight: 600;
-  padding: 0.2rem 0.45rem;
-  border-radius: 4px;
-  border: 1px solid var(--border-default);
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 0.25rem 0.55rem;
+  border-radius: 5px;
+  border: 1px solid rgba(255,255,255,0.1);
   cursor: pointer;
-  background: var(--bg-inset);
-  color: var(--text-secondary);
-  transition: background 0.1s, color 0.1s;
+  background: rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.5);
+  letter-spacing: 0.02em;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
 
-  &:hover { background: var(--bg-hover); color: var(--text-primary); }
+  &:hover {
+    background: rgba(255,255,255,0.12);
+    color: #fff;
+    border-color: rgba(255,255,255,0.2);
+  }
 
-  &--add    { border-color: rgba(52, 211, 153, 0.35); }
-  &--edit   { }
+  &--add {
+    border-color: rgba($od-worker-color, 0.3);
+    color: rgba($od-worker-color, 0.8);
+    &:hover {
+      background: rgba($od-worker-color, 0.12);
+      color: $od-worker-color;
+      border-color: rgba($od-worker-color, 0.6);
+    }
+  }
+
   &--remove {
-    border-color: rgba(248, 113, 113, 0.35);
-    color: rgba(248, 113, 113, 0.8);
-    &:hover { background: rgba(248, 113, 113, 0.12); color: #f87171; }
+    border-color: rgba(#f87171, 0.25);
+    color: rgba(#f87171, 0.6);
+    &:hover {
+      background: rgba(#f87171, 0.12);
+      color: #f87171;
+      border-color: rgba(#f87171, 0.5);
+    }
   }
 }
 
@@ -2112,20 +2160,27 @@ $_sw-gap: 0.5rem;
 
 .od-editor {
   flex-shrink: 0;
-  width: 280px;
+  width: 300px;
   display: flex;
   flex-direction: column;
-  background: var(--bg-surface);
-  border-left: 1px solid var(--border-default);
+  background: $od-surface;
+  border-left: 1px solid $od-border;
   overflow-y: auto;
+  animation: od-editor-enter 0.18s ease-out both;
+}
+
+@keyframes od-editor-enter {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 
 .od-editor__header {
-  padding: 0.75rem 1rem 0.5rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  border-bottom: 1px solid var(--border-subtle);
+  padding: 1rem 1.125rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.01em;
+  border-bottom: 1px solid $od-border;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2133,34 +2188,36 @@ $_sw-gap: 0.5rem;
 
 .od-editor__close {
   font-size: 0.7rem;
-  padding: 0.2rem 0.4rem;
-  border: none;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 4px;
   background: transparent;
-  color: var(--text-faint);
+  color: rgba(255,255,255,0.35);
   cursor: pointer;
-  &:hover { color: var(--text-secondary); }
+  transition: color 0.12s, background 0.12s;
+  &:hover { color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.07); }
 }
 
 .od-editor__body {
-  padding: 0.75rem 1rem;
+  padding: 1rem 1.125rem;
   display: flex;
   flex-direction: column;
-  gap: 0.875rem;
+  gap: 1.125rem;
   flex: 1;
 }
 
 .od-editor__field {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: 0.5rem;
 }
 
 .od-editor__label {
-  font-size: 0.65rem;
-  font-weight: 600;
+  font-size: 0.6rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--text-muted);
+  letter-spacing: 0.1em;
+  color: rgba(255,255,255,0.35);
 }
 
 .od-editor__optional {
@@ -2168,7 +2225,7 @@ $_sw-gap: 0.5rem;
   font-weight: 400;
   text-transform: none;
   letter-spacing: 0;
-  color: var(--text-faint);
+  color: rgba(255,255,255,0.2);
 }
 
 // ── Coordinator / Worker type radio ──────────────────────────────────────────
@@ -2176,92 +2233,101 @@ $_sw-gap: 0.5rem;
 .od-type-radio {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.625rem;
 }
 
 .od-type-opt {
   display: flex;
-  align-items: flex-start;
-  gap: 0.625rem;
-  padding: 0.625rem 0.75rem;
-  border-radius: 8px;
-  border: 1.5px solid var(--border-default);
+  align-items: center;
+  gap: 0.875rem;
+  padding: 0.875rem 1rem;
+  border-radius: 10px;
+  border: 1.5px solid $od-border;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
 
   input[type="radio"] { display: none; }
 
-  &:hover { border-color: var(--border-active, var(--accent)); }
+  &:hover { border-color: $od-border-hi; background: $od-surface-hi; }
 
   &--active {
-    border-color: var(--accent);
-    background: rgba(99, 102, 241, 0.08);
+    border-color: #7c3aed;
+    background: rgba(124, 58, 237, 0.12);
+    box-shadow: 0 0 0 1px rgba(124, 58, 237, 0.25) inset;
   }
 
   &__icon {
-    font-size: 1rem;
+    font-size: 1.375rem;
     line-height: 1;
-    margin-top: 0.1rem;
-    color: var(--text-secondary);
+    flex-shrink: 0;
   }
 
   &__text {
     display: flex;
     flex-direction: column;
-    gap: 0.15rem;
+    gap: 0.2rem;
 
     strong {
-      font-size: 0.8rem;
-      font-weight: 600;
-      color: var(--text-primary);
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: #fff;
       line-height: 1.2;
     }
 
     em {
       font-style: normal;
-      font-size: 0.65rem;
-      color: var(--text-muted);
+      font-size: 0.67rem;
+      color: rgba(255,255,255,0.4);
     }
   }
 }
 
 .od-editor__select {
-  font-size: 0.75rem;
-  padding: 0.375rem 0.5rem;
-  border-radius: 6px;
-  border: 1px solid var(--border-default);
-  background: var(--bg-inset);
-  color: var(--text-primary);
+  font-size: 0.78rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: 7px;
+  border: 1.5px solid $od-border;
+  background: rgba(255,255,255,0.04);
+  color: #fff;
   width: 100%;
   cursor: pointer;
+  transition: border-color 0.15s;
 
-  &:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  option, optgroup { background: #1a1a2e; color: #fff; }
+  &:focus { outline: none; border-color: #7c3aed; box-shadow: 0 0 0 2px rgba(124,58,237,0.25); }
 }
 
 .od-editor__actions {
   display: flex;
-  gap: 0.5rem;
-  padding: 0.75rem 1rem;
-  border-top: 1px solid var(--border-subtle);
+  gap: 0.625rem;
+  padding: 1rem 1.125rem;
+  border-top: 1px solid $od-border;
 }
 
 .od-editor__btn {
   flex: 1;
-  font-size: 0.75rem;
-  font-weight: 600;
-  padding: 0.4rem 0.75rem;
-  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
   border: none;
   cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+  &:active { transform: scale(0.97); }
 
   &--apply {
-    background: var(--accent);
+    background: linear-gradient(135deg, #6d28d9, #7c3aed);
     color: #fff;
-    &:hover { opacity: 0.85; }
+    box-shadow: 0 2px 10px rgba(109,40,217,0.45);
+    &:hover:not(:disabled) {
+      background: linear-gradient(135deg, #7c3aed, #8b5cf6);
+    }
+    &:disabled { opacity: 0.35; cursor: not-allowed; }
   }
+
   &--cancel {
-    background: var(--bg-inset);
-    color: var(--text-secondary);
-    &:hover { background: var(--bg-hover); }
+    background: rgba(255,255,255,0.06);
+    color: rgba(255,255,255,0.55);
+    &:hover { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.8); }
   }
 }
