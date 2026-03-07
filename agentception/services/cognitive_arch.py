@@ -21,6 +21,43 @@ and route handlers can import it without creating circular dependencies.
 import re
 
 _AC_SKILLS_RE = re.compile(r"<!--\s*ac:skills:\s*([^-]+?)\s*-->")
+
+# ---------------------------------------------------------------------------
+# Figure display-name catalog (used by the Org Designer UI)
+# ---------------------------------------------------------------------------
+# Keyed by figure slug (matches the filename stem under cognitive_archetypes/figures/).
+# Single-name or acronym figures are given their canonical full name here; the
+# rest are derived automatically in the UI by replacing underscores with spaces
+# and title-casing, so they don't need an entry.
+FIGURE_DISPLAY_NAMES: dict[str, str] = {
+    "da_vinci":          "Leonardo da Vinci",
+    "darwin":            "Charles Darwin",
+    "dhh":               "DHH",
+    "dijkstra":          "Edsger Dijkstra",
+    "einstein":          "Albert Einstein",
+    "feynman":           "Richard Feynman",
+    "hamming":           "Richard Hamming",
+    "hopper":            "Grace Hopper",
+    "knuth":             "Donald Knuth",
+    "lovelace":          "Ada Lovelace",
+    "matz":              "Yukihiro Matsumoto",
+    "mccarthy":          "John McCarthy",
+    "newton":            "Isaac Newton",
+    "ritchie":           "Dennis Ritchie",
+    "shannon":           "Claude Shannon",
+    "turing":            "Alan Turing",
+    "wozniak":           "Steve Wozniak",
+}
+
+
+def figure_display_name(figure_id: str) -> str:
+    """Return a human-readable display name for *figure_id*.
+
+    Falls back to title-casing the slug when no explicit mapping exists.
+    """
+    if figure_id in FIGURE_DISPLAY_NAMES:
+        return FIGURE_DISPLAY_NAMES[figure_id]
+    return figure_id.replace("_", " ").title()
 _AC_COGNITIVE_ARCH_RE = re.compile(r"<!--\s*ac:cognitive_arch:\s*([^-\n]+?)\s*-->")
 
 # ---------------------------------------------------------------------------
@@ -166,6 +203,7 @@ def _resolve_cognitive_arch(
     issue_body: str,
     role: str,
     skills_hint: list[str] | None = None,
+    figure_override: str | None = None,
 ) -> str:
     """Derive COGNITIVE_ARCH string from role and issue body.
 
@@ -173,6 +211,11 @@ def _resolve_cognitive_arch(
 
     Resolution priority (highest to lowest):
 
+    0. *figure_override* — an explicit figure slug chosen by the user in the
+       Org Designer (e.g. ``"steve_jobs"``).  When present, it is combined with
+       the skill string derived from lower priorities and returned immediately.
+       Skills are still resolved from the issue body so the agent has the right
+       domain context; only the *figure* is pinned by the caller.
     1. ``<!-- ac:cognitive_arch: ... -->`` comment in *issue_body* — set by the
        LLM planner in Phase 1A and baked into the GitHub issue at creation time.
        When present the string is returned verbatim; no further resolution.
@@ -184,6 +227,16 @@ def _resolve_cognitive_arch(
     4. Keyword scan of *issue_body* — last-resort fallback for issues created
        before Phase 1A arch assignment was introduced.
     """
+    # Priority 0: caller-supplied figure override (Org Designer).
+    if figure_override and figure_override.strip():
+        figure = figure_override.strip()
+        if skills_hint:
+            skills = ":".join(skills_hint)
+        else:
+            embedded_skills = _extract_skills_from_body(issue_body)
+            skills = ":".join(embedded_skills) if embedded_skills else _derive_skills_from_body(issue_body)
+        return f"{figure}:{skills}"
+
     # Priority 1: planner-assigned arch baked into the issue body.
     embedded_arch = _extract_cognitive_arch_from_body(issue_body)
     if embedded_arch:

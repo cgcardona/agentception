@@ -381,6 +381,13 @@ class LabelDispatchRequest(BaseModel):
     """``owner/repo`` string."""
     parent_run_id: str | None = None
     """Run ID of the agent that is spawning this one (spawn-lineage tracking)."""
+    cognitive_arch_override: str | None = None
+    """Figure slug chosen in the Org Designer (e.g. ``"steve_jobs"``).
+
+    When set, this figure is injected into the agent's COGNITIVE_ARCH string,
+    bypassing the role-default mapping while still deriving skills from context.
+    Corresponds to ``figure_override`` in ``_resolve_cognitive_arch``.
+    """
 
 
 class LabelDispatchResponse(BaseModel):
@@ -494,7 +501,9 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
 
     role_file = str(Path(settings.repo_dir) / ".agentception" / "roles" / f"{role}.md")
     host_role_file = str(Path(settings.host_repo_dir) / ".agentception" / "roles" / f"{role}.md")
-    label_cognitive_arch = _resolve_cognitive_arch("", role)
+    label_cognitive_arch = _resolve_cognitive_arch(
+        "", role, figure_override=req.cognitive_arch_override
+    )
     node_type = _tier_to_node_type(tier)
 
     agent_sections: dict[str, dict[str, TomlValue]] = {
