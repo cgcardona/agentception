@@ -487,7 +487,7 @@ async def test_file_issues_forwards_all_event_types(async_client: AsyncClient) -
 
 
 # ---------------------------------------------------------------------------
-# GET /plan/{org}/{repo}/{initiative} — redirect to latest batch
+# GET /plan/{repo}/{initiative} — redirect to latest batch
 # ---------------------------------------------------------------------------
 
 
@@ -495,12 +495,12 @@ async def test_file_issues_forwards_all_event_types(async_client: AsyncClient) -
 async def test_plan_initiative_redirect_returns_404_when_no_batches(
     async_client: AsyncClient,
 ) -> None:
-    """GET /plan/{org}/{repo}/{initiative} returns 404 when get_initiative_batches returns []."""
+    """GET /plan/{repo}/{initiative} returns 404 when get_initiative_batches returns []."""
     with patch(
         "agentception.db.queries.get_initiative_batches",
         new=AsyncMock(return_value=[]),
     ):
-        resp = await async_client.get("/plan/testorg/testrepo/no-such-initiative")
+        resp = await async_client.get("/plan/agentception/no-such-initiative")
     assert resp.status_code == 404
 
 
@@ -508,18 +508,18 @@ async def test_plan_initiative_redirect_returns_404_when_no_batches(
 async def test_plan_initiative_redirect_returns_302_to_latest_batch(
     async_client: AsyncClient,
 ) -> None:
-    """GET /plan/{org}/{repo}/{initiative} redirects to /{batch_id} when batches exist."""
+    """GET /plan/{repo}/{initiative} redirects to /{batch_id} when batches exist."""
     with patch(
         "agentception.db.queries.get_initiative_batches",
         new=AsyncMock(return_value=["batch-abc123def456", "batch-older"]),
     ):
         resp = await async_client.get(
-            "/plan/testorg/testrepo/auth-rewrite",
+            "/plan/agentception/auth-rewrite",
             follow_redirects=False,
         )
     assert resp.status_code == 302
     assert resp.headers["location"].endswith(
-        "/plan/testorg/testrepo/auth-rewrite/batch-abc123def456"
+        "/plan/agentception/auth-rewrite/batch-abc123def456"
     )
 
 
@@ -527,13 +527,22 @@ async def test_plan_initiative_redirect_returns_302_to_latest_batch(
 async def test_plan_initiative_redirect_returns_400_for_invalid_initiative(
     async_client: AsyncClient,
 ) -> None:
-    """GET /plan/{org}/{repo}/{initiative} returns 400 when the initiative slug is invalid."""
-    resp = await async_client.get("/plan/testorg/testrepo/-bad-start")
+    """GET /plan/{repo}/{initiative} returns 400 when the initiative slug is invalid."""
+    resp = await async_client.get("/plan/agentception/-bad-start")
     assert resp.status_code == 400
 
 
+@pytest.mark.anyio
+async def test_plan_initiative_redirect_returns_404_for_unknown_repo(
+    async_client: AsyncClient,
+) -> None:
+    """GET /plan/{repo}/{initiative} returns 404 when the repo is not configured."""
+    resp = await async_client.get("/plan/notarepo/some-initiative")
+    assert resp.status_code == 404
+
+
 # ---------------------------------------------------------------------------
-# GET /plan/{org}/{repo}/{initiative}/{batch_id} — shareable batch overview
+# GET /plan/{repo}/{initiative}/{batch_id} — shareable batch overview
 # ---------------------------------------------------------------------------
 
 
@@ -541,13 +550,13 @@ async def test_plan_initiative_redirect_returns_400_for_invalid_initiative(
 async def test_plan_initiative_page_returns_404_when_not_found(
     async_client: AsyncClient,
 ) -> None:
-    """GET /plan/{org}/{repo}/{initiative}/{batch_id} returns 404 when summary is None."""
+    """GET /plan/{repo}/{initiative}/{batch_id} returns 404 when summary is None."""
     with patch(
         "agentception.db.queries.get_initiative_summary",
         new=AsyncMock(return_value=None),
     ):
         resp = await async_client.get(
-            "/plan/testorg/testrepo/no-such-initiative/batch-abc123"
+            "/plan/agentception/no-such-initiative/batch-abc123"
         )
     assert resp.status_code == 404
 
@@ -556,8 +565,8 @@ async def test_plan_initiative_page_returns_404_when_not_found(
 async def test_plan_initiative_page_returns_400_for_invalid_batch_id(
     async_client: AsyncClient,
 ) -> None:
-    """GET /plan/{org}/{repo}/{initiative}/{batch_id} returns 400 for invalid batch_id."""
-    resp = await async_client.get("/plan/testorg/testrepo/auth-rewrite/not-a-batch-id")
+    """GET /plan/{repo}/{initiative}/{batch_id} returns 400 for invalid batch_id."""
+    resp = await async_client.get("/plan/agentception/auth-rewrite/not-a-batch-id")
     assert resp.status_code == 400
 
 
@@ -565,7 +574,7 @@ async def test_plan_initiative_page_returns_400_for_invalid_batch_id(
 async def test_plan_initiative_page_renders_summary(
     async_client: AsyncClient,
 ) -> None:
-    """GET /plan/{org}/{repo}/{initiative}/{batch_id} renders the initiative name and phase cards."""
+    """GET /plan/{repo}/{initiative}/{batch_id} renders the initiative name and phase cards."""
     from agentception.db.queries import (
         InitiativeIssueRow,
         InitiativePhaseRow,
@@ -573,7 +582,7 @@ async def test_plan_initiative_page_renders_summary(
     )
 
     summary: InitiativeSummary = InitiativeSummary(
-        repo="testorg/testrepo",
+        repo="cgcardona/agentception",
         initiative="auth-rewrite",
         batch_id="batch-abc123",
         phase_count=2,
@@ -592,13 +601,13 @@ async def test_plan_initiative_page_renders_summary(
                     InitiativeIssueRow(
                         number=101,
                         title="Add SQLAlchemy User model",
-                        url="https://github.com/test/repo/issues/101",
+                        url="https://github.com/cgcardona/agentception/issues/101",
                         state="open",
                     ),
                     InitiativeIssueRow(
                         number=102,
                         title="JWT middleware",
-                        url="https://github.com/test/repo/issues/102",
+                        url="https://github.com/cgcardona/agentception/issues/102",
                         state="closed",
                     ),
                 ],
@@ -613,7 +622,7 @@ async def test_plan_initiative_page_renders_summary(
                     InitiativeIssueRow(
                         number=103,
                         title="Login endpoint",
-                        url="https://github.com/test/repo/issues/103",
+                        url="https://github.com/cgcardona/agentception/issues/103",
                         state="open",
                     ),
                 ],
@@ -626,7 +635,7 @@ async def test_plan_initiative_page_renders_summary(
         new=AsyncMock(return_value=summary),
     ):
         resp = await async_client.get(
-            "/plan/testorg/testrepo/auth-rewrite/batch-abc123"
+            "/plan/agentception/auth-rewrite/batch-abc123"
         )
 
     assert resp.status_code == 200
@@ -651,7 +660,7 @@ async def test_plan_initiative_page_renders_summary(
 async def test_plan_initiative_page_shows_complete_phase(
     async_client: AsyncClient,
 ) -> None:
-    """GET /plan/{org}/{repo}/{initiative}/{batch_id} shows plan-done-phase-card--complete."""
+    """GET /plan/{repo}/{initiative}/{batch_id} shows plan-done-phase-card--complete."""
     from agentception.db.queries import (
         InitiativeIssueRow,
         InitiativePhaseRow,
@@ -659,7 +668,7 @@ async def test_plan_initiative_page_shows_complete_phase(
     )
 
     summary: InitiativeSummary = InitiativeSummary(
-        repo="testorg/testrepo",
+        repo="cgcardona/agentception",
         initiative="my-proj",
         batch_id="batch-d0e123abc456",
         phase_count=1,
@@ -678,7 +687,7 @@ async def test_plan_initiative_page_shows_complete_phase(
                     InitiativeIssueRow(
                         number=1,
                         title="Completed task",
-                        url="https://github.com/test/repo/issues/1",
+                        url="https://github.com/cgcardona/agentception/issues/1",
                         state="closed",
                     ),
                 ],
@@ -691,7 +700,7 @@ async def test_plan_initiative_page_shows_complete_phase(
         new=AsyncMock(return_value=summary),
     ):
         resp = await async_client.get(
-            "/plan/testorg/testrepo/my-proj/batch-d0e123abc456"
+            "/plan/agentception/my-proj/batch-d0e123abc456"
         )
 
     assert resp.status_code == 200

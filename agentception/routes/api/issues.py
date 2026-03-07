@@ -16,9 +16,9 @@ router = APIRouter()
 _DEFAULT_APPROVAL_LABELS: list[str] = ["db-schema", "security", "api-contract"]
 
 
-@router.get("/issues/{org}/{repo}/{number}/comments")
-async def issue_comments_partial(request: Request, org: str, repo: str, number: int) -> object:
-    """HTMX partial: render comments for issue #{number} in {org}/{repo}.
+@router.get("/issues/{repo}/{number}/comments")
+async def issue_comments_partial(request: Request, repo: str, number: int) -> object:
+    """HTMX partial: render comments for issue #{number}.
 
     Lazily fetches from GitHub so the issue detail page loads without blocking.
     """
@@ -37,9 +37,9 @@ async def issue_comments_partial(request: Request, org: str, repo: str, number: 
     )
 
 
-@router.get("/prs/{org}/{repo}/{number}/checks")
-async def pr_checks_partial(request: Request, org: str, repo: str, number: int) -> object:
-    """HTMX partial: render CI check statuses for PR #{number} in {org}/{repo}."""
+@router.get("/prs/{repo}/{number}/checks")
+async def pr_checks_partial(request: Request, repo: str, number: int) -> object:
+    """HTMX partial: render CI check statuses for PR #{number}."""
     from agentception.readers.github import get_pr_checks
 
     checks: list[dict[str, object]] = []
@@ -57,9 +57,9 @@ async def pr_checks_partial(request: Request, org: str, repo: str, number: int) 
     )
 
 
-@router.get("/prs/{org}/{repo}/{number}/reviews")
-async def pr_reviews_partial(request: Request, org: str, repo: str, number: int) -> object:
-    """HTMX partial: render review decisions for PR #{number} in {org}/{repo}."""
+@router.get("/prs/{repo}/{number}/reviews")
+async def pr_reviews_partial(request: Request, repo: str, number: int) -> object:
+    """HTMX partial: render review decisions for PR #{number}."""
     from agentception.readers.github import get_pr_reviews
 
     reviews: list[dict[str, object]] = []
@@ -125,8 +125,8 @@ async def approval_queue_partial(request: Request) -> object:
     )
 
 
-@router.post("/issues/{org}/{repo}/{number}/approve")
-async def approve_issue(request: Request, org: str, repo: str, number: int) -> object:
+@router.post("/issues/{repo}/{number}/approve")
+async def approve_issue(request: Request, repo: str, number: int) -> object:
     """HTMX action: add the ``approved`` label to an issue.
 
     Ensures the ``approved`` label exists on the repo (idempotent), then adds

@@ -671,7 +671,7 @@ describe('URL update on done event — component invariants', () => {
 
     expect(c.step).toBe('done');
     // initiative + batchId are populated; with ghRepo set the pushState would
-    // target /plan/{ghRepo}/auth-rewrite/batch-abc123.
+    // target /plan/{repoName}/auth-rewrite/batch-abc123 (bare repo name, no org prefix).
     expect(c.initiative).toBe('auth-rewrite');
     expect(c.batchId).toBe('batch-abc123');
     expect(c.issueCount).toBe(2);
@@ -695,11 +695,12 @@ describe('URL update on done event — component invariants', () => {
     }]);
     await c._readFileStream(resp);
 
+    // URLs use the bare repo name (without the org prefix).
     expect(localStorage.getItem('ac_active_plan_url')).toBe(
-      '/plan/testorg/testrepo/auth-rewrite/batch-abc123',
+      '/plan/testrepo/auth-rewrite/batch-abc123',
     );
     expect(localStorage.getItem('ac_active_ship_url')).toBe(
-      '/ship/testorg/testrepo/auth-rewrite',
+      '/ship/testrepo/auth-rewrite',
     );
   });
 
