@@ -386,23 +386,34 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
             )
             try:
                 await _gh_edit_body(repo, our_number, original_body.rstrip() + blocked_line)
-                # Stamp ticket-blocked so coordinators can filter this issue
-                # out until all its deps are closed.  The poller removes this
-                # label automatically once every dependency is in a closed state.
+            except RuntimeError as exc:
+                logger.warning("⚠️ Could not edit body of #%d for depends_on: %s", our_number, exc)
+                continue
+
+            # Stamp ticket-blocked so coordinators can filter this issue out
+            # until all its deps are closed.  Separated from the body edit so a
+            # label-API failure never silently leaves an issue unblocked: the
+            # poller's _stamp_missing_ticket_blocked will re-apply it next tick.
+            try:
                 await add_label_to_issue(our_number, "ticket-blocked")
+            except RuntimeError as exc:
+                logger.error(
+                    "❌ #%d body edited but ticket-blocked stamp failed — poller will re-stamp: %s",
+                    our_number,
+                    exc,
+                )
+            else:
                 logger.info(
                     "✅ #%d blocked_by %s — ticket-blocked label added",
                     our_number,
                     [f"#{n}" for n in blocker_numbers],
                 )
-                yield BlockedEvent(
-                    t="blocked",
-                    number=our_number,
-                    blocked_by=blocker_numbers,
-                )
-            except RuntimeError as exc:
-                # Non-fatal — log and continue.
-                logger.warning("⚠️ Could not edit #%d for depends_on: %s", our_number, exc)
+
+            yield BlockedEvent(
+                t="blocked",
+                number=our_number,
+                blocked_by=blocker_numbers,
+            )
 
     # Persist ticket-level deps to DB so the Build board can display them.
     await persist_issue_depends_on(repo, issue_deps)

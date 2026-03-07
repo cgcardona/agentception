@@ -271,3 +271,32 @@ async def test_auto_close_updates_content_hash_to_prevent_reopen() -> None:
         "content_hash must be recomputed with state='closed' "
         "so the next open-issue upsert doesn't flip the issue back to open"
     )
+
+
+# ---------------------------------------------------------------------------
+# _parse_blocked_by — regression for depends_on_json backfill from body
+# ---------------------------------------------------------------------------
+
+
+def test_parse_blocked_by_single_dep() -> None:
+    """Extracts a single blocker number from a '**Blocked by:** #N' line."""
+    body = "Some description.\n\n---\n**Blocked by:** #175"
+    assert _persist._parse_blocked_by(body) == [175]
+
+
+def test_parse_blocked_by_multiple_deps() -> None:
+    """Extracts multiple blocker numbers separated by commas."""
+    body = "Description.\n\n---\n**Blocked by:** #175, #176"
+    assert _persist._parse_blocked_by(body) == [175, 176]
+
+
+def test_parse_blocked_by_no_match_returns_empty() -> None:
+    """Returns [] when the body has no 'Blocked by' line."""
+    assert _persist._parse_blocked_by("Just a plain description.") == []
+    assert _persist._parse_blocked_by("") == []
+
+
+def test_parse_blocked_by_does_not_match_partial() -> None:
+    """Does not false-positive on partial matches like 'blocked by' (lowercase)."""
+    body = "This is blocked by someone but not in the right format."
+    assert _persist._parse_blocked_by(body) == []
