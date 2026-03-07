@@ -46,15 +46,6 @@ router = APIRouter()
 # Plan page — static data (defined once, passed to Jinja)
 # ---------------------------------------------------------------------------
 
-_PLAN_FUNNEL_STAGES = [
-    {"icon": "🧠", "label": "Plan",    "desc": "Your raw input"},
-    {"icon": "📋", "label": "Analyze", "desc": "Classify items"},
-    {"icon": "🗂️", "label": "Phase",   "desc": "Group by dependency"},
-    {"icon": "🏷️", "label": "Label",   "desc": "Create GitHub labels"},
-    {"icon": "📝", "label": "Issues",  "desc": "File structured tickets"},
-    {"icon": "🤖", "label": "Agents",  "desc": "Dispatch to engineers"},
-]
-
 _PLAN_SEEDS = [
     {
         "label": "🐛 Bug triage",
@@ -304,7 +295,7 @@ async def plan_preview(body: PlanDraftRequest) -> StreamingResponse:
     """
     from agentception.config import settings as _cfg
     from agentception.models import PlanSpec
-    from agentception.readers.llm_phase_planner import _YAML_SYSTEM_PROMPT
+    from agentception.readers.llm_phase_planner import _build_yaml_system_prompt
 
     dump = body.dump.strip()
     if not dump:
@@ -333,7 +324,7 @@ async def plan_preview(body: PlanDraftRequest) -> StreamingResponse:
         try:
             async for llm_chunk in call_openrouter_stream(
                 augmented_dump,
-                system_prompt=_YAML_SYSTEM_PROMPT,
+                system_prompt=_build_yaml_system_prompt(),
                 temperature=0.2,
                 max_tokens=8192,
             ):
@@ -513,7 +504,6 @@ async def plan_page(request: Request) -> HTMLResponse:
         {
             "recent_plans": recent_plans,
             "gh_repo": _cfg.gh_repo,
-            "funnel_stages": _PLAN_FUNNEL_STAGES,
             "seeds": _PLAN_SEEDS,
         },
     )
