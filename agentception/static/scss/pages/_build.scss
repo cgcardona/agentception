@@ -265,20 +265,33 @@
     pointer-events: none;
   }
 
-  // Currently selected in inspector
+  // Active lane — border and tint match the Active column header colour (--accent)
   &--active {
     border-color: var(--accent);
     background: rgba(139, 92, 246, 0.07);
   }
 
-  // Has an associated agent run — stronger 2px ring on hover signals inspector linkage
+  // PR Open lane — border matches the PR Open column header colour (--info)
+  &--pr {
+    border-color: var(--info);
+    background: rgba(56, 189, 248, 0.05);
+  }
+
+  // Reviewing lane — border matches the Reviewing column header colour (--warning)
+  &--review {
+    border-color: var(--warning);
+    background: rgba(251, 191, 36, 0.04);
+  }
+
+  // Has an associated agent run — 2px ring on hover, colour follows the lane
   &--has-run {
     cursor: pointer;
 
-    &:hover {
-      box-shadow: var(--shadow-sm), 0 0 0 2px var(--accent);
-    }
+    &:hover { box-shadow: var(--shadow-sm), 0 0 0 2px var(--accent); }
   }
+
+  &--pr#{&}--has-run:hover  { box-shadow: var(--shadow-sm), 0 0 0 2px var(--info); }
+  &--review#{&}--has-run:hover { box-shadow: var(--shadow-sm), 0 0 0 2px var(--warning); }
 
   // Agent actively running — subtle pulse ring
   &--running {

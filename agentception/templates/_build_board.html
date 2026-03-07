@@ -10,8 +10,9 @@
 <li class="build-issue
   {%- if group_complete %} build-issue--closed build-issue--done
   {%- elif issue.state == 'closed' %} build-issue--closed
-  {%- elif is_running %} build-issue--active build-issue--running
-  {%- elif active_run %} build-issue--active
+  {%- elif lane == 'active' %} build-issue--active{%- if is_running %} build-issue--running{%- endif %}
+  {%- elif lane == 'pr_open' %} build-issue--pr
+  {%- elif lane == 'reviewing' %} build-issue--review
   {%- endif %}
   {%- if active_run %} build-issue--has-run{%- endif %}
   {%- if issue.depends_on and lane == 'todo' and 'ticket-blocked' in issue.labels %} build-issue--ticket-blocked{%- endif %}"
