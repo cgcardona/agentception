@@ -196,7 +196,7 @@ interface PlanFormComponent extends AlpineMagics {
 // Individual field access is safe because TypeScript narrows T on each `t`
 // branch in the caller.
 
-function parseSseEvent<T extends { t: string }>(line: string): T | null {
+export function parseSseEvent<T extends { t: string }>(line: string): T | null {
   if (!line.startsWith('data: ')) return null;
   let raw: unknown;
   try {

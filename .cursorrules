@@ -194,7 +194,7 @@ For SSE streams, use a typed parser (e.g. `parseSseEvent<T>`) that validates the
 
 **Verification:** `npm run type-check` (`tsc --noEmit`) must pass with zero errors before every commit. esbuild does **not** type-check — the type-check script is the only gate.
 
-## JS / CSS / TypeScript build discipline
+## JS / CSS / TypeScript build and test discipline
 
 The browser loads **compiled bundles**, not source files directly:
 
@@ -204,12 +204,31 @@ The browser loads **compiled bundles**, not source files directly:
 | `agentception/static/scss/**/*.scss` | `agentception/static/app.css` | `npm run build:css` |
 | both | both | `npm run build` |
 
-**Rules:**
+**Build rules:**
 - After editing any `.ts` file under `static/js/`, run `npm run type-check` then `npm run build:js` before committing.
 - After editing any `.scss` file under `static/scss/`, run `npm run build:css` before committing.
 - When in doubt, run `npm run type-check && npm run build` (type-checks then builds both).
 - Never commit source changes to `static/js/` or `static/scss/` without a matching update to the bundle. A stale bundle is a silent runtime bug.
 - **Convert `.js` → `.ts` for every file you touch.** Migration is piecemeal; if you open a file to edit it and it is still `.js`, rename it and add types in the same commit.
+
+**TypeScript test commands:**
+
+| Command | What it runs |
+|---------|--------------|
+| `npm run type-check` | `tsc --noEmit` — strict type check, zero errors required |
+| `npm test` | Vitest unit tests (`agentception/static/js/**/*.test.ts`) |
+| `npm run test:watch` | Vitest in watch mode (dev) |
+| `npm run test:coverage` | Vitest with V8 coverage report |
+| `npm run test:e2e` | Playwright E2E (requires `docker compose up -d` first) |
+| `npm run test:e2e:ui` | Playwright with interactive UI explorer |
+| `npm run test:all` | type-check + unit + E2E (full pre-PR gate) |
+
+**Testing rules:**
+- Every exported function in a `.ts` source file must have Vitest unit tests in a sibling `__tests__/*.test.ts` file.
+- Use `vi.mock(...)` at the top of test files (auto-hoisted by Vitest) to mock module-level dependencies.
+- E2E tests intercept SSE endpoints via `page.route()`; pure computation endpoints hit the real server.
+- Run `npm test` (unit tests) before every commit. Run `npm run test:e2e` before every PR.
+- All unit tests must pass before running E2E tests. Never open a PR with a known failing test.
 
 ## Anti-patterns (never do these)
 

@@ -300,10 +300,19 @@ For SSE streams, use a typed parser (e.g. `parseSseEvent<T>`) that validates the
 
 | Layer | Command | Threshold |
 |-------|---------|-----------|
-| Local | `npm run type-check` | `tsc --noEmit`, 0 errors |
-| Build | `npm run build:js` | esbuild bundles (no type checking) |
+| Local type check | `npm run type-check` | `tsc --noEmit`, 0 errors |
+| Unit tests | `npm test` | Vitest, all green |
+| Build | `npm run build:js` | esbuild bundles (no type-checking) |
+| E2E | `npm run test:e2e` | Playwright, all green (requires `docker compose up -d`) |
+| Full gate | `npm run test:all` | type-check + unit + E2E |
 
-Note: esbuild does **not** type-check. `npm run type-check` is the only gate — always run it before committing any `.ts` change.
+Note: esbuild does **not** type-check. `npm run type-check` is the only type gate — run it before every commit. `npm test` runs the Vitest unit-test suite (jsdom, no browser required). `npm run test:e2e` runs Playwright against the live Docker server.
+
+**Testing rules for TypeScript:**
+- Every exported function in a `.ts` source file must have Vitest unit tests in a sibling `__tests__/*.test.ts` file.
+- Mock module-level dependencies at the top of the test file with `vi.mock(...)` (Vitest auto-hoists these above imports).
+- SSE endpoints are intercepted in E2E tests via `page.route()`; pure computation endpoints hit the real server for genuine confidence.
+- Never open a PR with a known failing unit or E2E test.
 
 ### Jinja2 + Alpine.js / HTMX: always single-quote attributes containing `tojson`
 
@@ -365,8 +374,9 @@ There is no third option. A codebase with known broken tests that everyone steps
 8. [ ] No secrets, no `print()`, no dead code, no `Any`, no bare collections, no `cast()`, no `# type: ignore` (Python)
 8a. [ ] No `any`, `object`, `{}`, untyped parameters, `as any`, or `// @ts-ignore` (TypeScript)
 8b. [ ] No legacy, no deprecated, no shims — if you touched a file with dead patterns, they are deleted in this PR
-9. [ ] If any `.ts` files changed: `npm run type-check` passes (zero errors), then `npm run build:js`
+9. [ ] If any `.ts` files changed: `npm run type-check` (zero errors), `npm test` (all green), then `npm run build:js`
 9a. [ ] If any `.js` source files were touched: rename to `.ts` and add types in this same commit
 9b. [ ] If any `.scss` files changed: `npm run build:css`
+9c. [ ] E2E tests pass: `npm run test:e2e` (requires `docker compose up -d`)
 10. [ ] If API contract changed → handoff prompt produced
 11. [ ] **Open PR and merge immediately** — do not wait for CI (it does not run on dev PRs)
