@@ -54,18 +54,24 @@ Only fall back to `gh` CLI when the MCP server does not cover the required opera
 1. `git status` — must be clean before branching.
 2. `git checkout -b fix/<description>` or `feat/<description>` — branch first, always.
 3. Do the work, commit on the branch.
-4. **Open a PR** against `dev` via `create_pull_request` MCP tool (never push directly to `dev`).
-5. **Wait for CI to pass.** After opening the PR, poll `gh run list --branch <branch> --limit 1` or the GitHub Actions API until all checks are green. **Never call `merge_pull_request` before CI completes.** If CI fails, fix the failure on the same branch and push again — do not merge a failing PR.
-6. **Merge the PR** via `merge_pull_request` MCP tool (squash). Never leave a PR open.
-6. **Delete the remote branch** — pass `deleteBranch: true` to `merge_pull_request`, or run `git push origin --delete <branch>`.
-7. **Delete the local branch** — `git checkout dev && git branch -D <branch>`.
-8. **Pull dev** — `git pull origin dev`.
-9. **Verify clean** — `git status` must show `nothing to commit, working tree clean`.
+4. **Verify locally before opening the PR** — in this exact order:
+   - `docker compose exec agentception mypy agentception/ tests/` → must be zero errors
+   - `docker compose exec agentception python3 tools/typing_audit.py --dirs agentception/ tests/ --max-any 0` → must pass
+   - `docker compose exec agentception pytest tests/ -v` → must be all green
+   - `docker compose exec agentception python3 /app/scripts/gen_prompts/generate.py --check` → must show no drift (run `generate.py` without `--check` first if you edited templates)
+   - `npm run build` if any `.js` or `.scss` files changed
+   CI does **not** run on feature → dev PRs. Local verification is the gate.
+5. **Open a PR** against `dev` via `create_pull_request` MCP tool (never push directly to `dev`).
+6. **Merge the PR immediately** via `merge_pull_request` MCP tool (squash). Do not wait for CI — it does not run on dev PRs. Never leave a PR open.
+7. **Delete the remote branch** — pass `deleteBranch: true` to `merge_pull_request`, or run `git push origin --delete <branch>`.
+8. **Delete the local branch** — `git checkout dev && git branch -D <branch>`.
+9. **Pull dev** — `git pull origin dev`.
+10. **Verify clean** — `git status` must show `nothing to commit, working tree clean`.
 
 - **Before starting any work:** run `git status`. If `dev` is not clean, stop. Either restore the dirty files (`git restore .`) or commit them on a branch first. Never carry dirty state from `dev` into a feature branch.
 - **After any file-generating command** (e.g. `generate.py`, `npm run build`, code generators): immediately run `git status`. Stage and commit every modified file — do not switch branches while files are dirty.
 - **`generate.py` rule:** run it only after you are already on a feature branch, never on `dev`. All generated outputs are part of the same commit as their source template changes.
-- **`.agentception/*.md` are derived artifacts — never edit them directly.** They are overwritten on every `generate.py` run. Any direct edit will be silently reverted the next time the generator runs, and will fail the `generated-files` CI check. The only correct workflow: edit the `.j2` template in `scripts/gen_prompts/templates/`, then run `docker compose exec agentception python3 /app/scripts/gen_prompts/generate.py`, then commit both the template and the regenerated output together.
+- **`.agentception/*.md` are derived artifacts — never edit them directly.** They are overwritten on every `generate.py` run. Any direct edit will be silently reverted the next time the generator runs. The only correct workflow: edit the `.j2` template in `scripts/gen_prompts/templates/`, then run `docker compose exec agentception python3 /app/scripts/gen_prompts/generate.py`, then commit both the template and the regenerated output together. Run `generate.py --check` before opening a PR to confirm there is no drift.
 
 The enforcement protocol:
 1. `git status` → must show `nothing to commit, working tree clean` before any `git checkout`.

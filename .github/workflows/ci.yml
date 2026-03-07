@@ -1,13 +1,15 @@
 # CI workflow for cgcardona/agentception
-# Runs on every PR targeting dev or main, and on pushes to main.
-# Jobs run in dependency order: generated-files → typecheck → (typing-ceiling + test) → smoke
+# Runs ONLY on PRs targeting main and on direct pushes to main.
+# Feature-branch → dev PRs are verified locally (mypy + tests + generate.py --check)
+# before the PR is opened. CI is the final gate before production, not a feedback
+# loop on every feature branch.
 name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [dev, main]
+    branches: [main]
 
 env:
   # Docker Compose reads DB_PASSWORD from the environment.
