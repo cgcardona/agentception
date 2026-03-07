@@ -486,7 +486,7 @@ Red = never, ask the user instead.
 STEP 0 — READ YOUR TASK FILE:
   cat .agent-task
 
-  Parse all TOML v2 fields from the task file:
+  Parse all KEY=value fields from the header:
     GH_REPO          → GitHub repo slug (export immediately)
     ISSUE_NUMBER     → your issue number (substitute for <N> throughout)
     ISSUE_TITLE      → issue title
