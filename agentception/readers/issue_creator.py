@@ -30,7 +30,7 @@ import asyncio
 import logging
 import uuid
 from collections.abc import AsyncGenerator, Coroutine
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 from agentception.config import settings as _cfg
 from agentception.db.persist import persist_initiative_phases, persist_issue_depends_on
@@ -52,18 +52,18 @@ _INITIATIVE_COLOR = "7057FF"
 
 
 class StartEvent(TypedDict):
-    t: str  # "start"
+    t: Literal["start"]
     total: int
     initiative: str
 
 
 class LabelEvent(TypedDict):
-    t: str  # "label"
+    t: Literal["label"]
     text: str
 
 
 class IssueEvent(TypedDict):
-    t: str  # "issue"
+    t: Literal["issue"]
     index: int
     total: int
     number: int
@@ -73,7 +73,7 @@ class IssueEvent(TypedDict):
 
 
 class BlockedEvent(TypedDict):
-    t: str  # "blocked"
+    t: Literal["blocked"]
     number: int
     blocked_by: list[int]
 
@@ -89,7 +89,7 @@ class CreatedIssue(TypedDict):
 
 
 class DoneEvent(TypedDict):
-    t: str  # "done"
+    t: Literal["done"]
     total: int
     initiative: str
     batch_id: str
@@ -98,7 +98,7 @@ class DoneEvent(TypedDict):
 
 
 class FilingErrorEvent(TypedDict):
-    t: str  # "error"
+    t: Literal["error"]
     detail: str
 
 

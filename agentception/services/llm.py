@@ -29,7 +29,7 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncGenerator
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 import httpx
 
@@ -49,7 +49,7 @@ _REASONING_MODELS = {"anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6"}
 class LLMChunk(TypedDict):
     """A single event yielded by ``call_openrouter_stream``."""
 
-    type: str   # "thinking" | "content"
+    type: Literal["thinking", "content"]
     text: str
 
 
