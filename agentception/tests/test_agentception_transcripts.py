@@ -198,7 +198,7 @@ def test_infer_status_done_when_last_assistant_has_pr_url() -> None:
             "text": "Yes! https://github.com/cgcardona/agentception/pull/42",
         },
     ]
-    assert infer_status_from_messages(messages) == AgentStatus.DONE
+    assert infer_status_from_messages(messages) == AgentStatus.COMPLETED
 
 
 def test_infer_status_unknown_without_pr_url() -> None:
@@ -207,12 +207,12 @@ def test_infer_status_unknown_without_pr_url() -> None:
         {"role": "user", "text": "Status?"},
         {"role": "assistant", "text": "Still implementing."},
     ]
-    assert infer_status_from_messages(messages) == AgentStatus.UNKNOWN
+    assert infer_status_from_messages(messages) == AgentStatus.FAILED
 
 
 def test_infer_status_unknown_empty_messages() -> None:
     """Empty message list returns UNKNOWN without raising."""
-    assert infer_status_from_messages([]) == AgentStatus.UNKNOWN
+    assert infer_status_from_messages([]) == AgentStatus.FAILED
 
 
 def test_infer_status_uses_last_assistant_message() -> None:
@@ -225,7 +225,7 @@ def test_infer_status_uses_last_assistant_message() -> None:
         {"role": "user", "text": "That was reverted. Can you redo it?"},
         {"role": "assistant", "text": "Re-implementing now."},
     ]
-    assert infer_status_from_messages(messages) == AgentStatus.UNKNOWN
+    assert infer_status_from_messages(messages) == AgentStatus.FAILED
 
 
 # ── build_agent_tree ──────────────────────────────────────────────────────────
@@ -294,7 +294,7 @@ async def test_build_agent_tree_parent_child(tmp_path: Path) -> None:
     child = node.children[0]
     assert child.id == child_uuid
     assert child.role == "pr-reviewer"
-    assert child.status == AgentStatus.DONE
+    assert child.status == AgentStatus.COMPLETED
     assert child.message_count == 2
 
 
@@ -318,7 +318,7 @@ async def test_build_agent_tree_coordinator_no_own_jsonl(tmp_path: Path) -> None
     assert node.id == uuid
     # No own JSONL → role falls back to "unknown", status to UNKNOWN.
     assert node.role == "unknown"
-    assert node.status == AgentStatus.UNKNOWN
+    assert node.status == AgentStatus.FAILED
     assert node.message_count == 0
     assert node.transcript_path is None
     assert len(node.children) == 1

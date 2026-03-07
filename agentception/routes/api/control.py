@@ -455,7 +455,7 @@ async def reset_build() -> ResetBuildResult:
     and no pending_launch/implementing/reviewing runs in the DB.  The main
     worktree is never removed.  Idempotent when already clean.
     """
-    from agentception.db.persist import reset_build_runs_to_unknown
+    from agentception.db.persist import reset_build_runs_to_failed
     from agentception.readers.git import list_git_worktrees
     from agentception.readers.github import clear_wip_label, get_wip_issues
 
@@ -516,7 +516,7 @@ async def reset_build() -> ResetBuildResult:
         errors.append(f"get_wip_issues: {exc}")
 
     # ── 3. Set all active runs to unknown ───────────────────────────────────
-    runs_reset = await reset_build_runs_to_unknown()
+    runs_reset = await reset_build_runs_to_failed()
 
     logger.info(
         "✅ reset-build complete: worktrees=%d wip_cleared=%d runs_reset=%d errors=%d",

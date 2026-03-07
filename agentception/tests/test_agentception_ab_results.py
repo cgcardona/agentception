@@ -57,7 +57,7 @@ def _make_wave(batch_id: str, issues: list[int], prs_opened: int = 1) -> WaveSum
             AgentNode(
                 id=f"agent-{issues[0]}",
                 role="python-developer",
-                status=AgentStatus.DONE,
+                status=AgentStatus.COMPLETED,
                 issue_number=issues[0],
                 batch_id=batch_id,
             )

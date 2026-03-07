@@ -2428,7 +2428,7 @@ async def get_terminal_runs_with_worktrees() -> list[TerminalRunRow]:
         async with get_session() as session:
             result = await session.execute(
                 select(ACAgentRun.id, ACAgentRun.worktree_path, ACAgentRun.branch).where(
-                    ACAgentRun.status.in_(["done", "stale"]),
+                    ACAgentRun.status.in_(["completed", "failed", "cancelled", "stopped"]),
                     ACAgentRun.worktree_path.isnot(None),
                 )
             )

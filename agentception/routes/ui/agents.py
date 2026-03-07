@@ -165,7 +165,7 @@ async def agents_list(request: Request) -> HTMLResponse:
         if spawned and completed and completed > spawned:
             duration_s = (completed - spawned).total_seconds()
             duration_str = _fmt_duration(duration_s)
-            if run.get("status") == "done":
+            if run.get("status") == "completed":
                 total_duration_s += duration_s
                 completed_count += 1
 
@@ -216,13 +216,13 @@ async def agents_list(request: Request) -> HTMLResponse:
     for batch in batches:
         b_runs = batch["runs"]
         b_total = len(b_runs)
-        b_done = sum(1 for r in b_runs if r.get("status") == "done")
+        b_done = sum(1 for r in b_runs if r.get("status") == "completed")
         batch["success_rate"] = round(b_done / b_total * 100) if b_total else 0
 
     # ── Aggregate KPI stats ───────────────────────────────────────────────
     total = len(enriched_history)
-    done_count = sum(1 for r in enriched_history if r.get("status") == "done")
-    failed_count = sum(1 for r in enriched_history if r.get("status") in ("stale", "unknown"))
+    done_count = sum(1 for r in enriched_history if r.get("status") == "completed")
+    failed_count = sum(1 for r in enriched_history if r.get("status") in ("stale", "failed"))
     success_rate = round(done_count / total * 100) if total else 0
     avg_duration_str = _fmt_duration(total_duration_s / completed_count) if completed_count else "—"
 
@@ -339,7 +339,7 @@ async def controls_hub(request: Request) -> HTMLResponse:
         history = await get_agent_run_history(limit=50)
         kill_history = [
             r for r in history
-            if r.get("status") in ("done", "stale", "unknown")
+            if r.get("status") in ("completed", "stale", "failed", "cancelled", "stopped")
         ][:10]
     except Exception as exc:
         logger.debug("DB kill history fetch skipped: %s", exc)
@@ -489,11 +489,11 @@ async def agent_transcript_partial(request: Request, agent_id: str) -> Response:
             db_run = await get_agent_run_detail(agent_id)
             if db_run:
                 db_messages = db_run.get("messages", [])
-                raw_status = str(db_run.get("status", "unknown")).lower()
+                raw_status = str(db_run.get("status", "failed")).lower()
                 try:
                     synth_status = _AgentStatus(raw_status)
                 except ValueError:
-                    synth_status = _AgentStatus.UNKNOWN
+                    synth_status = _AgentStatus.FAILED
                 node = AgentNode(
                     id=str(db_run.get("id", agent_id)),
                     role=str(db_run.get("role", "unknown")),
@@ -578,16 +578,17 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
     # Synthesise AgentNode from DB when the live poller no longer holds it.
     if node is None and db_run is not None:
         from agentception.models import AgentStatus as _AgentStatus
-        raw_status = str(db_run.get("status", "unknown")).lower()
+        raw_status = str(db_run.get("status", "failed")).lower()
         # If the agent is not live in the poller it cannot still be running.
-        # "unknown" means the run ended without a clean done report — treat it
-        # as done so the UI doesn't surface a misleading status badge.
+        # Map any legacy "unknown" value to "failed" for backward compatibility.
         if raw_status == "unknown":
-            raw_status = "done"
+            raw_status = "failed"
+        elif raw_status == "done":
+            raw_status = "completed"
         try:
             synth_status = _AgentStatus(raw_status)
         except ValueError:
-            synth_status = _AgentStatus.UNKNOWN
+            synth_status = _AgentStatus.FAILED
         node = AgentNode(
             id=str(db_run.get("id", agent_id)),
             role=str(db_run.get("role", "unknown")),

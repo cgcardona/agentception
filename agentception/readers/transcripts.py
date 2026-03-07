@@ -151,14 +151,15 @@ def infer_status_from_messages(messages: list[dict[str, str]]) -> AgentStatus:
 
     Heuristic: if the most-recent assistant message contains a GitHub pull-request
     URL (``github.com/<owner>/<repo>/pull/<n>``), the agent successfully opened
-    a PR and is considered ``DONE``. Any other ending state maps to ``UNKNOWN``.
+    a PR and is considered ``COMPLETED``. Any other ending state maps to
+    ``FAILED``.
     """
     for msg in reversed(messages):
         if msg.get("role") == "assistant":
             if _PR_URL_RE.search(msg.get("text", "")):
-                return AgentStatus.DONE
+                return AgentStatus.COMPLETED
             break
-    return AgentStatus.UNKNOWN
+    return AgentStatus.FAILED
 
 
 def extract_pr_urls(messages: list[dict[str, str]]) -> list[str]:

@@ -44,7 +44,7 @@ def populated_waves() -> list[WaveSummary]:
     agent = AgentNode(
         id="issue-615",
         role="python-developer",
-        status=AgentStatus.DONE,
+        status=AgentStatus.COMPLETED,
         issue_number=615,
         batch_id="eng-batch-A",
     )

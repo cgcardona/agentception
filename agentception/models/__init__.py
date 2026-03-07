@@ -65,13 +65,19 @@ VALID_ROLES: frozenset[str] = _load_valid_roles()
 
 
 class AgentStatus(str, Enum):
-    """Lifecycle state of a single pipeline agent, derived from filesystem + GitHub signals."""
+    """Lifecycle state of a single pipeline agent, derived from filesystem + GitHub signals.
 
+    Mirror of :class:`agentception.workflow.status.AgentStatus` — kept in sync.
+    """
+
+    PENDING_LAUNCH = "pending_launch"
     IMPLEMENTING = "implementing"
+    BLOCKED = "blocked"
     REVIEWING = "reviewing"
-    DONE = "done"
-    STALE = "stale"
-    UNKNOWN = "unknown"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    STOPPED = "stopped"
+    FAILED = "failed"
 
 
 class AgentNode(BaseModel):
