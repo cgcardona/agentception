@@ -67,13 +67,20 @@ Every task follows this complete lifecycle — no step is optional:
 2. **Branch first.** `git checkout -b fix/<description>` or `git checkout -b feat/<description>` is the **first** command of every task, not an afterthought.
 3. **Stage everything before switching.** After any file-generating command (`generate.py`, `npm run build`, code generators, etc.), run `git status` and stage every modified file. Never switch branches while files are dirty — unstaged changes follow you and end up on the wrong branch.
 4. **Include all generated outputs in the same commit.** Template source changes and their regenerated outputs (`generate.py` → `.agentception/*.md`) belong in one commit on the feature branch. Never split them across branches.
-5. **`.agentception/*.md` are derived artifacts — never edit them directly.** Editing an output file instead of its `.j2` template source will be silently overwritten on the next `generate.py` run, and will fail the `generated-files` CI job that now runs on every PR to `dev` and `main`. The only correct workflow: edit the `.j2` template in `scripts/gen_prompts/templates/`, then run `docker compose exec agentception python3 /app/scripts/gen_prompts/generate.py`, then commit template + regenerated output together in one commit.
-5. **Open a pull request.** Always create a PR against `dev` — never push directly. Use the `create_pull_request` MCP tool (preferred) or `gh pr create`. Every change, no matter how small, goes through a PR.
-6. **Wait for CI to pass.** After opening the PR, poll the GitHub Actions run until every check is green. Use `gh run list --branch <branch> --limit 1` to get the run ID, then `gh run watch <run_id>` or poll `gh run view <run_id> --json conclusion` until `conclusion` is `"success"`. **Never call `merge_pull_request` before CI is green.** If CI fails, fix the problem on the same branch (push a new commit) and wait for CI again. Merging a failing PR is not allowed under any circumstances.
-7. **Merge the PR.** Use `merge_pull_request` MCP tool (squash merge). Do not leave PRs open at the end of a session.
-7. **Delete the remote branch.** After merging, delete the remote tracking branch. The `merge_pull_request` MCP tool does this automatically with `deleteBranch: true`; if using `gh`, run `git push origin --delete <branch>`.
-8. **Delete the local branch.** `git checkout dev && git branch -D <branch>`.
-9. **Pull dev.** `git pull origin dev` — confirm `git status` shows `nothing to commit, working tree clean` before starting the next task.
+5. **`.agentception/*.md` are derived artifacts — never edit them directly.** The only correct workflow: edit the `.j2` template in `scripts/gen_prompts/templates/`, run `docker compose exec agentception python3 /app/scripts/gen_prompts/generate.py`, then commit template + regenerated output together in one commit.
+6. **Verify locally before opening the PR.** CI does not run on feature → dev PRs — local verification is the gate. Run in this exact order:
+   ```bash
+   docker compose exec agentception mypy agentception/ tests/                              # zero errors
+   docker compose exec agentception python3 tools/typing_audit.py --dirs agentception/ tests/ --max-any 0  # passes
+   docker compose exec agentception pytest tests/ -v                                       # all green
+   docker compose exec agentception python3 /app/scripts/gen_prompts/generate.py --check  # no drift
+   npm run build   # only if .js or .scss files changed
+   ```
+7. **Open a pull request.** Always create a PR against `dev` — never push directly. Use the `create_pull_request` MCP tool (preferred) or `gh pr create`. Every change, no matter how small, goes through a PR.
+8. **Merge the PR immediately.** Use `merge_pull_request` MCP tool (squash merge). Do not wait for CI — it does not run on feature → dev PRs. Do not leave PRs open.
+9. **Delete the remote branch.** The `merge_pull_request` MCP tool does this automatically with `deleteBranch: true`; if using `gh`, run `git push origin --delete <branch>`.
+10. **Delete the local branch.** `git checkout dev && git branch -D <branch>`.
+11. **Pull dev.** `git pull origin dev` — confirm `git status` shows `nothing to commit, working tree clean` before starting the next task.
 
 ### Complete task teardown sequence
 
@@ -96,7 +103,8 @@ git status                               # must be clean
 | Before creating a branch | `git status` | `nothing to commit, working tree clean` |
 | After any file-modifying command | `git status` | Stage or restore every modified file immediately |
 | After switching to a branch | `git status` | Only files you intentionally changed are modified |
-| After task complete | PR created, merged, branch deleted locally and remotely | `git status` on `dev` is clean |
+| Before opening PR | `mypy` + `typing_audit` + `pytest` + `generate.py --check` | All pass locally |
+| After task complete | PR created, merged immediately, branch deleted locally and remotely | `git status` on `dev` is clean |
 
 Carrying dirty state from `dev` into a feature branch, then committing only some of the dirty files, is the root cause of every "uncommitted changes on dev" incident. The protocol above prevents it.
 
@@ -275,19 +283,19 @@ There is no third option. A codebase with known broken tests that everyone steps
 
 ## Verification Checklist
 
-Before considering work complete, run in this order (mypy first so type fixes don't force a re-run of tests):
+**Run locally before opening a PR — in this exact order.** CI does not run on feature → dev PRs; this checklist is the gate.
 
 > **Dev bind mounts are active.** Your host file edits are instantly visible inside the container — do NOT rebuild for code changes. Only rebuild when `requirements.txt`, `Dockerfile`, or `entrypoint.sh` change.
 
 0. [ ] Confirm you are on a feature branch or inside a worktree — **never on `dev` or `main`**
 1. [ ] `docker compose exec agentception mypy agentception/ tests/` — clean, zero errors
-2. [ ] `python tools/typing_audit.py --dirs agentception/ tests/ --max-any 0` — passes
-3. [ ] Unit tests pass: `docker compose exec agentception pytest tests/unit/ -v`
-4. [ ] Integration tests pass: `docker compose exec agentception pytest tests/integration/ -v`
-5. [ ] E2E tests pass (if applicable): `docker compose exec agentception pytest tests/e2e/ -v`
-6. [ ] Regression test added if this is a bug fix
-7. [ ] Zero broken tests in the full suite — fix any you find, not just yours
-8. [ ] Affected docs updated
-9. [ ] No secrets, no `print()`, no dead code, no `Any`, no bare collections, no `cast()`, no `# type: ignore`
-10. [ ] JS/CSS bundles rebuilt if static source changed (`npm run build`)
-11. [ ] If API contract changed → handoff prompt produced
+2. [ ] `docker compose exec agentception python3 tools/typing_audit.py --dirs agentception/ tests/ --max-any 0` — passes
+3. [ ] `docker compose exec agentception pytest tests/ -v` — all green (unit + integration + regression)
+4. [ ] Regression test added if this is a bug fix (named `test_<what_broke>_<fixed_behavior>`)
+5. [ ] `docker compose exec agentception python3 /app/scripts/gen_prompts/generate.py --check` — no drift (run without `--check` first if you edited `.j2` templates, then re-run with `--check`)
+6. [ ] Zero broken tests — fix any you find, not just yours
+7. [ ] Affected docs updated in the same commit
+8. [ ] No secrets, no `print()`, no dead code, no `Any`, no bare collections, no `cast()`, no `# type: ignore`
+9. [ ] JS/CSS bundles rebuilt if static source changed (`npm run build`)
+10. [ ] If API contract changed → handoff prompt produced
+11. [ ] **Open PR and merge immediately** — do not wait for CI (it does not run on dev PRs)
