@@ -22,7 +22,6 @@ See ``docs/agent-tree-protocol.md`` for the full tier spec.
 import asyncio
 import datetime
 import logging
-from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
@@ -30,7 +29,6 @@ from sqlalchemy import func, select
 
 from typing import Literal
 
-from agentception.config import settings
 from agentception.db.engine import get_session
 from agentception.db.models import ACAgentMessage, ACAgentRun
 from agentception.db.persist import acknowledge_agent_run, persist_agent_event
@@ -40,6 +38,7 @@ from agentception.services.spawn_child import (
     Tier,
     spawn_child,
 )
+from agentception.services.teardown import teardown_agent_worktree
 
 logger = logging.getLogger(__name__)
 
@@ -249,72 +248,12 @@ async def report_decision(run_id: str, req: DecisionReport) -> dict[str, object]
 
 
 async def _teardown_agent_worktree(run_id: str) -> None:
-    """Remove the worktree and delete the remote branch for a completed agent run.
+    """Delegate to the shared teardown service.
 
-    Called non-blocking from ``report_done`` — errors are logged but never
-    propagated so a cleanup failure cannot break the agent's done response.
+    Thin wrapper kept so the ``asyncio.create_task`` call below doesn't change.
+    All logic lives in ``agentception.services.teardown``.
     """
-    teardown = await get_agent_run_teardown(run_id)
-    if teardown is None:
-        logger.warning("⚠️  _teardown_agent_worktree: no DB row for run_id=%r", run_id)
-        return
-
-    repo_dir = str(settings.repo_dir)
-    worktree_path = teardown["worktree_path"]
-    branch = teardown["branch"]
-
-    if worktree_path and Path(worktree_path).exists():
-        rm_proc = await asyncio.create_subprocess_exec(
-            "git", "-C", repo_dir, "worktree", "remove", "--force", worktree_path,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await rm_proc.communicate()
-        if rm_proc.returncode == 0:
-            logger.info("✅ _teardown: removed worktree %s", worktree_path)
-        else:
-            logger.warning("⚠️  _teardown: worktree remove failed: %s", stderr.decode().strip())
-
-    prune_proc = await asyncio.create_subprocess_exec(
-        "git", "-C", repo_dir, "worktree", "prune",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    await prune_proc.communicate()
-
-    if branch:
-        push_proc = await asyncio.create_subprocess_exec(
-            "git", "-C", repo_dir, "push", "origin", "--delete", branch,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, push_stderr = await push_proc.communicate()
-        if push_proc.returncode == 0:
-            logger.info("✅ _teardown: deleted remote branch %r", branch)
-        else:
-            logger.info(
-                "ℹ️  _teardown: remote branch %r not deleted (may already be gone): %s",
-                branch,
-                push_stderr.decode().strip(),
-            )
-
-        # Delete the local branch so it does not accumulate in the main repo.
-        # git worktree remove unlinks the worktree but leaves the local branch
-        # reference in .git/refs/heads/ — this cleans it up.
-        branch_proc = await asyncio.create_subprocess_exec(
-            "git", "-C", repo_dir, "branch", "-D", branch,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, branch_stderr = await branch_proc.communicate()
-        if branch_proc.returncode == 0:
-            logger.info("✅ _teardown: deleted local branch %r", branch)
-        else:
-            logger.info(
-                "ℹ️  _teardown: local branch %r not deleted (may already be gone): %s",
-                branch,
-                branch_stderr.decode().strip(),
-            )
+    await teardown_agent_worktree(run_id)
 
 
 @router.post("/{run_id}/done")

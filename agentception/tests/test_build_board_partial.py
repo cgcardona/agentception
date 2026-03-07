@@ -531,3 +531,60 @@ async def test_persist_agent_event_non_done_does_not_call_recompute() -> None:
         )
 
     mock_recompute.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Regression: build_report_done triggers worktree teardown automatically
+#
+# Before this fix, agents that called the MCP build_report_done tool had their
+# worktrees and branches left behind permanently — cleanup only happened if the
+# orphan sweep caught them or an operator clicked "Kill". After the fix,
+# build_report_done fires teardown_agent_worktree as a background task when
+# agent_run_id is provided.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_build_report_done_triggers_teardown_when_run_id_given() -> None:
+    """build_report_done queues teardown_agent_worktree when agent_run_id is set."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from agentception.mcp.build_tools import build_report_done
+
+    mock_task = MagicMock()
+    with (
+        patch("agentception.mcp.build_tools.persist_agent_event", new_callable=AsyncMock),
+        patch("agentception.mcp.build_tools.teardown_agent_worktree", new_callable=AsyncMock) as mock_teardown,
+        patch("agentception.mcp.build_tools.asyncio.create_task", return_value=mock_task) as mock_create_task,
+    ):
+        result = await build_report_done(
+            issue_number=42,
+            pr_url="https://github.com/cgcardona/agentception/pull/99",
+            agent_run_id="issue-42-abc123",
+        )
+
+    assert result == {"ok": True, "event": "done"}
+    mock_create_task.assert_called_once()
+    task_coro = mock_create_task.call_args.args[0]
+    assert mock_create_task.call_args.kwargs.get("name") == "teardown-issue-42-abc123"
+    task_coro.close()  # avoid ResourceWarning for unawaited coroutine
+
+
+@pytest.mark.anyio
+async def test_build_report_done_skips_teardown_without_run_id() -> None:
+    """build_report_done does not crash and skips teardown when agent_run_id is absent."""
+    from unittest.mock import AsyncMock, patch
+
+    from agentception.mcp.build_tools import build_report_done
+
+    with (
+        patch("agentception.mcp.build_tools.persist_agent_event", new_callable=AsyncMock),
+        patch("agentception.mcp.build_tools.asyncio.create_task") as mock_create_task,
+    ):
+        result = await build_report_done(
+            issue_number=42,
+            pr_url="https://github.com/cgcardona/agentception/pull/99",
+        )
+
+    assert result == {"ok": True, "event": "done"}
+    mock_create_task.assert_not_called()
