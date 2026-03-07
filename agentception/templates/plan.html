@@ -239,14 +239,14 @@
       <span x-text="yamlValidationMsg"></span>
     </div>
 
-    {# CodeMirror 6 editor container #}
-    <div x-ref="yamlEditor" class="plan-yaml-editor"></div>
-
-    {# Filing progress strip — only visible during launching state #}
+    {# Filing progress strip — shown between validation and editor during launch #}
     <div class="plan-filing-progress" x-show="step === 'launching' && filingProgress" x-transition.opacity>
       <div class="plan-spinner plan-spinner--sm"></div>
       <span x-text="filingProgress"></span>
     </div>
+
+    {# CodeMirror 6 editor container #}
+    <div x-ref="yamlEditor" class="plan-yaml-editor"></div>
 
     <div class="plan-error" x-show="errorMsg" x-transition>
       <span x-text="errorMsg"></span>
