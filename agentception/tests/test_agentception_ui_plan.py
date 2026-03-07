@@ -297,8 +297,8 @@ def test_plan_page_done_state_has_batch_pill_and_track_agents(client: TestClient
     assert "plan-done-batch" in resp.text
     assert "plan-done-batch-id" in resp.text
     assert "copyBatchId" in resp.text
-    # Done step CTAs (redesigned in PR #162).
-    assert "Build Board" in resp.text
+    # Done step CTAs — "Dispatch agents" is the primary action, "View on GitHub" is secondary.
+    assert "Dispatch agents" in resp.text
     assert "View on GitHub" in resp.text
 
 

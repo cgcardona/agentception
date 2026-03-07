@@ -637,3 +637,61 @@ describe('_validateYaml', () => {
     expect(c.yamlValidationMsg).toBe('');
   });
 });
+
+// ---------------------------------------------------------------------------
+// URL update — history.pushState after done event
+// ---------------------------------------------------------------------------
+//
+// window.history.pushState is a side-effect that modifies the browser URL.
+// jsdom partially implements history.pushState but does not propagate the
+// change into window.location.pathname in all configurations, so we cannot
+// assert on it reliably in unit tests.  The observable URL change is verified
+// in the Playwright E2E suite (tests/e2e/plan.spec.ts).  Here we assert the
+// component state invariants that are prerequisites for the pushState call.
+// Note: `window.history` is used explicitly in plan.ts because `history`
+// is shadowed by the CodeMirror history extension import.
+
+describe('URL update on done event — component invariants', () => {
+  it('step=done and initiative set after Phase 1B done SSE', async () => {
+    const c = makeComponent();
+    c.step = 'launching';
+
+    const resp = makeSseResponse([{
+      t: 'done',
+      total: 2,
+      initiative: 'auth-rewrite',
+      batch_id: 'batch-abc123',
+      issues: [
+        { issue_id: 'i1', number: 101, url: 'https://github.com/t/r/issues/101', title: 'Auth model', phase: '0-foundation' },
+        { issue_id: 'i2', number: 102, url: 'https://github.com/t/r/issues/102', title: 'JWT middleware', phase: '0-foundation' },
+      ],
+      coordinator_arch: {},
+    }]);
+    await c._readFileStream(resp);
+
+    expect(c.step).toBe('done');
+    // initiative is populated so pushState would target /plan/auth-rewrite
+    expect(c.initiative).toBe('auth-rewrite');
+    expect(c.batchId).toBe('batch-abc123');
+    expect(c.issueCount).toBe(2);
+  });
+
+  it('empty initiative in done event — no URL to push', async () => {
+    const c = makeComponent();
+    c.step = 'launching';
+
+    const resp = makeSseResponse([{
+      t: 'done',
+      total: 1,
+      initiative: '',
+      batch_id: 'batch-xyz',
+      issues: [{ issue_id: 'i1', number: 1, url: 'https://github.com/t/r/issues/1', title: 'T', phase: '0-foundation' }],
+      coordinator_arch: {},
+    }]);
+    await c._readFileStream(resp);
+
+    expect(c.step).toBe('done');
+    // Empty initiative means the if-guard prevents pushState.
+    expect(c.initiative).toBe('');
+  });
+});

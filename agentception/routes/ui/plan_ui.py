@@ -5,8 +5,9 @@ Endpoints
 POST /api/plan/preview                   — Step 1.A: brain dump → PlanSpec YAML (SSE stream)
 POST /api/plan/validate                  — Validate (possibly edited) YAML against PlanSpec schema
 POST /api/plan/file-issues               — Step 1.B: file GitHub issues from a PlanSpec YAML (SSE)
-GET  /plan                               — full page
+GET  /plan                               — full page (Alpine state machine)
 GET  /plan/recent-runs                   — HTMX partial (sidebar refresh)
+GET  /plan/{initiative}                  — shareable, server-rendered initiative overview
 GET  /api/plan/{run_id}/plan-text        — return original plan text for re-run
 
 Streaming protocol (POST /api/plan/preview)
@@ -30,6 +31,8 @@ import json
 import logging
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Literal, TypedDict
+
+import re
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -581,6 +584,52 @@ async def plan_recent_runs(request: Request) -> HTMLResponse:
         request,
         "_plan_recent_runs.html",
         {"recent_plans": recent_plans, "gh_repo": _cfg.gh_repo},
+    )
+
+
+_INITIATIVE_SLUG_RE: re.Pattern[str] = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+
+@router.get("/plan/{initiative}", response_class=HTMLResponse)
+async def plan_initiative_page(request: Request, initiative: str) -> HTMLResponse:
+    """Shareable, server-rendered overview of a filed initiative.
+
+    Reachable directly (e.g. when a teammate follows a shared link) or via
+    ``history.pushState`` in ``plan.ts`` immediately after Phase 1B completes.
+    Renders the same visual as the Alpine done-state but as a static Jinja2
+    template — no JavaScript required to view it.
+
+    Returns 400 when *initiative* fails slug validation and 404 when no
+    ``initiative_phases`` rows exist for it in the database.
+    """
+    import datetime as _dt
+
+    from agentception.config import settings as _cfg
+    from agentception.db.queries import get_initiative_summary
+
+    if not _INITIATIVE_SLUG_RE.match(initiative):
+        raise HTTPException(status_code=400, detail="Invalid initiative slug.")
+
+    summary = await get_initiative_summary(_cfg.gh_repo, initiative)
+    if summary is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Initiative '{initiative}' not found. Has Phase 1B been run?",
+        )
+
+    filed_at_display: str | None = None
+    if summary["filed_at"]:
+        filed_dt = _dt.datetime.fromisoformat(summary["filed_at"])
+        filed_at_display = filed_dt.strftime("%-d %b %Y")
+
+    return _TEMPLATES.TemplateResponse(
+        request,
+        "plan_initiative.html",
+        {
+            "summary": summary,
+            "gh_repo": _cfg.gh_repo,
+            "filed_at_display": filed_at_display,
+        },
     )
 
 
