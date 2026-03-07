@@ -218,9 +218,11 @@ scripts/
 - **Every Python file** must have `from __future__ import annotations` as the first import, immediately after the module docstring (if present). A module docstring may precede it — no other code may. No exceptions.
 - **Type everything, 100%.** No untyped function parameters, no untyped return values. Use `list[X]`, `dict[K, V]`, `tuple[A, B]`, `X | None` — never `Optional[X]`, never bare `list` or `dict`.
 - **Mypy before tests — always, without exception.** Run `docker compose exec agentception mypy agentception/ tests/` on every Python file you create or modify before running the test suite. Fix all type errors first.
+- **Every TypeScript file** (`agentception/static/js/**/*.ts`) must pass `npm run type-check` (`tsc --noEmit`) before committing. See the TypeScript typing rules section below.
+- **Convert `.js` → `.ts` for every file you touch.** If you open a JS file to edit it, rename it `.ts` and add types in the same commit.
 - **Editing existing files:** Only modify necessary sections. Preserve formatting, structure, and surrounding code.
 - **Creating new files:** Write complete, self-contained modules. Include imports, type hints, and docstrings.
-- **Before finishing any task:** Confirm types pass (mypy), tests pass (all four levels), imports resolve, no orphaned code.
+- **Before finishing any task:** Confirm types pass (mypy + tsc), tests pass (all four levels), imports resolve, no orphaned code.
 
 ### Typing — zero-tolerance rules
 
@@ -244,13 +246,64 @@ This codebase is read and modified by humans and agents alike. Strong, explicit 
 
 **The `# type: ignore` rule:** there is no valid reason to use it in application code. If mypy flags something, it has found a real problem. The solution is always to fix the type, not to suppress the error. If a third-party library produces an unfixable typing gap, wrap it in a thin, fully-typed adapter and document why.
 
-### Mypy enforcement chain
+### Mypy enforcement chain (Python)
 
 | Layer | Command | Threshold |
 |-------|---------|-----------|
 | Local | `docker compose exec agentception mypy agentception/ tests/` | strict, 0 errors |
 | Typing ceiling | `python tools/typing_audit.py --dirs agentception/ tests/ --max-any 0` | blocks commit |
 | CI | `python -m mypy agentception/` | blocks PR merge |
+
+### TypeScript — zero-tolerance typing rules
+
+Frontend source files under `agentception/static/js/` are TypeScript (`.ts`). The same discipline that applies to Python with mypy applies here with `tsc`. `tsconfig.json` enforces `strict: true` — every error is real and must be fixed, never silenced.
+
+**Type inference is correct and encouraged for local variables.** Do not add redundant annotations where TypeScript can infer the type exactly:
+
+```typescript
+const count = 0;              // ✅ inferred as number — no annotation needed
+const names = ['a', 'b'];    // ✅ inferred as string[]
+```
+
+**Always annotate explicitly:**
+- Every function parameter — inference does not apply to parameters
+- Exported function return types
+- Variables initialised to `null`, `undefined`, or `[]` / `{}` (inference gives `null`, `never[]`, `{}`)
+- Any network or storage boundary (`fetch` response, `localStorage`, `JSON.parse`)
+- The `this` context of an Alpine component
+
+**Banned — no exceptions:**
+
+| What | Why banned | Use instead |
+|------|------------|-------------|
+| `any` | Collapses type safety for all callers | A specific type, `unknown`, or a discriminated union |
+| `object` | Structureless — equivalent to `any` | The actual interface or a constrained type |
+| `{}` (as a type) | Accepts almost everything | A named `interface` or `type` |
+| `Function` | No parameter or return info | An explicit signature `(x: T) => U` |
+| Untyped parameters | Cannot be inferred | Always annotate: `fn(x: string): void` |
+| `as any` | Silences all downstream errors | Fix the root cause; narrow from `unknown` |
+| `// @ts-ignore` | A lie in the source | Fix the error; use `// @ts-expect-error` only with a justification comment |
+| `Record<string, unknown>` for known keys | Structured data treated as dynamic | A named `interface` with the known fields |
+| Unexplained `!` (non-null assertion) | Masks a potential crash | Add a runtime guard, or document why null is impossible |
+
+**The known-keys rule (mirrors Python):** `Map<K, V>` and `Record<K, V>` are correct when any key is valid at runtime. If you know the keys at write time, define a named `interface`. A `Record<string, unknown>` whose keys are always `"total"`, `"issues"`, and `"batch_id"` is an `interface` waiting to be written.
+
+**Network and storage boundaries:** `JSON.parse` returns `unknown`. `Response.json()` returns `any` in the DOM lib. At every network or storage boundary, assert to a named interface and explain why:
+
+```typescript
+const data = await resp.json() as ValidateResponse;   // server contract
+```
+
+For SSE streams, use a typed parser (e.g. `parseSseEvent<T>`) that validates the discriminator field before asserting the union type. `as T` inside business logic is always a red flag — fix the upstream function instead.
+
+**TypeScript enforcement chain:**
+
+| Layer | Command | Threshold |
+|-------|---------|-----------|
+| Local | `npm run type-check` | `tsc --noEmit`, 0 errors |
+| Build | `npm run build:js` | esbuild bundles (no type checking) |
+
+Note: esbuild does **not** type-check. `npm run type-check` is the only gate — always run it before committing any `.ts` change.
 
 ### Jinja2 + Alpine.js / HTMX: always single-quote attributes containing `tojson`
 
@@ -309,8 +362,11 @@ There is no third option. A codebase with known broken tests that everyone steps
 5. [ ] `docker compose exec agentception python3 /app/scripts/gen_prompts/generate.py --check` — no drift (run without `--check` first if you edited `.j2` templates, then re-run with `--check`)
 6. [ ] Zero broken tests — fix any you find, not just yours
 7. [ ] Affected docs updated in the same commit
-8. [ ] No secrets, no `print()`, no dead code, no `Any`, no bare collections, no `cast()`, no `# type: ignore`
-8a. [ ] No legacy, no deprecated, no shims — if you touched a file with dead patterns, they are deleted in this PR
-9. [ ] JS/CSS bundles rebuilt if static source changed (`npm run build`)
+8. [ ] No secrets, no `print()`, no dead code, no `Any`, no bare collections, no `cast()`, no `# type: ignore` (Python)
+8a. [ ] No `any`, `object`, `{}`, untyped parameters, `as any`, or `// @ts-ignore` (TypeScript)
+8b. [ ] No legacy, no deprecated, no shims — if you touched a file with dead patterns, they are deleted in this PR
+9. [ ] If any `.ts` files changed: `npm run type-check` passes (zero errors), then `npm run build:js`
+9a. [ ] If any `.js` source files were touched: rename to `.ts` and add types in this same commit
+9b. [ ] If any `.scss` files changed: `npm run build:css`
 10. [ ] If API contract changed → handoff prompt produced
 11. [ ] **Open PR and merge immediately** — do not wait for CI (it does not run on dev PRs)
