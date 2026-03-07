@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncGenerator
+from typing import TYPE_CHECKING, Literal, TypeAlias, TypedDict
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -35,8 +36,11 @@ from pydantic import BaseModel
 from starlette.requests import Request
 
 from agentception.readers.llm_phase_planner import _strip_fences
-from agentception.services.llm import call_openrouter_stream
+from agentception.services.llm import LLMChunk, call_openrouter_stream
 from ._shared import _TEMPLATES
+
+if TYPE_CHECKING:
+    from agentception.readers.issue_creator import IssueFileEvent
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +90,55 @@ _PLAN_SEEDS = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Named types — sidebar entries and SSE event shapes
+# ---------------------------------------------------------------------------
+
+
+class _RecentPlanEntry(TypedDict):
+    """One entry in the recent-runs sidebar, built from a plan worktree."""
+
+    slug: str
+    label_prefix: str
+    preview: str
+    ts: str
+    batch_id: str
+    item_count: str
+
+
+class _ChunkEvent(TypedDict):
+    """Streaming YAML token from the LLM (Step 1.A preview stream)."""
+
+    t: Literal["chunk"]
+    text: str
+
+
+class _PreviewDoneEvent(TypedDict):
+    """Emitted once when the LLM stream completes and PlanSpec validation passes."""
+
+    t: Literal["done"]
+    yaml: str
+    initiative: str
+    phase_count: int
+    issue_count: int
+
+
+class _PreviewErrorEvent(TypedDict):
+    """Emitted when the preview stream encounters a fatal error."""
+
+    t: Literal["error"]
+    detail: str
+
+
+#: Union of all event shapes produced by the Step 1.A preview stream.
+_PreviewSseEvent: TypeAlias = _ChunkEvent | _PreviewDoneEvent | _PreviewErrorEvent
+
+
+# ---------------------------------------------------------------------------
+# YAML normalisation shim
+# ---------------------------------------------------------------------------
+
+
 def _normalize_plan_dict(raw: object) -> object:
     """Coerce alternative YAML shapes into the canonical PlanSpec mapping.
 
@@ -110,6 +163,14 @@ def _normalize_plan_dict(raw: object) -> object:
             issues: [...]
 
     All other shapes are returned unchanged so normal Pydantic validation runs.
+
+    .. note:: Typing constraint
+
+        ``raw`` is the direct output of ``yaml.safe_load``, whose stubs return
+        ``Any``.  Annotating it as ``object`` is the narrowest honest claim we
+        can make at this boundary without using ``Any`` (banned) or a recursive
+        ``TypeAlias`` (requires Python 3.12+).  All downstream contract
+        enforcement is delegated to ``PlanSpec.model_validate()``.
     """
     if not isinstance(raw, dict):
         return raw
@@ -191,7 +252,7 @@ def _count_plan_items(plan_text: str) -> int:
     return sum(1 for ln in plan_text.splitlines() if ln.strip())
 
 
-async def _build_recent_plans() -> list[dict[str, str]]:
+async def _build_recent_plans() -> list[_RecentPlanEntry]:
     """Scan the worktrees directory and return metadata for the 6 most recent plan runs.
 
     Each entry contains: slug, label_prefix, preview, ts, batch_id, item_count.
@@ -200,7 +261,7 @@ async def _build_recent_plans() -> list[dict[str, str]]:
     """
     from agentception.config import settings as _cfg
 
-    recent_plans: list[dict[str, str]] = []
+    recent_plans: list[_RecentPlanEntry] = []
     worktrees_dir = _cfg.worktrees_dir
     try:
         if worktrees_dir.exists():
@@ -240,14 +301,14 @@ async def _build_recent_plans() -> list[dict[str, str]]:
                     ts_fmt = f"{ts_raw[:4]}-{ts_raw[4:6]}-{ts_raw[6:8]} {ts_raw[9:11]}:{ts_raw[11:13]}"
                 except Exception:
                     ts_fmt = ts_raw
-                recent_plans.append({
-                    "slug": d.name,
-                    "label_prefix": label_prefix,
-                    "preview": preview,
-                    "ts": ts_fmt,
-                    "batch_id": batch_id,
-                    "item_count": item_count,
-                })
+                recent_plans.append(_RecentPlanEntry(
+                    slug=d.name,
+                    label_prefix=label_prefix,
+                    preview=preview,
+                    ts=ts_fmt,
+                    batch_id=batch_id,
+                    item_count=item_count,
+                ))
     except OSError:
         pass
     return recent_plans
@@ -279,8 +340,8 @@ class PlanDraftYamlResponse(BaseModel):
     issue_count: int
 
 
-def _sse(obj: dict[str, object]) -> str:
-    """Format a dict as a single SSE data line."""
+def _sse(obj: "_PreviewSseEvent | IssueFileEvent") -> str:
+    """Serialise a named SSE event TypedDict as a single ``data:`` line."""
     return f"data: {json.dumps(obj)}\n\n"
 
 
@@ -322,18 +383,18 @@ async def plan_preview(body: PlanDraftRequest) -> StreamingResponse:
         """
         accumulated = ""
         try:
-            async for llm_chunk in call_openrouter_stream(
+            chunk: LLMChunk
+            async for chunk in call_openrouter_stream(
                 augmented_dump,
                 system_prompt=_build_yaml_system_prompt(),
                 temperature=0.2,
                 max_tokens=8192,
             ):
-                if llm_chunk["type"] == "thinking":
+                if chunk["type"] == "thinking":
                     pass  # discard — never sent to browser
                 else:
-                    # "content" chunks are the YAML output
-                    accumulated += llm_chunk["text"]
-                    yield _sse({"t": "chunk", "text": llm_chunk["text"]})
+                    accumulated += chunk["text"]
+                    yield _sse(_ChunkEvent(t="chunk", text=chunk["text"]))
 
             # Validate and canonicalise the full output.
             yaml_str = _strip_fences(accumulated)
@@ -347,13 +408,13 @@ async def plan_preview(body: PlanDraftRequest) -> StreamingResponse:
                     "⚠️ LLM returned prose instead of YAML (first 200 chars): %s",
                     accumulated[:200],
                 )
-                yield _sse({
-                    "t": "error",
-                    "detail": (
+                yield _sse(_PreviewErrorEvent(
+                    t="error",
+                    detail=(
                         "Your input was too short or vague for the model to plan. "
                         "Add more detail — describe actual bugs, features, or tech debt you want tackled."
                     ),
-                })
+                ))
                 return
 
             # Normalise alternative YAML structures Claude occasionally produces.
@@ -368,16 +429,16 @@ async def plan_preview(body: PlanDraftRequest) -> StreamingResponse:
                 "✅ Plan stream done: initiative=%s phases=%d issues=%d",
                 spec.initiative, len(spec.phases), total,
             )
-            yield _sse({
-                "t": "done",
-                "yaml": canonical,
-                "initiative": spec.initiative,
-                "phase_count": len(spec.phases),
-                "issue_count": total,
-            })
+            yield _sse(_PreviewDoneEvent(
+                t="done",
+                yaml=canonical,
+                initiative=spec.initiative,
+                phase_count=len(spec.phases),
+                issue_count=total,
+            ))
         except Exception as exc:
             logger.error("❌ Plan stream error: %s | accumulated (200): %s", exc, accumulated[:200])
-            yield _sse({"t": "error", "detail": str(exc)})
+            yield _sse(_PreviewErrorEvent(t="error", detail=str(exc)))
 
     if not _cfg.openrouter_api_key:
         raise HTTPException(
@@ -486,7 +547,7 @@ async def plan_file_issues(body: PlanFileIssuesRequest) -> StreamingResponse:
 
     async def _stream() -> AsyncGenerator[str, None]:
         async for event in file_issues(spec):
-            yield _sse(dict(event))  # TypedDict → plain dict for _sse
+            yield _sse(event)
 
     return StreamingResponse(_stream(), media_type="text/event-stream")
 
