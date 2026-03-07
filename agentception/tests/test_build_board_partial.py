@@ -588,3 +588,66 @@ async def test_build_report_done_skips_teardown_without_run_id() -> None:
 
     assert result == {"ok": True, "event": "done"}
     mock_create_task.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Regression: closed deps must not appear as blockers on board cards
+#
+# Issue #175 depends on #176. #176 is closed. The board was still showing
+# "⊘ blocked by #176" because get_issues_grouped_by_phase used the raw
+# depends_on_json without filtering out closed issues.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_get_issues_grouped_by_phase_filters_closed_deps() -> None:
+    """depends_on chips must only list deps that are still open.
+
+    Regression: issue A depends on B. B closes. A's card must clear the
+    blocked-by chip — closed deps are resolved and must not dim the card.
+    """
+    from unittest.mock import AsyncMock, MagicMock, patch
+    import json
+
+    from agentception.db.models import ACIssue
+    from agentception.db.queries import get_issues_grouped_by_phase
+
+    initiative = "test-init"
+    phase = f"{initiative}/0-work"
+
+    def _make_row(number: int, state: str, depends_on: list[int]) -> MagicMock:
+        row = MagicMock(spec=ACIssue)
+        row.github_number = number
+        row.title = f"Issue {number}"
+        row.state = state
+        row.labels_json = json.dumps([initiative, phase])
+        row.phase_label = None
+        row.depends_on_json = json.dumps(depends_on)
+        row.body = None
+        return row
+
+    # #10 depends on #11; #11 is closed.
+    rows = [_make_row(10, "open", [11]), _make_row(11, "closed", [])]
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = rows
+
+    with (
+        patch("agentception.db.queries.get_session") as mock_session,
+        patch(
+            "agentception.db.queries.get_initiative_phase_meta",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
+    ):
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_cm)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+        mock_cm.execute = AsyncMock(return_value=mock_result)
+        mock_session.return_value = mock_cm
+
+        groups = await get_issues_grouped_by_phase("owner/repo", initiative=initiative)
+
+    issue_10 = next(i for g in groups for i in g["issues"] if i["number"] == 10)
+    assert issue_10["depends_on"] == [], (
+        "Closed dep #11 must not appear in depends_on — it is resolved"
+    )
