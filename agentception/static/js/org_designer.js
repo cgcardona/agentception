@@ -175,10 +175,10 @@ function countNodes(node) {
 
 // ── D3 canvas constants ───────────────────────────────────────────────────────
 
-const NODE_W      = 210;  // node card width in px
-const NODE_H      = 90;   // node card height in px
-const NODE_GAP_X  = 32;   // horizontal gap between sibling cards
-const NODE_GAP_Y  = 64;   // vertical gap between parent and child row
+const NODE_W      = 240;  // node card width in px
+const NODE_H      = 108;  // node card height in px
+const NODE_GAP_X  = 48;   // horizontal gap between sibling cards
+const NODE_GAP_Y  = 72;   // vertical gap between parent and child row
 
 // ── D3 rendering ─────────────────────────────────────────────────────────────
 
@@ -391,9 +391,13 @@ export function orgDesigner() {
 
       this.$nextTick(() => {
         this._container = document.getElementById('od-canvas');
-        this._render();
-        // Open editor for the blank root so user makes the first choice now.
-        this._openEditor(this._root.id, 'coordinator');
+        // Defer render by one frame so the overlay has its final dimensions
+        // before D3 reads clientWidth for centering.
+        requestAnimationFrame(() => {
+          this._render();
+          // Open editor for the blank root so user makes the first choice now.
+          this._openEditor(this._root.id, 'coordinator');
+        });
       });
     },
 
