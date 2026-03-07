@@ -532,8 +532,8 @@
 .batch-bar {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  height: 32px;
+  gap: 0.75rem;
+  height: 36px;
   padding: 0 1.5rem;
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border-subtle);
@@ -545,47 +545,72 @@
   box-shadow: 0 1px 0 rgba(255,255,255,0.02);
 }
 
-.batch-bar__label {
-  color: var(--text-muted);
-  font-weight: 500;
-  flex-shrink: 0;
+/* Left group: initiative name + batch chip */
+.batch-bar__context {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.batch-bar__initiative {
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .batch-bar__id {
   font-family: var(--font-mono);
-  font-size: 0.7rem;
+  font-size: 0.6875rem;
   background: rgba(139, 92, 246, 0.1);
-  border-color: rgba(139, 92, 246, 0.25);
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  border-radius: var(--radius-xs);
   color: var(--accent-bright);
-  max-width: 320px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  padding: 0.05rem 0.35rem;
   white-space: nowrap;
-  flex-shrink: 1;
+  flex-shrink: 0;
 }
 
-.batch-bar__sep {
-  color: var(--border-strong);
+/* Right group: pill action links */
+.batch-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
   flex-shrink: 0;
 }
 
 .batch-bar__link {
   color: var(--text-secondary);
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 500;
-  padding: 0.1rem 0.3rem;
+  padding: 0.18rem 0.6rem;
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-xs);
-  transition: color 0.12s, background 0.12s;
-  flex-shrink: 0;
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+  white-space: nowrap;
 }
 
 .batch-bar__link:hover {
   color: var(--text-primary);
   background: rgba(255, 255, 255, 0.06);
+  border-color: var(--border-strong);
+}
+
+.batch-bar__link--plan {
+  border-color: rgba(139, 92, 246, 0.3);
+  color: var(--accent-bright);
+
+  &:hover {
+    background: rgba(139, 92, 246, 0.08);
+    border-color: rgba(139, 92, 246, 0.5);
+  }
 }
 
 .batch-bar__dismiss {
-  margin-left: auto;
+  margin-left: 0.25rem;
   padding: 0.1rem 0.35rem;
   background: none;
   border: 1px solid var(--border-subtle);

@@ -38,10 +38,10 @@
       {% for pr in prs %}
       <tr>
         <td>
-          <a href="/prs/{{ pr.number }}">#{{ pr.number }}</a>
+          <a href="/prs/{{ gh_repo }}/{{ pr.number }}">#{{ pr.number }}</a>
         </td>
         <td style="max-width:320px;">
-          <a href="/prs/{{ pr.number }}" style="color:var(--text-primary);font-family:var(--font-sans);">{{ pr.title }}</a>
+          <a href="/prs/{{ gh_repo }}/{{ pr.number }}" style="color:var(--text-primary);font-family:var(--font-sans);">{{ pr.title }}</a>
         </td>
         <td>
           <span class="badge
@@ -58,7 +58,7 @@
         </td>
         <td>
           {% if pr.closes_issue_number %}
-          <a href="/issues/{{ pr.closes_issue_number }}">#{{ pr.closes_issue_number }}</a>
+          <a href="/issues/{{ gh_repo }}/{{ pr.closes_issue_number }}">#{{ pr.closes_issue_number }}</a>
           {% else %}<span class="text-muted">—</span>{% endif %}
         </td>
         <td style="font-size:0.75rem;color:var(--text-muted);font-variant-numeric:tabular-nums;">

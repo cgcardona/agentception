@@ -38,7 +38,7 @@
     <div class="approval-card-actions">
       <button
         class="btn btn-sm btn-success"
-        hx-post="/api/issues/{{ issue.number }}/approve"
+        hx-post="/api/issues/{{ gh_repo }}/{{ issue.number }}/approve"
         hx-swap="outerHTML"
         hx-target="closest .approval-card"
       >✅ Approve</button>

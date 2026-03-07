@@ -78,10 +78,12 @@ async def test_reseed_derives_sequential_deps_from_scoped_labels() -> None:
         _mock_issue(["ac-build", "ac-build/1-features", "blocked"]),
         _mock_issue(["ac-build", "ac-build/2-polish", "blocked"]),
     ]
-    captured: list[tuple[str, list[PhaseEntry]]] = []
+    captured: list[tuple[str, str, str, list[PhaseEntry]]] = []
 
-    async def fake_persist(initiative: str, phases: list[PhaseEntry]) -> None:
-        captured.append((initiative, phases))
+    async def fake_persist(
+        repo: str, initiative: str, batch_id: str, phases: list[PhaseEntry]
+    ) -> None:
+        captured.append((repo, initiative, batch_id, phases))
 
     ctx = _make_session_ctx(issues, has_existing_phase=False)
     with (
@@ -94,8 +96,10 @@ async def test_reseed_derives_sequential_deps_from_scoped_labels() -> None:
         await reseed_missing_initiative_phases("owner/repo")
 
     assert len(captured) == 1
-    initiative, phases = captured[0]
+    repo, initiative, batch_id, phases = captured[0]
+    assert repo == "owner/repo"
     assert initiative == "ac-build"
+    assert batch_id.startswith("batch-")
     assert len(phases) == 3
 
     labels = [p["label"] for p in phases]
@@ -115,7 +119,9 @@ async def test_reseed_skips_initiative_with_existing_phase_metadata() -> None:
     ]
     captured: list[str] = []
 
-    async def fake_persist(initiative: str, phases: list[PhaseEntry]) -> None:
+    async def fake_persist(
+        repo: str, initiative: str, batch_id: str, phases: list[PhaseEntry]
+    ) -> None:
         captured.append(initiative)
 
     ctx = _make_session_ctx(issues, has_existing_phase=True)
@@ -139,7 +145,9 @@ async def test_reseed_skips_initiative_with_no_scoped_labels() -> None:
     ]
     captured: list[str] = []
 
-    async def fake_persist(initiative: str, phases: list[PhaseEntry]) -> None:
+    async def fake_persist(
+        repo: str, initiative: str, batch_id: str, phases: list[PhaseEntry]
+    ) -> None:
         captured.append(initiative)
 
     # has_existing_phase=False so the check passes — but no scoped labels exist.

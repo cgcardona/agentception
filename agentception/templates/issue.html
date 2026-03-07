@@ -75,7 +75,7 @@
         <tbody>
           {% for pr in issue.linked_prs %}
           <tr>
-            <td><a href="/prs/{{ pr.number }}" class="text-primary">#{{ pr.number }}</a></td>
+            <td><a href="/prs/{{ gh_repo }}/{{ pr.number }}" class="text-primary">#{{ pr.number }}</a></td>
             <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
               <a href="{{ gh_base_url }}/pull/{{ pr.number }}" target="_blank" rel="noopener">{{ pr.title }}</a>
             </td>
@@ -113,7 +113,7 @@
             </td>
             <td>
               {% if run.pr_number %}
-              <a href="/prs/{{ run.pr_number }}">#{{ run.pr_number }}</a>
+              <a href="/prs/{{ gh_repo }}/{{ run.pr_number }}">#{{ run.pr_number }}</a>
               {% else %}—{% endif %}
             </td>
             <td style="font-size:0.75rem;color:var(--text-muted);">
@@ -134,7 +134,7 @@
 <section class="mt-2">
   <h2 class="section-title" style="margin-bottom:0.5rem;">Comments</h2>
   <div id="comments-area"
-       hx-get="/api/issues/{{ issue.number }}/comments"
+       hx-get="/api/issues/{{ gh_repo }}/{{ issue.number }}/comments"
        hx-trigger="load"
        hx-swap="innerHTML">
     <div class="card"><p class="text-muted empty-state">Loading comments…</p></div>

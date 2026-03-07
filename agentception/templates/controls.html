@@ -166,7 +166,7 @@
         </td>
         <td>
           {% if run.issue_number %}
-          <a href="/issues/{{ run.issue_number }}" class="controls-history-link">#{{ run.issue_number }}</a>
+                <a href="/issues/{{ gh_repo }}/{{ run.issue_number }}" class="controls-history-link">#{{ run.issue_number }}</a>
           {% else %}—{% endif %}
         </td>
         <td class="text-muted">{{ (run.completed_at | string)[:16] | replace('T', ' ') if run.completed_at else '—' }}</td>

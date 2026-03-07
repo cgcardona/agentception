@@ -2,13 +2,14 @@
 
 Endpoints
 ---------
-POST /api/plan/preview                   — Step 1.A: brain dump → PlanSpec YAML (SSE stream)
-POST /api/plan/validate                  — Validate (possibly edited) YAML against PlanSpec schema
-POST /api/plan/file-issues               — Step 1.B: file GitHub issues from a PlanSpec YAML (SSE)
-GET  /plan                               — full page (Alpine state machine)
-GET  /plan/recent-runs                   — HTMX partial (sidebar refresh)
-GET  /plan/{initiative}                  — shareable, server-rendered initiative overview
-GET  /api/plan/{run_id}/plan-text        — return original plan text for re-run
+POST /api/plan/preview                                    — Step 1.A: brain dump → PlanSpec YAML (SSE stream)
+POST /api/plan/validate                                   — Validate (possibly edited) YAML against PlanSpec schema
+POST /api/plan/file-issues                                — Step 1.B: file GitHub issues from a PlanSpec YAML (SSE)
+GET  /plan                                                — full page (Alpine state machine)
+GET  /plan/recent-runs                                    — HTMX partial (sidebar refresh)
+GET  /plan/{org}/{repo}/{initiative}                      — redirect to latest batch for this initiative
+GET  /plan/{org}/{repo}/{initiative}/{batch_id}           — shareable, server-rendered initiative overview
+GET  /api/plan/{run_id}/plan-text                         — return original plan text for re-run
 
 Streaming protocol (POST /api/plan/preview)
 -------------------------------------------
@@ -35,7 +36,7 @@ from typing import TYPE_CHECKING, Literal, TypedDict
 import re
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from starlette.requests import Request
 
@@ -588,33 +589,86 @@ async def plan_recent_runs(request: Request) -> HTMLResponse:
 
 
 _INITIATIVE_SLUG_RE: re.Pattern[str] = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+_BATCH_ID_RE: re.Pattern[str] = re.compile(r"^batch-[0-9a-f]+$")
+_ORG_RE: re.Pattern[str] = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]*$")
+_REPO_NAME_RE: re.Pattern[str] = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")
 
 
-@router.get("/plan/{initiative}", response_class=HTMLResponse)
-async def plan_initiative_page(request: Request, initiative: str) -> HTMLResponse:
-    """Shareable, server-rendered overview of a filed initiative.
+def _validate_path_params(
+    org: str,
+    repo: str,
+    initiative: str,
+    batch_id: str | None = None,
+) -> None:
+    """Raise HTTP 400 when any URL segment fails its format check."""
+    if not _ORG_RE.match(org):
+        raise HTTPException(status_code=400, detail="Invalid org slug.")
+    if not _REPO_NAME_RE.match(repo):
+        raise HTTPException(status_code=400, detail="Invalid repo slug.")
+    if not _INITIATIVE_SLUG_RE.match(initiative):
+        raise HTTPException(status_code=400, detail="Invalid initiative slug.")
+    if batch_id is not None and not _BATCH_ID_RE.match(batch_id):
+        raise HTTPException(status_code=400, detail="Invalid batch_id format.")
+
+
+@router.get("/plan/{org}/{repo}/{initiative}", response_model=None)
+async def plan_initiative_redirect(
+    org: str,
+    repo: str,
+    initiative: str,
+) -> Response:
+    """Redirect to the most recent batch for this initiative.
+
+    ``GET /plan/{org}/{repo}/{initiative}`` is the human-friendly URL that
+    always points to the latest filing.  It resolves to the canonical
+    ``/plan/{org}/{repo}/{initiative}/{batch_id}`` form by querying the DB.
+
+    Returns 400 on invalid slug, 404 when no batches exist.
+    """
+    from agentception.db.queries import get_initiative_batches
+
+    _validate_path_params(org, repo, initiative)
+    gh_repo = f"{org}/{repo}"
+    batches = await get_initiative_batches(gh_repo, initiative)
+    if not batches:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Initiative '{initiative}' not found in '{gh_repo}'. Has Phase 1B been run?",
+        )
+    latest = batches[0]
+    return RedirectResponse(url=f"/plan/{org}/{repo}/{initiative}/{latest}", status_code=302)
+
+
+@router.get("/plan/{org}/{repo}/{initiative}/{batch_id}", response_class=HTMLResponse)
+async def plan_initiative_page(
+    request: Request,
+    org: str,
+    repo: str,
+    initiative: str,
+    batch_id: str,
+) -> HTMLResponse:
+    """Shareable, server-rendered overview of one filing batch.
 
     Reachable directly (e.g. when a teammate follows a shared link) or via
     ``history.pushState`` in ``plan.ts`` immediately after Phase 1B completes.
-    Renders the same visual as the Alpine done-state but as a static Jinja2
-    template — no JavaScript required to view it.
+    Renders the same visual as the Alpine done-state as a static Jinja2 template
+    — no JavaScript required.
 
-    Returns 400 when *initiative* fails slug validation and 404 when no
-    ``initiative_phases`` rows exist for it in the database.
+    Returns 400 on invalid slugs, 404 when the (repo, initiative, batch_id)
+    triple has no rows in ``initiative_phases``.
     """
     import datetime as _dt
 
-    from agentception.config import settings as _cfg
     from agentception.db.queries import get_initiative_summary
 
-    if not _INITIATIVE_SLUG_RE.match(initiative):
-        raise HTTPException(status_code=400, detail="Invalid initiative slug.")
+    _validate_path_params(org, repo, initiative, batch_id)
+    gh_repo = f"{org}/{repo}"
 
-    summary = await get_initiative_summary(_cfg.gh_repo, initiative)
+    summary = await get_initiative_summary(gh_repo, initiative, batch_id)
     if summary is None:
         raise HTTPException(
             status_code=404,
-            detail=f"Initiative '{initiative}' not found. Has Phase 1B been run?",
+            detail=f"Batch '{batch_id}' for '{initiative}' in '{gh_repo}' not found.",
         )
 
     filed_at_display: str | None = None
@@ -627,7 +681,7 @@ async def plan_initiative_page(request: Request, initiative: str) -> HTMLRespons
         "plan_initiative.html",
         {
             "summary": summary,
-            "gh_repo": _cfg.gh_repo,
+            "gh_repo": gh_repo,
             "filed_at_display": filed_at_display,
         },
     )

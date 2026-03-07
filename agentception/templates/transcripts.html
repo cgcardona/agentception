@@ -165,7 +165,7 @@
           {# Linked issues #}
           <td class="transcript-issues-cell">
             {% for n in (t.linked_issues or [])[:3] %}
-            <a href="/issues/{{ n }}" @click.stop class="issue-link">#{{ n }}</a>{% if not loop.last %} {% endif %}
+                <a href="/issues/{{ gh_repo }}/{{ n }}" @click.stop class="issue-link">#{{ n }}</a>{% if not loop.last %} {% endif %}
             {% endfor %}
             {% if (t.linked_issues | length) > 3 %}
             <span class="text-muted">+{{ (t.linked_issues | length) - 3 }}</span>

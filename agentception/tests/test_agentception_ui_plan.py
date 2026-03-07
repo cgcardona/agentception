@@ -313,7 +313,8 @@ def test_plan_page_wires_step_1a_draft_and_sse(client: TestClient) -> None:
     resp = client.get("/plan")
     assert resp.status_code == 200
     # planForm() from plan.js is the Alpine component for the Plan page.
-    assert 'x-data="planForm()"' in resp.text
+    # The template passes ghRepo as an argument: planForm({ ghRepo: "..." })
+    assert 'planForm(' in resp.text
     # Write step: submit button triggers submit() which calls POST /api/plan/draft.
     assert "Generate plan" in resp.text
     assert "submit()" in resp.text

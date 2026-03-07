@@ -654,11 +654,15 @@ async def test_file_issues_calls_persist_initiative_phases() -> None:
     persist_mock.assert_awaited_once()
     call_kwargs = persist_mock.call_args
     assert call_kwargs is not None
-    # Verify the initiative kwarg and that both phases are present.
-    initiative_arg: str = call_kwargs.kwargs.get("initiative") or call_kwargs.args[0]
+    # Verify the repo, initiative, batch_id kwargs and that both phases are present.
+    repo_arg: str = call_kwargs.kwargs.get("repo") or call_kwargs.args[0]
+    assert "/" in repo_arg, "repo must be org/repo format"
+    initiative_arg: str = call_kwargs.kwargs.get("initiative") or call_kwargs.args[1]
     assert initiative_arg == "ac-build"
+    batch_id_arg: str = call_kwargs.kwargs.get("batch_id") or call_kwargs.args[2]
+    assert batch_id_arg.startswith("batch-")
     phases_arg: list[object] = (
-        call_kwargs.kwargs.get("phases") or call_kwargs.args[1]
+        call_kwargs.kwargs.get("phases") or call_kwargs.args[3]
     )
     assert len(phases_arg) == 2
 

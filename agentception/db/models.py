@@ -372,24 +372,33 @@ class ACAgentEvent(Base):
 
 
 class ACInitiativePhase(Base):
-    """One row per phase per initiative — the DAG declared in the PlanSpec.
+    """One row per (repo, initiative, batch, phase) — the DAG declared in the PlanSpec.
 
     Written by ``persist_initiative_phases`` when ``file_issues`` completes.
     Read by ``get_initiative_phase_meta`` to compute the display order and
     ``locked`` flag on the Build board swim lanes.
 
+    Primary key: ``(repo, initiative, batch_id, phase_label)``
+
+    - ``repo`` — the GitHub ``{org}/{repo}`` string, e.g. ``cgcardona/agentception``.
+    - ``initiative`` — top-level initiative slug, e.g. ``auth-rewrite``.
+    - ``batch_id`` — the filing batch, e.g. ``batch-923f3b99cf90``.  Each call to
+      ``file_issues`` generates a new batch_id so re-filing the same initiative
+      creates a new set of rows without overwriting history.
+    - ``phase_label`` — scoped phase label, e.g. ``auth-rewrite/0-foundation``.
+
     ``phase_order`` is the canonical display position (0-indexed).  It is the
     single source of truth for phase ordering — the board always sorts by this
     column, never by label strings.
-
-    When no rows exist for an initiative every phase is shown as unlocked and
-    ordering falls back to lexicographic sort of the scoped phase labels —
-    correct for plans that use the ``{N}-{slug}`` label convention.
     """
 
     __tablename__ = "initiative_phases"
 
+    repo: Mapped[str] = mapped_column(String(256), primary_key=True)
+    """GitHub ``{org}/{repo}`` string, e.g. ``cgcardona/agentception``."""
     initiative: Mapped[str] = mapped_column(String(256), primary_key=True)
+    batch_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    """Filing batch identifier, e.g. ``batch-923f3b99cf90``."""
     phase_label: Mapped[str] = mapped_column(String(256), primary_key=True)
     phase_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     """0-indexed display position within the initiative."""
@@ -400,7 +409,7 @@ class ACInitiativePhase(Base):
     )
 
     __table_args__ = (
-        Index("ix_initiative_phases_initiative", "initiative"),
+        Index("ix_initiative_phases_repo_initiative", "repo", "initiative"),
     )
 
 
