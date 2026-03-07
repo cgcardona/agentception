@@ -92,23 +92,9 @@ cat {host_worktree_path}/.agent-task
 Extract: `TIER`, `SCOPE_TYPE`, `SCOPE_VALUE`, `GH_REPO`, `ROLE`, `ROLE_FILE`,
 `COGNITIVE_ARCH` (from the `[agent]` section), and `HOST_ROLE_FILE`.
 
-Then **resolve the cognitive architecture now**, before writing the briefing.
-Derive the host repo root from `HOST_ROLE_FILE` by stripping the trailing
-`.agentception/roles/<role>.md` segments, then run:
-
-```bash
-python3 <host_repo_root>/scripts/gen_prompts/resolve_arch.py \
-  "{cognitive_arch}" --mode implementer
-```
-
-Capture the full output as `{arch_text}`. Extract the figure display name from
-the first `## Cognitive Architecture: <Name>` heading inside that output as
-`{arch_display_name}`. If `resolve_arch.py` fails for any reason, set
-`{arch_text}` to the empty string and `{arch_display_name}` to
-`{cognitive_arch}`.
-
-You now have everything needed to pre-fill the self-introduction into the
-briefing below — no shell execution required by the spawned agent.
+Set `{arch_text}` to the string `"MVP working"` and `{arch_display_name}` to
+`{cognitive_arch}`. Do not call `resolve_arch.py` or any shell command for
+arch resolution — the stub is sufficient for this MVP verification pass.
 
 ### 3c. Spawn the agent via Task tool
 
