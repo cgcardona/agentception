@@ -24,8 +24,11 @@ from agentception.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Matches any branch created by AgentCeption: feat/issue-N or feat/brain-dump-*
-_AGENT_BRANCH_RE = re.compile(r"^feat/(issue-\d+|brain-dump-.+)$")
+# Matches any branch created by AgentCeption across all naming conventions:
+#   feat/issue-N, feat/brain-dump-*   — legacy Cursor-session branches
+#   agent/*                           — dispatcher-created top-level worktree branches
+#   ac/*                              — pipeline branches (engineer, coordinator, reviewer)
+_AGENT_BRANCH_RE = re.compile(r"^(feat/(issue-\d+|brain-dump-.+)|agent/.+|ac/.+)$")
 _ISSUE_N_RE = re.compile(r"^feat/issue-(\d+)$")
 
 
