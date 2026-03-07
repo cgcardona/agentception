@@ -213,10 +213,9 @@ async def test_file_issues_emits_done_event_last() -> None:
 
 @pytest.mark.anyio
 async def test_file_issues_edits_body_for_depends_on() -> None:
-    """An issue with depends_on gets a gh issue edit call after creation."""
+    """An issue with depends_on gets a body edit and a ticket-blocked label add."""
     spec = _make_spec(with_depends_on=True)
 
-    # gh calls: label bootstrap + 2 issue creates + 1 issue edit
     create_count = 0
     edit_calls: list[list[str]] = []
 
@@ -229,22 +228,30 @@ async def test_file_issues_edits_body_for_depends_on() -> None:
         if "edit" in cmd:
             edit_calls.append(cmd)
             return _mock_proc()
-        # label create
+        # label create / list / other
         return _mock_proc()
 
+    add_label_mock = AsyncMock()
     with (
         patch("agentception.readers.issue_creator.ensure_label_exists", new_callable=AsyncMock),
+        patch("agentception.readers.issue_creator.add_label_to_issue", add_label_mock),
         patch("asyncio.create_subprocess_exec", side_effect=fake_proc),
     ):
         events = await _collect(file_issues(spec))
 
-    assert len(edit_calls) == 1, "Expected exactly one gh issue edit for the dependent issue"
-    # The edit call should include --body with "Blocked by:"
+    # One body-edit call for the "Blocked by:" line.
+    assert len(edit_calls) == 1, "Expected exactly one gh issue edit for the body"
     body_arg = next(
         (edit_calls[0][i + 1] for i, a in enumerate(edit_calls[0]) if a == "--body"),
         None,
     )
     assert body_arg is not None and "Blocked by:" in body_arg
+
+    # Separate add_label_to_issue call stamps ticket-blocked on the dep issue.
+    add_label_mock.assert_awaited_once()
+    call_args = add_label_mock.call_args
+    assert call_args is not None
+    assert call_args.args[1] == "ticket-blocked"
 
     blocked_events = [e for e in events if e["t"] == "blocked"]
     assert len(blocked_events) == 1

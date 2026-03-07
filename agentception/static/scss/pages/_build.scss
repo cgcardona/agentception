@@ -357,12 +357,19 @@
 .build-issue__dep-chip {
   font-size: 0.55rem;
   font-family: var(--font-mono);
-  color: var(--warning);
-  background: var(--warning-dim);
-  border: 1px solid var(--warning-border);
+  color: var(--danger);
+  background: var(--danger-dim);
+  border: 1px solid var(--danger-border);
   border-radius: var(--radius-xs);
   padding: 0 4px;
   white-space: nowrap;
+}
+
+// Ticket-blocked cards: dimmed like locked-phase issues so they are clearly
+// not yet workable — distinct from the fully hidden locked-phase lane.
+// Links inside (issue number, GitHub) remain clickable for inspection.
+.build-issue--ticket-blocked {
+  opacity: 0.45;
 }
 
 .build-issue__footer {

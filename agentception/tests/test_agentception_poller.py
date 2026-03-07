@@ -757,3 +757,91 @@ async def test_auto_advance_phases_does_not_advance_complete_phase() -> None:
         await _auto_advance_phases("cgcardona/agentception")
 
     mock_advance.assert_not_awaited()
+
+
+# _auto_unblock_ticket_deps
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_auto_unblock_ticket_deps_removes_label_when_all_deps_closed() -> None:
+    """ticket-blocked is removed when every dep issue is closed in the DB."""
+    from agentception.poller import _auto_unblock_ticket_deps
+
+    candidates = [{"github_number": 177, "dep_numbers": [175]}]
+    closed = {175}
+    remove_mock = AsyncMock()
+
+    with (
+        patch(
+            "agentception.db.queries.get_ticket_blocked_open_issues",
+            new=AsyncMock(return_value=candidates),
+        ),
+        patch(
+            "agentception.db.queries.get_closed_issue_numbers",
+            new=AsyncMock(return_value=closed),
+        ),
+        patch(
+            "agentception.readers.github.remove_label_from_issue",
+            remove_mock,
+        ),
+    ):
+        await _auto_unblock_ticket_deps("cgcardona/agentception")
+
+    remove_mock.assert_awaited_once_with(177, "ticket-blocked")
+
+
+@pytest.mark.anyio
+async def test_auto_unblock_ticket_deps_skips_when_dep_still_open() -> None:
+    """ticket-blocked is NOT removed when any dep issue is still open."""
+    from agentception.poller import _auto_unblock_ticket_deps
+
+    candidates = [{"github_number": 177, "dep_numbers": [175]}]
+    closed: set[int] = set()  # 175 still open
+    remove_mock = AsyncMock()
+
+    with (
+        patch(
+            "agentception.db.queries.get_ticket_blocked_open_issues",
+            new=AsyncMock(return_value=candidates),
+        ),
+        patch(
+            "agentception.db.queries.get_closed_issue_numbers",
+            new=AsyncMock(return_value=closed),
+        ),
+        patch(
+            "agentception.readers.github.remove_label_from_issue",
+            remove_mock,
+        ),
+    ):
+        await _auto_unblock_ticket_deps("cgcardona/agentception")
+
+    remove_mock.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_auto_unblock_ticket_deps_skips_when_no_candidates() -> None:
+    """No GitHub calls made when queue is empty."""
+    from agentception.poller import _auto_unblock_ticket_deps
+
+    remove_mock = AsyncMock()
+    closed_mock = AsyncMock(return_value=set())
+
+    with (
+        patch(
+            "agentception.db.queries.get_ticket_blocked_open_issues",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "agentception.db.queries.get_closed_issue_numbers",
+            closed_mock,
+        ),
+        patch(
+            "agentception.readers.github.remove_label_from_issue",
+            remove_mock,
+        ),
+    ):
+        await _auto_unblock_ticket_deps("cgcardona/agentception")
+
+    closed_mock.assert_not_awaited()
+    remove_mock.assert_not_awaited()

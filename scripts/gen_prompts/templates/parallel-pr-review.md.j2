@@ -1010,7 +1010,9 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
     else
       # Pick the next unclaimed issue from ACTIVE_LABEL only.
       # MCP: github_list_issues(label="$ACTIVE_LABEL", state="open")
-      # Filter out any with label "{{ claim_label }}" (already claimed).
+      # Filter out any with label "{{ claim_label }}" (already claimed),
+      # "blocked" (phase-gated), or "ticket-blocked" (unresolved ticket-level
+      # dependency — the poller removes this label once all deps close).
       # Take the lowest-numbered remaining issue.
       NEXT_ISSUE=<lowest unclaimed issue number from MCP response>
     fi

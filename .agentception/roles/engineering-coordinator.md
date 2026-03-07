@@ -112,7 +112,12 @@ SEED:
        # This prevents you from accidentally claiming issues from a later phase.
        ACTIVE_LABEL="<from dispatch prompt>"
        # MCP: github_list_issues(state="open", label="$ACTIVE_LABEL")
-       # → filter result to exclude issues that already have the "agent:wip" label
+       # → filter result to exclude issues that have any of these labels:
+       #     "agent:wip"  (already claimed by another agent)
+       #     "blocked"            (phase-gated — prior phase not yet complete)
+       #     "ticket-blocked"     (has unresolved ticket-level dependency — the
+       #                           poller removes this label automatically once
+       #                           all deps close; never dispatch these manually)
      If empty → report "implementation queue clear for $ACTIVE_LABEL." Stop.
 
   3.5 Open-PR guard — skip issues that already have an open PR:
@@ -129,12 +134,15 @@ SEED:
        done
 
   3.6 Dependency gate — CRITICAL for sequential issues:
-     For each candidate issue, check if its dependencies are met before seeding.
-     Parse "Depends on #NNN" from the issue body. If any dep issue is still OPEN → skip.
-     Only seed issues whose dependency issues are all CLOSED (i.e. merged).
+     Primary signal: if an issue has the "ticket-blocked" label (already filtered
+     out in step 3), it must NOT be seeded. The poller removes "ticket-blocked"
+     automatically once all deps close, so by the time this coordinator runs, any
+     issue without that label has met its ticket-level deps.
+     Secondary signal (belt-and-suspenders): parse "Blocked by #NNN" from the
+     issue body and verify each dep is CLOSED. Skip if any dep is still OPEN.
        for NUM in <candidate numbers>; do
          # MCP: github_get_issue(number=NUM) → .body
-         # Extract "Depends on #NNN" patterns from .body, iterate each dep number.
+         # Extract "Blocked by #NNN" patterns from .body, iterate each dep number.
          DEPS=<dep numbers parsed from github_get_issue(NUM).body>
          ALL_MET=true
          for dep in $DEPS; do
@@ -369,9 +377,10 @@ Before finalising your four, confirm each pair is independent:
 
 If issues are **dependent** (B cannot ship without A):
 1. State it in the issue body: `**Depends on #A** — implement after #A is merged.`
-2. Label it `blocked`.
+2. Label it `ticket-blocked` (distinct from `blocked`, which is the phase-gate label).
 3. Do **not** assign it to a parallel agent until #A is merged.
-4. Only then is it safe to run in the next parallel batch.
+4. The poller automatically removes `ticket-blocked` once all dependencies close.
+5. Only then is it safe for the coordinator to pick it up in the next dispatch cycle.
 
 ---
 
@@ -1487,8 +1496,9 @@ same parallel batch.
 
 **Dependency detection:** If issue B cannot function without A's code:
 1. Note `**Depends on #A**` in B's issue body.
-2. Label B as `blocked`.
-3. Merge A first, then un-block B and add it to the next batch.
+2. Label B as `ticket-blocked` (NOT `blocked` — `blocked` is for phase-gating only).
+3. The poller removes `ticket-blocked` automatically once A is closed.
+4. Merge A first; the coordinator will pick up B on the next dispatch cycle.
 
 ### Step C — Confirm `dev` is up to date
 
@@ -3164,7 +3174,9 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
     else
       # Pick the next unclaimed issue from ACTIVE_LABEL only.
       # MCP: github_list_issues(label="$ACTIVE_LABEL", state="open")
-      # Filter out any with label "agent:wip" (already claimed).
+      # Filter out any with label "agent:wip" (already claimed),
+      # "blocked" (phase-gated), or "ticket-blocked" (unresolved ticket-level
+      # dependency — the poller removes this label once all deps close).
       # Take the lowest-numbered remaining issue.
       NEXT_ISSUE=<lowest unclaimed issue number from MCP response>
     fi

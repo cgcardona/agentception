@@ -124,8 +124,10 @@ Step 3: Run your tier's GitHub queries via MCP to discover what needs doing.
 
   coordinator tier (engineering-coordinator role) — call:
     github_list_issues(label="{scope_value}", state="open")
-  Filter out any issues labelled "agent:wip" (already claimed) or "blocked"
-  (phase-gated — not yet unlocked). Only work on issues with neither label.
+  Filter out any issues with label "agent:wip" (already claimed),
+  "blocked" (phase-gated — prior phase not yet complete), or "ticket-blocked"
+  (has unresolved ticket-level dependencies — do not dispatch until all are closed).
+  Only work on issues with none of these three labels.
   Then: spawn one engineer per eligible issue (all in parallel via Task calls).
 
   coordinator tier (qa-coordinator role) — call:

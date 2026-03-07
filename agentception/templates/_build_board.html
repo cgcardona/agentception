@@ -13,7 +13,8 @@
   {%- elif is_running %} build-issue--active build-issue--running
   {%- elif active_run %} build-issue--active
   {%- endif %}
-  {%- if active_run %} build-issue--has-run{%- endif %}"
+  {%- if active_run %} build-issue--has-run{%- endif %}
+  {%- if issue.depends_on and lane == 'todo' and 'ticket-blocked' in issue.labels %} build-issue--ticket-blocked{%- endif %}"
   {%- if not group_complete and active_run and lane != 'done' %}@click='$dispatch("inspect-issue", {{ issue | tojson }})'{% endif %}
 >
 
@@ -82,11 +83,11 @@
   <p class="build-issue__excerpt">{{ issue.body_excerpt }}</p>
   {% endif %}
 
-  {# ── Dependencies #}
+  {# ── Dependencies (ticket-blocked) #}
   {% if issue.depends_on and lane == 'todo' %}
   <div class="build-issue__deps">
     {% for dep in issue.depends_on %}
-    <span class="build-issue__dep-chip" title="Depends on #{{ dep }}">↑ #{{ dep }}</span>
+    <span class="build-issue__dep-chip" title="Blocked — waiting for #{{ dep }} to close before this can be worked">⊘ blocked by #{{ dep }}</span>
     {% endfor %}
   </div>
   {% endif %}
