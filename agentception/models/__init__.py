@@ -893,6 +893,12 @@ class PlanIssue(BaseModel):
     planner populates at plan time.  These flow through to ``_resolve_cognitive_arch``
     at agent spawn time as the authoritative ``skills_hint``, replacing the
     fragile keyword-extraction fallback with planner-provided signal.
+
+    ``cognitive_arch`` is the fully-resolved arch string (``figure:skill1[:skill2]``)
+    assigned by the LLM planner in Phase 1A and optionally edited by the user in
+    Phase 1B.  When non-empty, it is embedded in the GitHub issue body as an
+    ``<!-- ac:cognitive_arch: ... -->`` comment so that the dispatch layer can read
+    it directly — no heuristics required.
     """
 
     id: str
@@ -900,6 +906,7 @@ class PlanIssue(BaseModel):
     body: str
     depends_on: list[str] = []  # issue IDs, not titles
     skills: list[str] = []  # skill domain IDs from the cognitive arch catalog
+    cognitive_arch: str = ""  # resolved arch string: "figure:skill1[:skill2]"
 
 
 _PHASE_LABEL_RE = re.compile(r"^[0-9]+-[a-z0-9][a-z0-9-]*$")
@@ -955,6 +962,13 @@ class PlanSpec(BaseModel):
     ``phases`` is an ordered list of :class:`PlanPhase` objects; index 0 is the
     foundation phase that has no dependencies.
 
+    ``coordinator_arch`` maps orchestration role slugs to resolved arch strings
+    (``figure:skill1[:skill2]``).  The LLM planner populates this in Phase 1A;
+    the user may edit it in the Phase 1B YAML editor before submitting.  Keys
+    are role slugs from ``role-taxonomy.yaml`` — e.g. ``"cto"``,
+    ``"engineering-coordinator"``, ``"qa-coordinator"``.  New coordinator types
+    require no schema changes — just new keys.
+
     Invariants enforced at construction time:
     - ``phases`` must be non-empty.
     - Phase ``depends_on`` labels must all reference labels that appear
@@ -968,6 +982,14 @@ class PlanSpec(BaseModel):
 
     initiative: str
     phases: list[PlanPhase]
+    coordinator_arch: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Maps orchestration role slugs to resolved arch strings "
+            "(figure:skill1[:skill2]).  Keys: cto, engineering-coordinator, "
+            "qa-coordinator, etc.  Populated by the LLM planner in Phase 1A."
+        ),
+    )
 
     @field_validator("phases")
     @classmethod
@@ -1033,27 +1055,36 @@ class PlanSpec(BaseModel):
         Uses PyYAML ``safe_dump`` with ``default_flow_style=False`` and
         ``sort_keys=False`` so the output preserves insertion order and omits
         Pydantic-internal fields.
+
+        ``coordinator_arch`` is included only when non-empty so that minimal
+        plans produced without Phase 1A planner output remain compact.
+        Per-issue ``cognitive_arch`` and ``skills`` are always included when
+        non-empty so users can inspect and edit them in the Phase 1B editor.
         """
         data: dict[str, object] = {
             "initiative": self.initiative,
-            "phases": [
-                {
-                    "label": phase.label,
-                    "description": phase.description,
-                    "depends_on": phase.depends_on,
-                    "issues": [
-                        {
-                            "id": issue.id,
-                            "title": issue.title,
-                            "body": issue.body,
-                            "depends_on": issue.depends_on,
-                        }
-                        for issue in phase.issues
-                    ],
-                }
-                for phase in self.phases
-            ],
         }
+        if self.coordinator_arch:
+            data["coordinator_arch"] = dict(self.coordinator_arch)
+        data["phases"] = [
+            {
+                "label": phase.label,
+                "description": phase.description,
+                "depends_on": phase.depends_on,
+                "issues": [
+                    {
+                        "id": issue.id,
+                        "title": issue.title,
+                        "body": issue.body,
+                        "depends_on": issue.depends_on,
+                        **({"skills": issue.skills} if issue.skills else {}),
+                        **({"cognitive_arch": issue.cognitive_arch} if issue.cognitive_arch else {}),
+                    }
+                    for issue in phase.issues
+                ],
+            }
+            for phase in self.phases
+        ]
         return yaml.safe_dump(data, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
     @classmethod

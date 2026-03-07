@@ -5,6 +5,15 @@ from __future__ import annotations
 Derives the COGNITIVE_ARCH string (``figure:skill1[:skill2]``) that is
 written into every ``.agent-task`` file at spawn time.
 
+Resolution priority (highest to lowest):
+1. ``<!-- ac:cognitive_arch: figure:skills -->`` HTML comment embedded in the
+   issue body by ``issue_creator._embed_cognitive_arch`` at issue-creation time.
+   This is set by the LLM planner in Phase 1A and optionally edited in Phase 1B.
+   When present it is used verbatim — no heuristics applied.
+2. ``skills_hint`` passed explicitly by the caller (set from ``PlanIssue.skills``).
+3. ``<!-- ac:skills: ... -->`` HTML comment embedded in the issue body.
+4. Keyword scan of the issue body (last resort fallback).
+
 Kept in the service layer (not routes) so that both ``services/spawn_child``
 and route handlers can import it without creating circular dependencies.
 """
@@ -12,6 +21,7 @@ and route handlers can import it without creating circular dependencies.
 import re
 
 _AC_SKILLS_RE = re.compile(r"<!--\s*ac:skills:\s*([^-]+?)\s*-->")
+_AC_COGNITIVE_ARCH_RE = re.compile(r"<!--\s*ac:cognitive_arch:\s*([^-\n]+?)\s*-->")
 
 # ---------------------------------------------------------------------------
 # Role → default cognitive figure mapping
@@ -134,6 +144,24 @@ def _extract_skills_from_body(body: str) -> list[str] | None:
     return skills if skills else None
 
 
+def _extract_cognitive_arch_from_body(body: str) -> str | None:
+    """Extract the fully-resolved arch string embedded by the issue creator.
+
+    Returns the ``figure:skill1[:skill2]`` string when the
+    ``<!-- ac:cognitive_arch: ... -->`` comment is present (written by
+    ``_embed_cognitive_arch`` in ``issue_creator.py`` from ``PlanIssue.cognitive_arch``
+    set by the LLM planner in Phase 1A).
+
+    Returns ``None`` when the comment is absent so that the caller can fall
+    back to the heuristic resolution path for legacy issues.
+    """
+    m = _AC_COGNITIVE_ARCH_RE.search(body)
+    if not m:
+        return None
+    arch = m.group(1).strip()
+    return arch if arch else None
+
+
 def _resolve_cognitive_arch(
     issue_body: str,
     role: str,
@@ -143,19 +171,29 @@ def _resolve_cognitive_arch(
 
     Format: ``figure:skill1[:skill2]``.
 
-    Figure is selected from ``ROLE_DEFAULT_FIGURE`` keyed by role slug — this
-    ensures every tier (C-suite, coordinator, engineer) receives a real,
-    loadable figure rather than placeholder strings.
+    Resolution priority (highest to lowest):
 
-    Skills come from ``skills_hint`` when present (set by the LLM planner in
-    ``PlanIssue.skills``), falling back to keyword extraction from the issue
-    body.  This creates a clean pipeline: Phase 1A primes the skill context,
-    spawn time consumes it.
+    1. ``<!-- ac:cognitive_arch: ... -->`` comment in *issue_body* — set by the
+       LLM planner in Phase 1A and baked into the GitHub issue at creation time.
+       When present the string is returned verbatim; no further resolution.
+    2. ``skills_hint`` — an explicit skill list passed by the caller (sourced
+       from ``PlanIssue.skills``).  Combined with the ``ROLE_DEFAULT_FIGURE``
+       lookup.
+    3. ``<!-- ac:skills: ... -->`` comment in *issue_body* — embedded at
+       issue-creation time from the planner's ``skills`` field.
+    4. Keyword scan of *issue_body* — last-resort fallback for issues created
+       before Phase 1A arch assignment was introduced.
     """
+    # Priority 1: planner-assigned arch baked into the issue body.
+    embedded_arch = _extract_cognitive_arch_from_body(issue_body)
+    if embedded_arch:
+        return embedded_arch
+
+    # Priority 2-4: figure from role taxonomy + derived skills.
     figure = ROLE_DEFAULT_FIGURE.get(role, "hopper")
     if skills_hint:
         skills = ":".join(skills_hint)
     else:
-        embedded = _extract_skills_from_body(issue_body)
-        skills = ":".join(embedded) if embedded else _derive_skills_from_body(issue_body)
+        embedded_skills = _extract_skills_from_body(issue_body)
+        skills = ":".join(embedded_skills) if embedded_skills else _derive_skills_from_body(issue_body)
     return f"{figure}:{skills}"

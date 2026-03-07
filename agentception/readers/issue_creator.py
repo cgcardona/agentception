@@ -94,6 +94,7 @@ class DoneEvent(TypedDict):
     initiative: str
     batch_id: str
     issues: list[CreatedIssue]
+    coordinator_arch: dict[str, str]  # role_slug → arch string from PlanSpec
 
 
 class FilingErrorEvent(TypedDict):
@@ -237,6 +238,24 @@ def _embed_skills(body: str, skills: list[str]) -> str:
     return f"{body}\n\n<!-- ac:skills: {skills_str} -->"
 
 
+def _embed_cognitive_arch(body: str, cognitive_arch: str) -> str:
+    """Append an HTML comment with the resolved cognitive arch string.
+
+    The comment is machine-readable and invisible to humans in the GitHub UI.
+    At agent spawn time, ``_extract_cognitive_arch_from_body`` in
+    ``agentception/services/cognitive_arch.py`` reads this value as the
+    primary source of truth for the arch assignment — no heuristics required.
+
+    The arch string has the format ``figure_id:skill1[:skill2]``, e.g.
+    ``barbara_liskov:fastapi:python``.  When *cognitive_arch* is empty the
+    body is returned unchanged so that legacy issues without the field are
+    handled gracefully.
+    """
+    if not cognitive_arch:
+        return body
+    return f"{body}\n<!-- ac:cognitive_arch: {cognitive_arch} -->"
+
+
 def _embed_phase_gate(body: str, prev_phase_label: str) -> str:
     """Append a phase-gate notice to the issue body.
 
@@ -259,6 +278,7 @@ async def _create_one(
 ) -> tuple[str, int, str]:
     """Create a single issue; return (issue.id, github_number, html_url)."""
     body = _embed_skills(issue.body, issue.skills)
+    body = _embed_cognitive_arch(body, issue.cognitive_arch)
     if prev_phase_label is not None:
         body = _embed_phase_gate(body, prev_phase_label)
     number, url = await _gh_create_issue(repo, issue.title, body, labels)
@@ -439,4 +459,5 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
         initiative=spec.initiative,
         batch_id=batch_id,
         issues=created,
+        coordinator_arch=dict(spec.coordinator_arch),
     )

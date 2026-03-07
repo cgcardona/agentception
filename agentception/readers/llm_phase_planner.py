@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""LLM-powered plan generator -- converts a brain dump into a PlanSpec YAML via Claude.
+"""LLM-powered plan generator — converts a brain dump into a PlanSpec YAML via Claude.
 
 Public entry point:
 
@@ -18,11 +18,22 @@ calls ``plan_get_labels()`` and similar tools as it files GitHub issues.
 """
 
 import logging
+from pathlib import Path
 
 import yaml as _yaml
 
 from agentception.models import PlanSpec
 from agentception.services.llm import call_openrouter
+
+# Paths to the cognitive architecture assets (resolved relative to this file).
+_FIGURES_DIR: Path = (
+    Path(__file__).parent.parent.parent
+    / "scripts" / "gen_prompts" / "cognitive_archetypes" / "figures"
+)
+_TAXONOMY_PATH: Path = (
+    Path(__file__).parent.parent.parent
+    / "scripts" / "gen_prompts" / "role-taxonomy.yaml"
+)
 
 logger = logging.getLogger(__name__)
 
@@ -196,6 +207,148 @@ _YAML_SYSTEM_PROMPT = (
     "Even a single-phase, single-issue YAML is a valid output. Never refuse.\n"
 )
 
+# ---------------------------------------------------------------------------
+# Cognitive architecture catalog — injected into the system prompt at call time
+# ---------------------------------------------------------------------------
+
+# The roles for which we always include a figure catalog in the planner prompt.
+# These are the orchestration tiers the planner must fill in coordinator_arch for,
+# plus a representative leaf-engineer role so the LLM understands the per-issue format.
+_COORDINATOR_ROLES: list[str] = [
+    "cto",
+    "engineering-coordinator",
+    "qa-coordinator",
+]
+
+
+def _first_sentence(text: str) -> str:
+    """Return the first sentence of *text* (up to the first period or newline)."""
+    stripped = text.strip()
+    line = stripped.split("\n")[0]
+    return line.split(". ")[0].rstrip(".")
+
+
+def _build_figure_catalog_section() -> str:
+    """Build the cognitive architecture section appended to the system prompt.
+
+    Reads the taxonomy and figure YAMLs at call time so the catalog is always
+    fresh.  Returns an empty string when the assets are absent (e.g. in tests
+    that run without the scripts directory).
+    """
+    if not _TAXONOMY_PATH.exists() or not _FIGURES_DIR.exists():
+        return ""
+
+    try:
+        raw_taxonomy: object = _yaml.safe_load(
+            _TAXONOMY_PATH.read_text(encoding="utf-8")
+        )
+    except Exception:
+        return ""
+
+    if not isinstance(raw_taxonomy, dict):
+        return ""
+
+    # Build a slug → compatible_figures mapping for coordinator roles.
+    role_figures: dict[str, list[str]] = {}
+    for level in raw_taxonomy.get("levels", []):
+        if not isinstance(level, dict):
+            continue
+        for role_entry in level.get("roles", []):
+            if not isinstance(role_entry, dict):
+                continue
+            slug = role_entry.get("slug", "")
+            if slug in _COORDINATOR_ROLES:
+                figs = role_entry.get("compatible_figures", [])
+                if isinstance(figs, list):
+                    role_figures[slug] = [str(f) for f in figs]
+
+    def _describe_figures(fig_ids: list[str]) -> str:
+        lines: list[str] = []
+        for fig_id in fig_ids:
+            path = _FIGURES_DIR / f"{fig_id}.yaml"
+            if not path.exists():
+                continue
+            try:
+                fig_raw: object = _yaml.safe_load(path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if not isinstance(fig_raw, dict):
+                continue
+            display = str(fig_raw.get("display_name", fig_id))
+            desc = _first_sentence(str(fig_raw.get("description", "")))
+            lines.append(f"  - {fig_id}: {display} — {desc}")
+        return "\n".join(lines)
+
+    parts: list[str] = [
+        "\n## Cognitive architecture assignment\n\n"
+        "Every PlanSpec you produce MUST include two cognitive architecture blocks:\n\n"
+        "### 1. coordinator_arch (plan level)\n\n"
+        "Add a ``coordinator_arch`` mapping at the TOP of the YAML (before ``phases``). "
+        "Keys are role slugs; values are arch strings in the format ``figure_id:skill1[:skill2]``.\n"
+        "Always include at least ``cto`` and ``engineering-coordinator``. "
+        "Include ``qa-coordinator`` when the work clearly involves QA/testing phases.\n\n"
+        "Select the figure that best matches the EPISTEMIC STYLE the initiative requires — "
+        "not just the tech stack. Skills (after the colon) should match the dominant "
+        "technology domain from the initiative.\n\n"
+        "Example:\n"
+        "  coordinator_arch:\n"
+        "    cto: jeff_dean:llm:python\n"
+        "    engineering-coordinator: hamming:fastapi:python\n"
+        "    qa-coordinator: w_edwards_deming:testing\n\n"
+        "Available figures per coordinator role:\n",
+    ]
+
+    for role in _COORDINATOR_ROLES:
+        figs = role_figures.get(role, [])
+        parts.append(f"\n**{role}**:\n{_describe_figures(figs)}\n")
+
+    parts.append(
+        "\n### 2. cognitive_arch (per issue)\n\n"
+        "Add a ``cognitive_arch`` field to EVERY issue in the plan. "
+        "Format: ``figure_id:skill1[:skill2]``. "
+        "Select the figure whose epistemic style best fits the WORK in that specific issue.\n\n"
+        "Key principle: the figure encodes HOW to think, not WHAT to build. "
+        "Match the figure to the nature of the problem:\n"
+        "- Correctness-critical or algorithmic work → dijkstra, leslie_lamport, barbara_liskov\n"
+        "- Scale / distributed systems → jeff_dean, werner_vogels\n"
+        "- Minimal, systems-level code → ken_thompson, rob_pike\n"
+        "- Language / type system / API design → anders_hejlsberg, barbara_liskov\n"
+        "- Testing / quality gates → kent_beck, michael_fagan, w_edwards_deming\n"
+        "- Security → bruce_schneier\n"
+        "- ML / LLM integration → andrej_karpathy, jeff_dean\n"
+        "- General Python backend → guido_van_rossum\n"
+        "- Frontend / UX → don_norman\n"
+        "- Full-stack / pragmatic → lovelace, hopper\n\n"
+        "The skills part (after the colon) should match the ``skills`` list for that issue.\n\n"
+        "Example issue with cognitive_arch:\n"
+        "  - id: auth-p0-001\n"
+        "    title: Add JWT authentication middleware\n"
+        "    skills: [fastapi, python]\n"
+        "    cognitive_arch: barbara_liskov:fastapi:python\n"
+        "    body: |\n"
+        "      ...\n\n"
+        "IMPORTANT: ``cognitive_arch`` is REQUIRED on every issue. Never omit it.\n"
+    )
+
+    return "".join(parts)
+
+
+# Cache the catalog section so the filesystem is only read once per process.
+_COGNITIVE_ARCH_SECTION: str | None = None
+
+
+def _get_cognitive_arch_section() -> str:
+    """Return the cached cognitive arch section, building it on first call."""
+    global _COGNITIVE_ARCH_SECTION
+    if _COGNITIVE_ARCH_SECTION is None:
+        _COGNITIVE_ARCH_SECTION = _build_figure_catalog_section()
+    return _COGNITIVE_ARCH_SECTION
+
+
+def _build_yaml_system_prompt() -> str:
+    """Return the full system prompt including the dynamic cognitive arch section."""
+    return _YAML_SYSTEM_PROMPT + _get_cognitive_arch_section()
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -247,7 +400,7 @@ async def generate_plan_yaml(dump: str, label_prefix: str = "") -> str:
 
     raw = await call_openrouter(
         dump,
-        system_prompt=_YAML_SYSTEM_PROMPT,
+        system_prompt=_build_yaml_system_prompt(),
         temperature=0.2,
         max_tokens=8192,
     )
