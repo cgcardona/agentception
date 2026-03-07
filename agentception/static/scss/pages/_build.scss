@@ -2,62 +2,48 @@
 // All tokens from _foundation.scss: --bg-*, --text-*, --border-*, --accent*,
 // --success*, --warning*, --danger*, --info*, --radius-*, --shadow-*, --ease-*
 
-// ── Full-page layout ──────────────────────────────────────────────────────────
+// ── Ship page: full-bleed layout, unified nav ─────────────────────────────────
+//
+// body:has(.build-layout) removes main's generic content padding and the
+// topnav's bottom separator so that the build-subnav sits flush against the
+// global nav, forming one continuous navigation surface.
+
+body:has(.build-layout) main {
+  padding: 0;
+  max-width: none;
+}
+
+body:has(.build-layout) nav.topnav {
+  border-bottom: none;
+  box-shadow: none;
+}
 
 .build-layout {
-  display: block; // natural document flow — page scrolls normally
+  display: block;
 }
 
-// ── Initiative tab strip ──────────────────────────────────────────────────────
+// ── Unified sub-nav wrapper (Mission Control header + tabs) ───────────────────
 
-.build-initiative-tabs {
-  display: flex;
-  align-items: stretch;
-  gap: 0;
-  padding: 0 1.25rem;
-  background: var(--bg-surface);
+.build-subnav {
+  position: sticky;
+  top: 52px; // height of nav.topnav
+  z-index: 99;
+  background: var(--bg-glass);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
   border-bottom: 1px solid var(--border-subtle);
-  /* Scroll horizontally within the strip; body's overflow-x: clip handles
-     the page-level guard so max-width: 100vw is not needed here. */
-  width: 100%;
-  overflow-x: auto;
-  scrollbar-width: none;
-  &::-webkit-scrollbar { display: none; }
+  box-shadow: 0 1px 0 rgba(255,255,255,0.03), var(--shadow-sm);
 }
 
-.build-initiative-tab {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.5rem 1rem;
-  font-size: 0.8rem;
-  font-weight: 500;
-  color: var(--text-muted);
-  text-decoration: none;
-  white-space: nowrap;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px; // overlap the strip's border
-  transition: color 0.15s var(--ease-out), border-color 0.15s var(--ease-out);
-
-  &:hover {
-    color: var(--text-secondary);
-  }
-
-  &--active {
-    color: var(--text-primary);
-    border-bottom-color: var(--accent);
-    font-weight: 600;
-  }
-}
-
-// ── Top bar ───────────────────────────────────────────────────────────────────
+// ── Mission Control header row ────────────────────────────────────────────────
 
 .build-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.625rem 1.25rem;
-  background: var(--bg-surface);
-  border-bottom: 1px solid var(--border-subtle);
+  padding: 0.5rem 1.5rem; // match topnav side padding
+  background: none;       // inherited from .build-subnav
+  border-bottom: none;    // border lives on .build-subnav
   flex-shrink: 0;
   gap: 1rem;
 
@@ -120,13 +106,52 @@
   }
 }
 
+// ── Initiative tab strip ──────────────────────────────────────────────────────
+
+.build-initiative-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 0 1.5rem; // match topnav side padding
+  background: none;  // inherited from .build-subnav
+  border-bottom: none; // border lives on .build-subnav
+  width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
+}
+
+.build-initiative-tab {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-decoration: none;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px; // overlap the subnav's border
+  transition: color 0.15s var(--ease-out), border-color 0.15s var(--ease-out);
+
+  &:hover {
+    color: var(--text-secondary);
+  }
+
+  &--active {
+    color: var(--text-primary);
+    border-bottom-color: var(--accent);
+    font-weight: 600;
+  }
+}
+
 // ── Two-column split ──────────────────────────────────────────────────────────
 
 .build-columns {
   display: grid;
   grid-template-columns: 1fr 400px;
   align-items: start;
-  padding: 0.875rem 1rem;
+  padding: 0.875rem 1.5rem; // match subnav side padding
   gap: 1rem;
 
   @media (max-width: 1100px) {

@@ -8,33 +8,34 @@
      @open-label-dispatch.window="openLabelDispatch($event.detail)"
 >
 
-  {# ── page header ─────────────────────────────────────────────────────── #}
-  <header class="build-header">
-    <div class="build-header__left">
-      <h1 class="build-header__title">⚡ Mission Control</h1>
-      <span class="build-header__repo">{{ repo }}</span>
-    </div>
-    <div class="build-header__right">
-      <span class="build-header__stat">
-        <span class="build-header__stat-open">{{ open_issues }} open</span>
-        <span class="build-header__stat-sep">/</span>
-        <span class="build-header__stat-total">{{ total_issues }} total</span>
-      </span>
-      <span class="build-header__live" title="Board refreshes every 5 s">● LIVE</span>
-    </div>
-  </header>
+  {# ── Unified sub-nav: Mission Control header + initiative tabs ───────── #}
+  <div class="build-subnav">
+    <header class="build-header">
+      <div class="build-header__left">
+        <h1 class="build-header__title">⚡ Mission Control</h1>
+        <span class="build-header__repo">{{ repo }}</span>
+      </div>
+      <div class="build-header__right">
+        <span class="build-header__stat">
+          <span class="build-header__stat-open">{{ open_issues }} open</span>
+          <span class="build-header__stat-sep">/</span>
+          <span class="build-header__stat-total">{{ total_issues }} total</span>
+        </span>
+        <span class="build-header__live" title="Board refreshes every 5 s">● LIVE</span>
+      </div>
+    </header>
 
-  {# ── initiative tab strip ─────────────────────────────────────────────── #}
-  {% if initiatives %}
-  <nav class="build-initiative-tabs" aria-label="Initiatives">
-    {% for ini in initiatives %}
-    <a class="build-initiative-tab{% if ini == initiative %} build-initiative-tab--active{% endif %}"
-       href="/ship/{{ repo_name }}/{{ ini | urlencode }}">
-      {{ ini }}
-    </a>
-    {% endfor %}
-  </nav>
-  {% endif %}
+    {% if initiatives %}
+    <nav class="build-initiative-tabs" aria-label="Initiatives">
+      {% for ini in initiatives %}
+      <a class="build-initiative-tab{% if ini == initiative %} build-initiative-tab--active{% endif %}"
+         href="/ship/{{ repo_name }}/{{ ini | urlencode }}">
+        {{ ini }}
+      </a>
+      {% endfor %}
+    </nav>
+    {% endif %}
+  </div>
 
   {# ── two-column layout: board + inspector ─────────────────────────────── #}
   <div class="build-columns">
