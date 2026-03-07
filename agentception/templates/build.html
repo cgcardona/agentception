@@ -252,62 +252,65 @@
           <span class="build-modal__label-badge" x-text="labelDispatchLabel"></span>
         </p>
 
-        {# Scope selector #}
-        <fieldset class="launch-scope" :class="{ 'launch-scope--loading': labelContextLoading }">
-          <legend class="launch-scope__legend">How much should this wave handle?</legend>
+        {# ── Two-path agent type selector ────────────────────────────────────── #}
+        <div class="launch-type" :class="{ 'launch-type--loading': labelContextLoading }">
 
-          {# Full initiative #}
-          <label class="launch-scope__opt" :class="{ 'launch-scope__opt--active': scopeMode === 'full_initiative' }">
-            <input type="radio" name="launchScope" value="full_initiative" x-model="scopeMode" />
-            <span class="launch-scope__icon">🌳</span>
-            <span class="launch-scope__text">
-              <strong>Full initiative</strong>
-              <span class="launch-scope__sub">A coordinator surveys all open tickets and assembles its own team</span>
+          {# ── Coordinator path ───────────────────────────────────────────────── #}
+          <label class="launch-type__opt" :class="{ 'launch-type__opt--active': agentType === 'coordinator' }">
+            <input type="radio" name="launchAgentType" value="coordinator" x-model="agentType" />
+            <span class="launch-type__icon">🌳</span>
+            <span class="launch-type__text">
+              <strong>Coordinator</strong>
+              <span class="launch-type__sub">Surveys scope and assembles a team autonomously</span>
             </span>
-            <span class="launch-scope__badge launch-scope__badge--coordinator">coordinator</span>
+            <span class="launch-type__badge launch-type__badge--coordinator">node</span>
           </label>
 
-          {# Phase scope #}
-          <label class="launch-scope__opt" :class="{ 'launch-scope__opt--active': scopeMode === 'phase' }">
-            <input type="radio" name="launchScope" value="phase" x-model="scopeMode" />
-            <span class="launch-scope__icon">📁</span>
-            <span class="launch-scope__text">
-              <strong>One phase</strong>
-              <span class="launch-scope__sub">A coordinator owns just the tickets in one phase</span>
-            </span>
-            <span class="launch-scope__badge launch-scope__badge--coordinator">coordinator</span>
-          </label>
+          {# Coordinator type grid — shown when Coordinator is selected #}
+          <div class="launch-coord-picker" x-show="agentType === 'coordinator'" x-transition>
+            <template x-for="ct in coordinatorTypes" :key="ct.value">
+              <label class="launch-coord-opt"
+                     :class="{ 'launch-coord-opt--active': coordinatorType === ct.value }">
+                <input type="radio" name="coordinatorType" :value="ct.value" x-model="coordinatorType" />
+                <div class="launch-coord-opt__body">
+                  <span class="launch-coord-opt__name" x-text="ct.label"></span>
+                  <span class="launch-coord-opt__desc" x-text="ct.desc"></span>
+                </div>
+                <code class="launch-coord-opt__role" x-text="ct.role"></code>
+              </label>
+            </template>
 
-          {# Phase picker #}
-          <div class="launch-scope__picker" x-show="scopeMode === 'phase'" x-transition>
-            <template x-if="scopePhases.length === 0 && !labelContextLoading">
-              <p class="launch-scope__empty">No phases found for this initiative yet.</p>
-            </template>
-            <template x-if="scopePhases.length > 0">
-              <select x-model="selectedPhase" class="build-modal__select">
-                <option value="">Choose a phase…</option>
-                <template x-for="p in scopePhases" :key="p.label">
-                  <option :value="p.label" x-text="p.label + ' (' + p.count + ' open)'"></option>
-                </template>
-              </select>
-            </template>
+            {# Phase picker — Engineering Manager only #}
+            <div class="launch-type__sub-picker" x-show="coordinatorType === 'engineering-manager'" x-transition>
+              <template x-if="scopePhases.length === 0 && !labelContextLoading">
+                <p class="launch-type__empty">No phases found for this initiative yet.</p>
+              </template>
+              <template x-if="scopePhases.length > 0">
+                <select x-model="selectedPhase" class="build-modal__select">
+                  <option value="">Choose a phase…</option>
+                  <template x-for="p in scopePhases" :key="p.label">
+                    <option :value="p.label" x-text="p.label + ' (' + p.count + ' open)'"></option>
+                  </template>
+                </select>
+              </template>
+            </div>
           </div>
 
-          {# Single issue scope #}
-          <label class="launch-scope__opt" :class="{ 'launch-scope__opt--active': scopeMode === 'issue' }">
-            <input type="radio" name="launchScope" value="issue" x-model="scopeMode" />
-            <span class="launch-scope__icon">📋</span>
-            <span class="launch-scope__text">
-              <strong>One ticket</strong>
-              <span class="launch-scope__sub">A single leaf agent works on this specific issue</span>
+          {# ── Leaf path ──────────────────────────────────────────────────────── #}
+          <label class="launch-type__opt" :class="{ 'launch-type__opt--active': agentType === 'leaf' }">
+            <input type="radio" name="launchAgentType" value="leaf" x-model="agentType" />
+            <span class="launch-type__icon">🔧</span>
+            <span class="launch-type__text">
+              <strong>Leaf agent</strong>
+              <span class="launch-type__sub">Works directly on one specific ticket</span>
             </span>
-            <span class="launch-scope__badge launch-scope__badge--leaf">leaf</span>
+            <span class="launch-type__badge launch-type__badge--leaf">leaf</span>
           </label>
 
-          {# Issue picker #}
-          <div class="launch-scope__picker" x-show="scopeMode === 'issue'" x-transition>
+          {# Ticket picker — shown when Leaf is selected #}
+          <div class="launch-type__sub-picker" x-show="agentType === 'leaf'" x-transition>
             <template x-if="scopeIssues.length === 0 && !labelContextLoading">
-              <p class="launch-scope__empty">No open issues found for this initiative yet.</p>
+              <p class="launch-type__empty">No open issues found for this initiative yet.</p>
             </template>
             <template x-if="scopeIssues.length > 0">
               <select x-model.number="selectedIssueNumber" class="build-modal__select">
@@ -318,7 +321,8 @@
               </select>
             </template>
           </div>
-        </fieldset>
+
+        </div>{# /.launch-type #}
 
         {# Live preview line #}
         <p class="launch-preview" x-show="launchPreviewText" x-text="launchPreviewText"></p>
@@ -334,8 +338,8 @@
                    x-model="advancedRole"
                    placeholder="e.g. cto, engineering-coordinator, python-developer" />
             <p class="launch-advanced__hint">
-              Leave blank to use the default for the chosen scope.
-              Full initiative → <code>cto</code> · Phase → <code>engineering-coordinator</code> · Ticket → <code>python-developer</code>
+              Leave blank to use the default for the selected type.
+              CTO → <code>cto</code> · Engineering Manager → <code>engineering-coordinator</code> · QA Lead → <code>qa-coordinator</code> · Leaf → derived from issue
             </p>
           </div>
         </details>

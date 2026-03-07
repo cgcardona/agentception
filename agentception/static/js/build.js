@@ -49,8 +49,33 @@ export function buildPage() {
     labelDispatchOpen: false,
     labelDispatchLabel: '',
 
-    // Scope selector: 'full_initiative' | 'phase' | 'issue'
-    scopeMode: 'full_initiative',
+    // Agent type: 'coordinator' | 'leaf'
+    agentType: 'coordinator',
+
+    // Coordinator sub-type: 'cto' | 'engineering-manager' | 'qa-lead'
+    coordinatorType: 'cto',
+
+    // Static coordinator type definitions (rendered by x-for in template)
+    coordinatorTypes: [
+      {
+        value: 'cto',
+        label: 'CTO',
+        desc:  'Surveys all open tickets + PRs and assembles the full team',
+        role:  'cto',
+      },
+      {
+        value: 'engineering-manager',
+        label: 'Engineering Manager',
+        desc:  'Owns one phase — pulls tickets and spawns leaf workers',
+        role:  'engineering-coordinator',
+      },
+      {
+        value: 'qa-lead',
+        label: 'QA Lead',
+        desc:  'Surveys open PRs and spawns reviewers',
+        role:  'qa-coordinator',
+      },
+    ],
 
     // Phase picker (populated from /api/dispatch/context)
     scopePhases: [],
@@ -76,18 +101,37 @@ export function buildPage() {
     dispatcherCopied: false,
     cancellingDispatch: false,
 
+    // Derived scope + role sent to the API (overridden by advancedRole when set)
+    get _derivedScope() {
+      if (this.agentType === 'leaf') return 'issue';
+      if (this.coordinatorType === 'engineering-manager') return 'phase';
+      return 'full_initiative';
+    },
+
+    get _derivedRole() {
+      if (this.advancedRole.trim()) return this.advancedRole.trim();
+      if (this.agentType === 'leaf') return null; // backend derives from issue
+      if (this.coordinatorType === 'cto') return 'cto';
+      if (this.coordinatorType === 'engineering-manager') return 'engineering-coordinator';
+      if (this.coordinatorType === 'qa-lead') return 'qa-coordinator';
+      return null;
+    },
+
     get launchPreviewText() {
       const label = this.labelDispatchLabel;
-      if (this.scopeMode === 'full_initiative') {
-        const role = this.advancedRole.trim() || 'cto';
-        return `A ${role} will survey every open ticket under "${label}" and assemble its own team.`;
+      if (this.agentType === 'coordinator') {
+        if (this.coordinatorType === 'cto') {
+          return `A CTO will survey all open tickets and PRs under "${label}" and assemble its own team.`;
+        }
+        if (this.coordinatorType === 'engineering-manager') {
+          if (!this.selectedPhase) return 'Choose a phase to see the preview.';
+          return `An Engineering Manager will pull all tickets in phase "${this.selectedPhase}" and spawn workers.`;
+        }
+        if (this.coordinatorType === 'qa-lead') {
+          return `A QA Lead will survey all open PRs under "${label}" and spawn reviewers.`;
+        }
       }
-      if (this.scopeMode === 'phase') {
-        if (!this.selectedPhase) return 'Choose a phase to see the preview.';
-        const role = this.advancedRole.trim() || 'coordinator';
-        return `A ${role} will handle all tickets in phase "${this.selectedPhase}".`;
-      }
-      if (this.scopeMode === 'issue') {
+      if (this.agentType === 'leaf') {
         if (!this.selectedIssueNumber) return 'Choose a ticket to see the preview.';
         const found = this.scopeIssues.find(i => i.number === this.selectedIssueNumber);
         const title = found ? found.title : `#${this.selectedIssueNumber}`;
@@ -97,10 +141,9 @@ export function buildPage() {
     },
 
     get launchReady() {
-      if (this.scopeMode === 'full_initiative') return true;
-      if (this.scopeMode === 'phase') return !!this.selectedPhase;
-      if (this.scopeMode === 'issue') return !!this.selectedIssueNumber;
-      return false;
+      if (this.agentType === 'leaf') return !!this.selectedIssueNumber;
+      if (this.coordinatorType === 'engineering-manager') return !!this.selectedPhase;
+      return true;
     },
 
     // ── agent tree computed groupings ────────────────────────────────────
@@ -311,7 +354,8 @@ export function buildPage() {
 
     openLabelDispatch(detail) {
       this.labelDispatchLabel = detail.label ?? '';
-      this.scopeMode = 'full_initiative';
+      this.agentType = 'coordinator';
+      this.coordinatorType = 'cto';
       this.scopePhases = [];
       this.scopeIssues = [];
       this.selectedPhase = '';
@@ -327,8 +371,13 @@ export function buildPage() {
       this.dispatcherCopied = false;
       this.cancellingDispatch = false;
       this.labelDispatchOpen = true;
-      // Pre-load context so pickers are ready when user switches scope
-      this._loadLabelContext();
+      // Pre-load context, then smart-default: 1 open ticket → leaf + pre-select it
+      this._loadLabelContext().then(() => {
+        if (this.scopeIssues.length === 1) {
+          this.agentType = 'leaf';
+          this.selectedIssueNumber = this.scopeIssues[0].number;
+        }
+      });
     },
 
     closeLabelDispatch() {
@@ -371,7 +420,7 @@ export function buildPage() {
           this.labelContextLoaded = true;
         }
       } catch {
-        // Non-fatal — pickers will be empty; user can still launch full initiative
+        // Non-fatal — pickers will be empty; coordinator path still works
       } finally {
         this.labelContextLoading = false;
       }
@@ -395,19 +444,21 @@ export function buildPage() {
       this.labelDispatching = true;
       this.labelDispatchError = null;
 
+      const scope = this._derivedScope;
       const body = {
         label: this.labelDispatchLabel,
-        scope: this.scopeMode,
+        scope,
         repo: this.repo,
       };
-      if (this.scopeMode === 'phase' && this.selectedPhase) {
+      if (scope === 'phase' && this.selectedPhase) {
         body.scope_label = this.selectedPhase;
       }
-      if (this.scopeMode === 'issue' && this.selectedIssueNumber) {
+      if (scope === 'issue' && this.selectedIssueNumber) {
         body.scope_issue_number = this.selectedIssueNumber;
       }
-      if (this.advancedRole.trim()) {
-        body.role = this.advancedRole.trim();
+      const role = this._derivedRole;
+      if (role) {
+        body.role = role;
       }
 
       try {
