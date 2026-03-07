@@ -181,7 +181,7 @@ class TestLaneComputation:
         """Acceptance criterion 5: PR merges → lane done."""
         result = compute_workflow_state(
             _issue(),
-            _run(status="done", agent_status="done"),
+            _run(status="completed", agent_status="completed"),
             _best_pr(pr_state="merged"),
         )
         assert result["lane"] == LANE_DONE
@@ -190,7 +190,7 @@ class TestLaneComputation:
         """Acceptance criterion 5: issue still open after merge → done + warning."""
         result = compute_workflow_state(
             _issue(state="open"),
-            _run(status="done", agent_status="done"),
+            _run(status="completed", agent_status="completed"),
             _best_pr(pr_state="merged"),
             pr_merged_recently=True,
         )
@@ -222,10 +222,10 @@ class TestLaneComputation:
         )
         assert result["lane"] == LANE_ACTIVE
 
-    def test_stale_run_is_active(self) -> None:
+    def test_blocked_run_is_active(self) -> None:
         result = compute_workflow_state(
             _issue(),
-            _run(agent_status="stale"),
+            _run(agent_status="blocked"),
             None,
         )
         assert result["lane"] == LANE_ACTIVE
@@ -234,19 +234,19 @@ class TestLaneComputation:
         result = compute_workflow_state(_issue(), None, None)
         assert result["lane"] == LANE_TODO
 
-    def test_unknown_run_no_pr_is_todo(self) -> None:
+    def test_failed_run_no_pr_is_todo(self) -> None:
         result = compute_workflow_state(
             _issue(),
-            _run(agent_status="unknown"),
+            _run(agent_status="failed"),
             None,
         )
         assert result["lane"] == LANE_TODO
 
-    def test_done_run_no_pr_is_todo(self) -> None:
-        """Run finished but no PR — goes back to todo (work might have failed)."""
+    def test_completed_run_no_pr_is_todo(self) -> None:
+        """Run completed but no PR — goes back to todo (work might have failed silently)."""
         result = compute_workflow_state(
             _issue(),
-            _run(agent_status="done"),
+            _run(agent_status="completed"),
             None,
         )
         assert result["lane"] == LANE_TODO
@@ -434,21 +434,23 @@ class TestAgentStatusEnum:
     def test_lane_active_includes_all_relevant(self) -> None:
         assert "implementing" in LANE_ACTIVE_STATUSES
         assert "pending_launch" in LANE_ACTIVE_STATUSES
-        assert "stale" in LANE_ACTIVE_STATUSES
+        assert "blocked" in LANE_ACTIVE_STATUSES
         assert "reviewing" in LANE_ACTIVE_STATUSES
 
     def test_reset_statuses(self) -> None:
-        assert RESET_STATUSES == {"pending_launch", "implementing", "reviewing"}
+        assert RESET_STATUSES == {"pending_launch", "implementing", "blocked", "reviewing"}
 
     def test_is_active(self) -> None:
         assert is_active("implementing")
+        assert is_active("blocked")
         assert not is_active("pending_launch")
-        assert not is_active("done")
+        assert not is_active("completed")
 
     def test_is_live(self) -> None:
         assert is_live("implementing")
         assert is_live("pending_launch")
-        assert not is_live("done")
+        assert is_live("blocked")
+        assert not is_live("completed")
 
 
 class TestComputeAgentStatus:
@@ -466,7 +468,7 @@ class TestComputeAgentStatus:
         assert compute_agent_status("implementing", old, now=now) == "stale"
 
     def test_unknown_status_normalised(self) -> None:
-        assert compute_agent_status("garbage_status", None) == "unknown"
+        assert compute_agent_status("garbage_status", None) == "failed"
 
 
 # ===========================================================================
@@ -586,20 +588,20 @@ class TestEndToEndLaneDerivation:
         """Acceptance criterion 5: merge → done even if issue still open."""
         result = compute_workflow_state(
             _issue(number=17, state="open"),
-            _run(status="done", agent_status="done"),
+            _run(status="completed", agent_status="completed"),
             _best_pr(pr_state="merged"),
             pr_merged_recently=True,
         )
         assert result["lane"] == LANE_DONE
         assert "issue_close_pending_propagation" in result["warnings"]
 
-    def test_multiple_runs_latest_unknown_older_has_pr(self) -> None:
-        """Acceptance criterion 6: latest run unknown, older run produced PR."""
+    def test_multiple_runs_latest_failed_older_has_pr(self) -> None:
+        """Acceptance criterion 6: latest run failed, older run produced PR."""
         # The state machine gets the best PR (from links), not from the run.
-        # Even if the latest run is unknown, if a PR link exists, lane is pr_open.
+        # Even if the latest run failed, if a PR link exists, lane is pr_open.
         result = compute_workflow_state(
             _issue(number=17),
-            _run(agent_status="unknown"),  # latest run is unknown
+            _run(agent_status="failed"),   # latest run failed
             _best_pr(pr_state="open"),     # but PR link exists from older run
         )
         assert result["lane"] == LANE_PR_OPEN

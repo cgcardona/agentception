@@ -829,14 +829,15 @@ async def _upsert_agent_runs(
                 existing.cognitive_arch = agent.cognitive_arch
 
     # Orphan sweep: any run that was active in a previous tick but is no
-    # longer backed by a live worktree gets flipped to "unknown".  This
-    # prevents phantom "implementing" rows from persisting in the Run
-    # History after a worktree is removed without a clean shutdown.
+    # longer backed by a live worktree gets flipped to "completed" (PR exists)
+    # or "failed" (no PR).  This prevents phantom "implementing" rows from
+    # persisting in the Run History after a worktree is removed without a
+    # clean shutdown.
     #
     # Exception: runs that have already opened a PR are not orphaned.  Their
     # lifecycle is now driven by the PR state (GitHub), not by a live worktree.
     # They stay "reviewing" until the PR merges and the issue closes, at which
-    # point the issue moves to the "done" bucket naturally.
+    # point the issue moves to the "completed" bucket naturally.
     orphan_result = await session.execute(
         select(ACAgentRun).where(
             ACAgentRun.status.in_(_ACTIVE_STATUSES),
@@ -850,9 +851,9 @@ async def _upsert_agent_runs(
                 # pr_number except "reviewing"), which is correct: the PR is
                 # open awaiting human or reviewer-agent action, not being
                 # actively reviewed yet.
-                orphan.status = "done"
+                orphan.status = "completed"
             else:
-                orphan.status = "unknown"
+                orphan.status = "failed"
             orphan.last_activity_at = now
             logger.debug(
                 "🧹 Orphan run %s → %s (pr_number=%s)",
@@ -863,7 +864,7 @@ async def _upsert_agent_runs(
 
     # Pending-launch TTL sweep: a pending_launch run that was never acknowledged
     # within 15 minutes is presumed abandoned (Dispatcher aborted before claiming
-    # it).  Mark it unknown so it doesn't permanently lock the issue in "active".
+    # it).  Mark it failed so it doesn't permanently lock the issue in "active".
     _PENDING_LAUNCH_TTL = datetime.timedelta(minutes=15)
     ttl_cutoff = now - _PENDING_LAUNCH_TTL
     pending_result = await session.execute(
@@ -873,10 +874,10 @@ async def _upsert_agent_runs(
         )
     )
     for stale_pending in pending_result.scalars().all():
-        stale_pending.status = "unknown"
+        stale_pending.status = "failed"
         stale_pending.last_activity_at = now
         logger.debug(
-            "🧹 Pending-launch TTL expired: %s → unknown (spawned_at=%s)",
+            "🧹 Pending-launch TTL expired: %s → failed (spawned_at=%s)",
             stale_pending.id,
             stale_pending.spawned_at,
         )
@@ -1104,11 +1105,162 @@ async def acknowledge_agent_run(run_id: str) -> bool:
         return False
 
 
-from agentception.workflow.status import RESET_STATUSES as _RESET_STATUSES  # noqa: E402
+from agentception.workflow.status import (  # noqa: E402
+    ACTIVE_STATUSES as _ACTIVE_STATUSES_SM,
+    RESET_STATUSES as _RESET_STATUSES,
+    RESUMABLE_STATUSES as _RESUMABLE_STATUSES,
+)
+
+# ---------------------------------------------------------------------------
+# Explicit state-transition persist functions (called by MCP build commands)
+# ---------------------------------------------------------------------------
 
 
-async def reset_build_runs_to_unknown() -> int:
-    """Set all agent runs in active states to ``unknown``.
+async def complete_agent_run(run_id: str) -> bool:
+    """Transition an ``implementing`` run to ``completed``.
+
+    Called by ``build_complete_run`` MCP tool after the agent has opened a PR
+    and all work is done.  Only succeeds from ``implementing`` state.
+
+    Returns ``True`` on success, ``False`` if the run was not found or was not
+    in a valid source state.
+    """
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun).where(ACAgentRun.id == run_id)
+            )
+            run = result.scalar_one_or_none()
+            if run is None or run.status != "implementing":
+                return False
+            run.status = "completed"
+            run.last_activity_at = _now()
+            run.completed_at = _now()
+            await session.commit()
+        logger.info("✅ complete_agent_run: %s → completed", run_id)
+        return True
+    except Exception as exc:
+        logger.warning("⚠️  complete_agent_run failed: %s", exc)
+        return False
+
+
+async def block_agent_run(run_id: str) -> bool:
+    """Transition an ``implementing`` run to ``blocked``.
+
+    Called by ``build_block_run`` MCP tool when an agent cannot proceed without
+    human intervention or a dependency resolving.  Only succeeds from
+    ``implementing`` state.
+
+    Returns ``True`` on success, ``False`` if the run was not found or not in
+    a valid source state.
+    """
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun).where(ACAgentRun.id == run_id)
+            )
+            run = result.scalar_one_or_none()
+            if run is None or run.status != "implementing":
+                return False
+            run.status = "blocked"
+            run.last_activity_at = _now()
+            await session.commit()
+        logger.info("✅ block_agent_run: %s → blocked", run_id)
+        return True
+    except Exception as exc:
+        logger.warning("⚠️  block_agent_run failed: %s", exc)
+        return False
+
+
+async def resume_agent_run(run_id: str, agent_run_id: str) -> bool:
+    """Transition a ``blocked`` or ``stopped`` run back to ``implementing``.
+
+    Called by ``build_resume_run`` MCP tool.  Idempotent: if the run is already
+    ``implementing`` and the caller's ``agent_run_id`` matches the run id, the
+    call succeeds (safe restart behaviour).
+
+    Returns ``True`` on success, ``False`` if the run was not found, not in a
+    resumable state, or the agent_run_id does not match.
+    """
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun).where(ACAgentRun.id == run_id)
+            )
+            run = result.scalar_one_or_none()
+            if run is None:
+                return False
+            # Idempotency: already implementing with same agent — allow restart
+            if run.status == "implementing" and run.id == agent_run_id:
+                return True
+            if run.status not in _RESUMABLE_STATUSES:
+                return False
+            run.status = "implementing"
+            run.last_activity_at = _now()
+            await session.commit()
+        logger.info("✅ resume_agent_run: %s → implementing", run_id)
+        return True
+    except Exception as exc:
+        logger.warning("⚠️  resume_agent_run failed: %s", exc)
+        return False
+
+
+async def cancel_agent_run(run_id: str) -> bool:
+    """Transition any active run to ``cancelled``.
+
+    Called by ``build_cancel_run`` MCP tool (or UI cancel button).  Valid from
+    any non-terminal state.
+
+    Returns ``True`` on success, ``False`` if run not found or already terminal.
+    """
+    from agentception.workflow.status import TERMINAL_STATUSES as _TERMINAL  # noqa: PLC0415
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun).where(ACAgentRun.id == run_id)
+            )
+            run = result.scalar_one_or_none()
+            if run is None or run.status in _TERMINAL:
+                return False
+            run.status = "cancelled"
+            run.last_activity_at = _now()
+            await session.commit()
+        logger.info("✅ cancel_agent_run: %s → cancelled", run_id)
+        return True
+    except Exception as exc:
+        logger.warning("⚠️  cancel_agent_run failed: %s", exc)
+        return False
+
+
+async def stop_agent_run(run_id: str) -> bool:
+    """Transition any active run to ``stopped``.
+
+    Called by ``build_stop_run`` MCP tool (or the UI stop button).  Unlike
+    ``cancel_agent_run``, a stopped run can be resumed via ``build_resume_run``.
+
+    Returns ``True`` on success, ``False`` if run not found or already terminal.
+    """
+    from agentception.workflow.status import TERMINAL_STATUSES as _TERMINAL  # noqa: PLC0415
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun).where(ACAgentRun.id == run_id)
+            )
+            run = result.scalar_one_or_none()
+            if run is None or run.status in _TERMINAL:
+                return False
+            run.status = "stopped"
+            run.last_activity_at = _now()
+            await session.commit()
+        logger.info("✅ stop_agent_run: %s → stopped", run_id)
+        return True
+    except Exception as exc:
+        logger.warning("⚠️  stop_agent_run failed: %s", exc)
+        return False
+
+
+async def reset_build_runs_to_failed() -> int:
+    """Set all agent runs in active states to ``failed``.
 
     Used by the full reset-build flow so the launch queue is empty and no
     run appears as in progress.  Returns the number of runs updated.
@@ -1121,14 +1273,14 @@ async def reset_build_runs_to_unknown() -> int:
             )
             rows = result.scalars().all()
             for run in rows:
-                run.status = "unknown"
+                run.status = "failed"
                 run.last_activity_at = now
             await session.commit()
             count = len(rows)
-        logger.info("✅ reset_build_runs_to_unknown: %d run(s) set to unknown", count)
+        logger.info("✅ reset_build_runs_to_failed: %d run(s) set to failed", count)
         return count
     except Exception as exc:
-        logger.warning("⚠️  reset_build_runs_to_unknown failed: %s", exc)
+        logger.warning("⚠️  reset_build_runs_to_failed failed: %s", exc)
         return 0
 
 

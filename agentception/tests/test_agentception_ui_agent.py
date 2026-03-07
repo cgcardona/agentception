@@ -143,7 +143,7 @@ def test_agent_detail_no_transcript_path(client: TestClient) -> None:
     node = AgentNode(
         id="no-transcript",
         role="unknown",
-        status=AgentStatus.UNKNOWN,
+        status=AgentStatus.FAILED,
         transcript_path=None,
         message_count=0,
     )
@@ -305,7 +305,7 @@ def test_transcript_api_empty_when_no_path(
     node = AgentNode(
         id="notranscript",
         role="unknown",
-        status=AgentStatus.UNKNOWN,
+        status=AgentStatus.FAILED,
         transcript_path=None,
         message_count=0,
     )

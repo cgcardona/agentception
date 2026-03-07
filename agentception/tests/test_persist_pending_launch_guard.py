@@ -5,7 +5,7 @@ from __future__ import annotations
 Bug: the poller called _upsert_agent_runs() whenever it found a worktree on
 the filesystem.  If that worktree belonged to a pending_launch run (Dispatcher
 not yet invoked), the upsert would overwrite the precious pending_launch status
-with whatever status the poller derived (typically "stale"), draining the
+with whatever status the poller derived (typically "implementing"), draining the
 Dispatcher queue before it was ever read.
 
 Fix: _upsert_agent_runs() now skips the status overwrite when existing.status
@@ -44,7 +44,7 @@ def _make_run(status: str = "pending_launch") -> ACAgentRun:
     return run
 
 
-def _make_agent(status: AgentStatus = AgentStatus.STALE) -> AgentNode:
+def _make_agent(status: AgentStatus = AgentStatus.IMPLEMENTING) -> AgentNode:
     """Return a minimal AgentNode as the poller would produce."""
     return AgentNode(
         id="label-developer-experience-layer-5492de",
@@ -115,7 +115,7 @@ async def test_pending_launch_status_not_overwritten_by_poller() -> None:
     """Poller must not clobber pending_launch when it finds the worktree."""
     existing = _make_run(status="pending_launch")
     session = _make_session(existing)
-    agent = _make_agent(status=AgentStatus.STALE)
+    agent = _make_agent(status=AgentStatus.IMPLEMENTING)
 
     await _persist._upsert_agent_runs(session, [agent])
 
@@ -129,12 +129,12 @@ async def test_implementing_status_is_updated_by_poller() -> None:
     """Non-pending_launch runs should still have their status updated normally."""
     existing = _make_run(status="implementing")
     session = _make_session(existing)
-    agent = _make_agent(status=AgentStatus.STALE)
+    agent = _make_agent(status=AgentStatus.IMPLEMENTING)
 
     await _persist._upsert_agent_runs(session, [agent])
 
-    assert existing.status == AgentStatus.STALE.value, (
-        "implementing → stale transition should proceed normally"
+    assert existing.status == AgentStatus.IMPLEMENTING.value, (
+        "implementing status should be updated by poller normally"
     )
 
 
@@ -236,14 +236,14 @@ async def test_orphan_with_pr_number_set_to_done() -> None:
 
     await _persist._upsert_agent_runs(session, [different_agent])
 
-    assert orphan.status == "done", (
-        "Orphan with open PR must be set to 'done' so the Kanban card lands in PR Open"
+    assert orphan.status == "completed", (
+        "Orphan with open PR must be set to 'completed' so the Kanban card lands in PR Open"
     )
 
 
 @pytest.mark.anyio
-async def test_orphan_without_pr_number_flipped_to_unknown() -> None:
-    """Worktrees removed with no open PR should still become unknown (normal cleanup)."""
+async def test_orphan_without_pr_number_flipped_to_failed() -> None:
+    """Worktrees removed with no open PR should become failed (normal cleanup)."""
     orphan = _make_run(status="implementing")
     orphan.pr_number = None
     orphan_result_mock = MagicMock()
@@ -264,8 +264,8 @@ async def test_orphan_without_pr_number_flipped_to_unknown() -> None:
 
     await _persist._upsert_agent_runs(session, [different_agent])
 
-    assert orphan.status == "unknown", (
-        "Orphan without PR should be flipped to unknown for cleanup"
+    assert orphan.status == "failed", (
+        "Orphan without PR should be flipped to failed for cleanup"
     )
 
 
@@ -275,8 +275,8 @@ async def test_orphan_without_pr_number_flipped_to_unknown() -> None:
 
 
 @pytest.mark.anyio
-async def test_pending_launch_ttl_expired_run_flipped_to_unknown() -> None:
-    """A pending_launch run older than 15 min with no live worktree becomes unknown.
+async def test_pending_launch_ttl_expired_run_flipped_to_failed() -> None:
+    """A pending_launch run older than 15 min with no live worktree becomes failed.
 
     Dispatcher that aborts before acknowledging would otherwise lock the issue
     in the 'active' swim lane forever with no worktree to back it.
@@ -302,8 +302,8 @@ async def test_pending_launch_ttl_expired_run_flipped_to_unknown() -> None:
     different_agent = AgentNode(id="different-run-id", role="cto", status=AgentStatus.IMPLEMENTING)
     await _persist._upsert_agent_runs(session, [different_agent])
 
-    assert stale_pending.status == "unknown", (
-        "Expired pending_launch must become unknown so the issue returns to todo lane"
+    assert stale_pending.status == "failed", (
+        "Expired pending_launch must become failed so the issue returns to todo lane"
     )
 
 
@@ -335,3 +335,185 @@ async def test_pending_launch_recent_run_not_expired() -> None:
     assert fresh_pending.status == "pending_launch", (
         "Fresh pending_launch must not be touched by the TTL sweep"
     )
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for new state-transition persist functions (PR 1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_complete_agent_run_transitions_implementing_to_completed() -> None:
+    """complete_agent_run: implementing → completed succeeds."""
+    import agentception.db.persist as _p
+
+    run = _make_run(status="implementing")
+
+    fake_session = MagicMock()
+    fake_session.__aenter__ = AsyncMock(return_value=fake_session)
+    fake_session.__aexit__ = AsyncMock(return_value=False)
+    fake_session.execute = AsyncMock(
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=run))
+    )
+    fake_session.commit = AsyncMock()
+
+    with patch("agentception.db.persist.get_session", return_value=fake_session):
+        ok = await _p.complete_agent_run("test-run-id")
+
+    assert ok is True
+    assert run.status == "completed"
+
+
+@pytest.mark.anyio
+async def test_complete_agent_run_rejects_non_implementing_state() -> None:
+    """complete_agent_run: only succeeds from implementing state."""
+    import agentception.db.persist as _p
+
+    run = _make_run(status="blocked")
+
+    fake_session = MagicMock()
+    fake_session.__aenter__ = AsyncMock(return_value=fake_session)
+    fake_session.__aexit__ = AsyncMock(return_value=False)
+    fake_session.execute = AsyncMock(
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=run))
+    )
+
+    with patch("agentception.db.persist.get_session", return_value=fake_session):
+        ok = await _p.complete_agent_run("test-run-id")
+
+    assert ok is False
+    assert run.status == "blocked"
+
+
+@pytest.mark.anyio
+async def test_block_agent_run_transitions_implementing_to_blocked() -> None:
+    """block_agent_run: implementing → blocked succeeds."""
+    import agentception.db.persist as _p
+
+    run = _make_run(status="implementing")
+
+    fake_session = MagicMock()
+    fake_session.__aenter__ = AsyncMock(return_value=fake_session)
+    fake_session.__aexit__ = AsyncMock(return_value=False)
+    fake_session.execute = AsyncMock(
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=run))
+    )
+    fake_session.commit = AsyncMock()
+
+    with patch("agentception.db.persist.get_session", return_value=fake_session):
+        ok = await _p.block_agent_run("test-run-id")
+
+    assert ok is True
+    assert run.status == "blocked"
+
+
+@pytest.mark.anyio
+async def test_resume_agent_run_transitions_blocked_to_implementing() -> None:
+    """resume_agent_run: blocked → implementing succeeds."""
+    import agentception.db.persist as _p
+
+    run = _make_run(status="blocked")
+
+    fake_session = MagicMock()
+    fake_session.__aenter__ = AsyncMock(return_value=fake_session)
+    fake_session.__aexit__ = AsyncMock(return_value=False)
+    fake_session.execute = AsyncMock(
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=run))
+    )
+    fake_session.commit = AsyncMock()
+
+    with patch("agentception.db.persist.get_session", return_value=fake_session):
+        ok = await _p.resume_agent_run("test-run-id", "some-agent-id")
+
+    assert ok is True
+    assert run.status == "implementing"
+
+
+@pytest.mark.anyio
+async def test_resume_agent_run_idempotent_if_already_implementing_same_id() -> None:
+    """resume_agent_run: already implementing with same run_id → ok (restart-safe)."""
+    import agentception.db.persist as _p
+
+    run = _make_run(status="implementing")
+    run.id = "label-developer-experience-layer-5492de"
+
+    fake_session = MagicMock()
+    fake_session.__aenter__ = AsyncMock(return_value=fake_session)
+    fake_session.__aexit__ = AsyncMock(return_value=False)
+    fake_session.execute = AsyncMock(
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=run))
+    )
+
+    with patch("agentception.db.persist.get_session", return_value=fake_session):
+        ok = await _p.resume_agent_run(
+            "label-developer-experience-layer-5492de",
+            "label-developer-experience-layer-5492de",
+        )
+
+    assert ok is True
+    assert run.status == "implementing"
+
+
+@pytest.mark.anyio
+async def test_cancel_agent_run_transitions_implementing_to_cancelled() -> None:
+    """cancel_agent_run: implementing → cancelled succeeds."""
+    import agentception.db.persist as _p
+
+    run = _make_run(status="implementing")
+
+    fake_session = MagicMock()
+    fake_session.__aenter__ = AsyncMock(return_value=fake_session)
+    fake_session.__aexit__ = AsyncMock(return_value=False)
+    fake_session.execute = AsyncMock(
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=run))
+    )
+    fake_session.commit = AsyncMock()
+
+    with patch("agentception.db.persist.get_session", return_value=fake_session):
+        ok = await _p.cancel_agent_run("test-run-id")
+
+    assert ok is True
+    assert run.status == "cancelled"
+
+
+@pytest.mark.anyio
+async def test_stop_agent_run_transitions_any_active_to_stopped() -> None:
+    """stop_agent_run: any active state → stopped."""
+    import agentception.db.persist as _p
+
+    run = _make_run(status="blocked")
+
+    fake_session = MagicMock()
+    fake_session.__aenter__ = AsyncMock(return_value=fake_session)
+    fake_session.__aexit__ = AsyncMock(return_value=False)
+    fake_session.execute = AsyncMock(
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=run))
+    )
+    fake_session.commit = AsyncMock()
+
+    with patch("agentception.db.persist.get_session", return_value=fake_session):
+        ok = await _p.stop_agent_run("test-run-id")
+
+    assert ok is True
+    assert run.status == "stopped"
+
+
+@pytest.mark.anyio
+async def test_cancel_agent_run_rejects_terminal_state() -> None:
+    """cancel_agent_run: cannot cancel a completed run."""
+    import agentception.db.persist as _p
+
+    run = _make_run(status="completed")
+
+    fake_session = MagicMock()
+    fake_session.__aenter__ = AsyncMock(return_value=fake_session)
+    fake_session.__aexit__ = AsyncMock(return_value=False)
+    fake_session.execute = AsyncMock(
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=run))
+    )
+
+    with patch("agentception.db.persist.get_session", return_value=fake_session):
+        ok = await _p.cancel_agent_run("test-run-id")
+
+    assert ok is False
+    assert run.status == "completed"

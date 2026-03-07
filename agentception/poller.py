@@ -169,7 +169,7 @@ async def merge_agents(
             # show as active rather than confusingly UNKNOWN.
             status = AgentStatus.IMPLEMENTING
         else:
-            status = AgentStatus.UNKNOWN
+            status = AgentStatus.FAILED
 
         # Agent ID is the worktree basename (e.g. "issue-732"). This is the
         # canonical identifier used in URLs, DB PKs, and API responses.

@@ -361,7 +361,7 @@ async def test_merge_agents_unknown_status() -> None:
     agents = await merge_agents([wt], _empty_board())
 
     assert len(agents) == 1
-    assert agents[0].status == AgentStatus.UNKNOWN
+    assert agents[0].status == AgentStatus.FAILED
 
 
 @pytest.mark.anyio

@@ -106,7 +106,7 @@ async def aggregate_waves() -> list[WaveSummary]:
                 AgentNode(
                     id=a["id"],
                     role=a["role"],
-                    status=AgentStatus(a["status"]) if a["status"] in AgentStatus._value2member_map_ else AgentStatus.UNKNOWN,
+                    status=AgentStatus(a["status"]) if a["status"] in AgentStatus._value2member_map_ else AgentStatus.FAILED,
                     issue_number=a["issue_number"],
                     pr_number=a["pr_number"],
                     branch=a["branch"],
@@ -290,7 +290,7 @@ def _task_file_to_agent_node(tf: TaskFile) -> AgentNode:
     return AgentNode(
         id=agent_id,
         role=tf.role or "unknown",
-        status=AgentStatus.IMPLEMENTING if is_active else AgentStatus.DONE,
+        status=AgentStatus.IMPLEMENTING if is_active else AgentStatus.COMPLETED,
         issue_number=tf.issue_number,
         pr_number=tf.pr_number,
         branch=tf.branch,
