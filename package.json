@@ -4,7 +4,7 @@
   "description": "AgentCeption frontend build toolchain",
   "private": true,
   "scripts": {
-    "build:js": "esbuild agentception/static/js/app.js --bundle --format=iife --minify --outfile=agentception/static/app.js",
+    "build:js": "esbuild agentception/static/js/app.ts --bundle --format=iife --minify --outfile=agentception/static/app.js",
     "build:css": "sass --style=compressed --no-source-map agentception/static/scss/app.scss agentception/static/app.css",
     "build": "npm run build:js && npm run build:css",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.node.json",

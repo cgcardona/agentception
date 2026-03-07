@@ -28,6 +28,28 @@ from pydantic import BaseModel
 
 from typing import Literal
 
+
+class OrgNodeSpec(BaseModel):
+    """One node in a user-designed agent org tree.
+
+    Serialized to JSON and written into the ``[pipeline]`` section of
+    ``.agent-task`` so the launched agent knows the exact hierarchy it was
+    designed to spawn rather than inferring structure from the ticket list.
+
+    Self-referential via ``children`` — ``model_rebuild()`` is required after
+    the class definition.
+    """
+
+    id: str
+    role: str
+    figure: str = ""
+    scope: Literal["full_initiative", "phase"] = "full_initiative"
+    scope_label: str = ""
+    children: list["OrgNodeSpec"] = []
+
+
+OrgNodeSpec.model_rebuild()
+
 from agentception.config import settings
 from agentception.db.persist import persist_agent_run_dispatch
 from agentception.db.queries import get_label_context
@@ -388,6 +410,13 @@ class LabelDispatchRequest(BaseModel):
     bypassing the role-default mapping while still deriving skills from context.
     Corresponds to ``figure_override`` in ``_resolve_cognitive_arch``.
     """
+    org_tree: OrgNodeSpec | None = None
+    """Full org tree designed in the Org Designer.
+
+    Written to ``.agent-task`` as ``org_tree_json`` (compact JSON string) so
+    the launched agent knows the exact hierarchy it is expected to spawn.
+    When absent the agent infers its own team structure from the ticket list.
+    """
 
 
 class LabelDispatchResponse(BaseModel):
@@ -543,6 +572,9 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
     }
     if org_domain:
         agent_sections["agent"]["org_domain"] = org_domain
+    if req.org_tree:
+        # Compact JSON — the agent reads this via toml and parses it.
+        agent_sections["pipeline"]["org_tree_json"] = req.org_tree.model_dump_json()
     agent_task = render_toml_str(agent_sections)
 
     agent_task_path = str(Path(worktree_path) / ".agent-task")
