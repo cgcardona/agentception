@@ -114,7 +114,7 @@ async def agents_list(request: Request) -> HTMLResponse:
     from agentception.routes.roles import resolve_cognitive_arch
 
     state = get_state() or PipelineState.empty()
-    now_utc = datetime.datetime.utcnow()
+    now_utc = datetime.datetime.now(datetime.UTC)
 
     # Flatten root + children into one list for the listing view.
     all_agents: list[AgentNode] = []
@@ -264,7 +264,7 @@ async def agents_partial(request: Request) -> HTMLResponse:
     from agentception.routes.roles import resolve_cognitive_arch
 
     state = get_state() or PipelineState.empty()
-    now_utc = datetime.datetime.utcnow()
+    now_utc = datetime.datetime.now(datetime.UTC)
 
     all_agents: list[AgentNode] = []
     for agent in state.agents:

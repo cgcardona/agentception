@@ -71,7 +71,7 @@ _CATEGORY_ORDER: list[str] = [
 
 def _timestamp_to_date(ts: float) -> str:
     try:
-        return datetime.datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d")
+        return datetime.datetime.fromtimestamp(ts, tz=datetime.UTC).strftime("%Y-%m-%d")
     except Exception:
         return "—"
 
@@ -105,11 +105,19 @@ def _md_to_html(text: str) -> str:
 
 
 def _parse_iso(s: object) -> datetime.datetime | None:
-    """Parse an ISO-8601 datetime string, returning None on failure."""
+    """Parse an ISO-8601 datetime string, returning a UTC-aware datetime or None.
+
+    Python 3.11+ ``fromisoformat`` handles the trailing ``Z`` natively.
+    Naive results (no timezone in the string) are stamped as UTC because all
+    timestamps in this codebase are stored and transmitted as UTC.
+    """
     if not isinstance(s, str):
         return None
     try:
-        return datetime.datetime.fromisoformat(s.rstrip("Z"))
+        dt = datetime.datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=datetime.UTC)
+        return dt
     except ValueError:
         return None
 
@@ -151,14 +159,14 @@ def _fmt_elapsed(spawned_iso: object) -> str:
     dt = _parse_iso(spawned_iso)
     if dt is None:
         return ""
-    delta = datetime.datetime.utcnow() - dt
+    delta = datetime.datetime.now(datetime.UTC) - dt
     return _fmt_duration(max(0.0, delta.total_seconds()))
 
 
 def _format_ts(ts: float) -> str:
     """Format a UNIX timestamp as a short UTC datetime string for the telemetry table."""
     try:
-        return datetime.datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+        return datetime.datetime.fromtimestamp(ts, tz=datetime.UTC).strftime("%Y-%m-%d %H:%M")
     except (OSError, OverflowError, ValueError):
         return "—"
 

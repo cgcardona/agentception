@@ -4,7 +4,7 @@ version = "0.1.1"
 description = "Multi-agent orchestration system for AI-powered development workflows"
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
     "markdown>=3.7",
@@ -50,7 +50,7 @@ where = ["."]
 include = ["agentception*"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
 explicit_package_bases = true
@@ -80,4 +80,4 @@ markers = [
 
 [tool.black]
 line-length = 100
-target-version = ["py311"]
+target-version = ["py312"]

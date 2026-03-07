@@ -27,13 +27,11 @@ Public API
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TypeAlias
-
 from agentception.config import settings
 from agentception.services.cognitive_arch import ROLE_DEFAULT_FIGURE
 from agentception.services.toml_task import TomlValue, render_toml_str, toml_val
 
-_TomlValue: TypeAlias = TomlValue
+type _TomlValue = TomlValue
 _toml_val = toml_val
 _render_toml_str = render_toml_str
 

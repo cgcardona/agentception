@@ -104,7 +104,7 @@ async def kill_agent(slug: str) -> JSONResponse:
         if worktree.exists():
             import shutil as _shutil
             try:
-                await asyncio.get_event_loop().run_in_executor(None, _shutil.rmtree, str(worktree))
+                await asyncio.get_running_loop().run_in_executor(None, _shutil.rmtree, str(worktree))
                 logger.info("✅ rm -rf fallback removed %s", worktree)
             except OSError as rm_err:
                 logger.warning("⚠️ rm -rf fallback failed for %s: %s", worktree, rm_err)
