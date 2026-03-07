@@ -28,7 +28,7 @@ from agentception.mcp.plan_tools import (
     plan_validate_manifest,
     plan_validate_spec,
 )
-from agentception.mcp.server import TOOLS, call_tool, handle_request, list_tools
+from agentception.mcp.server import TOOLS, call_tool, call_tool_async, handle_request, list_tools
 from agentception.mcp.types import (
     ACToolDef,
     ACToolResult,
@@ -838,3 +838,57 @@ async def test_plan_spawn_coordinator_agent_task_write_failure_removes_worktree(
     remove_call = git_calls[1]
     assert "remove" in remove_call, f"Expected 'remove' in cleanup call: {remove_call}"
     assert "--force" in remove_call, f"Expected '--force' in cleanup call: {remove_call}"
+
+
+# ---------------------------------------------------------------------------
+# build_acknowledge_run — MCP tool dispatches to acknowledge_agent_run
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_build_acknowledge_run_success_via_call_tool() -> None:
+    """build_acknowledge_run MCP tool returns ok=true on successful claim.
+
+    Regression: before this tool existed the Dispatcher fell back to curl.
+    """
+    with patch(
+        "agentception.mcp.build_tools.acknowledge_agent_run",
+        new_callable=AsyncMock,
+        return_value=True,
+    ):
+        result = await call_tool_async("build_acknowledge_run", {"run_id": "test-run-abc123"})
+
+    assert result["isError"] is False
+    payload = json.loads(result["content"][0]["text"])
+    assert payload["ok"] is True
+    assert payload["run_id"] == "test-run-abc123"
+
+
+@pytest.mark.anyio
+async def test_build_acknowledge_run_already_claimed_via_call_tool() -> None:
+    """build_acknowledge_run returns isError=True when run was already claimed."""
+    with patch(
+        "agentception.mcp.build_tools.acknowledge_agent_run",
+        new_callable=AsyncMock,
+        return_value=False,
+    ):
+        result = await call_tool_async("build_acknowledge_run", {"run_id": "test-run-already"})
+
+    assert result["isError"] is True
+    payload = json.loads(result["content"][0]["text"])
+    assert payload["ok"] is False
+    assert "reason" in payload
+
+
+@pytest.mark.anyio
+async def test_build_acknowledge_run_missing_run_id_returns_error() -> None:
+    """build_acknowledge_run MCP tool returns isError=True when run_id is absent."""
+    result = await call_tool_async("build_acknowledge_run", {})
+
+    assert result["isError"] is True
+
+
+def test_build_acknowledge_run_in_tools_list() -> None:
+    """build_acknowledge_run is present in the TOOLS registry."""
+    names = [t["name"] for t in TOOLS]
+    assert "build_acknowledge_run" in names

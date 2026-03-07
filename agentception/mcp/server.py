@@ -27,6 +27,7 @@ import logging
 from typing import cast
 
 from agentception.mcp.build_tools import (
+    build_acknowledge_run,
     build_get_pending_launches,
     build_report_blocker,
     build_report_decision,
@@ -361,6 +362,28 @@ TOOLS: list[ACToolDef] = [
         },
     ),
     ACToolDef(
+        name="build_acknowledge_run",
+        description=(
+            "Atomically claim a pending run before spawning its Task agent. "
+            "Call this with the run_id from build_get_pending_launches immediately "
+            "before firing the Task so the run cannot be double-claimed by a concurrent "
+            "Dispatcher. Transitions the run from pending_launch to implementing. "
+            "Returns {ok: true, run_id} on success, or {ok: false, reason} if the run "
+            "was already claimed — skip that item and continue with the next."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "run_id": {
+                    "type": "string",
+                    "description": "run_id returned by build_get_pending_launches",
+                },
+            },
+            "required": ["run_id"],
+            "additionalProperties": False,
+        },
+    ),
+    ACToolDef(
         name="build_spawn_child",
         description=(
             "Create a child agent node in the agent tree. "
@@ -653,6 +676,7 @@ def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
         "plan_spawn_coordinator",
         "plan_advance_phase",
         "build_get_pending_launches",
+        "build_acknowledge_run",
         "build_spawn_child",
         "build_report_step",
         "build_report_blocker",
@@ -728,6 +752,22 @@ async def call_tool_async(
         return ACToolResult(
             content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
             isError=False,
+        )
+
+    if name == "build_acknowledge_run":
+        run_id_arg = arguments.get("run_id")
+        if not isinstance(run_id_arg, str) or not run_id_arg:
+            return ACToolResult(
+                content=[ACToolContent(
+                    type="text",
+                    text=_tool_result_to_text({"error": "build_acknowledge_run requires a non-empty string run_id"}),
+                )],
+                isError=True,
+            )
+        result = await build_acknowledge_run(run_id_arg)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=not bool(result.get("ok", False)),
         )
 
     if name == "build_spawn_child":

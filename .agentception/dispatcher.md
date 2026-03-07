@@ -73,8 +73,10 @@ For each pending launch (spawn all simultaneously using parallel Task calls):
 
 ### 3a. Claim the run
 
-```bash
-curl -s -X POST http://localhost:10003/api/runs/{run_id}/acknowledge
+Call the MCP tool (server: `agentception`):
+
+```
+build_acknowledge_run(run_id="{run_id}")
 ```
 
 This atomically marks the run as `implementing` so no other Dispatcher can
