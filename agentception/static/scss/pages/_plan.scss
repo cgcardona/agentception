@@ -278,7 +278,7 @@
 // preventing Monaco from initializing against an animating layout.
 .plan-generating {
   text-align: left;
-  padding: 4rem 1rem;
+  padding: 1.5rem 1rem;
 }
 
 .plan-gen-header {
@@ -424,6 +424,10 @@
   border-radius: 6px;
   font-size: .85rem;
   color: var(--text-secondary, #aaa);
+
+  // Override the global .plan-spinner centering so the spinner stays
+  // left-aligned within the flex row.
+  .plan-spinner { margin: 0; flex-shrink: 0; }
 }
 
 // Small spinner variant for inline use.
