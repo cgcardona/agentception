@@ -253,7 +253,16 @@
         {% endfor %}
       </ul>
       <div class="build-swimlane__ghost" x-show="!open">
-        {% if bns.todo %}<span class="build-swimlane__ghost-pill">{{ bns.todo | length }}</span>{% endif %}
+        {% if bns.todo %}
+        <div class="build-swimlane__ghost-card">
+          {% for issue in bns.todo %}
+          <div class="build-swimlane__ghost-row">
+            <span class="build-swimlane__ghost-num">#{{ issue.number }}</span>
+            <span class="build-swimlane__ghost-title">{{ issue.title | truncate(40, True, '…') }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
       </div>
     </div>
 
@@ -264,7 +273,16 @@
         {% endfor %}
       </ul>
       <div class="build-swimlane__ghost" x-show="!open">
-        {% if bns.active %}<span class="build-swimlane__ghost-pill build-swimlane__ghost-pill--active">{{ bns.active | length }}</span>{% endif %}
+        {% if bns.active %}
+        <div class="build-swimlane__ghost-card build-swimlane__ghost-card--active">
+          {% for issue in bns.active %}
+          <div class="build-swimlane__ghost-row">
+            <span class="build-swimlane__ghost-num">#{{ issue.number }}</span>
+            <span class="build-swimlane__ghost-title">{{ issue.title | truncate(40, True, '…') }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
       </div>
     </div>
 
@@ -275,7 +293,16 @@
         {% endfor %}
       </ul>
       <div class="build-swimlane__ghost" x-show="!open">
-        {% if bns.pr_open %}<span class="build-swimlane__ghost-pill build-swimlane__ghost-pill--pr">{{ bns.pr_open | length }}</span>{% endif %}
+        {% if bns.pr_open %}
+        <div class="build-swimlane__ghost-card build-swimlane__ghost-card--pr">
+          {% for issue in bns.pr_open %}
+          <div class="build-swimlane__ghost-row">
+            <span class="build-swimlane__ghost-num">#{{ issue.number }}</span>
+            <span class="build-swimlane__ghost-title">{{ issue.title | truncate(40, True, '…') }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
       </div>
     </div>
 
@@ -286,7 +313,16 @@
         {% endfor %}
       </ul>
       <div class="build-swimlane__ghost" x-show="!open">
-        {% if bns.reviewing %}<span class="build-swimlane__ghost-pill build-swimlane__ghost-pill--review">{{ bns.reviewing | length }}</span>{% endif %}
+        {% if bns.reviewing %}
+        <div class="build-swimlane__ghost-card build-swimlane__ghost-card--review">
+          {% for issue in bns.reviewing %}
+          <div class="build-swimlane__ghost-row">
+            <span class="build-swimlane__ghost-num">#{{ issue.number }}</span>
+            <span class="build-swimlane__ghost-title">{{ issue.title | truncate(40, True, '…') }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
       </div>
     </div>
 
@@ -297,7 +333,16 @@
         {% endfor %}
       </ul>
       <div class="build-swimlane__ghost" x-show="!open">
-        {% if bns.done %}<span class="build-swimlane__ghost-pill build-swimlane__ghost-pill--done">{{ bns.done | length }}</span>{% endif %}
+        {% if bns.done %}
+        <div class="build-swimlane__ghost-card build-swimlane__ghost-card--done">
+          {% for issue in bns.done %}
+          <div class="build-swimlane__ghost-row">
+            <span class="build-swimlane__ghost-num">#{{ issue.number }}</span>
+            <span class="build-swimlane__ghost-title">{{ issue.title | truncate(40, True, '…') }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
       </div>
     </div>
 
