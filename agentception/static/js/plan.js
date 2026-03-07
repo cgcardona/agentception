@@ -151,15 +151,17 @@ export function planForm() {
     },
 
     // On page load, if an in-progress YAML exists, jump straight to review.
+    // setTimeout(0) defers past Alpine's init cycle so $refs are fully bound
+    // before _mountEditor tries to access $refs.yamlEditor.
     _restoreDraft() {
       let saved;
       try { saved = localStorage.getItem(DRAFT_YAML_KEY); } catch (_) { return; }
       if (!saved) return;
       this.step = 'review';
-      this.$nextTick(() => {
+      setTimeout(() => {
         this._mountEditor(saved);
-        this.$nextTick(() => this._validateYaml());
-      });
+        setTimeout(() => this._validateYaml(), 0);
+      }, 0);
     },
 
     // ── Textarea helpers ───────────────────────────────────────────────────
@@ -263,12 +265,15 @@ export function planForm() {
               this.issueCount  = evt.issue_count ?? 0;
               const yamlText   = evt.yaml ?? '';
 
+              // Persist the raw YAML immediately — before mounting the editor —
+              // so a hard refresh always restores to the review step.
+              try { localStorage.setItem(DRAFT_YAML_KEY, yamlText); } catch (_) {}
+
               this.step = 'review';
               this.yamlValid = true;
               this.yamlValidationMsg = '✓ Plan ready — review and edit before launching';
               this.$nextTick(() => {
                 this._mountEditor(yamlText);
-                this._saveDraft();
                 this.$nextTick(() => this._validateYaml());
               });
               return;   // stream finished successfully
