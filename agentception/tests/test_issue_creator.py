@@ -258,6 +258,43 @@ async def test_file_issues_edits_body_for_depends_on() -> None:
 
 
 @pytest.mark.anyio
+async def test_file_issues_still_yields_blocked_event_when_label_stamp_fails() -> None:
+    """BlockedEvent is still emitted even when add_label_to_issue raises.
+
+    Regression: the old shared try/except swallowed both the label failure and
+    the BlockedEvent.  After the fix, body edit and label stamp are independent:
+    a label failure only loses the label (poller re-stamps it), not the event.
+    """
+    spec = _make_spec(with_depends_on=True)
+
+    create_count = 0
+
+    def fake_proc(*args: str, **_kwargs: object) -> MagicMock:
+        nonlocal create_count
+        cmd = list(args)
+        if "create" in cmd:
+            create_count += 1
+            return _mock_proc(stdout=_issue_url(500 + create_count))
+        return _mock_proc()
+
+    with (
+        patch("agentception.readers.issue_creator.ensure_label_exists", new_callable=AsyncMock),
+        patch(
+            "agentception.readers.issue_creator.add_label_to_issue",
+            side_effect=RuntimeError("label API down"),
+        ),
+        patch("asyncio.create_subprocess_exec", side_effect=fake_proc),
+    ):
+        events = await _collect(file_issues(spec))
+
+    # BlockedEvent must still be yielded even though label stamp failed.
+    blocked_events = [e for e in events if e["t"] == "blocked"]
+    assert len(blocked_events) == 1, (
+        "BlockedEvent must be emitted regardless of label-stamp failure"
+    )
+
+
+@pytest.mark.anyio
 async def test_file_issues_no_edit_when_no_depends_on() -> None:
     """No gh issue edit is called when no issue has depends_on."""
     spec = _make_spec(with_depends_on=False)

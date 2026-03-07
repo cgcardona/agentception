@@ -56,6 +56,19 @@ def _hash(*parts: str) -> str:
     return hashlib.sha256("".join(parts).encode()).hexdigest()
 
 
+def _parse_blocked_by(body: str) -> list[int]:
+    """Extract blocker issue numbers from a '**Blocked by:** #N, #M' line in an issue body.
+
+    Called during every upsert so depends_on_json is populated even when
+    persist_issue_depends_on loses the race with the DB row not yet existing.
+    Only parses the first matching line; returns [] if no match.
+    """
+    m = re.search(r"\*\*Blocked by:\*\*\s*((?:#\d+(?:,\s*)?)+)", body)
+    if not m:
+        return []
+    return [int(n) for n in re.findall(r"#(\d+)", m.group(1))]
+
+
 # ---------------------------------------------------------------------------
 # Public entry point — called by poller.tick()
 # ---------------------------------------------------------------------------
@@ -170,16 +183,20 @@ async def _upsert_issues(
         )
         existing = result.scalar_one_or_none()
 
+        body_str = str(raw.get("body", ""))
         if existing is None:
             session.add(
                 ACIssue(
                     github_number=num,
                     repo=repo,
                     title=title,
-                    body=str(raw.get("body", "")) or None,
+                    body=body_str or None,
                     state=state_str,
                     phase_label=active_label,
                     labels_json=labels_json,
+                    # Parse "Blocked by" on first insert so depends_on_json is
+                    # populated even when persist_issue_depends_on loses the race.
+                    depends_on_json=json.dumps(_parse_blocked_by(body_str)),
                     content_hash=content_hash,
                     closed_at=closed_at,
                     first_seen_at=now,
@@ -189,6 +206,7 @@ async def _upsert_issues(
         elif existing.content_hash != content_hash or existing.state != state_str:
             # Update when content changed OR state transitioned (open → closed).
             existing.title = title
+            existing.body = body_str or None
             existing.state = state_str
             existing.phase_label = active_label
             existing.labels_json = labels_json
@@ -199,6 +217,14 @@ async def _upsert_issues(
                 existing.closed_at = closed_at
             elif state_str == "closed" and existing.closed_at is None:
                 existing.closed_at = now
+
+        # Backfill depends_on_json from the issue body for rows where
+        # persist_issue_depends_on lost the race (row did not exist yet).
+        # Safe to run unconditionally: only writes when the field is still empty.
+        if existing is not None and existing.depends_on_json == "[]":
+            parsed = _parse_blocked_by(body_str)
+            if parsed:
+                existing.depends_on_json = json.dumps(parsed)
 
 
 # ---------------------------------------------------------------------------

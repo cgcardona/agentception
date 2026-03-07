@@ -2099,6 +2099,48 @@ async def get_ticket_blocked_open_issues(repo: str) -> list[TicketBlockedRow]:
         return []
 
 
+async def get_issues_missing_ticket_blocked(repo: str) -> list[TicketBlockedRow]:
+    """Return open issues that have deps recorded but are missing the ``ticket-blocked`` label.
+
+    Used by the poller's ``_stamp_missing_ticket_blocked`` to re-apply the label
+    when the initial stamp in ``file_issues`` failed silently (e.g. a transient
+    GitHub API error caught by the old shared try/except).  Only issues whose
+    ``depends_on_json`` is non-empty are considered — the body-based backfill in
+    ``_upsert_issues`` ensures this field is populated on the first poller tick
+    after issue creation.
+
+    Falls back to ``[]`` on DB error.
+    """
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACIssue).where(
+                    ACIssue.repo == repo,
+                    ACIssue.state == "open",
+                )
+            )
+            rows = result.scalars().all()
+
+        out: list[TicketBlockedRow] = []
+        for row in rows:
+            dep_numbers: list[int] = json.loads(row.depends_on_json or "[]")
+            if not dep_numbers:
+                continue
+            labels: list[str] = json.loads(row.labels_json or "[]")
+            if "ticket-blocked" in labels:
+                continue
+            out.append(
+                TicketBlockedRow(
+                    github_number=row.github_number,
+                    dep_numbers=dep_numbers,
+                )
+            )
+        return out
+    except Exception as exc:
+        logger.warning("❌ get_issues_missing_ticket_blocked failed: %s", exc)
+        return []
+
+
 async def get_closed_issue_numbers(repo: str) -> set[int]:
     """Return the set of GitHub issue numbers that are closed in the DB.
 
