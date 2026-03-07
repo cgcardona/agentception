@@ -148,7 +148,7 @@ Read .agentception/agent-command-policy.md before issuing any shell commands.
 Green-tier commands run without confirmation. Yellow = check scope first.
 Red = never, ask the user instead.
 
-STEP 0 — READ YOUR TASK FILE:
+STEP 0 — READ YOUR TASK FILE AND COGNITIVE ARCHITECTURE:
   cat .agent-task
 
   Parse all KEY=value fields:
@@ -163,6 +163,42 @@ STEP 0 — READ YOUR TASK FILE:
     export GH_REPO=${GH_REPO:-{{ gh_repo }}}
     PHASE_FILTER=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('task',{}).get('phase_filter',''))")
     ATTEMPT_N=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['task']['attempt_n'])")
+    REPO=$(git worktree list | head -1 | awk '{print $1}')
+
+  # Load cognitive architecture — assembles figure persona + all skill domain fragments
+  # Format: "figure:skill1:skill2" (colon-separated)
+  COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent'].get('cognitive_arch',''))")
+  if [ -n "$COGNITIVE_ARCH" ]; then
+    echo "🧠 Cognitive architecture: $COGNITIVE_ARCH"
+    echo ""
+    RESOLVE_ARCH="$REPO/scripts/gen_prompts/resolve_arch.py"
+    if [ -f "$RESOLVE_ARCH" ]; then
+      ARCH_CONTEXT=$(python3 "$RESOLVE_ARCH" "$COGNITIVE_ARCH" --mode implementer 2>/dev/null)
+      if [ -n "$ARCH_CONTEXT" ]; then
+        echo "$ARCH_CONTEXT"
+      fi
+    else
+      echo "⚠️  resolve_arch.py not found at $RESOLVE_ARCH — skipping context block."
+    fi
+    echo ""
+    echo "Let these govern your approach to this task."
+  else
+    echo "⚠️  No COGNITIVE_ARCH set — using default coordinator approach."
+  fi
+
+  ⚠️  MANDATORY FIRST RESPONSE — DO THIS NOW, BEFORE STEP 1:
+  Send the following as your **first text response** to the user:
+
+  ---
+  🧠 **Cognitive architecture correctly injected.**
+
+  **My name is:** [extract the figure display name from the first
+    "## Cognitive Architecture: <Name>" heading inside $ARCH_CONTEXT]
+  **My role:** conductor
+  **My cognitive architecture string:** [value of $COGNITIVE_ARCH]
+
+  [Paste the full content of $ARCH_CONTEXT here verbatim]
+  ---
 
   ⚠️  ANTI-LOOP GUARD: if ATTEMPT_N > 3 → STOP.
     This conductor has run 4+ times without advancing the pipeline.
