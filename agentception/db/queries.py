@@ -1485,6 +1485,10 @@ async def get_issues_grouped_by_phase(
             )
             rows = result.scalars().all()
 
+        # Build a state map so dep chips are only shown for open dependencies.
+        # Closed deps are no longer blockers — they should not appear on cards.
+        issue_state_map: dict[int, str] = {r.github_number: r.state for r in rows}
+
         groups: dict[str, list[PhasedIssueRow]] = {}
         for row in rows:
             issue_labels: list[str] = json.loads(row.labels_json or "[]")
@@ -1503,7 +1507,13 @@ async def get_issues_grouped_by_phase(
             if phase_key is None:
                 continue
 
-            issue_deps: list[int] = json.loads(row.depends_on_json or "[]")
+            all_deps: list[int] = json.loads(row.depends_on_json or "[]")
+            # Only surface deps that are still open — a closed dep is resolved
+            # and should not dim the card or confuse agents about eligibility.
+            open_deps: list[int] = [
+                dep for dep in all_deps
+                if issue_state_map.get(dep, "open") != "closed"
+            ]
             groups.setdefault(phase_key, []).append(
                 PhasedIssueRow(
                     number=row.github_number,
@@ -1512,7 +1522,7 @@ async def get_issues_grouped_by_phase(
                     state=row.state,
                     url=f"https://github.com/{repo}/issues/{row.github_number}",
                     labels=issue_labels,
-                    depends_on=issue_deps,
+                    depends_on=open_deps,
                 )
             )
 
