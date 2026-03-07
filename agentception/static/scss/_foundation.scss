@@ -117,6 +117,12 @@ html, body {
   font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
 }
 
+body {
+  /* Prevent any child element (e.g. wide tab strips) from causing page-level
+     horizontal scroll. Scrollable children handle their own overflow-x. */
+  overflow-x: hidden;
+}
+
 a {
   color: var(--accent-bright);
   text-decoration: none;
