@@ -575,7 +575,7 @@ async def test_build_complete_run_does_not_teardown_worktree() -> None:
     with (
         patch("agentception.mcp.build_commands.persist_agent_event", new_callable=AsyncMock),
         patch("agentception.mcp.build_commands.complete_agent_run", new_callable=AsyncMock, return_value=True),
-        patch("agentception.mcp.build_commands.asyncio") as mock_asyncio,
+        patch("agentception.mcp.build_commands.asyncio.create_task") as mock_create_task,
     ):
         result = await build_complete_run(
             issue_number=42,
@@ -585,7 +585,7 @@ async def test_build_complete_run_does_not_teardown_worktree() -> None:
 
     assert result["ok"] is True
     assert result["status"] == "completed"
-    mock_asyncio.create_task.assert_not_called()
+    mock_create_task.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -637,10 +637,11 @@ async def test_get_issues_grouped_by_phase_filters_closed_deps() -> None:
             return_value=[],
         ),
     ):
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=mock_cm)
+        mock_session_obj = MagicMock()
+        mock_session_obj.execute = AsyncMock(return_value=mock_result)
+        mock_cm = MagicMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_session_obj)
         mock_cm.__aexit__ = AsyncMock(return_value=False)
-        mock_cm.execute = AsyncMock(return_value=mock_result)
         mock_session.return_value = mock_cm
 
         groups = await get_issues_grouped_by_phase("owner/repo", initiative=initiative)
