@@ -138,11 +138,11 @@ let _nodeCounter = 0;
 
 /**
  * Create a new tree node.
- * @param {string} role - Role slug.
+ * @param {string} role - Role slug (empty string = not yet configured).
  * @param {string} figure - Cognitive arch figure slug ('' for role default).
  * @returns {{id: string, role: string, figure: string, children: Array}}
  */
-function makeNode(role = 'cto', figure = '') {
+function makeNode(role = '', figure = '') {
   return { id: `n${++_nodeCounter}`, role, figure, children: [] };
 }
 
@@ -267,19 +267,24 @@ function renderD3(rootData, container, onAdd, onRemove, onSelect, selectedId, fi
   all
     .style('left', d => (d.x + offsetX - NODE_W / 2) + 'px')
     .style('top',  d => (d.y + offsetY) + 'px')
-    .classed('od-node--selected', d => d.data.id === selectedId)
-    .classed('od-node--coordinator', d => isCoordinator(d.data.role))
-    .classed('od-node--worker', d => !isCoordinator(d.data.role))
+    .classed('od-node--selected',    d => d.data.id === selectedId)
+    .classed('od-node--coordinator', d => !!d.data.role && isCoordinator(d.data.role))
+    .classed('od-node--worker',      d => !!d.data.role && !isCoordinator(d.data.role))
+    .classed('od-node--pending',     d => !d.data.role)
     .html(d => {
-      const tier    = isCoordinator(d.data.role) ? 'coordinator' : 'worker';
-      const figName = d.data.figure ? (figMap.get(d.data.figure) ?? d.data.figure) : 'role default';
+      const configured = !!d.data.role;
+      const tier    = configured ? (isCoordinator(d.data.role) ? 'coordinator' : 'worker') : 'pending';
+      const roleLbl = configured ? roleLabel(d.data.role) : '— define role —';
+      const figName = configured
+        ? (d.data.figure ? (figMap.get(d.data.figure) ?? d.data.figure) : 'role default')
+        : '';
       const removeBtn = d.depth > 0
         ? `<button class="od-node__btn od-node__btn--remove" data-id="${d.data.id}" title="Remove node">×</button>`
         : '';
       return `
         <div class="od-node__tier od-node__tier--${tier}">${tier}</div>
-        <div class="od-node__role">${roleLabel(d.data.role)}</div>
-        <div class="od-node__figure">${figName}</div>
+        <div class="od-node__role ${configured ? '' : 'od-node__role--empty'}">${roleLbl}</div>
+        ${configured ? `<div class="od-node__figure">${figName}</div>` : ''}
         <div class="od-node__actions">
           <button class="od-node__btn od-node__btn--add"    data-id="${d.data.id}" title="Add child">+ child</button>
           <button class="od-node__btn od-node__btn--edit"   data-id="${d.data.id}" title="Edit node">edit</button>
@@ -306,35 +311,34 @@ function renderD3(rootData, container, onAdd, onRemove, onSelect, selectedId, fi
 
 export function orgDesigner() {
   return {
-    // ── State ────────────────────────────────────────────────────────────────
+    // ── Overlay state ─────────────────────────────────────────────────────────
 
-    /** Overlay visibility. */
     open: false,
-    /** Initiative label being designed for. */
     initiative: '',
-    /** GitHub repo (owner/repo). */
     repo: '',
-    /** Figure catalog loaded from the backend. */
     figures: /** @type {Array<{id: string, name: string}>} */ ([]),
 
-    // Selected-node editor state
+    // ── Node editor state ────────────────────────────────────────────────────
+    // editType is the FIRST decision: coordinator or worker.
+    // editRole is filtered by editType so the dropdown only shows relevant roles.
+
     selectedNodeId: /** @type {string|null} */ (null),
+    editType: 'coordinator',   // 'coordinator' | 'worker'
     editRole: '',
     editFigure: '',
 
-    // Submission state
+    // ── Submission state ──────────────────────────────────────────────────────
+
     launching: false,
     launchError: /** @type {string|null} */ (null),
     launchSuccess: false,
     /** @type {{run_id: string, batch_id: string}|null} */
     launchResult: null,
 
-    // Internal D3 tree root (plain mutable JS object, NOT Alpine-reactive).
+    // ── Internal tree (NOT Alpine-reactive — D3 owns re-render) ──────────────
+
     _root: /** @type {object|null} */ (null),
     _container: /** @type {HTMLElement|null} */ (null),
-
-    // Role groups exposed to the editor template.
-    roleGroups: ROLE_GROUPS,
 
     // ── Computed ─────────────────────────────────────────────────────────────
 
@@ -343,41 +347,53 @@ export function orgDesigner() {
       return findNode(this._root, this.selectedNodeId);
     },
 
-    get launchPreviewText() {
-      if (!this._root) return 'Launch';
-      const root      = this._root;
-      const figMap    = new Map(this.figures.map(f => [f.id, f.name]));
-      const figName   = root.figure ? (figMap.get(root.figure) ?? root.figure) : 'role default';
-      const nodeCount = countNodes(root) - 1;
-      const childNote = nodeCount > 0
-        ? ` with ${nodeCount} child${nodeCount === 1 ? '' : 'ren'}`
-        : '';
-      return `Launch ${roleLabel(root.role)} (${figName})${childNote} →`;
+    /** Role groups filtered to coordinator or worker based on editType. */
+    get filteredRoleGroups() {
+      return ROLE_GROUPS.filter(g => g.type === this.editType);
     },
 
-    // ── Lifecycle ────────────────────────────────────────────────────────────
+    /** True when the root node has a role configured and we can launch. */
+    get launchReady() {
+      return !!(this._root && this._root.role && !this.launching && !this.launchSuccess);
+    },
+
+    get launchPreviewText() {
+      if (!this._root || !this._root.role) return 'Configure root node first';
+      const figMap    = new Map(this.figures.map(f => [f.id, f.name]));
+      const figName   = this._root.figure
+        ? (figMap.get(this._root.figure) ?? this._root.figure)
+        : 'role default';
+      const nodeCount = countNodes(this._root) - 1;
+      const childNote = nodeCount > 0
+        ? ` + ${nodeCount} child${nodeCount === 1 ? '' : 'ren'}`
+        : '';
+      return `Launch ${roleLabel(this._root.role)} (${figName})${childNote} →`;
+    },
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     /**
-     * Open the designer pre-seeded for *label*.
-     * @param {string} label - Initiative label.
-     * @param {string} repo  - ``owner/repo`` string.
-     * @param {Array<{id: string, name: string}>} figures - Figure catalog.
+     * Open the designer for *label*.  Creates a blank root node and
+     * immediately opens the editor so the first decision is coordinator vs worker.
      */
     openDesigner(label, repo, figures) {
       this.initiative    = label;
       this.repo          = repo;
       this.figures       = figures;
-      this._root         = makeNode('cto', 'jeff_dean');
-      this.selectedNodeId = null;
       this.launchError   = null;
       this.launchSuccess = false;
       this.launchResult  = null;
       this.launching     = false;
       this.open          = true;
 
+      // Blank root — no role pre-seeded.  Editor opens immediately.
+      this._root = makeNode('', '');
+
       this.$nextTick(() => {
         this._container = document.getElementById('od-canvas');
         this._render();
+        // Open editor for the blank root so user makes the first choice now.
+        this._openEditor(this._root.id, 'coordinator');
       });
     },
 
@@ -390,10 +406,11 @@ export function orgDesigner() {
     addChild(parentId) {
       const parent = findNode(this._root, parentId);
       if (!parent) return;
-      // Default new child: coordinator gets a worker, worker gets another worker.
-      const childRole = isCoordinator(parent.role) ? 'python-developer' : 'python-developer';
-      parent.children.push(makeNode(childRole, ''));
+      const child = makeNode('', '');
+      parent.children.push(child);
       this._render();
+      // Open editor for the new child immediately — default to worker.
+      this._openEditor(child.id, 'worker');
     },
 
     removeNodeById(id) {
@@ -406,9 +423,24 @@ export function orgDesigner() {
     selectNodeById(id) {
       const node = findNode(this._root, id);
       if (!node) return;
+      // Derive coordinator/worker from the existing role (or default coordinator).
+      const type = node.role ? (isCoordinator(node.role) ? 'coordinator' : 'worker') : 'coordinator';
+      this._openEditor(id, type);
+    },
+
+    /** Internal: open the editor panel for a node, setting the type radio. */
+    _openEditor(id, type) {
+      const node = findNode(this._root, id);
+      if (!node) return;
       this.selectedNodeId = id;
+      this.editType       = type;
       this.editRole       = node.role;
       this.editFigure     = node.figure;
+    },
+
+    /** Called when the Coordinator/Worker radio changes — clear the role. */
+    onTypeChange() {
+      this.editRole = '';
     },
 
     applyEdit() {
@@ -421,6 +453,19 @@ export function orgDesigner() {
     },
 
     cancelEdit() {
+      // If the node being edited has no role yet (new blank node), remove it.
+      if (this.selectedNodeId && this._root) {
+        const node = findNode(this._root, this.selectedNodeId);
+        if (node && !node.role && node.id !== this._root.id) {
+          pruneNode(this._root, this.selectedNodeId);
+          this._render();
+        }
+        // If it's the blank root, just close the overlay entirely.
+        if (node && !node.role && node.id === this._root.id) {
+          this.close();
+          return;
+        }
+      }
       this.selectedNodeId = null;
     },
 
@@ -442,15 +487,15 @@ export function orgDesigner() {
     // ── Launch ────────────────────────────────────────────────────────────────
 
     async launch() {
-      if (!this._root || this.launching) return;
-      this.launching  = true;
+      if (!this.launchReady) return;
+      this.launching   = true;
       this.launchError = null;
 
       const payload = {
-        label:                  this.initiative,
-        scope:                  'full_initiative',
-        repo:                   this.repo,
-        role:                   this._root.role,
+        label:                   this.initiative,
+        scope:                   'full_initiative',
+        repo:                    this.repo,
+        role:                    this._root.role,
         cognitive_arch_override: this._root.figure || null,
       };
 
