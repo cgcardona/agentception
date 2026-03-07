@@ -718,6 +718,13 @@ STEP 3 — CHECKOUT & SYNC (only if STEP 2 shows the PR is open and unreviewed):
         git checkout -- <file>   ← discard checkout-introduced changes, then retry merge
     - Then retry: git merge origin/dev
 
+  # 5. Push the branch now — before grading — so CI can run on a clean tip.
+  #    If the PR had merge conflicts, GitHub blocked CI entirely until the
+  #    conflict is resolved. Pushing here (after the conflict playbook above)
+  #    gives GitHub a conflict-free commit to run checks against.
+  #    If there were no conflicts, git push is a fast-forward no-op.
+  git push origin "$BRANCH"
+
 STEP 4 — TARGETED TEST SCOPING (before review):
   Identify which test files to run based on what this PR changes.
   NEVER run the full suite — that is CI's job, not an agent's job.
