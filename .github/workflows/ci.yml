@@ -26,8 +26,8 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Jinja2
-        run: pip install jinja2
+      - name: Install generate.py dependencies
+        run: pip install jinja2 pyyaml
 
       - name: Check .agentception/ outputs match .j2 templates
         # generate.py --check exits 1 if any output would change.
