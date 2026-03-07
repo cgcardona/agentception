@@ -1,5 +1,3 @@
-'use strict';
-
 /**
  * Powers the Plan page — Write → Generating → Review (CodeMirror 6 YAML) → Done.
  *
@@ -44,24 +42,196 @@ import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { yaml } from '@codemirror/lang-yaml';
 import { oneDark } from '@codemirror/theme-one-dark';
 
+// ── Constants ──────────────────────────────────────────────────────────────
+
 const VALIDATE_DEBOUNCE_MS = 600;
 const DRAFT_YAML_KEY = 'ac_plan_draft_yaml';
 
-export function planForm() {
+// ── Step ───────────────────────────────────────────────────────────────────
+
+type Step = 'write' | 'generating' | 'review' | 'launching' | 'done';
+
+// ── Domain types ───────────────────────────────────────────────────────────
+
+interface FiledIssue {
+  number: number;
+  url: string;
+  title: string;
+  phase: string;
+  issue_id: string;
+}
+
+interface PhaseGroup {
+  phase: string;
+  issues: FiledIssue[];
+  isActive: boolean;
+}
+
+interface PlanResult {
+  issues: FiledIssue[];
+  phaseGroups: PhaseGroup[];
+}
+
+// ── Phase 1A SSE events — mirrors Python TypedDicts in plan_ui.py ──────────
+
+interface PreviewChunkEvent { readonly t: 'chunk'; text: string }
+interface PreviewDoneEvent {
+  readonly t: 'done';
+  yaml: string;
+  initiative: string;
+  phase_count: number;
+  issue_count: number;
+}
+interface PreviewErrorEvent { readonly t: 'error'; detail: string }
+
+type PreviewSseEvent = PreviewChunkEvent | PreviewDoneEvent | PreviewErrorEvent;
+
+// ── Phase 1B SSE events — mirrors Python TypedDicts in issue_creator.py ───
+
+interface FileStartEvent   { readonly t: 'start';   total: number; initiative: string }
+interface FileLabelEvent   { readonly t: 'label';   text: string }
+interface FileIssueEvent   {
+  readonly t: 'issue';
+  index: number; total: number; number: number;
+  url: string; title: string; phase: string;
+}
+interface FileBlockedEvent { readonly t: 'blocked'; number: number; blocked_by: number[] }
+interface FileDoneEvent    {
+  readonly t: 'done';
+  total: number; batch_id: string; initiative: string;
+  issues: FiledIssue[];
+}
+interface FileErrorEvent   { readonly t: 'error';   detail: string }
+
+type FileSseEvent =
+  | FileStartEvent | FileLabelEvent | FileIssueEvent
+  | FileBlockedEvent | FileDoneEvent | FileErrorEvent;
+
+// ── API response shapes ────────────────────────────────────────────────────
+
+interface ValidateResponse {
+  valid: boolean;
+  detail?: string;
+  initiative?: string;
+  phase_count?: number;
+  issue_count?: number;
+}
+
+interface PlanTextResponse { plan_text: string }
+
+interface ApiError { detail?: string }
+
+// ── Alpine.js magic properties (injected at runtime) ──────────────────────
+//
+// Alpine augments the component's `this` with $refs and $nextTick after the
+// factory function returns.  Declaring them here — with nullable ref values
+// to reflect real-world availability — lets all method bodies be fully typed
+// without suppression comments.
+
+interface AlpineMagics {
+  $refs: {
+    textarea: HTMLTextAreaElement | null;
+    yamlEditor: HTMLElement | null;
+  };
+  $nextTick(callback?: () => void): Promise<void>;
+}
+
+// ── Full component type ────────────────────────────────────────────────────
+
+interface PlanFormComponent extends AlpineMagics {
+  // State
+  step: Step;
+  text: string;
+  labelPrefix: string;
+  showOptions: boolean;
+  focused: boolean;
+  submitting: boolean;
+  errorMsg: string;
+  result: PlanResult;
+  streamingText: string;
+  _abortController: AbortController | null;
+  initiative: string;
+  phaseCount: number;
+  issueCount: number;
+  batchId: string;
+  batchIdCopied: boolean;
+  filingProgress: string;
+  yamlValid: boolean;
+  yamlValidationMsg: string;
+  _validateTimer: number | null;
+  loadingMsg: string;
+  _loadingMsgs: string[];
+  _loadingTimer: number | null;
+  _editor: EditorView | null;
+
+  // Methods
+  init(): void;
+  _rotateMsgs(): void;
+  _saveDraft(): void;
+  _clearDraft(): void;
+  _restoreDraft(): void;
+  autoGrow(el: HTMLElement): void;
+  pasteClipboard(): Promise<void>;
+  appendSeed(txt: string): void;
+  cancel(): void;
+  submit(): Promise<void>;
+  _readStream(resp: Response): Promise<void>;
+  launch(): Promise<void>;
+  _readFileStream(resp: Response): Promise<void>;
+  editPlan(): void;
+  skipToReview(): Promise<void>;
+  reset(): void;
+  copyBatchId(): Promise<void>;
+  reRun(runId: string): Promise<void>;
+  _mountEditor(content: string): void;
+  _getEditorValue(): string;
+  _setEditorValue(content: string): void;
+  _validateYaml(): Promise<void>;
+}
+
+// ── SSE parser ────────────────────────────────────────────────────────────
+//
+// Validates that a raw SSE line is a JSON object with a string `t` field,
+// then asserts it to the caller-supplied discriminated-union type T.
+// Individual field access is safe because TypeScript narrows T on each `t`
+// branch in the caller.
+
+function parseSseEvent<T extends { t: string }>(line: string): T | null {
+  if (!line.startsWith('data: ')) return null;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(line.slice(6));
+  } catch {
+    return null;
+  }
+  if (
+    typeof raw !== 'object' ||
+    raw === null ||
+    !('t' in raw) ||
+    typeof (raw as Record<string, unknown>)['t'] !== 'string'
+  ) {
+    return null;
+  }
+  return raw as T;
+}
+
+// ── Component factory ─────────────────────────────────────────────────────
+
+export function planForm(): PlanFormComponent {
   return {
     // ── State ──────────────────────────────────────────────────────────────
-    step: 'write',        // write | generating | review | launching | done
+    step: 'write',
     text: '',
     labelPrefix: '',
     showOptions: false,
     focused: false,
     submitting: false,
     errorMsg: '',
-    result: {},
+    result: { issues: [], phaseGroups: [] },
 
     // ── Streaming state (Phase 1A direct SSE) ─────────────────────────────
     streamingText: '',
-    _abortController: null,   // AbortController for cancelling the fetch stream
+    _abortController: null,
 
     // ── Review metadata (populated from the SSE "done" event) ─────────────
     initiative: '',
@@ -119,14 +289,20 @@ export function planForm() {
     // ── CodeMirror 6 editor ────────────────────────────────────────────────
     _editor: null,
 
+    // Alpine.js injects $refs and $nextTick at runtime.  The placeholders
+    // below are overwritten before any component method is invoked, so
+    // declaring them here is safe and gives all method bodies full types.
+    $refs: undefined as unknown as AlpineMagics['$refs'],
+    $nextTick: undefined as unknown as AlpineMagics['$nextTick'],
+
     // ── Lifecycle ──────────────────────────────────────────────────────────
 
-    init() {
+    init(): void {
       this._rotateMsgs();
       this._restoreDraft();
     },
 
-    _rotateMsgs() {
+    _rotateMsgs(): void {
       const msgs = [...this._loadingMsgs];
       for (let j = msgs.length - 1; j > 0; j--) {
         const k = Math.floor(Math.random() * (j + 1));
@@ -137,57 +313,62 @@ export function planForm() {
       this._loadingTimer = setInterval(() => {
         i = (i + 1) % msgs.length;
         this.loadingMsg = msgs[i] ?? '';
-      }, 4000);
+      }, 4000) as unknown as number;
     },
 
     // ── Draft persistence (localStorage) ──────────────────────────────────
 
-    _saveDraft() {
-      try { localStorage.setItem(DRAFT_YAML_KEY, this._getEditorValue()); } catch (_) {}
+    _saveDraft(): void {
+      try { localStorage.setItem(DRAFT_YAML_KEY, this._getEditorValue()); } catch { /* quota / private mode */ }
     },
 
-    _clearDraft() {
-      try { localStorage.removeItem(DRAFT_YAML_KEY); } catch (_) {}
+    _clearDraft(): void {
+      try { localStorage.removeItem(DRAFT_YAML_KEY); } catch { /* silent fail */ }
     },
 
     // On page load, if an in-progress YAML exists, jump straight to review.
     // setTimeout(0) defers past Alpine's init cycle so $refs are fully bound
     // before _mountEditor tries to access $refs.yamlEditor.
-    _restoreDraft() {
-      let saved;
-      try { saved = localStorage.getItem(DRAFT_YAML_KEY); } catch (_) { return; }
+    _restoreDraft(): void {
+      let saved: string | null;
+      try { saved = localStorage.getItem(DRAFT_YAML_KEY); } catch { return; }
       if (!saved) return;
+      const yaml = saved;   // const so the closure captures a non-null string
       this.step = 'review';
       setTimeout(() => {
-        this._mountEditor(saved);
-        setTimeout(() => this._validateYaml(), 0);
+        this._mountEditor(yaml);
+        setTimeout(() => { void this._validateYaml(); }, 0);
       }, 0);
     },
 
     // ── Textarea helpers ───────────────────────────────────────────────────
 
-    autoGrow(el) {
+    autoGrow(el: HTMLElement): void {
       el.style.height = 'auto';
-      el.style.height = Math.min(el.scrollHeight, 520) + 'px';
+      el.style.height = `${Math.min(el.scrollHeight, 520)}px`;
     },
 
-    async pasteClipboard() {
+    async pasteClipboard(): Promise<void> {
       try {
         const t = await navigator.clipboard.readText();
         this.text = (this.text ? this.text + '\n' : '') + t;
         await this.$nextTick();
-        this.autoGrow(this.$refs.textarea);
-      } catch (_) {
+        const ta = this.$refs.textarea;
+        if (ta) this.autoGrow(ta);
+      } catch {
         // Clipboard permission denied — silent fail.
       }
     },
 
-    appendSeed(txt) {
+    appendSeed(txt: string): void {
       this.text = (this.text.trim() ? this.text.trim() + '\n' : '') + txt;
-      this.$nextTick(() => this.autoGrow(this.$refs.textarea));
+      void this.$nextTick(() => {
+        const ta = this.$refs.textarea;
+        if (ta) this.autoGrow(ta);
+      });
     },
 
-    cancel() {
+    cancel(): void {
       if (this._abortController) {
         this._abortController.abort();
         this._abortController = null;
@@ -199,7 +380,7 @@ export function planForm() {
 
     // ── Phase 1A: POST /api/plan/preview — direct OpenRouter → Claude stream ──
 
-    async submit() {
+    async submit(): Promise<void> {
       const trimmed = this.text.trim();
       if (!trimmed) return;
 
@@ -207,7 +388,6 @@ export function planForm() {
       this.streamingText = '';
       this.step = 'generating';
       this.submitting = true;
-
       this._abortController = new AbortController();
 
       try {
@@ -219,15 +399,15 @@ export function planForm() {
         });
 
         if (!resp.ok) {
-          const errBody = await resp.json().catch(() => ({}));
-          throw new Error(errBody.detail || `HTTP ${resp.status}`);
+          const errBody = await resp.json() as ApiError;
+          throw new Error(errBody.detail ?? `HTTP ${resp.status}`);
         }
 
         await this._readStream(resp);
 
       } catch (err) {
-        if (err.name === 'AbortError') return;   // user cancelled — already back on write
-        this.errorMsg = err.message || 'Unexpected error during plan generation.';
+        if (err instanceof Error && err.name === 'AbortError') return;
+        this.errorMsg = err instanceof Error ? err.message : 'Unexpected error during plan generation.';
         this.step = 'write';
       } finally {
         this.submitting = false;
@@ -237,7 +417,8 @@ export function planForm() {
 
     // Read the fetch SSE stream from /api/plan/preview.
     // Resolves when the "done" event arrives; rejects on "error" event or network failure.
-    async _readStream(resp) {
+    async _readStream(resp: Response): Promise<void> {
+      if (!resp.body) throw new Error('Response has no body.');
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buf = '';
@@ -249,34 +430,33 @@ export function planForm() {
 
           buf += decoder.decode(value, { stream: true });
           const lines = buf.split('\n');
-          buf = lines.pop() ?? '';   // keep any incomplete final line
+          buf = lines.pop() ?? '';
 
           for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            let evt;
-            try { evt = JSON.parse(line.slice(6)); } catch { continue; }
+            const evt = parseSseEvent<PreviewSseEvent>(line);
+            if (!evt) continue;
 
             if (evt.t === 'chunk') {
-              this.streamingText += evt.text ?? '';
+              this.streamingText += evt.text;
 
             } else if (evt.t === 'done') {
-              this.initiative  = evt.initiative  ?? '';
-              this.phaseCount  = evt.phase_count ?? 0;
-              this.issueCount  = evt.issue_count ?? 0;
-              const yamlText   = evt.yaml ?? '';
+              this.initiative = evt.initiative;
+              this.phaseCount  = evt.phase_count;
+              this.issueCount  = evt.issue_count;
+              const yamlText   = evt.yaml;
 
-              // Persist the raw YAML immediately — before mounting the editor —
-              // so a hard refresh always restores to the review step.
-              try { localStorage.setItem(DRAFT_YAML_KEY, yamlText); } catch (_) {}
+              // Persist immediately — before mounting the editor — so a hard
+              // refresh always restores to the review step.
+              try { localStorage.setItem(DRAFT_YAML_KEY, yamlText); } catch { /* silent fail */ }
 
               this.step = 'review';
               this.yamlValid = true;
               this.yamlValidationMsg = '✓ Plan ready — review and edit before launching';
-              this.$nextTick(() => {
+              void this.$nextTick(() => {
                 this._mountEditor(yamlText);
-                this.$nextTick(() => this._validateYaml());
+                void this.$nextTick(() => { void this._validateYaml(); });
               });
-              return;   // stream finished successfully
+              return;
 
             } else if (evt.t === 'error') {
               throw new Error(evt.detail || 'Plan generation failed.');
@@ -284,10 +464,9 @@ export function planForm() {
           }
         }
       } finally {
-        reader.cancel().catch(() => {});
+        reader.cancel().catch(() => { /* suppress */ });
       }
 
-      // Stream ended without a "done" event — treat as an error.
       if (this.step === 'generating') {
         throw new Error('Plan stream ended without a result. Please try again.');
       }
@@ -297,7 +476,7 @@ export function planForm() {
     // Streams SSE from /api/plan/file-issues.  No coordinator, no worktree,
     // no agent.  Issues are created directly from the PlanSpec YAML.
 
-    async launch() {
+    async launch(): Promise<void> {
       const yamlText = this._getEditorValue();
       if (!yamlText.trim()) return;
       if (!this.yamlValid) {
@@ -319,15 +498,15 @@ export function planForm() {
         });
 
         if (!resp.ok) {
-          const errBody = await resp.json().catch(() => ({}));
-          throw new Error(errBody.detail || `HTTP ${resp.status}`);
+          const errBody = await resp.json() as ApiError;
+          throw new Error(errBody.detail ?? `HTTP ${resp.status}`);
         }
 
         await this._readFileStream(resp);
 
       } catch (err) {
-        if (err.name === 'AbortError') return;
-        this.errorMsg = err.message || 'Unexpected error during issue creation.';
+        if (err instanceof Error && err.name === 'AbortError') return;
+        this.errorMsg = err instanceof Error ? err.message : 'Unexpected error during issue creation.';
         this.step = 'review';
       } finally {
         this.submitting = false;
@@ -336,7 +515,8 @@ export function planForm() {
     },
 
     // Read the SSE stream from /api/plan/file-issues.
-    async _readFileStream(resp) {
+    async _readFileStream(resp: Response): Promise<void> {
+      if (!resp.body) throw new Error('Response has no body.');
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buf = '';
@@ -351,41 +531,42 @@ export function planForm() {
           buf = lines.pop() ?? '';
 
           for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            let evt;
-            try { evt = JSON.parse(line.slice(6)); } catch { continue; }
+            const evt = parseSseEvent<FileSseEvent>(line);
+            if (!evt) continue;
 
             if (evt.t === 'start') {
               this.filingProgress = `Creating ${evt.total} issues…`;
 
             } else if (evt.t === 'label') {
-              this.filingProgress = evt.text ?? 'Setting up labels…';
+              this.filingProgress = evt.text;
 
             } else if (evt.t === 'issue') {
               this.filingProgress = `Issue ${evt.index}/${evt.total} — ${evt.title}`;
 
             } else if (evt.t === 'blocked') {
-              this.filingProgress = `#${evt.number} blocked — waiting on ${(evt.blocked_by ?? []).map(n => '#' + n).join(', ')}`;
+              this.filingProgress = `#${evt.number} blocked — waiting on ${evt.blocked_by.map(n => `#${n}`).join(', ')}`;
 
             } else if (evt.t === 'done') {
-              this.batchId    = evt.batch_id ?? '';
-              this.issueCount = evt.total    ?? 0;
+              this.batchId    = evt.batch_id;
+              this.issueCount = evt.total;
               if (evt.initiative) this.initiative = evt.initiative;
 
               // Group issues by phase, preserving creation order.
-              const issues = evt.issues ?? [];
-              const phaseOrder = [];
-              const phaseMap   = new Map();
+              const issues = evt.issues;
+              const phaseOrder: string[] = [];
+              const phaseMap = new Map<string, FiledIssue[]>();
               for (const iss of issues) {
-                if (!phaseMap.has(iss.phase)) {
+                let bucket = phaseMap.get(iss.phase);
+                if (bucket === undefined) {
+                  bucket = [];
+                  phaseMap.set(iss.phase, bucket);
                   phaseOrder.push(iss.phase);
-                  phaseMap.set(iss.phase, []);
                 }
-                phaseMap.get(iss.phase).push(iss);
+                bucket.push(iss);
               }
-              const phaseGroups = phaseOrder.map((phase, idx) => ({
+              const phaseGroups: PhaseGroup[] = phaseOrder.map((phase, idx) => ({
                 phase,
-                issues:   phaseMap.get(phase),
+                issues: phaseMap.get(phase) ?? [],
                 isActive: idx === 0,
               }));
 
@@ -393,7 +574,7 @@ export function planForm() {
               try {
                 if (this.batchId)    localStorage.setItem('ac_active_batch',      this.batchId);
                 if (this.initiative) localStorage.setItem('ac_active_initiative', this.initiative);
-              } catch (_) {}
+              } catch { /* silent fail */ }
               this._clearDraft();
               this.step = 'done';
               return;
@@ -404,7 +585,7 @@ export function planForm() {
           }
         }
       } finally {
-        reader.cancel().catch(() => {});
+        reader.cancel().catch(() => { /* suppress */ });
       }
 
       if (this.step === 'launching') {
@@ -414,17 +595,18 @@ export function planForm() {
 
     // ── Go back to the textarea, keeping text intact ───────────────────────
 
-    editPlan() {
+    editPlan(): void {
       this.step = 'write';
       this.errorMsg = '';
-      this.$nextTick(() => {
-        if (this.$refs.textarea) this.autoGrow(this.$refs.textarea);
+      void this.$nextTick(() => {
+        const ta = this.$refs.textarea;
+        if (ta) this.autoGrow(ta);
       });
     },
 
     // ── Skip directly to the Review editor (bypass Phase 1A generation) ───
 
-    async skipToReview() {
+    async skipToReview(): Promise<void> {
       if (this._abortController) {
         this._abortController.abort();
         this._abortController = null;
@@ -432,12 +614,12 @@ export function planForm() {
       this.errorMsg = '';
       this.step = 'review';
       await this.$nextTick();
-      this._mountEditor(this._getEditorValue() || '');
+      this._mountEditor(this._getEditorValue());
     },
 
     // ── Reset: start a new plan ────────────────────────────────────────────
 
-    reset() {
+    reset(): void {
       if (this._abortController) {
         this._abortController.abort();
         this._abortController = null;
@@ -454,7 +636,7 @@ export function planForm() {
       this.yamlValid = true;
       this.yamlValidationMsg = '';
       this.filingProgress = '';
-      this.result = {};
+      this.result = { issues: [], phaseGroups: [] };
       this.batchId = '';
       this.batchIdCopied = false;
       this._clearDraft();
@@ -463,40 +645,41 @@ export function planForm() {
 
     // ── Done state helpers ─────────────────────────────────────────────────
 
-    async copyBatchId() {
+    async copyBatchId(): Promise<void> {
       if (!this.batchId) return;
       try {
         await navigator.clipboard.writeText(this.batchId);
         this.batchIdCopied = true;
         setTimeout(() => { this.batchIdCopied = false; }, 1500);
-      } catch (_) {
+      } catch {
         // Clipboard permission denied — silent fail.
       }
     },
 
     // ── Re-run from a previous run ─────────────────────────────────────────
 
-    async reRun(runId) {
+    async reRun(runId: string): Promise<void> {
       try {
         const resp = await fetch(`/api/plan/${encodeURIComponent(runId)}/plan-text`);
         if (!resp.ok) {
-          const body = await resp.json().catch(() => ({}));
-          this.errorMsg = body.detail || `Could not load run (HTTP ${resp.status})`;
+          const body = await resp.json() as ApiError;
+          this.errorMsg = body.detail ?? `Could not load run (HTTP ${resp.status})`;
           return;
         }
-        const data = await resp.json();
+        const data = await resp.json() as PlanTextResponse;
         this.reset();
-        this.text = data.plan_text ?? '';
+        this.text = data.plan_text;
         await this.$nextTick();
-        if (this.$refs.textarea) this.autoGrow(this.$refs.textarea);
+        const ta = this.$refs.textarea;
+        if (ta) this.autoGrow(ta);
       } catch (err) {
-        this.errorMsg = err.message || 'Failed to load previous run.';
+        this.errorMsg = err instanceof Error ? err.message : 'Failed to load previous run.';
       }
     },
 
     // ── CodeMirror 6 editor ────────────────────────────────────────────────
 
-    _mountEditor(content) {
+    _mountEditor(content: string): void {
       const container = this.$refs.yamlEditor;
       if (!container) return;
 
@@ -505,11 +688,14 @@ export function planForm() {
         return;
       }
 
-      const self = this;
+      const self: PlanFormComponent = this;
       const updateListener = EditorView.updateListener.of(update => {
         if (update.docChanged) {
-          clearTimeout(self._validateTimer);
-          self._validateTimer = setTimeout(() => self._validateYaml(), VALIDATE_DEBOUNCE_MS);
+          if (self._validateTimer !== null) clearTimeout(self._validateTimer);
+          self._validateTimer = setTimeout(
+            () => { void self._validateYaml(); },
+            VALIDATE_DEBOUNCE_MS,
+          ) as unknown as number;
           self._saveDraft();
         }
       });
@@ -532,12 +718,11 @@ export function planForm() {
       });
     },
 
-    _getEditorValue() {
-      if (!this._editor) return '';
-      return this._editor.state.doc.toString();
+    _getEditorValue(): string {
+      return this._editor?.state.doc.toString() ?? '';
     },
 
-    _setEditorValue(content) {
+    _setEditorValue(content: string): void {
       if (!this._editor) return;
       this._editor.dispatch({
         changes: { from: 0, to: this._editor.state.doc.length, insert: content },
@@ -546,7 +731,7 @@ export function planForm() {
       });
     },
 
-    async _validateYaml() {
+    async _validateYaml(): Promise<void> {
       if (this.step !== 'review') return;
       const yamlText = this._getEditorValue();
       if (!yamlText.trim()) {
@@ -560,18 +745,18 @@ export function planForm() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ yaml_text: yamlText }),
         });
-        const data = await resp.json();
+        const data = await resp.json() as ValidateResponse;
         if (data.valid) {
           this.yamlValid = true;
           this.initiative = data.initiative ?? this.initiative;
           const ph = data.phase_count === 1 ? 'phase' : 'phases';
           const is = data.issue_count === 1 ? 'issue' : 'issues';
-          this.yamlValidationMsg = `✓ Valid — ${data.phase_count} ${ph}, ${data.issue_count} ${is}`;
+          this.yamlValidationMsg = `✓ Valid — ${data.phase_count ?? 0} ${ph}, ${data.issue_count ?? 0} ${is}`;
         } else {
           this.yamlValid = false;
-          this.yamlValidationMsg = `✗ ${data.detail || 'Invalid PlanSpec'}`;
+          this.yamlValidationMsg = `✗ ${data.detail ?? 'Invalid PlanSpec'}`;
         }
-      } catch (_) {
+      } catch {
         this.yamlValidationMsg = '';
       }
     },

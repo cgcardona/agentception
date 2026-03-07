@@ -45,7 +45,7 @@ import { telemetryDash, waveTable } from './telemetry.js';
 import { dagVisualization } from './dag.js';
 import { configPanel } from './config.js';
 import { roleDetail, rolesEditor } from './roles.js';
-import { planForm } from './plan.js';
+import { planForm } from './plan.ts';
 import { buildPage, renderMd } from './build.js';
 import { transcriptBrowser, transcriptDetail } from './transcripts.js';
 import { exportPanel, importPanel, envSandbox } from './templates.js';
