@@ -47,14 +47,22 @@ def build_system_prompt(
     role_instructions: str,
     *,
     agent_type: str = "leaf",
+    is_resumed: bool = False,
 ) -> str:
     """Assemble the full system prompt for any agent type.
 
     Enforces the required ordering:
 
     1. Cognitive architecture persona block (always first).
-    2. Role-specific instructions.
-    3. Tool/capability declarations (appended by the caller after this call).
+    2. Self-introduction instruction (omitted when ``is_resumed=True``).
+    3. Role-specific instructions.
+    4. Tool/capability declarations (appended by the caller after this call).
+
+    The self-introduction instruction instructs the agent to output its name
+    and cognitive architecture as the very first visible response — in the
+    response content, not inside a thinking/scratchpad block.  Resumed agents
+    skip this step because the user already witnessed the introduction in the
+    original run.
 
     Args:
         cognitive_arch: The cognitive architecture string from the agent's
@@ -65,15 +73,21 @@ def build_system_prompt(
             steps, leaf implementation steps, PR review criteria, etc.).
         agent_type: Descriptive tag used in log messages; ``"coordinator"``
             or ``"leaf"``.  Does not affect the assembled content.
+        is_resumed: When ``True``, the self-introduction instruction is omitted
+            because the agent is resuming a previous session and re-announcing
+            would be redundant.  Always ``False`` for fresh cold-start agents.
 
     Returns:
         The assembled system prompt string, ready to be passed as the
         ``system_prompt`` argument to an LLM call.
     """
     persona_block = _build_persona_block(cognitive_arch, agent_type)
+    intro_instruction = _build_intro_instruction(cognitive_arch, is_resumed)
     parts: list[str] = []
     if persona_block:
         parts.append(persona_block)
+    if intro_instruction:
+        parts.append(intro_instruction)
     parts.append(role_instructions)
     return "\n\n".join(parts)
 
@@ -81,6 +95,51 @@ def build_system_prompt(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _build_intro_instruction(cognitive_arch: str | None, is_resumed: bool) -> str:
+    """Build the mandatory self-introduction instruction block.
+
+    Returns an empty string when ``is_resumed`` is ``True`` (resumed agents do
+    not re-announce — the user already witnessed the introduction in the
+    original session) or when ``cognitive_arch`` is absent or malformed.
+
+    The returned block instructs the agent to output a single visible sentence
+    as its very first response, in this exact format::
+
+        My name is {display_name}. My cognitive architecture is: {description}.
+
+    The instruction is structurally placed before role instructions so the LLM
+    anchors on it before reading task details.  The instruction also explicitly
+    prohibits hiding the announcement inside a thinking / scratchpad block.
+
+    Args:
+        cognitive_arch: Raw cognitive architecture string, e.g.
+            ``"guido_van_rossum:postgresql:python"``.
+        is_resumed: When ``True``, returns ``""`` immediately — no instruction
+            is appended for resumed agents.
+
+    Returns:
+        A multi-line instruction string, or ``""`` when skipped.
+    """
+    if is_resumed or not cognitive_arch:
+        return ""
+
+    parts = [p.strip() for p in cognitive_arch.split(":") if p.strip()]
+    if not parts:
+        return ""
+
+    display_name, description = _load_figure_identity(parts[0])
+    arch_summary = description if description else cognitive_arch
+
+    return (
+        "⚠️ MANDATORY SELF-INTRODUCTION — your very first action before anything else:\n"
+        "Output the following sentence verbatim as visible text in your response (not inside "
+        "a thinking block, not as a tool call, not as a shell command — actual visible response text):\n\n"
+        f'"My name is {display_name}. My cognitive architecture is: {arch_summary}."\n\n'
+        "Do not proceed to any other action until this announcement has been sent. "
+        "This applies at every tier: coordinator, sub-coordinator, and leaf alike."
+    )
 
 
 def _build_persona_block(cognitive_arch: str | None, agent_type: str) -> str:

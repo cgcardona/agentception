@@ -281,6 +281,7 @@ class TaskFile(BaseModel):
     task: str | None = None
     id: str | None = None
     attempt_n: int = 0
+    is_resumed: bool = False
     required_output: str | None = None
     on_block: str | None = None
     # [agent]

@@ -50,6 +50,7 @@ def _build_agent_task(
     cognitive_arch: str = "hopper:python",
     wave_id: str = "manual",
     file_ownership: list[str] | None = None,
+    is_resumed: bool = False,
 ) -> str:
     """Build the TOML v2 content of a ``.agent-task`` file for an engineer agent.
 
@@ -74,6 +75,7 @@ def _build_agent_task(
             "id": str(uuid.uuid4()),
             "created_at": now,
             "attempt_n": 0,
+            "is_resumed": is_resumed,
             "required_output": "pr_url",
             "on_block": "stop",
         },
@@ -121,6 +123,7 @@ def _build_coordinator_task(
     host_worktree: Path,
     branch: str,
     coordinator_arch: dict[str, str] | None = None,
+    is_resumed: bool = False,
 ) -> str:
     """Build the TOML v2 ``.agent-task`` content for a plan coordinator worktree.
 
@@ -159,6 +162,7 @@ def _build_coordinator_task(
             "id": str(uuid.uuid4()),
             "created_at": now,
             "attempt_n": 0,
+            "is_resumed": is_resumed,
             "required_output": "phase_plan",
             "on_block": "stop",
         },
@@ -195,6 +199,7 @@ def _build_conductor_task(
     worktree: Path,
     host_worktree: Path,
     branch: str,
+    is_resumed: bool = False,
 ) -> str:
     """Build the TOML v2 ``.agent-task`` content for a conductor worktree.
 
@@ -221,6 +226,7 @@ def _build_conductor_task(
             "id": str(uuid.uuid4()),
             "created_at": now,
             "attempt_n": 0,
+            "is_resumed": is_resumed,
             "required_output": "wave_complete",
             "on_block": "stop",
         },

@@ -310,3 +310,71 @@ result = await build_spawn_child(
 | `test_spawn_child_forwards_cognitive_arch_without_resolving` | `_resolve_cognitive_arch` is never called when `cognitive_arch` is provided |
 | `test_spawn_child_resolves_arch_when_not_provided` | Fallback resolution still works when `cognitive_arch` is omitted |
 | `test_cognitive_arch_propagates_to_leaf` | End-to-end: root arch arrives unchanged on the leaf after two spawn hops |
+
+---
+
+## Agent Self-Introduction Protocol
+
+**Issue:** #177 — Enforce self-introduction as the first visible response for every agent at every level  
+**Closes:** #177
+
+### Contract
+
+Every agent — regardless of tier (executive, coordinator, engineer, reviewer) — **must output a single visible sentence as the very first response** in its session, before any tool call, shell command, or implementation work:
+
+```
+My name is {display_name}. My cognitive architecture is: {one-sentence description}.
+```
+
+This announcement must appear in the response content, **not** inside a thinking block or scratchpad. It must precede all other visible output.
+
+### Implementation
+
+The enforcement is layered across two paths:
+
+#### Python API path (`build_system_prompt`)
+
+`agentception/services/prompt_assembly.py` — `build_system_prompt()` now accepts `is_resumed: bool = False`. When `is_resumed=False`, a `_build_intro_instruction()` block is inserted between the persona block and the role instructions in the assembled system prompt. This block contains the exact expected sentence, making it structurally impossible to omit.
+
+**Ordering contract (enforced by `build_system_prompt`):**
+
+1. Cognitive architecture persona block.
+2. Self-introduction instruction (only when `is_resumed=False`).
+3. Role-specific instructions.
+4. Tool/capability declarations (appended by caller).
+
+#### Cursor/Dispatcher path (role template STEP 0)
+
+All seven role templates (`scripts/gen_prompts/templates/roles/*.md.j2`) include an updated `STEP 0` block that:
+
+1. Reads `IS_RESUMED` from the `.agent-task` file.
+2. When `IS_RESUMED=False`, requires the agent to output the self-introduction sentence as its first visible response before any other action.
+3. When `IS_RESUMED=True`, skips the announcement entirely.
+
+The format is consistent across all tiers.
+
+### `is_resumed` flag
+
+The `[task]` section of every `.agent-task` file now includes `is_resumed = false` (default). This flag is:
+
+- Written by all three task builders (`_build_agent_task`, `_build_coordinator_task`, `_build_conductor_task`) and by `_build_child_task` in `spawn_child.py`.
+- Parsed by `_build_task_file_from_toml()` in `readers/worktrees.py` into the `TaskFile.is_resumed` field.
+- Read by STEP 0 in every role template via a `python3 -c "import tomllib; ..."` one-liner.
+
+When agent resumption is implemented (see #29), set `is_resumed=True` at the spawn-child call site and the self-introduction will be automatically suppressed.
+
+### Test coverage added
+
+| Test file | Test name | What it verifies |
+|-----------|-----------|-----------------|
+| `agentception/tests/test_self_introduce.py` | `test_intro_instruction_returned_for_fresh_agent` | `_build_intro_instruction` returns a non-empty block for a fresh (non-resumed) agent |
+| | `test_intro_instruction_empty_when_resumed` | `_build_intro_instruction` returns `""` when `is_resumed=True` |
+| | `test_intro_instruction_empty_when_arch_none` | Returns `""` when `cognitive_arch` is `None` |
+| | `test_intro_instruction_format_matches_required_pattern` | Output matches `My name is .+\. My cognitive architecture is: .+` |
+| | `test_build_system_prompt_includes_intro_before_role_for_fresh_agent` | Intro instruction is between persona and role in the assembled prompt |
+| | `test_build_system_prompt_omits_intro_for_resumed_agent` | Resumed agents get no intro instruction |
+| | `test_all_tiers_self_introduce` | **Integration:** coordinator, sub-coordinator, and leaf prompts all contain the self-introduction |
+| | `test_build_agent_task_writes_is_resumed_false` | `_build_agent_task` writes `is_resumed = false` by default |
+| | `test_build_agent_task_writes_is_resumed_true` | `_build_agent_task` writes `is_resumed = true` when set |
+| | `test_parse_agent_task_reads_is_resumed_false` | `parse_agent_task` maps absent `is_resumed` → `False` |
+| | `test_parse_agent_task_reads_is_resumed_true` | `parse_agent_task` maps `is_resumed = true` → `True` |

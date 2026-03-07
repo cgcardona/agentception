@@ -207,6 +207,7 @@ def _build_task_file_from_toml(data: dict[str, object], worktree_path: Path) -> 
         task=_str_val(task_sec, "workflow"),
         id=_str_val(task_sec, "id"),
         attempt_n=_int_val(task_sec, "attempt_n") or 0,
+        is_resumed=_bool_val(task_sec, "is_resumed", default=False),
         required_output=_str_val(task_sec, "required_output"),
         on_block=_str_val(task_sec, "on_block"),
         role=_str_val(agent_sec, "role"),
