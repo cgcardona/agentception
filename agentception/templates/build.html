@@ -438,7 +438,7 @@
     </template>
 
     <button class="od-header__btn od-header__btn--launch"
-            :disabled="launching || launchSuccess"
+            :disabled="!launchReady"
             @click="launch()"
             x-text="launching ? 'Queuing…' : launchPreviewText">
     </button>
@@ -456,17 +456,41 @@
     <template x-if="selectedNode">
       <div class="od-editor">
         <div class="od-editor__header">
-          <span>Edit node</span>
+          <span x-text="selectedNode && selectedNode.role ? 'Edit node' : 'Define node'"></span>
           <button class="od-editor__close" @click="cancelEdit()">✕</button>
         </div>
 
         <div class="od-editor__body">
 
-          {# Role picker — grouped by category #}
+          {# Step 1: Coordinator or Worker — the first and most important choice #}
+          <div class="od-editor__field">
+            <label class="od-editor__label">Type</label>
+            <div class="od-type-radio">
+              <label class="od-type-opt" :class="{'od-type-opt--active': editType === 'coordinator'}">
+                <input type="radio" x-model="editType" value="coordinator" @change="onTypeChange()">
+                <span class="od-type-opt__icon">⬡</span>
+                <span class="od-type-opt__text">
+                  <strong>Coordinator</strong>
+                  <em>Surveys scope, assembles team</em>
+                </span>
+              </label>
+              <label class="od-type-opt" :class="{'od-type-opt--active': editType === 'worker'}">
+                <input type="radio" x-model="editType" value="worker" @change="onTypeChange()">
+                <span class="od-type-opt__icon">⚙</span>
+                <span class="od-type-opt__text">
+                  <strong>Worker</strong>
+                  <em>Does the work directly</em>
+                </span>
+              </label>
+            </div>
+          </div>
+
+          {# Step 2: Specific role — filtered to the selected type #}
           <div class="od-editor__field">
             <label class="od-editor__label">Role</label>
             <select class="od-editor__select" x-model="editRole">
-              <template x-for="group in roleGroups" :key="group.label">
+              <option value="">— select role —</option>
+              <template x-for="group in filteredRoleGroups" :key="group.label">
                 <optgroup :label="group.label">
                   <template x-for="r in group.roles" :key="r.slug">
                     <option :value="r.slug" x-text="r.label"></option>
@@ -476,9 +500,9 @@
             </select>
           </div>
 
-          {# Cognitive architecture figure picker #}
+          {# Step 3: Cognitive architecture figure (optional) #}
           <div class="od-editor__field">
-            <label class="od-editor__label">Cognitive arch figure</label>
+            <label class="od-editor__label">Cognitive arch figure <em class="od-editor__optional">(optional)</em></label>
             <select class="od-editor__select" x-model="editFigure">
               <option value="">— role default —</option>
               <template x-for="fig in figures" :key="fig.id">
@@ -490,7 +514,9 @@
         </div>
 
         <div class="od-editor__actions">
-          <button class="od-editor__btn od-editor__btn--apply" @click="applyEdit()">Apply</button>
+          <button class="od-editor__btn od-editor__btn--apply"
+                  :disabled="!editRole"
+                  @click="applyEdit()">Apply</button>
           <button class="od-editor__btn od-editor__btn--cancel" @click="cancelEdit()">Cancel</button>
         </div>
       </div>

@@ -2037,6 +2037,18 @@ $_sw-gap: 0.5rem;
   &--worker {
     border-left: 3px solid rgba(52, 211, 153, 0.7);
   }
+
+  &--pending {
+    border-color: var(--border-subtle);
+    border-left: 3px solid var(--border-default);
+    opacity: 0.7;
+  }
+}
+
+.od-node__role--empty {
+  color: var(--text-faint);
+  font-style: italic;
+  font-weight: 400;
 }
 
 .od-node__tier {
@@ -2149,6 +2161,68 @@ $_sw-gap: 0.5rem;
   text-transform: uppercase;
   letter-spacing: 0.07em;
   color: var(--text-muted);
+}
+
+.od-editor__optional {
+  font-style: italic;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-faint);
+}
+
+// ── Coordinator / Worker type radio ──────────────────────────────────────────
+
+.od-type-radio {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.od-type-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: 8px;
+  border: 1.5px solid var(--border-default);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+
+  input[type="radio"] { display: none; }
+
+  &:hover { border-color: var(--border-active, var(--accent)); }
+
+  &--active {
+    border-color: var(--accent);
+    background: rgba(99, 102, 241, 0.08);
+  }
+
+  &__icon {
+    font-size: 1rem;
+    line-height: 1;
+    margin-top: 0.1rem;
+    color: var(--text-secondary);
+  }
+
+  &__text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+
+    strong {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      line-height: 1.2;
+    }
+
+    em {
+      font-style: normal;
+      font-size: 0.65rem;
+      color: var(--text-muted);
+    }
+  }
 }
 
 .od-editor__select {
