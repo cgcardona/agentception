@@ -118,9 +118,13 @@ html, body {
 }
 
 body {
-  /* Prevent any child element (e.g. wide tab strips) from causing page-level
-     horizontal scroll. Scrollable children handle their own overflow-x. */
-  overflow-x: hidden;
+  /* Constrain body to viewport width so child scroll containers (e.g. the
+     kanban board) work correctly.  overflow-x: clip is unlike hidden: it
+     clips without creating a new scroll container, so children that have
+     their own overflow-x: auto keep their internal scroll context instead of
+     being clipped at the body boundary. */
+  max-width: 100vw;
+  overflow-x: clip;
 }
 
 a {
