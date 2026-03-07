@@ -8,7 +8,6 @@ empty results so a database outage degrades gracefully to in-memory state.
 """
 
 import datetime
-import fnmatch
 import json
 import logging
 import re as _re
@@ -1268,20 +1267,6 @@ async def get_initiative_phase_meta(
         logger.warning("⚠️  get_initiative_phase_meta failed (non-fatal): %s", exc)
         return []
 
-# Labels that are never themselves initiative names — common GitHub system labels
-# and AgentCeption internal labels.
-_NON_INITIATIVE_LABELS = frozenset(
-    {
-        "enhancement", "bug", "documentation", "good first issue",
-        "help wanted", "invalid", "question", "wontfix", "duplicate",
-        "feature", "agent:wip", "priority:high", "priority:medium",
-        "priority:low", "needs-triage", "in-progress", "review", "blocked", "ticket-blocked",
-    }
-)
-
-def _label_matches_patterns(label: str, patterns: list[str]) -> bool:
-    """Return True if *label* matches any of the fnmatch-style *patterns*."""
-    return any(fnmatch.fnmatch(label, pat) for pat in patterns)
 
 
 class PhaseSummary(TypedDict):
@@ -1358,85 +1343,63 @@ async def get_label_context(repo: str, initiative_label: str) -> LabelContext:
         return LabelContext(phases=[], issues=[])
 
 
-async def get_initiatives(
-    repo: str,
-    initiative_patterns: list[str] | None = None,
-) -> list[str]:
-    """Return active initiative labels present in the DB, ordered by config position.
+async def get_initiatives(repo: str) -> list[str]:
+    """Return initiative slugs filed via Plan 1B that still have open issues.
 
-    When *initiative_patterns* is non-empty, a label is an initiative if it
-    matches any of the fnmatch-style patterns (e.g. ``"ac-*"``, ``"agentception"``).
-    Only labels that appear on at least one **open** issue are returned.
+    Derives the tab list exclusively from ``initiative_phases`` — if an
+    initiative was filed through the Plan pipeline it appears here; no JSON
+    configuration is required.
 
-    The result order mirrors the order of *initiative_patterns*: a label whose
-    first matching pattern appears earlier in the list sorts earlier.  This
-    means the order declared in ``pipeline-config.json`` is the single source
-    of truth for the initiative tab bar — no separate hardcoded list needed.
+    Ordering: most recently filed batch first (``MAX(created_at) DESC``), then
+    alphabetically as a tiebreaker so the result is stable.
 
-    When *initiative_patterns* is empty or ``None``, falls back to the legacy
-    heuristic: a label is an initiative when it co-exists with a ``phase-N``
-    label on the same issue and is not in ``_NON_INITIATIVE_LABELS``.
+    An initiative drops out automatically once all its GitHub issues are closed,
+    keeping the tab bar noise-free without manual maintenance.
 
-    Fully completed initiatives (all issues closed) are excluded from the tab
-    bar to avoid noise over time.  Falls back to ``[]`` on DB error.
+    Falls back to ``[]`` on DB error (non-fatal degradation).
     """
-    patterns: list[str] = initiative_patterns or []
-
-    def _sort_key(label: str) -> tuple[int, str]:
-        """Sort by first matching pattern index, then alphabetically."""
-        for i, pat in enumerate(patterns):
-            if fnmatch.fnmatch(label, pat):
-                return (i, label)
-        return (len(patterns), label)
+    from agentception.db.models import ACInitiativePhase
 
     try:
+        # Step 1: ordered list of initiatives from the filing history.
         async with get_session() as session:
-            result = await session.execute(
-                select(ACIssue.labels_json, ACIssue.state, ACIssue.phase_label)
-                .where(ACIssue.repo == repo)
-            )
-            rows = result.all()
-
-        initiative_states: dict[str, set[str]] = {}
-
-        if patterns:
-            # Config-driven path: a label matching a pattern is an initiative.
-            # Only count issues that would actually be visible in the board —
-            # an issue must have a scoped "{initiative}/phase-N" label; issues
-            # without one are dropped by get_issues_grouped_by_phase and must
-            # not cause a tab to appear.
-            for labels_json_str, state, _phase_label in rows:
-                labels: list[str] = json.loads(labels_json_str or "[]")
-                matched_initiatives = [
-                    lbl
-                    for lbl in labels
-                    # Scoped phase labels (e.g. "ac-build/phase-0") are never
-                    # initiatives — the "/" is the canonical separator.
-                    if "/" not in lbl and _label_matches_patterns(lbl, patterns)
-                ]
-                if not matched_initiatives:
-                    continue
-
-                # Issue must have at least one scoped "{initiative}/phase-N" label.
-                has_scoped_phase = any(
-                    any(lbl.startswith(f"{ini}/") for lbl in labels)
-                    for ini in matched_initiatives
+            phase_result = await session.execute(
+                select(
+                    ACInitiativePhase.initiative,
+                    func.max(ACInitiativePhase.created_at).label("last_filed"),
                 )
-                if not has_scoped_phase:
-                    continue  # unphased issue — won't appear in board
+                .where(ACInitiativePhase.repo == repo)
+                .group_by(ACInitiativePhase.initiative)
+                .order_by(
+                    func.max(ACInitiativePhase.created_at).desc(),
+                    ACInitiativePhase.initiative,
+                )
+            )
+            ordered: list[str] = [row.initiative for row in phase_result.all()]
 
-                for lbl in matched_initiatives:
-                    initiative_states.setdefault(lbl, set()).add(state or "open")
-        else:
-            # No patterns configured — return nothing (no legacy heuristic).
-            pass
+        if not ordered:
+            return []
 
-        # Only surface initiatives that still have at least one open issue,
-        # ordered by their position in initiative_patterns then alphabetically.
-        return sorted(
-            (ini for ini, states in initiative_states.items() if "open" in states),
-            key=_sort_key,
-        )
+        # Step 2: which of those still have at least one open issue with a
+        # scoped phase label (e.g. "auth-rewrite/0-foundation")?
+        # An initiative whose issues all closed is hidden automatically.
+        async with get_session() as session:
+            issue_result = await session.execute(
+                select(ACIssue.labels_json)
+                .where(ACIssue.repo == repo, ACIssue.state == "open")
+            )
+            open_labels: list[list[str]] = [
+                json.loads(row[0] or "[]") for row in issue_result.all()
+            ]
+
+        has_open: set[str] = set()
+        for ini in ordered:
+            prefix = f"{ini}/"
+            if any(any(lbl.startswith(prefix) for lbl in lbls) for lbls in open_labels):
+                has_open.add(ini)
+
+        return [ini for ini in ordered if ini in has_open]
+
     except Exception as exc:
         logger.warning("⚠️  get_initiatives DB query failed (non-fatal): %s", exc)
         return []
