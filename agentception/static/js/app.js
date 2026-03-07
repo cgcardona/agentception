@@ -11,7 +11,6 @@
  * free of server-side template rendering bugs caused by mismatched quote styles.
  *
  * Module index:
- *   base.js         — batchBar
  *   nav.js          — projectSwitcher
  *   overview.js     — pipelineDashboard, agentCard, phaseSwitcher,
  *                     pipelineControl, sweepControl, waveControl,
@@ -33,7 +32,6 @@
 
 'use strict';
 
-import { batchBar } from './base.js';
 import { projectSwitcher } from './nav.js';
 import {
   pipelineDashboard, agentCard, phaseSwitcher, pipelineControl,
@@ -56,7 +54,6 @@ import { toastStore } from './toast.js';
 // Expose all Alpine component factory functions globally so templates can
 // reference them via x-data="functionName()" without any changes.
 Object.assign(window, {
-  batchBar,
   projectSwitcher,
   pipelineDashboard, agentCard, phaseSwitcher, pipelineControl,
   sweepControl, waveControl, conductorModal, scalingAdvisor, prViolations,
