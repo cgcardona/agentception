@@ -578,6 +578,44 @@ async def _auto_advance_phases(repo: str) -> None:
                     )
 
 
+async def _auto_unblock_ticket_deps(repo: str) -> None:
+    """Remove ``ticket-blocked`` from issues whose all ticket-level deps have closed.
+
+    Called on every tick after ``_auto_advance_phases``.  For each open issue
+    that still carries the ``ticket-blocked`` label, checks whether every issue
+    in its ``depends_on_json`` list is now ``closed`` in the DB.  If so,
+    removes the label so the engineering coordinator will pick it up on the
+    next dispatch.
+
+    DB is the source of truth here — the poller has already written the latest
+    GitHub state into ``ACIssue.state`` before this function runs.
+    """
+    from agentception.db.queries import get_closed_issue_numbers, get_ticket_blocked_open_issues
+    from agentception.readers.github import remove_label_from_issue
+
+    try:
+        candidates = await get_ticket_blocked_open_issues(repo)
+        if not candidates:
+            return
+        closed = await get_closed_issue_numbers(repo)
+        for row in candidates:
+            if all(dep in closed for dep in row["dep_numbers"]):
+                try:
+                    await remove_label_from_issue(row["github_number"], "ticket-blocked")
+                    logger.info(
+                        "✅ _auto_unblock_ticket_deps: #%d all deps closed — removed ticket-blocked",
+                        row["github_number"],
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "⚠️  _auto_unblock_ticket_deps: could not remove label from #%d: %s",
+                        row["github_number"],
+                        exc,
+                    )
+    except Exception as exc:
+        logger.warning("⚠️  _auto_unblock_ticket_deps: failed: %s", exc)
+
+
 async def tick() -> PipelineState:
     """Execute a single polling cycle: collect → merge → detect → persist → enrich → broadcast.
 
@@ -634,6 +672,8 @@ async def tick() -> PipelineState:
         await reseed_missing_initiative_phases(settings.gh_repo)
         # Auto-unblock next-phase issues whenever a phase gate closes.
         await _auto_advance_phases(settings.gh_repo)
+        # Auto-remove ticket-blocked label when all ticket-level deps have closed.
+        await _auto_unblock_ticket_deps(settings.gh_repo)
     except Exception as exc:
         logger.warning("⚠️  DB persist skipped (non-fatal): %s", exc)
 

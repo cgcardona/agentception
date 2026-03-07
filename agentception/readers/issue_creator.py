@@ -35,7 +35,7 @@ from typing import TypedDict
 from agentception.config import settings as _cfg
 from agentception.db.persist import persist_initiative_phases, persist_issue_depends_on
 from agentception.models import PlanIssue, PlanSpec
-from agentception.readers.github import ensure_label_exists
+from agentception.readers.github import add_label_to_issue, ensure_label_exists
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +202,11 @@ async def _bootstrap_labels(spec: PlanSpec) -> None:
             "blocked",
             "B60205",
             "Issue is blocked — waiting for a prior phase to complete",
+        ),
+        ensure_label_exists(
+            "ticket-blocked",
+            "E4B429",
+            "Issue has unresolved ticket-level dependencies — do not dispatch until all are closed",
         ),
     ]
     for idx, phase in enumerate(spec.phases):
@@ -381,8 +386,12 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
             )
             try:
                 await _gh_edit_body(repo, our_number, original_body.rstrip() + blocked_line)
+                # Stamp ticket-blocked so coordinators can filter this issue
+                # out until all its deps are closed.  The poller removes this
+                # label automatically once every dependency is in a closed state.
+                await add_label_to_issue(our_number, "ticket-blocked")
                 logger.info(
-                    "✅ #%d blocked_by %s",
+                    "✅ #%d blocked_by %s — ticket-blocked label added",
                     our_number,
                     [f"#{n}" for n in blocker_numbers],
                 )

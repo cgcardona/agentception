@@ -115,9 +115,10 @@ Before finalising your four, confirm each pair is independent:
 
 If issues are **dependent** (B cannot ship without A):
 1. State it in the issue body: `**Depends on #A** — implement after #A is merged.`
-2. Label it `blocked`.
+2. Label it `ticket-blocked` (distinct from `blocked`, which is the phase-gate label).
 3. Do **not** assign it to a parallel agent until #A is merged.
-4. Only then is it safe to run in the next parallel batch.
+4. The poller automatically removes `ticket-blocked` once all dependencies close.
+5. Only then is it safe for the coordinator to pick it up in the next dispatch cycle.
 
 ---
 
@@ -926,8 +927,9 @@ same parallel batch.
 
 **Dependency detection:** If issue B cannot function without A's code:
 1. Note `**Depends on #A**` in B's issue body.
-2. Label B as `blocked`.
-3. Merge A first, then un-block B and add it to the next batch.
+2. Label B as `ticket-blocked` (NOT `blocked` — `blocked` is for phase-gating only).
+3. The poller removes `ticket-blocked` automatically once A is closed.
+4. Merge A first; the coordinator will pick up B on the next dispatch cycle.
 
 ### Step C — Confirm `dev` is up to date
 

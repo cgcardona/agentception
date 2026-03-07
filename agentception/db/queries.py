@@ -1250,7 +1250,7 @@ _NON_INITIATIVE_LABELS = frozenset(
         "enhancement", "bug", "documentation", "good first issue",
         "help wanted", "invalid", "question", "wontfix", "duplicate",
         "feature", "agent:wip", "priority:high", "priority:medium",
-        "priority:low", "needs-triage", "in-progress", "review", "blocked",
+        "priority:low", "needs-triage", "in-progress", "review", "blocked", "ticket-blocked",
     }
 )
 
@@ -2017,6 +2017,71 @@ async def get_pending_launches() -> list[PendingLaunchRow]:
     except Exception as exc:
         logger.warning("❌ get_pending_launches DB query FAILED: %s", exc, exc_info=True)
         return []
+
+
+class TicketBlockedRow(TypedDict):
+    """One open issue that carries the ``ticket-blocked`` label and has dependencies."""
+
+    github_number: int
+    dep_numbers: list[int]
+
+
+async def get_ticket_blocked_open_issues(repo: str) -> list[TicketBlockedRow]:
+    """Return open issues that still carry the ``ticket-blocked`` label.
+
+    Used by the poller to decide which ``ticket-blocked`` labels can be
+    removed because all ticket-level dependencies have since closed.
+
+    Falls back to ``[]`` on DB error.
+    """
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACIssue).where(
+                    ACIssue.repo == repo,
+                    ACIssue.state == "open",
+                )
+            )
+            rows = result.scalars().all()
+
+        out: list[TicketBlockedRow] = []
+        for row in rows:
+            labels: list[str] = json.loads(row.labels_json or "[]")
+            if "ticket-blocked" not in labels:
+                continue
+            dep_numbers: list[int] = json.loads(row.depends_on_json or "[]")
+            if not dep_numbers:
+                continue
+            out.append(
+                TicketBlockedRow(
+                    github_number=row.github_number,
+                    dep_numbers=dep_numbers,
+                )
+            )
+        return out
+    except Exception as exc:
+        logger.warning("❌ get_ticket_blocked_open_issues failed: %s", exc)
+        return []
+
+
+async def get_closed_issue_numbers(repo: str) -> set[int]:
+    """Return the set of GitHub issue numbers that are closed in the DB.
+
+    Used by the poller to check whether ticket-level dependencies have closed.
+    Falls back to ``set()`` on DB error.
+    """
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACIssue.github_number).where(
+                    ACIssue.repo == repo,
+                    ACIssue.state == "closed",
+                )
+            )
+            return {row for (row,) in result.all()}
+    except Exception as exc:
+        logger.warning("❌ get_closed_issue_numbers failed: %s", exc)
+        return set()
 
 
 async def get_agent_events_tail(
