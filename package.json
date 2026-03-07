@@ -6,7 +6,8 @@
   "scripts": {
     "build:js": "esbuild agentception/static/js/app.js --bundle --format=iife --minify --outfile=agentception/static/app.js",
     "build:css": "sass --style=compressed --no-source-map agentception/static/scss/app.scss agentception/static/app.css",
-    "build": "npm run build:js && npm run build:css"
+    "build": "npm run build:js && npm run build:css",
+    "type-check": "tsc --noEmit"
   },
   "devDependencies": {
     "@codemirror/commands": "*",
@@ -15,6 +16,7 @@
     "@codemirror/theme-one-dark": "*",
     "@codemirror/view": "*",
     "esbuild": "^0.27.3",
-    "marked": "^17.0.4"
+    "marked": "^17.0.4",
+    "typescript": "^5.9.3"
   }
 }
