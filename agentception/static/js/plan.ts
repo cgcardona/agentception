@@ -580,20 +580,6 @@ export function planForm(props: { ghRepo?: string } = {}): PlanFormComponent {
 
               this.result = { issues, phaseGroups };
 
-              // Persist batch context to localStorage so the batch bar and
-              // any subsequent page load can pick it up.
-              try {
-                if (this.batchId)    localStorage.setItem('ac_active_batch',      this.batchId);
-                if (this.initiative) localStorage.setItem('ac_active_initiative', this.initiative);
-                if (this.ghRepo && this.initiative && this.batchId) {
-                  const repoName = this.ghRepo.split('/').pop() ?? this.ghRepo;
-                  const planUrl = `/plan/${repoName}/${this.initiative}/${this.batchId}`;
-                  const shipUrl = `/ship/${repoName}/${this.initiative}`;
-                  localStorage.setItem('ac_active_plan_url', planUrl);
-                  localStorage.setItem('ac_active_ship_url', shipUrl);
-                }
-              } catch { /* private/sandboxed context — silent fail */ }
-
               this._clearDraft();
               this.step = 'done';
 

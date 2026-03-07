@@ -157,56 +157,6 @@ def test_config_panels_have_aria_labelledby() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Batch context bar — base.html structural requirements (issue #80)
-# ---------------------------------------------------------------------------
-
-
-def test_base_has_batch_bar_element() -> None:
-    """base.html must include the persistent batch context bar div."""
-    content = _read("base.html")
-    assert 'class="batch-bar"' in content, (
-        "base.html is missing the .batch-bar persistent context strip"
-    )
-
-
-def test_base_batch_bar_uses_alpine_component() -> None:
-    """The batch bar must be wired to the batchBar() Alpine component."""
-    content = _read("base.html")
-    assert 'x-data="batchBar()"' in content, (
-        "base.html batch bar is missing x-data=\"batchBar()\""
-    )
-
-
-def test_base_batch_bar_hidden_when_empty() -> None:
-    """The batch bar must use x-show=\"batchId\" to hide when no batch is active."""
-    content = _read("base.html")
-    assert 'x-show="batchId"' in content, (
-        'base.html batch bar is missing x-show="batchId" guard'
-    )
-
-
-def test_base_batch_bar_has_dismiss_button() -> None:
-    """The batch bar must include a dismiss (✕) button."""
-    content = _read("base.html")
-    assert 'batch-bar__dismiss' in content, (
-        "base.html batch bar is missing the .batch-bar__dismiss button"
-    )
-    assert 'dismiss()' in content, (
-        "base.html batch bar dismiss button is missing @click=\"dismiss()\" handler"
-    )
-
-
-def test_base_batch_bar_has_nav_links() -> None:
-    """The batch bar must expose Plan and Ship navigation links."""
-    content = _read("base.html")
-    assert "batch-bar__link" in content, (
-        "base.html batch bar is missing .batch-bar__link navigation anchors"
-    )
-    assert "'/ship'" in content, (
-        "base.html batch bar Ship link is missing /ship path prefix"
-    )
-
-
 def test_plan_stepper_present() -> None:
     """plan.html must include the horizontal step indicator nav element."""
     content = _read("plan.html")

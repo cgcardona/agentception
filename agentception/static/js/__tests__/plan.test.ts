@@ -677,33 +677,6 @@ describe('URL update on done event — component invariants', () => {
     expect(c.issueCount).toBe(2);
   });
 
-  it('stores ac_active_plan_url and ac_active_ship_url in localStorage when ghRepo is set', async () => {
-    const c = planForm({ ghRepo: 'testorg/testrepo' }) as ReturnType<typeof planForm>;
-    (c as ReturnType<typeof planForm>).$refs = { textarea: null, yamlEditor: null };
-    (c as ReturnType<typeof planForm>).$nextTick = vi.fn().mockImplementation(async (cb?: () => void) => { if (cb) cb(); });
-    (c as ReturnType<typeof planForm>)._mountEditor = vi.fn();
-    (c as ReturnType<typeof planForm>)._validateYaml = vi.fn().mockResolvedValue(undefined);
-    c.step = 'launching';
-
-    const resp = makeSseResponse([{
-      t: 'done',
-      total: 1,
-      initiative: 'auth-rewrite',
-      batch_id: 'batch-abc123',
-      issues: [{ issue_id: 'i1', number: 101, url: 'https://github.com/t/r/issues/101', title: 'T', phase: 'p0' }],
-      coordinator_arch: {},
-    }]);
-    await c._readFileStream(resp);
-
-    // URLs use the bare repo name (without the org prefix).
-    expect(localStorage.getItem('ac_active_plan_url')).toBe(
-      '/plan/testrepo/auth-rewrite/batch-abc123',
-    );
-    expect(localStorage.getItem('ac_active_ship_url')).toBe(
-      '/ship/testrepo/auth-rewrite',
-    );
-  });
-
   it('empty initiative in done event — no URL to push', async () => {
     const c = makeComponent();
     c.step = 'launching';

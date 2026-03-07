@@ -81,27 +81,6 @@
     </div>
   </nav>
 
-  {# ── Persistent batch context bar ────────────────────────────────────────── #}
-  {# Reads ac_active_batch / ac_active_initiative / ac_active_plan_url /       #}
-  {# ac_active_ship_url from localStorage.  Hidden when no active batch.       #}
-  <div class="batch-bar"
-       x-data="batchBar()"
-       x-show="batchId"
-       x-init="init()"
-       x-cloak
-       role="status"
-       aria-label="Active batch context">
-    <div class="batch-bar__context">
-      <span class="batch-bar__initiative" x-text="initiative"></span>
-      <code class="batch-bar__id" x-text="batchId.slice(-8)"></code>
-    </div>
-    <div class="batch-bar__actions">
-      <a :href="planUrl || '/plan'" class="batch-bar__link batch-bar__link--plan">View plan</a>
-      <a :href="shipUrl || '/ship'" class="batch-bar__link batch-bar__link--ship">View board</a>
-    </div>
-    <button class="batch-bar__dismiss" @click="dismiss()" aria-label="Dismiss active batch bar">✕</button>
-  </div>
-
   <main id="main-content" role="main">
     {% block content %}
     <div class="card">
