@@ -512,29 +512,37 @@
 
       <div class="od-presets__section">
         <h3 class="od-presets__section-title">Built-in templates</h3>
-        <template x-for="t in builtInTemplates" :key="t.id">
-          <button class="od-preset-card" @click="loadPreset(t.id)">
-            <span class="od-preset-card__tag">template</span>
-            <span class="od-preset-card__name" x-text="t.name"></span>
-            <span class="od-preset-card__desc" x-text="t.description"></span>
-            <span class="od-preset-card__meta" x-text="t.nodeCount + ' nodes'"></span>
-          </button>
-        </template>
+        <div class="od-presets__grid">
+          <template x-for="t in builtInTemplates" :key="t.id">
+            <button class="od-preset-card"
+                    :class="'od-preset-card--' + t.accent"
+                    :data-count="t.nodeCount"
+                    @click="loadPreset(t.id)">
+              <span class="od-preset-card__icon" x-text="t.icon"></span>
+              <span class="od-preset-card__node-count" x-text="t.nodeCount + ' nodes'"></span>
+              <span class="od-preset-card__name" x-text="t.name"></span>
+              <span class="od-preset-card__desc" x-text="t.description"></span>
+            </button>
+          </template>
+        </div>
       </div>
 
       <template x-if="userPresets.length > 0">
         <div class="od-presets__section">
           <h3 class="od-presets__section-title">My designs</h3>
-          <template x-for="p in userPresets" :key="p.id">
-            <button class="od-preset-card od-preset-card--user" @click="loadPreset(p.id)">
-              <span class="od-preset-card__name" x-text="p.name"></span>
-              <span class="od-preset-card__meta"
-                    x-text="new Date(p.updatedAt).toLocaleDateString()"></span>
-              <span class="od-preset-card__delete"
-                    @click="deletePreset(p.id, $event)"
-                    title="Delete this preset">×</span>
-            </button>
-          </template>
+          <div class="od-presets__user-grid">
+            <template x-for="p in userPresets" :key="p.id">
+              <button class="od-preset-card od-preset-card--user" @click="loadPreset(p.id)">
+                <span class="od-preset-card__icon">✎</span>
+                <span class="od-preset-card__node-count"
+                      x-text="new Date(p.updatedAt).toLocaleDateString()"></span>
+                <span class="od-preset-card__name" x-text="p.name"></span>
+                <button class="od-preset-card__delete"
+                        @click="deletePreset(p.id, $event)"
+                        title="Delete this preset">×</button>
+              </button>
+            </template>
+          </div>
         </div>
       </template>
 

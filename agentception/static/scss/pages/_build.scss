@@ -1,3 +1,5 @@
+@use 'sass:list';
+
 // ── Mission Control — Build page ─────────────────────────────────────────────
 // All tokens from _foundation.scss: --bg-*, --text-*, --border-*, --accent*,
 // --success*, --warning*, --danger*, --info*, --radius-*, --shadow-*, --ease-*
@@ -2069,13 +2071,25 @@ $od-pending-color:#4b5563;  // gray for unconfigured
 
 // ── Preset picker ─────────────────────────────────────────────────────────────
 
+// ── Preset palette (accent colours per template) ──────────────────────────────
+$preset-accents: (
+  'violet': (#7c3aed, #4c1d95),
+  'blue':   (#2563eb, #1e3a8a),
+  'amber':  (#d97706, #78350f),
+  'emerald':(#059669, #064e3b),
+  'rose':   (#e11d48, #881337),
+  'teal':   (#0d9488, #134e4a),
+);
+
+// ── Preset picker ─────────────────────────────────────────────────────────────
+
 .od-presets {
   flex: 1;
   overflow-y: auto;
-  padding: 2rem 2.5rem;
+  padding: 2rem 2.5rem 3rem;
   display: flex;
   flex-direction: column;
-  gap: 2rem;
+  gap: 2.5rem;
   scrollbar-width: thin;
   scrollbar-color: rgba(255,255,255,0.1) transparent;
 }
@@ -2083,112 +2097,194 @@ $od-pending-color:#4b5563;  // gray for unconfigured
 .od-presets__section {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 1rem;
 }
 
 .od-presets__section-title {
-  font-size: 0.65rem;
+  font-size: 0.62rem;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: rgba(255,255,255,0.35);
-  margin: 0 0 0.25rem;
+  color: rgba(255,255,255,0.3);
+  margin: 0;
 }
 
-.od-preset-card {
+// 3-column grid for built-in templates
+.od-presets__grid {
   display: grid;
-  grid-template-columns: 1fr auto;
-  grid-template-rows: auto auto;
-  align-items: start;
-  gap: 0.2rem 0.75rem;
-  width: 100%;
-  text-align: left;
-  padding: 1rem 1.25rem;
-  border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.08);
-  background: rgba(255,255,255,0.04);
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, transform 0.1s;
-  position: relative;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+}
 
-  &:hover {
-    background: rgba(109,40,217,0.18);
-    border-color: rgba(109,40,217,0.5);
-    transform: translateY(-1px);
+// 4-column compact grid for user designs
+.od-presets__user-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+}
+
+// ── Base card ─────────────────────────────────────────────────────────────────
+
+.od-preset-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  text-align: left;
+  padding: 1.5rem 1.5rem 1.25rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.07);
+  background: rgba(255,255,255,0.03);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.18s cubic-bezier(0.34,1.56,0.64,1),
+              box-shadow 0.18s ease,
+              border-color 0.15s ease;
+
+  // Ghost large number in the corner
+  &::after {
+    content: attr(data-count);
+    position: absolute;
+    bottom: -0.5rem;
+    right: 0.75rem;
+    font-size: 5rem;
+    font-weight: 900;
+    line-height: 1;
+    opacity: 0.04;
+    pointer-events: none;
+    color: #fff;
+    transition: opacity 0.2s;
   }
 
-  &--blank {
-    border-style: dashed;
-    border-color: rgba(255,255,255,0.12);
-    &:hover {
-      border-color: rgba(167,139,250,0.5);
-      background: rgba(167,139,250,0.08);
+  &:hover {
+    transform: translateY(-3px) scale(1.01);
+    &::after { opacity: 0.07; }
+  }
+
+  // ── Accent variants ──────────────────────────────────────────────────────
+  @each $name, $colors in $preset-accents {
+    $hi: list.nth($colors, 1);
+    $lo: list.nth($colors, 2);
+
+    &--#{$name} {
+      border-color: rgba($hi, 0.25);
+      background: linear-gradient(135deg, rgba($hi, 0.1) 0%, rgba($lo, 0.05) 100%);
+
+      .od-preset-card__icon {
+        color: $hi;
+        text-shadow: 0 0 20px rgba($hi, 0.6);
+      }
+
+      &:hover {
+        border-color: rgba($hi, 0.55);
+        box-shadow: 0 8px 32px rgba($hi, 0.2), inset 0 0 0 1px rgba($hi, 0.15);
+      }
     }
   }
 
+  // ── Blank / new design ───────────────────────────────────────────────────
+  &--blank {
+    flex-direction: row;
+    align-items: center;
+    padding: 1.1rem 1.5rem;
+    border-style: dashed;
+    border-color: rgba(255,255,255,0.12);
+    gap: 1rem;
+
+    &:hover {
+      border-color: rgba(167,139,250,0.5);
+      background: rgba(167,139,250,0.08);
+      box-shadow: 0 4px 20px rgba(124,58,237,0.15);
+      transform: translateY(-2px);
+    }
+
+    .od-preset-card__icon {
+      font-size: 1.4rem;
+      color: rgba(255,255,255,0.5);
+      text-shadow: none;
+    }
+
+    .od-preset-card__name {
+      font-size: 1rem;
+      color: rgba(255,255,255,0.6);
+    }
+  }
+
+  // ── User-saved design ────────────────────────────────────────────────────
   &--user {
-    grid-template-columns: 1fr auto auto;
+    padding: 1rem 1rem 0.9rem;
+    border-color: rgba(255,255,255,0.08);
+
+    .od-preset-card__icon {
+      font-size: 1rem;
+      color: rgba(255,255,255,0.25);
+      text-shadow: none;
+    }
+
+    &:hover {
+      border-color: rgba(167,139,250,0.35);
+      box-shadow: 0 4px 16px rgba(109,40,217,0.15);
+    }
   }
 }
 
-.od-preset-card__tag {
-  grid-column: 1;
-  grid-row: 1;
+// ── Card internals ────────────────────────────────────────────────────────────
+
+.od-preset-card__icon {
+  font-size: 2rem;
+  line-height: 1;
+  margin-bottom: 0.25rem;
+  transition: transform 0.2s ease;
+
+  .od-preset-card:hover & {
+    transform: scale(1.1);
+  }
+}
+
+.od-preset-card__node-count {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
   font-size: 0.6rem;
   font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: rgba(167,139,250,0.7);
-  margin-bottom: 0.15rem;
+  letter-spacing: 0.08em;
+  color: rgba(255,255,255,0.25);
+  background: rgba(255,255,255,0.06);
+  border-radius: 100px;
+  padding: 0.15rem 0.5rem;
 }
 
 .od-preset-card__name {
-  grid-column: 1;
-  grid-row: 2;
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: #e2e8f0;
-  display: block;
-
-  .od-preset-card--blank & {
-    grid-row: 1 / span 2;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    color: rgba(255,255,255,0.7);
-  }
+  font-size: 1rem;
+  font-weight: 800;
+  color: #f1f5f9;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
 }
 
 .od-preset-card__desc {
-  grid-column: 1;
-  grid-row: 3;
-  font-size: 0.75rem;
-  color: rgba(255,255,255,0.4);
-  margin-top: 0.25rem;
-  display: block;
-}
-
-.od-preset-card__meta {
-  grid-column: 2;
-  grid-row: 1;
-  font-size: 0.65rem;
-  color: rgba(255,255,255,0.3);
-  white-space: nowrap;
-  padding-top: 0.1rem;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: rgba(255,255,255,0.38);
+  flex: 1;
 }
 
 .od-preset-card__delete {
-  grid-column: 3;
-  grid-row: 1;
-  font-size: 1rem;
+  position: absolute;
+  top: 0.65rem;
+  right: 0.65rem;
+  font-size: 0.9rem;
   line-height: 1;
-  color: rgba(255,255,255,0.25);
-  padding: 0 0.1rem;
+  color: rgba(255,255,255,0.2);
+  padding: 0.2rem 0.3rem;
   background: none;
   border: none;
   cursor: pointer;
-  transition: color 0.15s;
-  &:hover { color: #f87171; }
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+  z-index: 1;
+  &:hover { color: #f87171; background: rgba(239,68,68,0.12); }
 }
 
 .od-header__launch-ok {
