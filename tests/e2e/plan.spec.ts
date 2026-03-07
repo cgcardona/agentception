@@ -23,6 +23,13 @@
  * This means the validate endpoint exercises the full Python stack including
  * Pydantic model validation, giving genuine confidence that the schema is
  * correct end-to-end.
+ *
+ * Selector strategy
+ * -----------------
+ * State containers are targeted by their `id` attributes (e.g. #plan-review).
+ * Interactive elements use Playwright's :has-text() for resilience against
+ * minor copy changes.  SCSS class selectors are used only for presentational
+ * elements where the class is stable (e.g. .plan-done-batch-id).
  */
 
 import { expect, Page, test } from '@playwright/test';
@@ -71,13 +78,13 @@ function buildPreviewSse(yaml: string, initiative = 'auth-rewrite', phases = 1, 
   ].join('\n');
 }
 
-const ISSUES_SINGLE_PHASE = [
+const FILED_ISSUES = [
   { issue_id: 'auth-rewrite-p0-001', number: 101, url: 'https://github.com/test/repo/issues/101', title: 'Add SQLAlchemy User model', phase: '0-foundation' },
   { issue_id: 'auth-rewrite-p0-002', number: 102, url: 'https://github.com/test/repo/issues/102', title: 'Add Alembic migration', phase: '0-foundation' },
   { issue_id: 'auth-rewrite-p1-001', number: 103, url: 'https://github.com/test/repo/issues/103', title: 'Add login endpoint', phase: '1-api' },
 ];
 
-function buildFileIssuesSse(issues: typeof ISSUES_SINGLE_PHASE, batchId = 'batch-abc123'): string {
+function buildFileIssuesSse(issues: typeof FILED_ISSUES, batchId = 'batch-abc123'): string {
   const events: string[] = [
     `data: {"t":"start","total":${issues.length},"initiative":"auth-rewrite"}\n`,
     `data: {"t":"label","text":"Ensuring labels exist in GitHub\\u2026"}\n`,
@@ -88,7 +95,7 @@ function buildFileIssuesSse(issues: typeof ISSUES_SINGLE_PHASE, batchId = 'batch
     );
   });
   events.push(
-    `data: {"t":"done","total":${issues.length},"batch_id":${JSON.stringify(batchId)},"initiative":"auth-rewrite","issues":${JSON.stringify(issues)},"coordinator_arch":{}}\n`,
+    `data: {"t":"done","total":${issues.length},"batch_id":${JSON.stringify(batchId)},"initiative":"auth-rewrite","issues":${JSON.stringify(issues)}}\n`,
     '\n',
   );
   return events.join('\n');
@@ -106,7 +113,7 @@ async function mockPreview(page: Page, yaml = VALID_YAML, phases = 1, issues = 1
   });
 }
 
-async function mockFileIssues(page: Page, issues = ISSUES_SINGLE_PHASE): Promise<void> {
+async function mockFileIssues(page: Page, issues = FILED_ISSUES): Promise<void> {
   await page.route('**/api/plan/file-issues', async route => {
     await route.fulfill({
       status: 200,
@@ -128,13 +135,14 @@ async function goToPlan(page: Page): Promise<void> {
 test.describe('Plan page — initial load', () => {
   test('loads in write state with textarea visible', async ({ page }) => {
     await goToPlan(page);
+    await expect(page.locator('#plan-write')).toBeVisible();
     await expect(page.locator('[x-ref="textarea"]')).toBeVisible();
-    await expect(page.locator('button', { hasText: 'Generate plan' })).toBeVisible();
+    await expect(page.locator('button:has-text("Generate plan")')).toBeVisible();
   });
 
-  test('seed pills are visible and clickable', async ({ page }) => {
+  test('seed chips are visible and clickable', async ({ page }) => {
     await goToPlan(page);
-    const firstSeed = page.locator('.plan-seed').first();
+    const firstSeed = page.locator('.plan-seed-chip').first();
     await expect(firstSeed).toBeVisible();
     await firstSeed.click();
     // After clicking, the textarea should contain text.
@@ -176,18 +184,18 @@ test.describe('Phase 1A — plan generation', () => {
     await page.fill('[x-ref="textarea"]', 'Build auth');
     await page.click('button:has-text("Generate plan")');
     await expect(page.locator('#plan-review')).toBeVisible({ timeout: 10_000 });
-    // CodeMirror renders a .cm-editor div.
+    // CodeMirror renders a .cm-editor div inside the .plan-yaml-editor container.
     await expect(page.locator('.cm-editor')).toBeVisible();
   });
 
-  test('phase/issue counts are shown in review state', async ({ page }) => {
+  test('phase/issue counts are shown in the review meta line', async ({ page }) => {
     await mockPreview(page, TWO_PHASE_YAML, 2, 3);
     await goToPlan(page);
     await page.fill('[x-ref="textarea"]', 'Build auth with multiple phases');
     await page.click('button:has-text("Generate plan")');
     await expect(page.locator('#plan-review')).toBeVisible({ timeout: 10_000 });
-    // Count display reflects the done event values (before live validation runs).
-    const meta = page.locator('.plan-yaml-meta').first();
+    // .plan-review-meta shows "initiative · N phases · N issues".
+    const meta = page.locator('.plan-review-meta').first();
     await expect(meta).toContainText('2', { timeout: 5000 });
     await expect(meta).toContainText('3');
   });
@@ -206,7 +214,7 @@ test.describe('Phase 1A — plan generation', () => {
 
     // Should land back on write state with the error visible.
     await expect(page.locator('#plan-write')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('.plan-error, [x-text="errorMsg"]')).toContainText(/vague|detail/i, { timeout: 5000 });
+    await expect(page.locator('.plan-error')).toContainText(/vague|detail/i, { timeout: 5000 });
   });
 });
 
@@ -223,15 +231,16 @@ test.describe('Review state — YAML validation', () => {
 
   test('valid YAML shows a green validation message', async ({ page }) => {
     // Wait for the validate call (triggered by CodeMirror mount) to settle.
-    await expect(page.locator('.plan-yaml-status')).toContainText('Valid', { timeout: 8000 });
+    // .plan-yaml-validation strips show success/error text.
+    await expect(page.locator('.plan-yaml-validation')).toContainText('Valid', { timeout: 8000 });
   });
 
   test('Launch button is enabled for valid YAML', async ({ page }) => {
-    await expect(page.locator('.plan-yaml-status')).toContainText('Valid', { timeout: 8000 });
+    await expect(page.locator('.plan-yaml-validation')).toContainText('Valid', { timeout: 8000 });
     await expect(page.locator('button:has-text("Launch")')).toBeEnabled();
   });
 
-  test('"Edit plan" returns to write state', async ({ page }) => {
+  test('"← Edit plan" returns to write state', async ({ page }) => {
     await page.click('button:has-text("Edit plan")');
     await expect(page.locator('#plan-write')).toBeVisible();
   });
@@ -268,15 +277,16 @@ test.describe('Phase 1B — file issues', () => {
     await page.fill('[x-ref="textarea"]', 'Build auth');
     await page.click('button:has-text("Generate plan")');
     await expect(page.locator('#plan-review')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('.plan-yaml-status')).toContainText('Valid', { timeout: 8000 });
+    // Wait for the real validate endpoint to confirm YAML is valid.
+    await expect(page.locator('.plan-yaml-validation')).toContainText('Valid', { timeout: 8000 });
   });
 
   test('launching shows progress and transitions to done state', async ({ page }) => {
     await mockFileIssues(page);
     await page.click('button:has-text("Launch")');
 
-    // Launching state briefly visible.
-    await expect(page.locator('#plan-launching')).toBeVisible({ timeout: 5000 });
+    // Launching state briefly visible (the review div is still shown during launching).
+    await expect(page.locator('.plan-filing-progress')).toBeVisible({ timeout: 5000 });
 
     // Done state after stream completes.
     await expect(page.locator('#plan-done')).toBeVisible({ timeout: 10_000 });
@@ -289,13 +299,28 @@ test.describe('Phase 1B — file issues', () => {
     await expect(page.locator('.plan-done-batch-id')).toContainText('batch-abc123');
   });
 
+  test('done state shows the active phase label dynamically', async ({ page }) => {
+    await mockFileIssues(page);
+    await page.click('button:has-text("Launch")');
+    await expect(page.locator('#plan-done')).toBeVisible({ timeout: 10_000 });
+    // Hero stats line should show the actual first phase slug, not "phase 0".
+    await expect(page.locator('.plan-done-hero-stats')).toContainText('0-foundation active');
+  });
+
   test('done state shows GitHub issue links', async ({ page }) => {
     await mockFileIssues(page);
     await page.click('button:has-text("Launch")');
     await expect(page.locator('#plan-done')).toBeVisible({ timeout: 10_000 });
-    // Each created issue should have a link.
-    const issueLinks = page.locator('.plan-done-issue a, #plan-done a[href*="github.com"]');
+    // Each created issue should have a link to GitHub.
+    const issueLinks = page.locator('#plan-done a[href*="github.com"]');
     await expect(issueLinks.first()).toBeVisible({ timeout: 5000 });
+  });
+
+  test('"Dispatch agents →" primary action link exists', async ({ page }) => {
+    await mockFileIssues(page);
+    await page.click('button:has-text("Launch")');
+    await expect(page.locator('#plan-done')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#plan-done a:has-text("Dispatch agents")')).toBeVisible();
   });
 
   test('error during launch shows error message and returns to review', async ({ page }) => {
@@ -308,7 +333,7 @@ test.describe('Phase 1B — file issues', () => {
     });
     await page.click('button:has-text("Launch")');
     await expect(page.locator('#plan-review')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('.plan-error, [x-text="errorMsg"]')).toContainText(/rate limited/i, { timeout: 5000 });
+    await expect(page.locator('.plan-error')).toContainText(/rate limited/i, { timeout: 5000 });
   });
 
   test('"New plan" button from done state resets to write', async ({ page }) => {

@@ -4,15 +4,17 @@
 {#
   Plan — Step 1.A + 1.B
   ─────────────────────────────────────────────────────────────────────────────
-  Three states managed by Alpine (planForm in plan.js):
-    write    — textarea input, seeds, submit
-    review   — Monaco YAML editor, editable, validate + launch
-    done     — success summary, batch ID, next steps
+  Five states managed by Alpine (planForm in plan.ts):
+    write      — textarea input, seeds, submit
+    generating — SSE stream live-preview, cancel button
+    review     — CodeMirror 6 YAML editor, editable, validate + launch
+    launching  — issue-filing SSE in progress, progress strip
+    done       — success summary, batch ID, next steps
 
   No right sidebar. The coordinator pipeline happens after Submit — it's not
   a UI step, so we don't show it here.
 
-  JS     : plan.js  →  planForm()
+  JS     : plan.ts  →  planForm()
   CSS    : app.css  §  Plan
   ─────────────────────────────────────────────────────────────────────────────
 #}
@@ -75,7 +77,7 @@
   {# ══════════════════════════════════════════════════════════════════════
      WRITE state — free-form text input
      ══════════════════════════════════════════════════════════════════════ #}
-  <div class="plan-write" x-show="step === 'write'" x-transition.opacity>
+  <div id="plan-write" class="plan-write" x-show="step === 'write'" x-transition.opacity>
 
     <h1 class="plan-title">The Singularity is here.</h1>
     <p class="plan-sub">Paste anything — a rough idea, a wall of text, a list of tasks, a complaint about what's broken. AgentCeption structures it into a phase-gated plan of GitHub issues.</p>
@@ -172,7 +174,7 @@
   {# ══════════════════════════════════════════════════════════════════════
      GENERATING state — spinner while LLM works
      ══════════════════════════════════════════════════════════════════════ #}
-  <div class="plan-generating" x-show="step === 'generating'">
+  <div id="plan-generating" class="plan-generating" x-show="step === 'generating'">
     <div class="plan-gen-header">
       <div class="plan-spinner"></div>
       <div>
@@ -197,7 +199,7 @@
   {# ══════════════════════════════════════════════════════════════════════
      REVIEW state — CodeMirror 6 YAML editor
      ══════════════════════════════════════════════════════════════════════ #}
-  <div class="plan-review" x-show="step === 'review' || step === 'launching'">
+  <div id="plan-review" class="plan-review" x-show="step === 'review' || step === 'launching'">
 
     <div class="plan-review-header">
       <div>
@@ -213,7 +215,7 @@
           class="btn btn-secondary"
           @click="editPlan()"
           :disabled="step === 'launching'"
-        >← Edit</button>
+        >← Edit plan</button>
         <button
           class="btn btn-primary"
           @click="launch()"
@@ -237,7 +239,7 @@
       <span x-text="yamlValidationMsg"></span>
     </div>
 
-    {# Monaco editor container #}
+    {# CodeMirror 6 editor container #}
     <div x-ref="yamlEditor" class="plan-yaml-editor"></div>
 
     {# Filing progress strip — only visible during launching state #}
@@ -253,9 +255,9 @@
   </div>
 
   {# ══════════════════════════════════════════════════════════════════════
-     DONE state — coordinator launched, batch and worktree shown
+     DONE state — issues filed, summary + next steps
      ══════════════════════════════════════════════════════════════════════ #}
-  <div class="plan-done" x-show="step === 'done'" x-transition.opacity>
+  <div id="plan-done" class="plan-done" x-show="step === 'done'" x-transition.opacity>
 
     {# ── Hero ──────────────────────────────────────────────────────────── #}
     <div class="plan-done-hero">
@@ -267,7 +269,8 @@
         <span x-text="issueCount"></span>
         <span x-text="issueCount === 1 ? 'issue' : 'issues'"></span>
         <span class="plan-done-sep">·</span>
-        <span class="plan-done-active-dot"></span> phase 0 active
+        <span class="plan-done-active-dot"></span>
+        <span x-text="(result.phaseGroups[0]?.phase ?? 'phase 0') + ' active'"></span>
       </div>
     </div>
 
@@ -316,13 +319,13 @@
       </div>
 
       <div class="plan-done-actions">
-        <a href="/" class="btn btn-primary">Build Board →</a>
+        <a href="/" class="btn btn-primary">Dispatch agents →</a>
         <a
           :href="'https://github.com/{{ gh_repo }}/issues?q=is%3Aopen+label%3A' + encodeURIComponent(initiative)"
           target="_blank" rel="noopener noreferrer"
           class="btn btn-secondary"
         >View on GitHub ↗</a>
-        <button class="btn btn-ghost" @click="reset()">← New plan</button>
+        <button class="btn btn-ghost" @click="reset()">New plan</button>
       </div>
     </div>
 
