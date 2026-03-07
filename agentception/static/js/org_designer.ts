@@ -547,6 +547,18 @@ const BUILT_IN_TEMPLATES: ReadonlyArray<{
     template: { role: 'cto' },
   },
   {
+    id: 'builtin-quick-fix',
+    name: 'Quick Fix',
+    description: 'One engineer, one reviewer. The smallest possible team — ideal for a single focused ticket.',
+    icon: '⚑',
+    accent: 'cyan',
+    get nodeCount() { return nodeCount(this.template); },
+    template: {
+      role: 'engineering-coordinator',
+      children: [{ role: 'python-developer' }],
+    },
+  },
+  {
     id: 'builtin-ceo-full',
     name: 'CEO + Full Org',
     description: 'A CEO delegates to a CTO who then assembles the full engineering and QA hierarchy beneath them.',
