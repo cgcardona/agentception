@@ -8,6 +8,7 @@ Covers:
 - GET /api/plan/{run_id}/plan-text endpoint
 - _parse_task_fields helper
 - _count_plan_items helper
+- _normalize_plan_dict helper (all shape variations)
 - Done step shows batch_id, worktree, Track Agents →, View Issues → (issue #42)
 - Review section has inline error display for 422 from POST /api/plan/launch
 
@@ -25,7 +26,12 @@ from fastapi.testclient import TestClient
 
 from agentception.app import app
 from agentception.config import AgentCeptionSettings
-from agentception.routes.ui.plan_ui import _count_plan_items, _parse_task_fields
+from agentception.routes.ui.plan_ui import (
+    _YamlNode,
+    _count_plan_items,
+    _normalize_plan_dict,
+    _parse_task_fields,
+)
 
 
 @pytest.fixture(scope="module")
@@ -83,6 +89,113 @@ def test_count_plan_items_empty_returns_zero() -> None:
     """_count_plan_items must return 0 for blank/empty input."""
     assert _count_plan_items("") == 0
     assert _count_plan_items("   \n\n  ") == 0
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — _normalize_plan_dict
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_plan_dict_passthrough_when_initiative_key_present() -> None:
+    """Canonical form (has 'initiative') is returned unchanged."""
+    data: _YamlNode = {"initiative": "auth", "phases": []}
+    assert _normalize_plan_dict(data) == data
+
+
+def test_normalize_plan_dict_passthrough_when_phases_key_present() -> None:
+    """Dict with 'phases' but no 'initiative' is returned unchanged (Pydantic validates)."""
+    data: _YamlNode = {"phases": []}
+    assert _normalize_plan_dict(data) == data
+
+
+def test_normalize_plan_dict_passthrough_non_dict() -> None:
+    """Non-dict inputs are returned unchanged."""
+    assert _normalize_plan_dict("hello") == "hello"
+    assert _normalize_plan_dict(None) is None
+    assert _normalize_plan_dict(42) == 42
+    assert _normalize_plan_dict([1, 2]) == [1, 2]
+
+
+def test_normalize_plan_dict_passthrough_multiple_top_level_keys() -> None:
+    """Multiple unknown top-level keys → returned unchanged (let Pydantic report the error)."""
+    data: _YamlNode = {"auth": {}, "billing": {}}
+    assert _normalize_plan_dict(data) == data
+
+
+def test_normalize_plan_dict_passthrough_no_phase_subkeys() -> None:
+    """Single unknown top-level key whose value has no 'phase-*' sub-keys → unchanged."""
+    data: _YamlNode = {"auth-rewrite": {"something": "else"}}
+    assert _normalize_plan_dict(data) == data
+
+
+def test_normalize_plan_dict_passthrough_body_not_dict() -> None:
+    """Single unknown top-level key whose value is not a dict → unchanged."""
+    data: _YamlNode = {"auth-rewrite": "just a string"}
+    assert _normalize_plan_dict(data) == data
+
+
+def test_normalize_plan_dict_converts_initiative_as_key_format() -> None:
+    """Converts {initiative: {phase-0: {...}}} to canonical {initiative, phases} form."""
+    data: _YamlNode = {
+        "auth-rewrite": {
+            "phase-0": {
+                "description": "Foundation",
+                "depends_on": [],
+                "issues": [{"title": "Add user model"}],
+            },
+        },
+    }
+    result = _normalize_plan_dict(data)
+    assert isinstance(result, dict)
+    assert result["initiative"] == "auth-rewrite"
+    phases = result["phases"]
+    assert isinstance(phases, list)
+    assert len(phases) == 1
+    phase = phases[0]
+    assert isinstance(phase, dict)
+    assert phase["label"] == "phase-0"
+    assert phase["description"] == "Foundation"
+
+
+def test_normalize_plan_dict_multiple_phases_sorted_by_label() -> None:
+    """Multiple phase-* sub-keys are emitted sorted by label name."""
+    data: _YamlNode = {
+        "my-init": {
+            "phase-1": {"description": "Phase one", "depends_on": [], "issues": []},
+            "phase-0": {"description": "Phase zero", "depends_on": [], "issues": []},
+        },
+    }
+    result = _normalize_plan_dict(data)
+    assert isinstance(result, dict)
+    phases = result["phases"]
+    assert isinstance(phases, list)
+    assert len(phases) == 2
+    assert isinstance(phases[0], dict) and phases[0]["label"] == "phase-0"
+    assert isinstance(phases[1], dict) and phases[1]["label"] == "phase-1"
+
+
+def test_normalize_plan_dict_preserves_all_phase_fields() -> None:
+    """All fields from the phase body are preserved in the converted phase dict."""
+    data: _YamlNode = {
+        "my-init": {
+            "phase-0": {
+                "description": "Do some work",
+                "depends_on": ["other-phase"],
+                "issues": [{"id": "x", "title": "T"}],
+                "extra_field": "should survive",
+            },
+        },
+    }
+    result = _normalize_plan_dict(data)
+    assert isinstance(result, dict)
+    phases = result["phases"]
+    assert isinstance(phases, list)
+    phase = phases[0]
+    assert isinstance(phase, dict)
+    assert phase["label"] == "phase-0"
+    assert phase["description"] == "Do some work"
+    assert phase["depends_on"] == ["other-phase"]
+    assert phase["extra_field"] == "should survive"
 
 
 # ---------------------------------------------------------------------------

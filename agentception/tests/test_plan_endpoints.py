@@ -1,0 +1,503 @@
+from __future__ import annotations
+
+"""Tests for the Plan API SSE endpoints — Phase 1A preview and Phase 1B file-issues.
+
+Covers:
+- POST /api/plan/validate — schema validation against PlanSpec
+- POST /api/plan/preview  — Step 1.A SSE stream (empty, missing key, chunk+done, prose error)
+- POST /api/plan/file-issues — Step 1.B SSE stream (empty YAML, invalid YAML, stream forwarding)
+
+All LLM calls and gh CLI subprocess calls are mocked so no network or process I/O occurs.
+
+Run targeted:
+    pytest agentception/tests/test_plan_endpoints.py -v
+"""
+
+import json
+import textwrap
+from collections.abc import AsyncGenerator
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+
+from agentception.app import app
+from agentception.services.llm import LLMChunk
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture()
+async def async_client() -> AsyncGenerator[AsyncClient, None]:
+    """Async httpx client wrapping the FastAPI app for SSE endpoint tests."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        yield client
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _parse_sse_events(body: str) -> list[dict[str, object]]:
+    """Parse a raw SSE response body into a list of decoded JSON event dicts."""
+    events: list[dict[str, object]] = []
+    for line in body.splitlines():
+        if line.startswith("data: "):
+            payload = line[len("data: "):]
+            events.append(json.loads(payload))
+    return events
+
+
+_MINIMAL_VALID_YAML = textwrap.dedent("""\
+    initiative: auth-rewrite
+    phases:
+      - label: 0-foundation
+        description: "Add the User model and Alembic migration"
+        depends_on: []
+        issues:
+          - id: auth-rewrite-p0-001
+            title: "Add SQLAlchemy User model"
+            body: "## Context\\nAdd a User model with id, email, hashed_password."
+""")
+
+_TWO_PHASE_YAML = textwrap.dedent("""\
+    initiative: big-project
+    phases:
+      - label: 0-foundation
+        description: "Foundation"
+        depends_on: []
+        issues:
+          - id: big-project-p0-001
+            title: "First issue"
+            body: "## Context\\nDo it."
+          - id: big-project-p0-002
+            title: "Second issue"
+            body: "## Context\\nDo more."
+      - label: 1-api
+        description: "API layer"
+        depends_on: ["0-foundation"]
+        issues:
+          - id: big-project-p1-001
+            title: "Third issue"
+            body: "## Context\\nAnd more."
+""")
+
+
+# ---------------------------------------------------------------------------
+# POST /api/plan/validate
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_validate_empty_yaml_returns_valid_false(async_client: AsyncClient) -> None:
+    """Empty yaml_text → valid=False, detail contains 'empty'."""
+    resp = await async_client.post("/api/plan/validate", json={"yaml_text": ""})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["valid"] is False
+    assert "empty" in body["detail"].lower()
+
+
+@pytest.mark.anyio
+async def test_validate_whitespace_only_returns_valid_false(async_client: AsyncClient) -> None:
+    """Whitespace-only yaml_text → valid=False."""
+    resp = await async_client.post("/api/plan/validate", json={"yaml_text": "   \n\n  "})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["valid"] is False
+
+
+@pytest.mark.anyio
+async def test_validate_malformed_yaml_returns_valid_false(async_client: AsyncClient) -> None:
+    """Syntactically malformed YAML → valid=False with a non-empty detail."""
+    resp = await async_client.post("/api/plan/validate", json={"yaml_text": ": invalid: [yaml"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["valid"] is False
+    assert body["detail"]
+
+
+@pytest.mark.anyio
+async def test_validate_wrong_schema_returns_valid_false(async_client: AsyncClient) -> None:
+    """Valid YAML that doesn't conform to PlanSpec → valid=False with detail."""
+    resp = await async_client.post("/api/plan/validate", json={"yaml_text": "key: value\n"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["valid"] is False
+    assert body["detail"]
+
+
+@pytest.mark.anyio
+async def test_validate_single_phase_spec_returns_correct_counts(
+    async_client: AsyncClient,
+) -> None:
+    """Correct single-phase PlanSpec → valid=True with initiative, phase_count, issue_count."""
+    resp = await async_client.post("/api/plan/validate", json={"yaml_text": _MINIMAL_VALID_YAML})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["valid"] is True
+    assert body["initiative"] == "auth-rewrite"
+    assert body["phase_count"] == 1
+    assert body["issue_count"] == 1
+    assert body["detail"] == ""
+
+
+@pytest.mark.anyio
+async def test_validate_two_phase_spec_returns_correct_counts(
+    async_client: AsyncClient,
+) -> None:
+    """Two-phase, three-issue PlanSpec → valid=True with phase_count=2, issue_count=3."""
+    resp = await async_client.post("/api/plan/validate", json={"yaml_text": _TWO_PHASE_YAML})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["valid"] is True
+    assert body["initiative"] == "big-project"
+    assert body["phase_count"] == 2
+    assert body["issue_count"] == 3
+
+
+# ---------------------------------------------------------------------------
+# POST /api/plan/preview
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_preview_empty_dump_returns_422(async_client: AsyncClient) -> None:
+    """Empty dump → HTTP 422 before the stream even starts."""
+    resp = await async_client.post("/api/plan/preview", json={"dump": "", "label_prefix": ""})
+    assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_preview_whitespace_dump_returns_422(async_client: AsyncClient) -> None:
+    """Whitespace-only dump → HTTP 422."""
+    resp = await async_client.post(
+        "/api/plan/preview", json={"dump": "   \n  ", "label_prefix": ""}
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_preview_missing_api_key_returns_503(async_client: AsyncClient) -> None:
+    """When OPENROUTER_API_KEY is absent the endpoint returns HTTP 503."""
+    from agentception.config import settings
+
+    # model_copy produces a new Pydantic settings instance with the field overridden.
+    settings_no_key = settings.model_copy(update={"openrouter_api_key": None})
+    with patch("agentception.config.settings", settings_no_key):
+        resp = await async_client.post(
+            "/api/plan/preview", json={"dump": "do some things", "label_prefix": ""}
+        )
+    assert resp.status_code == 503
+
+
+@pytest.mark.anyio
+async def test_preview_valid_input_streams_chunk_and_done_events(
+    async_client: AsyncClient,
+) -> None:
+    """A valid LLM response streams chunk events then a done event with PlanSpec metadata."""
+
+    async def fake_llm_stream(
+        *_args: object, **_kwargs: object
+    ) -> AsyncGenerator[LLMChunk, None]:
+        yield LLMChunk(type="content", text="initiative: auth-rewrite\n")
+        yield LLMChunk(type="content", text=_MINIMAL_VALID_YAML[len("initiative: auth-rewrite\n"):])
+
+    with (
+        patch(
+            "agentception.routes.ui.plan_ui.call_openrouter_stream",
+            side_effect=fake_llm_stream,
+        ),
+        patch(
+            "agentception.readers.context_pack.build_context_pack",
+            new_callable=AsyncMock,
+            return_value="",
+        ),
+        patch(
+            "agentception.config.settings",
+            MagicMock(openrouter_api_key="test-key", **_passthrough_settings()),
+        ),
+    ):
+        resp = await async_client.post(
+            "/api/plan/preview",
+            json={"dump": "Build user authentication", "label_prefix": ""},
+        )
+
+    assert resp.status_code == 200
+    assert "text/event-stream" in resp.headers.get("content-type", "")
+    events = _parse_sse_events(resp.text)
+    chunk_events = [e for e in events if e.get("t") == "chunk"]
+    done_events = [e for e in events if e.get("t") == "done"]
+    assert chunk_events, "Expected at least one chunk event"
+    assert len(done_events) == 1, "Expected exactly one done event"
+    done = done_events[0]
+    assert done["initiative"] == "auth-rewrite"
+    assert done["phase_count"] == 1
+    assert done["issue_count"] == 1
+    assert isinstance(done["yaml"], str) and done["yaml"]
+
+
+@pytest.mark.anyio
+async def test_preview_thinking_chunks_are_discarded(async_client: AsyncClient) -> None:
+    """Chain-of-thought ('thinking') chunks are never forwarded to the browser."""
+
+    async def fake_llm_stream(
+        *_args: object, **_kwargs: object
+    ) -> AsyncGenerator[LLMChunk, None]:
+        yield LLMChunk(type="thinking", text="<internal reasoning>")
+        yield LLMChunk(type="content", text=_MINIMAL_VALID_YAML)
+
+    with (
+        patch(
+            "agentception.routes.ui.plan_ui.call_openrouter_stream",
+            side_effect=fake_llm_stream,
+        ),
+        patch(
+            "agentception.readers.context_pack.build_context_pack",
+            new_callable=AsyncMock,
+            return_value="",
+        ),
+        patch(
+            "agentception.config.settings",
+            MagicMock(openrouter_api_key="test-key", **_passthrough_settings()),
+        ),
+    ):
+        resp = await async_client.post(
+            "/api/plan/preview",
+            json={"dump": "Build user authentication", "label_prefix": ""},
+        )
+
+    events = _parse_sse_events(resp.text)
+    chunk_texts: list[str] = [str(e.get("text", "")) for e in events if e.get("t") == "chunk"]
+    assert not any("<internal reasoning>" in t for t in chunk_texts), (
+        "Thinking chunk text must never be forwarded"
+    )
+
+
+@pytest.mark.anyio
+async def test_preview_prose_response_yields_error_event(async_client: AsyncClient) -> None:
+    """When the LLM returns prose instead of YAML, an error event is emitted — not a crash."""
+
+    async def fake_llm_stream(
+        *_args: object, **_kwargs: object
+    ) -> AsyncGenerator[LLMChunk, None]:
+        yield LLMChunk(type="content", text="Sure, here are some ideas for your project...")
+
+    with (
+        patch(
+            "agentception.routes.ui.plan_ui.call_openrouter_stream",
+            side_effect=fake_llm_stream,
+        ),
+        patch(
+            "agentception.readers.context_pack.build_context_pack",
+            new_callable=AsyncMock,
+            return_value="",
+        ),
+        patch(
+            "agentception.config.settings",
+            MagicMock(openrouter_api_key="test-key", **_passthrough_settings()),
+        ),
+    ):
+        resp = await async_client.post(
+            "/api/plan/preview",
+            json={"dump": "?", "label_prefix": ""},
+        )
+
+    assert resp.status_code == 200
+    events = _parse_sse_events(resp.text)
+    error_events = [e for e in events if e.get("t") == "error"]
+    assert error_events, "Expected an error event when LLM returns prose"
+    assert isinstance(error_events[0].get("detail"), str)
+
+
+@pytest.mark.anyio
+async def test_preview_context_pack_is_prepended_to_dump(async_client: AsyncClient) -> None:
+    """Context pack content is injected before the user dump in the LLM call."""
+    received_prompt: list[str] = []
+
+    async def capture_stream(
+        user_prompt: str, **_kwargs: object
+    ) -> AsyncGenerator[LLMChunk, None]:
+        received_prompt.append(user_prompt)
+        yield LLMChunk(type="content", text=_MINIMAL_VALID_YAML)
+
+    ctx_text = "## Open Issues\n- #42 Fix login\n"
+
+    with (
+        patch(
+            "agentception.routes.ui.plan_ui.call_openrouter_stream",
+            side_effect=capture_stream,
+        ),
+        patch(
+            "agentception.readers.context_pack.build_context_pack",
+            new_callable=AsyncMock,
+            return_value=ctx_text,
+        ),
+        patch(
+            "agentception.config.settings",
+            MagicMock(openrouter_api_key="test-key", **_passthrough_settings()),
+        ),
+    ):
+        await async_client.post(
+            "/api/plan/preview",
+            json={"dump": "Build auth", "label_prefix": ""},
+        )
+
+    assert received_prompt, "LLM stream was never called"
+    first_prompt = received_prompt[0]
+    assert isinstance(first_prompt, str)
+    assert ctx_text in first_prompt, "Context pack must be prepended to the dump"
+    assert "Build auth" in first_prompt
+
+
+# ---------------------------------------------------------------------------
+# POST /api/plan/file-issues
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_file_issues_empty_yaml_returns_422(async_client: AsyncClient) -> None:
+    """Empty yaml_text → HTTP 422 before any gh calls."""
+    resp = await async_client.post("/api/plan/file-issues", json={"yaml_text": ""})
+    assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_file_issues_whitespace_yaml_returns_422(async_client: AsyncClient) -> None:
+    """Whitespace-only yaml_text → HTTP 422."""
+    resp = await async_client.post(
+        "/api/plan/file-issues", json={"yaml_text": "   \n  "}
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_file_issues_invalid_yaml_returns_422(async_client: AsyncClient) -> None:
+    """Syntactically invalid YAML → HTTP 422 with detail."""
+    resp = await async_client.post(
+        "/api/plan/file-issues", json={"yaml_text": ": invalid [yaml"}
+    )
+    assert resp.status_code == 422
+    assert "YAML" in resp.json().get("detail", "")
+
+
+@pytest.mark.anyio
+async def test_file_issues_schema_invalid_yaml_returns_422(async_client: AsyncClient) -> None:
+    """YAML that parses but fails PlanSpec validation → HTTP 422."""
+    resp = await async_client.post(
+        "/api/plan/file-issues", json={"yaml_text": "key: value\n"}
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_file_issues_valid_yaml_returns_sse_stream(async_client: AsyncClient) -> None:
+    """A valid PlanSpec YAML starts the SSE stream with Content-Type text/event-stream."""
+    from agentception.models import PlanSpec
+    from agentception.readers.issue_creator import IssueFileEvent, StartEvent
+
+    async def fake_file_issues(_spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
+        yield StartEvent(t="start", total=1, initiative="auth-rewrite")
+
+    with patch(
+        "agentception.readers.issue_creator.file_issues",
+        side_effect=fake_file_issues,
+    ):
+        resp = await async_client.post(
+            "/api/plan/file-issues", json={"yaml_text": _MINIMAL_VALID_YAML}
+        )
+
+    assert resp.status_code == 200
+    assert "text/event-stream" in resp.headers.get("content-type", "")
+    events = _parse_sse_events(resp.text)
+    start_events = [e for e in events if e.get("t") == "start"]
+    assert start_events, "Expected a start event in the SSE stream"
+    assert start_events[0]["initiative"] == "auth-rewrite"
+
+
+@pytest.mark.anyio
+async def test_file_issues_forwards_all_event_types(async_client: AsyncClient) -> None:
+    """All event types from the file_issues generator are forwarded verbatim."""
+    from agentception.models import PlanSpec
+    from agentception.readers.issue_creator import (
+        DoneEvent,
+        IssueEvent,
+        IssueFileEvent,
+        LabelEvent,
+        StartEvent,
+    )
+    from agentception.readers.issue_creator import CreatedIssue
+
+    async def fake_file_issues(_spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
+        yield StartEvent(t="start", total=1, initiative="auth-rewrite")
+        yield LabelEvent(t="label", text="Ensuring labels exist…")
+        yield IssueEvent(
+            t="issue",
+            index=1,
+            total=1,
+            number=101,
+            url="https://github.com/test/repo/issues/101",
+            title="Add SQLAlchemy User model",
+            phase="0-foundation",
+        )
+        yield DoneEvent(
+            t="done",
+            total=1,
+            initiative="auth-rewrite",
+            batch_id="batch-abc123",
+            issues=[
+                CreatedIssue(
+                    issue_id="auth-rewrite-p0-001",
+                    number=101,
+                    url="https://github.com/test/repo/issues/101",
+                    title="Add SQLAlchemy User model",
+                    phase="0-foundation",
+                )
+            ],
+            coordinator_arch={},
+        )
+
+    with patch(
+        "agentception.readers.issue_creator.file_issues",
+        side_effect=fake_file_issues,
+    ):
+        resp = await async_client.post(
+            "/api/plan/file-issues", json={"yaml_text": _MINIMAL_VALID_YAML}
+        )
+
+    assert resp.status_code == 200
+    events = _parse_sse_events(resp.text)
+    types = {e.get("t") for e in events}
+    assert types == {"start", "label", "issue", "done"}
+
+    done = next(e for e in events if e.get("t") == "done")
+    assert done["initiative"] == "auth-rewrite"
+    assert done["total"] == 1
+    assert done["batch_id"] == "batch-abc123"
+    issues = done.get("issues", [])
+    assert isinstance(issues, list) and len(issues) == 1
+    assert issues[0]["number"] == 101
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+
+def _passthrough_settings() -> dict[str, object]:
+    """Return a dict of settings attributes needed by route handlers under test.
+
+    When we replace ``agentception.config.settings`` with a ``MagicMock`` the
+    mock auto-stubs every attribute access, which is fine for most calls.  The
+    one exception is any attribute explicitly checked for truthiness in the
+    handler itself (like ``openrouter_api_key``).  All others are left to the
+    MagicMock default.
+    """
+    return {}
