@@ -1,19 +1,5 @@
-import { marked } from 'marked';
-
 /**
- * Render a markdown string to HTML.
- * Exported so app.js can expose it on window for use in any template.
- *
- * @param {string} text
- * @returns {string}
- */
-export function renderMd(text) {
-  if (!text) return '';
-  return /** @type {string} */ (marked.parse(text, { breaks: true, gfm: true }));
-}
-
-/**
- * build.js — Mission Control Alpine component
+ * build.ts — Mission Control Alpine component.
  *
  * Manages:
  *  - activeIssue        — the issue card currently being inspected
@@ -24,100 +10,221 @@ export function renderMd(text) {
  * See docs/agent-tree-protocol.md for the node-type spec.
  */
 
+import { marked } from 'marked';
+
+// ── Domain types ─────────────────────────────────────────────────────────────
+
+interface AgentRun {
+  id: string;
+  status: string;
+  tier: string | null;
+  role: string | null;
+}
+
+export interface ActiveIssue {
+  number: number;
+  title: string;
+  url: string;
+  state: string;
+  labels: string[];
+  run: AgentRun | null;
+  pr_number: number | null;
+  swim_lane: string;
+}
+
+type AgentTier = 'executive' | 'coordinator' | 'engineer' | 'reviewer' | 'unknown';
+
+export interface AgentTreeNode {
+  id: string;
+  role: string;
+  status: string;
+  agent_status: string;
+  tier: AgentTier | null;
+  org_domain: string | null;
+  parent_run_id: string | null;
+  issue_number: number | null;
+  pr_number: number | null;
+  batch_id: string | null;
+  spawned_at: string;
+  last_activity_at: string | null;
+  current_step: string | null;
+}
+
+interface TreeTierGroup {
+  tier: AgentTier;
+  label: string;
+  nodes: AgentTreeNode[];
+}
+
+interface PhaseItem {
+  label: string;
+  count: number;
+}
+
+interface IssueItem {
+  number: number;
+  title: string;
+}
+
+interface ContextResponse {
+  phases: PhaseItem[];
+  issues: IssueItem[];
+}
+
+export interface DispatchResult {
+  run_id: string;
+  batch_id: string;
+  tier: string;
+  role: string;
+  label: string;
+  worktree: string;
+  host_worktree: string;
+  agent_task_path: string;
+  status: string;
+}
+
+interface ApiErrorBody {
+  detail?: string;
+}
+
+interface SseMessage {
+  t: 'ping' | 'event' | 'thought';
+  event_type?: string;
+  payload?: Record<string, string>;
+  role?: string;
+  content?: string;
+}
+
+interface SseEvent extends SseMessage {
+  id: number;
+}
+
+interface SseThought {
+  role: string;
+  content: string;
+}
+
+type CoordinatorTypeKey = 'cto' | 'engineering-manager' | 'qa-lead';
+type AgentTypeKey = 'coordinator' | 'leaf';
+type ScopeType = 'full_initiative' | 'phase' | 'issue';
+
+interface CoordinatorTypeOption {
+  value: CoordinatorTypeKey;
+  label: string;
+  desc: string;
+  role: string;
+}
+
+interface TreeResponse {
+  nodes: AgentTreeNode[];
+  batch_id: string | null;
+}
+
+interface DispatchBody {
+  label: string;
+  scope: ScopeType;
+  repo: string;
+  scope_label?: string;
+  scope_issue_number?: number;
+  role?: string;
+}
+
+interface OpenLabelDispatchDetail {
+  label?: string;
+}
+
+// ── Component definition ─────────────────────────────────────────────────────
+
+/** Render a markdown string to HTML. */
+export function renderMd(text: string): string {
+  if (!text) return '';
+  // marked.parse is synchronous when no async extensions are configured.
+  return marked.parse(text, { breaks: true, gfm: true }) as string;
+}
+
 export function buildPage() {
   return {
     // ── inspector state ──────────────────────────────────────────────────
-    activeIssue: null,
-    events: [],
-    thoughts: [],
+    activeIssue: null as ActiveIssue | null,
+    events: [] as SseEvent[],
+    thoughts: [] as SseThought[],
     streamOpen: false,
-    _evtSource: null,
+    _evtSource: null as EventSource | null,
 
     // ── agent hierarchy tree ─────────────────────────────────────────────
-    /** @type {Array<{id:string,role:string,status:string,agent_status:string,tier:string|null,org_domain:string|null,parent_run_id:string|null,issue_number:number|null,pr_number:number|null,batch_id:string|null,spawned_at:string,last_activity_at:string|null,current_step:string|null}>} */
-    agentTreeNodes: [],
-    agentTreeBatchId: null,
-    _treeTimer: null,
+    agentTreeNodes: [] as AgentTreeNode[],
+    agentTreeBatchId: null as string | null,
+    _treeTimer: null as ReturnType<typeof setInterval> | null,
 
     // ── chat / agent control ─────────────────────────────────────────────
     chatMessage: '',
     chatSending: false,
-    chatError: null,
+    chatError: null as string | null,
     agentStopping: false,
 
     // ── label-dispatch (launch) modal state ─────────────────────────────
     labelDispatchOpen: false,
     labelDispatchLabel: '',
 
-    // Agent type: 'coordinator' | 'leaf'
-    agentType: 'coordinator',
+    agentType: 'coordinator' as AgentTypeKey,
+    coordinatorType: 'cto' as CoordinatorTypeKey,
 
-    // Coordinator sub-type: 'cto' | 'engineering-manager' | 'qa-lead'
-    coordinatorType: 'cto',
-
-    // Static coordinator type definitions (rendered by x-for in template)
     coordinatorTypes: [
       {
         value: 'cto',
         label: 'CTO',
-        desc:  'Surveys all open tickets + PRs and assembles the full team',
-        role:  'cto',
+        desc: 'Surveys all open tickets + PRs and assembles the full team',
+        role: 'cto',
       },
       {
         value: 'engineering-manager',
         label: 'Engineering Manager',
-        desc:  'Owns one phase — pulls tickets and spawns leaf workers',
-        role:  'engineering-coordinator',
+        desc: 'Owns one phase — pulls tickets and spawns leaf workers',
+        role: 'engineering-coordinator',
       },
       {
         value: 'qa-lead',
         label: 'QA Lead',
-        desc:  'Surveys open PRs and spawns reviewers',
-        role:  'qa-coordinator',
+        desc: 'Surveys open PRs and spawns reviewers',
+        role: 'qa-coordinator',
       },
-    ],
+    ] as CoordinatorTypeOption[],
 
-    // Phase picker (populated from /api/dispatch/context)
-    scopePhases: [],
+    scopePhases: [] as PhaseItem[],
     selectedPhase: '',
-
-    // Issue picker (populated from /api/dispatch/context)
-    scopeIssues: [],
-    selectedIssueNumber: null,
-
-    // Context loading
+    scopeIssues: [] as IssueItem[],
+    selectedIssueNumber: null as number | null,
     labelContextLoading: false,
     labelContextLoaded: false,
 
-    // Advanced section
     showAdvanced: false,
     advancedRole: '',
 
-    // Submission state
     labelDispatching: false,
-    labelDispatchError: null,
+    labelDispatchError: null as string | null,
     labelDispatchSuccess: false,
-    labelDispatchResult: null,
+    labelDispatchResult: null as DispatchResult | null,
     dispatcherCopied: false,
     cancellingDispatch: false,
 
-    // Derived scope + role sent to the API (overridden by advancedRole when set)
-    get _derivedScope() {
+    // ── derived scope + role ─────────────────────────────────────────────
+
+    get _derivedScope(): ScopeType {
       if (this.agentType === 'leaf') return 'issue';
       if (this.coordinatorType === 'engineering-manager') return 'phase';
       return 'full_initiative';
     },
 
-    get _derivedRole() {
+    get _derivedRole(): string | null {
       if (this.advancedRole.trim()) return this.advancedRole.trim();
-      if (this.agentType === 'leaf') return null; // backend derives from issue
+      if (this.agentType === 'leaf') return null;
       if (this.coordinatorType === 'cto') return 'cto';
       if (this.coordinatorType === 'engineering-manager') return 'engineering-coordinator';
       if (this.coordinatorType === 'qa-lead') return 'qa-coordinator';
       return null;
     },
 
-    get launchPreviewText() {
+    get launchPreviewText(): string {
       const label = this.labelDispatchLabel;
       if (this.agentType === 'coordinator') {
         if (this.coordinatorType === 'cto') {
@@ -133,35 +240,30 @@ export function buildPage() {
       }
       if (this.agentType === 'leaf') {
         if (!this.selectedIssueNumber) return 'Choose a ticket to see the preview.';
-        const found = this.scopeIssues.find(i => i.number === this.selectedIssueNumber);
+        const found = this.scopeIssues.find((i) => i.number === this.selectedIssueNumber);
         const title = found ? found.title : `#${this.selectedIssueNumber}`;
         return `One leaf agent will work on #${this.selectedIssueNumber}: "${title}".`;
       }
       return '';
     },
 
-    get launchReady() {
-      if (this.agentType === 'leaf') return !!this.selectedIssueNumber;
-      if (this.coordinatorType === 'engineering-manager') return !!this.selectedPhase;
+    get launchReady(): boolean {
+      if (this.agentType === 'leaf') return this.selectedIssueNumber !== null;
+      if (this.coordinatorType === 'engineering-manager') return this.selectedPhase !== '';
       return true;
     },
 
     // ── agent tree computed groupings ────────────────────────────────────
 
-    /**
-     * Group tree nodes into ordered tier rows for rendering.
-     * Returns [{tier, label, nodes}] in executive → coordinator → leaf order.
-     */
-    get treeTiers() {
-      const ORDER = ['executive', 'coordinator', 'engineer', 'reviewer'];
-      /** @type {Record<string, typeof this.agentTreeNodes>} */
-      const byTier = {};
+    get treeTiers(): TreeTierGroup[] {
+      const ORDER: AgentTier[] = ['executive', 'coordinator', 'engineer', 'reviewer'];
+      const byTier: Partial<Record<AgentTier, AgentTreeNode[]>> = {};
       for (const node of this.agentTreeNodes) {
-        const t = node.tier || 'unknown';
+        const t = (node.tier ?? 'unknown') as AgentTier;
         if (!byTier[t]) byTier[t] = [];
-        byTier[t].push(node);
+        byTier[t]!.push(node);
       }
-      const LABELS = {
+      const LABELS: Record<AgentTier, string> = {
         executive:   'Executive',
         coordinator: 'Coordinators',
         engineer:    'Engineers',
@@ -169,28 +271,30 @@ export function buildPage() {
         unknown:     'Agents',
       };
       return ORDER
-        .filter(t => byTier[t]?.length > 0)
-        .map(t => ({ tier: t, label: LABELS[t] ?? t, nodes: byTier[t] }));
+        .filter((t) => (byTier[t]?.length ?? 0) > 0)
+        .map((t) => ({ tier: t, label: LABELS[t], nodes: byTier[t]! }));
     },
 
-    get treeHasNodes() {
+    get treeHasNodes(): boolean {
       return this.agentTreeNodes.length > 0;
     },
 
-    // ── repo (set by inline script in template) ──────────────────────────
-    get repo() { return window._buildRepo ?? ''; },
+    // repo is injected by an inline <script> in the template.
+    get repo(): string {
+      return window._buildRepo ?? '';
+    },
 
     // ── lifecycle ────────────────────────────────────────────────────────
 
-    init() {
-      // Start the initiative-level tree poll immediately so the hierarchy panel
-      // is populated even before the user selects an issue.
+    init(): void {
       if (window._buildInitiative && window._buildRepoName) {
-        this._startTreePoll(`/ship/${encodeURIComponent(window._buildRepoName)}/${encodeURIComponent(window._buildInitiative)}/tree`);
+        this._startTreePoll(
+          `/ship/${encodeURIComponent(window._buildRepoName)}/${encodeURIComponent(window._buildInitiative)}/tree`,
+        );
       }
     },
 
-    onInspect(issue) {
+    onInspect(issue: ActiveIssue): void {
       if (this.activeIssue?.number === issue.number) return;
       this._closeStream();
       this.activeIssue = issue;
@@ -202,7 +306,7 @@ export function buildPage() {
       }
     },
 
-    clearInspect() {
+    clearInspect(): void {
       this._closeStream();
       this._stopTreePoll();
       this.activeIssue = null;
@@ -210,15 +314,16 @@ export function buildPage() {
       this.thoughts = [];
       this.chatMessage = '';
       this.chatError = null;
-      // Revert to initiative-level tree when deselecting an issue.
       if (window._buildInitiative && window._buildRepoName) {
-        this._startTreePoll(`/ship/${encodeURIComponent(window._buildRepoName)}/${encodeURIComponent(window._buildInitiative)}/tree`);
+        this._startTreePoll(
+          `/ship/${encodeURIComponent(window._buildRepoName)}/${encodeURIComponent(window._buildInitiative)}/tree`,
+        );
       }
     },
 
     // ── chat with agent ──────────────────────────────────────────────────
 
-    async sendMessage() {
+    async sendMessage(): Promise<void> {
       const content = this.chatMessage.trim();
       if (!content || !this.activeIssue?.run) return;
       const runId = this.activeIssue.run.id;
@@ -231,13 +336,13 @@ export function buildPage() {
           body: JSON.stringify({ content }),
         });
         if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
+          const data = (await res.json().catch(() => ({}))) as ApiErrorBody;
           this.chatError = data.detail ?? `Error ${res.status}`;
         } else {
           this.chatMessage = '';
         }
       } catch (err) {
-        this.chatError = `Network error: ${err.message}`;
+        this.chatError = `Network error: ${(err as Error).message}`;
       } finally {
         this.chatSending = false;
       }
@@ -245,15 +350,12 @@ export function buildPage() {
 
     // ── stop / restart agent ─────────────────────────────────────────────
 
-    async stopAgent() {
+    async stopAgent(): Promise<void> {
       if (!this.activeIssue?.run) return;
       const runId = this.activeIssue.run.id;
       this.agentStopping = true;
       try {
-        await fetch(`/api/runs/${encodeURIComponent(runId)}/stop`, {
-          method: 'POST',
-        });
-        // The 10 s board poll will refresh the card state automatically.
+        await fetch(`/api/runs/${encodeURIComponent(runId)}/stop`, { method: 'POST' });
         this._closeStream();
       } catch {
         // Non-fatal — board will sync on next poll.
@@ -262,27 +364,30 @@ export function buildPage() {
       }
     },
 
-    _openStream(runId) {
+    _openStream(runId: string): void {
       this._closeStream();
       const src = new EventSource(`/ship/runs/${encodeURIComponent(runId)}/stream`);
       this._evtSource = src;
       this.streamOpen = true;
 
-      src.onmessage = (e) => {
-        let msg;
-        try { msg = JSON.parse(e.data); } catch { return; }
+      src.onmessage = (e: MessageEvent<string>) => {
+        let msg: SseMessage;
+        try {
+          msg = JSON.parse(e.data) as SseMessage;
+        } catch {
+          return;
+        }
 
         if (msg.t === 'ping') return;
 
         if (msg.t === 'event') {
           this.events.push({ ...msg, id: Date.now() + Math.random() });
         } else if (msg.t === 'thought') {
-          // Accumulate into last entry if same role and rapid succession
           const last = this.thoughts[this.thoughts.length - 1];
           if (last && last.role === msg.role) {
-            last.content += '\n' + msg.content;
+            last.content += '\n' + (msg.content ?? '');
           } else {
-            this.thoughts.push(msg);
+            this.thoughts.push({ role: msg.role ?? '', content: msg.content ?? '' });
           }
           this._scrollCot();
         }
@@ -293,7 +398,7 @@ export function buildPage() {
       };
     },
 
-    _closeStream() {
+    _closeStream(): void {
       if (this._evtSource) {
         this._evtSource.close();
         this._evtSource = null;
@@ -301,50 +406,41 @@ export function buildPage() {
       this.streamOpen = false;
     },
 
-    _scrollCot() {
-      this.$nextTick(() => {
-        const el = this.$refs.cotScroll;
+    _scrollCot(): void {
+      // Alpine magic — typed via interface augmentation below.
+      (this as unknown as AlpineMagics).$nextTick(() => {
+        const el = (this as unknown as AlpineMagics).$refs.cotScroll;
         if (el) el.scrollTop = el.scrollHeight;
       });
     },
 
     // ── agent hierarchy tree ─────────────────────────────────────────────
 
-    /**
-     * Start polling *url* every 5 s to refresh the agent tree.
-     * Cancels any existing poll first.
-     * @param {string} url
-     */
-    _startTreePoll(url) {
+    _startTreePoll(url: string): void {
       this._stopTreePoll();
-      // Fetch immediately, then repeat.
-      this._fetchTree(url);
-      this._treeTimer = setInterval(() => this._fetchTree(url), 5000);
+      void this._fetchTree(url);
+      this._treeTimer = setInterval(() => { void this._fetchTree(url); }, 5000);
     },
 
-    _stopTreePoll() {
+    _stopTreePoll(): void {
       if (this._treeTimer !== null) {
         clearInterval(this._treeTimer);
         this._treeTimer = null;
       }
     },
 
-    async _fetchTree(url) {
+    async _fetchTree(url: string): Promise<void> {
       try {
         const res = await fetch(url);
         if (!res.ok) {
-          // Server error — clear to empty rather than showing stale data.
           this.agentTreeNodes = [];
           this.agentTreeBatchId = null;
           return;
         }
-        const data = await res.json();
-        // batch_id === null means no active agents for this initiative right now.
-        // Clear the panel explicitly so stale nodes from a previous run are removed.
+        const data = (await res.json()) as TreeResponse;
         this.agentTreeNodes = data.nodes ?? [];
         this.agentTreeBatchId = data.batch_id ?? null;
       } catch {
-        // Network failure — clear to empty; will retry on next interval.
         this.agentTreeNodes = [];
         this.agentTreeBatchId = null;
       }
@@ -352,7 +448,7 @@ export function buildPage() {
 
     // ── label-dispatch (launch) modal ────────────────────────────────────
 
-    openLabelDispatch(detail) {
+    openLabelDispatch(detail: OpenLabelDispatchDetail): void {
       this.labelDispatchLabel = detail.label ?? '';
       this.agentType = 'coordinator';
       this.coordinatorType = 'cto';
@@ -371,8 +467,7 @@ export function buildPage() {
       this.dispatcherCopied = false;
       this.cancellingDispatch = false;
       this.labelDispatchOpen = true;
-      // Pre-load context, then smart-default: 1 open ticket → leaf + pre-select it
-      this._loadLabelContext().then(() => {
+      void this._loadLabelContext().then(() => {
         if (this.scopeIssues.length === 1) {
           this.agentType = 'leaf';
           this.selectedIssueNumber = this.scopeIssues[0].number;
@@ -380,72 +475,77 @@ export function buildPage() {
       });
     },
 
-    closeLabelDispatch() {
+    closeLabelDispatch(): void {
       this.labelDispatchOpen = false;
     },
 
-    async cancelPendingDispatch() {
+    async cancelPendingDispatch(): Promise<void> {
       const runId = this.labelDispatchResult?.run_id;
       if (!runId) return;
       this.cancellingDispatch = true;
       try {
-        const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST' });
+        const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/cancel`, {
+          method: 'POST',
+        });
         if (res.ok || res.status === 204) {
           this.labelDispatchSuccess = false;
           this.labelDispatchResult = null;
           this.labelDispatchOpen = false;
         } else {
-          const data = await res.json().catch(() => ({}));
+          const data = (await res.json().catch(() => ({}))) as ApiErrorBody;
           this.labelDispatchError = data.detail ?? `Cancel failed (${res.status})`;
           this.labelDispatchSuccess = false;
         }
       } catch (err) {
-        this.labelDispatchError = `Network error: ${err.message}`;
+        this.labelDispatchError = `Network error: ${(err as Error).message}`;
         this.labelDispatchSuccess = false;
       } finally {
         this.cancellingDispatch = false;
       }
     },
 
-    async _loadLabelContext() {
+    async _loadLabelContext(): Promise<void> {
       if (this.labelContextLoaded || this.labelContextLoading) return;
       this.labelContextLoading = true;
       try {
-        const url = `/api/dispatch/context?label=${encodeURIComponent(this.labelDispatchLabel)}&repo=${encodeURIComponent(this.repo)}`;
+        const url =
+          `/api/dispatch/context` +
+          `?label=${encodeURIComponent(this.labelDispatchLabel)}` +
+          `&repo=${encodeURIComponent(this.repo)}`;
         const res = await fetch(url);
         if (res.ok) {
-          const data = await res.json();
+          const data = (await res.json()) as ContextResponse;
           this.scopePhases = data.phases ?? [];
           this.scopeIssues = data.issues ?? [];
           this.labelContextLoaded = true;
         }
       } catch {
-        // Non-fatal — pickers will be empty; coordinator path still works
+        // Non-fatal — pickers will be empty; coordinator path still works.
       } finally {
         this.labelContextLoading = false;
       }
     },
 
-    async copyDispatcherPrompt() {
+    async copyDispatcherPrompt(): Promise<void> {
       try {
         const res = await fetch('/api/dispatch/prompt');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+        const data = (await res.json()) as { content: string };
         await navigator.clipboard.writeText(data.content);
         this.dispatcherCopied = true;
         setTimeout(() => { this.dispatcherCopied = false; }, 3000);
       } catch (err) {
-        alert(`Could not copy prompt: ${err.message}`);
+        alert(`Could not copy prompt: ${(err as Error).message}`);
       }
     },
 
-    async submitLabelDispatch() {
+    async submitLabelDispatch(): Promise<void> {
       if (!this.launchReady) return;
       this.labelDispatching = true;
       this.labelDispatchError = null;
 
       const scope = this._derivedScope;
-      const body = {
+      const body: DispatchBody = {
         label: this.labelDispatchLabel,
         scope,
         repo: this.repo,
@@ -453,7 +553,7 @@ export function buildPage() {
       if (scope === 'phase' && this.selectedPhase) {
         body.scope_label = this.selectedPhase;
       }
-      if (scope === 'issue' && this.selectedIssueNumber) {
+      if (scope === 'issue' && this.selectedIssueNumber !== null) {
         body.scope_issue_number = this.selectedIssueNumber;
       }
       const role = this._derivedRole;
@@ -467,17 +567,15 @@ export function buildPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-
-        const data = await res.json();
-
+        const data = (await res.json()) as DispatchResult | ApiErrorBody;
         if (!res.ok) {
-          this.labelDispatchError = data.detail ?? `Error ${res.status}`;
+          this.labelDispatchError = (data as ApiErrorBody).detail ?? `Error ${res.status}`;
         } else {
-          this.labelDispatchResult = data;
+          this.labelDispatchResult = data as DispatchResult;
           this.labelDispatchSuccess = true;
         }
       } catch (err) {
-        this.labelDispatchError = `Network error: ${err.message}`;
+        this.labelDispatchError = `Network error: ${(err as Error).message}`;
       } finally {
         this.labelDispatching = false;
       }
@@ -485,17 +583,20 @@ export function buildPage() {
 
     // ── helpers ──────────────────────────────────────────────────────────
 
-    fmtTime(iso) {
+    fmtTime(iso: string | null): string {
       if (!iso) return '';
       try {
-        return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return new Date(iso).toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        });
       } catch {
         return iso;
       }
     },
 
-    eventIcon(eventType) {
-      const icons = {
+    eventIcon(eventType: string): string {
+      const icons: Record<string, string> = {
         step_start: '▶',
         blocker:    '🚧',
         decision:   '💡',
@@ -504,17 +605,26 @@ export function buildPage() {
       return icons[eventType] ?? '•';
     },
 
-    eventDetail(ev) {
+    eventDetail(ev: SseEvent): string {
       const p = ev.payload ?? {};
       switch (ev.event_type) {
-        case 'step_start': return p.step ?? '';
-        case 'blocker':    return p.description ?? '';
-        case 'decision':   return `${p.decision ?? ''} — ${p.rationale ?? ''}`;
-        case 'done':       return p.summary || p.pr_url || '';
+        case 'step_start': return p['step'] ?? '';
+        case 'blocker':    return p['description'] ?? '';
+        case 'decision':   return `${p['decision'] ?? ''} — ${p['rationale'] ?? ''}`;
+        case 'done':       return p['summary'] ?? p['pr_url'] ?? '';
         default:           return JSON.stringify(p);
       }
     },
 
     renderMd,
   };
+}
+
+// ── Alpine.js magic properties ───────────────────────────────────────────────
+// Alpine injects $nextTick and $refs at runtime; we declare them locally so
+// the _scrollCot cast compiles cleanly without a global Alpine type package.
+
+interface AlpineMagics {
+  $nextTick(callback?: () => void): Promise<void>;
+  $refs: Record<string, HTMLElement | null>;
 }

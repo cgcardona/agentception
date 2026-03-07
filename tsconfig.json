@@ -6,7 +6,13 @@
     "moduleResolution": "bundler",
     "strict": true,
     "noEmit": true,
-    "skipLibCheck": false
+    "skipLibCheck": false,
+    "allowJs": true,
+    "checkJs": false,
+    "allowImportingTsExtensions": true
   },
-  "include": ["agentception/static/js/**/*.ts"]
+  "include": [
+    "agentception/static/js/**/*.ts",
+    "agentception/static/js/**/*.js"
+  ]
 }
