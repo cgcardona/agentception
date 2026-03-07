@@ -27,8 +27,12 @@ import logging
 
 from agentception.db.persist import (
     acknowledge_agent_run,
+    block_agent_run,
+    cancel_agent_run,
     complete_agent_run,
     persist_agent_event,
+    resume_agent_run,
+    stop_agent_run,
 )
 from agentception.db.queries import get_pending_launches
 from agentception.services.spawn_child import ScopeType, SpawnChildError, Tier, spawn_child
@@ -258,3 +262,117 @@ async def build_teardown_worktree(agent_run_id: str) -> dict[str, object]:
     )
     logger.info("🧹 build_teardown_worktree: teardown queued for run_id=%r", agent_run_id)
     return {"ok": True, "run_id": agent_run_id, "teardown": "queued"}
+
+
+async def build_block_run(run_id: str) -> dict[str, object]:
+    """Transition an ``implementing`` run to ``blocked``.
+
+    Call when the agent cannot proceed without external input (a human decision,
+    a dependency resolving, or a required resource becoming available).  The run
+    stays in ``blocked`` until ``build_resume_run`` is called.
+
+    Only valid from ``implementing`` state.
+
+    Args:
+        run_id: The run ID to block.
+
+    Returns:
+        ``{"ok": True, "run_id": run_id, "status": "blocked"}`` on success,
+        ``{"ok": False, "reason": "..."}`` if not in implementing state.
+    """
+    ok = await block_agent_run(run_id)
+    if not ok:
+        logger.warning("⚠️ build_block_run: %r not in implementing state", run_id)
+        return {
+            "ok": False,
+            "reason": f"Run {run_id!r} not found or not in implementing state",
+        }
+    logger.info("✅ build_block_run: %r → blocked", run_id)
+    return {"ok": True, "run_id": run_id, "status": "blocked"}
+
+
+async def build_resume_run(run_id: str, agent_run_id: str) -> dict[str, object]:
+    """Transition a ``blocked`` or ``stopped`` run back to ``implementing``.
+
+    Idempotent: if the run is already ``implementing`` and ``agent_run_id``
+    matches the run id, the call succeeds without a state change (restart-safe
+    — an agent can call this on startup without worrying about duplicate workers).
+
+    Valid from ``blocked`` or ``stopped`` states only.
+
+    Args:
+        run_id: The run ID to resume.
+        agent_run_id: The caller's own run ID (used for idempotency check).
+
+    Returns:
+        ``{"ok": True, "run_id": run_id, "status": "implementing"}`` on success,
+        ``{"ok": False, "reason": "..."}`` if not in a resumable state.
+    """
+    ok = await resume_agent_run(run_id, agent_run_id)
+    if not ok:
+        logger.warning(
+            "⚠️ build_resume_run: %r not in resumable state (or agent_run_id mismatch)", run_id
+        )
+        return {
+            "ok": False,
+            "reason": (
+                f"Run {run_id!r} not found, not in a resumable state (blocked/stopped), "
+                "or agent_run_id does not match"
+            ),
+        }
+    logger.info("✅ build_resume_run: %r → implementing", run_id)
+    return {"ok": True, "run_id": run_id, "status": "implementing"}
+
+
+async def build_cancel_run(run_id: str) -> dict[str, object]:
+    """Transition any active run to ``cancelled``.
+
+    ``cancelled`` is a terminal state — the run cannot be resumed.  Use
+    ``build_stop_run`` if you want to pause and later resume.
+
+    Valid from any non-terminal state (pending_launch, implementing, blocked,
+    reviewing).
+
+    Args:
+        run_id: The run ID to cancel.
+
+    Returns:
+        ``{"ok": True, "run_id": run_id, "status": "cancelled"}`` on success,
+        ``{"ok": False, "reason": "..."}`` if already terminal.
+    """
+    ok = await cancel_agent_run(run_id)
+    if not ok:
+        logger.warning("⚠️ build_cancel_run: %r not found or already terminal", run_id)
+        return {
+            "ok": False,
+            "reason": f"Run {run_id!r} not found or already in a terminal state",
+        }
+    logger.info("✅ build_cancel_run: %r → cancelled", run_id)
+    return {"ok": True, "run_id": run_id, "status": "cancelled"}
+
+
+async def build_stop_run(run_id: str) -> dict[str, object]:
+    """Transition any active run to ``stopped``.
+
+    Unlike ``build_cancel_run``, a stopped run can be resumed via
+    ``build_resume_run``.  Use this when you want to pause a run for inspection
+    without permanently closing it.
+
+    Valid from any non-terminal state.
+
+    Args:
+        run_id: The run ID to stop.
+
+    Returns:
+        ``{"ok": True, "run_id": run_id, "status": "stopped"}`` on success,
+        ``{"ok": False, "reason": "..."}`` if already terminal.
+    """
+    ok = await stop_agent_run(run_id)
+    if not ok:
+        logger.warning("⚠️ build_stop_run: %r not found or already terminal", run_id)
+        return {
+            "ok": False,
+            "reason": f"Run {run_id!r} not found or already in a terminal state",
+        }
+    logger.info("✅ build_stop_run: %r → stopped", run_id)
+    return {"ok": True, "run_id": run_id, "status": "stopped"}
