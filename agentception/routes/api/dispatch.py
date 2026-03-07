@@ -207,7 +207,6 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
 
     logger.info("✅ dispatch: worktree created at %s", worktree_path)
 
-    ac_url = settings.ac_url
     role_file = str(Path(settings.repo_dir) / ".agentception" / "roles" / f"{req.role}.md")
     cognitive_arch = _resolve_cognitive_arch(req.issue_body, req.role)
     agent_task = _build_agent_task(
@@ -223,7 +222,7 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
         "meta": {
             "run_id": run_id,
             "role_file": role_file,
-            "ac_url": ac_url,
+            "mcp_server": "user-agentception",
             "spawn_mode": "dispatcher",
         },
     })
@@ -493,7 +492,6 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
 
     logger.info("✅ dispatch-label: worktree %s for label %r tier=%s", worktree_path, req.label, tier)
 
-    ac_url = settings.ac_url
     role_file = str(Path(settings.repo_dir) / ".agentception" / "roles" / f"{role}.md")
     host_role_file = str(Path(settings.host_repo_dir) / ".agentception" / "roles" / f"{role}.md")
     label_cognitive_arch = _resolve_cognitive_arch("", role)
@@ -531,7 +529,7 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
         },
         "meta": {
             "run_id": run_id,
-            "ac_url": ac_url,
+            "mcp_server": "user-agentception",
         },
     }
     if org_domain:

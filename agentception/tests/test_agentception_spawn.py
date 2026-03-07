@@ -715,7 +715,6 @@ def test_build_child_task_issue_scope_emits_valid_toml(tmp_path: Path) -> None:
         batch_id="issue-48-20260306T120000Z-1234",
         parent_run_id="coord-xyz",
         cognitive_arch="von_neumann:python",
-        ac_url="http://localhost:10003",
         coord_fingerprint="Engineering Coordinator · batch-001",
         issue_title="Migrate parse_agent_task()",
         issue_number=48,
@@ -752,7 +751,6 @@ def test_build_child_task_pr_scope_emits_valid_toml() -> None:
         batch_id="pr-142-20260306T120000Z-5678",
         parent_run_id="coord-abc",
         cognitive_arch="hopper:python",
-        ac_url="http://localhost:10003",
         pr_number=142,
     )
     parsed = tomllib.loads(output)
@@ -778,7 +776,6 @@ def test_build_child_task_label_scope_emits_valid_toml() -> None:
         batch_id="label-ac-workflow-20260306T120000Z-9abc",
         parent_run_id="",
         cognitive_arch="von_neumann:python",
-        ac_url="http://localhost:10003",
     )
     parsed = tomllib.loads(output)
     assert parsed["task"]["workflow"] == "coordinator"

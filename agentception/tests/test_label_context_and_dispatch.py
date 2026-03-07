@@ -175,8 +175,7 @@ def test_dispatch_label_full_initiative_creates_coordinator(
         mock_settings.worktrees_dir = str(tmp_path / "worktrees")
         mock_settings.host_worktrees_dir = "/host/worktrees"
         mock_settings.repo_dir = str(tmp_path)
-        mock_settings.ac_url = "http://localhost:10003"
-
+    
         res = client.post(
             "/api/dispatch/label",
             json=_dispatch_label_body(scope="full_initiative"),
@@ -201,8 +200,7 @@ def test_dispatch_label_full_initiative_role_override(
         mock_settings.worktrees_dir = str(tmp_path / "worktrees2")
         mock_settings.host_worktrees_dir = "/host/worktrees"
         mock_settings.repo_dir = str(tmp_path)
-        mock_settings.ac_url = "http://localhost:10003"
-
+    
         res = client.post(
             "/api/dispatch/label",
             json=_dispatch_label_body(scope="full_initiative", role="engineering-coordinator"),
@@ -231,8 +229,7 @@ def test_dispatch_label_phase_scope_is_coordinator(
         mock_settings.worktrees_dir = str(tmp_path / "worktrees3")
         mock_settings.host_worktrees_dir = "/host/worktrees"
         mock_settings.repo_dir = str(tmp_path)
-        mock_settings.ac_url = "http://localhost:10003"
-
+    
         res = client.post(
             "/api/dispatch/label",
             json=_dispatch_label_body(
@@ -279,7 +276,6 @@ def test_dispatch_label_phase_scope_agent_task_scope_value(
         mock_settings.worktrees_dir = str(wt_dir)
         mock_settings.host_worktrees_dir = "/host/worktrees"
         mock_settings.repo_dir = str(tmp_path)
-        mock_settings.ac_url = "http://localhost:10003"
         mock_exec.return_value = _make_fake_proc()
 
         client.post(
@@ -315,8 +311,7 @@ def test_dispatch_label_issue_scope_is_leaf(
         mock_settings.worktrees_dir = str(tmp_path / "worktrees5")
         mock_settings.host_worktrees_dir = "/host/worktrees"
         mock_settings.repo_dir = str(tmp_path)
-        mock_settings.ac_url = "http://localhost:10003"
-
+    
         res = client.post(
             "/api/dispatch/label",
             json=_dispatch_label_body(
@@ -361,7 +356,6 @@ def test_dispatch_label_issue_scope_agent_task_fields(
         mock_settings.worktrees_dir = str(wt_dir)
         mock_settings.host_worktrees_dir = "/host/worktrees"
         mock_settings.repo_dir = str(tmp_path)
-        mock_settings.ac_url = "http://localhost:10003"
         mock_exec.return_value = _make_fake_proc()
 
         client.post(
