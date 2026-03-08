@@ -18,15 +18,11 @@ Runtime configuration directory for the AgentCeption orchestration system.
 │                                     justifications.
 ├── cognitive-arch-enrichment-spec.md — Spec for enriching issue bodies with cognitive-arch tags.
 ├── conflict-rules.md               — Rules for detecting and resolving agent-task conflicts.
-├── multi-tier-agent-architecture.md — Full spec for the multi-tier agent tree (tiers, scopes,
-│                                     GitHub query strategy).
 ├── pipeline-config.json            — Active project configuration (gh_repo, repo_dir,
 │                                     worktrees_dir, active_project). Read at startup by
 │                                     agentception/config.py to apply project-specific path
 │                                     overrides.
 ├── pipeline-howto.md               — Operator guide: how to configure and operate the pipeline.
-├── stress-test-agent-kickoff.md    — Kickoff prompt template for stress-test agents.
-├── stress-test-parallelism.md      — Protocol for parallel stress-test runs.
 └── README.md                       — This file.
 ```
 
