@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """HTTP Streamable MCP endpoint.
 
 Exposes the AgentCeption MCP server over HTTP in addition to the stdio transport,
@@ -38,6 +36,9 @@ Notes
 - No authentication: the endpoint is protected only by network access controls.
   Add API-key middleware when exposing outside a trusted network.
 """
+
+from __future__ import annotations
+
 
 import logging
 

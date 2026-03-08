@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Tests for the MCP log-tools layer.
 
 Covers all five log tools (log_run_step, log_run_blocker, log_run_decision,
@@ -13,6 +11,9 @@ Test categories:
   - Argument validation errors
   - Async tool guard: log tools are async-only and return an error from call_tool
 """
+
+from __future__ import annotations
+
 
 import json
 from unittest.mock import AsyncMock, patch

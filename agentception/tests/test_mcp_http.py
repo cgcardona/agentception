@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Tests for the HTTP Streamable MCP endpoint.
 
 Covers POST /api/mcp via httpx.AsyncClient against the FastAPI test app.
@@ -11,6 +9,9 @@ Test categories:
   - Error cases: malformed JSON, missing fields, invalid method
   - New tools accessible via HTTP (log_run_error, github_add_comment)
 """
+
+from __future__ import annotations
+
 
 import json
 from unittest.mock import AsyncMock, patch
