@@ -17,9 +17,51 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import logging.config
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+# Configure application-level logging before any module imports so that
+# every `logging.getLogger(__name__)` in agentception.* emits at INFO+.
+# Uvicorn's --log-level flag only controls uvicorn's own access log, not
+# the Python root logger, so we set it here explicitly.
+logging.config.dictConfig(
+    {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "default": {
+                "format": "%(levelname)s  %(name)s  %(message)s",
+            },
+        },
+        "handlers": {
+            "console": {
+                "class": "logging.StreamHandler",
+                "formatter": "default",
+                "stream": "ext://sys.stdout",
+            },
+        },
+        "loggers": {
+            # AgentCeption application code — INFO so agent loop steps are visible.
+            "agentception": {
+                "handlers": ["console"],
+                "level": "INFO",
+                "propagate": False,
+            },
+            # Uvicorn and third-party noise stays at WARNING to keep output readable.
+            "uvicorn": {"level": "WARNING"},
+            "uvicorn.error": {"level": "WARNING"},
+            "uvicorn.access": {"level": "WARNING"},
+            "httpx": {"level": "WARNING"},
+            "openai": {"level": "WARNING"},
+        },
+        "root": {
+            "handlers": ["console"],
+            "level": "WARNING",
+        },
+    }
+)
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
