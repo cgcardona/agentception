@@ -301,33 +301,33 @@ def test_dispatch_label_agent_task_contains_org_domain() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Engineering-coordinator role — reviewer heredoc sets TIER=reviewer ORG_DOMAIN=qa
+# Engineering-coordinator role — MCP-native dispatch shape
 # ---------------------------------------------------------------------------
 
 
-def test_engineering_coordinator_reviewer_task_has_tier_reviewer() -> None:
-    """The engineering-coordinator role file references pr-reviewer for review dispatch."""
+def test_engineering_coordinator_uses_build_spawn_adhoc_child() -> None:
+    """The engineering-coordinator role uses the MCP-native spawn tool, not hardcoded roles."""
     role_path = (
         Path(__file__).parent.parent.parent
         / ".agentception" / "roles" / "engineering-coordinator.md"
     )
     assert role_path.exists(), f"Role file missing: {role_path}"
     content = role_path.read_text()
-    assert re.search(r"pr-reviewer", content), (
-        "engineering-coordinator must reference pr-reviewer role for review dispatch"
+    assert re.search(r"build_spawn_adhoc_child", content), (
+        "engineering-coordinator must use build_spawn_adhoc_child for dynamic role dispatch"
     )
 
 
-def test_engineering_coordinator_reviewer_task_has_org_domain_qa() -> None:
-    """The engineering-coordinator role references QA domain for reviewer dispatch."""
+def test_engineering_coordinator_uses_query_run_status() -> None:
+    """The engineering-coordinator role uses query_run_status to poll child runs."""
     role_path = (
         Path(__file__).parent.parent.parent
         / ".agentception" / "roles" / "engineering-coordinator.md"
     )
     assert role_path.exists(), f"Role file missing: {role_path}"
     content = role_path.read_text()
-    assert re.search(r"[Qq][Aa].*review|review.*[Qq][Aa]", content), (
-        "engineering-coordinator must reference QA context for reviewer dispatch"
+    assert re.search(r"query_run_status", content), (
+        "engineering-coordinator must use query_run_status to poll child run completion"
     )
 
 
