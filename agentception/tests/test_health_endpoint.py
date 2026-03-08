@@ -1,16 +1,17 @@
-from __future__ import annotations
-
 """Tests for GET /api/health/detailed endpoint.
 
 Tests cover:
 - 200 status code returned.
 - Response body matches HealthSnapshot schema (all 4 fields present).
 - Each field is the correct type.
+- Sentinel value -1.0 for github_api_latency_ms is preserved verbatim.
+- Response contains no unexpected fields beyond the four declared ones.
 - health_collector.collect() is the sole delegate (no business logic in route).
 
 Run targeted:
     pytest agentception/tests/test_health_endpoint.py -v
 """
+from __future__ import annotations
 
 from collections.abc import Generator
 from unittest.mock import AsyncMock, patch
@@ -109,3 +110,38 @@ def test_health_detailed_returns_collect_values(client: TestClient) -> None:
     assert body["memory_rss_mb"] == _MOCK_SNAPSHOT.memory_rss_mb
     assert body["active_worktree_count"] == _MOCK_SNAPSHOT.active_worktree_count
     assert body["github_api_latency_ms"] == _MOCK_SNAPSHOT.github_api_latency_ms
+
+
+# ── Sentinel value ─────────────────────────────────────────────────────────────
+
+
+def test_health_detailed_sentinel_value_minus_one_preserved(client: TestClient) -> None:
+    """github_api_latency_ms == -1.0 (failed probe) must be preserved through serialisation.
+
+    The endpoint contract promises -1.0 as the sentinel for a failed GitHub
+    probe.  This verifies the value survives the Pydantic → JSON round-trip
+    without being coerced, rounded, or dropped.
+    """
+    sentinel_snapshot = HealthSnapshot(
+        uptime_seconds=10.0,
+        memory_rss_mb=64.0,
+        active_worktree_count=0,
+        github_api_latency_ms=-1.0,
+    )
+    with patch(
+        "agentception.routes.api.health.health_collector.collect",
+        new_callable=AsyncMock,
+        return_value=sentinel_snapshot,
+    ):
+        body = client.get("/api/health/detailed").json()
+    assert body["github_api_latency_ms"] == -1.0
+
+
+# ── Schema exactness ───────────────────────────────────────────────────────────
+
+
+def test_health_detailed_response_has_no_extra_fields(client: TestClient) -> None:
+    """The response body must contain exactly the four HealthSnapshot fields — no more."""
+    body = client.get("/api/health/detailed").json()
+    expected_keys = {"uptime_seconds", "memory_rss_mb", "active_worktree_count", "github_api_latency_ms"}
+    assert set(body.keys()) == expected_keys
