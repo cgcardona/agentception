@@ -43,10 +43,8 @@ from agentception.config import settings
 logger = logging.getLogger(__name__)
 
 _ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
-# Anthropic model IDs — strip the "anthropic/" OpenRouter prefix and replace
-# the dot in the minor version with a hyphen to match Anthropic's ID format.
-_MODEL = "claude-sonnet-4-6-20260217"
-_OPUS_MODEL = "claude-opus-4-6-20260217"
+_MODEL = "claude-sonnet-4-6"
+_OPUS_MODEL = "claude-opus-4-6"
 _ANTHROPIC_VERSION = "2023-06-01"
 _DEFAULT_TIMEOUT = 120.0
 _MAX_RETRIES = 2
