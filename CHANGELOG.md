@@ -11,8 +11,6 @@ See [CONTRIBUTING](docs/guides/contributing.md) for commit conventions and PR gu
 
 ### Added
 
-- TOML v2 compliance audit: `docs/toml-v2-audit.md` documents 14 format violations (3 source writers, 3 template reader sections, 6 test fixtures/assertions, 1 doc) and 1 additional violation in a documentation file; zero findings is not the result. Fixes deferred to phase 1.
-
 - Plan done state: copyable `batch_id` pill and "Open in Build →" link. After a successful plan launch, the done state now displays a copyable `batch_id` pill and an anchor that navigates to `/build?initiative=<initiative_name>`. Both `ac_active_batch` and `ac_active_initiative` are written to `localStorage` so the persistent batch bar can pick them up automatically.
 - Frontend build toolchain: added `package.json` with esbuild and CodeMirror dependencies. Run `npm run build:js` to rebuild `agentception/static/app.js`, `npm run build:css` for the stylesheet, or `npm run build` for both.
 
