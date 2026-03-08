@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Shared helpers, constants, and the Jinja2 template singleton for all UI routes.
 
 This module is the single source of truth for:
@@ -8,9 +6,11 @@ This module is the single source of truth for:
 - ``_find_agent`` / ``_issue_is_claimed``: also re-exported from the package
   ``__init__`` so that api.py imports keep working without circular dependencies.
 """
+from __future__ import annotations
 
 import datetime
 import logging
+import os
 from pathlib import Path
 
 from fastapi.templating import Jinja2Templates
@@ -178,7 +178,6 @@ def _format_number(n: int) -> str:
 
 def _dirname(path: str) -> str:
     """Return the parent directory of a path string (equivalent to os.path.dirname)."""
-    import os
     return os.path.dirname(path)
 
 
