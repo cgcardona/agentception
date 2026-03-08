@@ -238,6 +238,23 @@ async def _get_task_briefing(arguments: dict[str, str]) -> ACPromptResult | None
     )
 
 
+def _parse_arch_components(cognitive_arch: str) -> tuple[list[str], list[str]]:
+    """Parse a ``cognitive_arch`` string into figure IDs and skill IDs.
+
+    Format: ``figure1[,figure2]:skill1:skill2:...``
+    Examples:
+        ``"guido_van_rossum:python"``         → (["guido_van_rossum"], ["python"])
+        ``"linus_torvalds"``                   → (["linus_torvalds"], [])
+        ``"lovelace,shannon:htmx:jinja2"``    → (["lovelace", "shannon"], ["htmx", "jinja2"])
+    """
+    if not cognitive_arch or cognitive_arch == "not set":
+        return [], []
+    tokens = cognitive_arch.strip().split(":")
+    figures = [f.strip() for f in tokens[0].split(",") if f.strip()]
+    skills = [s.strip() for s in tokens[1:] if s.strip()]
+    return figures, skills
+
+
 def _render_task_briefing(ctx: RunContextRow, role_content: str) -> str:
     """Compose the Markdown briefing from task context and role definition."""
     run_id: str = ctx["run_id"]
@@ -249,6 +266,9 @@ def _render_task_briefing(ctx: RunContextRow, role_content: str) -> str:
     task_description: str | None = ctx["task_description"]
     batch_id: str | None = ctx["batch_id"]
     parent_run_id: str | None = ctx["parent_run_id"]
+
+    # Parse cognitive architecture into components for direct MCP resource links.
+    figure_ids, skill_ids = _parse_arch_components(cognitive_arch)
 
     # Build the assignment section — differs between ad-hoc and issue runs.
     if task_description:
@@ -276,7 +296,7 @@ def _render_task_briefing(ctx: RunContextRow, role_content: str) -> str:
         f"## Task Briefing — run `{run_id}`",
         "",
         f"**Role:** {role}  ",
-        f"**Cognitive Architecture:** {cognitive_arch}  ",
+        f"**Cognitive Architecture:** `{cognitive_arch}`  ",
         f"**Worktree:** `{worktree_path}`  ",
         f"**Branch:** `{branch}`",
     ]
@@ -295,11 +315,42 @@ def _render_task_briefing(ctx: RunContextRow, role_content: str) -> str:
         "",
         "---",
         "",
-        "## Available MCP Resources",
+        "## Your Cognitive Identity (MCP Resources)",
+        "",
+        "Read these resources to fully internalize who you are before starting work.",
+        "Your reasoning style, heuristics, failure modes, and skill affinities all",
+        "live here — they are not summaries, they are the source of truth.",
+        "",
+    ]
+
+    # Figure resources — the human whose reasoning style shapes this agent.
+    if figure_ids:
+        for fig in figure_ids:
+            parts.append(f"- `ac://arch/figures/{fig}` — your cognitive figure: full profile, heuristics, failure modes")
+    else:
+        parts.append("- `ac://arch/figures` — browse all available cognitive figures")
+
+    # Skill domain resources — technical expertise areas.
+    if skill_ids:
+        for skill in skill_ids:
+            parts.append(f"- `ac://arch/skills/{skill}` — your skill domain: {skill}")
+    else:
+        parts.append("- `ac://arch/skills/<id>` — fetch any skill domain profile")
+
+    parts += [
+        "- `ac://arch/archetypes` — browse archetypes (your figure's `extends` field names one)",
+        "- `ac://arch/atoms/<atom_id>` — individual reasoning dimension definitions",
+        "  (e.g. `ac://arch/atoms/epistemic_style`, `ac://arch/atoms/quality_bar`)",
+        "",
+        "---",
+        "",
+        "## Available Run Resources",
         "",
         f"- `ac://runs/{run_id}/context` — your full task context from the DB",
         f"- `ac://runs/{run_id}/events` — prior activity log (resume after crash)",
         f"- `ac://runs/{run_id}/children` — child runs you have spawned",
+        "- `ac://roles/list` — all available role slugs",
+        f"- `ac://roles/{role}` — your role definition (also appended below)",
         "- `ac://system/config` — pipeline label names",
         "",
         "---",

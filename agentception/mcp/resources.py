@@ -38,6 +38,8 @@ import logging
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+import yaml
+
 from agentception.config import settings
 from agentception.mcp.plan_tools import (
     plan_get_cognitive_figures,
@@ -71,6 +73,15 @@ _MIME = "application/json"
 # (/app is the repo root) and during local development.
 _APP_ROOT = Path(__file__).parent.parent.parent
 _AGENTCEPTION_DIR = _APP_ROOT / ".agentception"
+
+# Cognitive architecture corpus root.
+_ARCH_ROOT = _APP_ROOT / "scripts" / "gen_prompts" / "cognitive_archetypes"
+_ARCH_SUBDIRS: dict[str, str] = {
+    "figures": "figures",
+    "archetypes": "archetypes",
+    "skills": "skill_domains",
+    "atoms": "atoms",
+}
 
 # ---------------------------------------------------------------------------
 # Static resource catalogue
@@ -151,8 +162,28 @@ RESOURCES: list[ACResourceDef] = [
         description=(
             "All role slugs defined in the team taxonomy. "
             "Returns {roles: [str, ...]} sorted alphabetically. "
-            "Use a slug from this list when calling build_spawn_child_run or "
+            "Use a slug from this list when calling build_spawn_adhoc_child or "
             "reading ac://roles/{slug}."
+        ),
+        mimeType=_MIME,
+    ),
+    ACResourceDef(
+        uri="ac://arch/figures",
+        name="Cognitive figure index",
+        description=(
+            "Index of all cognitive figures in the corpus. "
+            "Returns {figures: [{id, display_name, description}]} sorted by id. "
+            "Use an id to fetch the full profile at ac://arch/figures/{figure_id}."
+        ),
+        mimeType=_MIME,
+    ),
+    ACResourceDef(
+        uri="ac://arch/archetypes",
+        name="Cognitive archetype index",
+        description=(
+            "Index of all cognitive archetypes in the corpus. "
+            "Returns {archetypes: [{id, display_name, description}]}. "
+            "Use an id to fetch the full profile at ac://arch/archetypes/{archetype_id}."
         ),
         mimeType=_MIME,
     ),
@@ -249,11 +280,123 @@ RESOURCE_TEMPLATES: list[ACResourceTemplate] = [
         ),
         mimeType=_MIME,
     ),
+    ACResourceTemplate(
+        uriTemplate="ac://arch/figures/{figure_id}",
+        name="Cognitive figure profile",
+        description=(
+            "Full cognitive profile of a named figure — the human being whose "
+            "reasoning style, heuristics, failure modes, and skill affinities "
+            "shape this agent's identity. "
+            "Returns the parsed YAML as structured JSON: id, display_name, "
+            "description, overrides (atom values), skill_domains, heuristic, "
+            "failure_modes, and prompt_injection text. "
+            "Read this to internalize who you are before starting any task. "
+            "Your figure_id comes from the cognitive_arch field in your briefing "
+            "(the token before the first colon, e.g. 'guido_van_rossum' from "
+            "'guido_van_rossum:python')."
+        ),
+        mimeType=_MIME,
+    ),
+    ACResourceTemplate(
+        uriTemplate="ac://arch/archetypes/{archetype_id}",
+        name="Cognitive archetype profile",
+        description=(
+            "Full definition of a cognitive archetype — the behavioural template "
+            "that a figure extends (e.g. 'the_pragmatist', 'the_hacker'). "
+            "Returns id, display_name, description, default atom values, and "
+            "characteristic traits. "
+            "Your archetype is the 'extends' field in your figure profile."
+        ),
+        mimeType=_MIME,
+    ),
+    ACResourceTemplate(
+        uriTemplate="ac://arch/skills/{skill_id}",
+        name="Skill domain profile",
+        description=(
+            "Full definition of a skill domain — the technical expertise area "
+            "assigned to this agent (e.g. 'python', 'htmx', 'fastapi'). "
+            "Returns id, display_name, description, and characteristic patterns. "
+            "Your skill_ids come from the tokens after the first colon in your "
+            "cognitive_arch string (e.g. ['python', 'fastapi'] from "
+            "'guido_van_rossum:python:fastapi')."
+        ),
+        mimeType=_MIME,
+    ),
+    ACResourceTemplate(
+        uriTemplate="ac://arch/atoms/{atom_id}",
+        name="Cognitive atom profile",
+        description=(
+            "Full definition of a cognitive atom — a single dimension of reasoning "
+            "style such as 'epistemic_style', 'quality_bar', or 'error_posture'. "
+            "Returns id, display_name, description, and all possible values with "
+            "their meanings. "
+            "Atom values are overridden per-figure and visible in the figure profile."
+        ),
+        mimeType=_MIME,
+    ),
 ]
 
 # ---------------------------------------------------------------------------
 # URI dispatcher
 # ---------------------------------------------------------------------------
+
+
+def _arch_dir(category: str) -> Path:
+    """Resolve the filesystem directory for a given arch category key."""
+    subdir = _ARCH_SUBDIRS.get(category, category)
+    return _ARCH_ROOT / subdir
+
+
+def _read_arch_yaml(category: str, item_id: str) -> dict[str, object]:
+    """Read and parse a single cognitive architecture YAML file.
+
+    Args:
+        category: One of ``"figures"``, ``"archetypes"``, ``"skills"``, ``"atoms"``.
+        item_id:  Filename stem (e.g. ``"guido_van_rossum"``).
+
+    Returns:
+        Parsed YAML content as a dict, plus ``ok=True``.
+        ``{"ok": False, "error": str}`` when not found or unreadable.
+    """
+    path = _arch_dir(category) / f"{item_id}.yaml"
+    if not path.exists():
+        return {"ok": False, "error": f"Arch item '{category}/{item_id}' not found"}
+    try:
+        raw = path.read_text(encoding="utf-8")
+        parsed: dict[str, object] = yaml.safe_load(raw) or {}
+        parsed["ok"] = True
+        return parsed
+    except Exception as exc:  # noqa: BLE001
+        logger.error("❌ _read_arch_yaml %s/%s: %s", category, item_id, exc)
+        return {"ok": False, "error": str(exc)}
+
+
+def _list_arch_items(category: str) -> dict[str, object]:
+    """Return a compact index of all items in an arch category directory.
+
+    Each item includes ``id``, ``display_name``, and ``description`` (first line
+    only) so the agent can browse without fetching each individual resource.
+
+    Returns:
+        ``{"ok": True, category: [...], "count": N}``
+    """
+    d = _arch_dir(category)
+    if not d.is_dir():
+        return {"ok": False, "error": f"Arch directory '{category}' not found at {d}"}
+    items: list[dict[str, object]] = []
+    for path in sorted(d.glob("*.yaml")):
+        try:
+            data: dict[str, object] = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            desc_raw = data.get("description", "")
+            first_line = str(desc_raw).split("\n")[0].strip() if desc_raw else ""
+            items.append({
+                "id": path.stem,
+                "display_name": str(data.get("display_name", path.stem)),
+                "description": first_line,
+            })
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("⚠️ _list_arch_items: skipping %s — %s", path.name, exc)
+    return {"ok": True, category: items, "count": len(items)}
 
 
 def _get_system_config() -> dict[str, object]:
@@ -421,6 +564,34 @@ async def _dispatch(
             return _content(uri, _get_roles_list())
         if len(path_parts) == 1:
             return _content(uri, _get_role(uri, path_parts[0]))
+        return _not_found(uri)
+
+    # ── ac://arch/* ──────────────────────────────────────────────────────────
+    if domain == "arch":
+        # ac://arch/figures  (index — no trailing segment)
+        if path_parts == ["figures"]:
+            return _content(uri, _list_arch_items("figures"))
+
+        # ac://arch/archetypes  (index)
+        if path_parts == ["archetypes"]:
+            return _content(uri, _list_arch_items("archetypes"))
+
+        # ac://arch/figures/{figure_id}
+        if len(path_parts) == 2 and path_parts[0] == "figures":
+            return _content(uri, _read_arch_yaml("figures", path_parts[1]))
+
+        # ac://arch/archetypes/{archetype_id}
+        if len(path_parts) == 2 and path_parts[0] == "archetypes":
+            return _content(uri, _read_arch_yaml("archetypes", path_parts[1]))
+
+        # ac://arch/skills/{skill_id}
+        if len(path_parts) == 2 and path_parts[0] == "skills":
+            return _content(uri, _read_arch_yaml("skills", path_parts[1]))
+
+        # ac://arch/atoms/{atom_id}
+        if len(path_parts) == 2 and path_parts[0] == "atoms":
+            return _content(uri, _read_arch_yaml("atoms", path_parts[1]))
+
         return _not_found(uri)
 
     return _not_found(uri)
