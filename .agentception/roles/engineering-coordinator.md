@@ -284,7 +284,7 @@ Task(worktree="/path/to/issue-405", prompt=KICKOFF_PROMPT)
 sub-worktrees with sub-task files and launches leaf agents. This creates
 a tree of unlimited depth and width.
 
-See `parallel-bugs-to-issues.md` → "Agent Task File Reference" for the
+See `agent-triage.md` → "Agent Task File Reference" for the
 full field reference including nested orchestration patterns.
 
 ---
@@ -1255,7 +1255,7 @@ STEP 5 — PUSH & CREATE PR:
     echo "✅ LINKED_PR=$MY_PR_NUM written back to .agent-task"
     # ⚠️  Do NOT add agent:wip to the PR here. agent:wip on a PR means
     # "a reviewer is actively working on this." The reviewer claims it in STEP 3
-    # of parallel-pr-review.md after its idempotency gate passes. The idempotency
+    # of agent-reviewer.md after its idempotency gate passes. The idempotency
     # gate (reviewDecision = APPROVED check) already prevents double-reviews without
     # needing the label as a lock during the spawn window.
   fi
@@ -1609,7 +1609,7 @@ git -C "$REPO" status
 
 ### 5 — Hand off to PR review
 
-PRs from this batch are immediately available for the **parallel-pr-review.md** workflow. Run that now — issues only close automatically when PRs are **merged**, not just opened.
+PRs from this batch are immediately available for the **agent-reviewer.md** workflow. Run that now — issues only close automatically when PRs are **merged**, not just opened.
 
 ---
 
@@ -1949,7 +1949,7 @@ needs multiple independent reviewers (e.g. one for types, one for tests, one
 for docs). Each sub-reviewer writes its grade and findings into its own
 worktree; the sub-coordinator collects them and emits a composite grade.
 
-See `parallel-bugs-to-issues.md` → "Agent Task File Reference" for the
+See `agent-triage.md` → "Agent Task File Reference" for the
 full field reference.
 
 ---

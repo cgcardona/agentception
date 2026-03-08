@@ -40,7 +40,7 @@ AgentCeption Postgres instance.
 
 ## gen_prompts/generate.py
 
-Regenerates all `.agentception/roles/*.md` and `.agentception/parallel-*.md` files from
+Regenerates all `.agentception/roles/*.md` and `.agentception/agent-*.md` files from
 `config.yaml` and the Jinja2 templates in `scripts/gen_prompts/templates/`.
 
 ```bash

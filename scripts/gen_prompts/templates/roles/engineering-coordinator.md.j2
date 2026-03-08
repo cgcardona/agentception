@@ -215,7 +215,7 @@ When dispatching leaf agents via Task(), embed this as Part 2 of LEAF_PROMPT
 (see step 6 above). Do NOT tell the agent to read PARALLEL_ISSUE_TO_PR.md — pass
 this content directly.
 
-{% include 'parallel-issue-to-pr.md.j2' %}
+{% include 'agent-engineer.md.j2' %}
 
 ---
 
@@ -226,4 +226,4 @@ When dispatching leaf agents via Task(), embed this as the "## Pass-Along: Revie
 section (Part 3 of LEAF_PROMPT — see step 6 above). The leaf implementer will copy it
 verbatim into its chain-spawn Task prompt for the reviewer.
 
-{% include 'parallel-pr-review.md.j2' %}
+{% include 'agent-reviewer.md.j2' %}

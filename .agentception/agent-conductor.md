@@ -376,7 +376,7 @@ STEP 5 — DISPATCH COORDINATORS:
     echo ""
     echo "Dispatching ISSUE_TO_PR coordinator for ${#READY_ISSUES[@]} issues..."
     echo ""
-    echo "Read .agentception/parallel-issue-to-pr.md and follow the COORDINATOR ROLE exactly."
+    echo "Read .agentception/agent-engineer.md and follow the COORDINATOR ROLE exactly."
     echo "Target issues (pre-screened for file isolation within their phase):"
     for i in "${READY_ISSUES[@]}"; do echo "  #${i%%|*}: ${i##*|}"; done
     echo ""
@@ -395,7 +395,7 @@ STEP 5 — DISPATCH COORDINATORS:
     echo ""
     echo "Dispatching PR_REVIEW coordinator for ${#READY_PRS[@]} PRs..."
     echo ""
-    echo "Read .agentception/parallel-pr-review.md and follow the COORDINATOR ROLE exactly."
+    echo "Read .agentception/agent-reviewer.md and follow the COORDINATOR ROLE exactly."
     echo "Target PRs:"
     for i in "${READY_PRS[@]}"; do echo "  #${i%%|*}: ${i##*|}"; done
     echo ""
@@ -452,7 +452,7 @@ STEP 7 — REMINDER GATE:
 **Conductor run:** attempt $(( ATTEMPT_N + 1 ))
 
 ### What to do next
-Re-run the conductor by pasting the kickoff prompt from \`.agentception/parallel-conductor.md\`
+Re-run the conductor by pasting the kickoff prompt from \`.agentception/agent-conductor.md\`
 into a new Cursor composer window rooted in the conductor worktree.
 
 ### Open issues by phase

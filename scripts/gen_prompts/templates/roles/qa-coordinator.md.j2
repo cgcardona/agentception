@@ -148,7 +148,7 @@ When dispatching leaf reviewers via Task(), embed this as Part 2 of LEAF_PROMPT
 (see step 6 above). Do NOT tell the reviewer to read PARALLEL_PR_REVIEW.md — pass
 this content directly.
 
-{% include 'parallel-pr-review.md.j2' %}
+{% include 'agent-reviewer.md.j2' %}
 
 ---
 
@@ -159,4 +159,4 @@ When dispatching leaf reviewers via Task(), embed this as the "## Pass-Along: Im
 section (Part 3 of LEAF_PROMPT — see step 6 above). The leaf reviewer will copy it
 verbatim into its chain-spawn Task prompt for the next implementer.
 
-{% include 'parallel-issue-to-pr.md.j2' %}
+{% include 'agent-engineer.md.j2' %}

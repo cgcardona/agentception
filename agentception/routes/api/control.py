@@ -654,7 +654,7 @@ async def spawn_coordinator(body: SpawnCoordinatorRequest) -> SpawnCoordinatorRe
 
     Creates a git worktree and writes an ``.agent-task`` file that tells a
     Cursor background agent to run as coordinator using
-    ``parallel-bugs-to-issues.md``.  The agent will:
+    ``agent-triage.md``.  The agent will:
 
     1. Run the Phase Planner against the ``BRAIN_DUMP`` field.
     2. Create required GitHub labels (phase-N/*, status/*, priority/*).
