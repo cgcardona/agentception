@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Org preset catalog — static library of agent hierarchy templates.
 
 Served by ``agentception.routes.api.presets`` via:
@@ -14,6 +12,7 @@ must match the ``ROLE_GROUPS`` / ``CHILD_ROLE_RULES`` catalog in
 Groups (and their display order on the picker):
   engineering | data | executive | product | marketing | security | operations
 """
+from __future__ import annotations
 
 from typing import Literal
 

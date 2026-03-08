@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Org preset catalog API.
 
 Endpoints
@@ -10,9 +8,10 @@ GET /api/org-presets
 
 GET /api/org-presets/{preset_id}
     Return a single preset's full detail including the recursive
-    ``PresetNodeTemplate`` tree.  The frontend calls ``buildTree(template)``
+    ``PresetNodeTemplate`` tree.      The frontend calls ``buildTree(template)``
     to materialise live OrgNode objects with fresh IDs.
 """
+from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
