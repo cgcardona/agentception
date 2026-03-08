@@ -2,6 +2,17 @@
 
 AgentCeption exposes a best-in-class MCP (Model Context Protocol) server so Cursor, Claude, and any MCP-aware client can invoke tools, read resources, and fetch prompts directly.
 
+## The two interfaces — HTTP and MCP
+
+We believe every production AI application needs both:
+
+| Interface | Who uses it | How |
+|-----------|-------------|-----|
+| **HTTP REST** | Humans via browser, CI/CD scripts, integration tests | `GET`/`POST` to `/api/*` |
+| **MCP** | AI agents (Cursor, Claude, custom loops) | JSON-RPC 2.0 over stdio or HTTP |
+
+AgentCeption implements both. The HTTP REST API is the service backbone; the MCP server is the agent interface on top of it. The two are complementary — the same planning pipeline, issue graph, and agent dispatch are accessible through both surfaces.
+
 ## Transports
 
 Two transports are available — both speak the same JSON-RPC 2.0 protocol:
@@ -9,9 +20,37 @@ Two transports are available — both speak the same JSON-RPC 2.0 protocol:
 | Transport | Entry point | Best for |
 |-----------|-------------|----------|
 | **stdio** | `docker compose exec -T agentception python -m agentception.mcp.stdio_server` | Cursor IDE sessions |
-| **HTTP** | `POST http://localhost:10003/api/mcp` | Web agents, CI/CD, curl, external clients |
+| **HTTP** | `POST http://localhost:10003/api/mcp` | Web agents, CI/CD, curl, Anthropic remote MCP |
 
-The HTTP transport follows the MCP 2025-03-26 Streamable HTTP spec: single or batch JSON-RPC request bodies, JSON responses.  Notifications (requests without `id`) return `202 Accepted`.
+The HTTP transport follows the [MCP 2025-03-26 Streamable HTTP spec](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports/): single or batch JSON-RPC request bodies, JSON responses. Notifications (requests without `id`) return `202 Accepted`.
+
+## Security
+
+See the full [Security Guide](security.md) for threat model, TLS configuration, and Qdrant security.
+
+**Quick summary:**
+
+| Transport | Protection |
+|-----------|-----------|
+| stdio | No network socket; communicates over Docker exec pipe — safe by default |
+| HTTP (`/api/mcp`) | Protected by `ApiKeyMiddleware` when `AC_API_KEY` is set |
+
+When `AC_API_KEY` is configured, Cursor's HTTP MCP client must include the key:
+
+```json
+{
+  "mcpServers": {
+    "agentception": {
+      "url": "http://localhost:10003/api/mcp",
+      "headers": {
+        "Authorization": "Bearer your-generated-key-here"
+      }
+    }
+  }
+}
+```
+
+LLM calls from AgentCeption to OpenRouter/Anthropic always use HTTPS — there is no plaintext LLM traffic.
 
 ## stdio configuration (`~/.cursor/mcp.json`)
 
@@ -177,3 +216,8 @@ starting agents, advancing phase gates) always require an explicit human confirm
 | `agentception/mcp/prompts.py` | Prompt catalogue, `get_prompt()` dispatcher |
 
 Cursor's MCP panel enumerates all three automatically once the server entry is in `mcp.json`.
+
+## Related guides
+
+- [Cursor-Free Agent Loop](agent-loop.md) — run agents without Cursor, using the MCP HTTP transport as the tool execution bridge
+- [Security Guide](security.md) — API key auth, TLS, denylist, and threat model

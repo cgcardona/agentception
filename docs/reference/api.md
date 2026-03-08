@@ -2,6 +2,18 @@
 
 All endpoints are served by the AgentCeption container on port 10003. Every browser page and MCP tool call resolves to one of these routes.
 
+## Authentication
+
+When `AC_API_KEY` is set (via environment variable), every request to any path under `/api/` must include the key:
+
+```http
+Authorization: Bearer <key>
+# or
+X-API-Key: <key>
+```
+
+Paths outside `/api/` — the UI (`/`), `/health`, `/static/*`, `/events` — are always public. See the [Security Guide](../guides/security.md) for full details.
+
 ---
 
 ## URL Taxonomy
@@ -423,6 +435,80 @@ Advance the phase gate for an initiative. Checks that all issues in `from_phase`
 | `GET` | `/api/config` | Current runtime configuration |
 | `PUT` | `/api/config` | Update runtime configuration |
 | `POST` | `/api/config/switch-project` | Switch active codebase/project |
+
+---
+
+### Agent Execution — `/api/runs/{run_id}/execute`
+
+Cursor-free agent dispatch. Triggers the `agent_loop.py` pipeline for a run that already exists in the DB. See the [Cursor-Free Agent Loop guide](../guides/agent-loop.md) for full documentation.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/runs/{run_id}/execute` | Dispatch an agent run without Cursor |
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| `202` | Agent loop dispatched as a background task |
+| `404` | Run not found |
+| `409` | Run is not in a dispatchable state (`pending_launch` or `implementing`) |
+
+**Response (202):**
+```json
+{"ok": true, "message": "Agent loop dispatched for run {run_id}."}
+```
+
+---
+
+### System — `/api/system/*`
+
+Infrastructure operations: codebase indexing and semantic search. See the [Cursor-Free Agent Loop guide](../guides/agent-loop.md) for full documentation.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/system/index-codebase` | Index the codebase into Qdrant (background task, 202 Accepted) |
+| `GET` | `/api/system/search` | Semantic code search against the Qdrant index |
+
+#### `POST /api/system/index-codebase`
+
+Starts a background job that walks every source file in the configured repo root, chunks and embeds them with FastEmbed (`BAAI/bge-small-en-v1.5`), and upserts 384-dim vectors into Qdrant. Returns `202 Accepted` immediately.
+
+The first run downloads the FastEmbed model (~130 MB). Subsequent runs use the cached model and complete in seconds. Progress is visible in the container logs.
+
+**Response:**
+```json
+{"ok": true, "message": "Codebase indexing started in the background."}
+```
+
+#### `GET /api/system/search`
+
+Search the indexed codebase with a natural-language query.
+
+| Query param | Type | Required | Description |
+|-------------|------|----------|-------------|
+| `q` | `string` | yes | Natural-language search query |
+| `n` | `integer` | no | Number of results (1–20, default 5) |
+
+**Response:**
+```json
+{
+  "ok": true,
+  "query": "openrouter api key",
+  "n_results": 3,
+  "matches": [
+    {
+      "file": "agentception/config.py",
+      "score": 0.733,
+      "start_line": 101,
+      "end_line": 110,
+      "chunk": "    openrouter_api_key: str = \"\"\n    ..."
+    }
+  ]
+}
+```
+
+If the codebase has not been indexed yet, returns `{"ok": true, "n_results": 0, "matches": []}`.
 
 ---
 

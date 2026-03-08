@@ -10,8 +10,10 @@ Step-by-step instructions for humans.
 
 | Guide | Summary |
 |-------|---------|
-| [Setup](guides/setup.md) | First-run walkthrough — Docker, environment variables, database migrations |
-| [MCP Integration](guides/mcp.md) | Connect Cursor / Claude to AgentCeption via the MCP server |
+| [Setup](guides/setup.md) | First-run walkthrough — Docker, environment variables, database migrations, Qdrant indexing |
+| [MCP Integration](guides/mcp.md) | Connect Cursor / Claude to AgentCeption via the MCP server (stdio and HTTP transports) |
+| [Cursor-Free Agent Loop](guides/agent-loop.md) | Run agents without Cursor — OpenRouter → Anthropic, Qdrant semantic search, local tool execution |
+| [Security](guides/security.md) | API key auth, TLS configuration, shell denylist, secrets management, threat model |
 | [Developer Workflow](guides/developer-workflow.md) | Bind-mount loop, mypy → tests → docs verification order, JS/CSS build pipeline |
 | [Contributing](guides/contributing.md) | Branch naming, commit conventions, PR checklist, code review expectations |
 | [CI](guides/ci.md) | GitHub Actions pipeline — what runs, how to reproduce locally |
@@ -65,11 +67,14 @@ User input (brain dump)
 │  → ACAgentRun row in DB             │
 └─────────────────────────────────────┘
         │
-        ▼  (agent picks up its .agent-task)
+        ▼  (POST /api/runs/{run_id}/execute — Cursor-free)
 ┌─────────────────────────────────────┐
-│  Org tree execution                 │
-│  CTO → Coordinator → Engineer       │
-│  Each agent in its own worktree     │
+│  Cursor-Free Agent Loop             │
+│  agent_loop.py                      │
+│  → Reads .agent-task + role + arch  │
+│  → Calls OpenRouter → Anthropic     │
+│  → Dispatches file/shell/MCP tools  │
+│  → Uses Qdrant for code search      │
 │  Reports via POST /api/runs/{id}/*  │
 └─────────────────────────────────────┘
         │
@@ -92,10 +97,20 @@ agentception/
     models.py        → SQLAlchemy ORM (ACIssue, ACAgentRun, ACInitiativePhase, …)
     persist.py       → Write functions (one per resource type)
     queries.py       → Read functions, returning typed TypedDicts
+  middleware/
+    auth.py          → ApiKeyMiddleware — API key enforcement on /api/* routes
   readers/
     llm_phase_planner.py  → Phase 1A: LLM → PlanSpec YAML
     issue_creator.py      → Phase 1B: PlanSpec → GitHub issues + DB rows
     worktrees.py          → Agent dispatch: git worktree + .agent-task + DB row
+  services/
+    llm.py           → call_openrouter() and call_openrouter_with_tools()
+    agent_loop.py    → Cursor-free agent execution loop (multi-turn + tool dispatch)
+    code_indexer.py  → Qdrant codebase indexing + semantic search (FastEmbed)
+  tools/
+    file_tools.py    → read_file, write_file, list_directory, search_text (rg)
+    shell_tools.py   → run_command (shell command execution with denylist)
+    definitions.py   → OpenAI-format JSON schemas for all local tools
   routes/
     ui/              → Browser-facing pages (Jinja2/HTMX)
       build_ui.py    → /plan, /ship/{initiative}, /ship/{initiative}/board
@@ -103,10 +118,13 @@ agentception/
     api/
       dispatch.py    → /api/dispatch/* (issue, label, context, prompt)
       runs.py        → /api/runs/* (pending, acknowledge, children, step, …)
+      agent_run.py   → /api/runs/{run_id}/execute (Cursor-free dispatch)
+      system.py      → /api/system/index-codebase, /api/system/search
       ship_api.py    → /api/ship/{initiative}/advance
   mcp/
     server.py        → MCP tool definitions (plan_*, build_*, …)
     stdio_server.py  → stdio transport for Cursor integration
+    http_server.py   → HTTP Streamable MCP transport (/api/mcp)
   static/
     app.js           → Compiled JS bundle (never edit directly)
     app.css          → Compiled CSS bundle (never edit directly)
