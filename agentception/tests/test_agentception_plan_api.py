@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Tests for POST /api/plan/draft (issue #872) and POST /api/plan/launch (issue #873).
 
 POST /api/plan/draft covers:
@@ -9,6 +7,7 @@ POST /api/plan/draft covers:
 - After a valid POST the .agent-task file is written with WORKFLOW=plan-spec
   and the plan text.
 - asyncio.create_subprocess_exec is called with ``git worktree add``.
+- git subprocess failure (returncode != 0) returns 500.
 
 POST /api/plan/launch covers:
 - Valid EnrichedManifest YAML → 200 with worktree, branch, agent_task_path, batch_id.
@@ -16,12 +15,26 @@ POST /api/plan/launch covers:
 - YAML that fails EnrichedManifest validation → 422 with error detail.
 - YAML with cyclic issue depends_on → 422 with cycle description.
 - plan_spawn_coordinator called with correct manifest JSON.
+- Non-dict YAML (a list) → 422 with "mapping" in detail.
+- plan_spawn_coordinator raises exception → 500.
+- plan_spawn_coordinator returns dict with "error" key → 422.
+
+_detect_issue_cycle unit tests:
+- Empty phases → None (acyclic).
+- Single issue, no deps → None.
+- Linear chain A → B → None.
+- Diamond A → B, A → C, B → D, C → D → None.
+- Self-referencing A → A → cycle string.
+- 3-node cycle A → B → C → A → cycle string.
+- Issue depends on unknown title → None (graceful).
+- Two independent chains, one cyclic → cycle detected.
 
 All git subprocess calls and plan_spawn_coordinator are mocked so these tests
 do not require a live git repository or network access.
 
 Boundary: zero imports from external packages.
 """
+from __future__ import annotations
 
 import json
 import uuid
@@ -390,3 +403,224 @@ async def test_plan_spawn_coordinator_called_with_correct_manifest(
     assert parsed["initiative"] == "plan-p2-20260303"
     assert len(parsed["phases"]) == 1
     assert parsed["phases"][0]["label"] == "foundation"
+
+
+# ---------------------------------------------------------------------------
+# POST /api/plan/draft — git failure path
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_git_failure_returns_500(
+    async_client: AsyncClient,
+    tmp_path: Path,
+) -> None:
+    """POST /api/plan/draft must return 500 when git worktree add exits non-zero."""
+    proc_mock = _make_proc_mock(returncode=1, stderr=b"fatal: branch already exists")
+
+    with (
+        patch(
+            "agentception.routes.api.plan.asyncio.create_subprocess_exec",
+            return_value=proc_mock,
+        ),
+        patch("agentception.routes.api.plan.settings.worktrees_dir", tmp_path),
+        patch("agentception.routes.api.plan.settings.host_worktrees_dir", tmp_path),
+    ):
+        response = await async_client.post(
+            "/api/plan/draft",
+            json={"text": "Valid plan text"},
+        )
+
+    assert response.status_code == 500
+    detail = response.json()["detail"]
+    # Detail contains the draft_id UUID and the stderr output from git.
+    assert "Failed to create worktree for draft" in detail
+    assert "branch already exists" in detail
+
+
+# ---------------------------------------------------------------------------
+# POST /api/plan/launch — additional edge cases
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_post_yaml_list_returns_422_with_mapping_detail(
+    async_client: AsyncClient,
+) -> None:
+    """A YAML list (not a mapping) at the top level → 422 with 'mapping' in detail."""
+    response = await async_client.post(
+        "/api/plan/launch",
+        json={"yaml_text": "- item1\n- item2\n"},
+    )
+    assert response.status_code == 422
+    assert "mapping" in response.json()["detail"].lower()
+
+
+@pytest.mark.anyio
+async def test_spawn_coordinator_exception_returns_500(
+    async_client: AsyncClient,
+) -> None:
+    """When plan_spawn_coordinator raises an unexpected exception → 500."""
+    with patch(
+        "agentception.routes.api.plan.plan_spawn_coordinator",
+        new=AsyncMock(side_effect=RuntimeError("disk full")),
+    ):
+        response = await async_client.post(
+            "/api/plan/launch",
+            json={"yaml_text": _VALID_YAML},
+        )
+
+    assert response.status_code == 500
+    assert "Coordinator spawn failed" in response.json()["detail"]
+    assert "disk full" in response.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_spawn_coordinator_error_key_returns_422(
+    async_client: AsyncClient,
+) -> None:
+    """When plan_spawn_coordinator returns {'error': '…'} → 422 with that message."""
+    with patch(
+        "agentception.routes.api.plan.plan_spawn_coordinator",
+        new=AsyncMock(return_value={"error": "no coordinator label found"}),
+    ):
+        response = await async_client.post(
+            "/api/plan/launch",
+            json={"yaml_text": _VALID_YAML},
+        )
+
+    assert response.status_code == 422
+    assert "no coordinator label found" in response.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# _detect_issue_cycle — unit tests for the pure DFS helper
+# ---------------------------------------------------------------------------
+
+
+from agentception.models import EnrichedIssue, EnrichedPhase
+from agentception.routes.api.plan import _detect_issue_cycle
+
+
+def _make_phases(
+    issues_by_phase: list[list[tuple[str, list[str]]]],
+) -> list[EnrichedPhase]:
+    """Build a list of EnrichedPhase objects for _detect_issue_cycle unit tests.
+
+    Each inner list element is (title, depends_on).
+    """
+    phases: list[EnrichedPhase] = []
+    for idx, issue_specs in enumerate(issues_by_phase):
+        enriched_issues: list[EnrichedIssue] = [
+            EnrichedIssue(
+                title=title,
+                body="body",
+                labels=[],
+                phase=f"phase-{idx}",
+                depends_on=deps,
+                can_parallel=True,
+                acceptance_criteria=[],
+                tests_required=[],
+                docs_required=[],
+            )
+            for title, deps in issue_specs
+        ]
+        phases.append(
+            EnrichedPhase(
+                label=f"phase-{idx}",
+                description="desc",
+                depends_on=[],
+                issues=enriched_issues,
+                parallel_groups=[],
+            )
+        )
+    return phases
+
+
+def test_detect_issue_cycle_empty_phases() -> None:
+    """`_detect_issue_cycle` returns None for an empty phase list."""
+    assert _detect_issue_cycle([]) is None
+
+
+def test_detect_issue_cycle_single_issue_no_deps() -> None:
+    """`_detect_issue_cycle` returns None for a single issue with no dependencies."""
+    phases = _make_phases([[("Issue A", [])]])
+    assert _detect_issue_cycle(phases) is None
+
+
+def test_detect_issue_cycle_linear_chain_is_acyclic() -> None:
+    """`_detect_issue_cycle` returns None for a linear A → B dependency chain."""
+    phases = _make_phases([[("Issue A", []), ("Issue B", ["Issue A"])]])
+    assert _detect_issue_cycle(phases) is None
+
+
+def test_detect_issue_cycle_diamond_is_acyclic() -> None:
+    """`_detect_issue_cycle` returns None for a diamond A→B, A→C, B→D, C→D graph."""
+    phases = _make_phases(
+        [
+            [
+                ("A", []),
+                ("B", ["A"]),
+                ("C", ["A"]),
+                ("D", ["B", "C"]),
+            ]
+        ]
+    )
+    assert _detect_issue_cycle(phases) is None
+
+
+def test_detect_issue_cycle_self_reference_is_cycle() -> None:
+    """`_detect_issue_cycle` returns a cycle string for a self-referencing issue."""
+    phases = _make_phases([[("Issue A", ["Issue A"])]])
+    result = _detect_issue_cycle(phases)
+    assert result is not None
+    assert "Cycle" in result
+    assert "Issue A" in result
+
+
+def test_detect_issue_cycle_two_node_cycle() -> None:
+    """`_detect_issue_cycle` returns a cycle string for the A→B, B→A case."""
+    phases = _make_phases([[("Issue A", ["Issue B"]), ("Issue B", ["Issue A"])]])
+    result = _detect_issue_cycle(phases)
+    assert result is not None
+    assert "Cycle" in result
+
+
+def test_detect_issue_cycle_three_node_cycle() -> None:
+    """`_detect_issue_cycle` returns a cycle string for a 3-node A→B→C→A cycle."""
+    phases = _make_phases(
+        [
+            [
+                ("A", ["B"]),
+                ("B", ["C"]),
+                ("C", ["A"]),
+            ]
+        ]
+    )
+    result = _detect_issue_cycle(phases)
+    assert result is not None
+    assert "Cycle" in result
+
+
+def test_detect_issue_cycle_unknown_dep_is_safe() -> None:
+    """`_detect_issue_cycle` returns None when a dep title doesn't exist in the graph."""
+    # "Issue A" depends on a title that was never declared — treated as no-op.
+    phases = _make_phases([[("Issue A", ["Nonexistent Issue"])]])
+    assert _detect_issue_cycle(phases) is None
+
+
+def test_detect_issue_cycle_mixed_acyclic_and_cyclic() -> None:
+    """`_detect_issue_cycle` detects a cycle even when other issues are acyclic."""
+    phases = _make_phases(
+        [
+            [
+                ("Clean A", []),
+                ("Clean B", ["Clean A"]),
+                ("Cycle X", ["Cycle Y"]),
+                ("Cycle Y", ["Cycle X"]),
+            ]
+        ]
+    )
+    result = _detect_issue_cycle(phases)
+    assert result is not None
+    assert "Cycle" in result

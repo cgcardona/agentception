@@ -1,11 +1,10 @@
-from __future__ import annotations
-
 """Shared TOML helpers for ``.agent-task`` file generation.
 
 Both API routes (``routes/api/_shared.py``) and services (``services/spawn_child.py``)
 need to emit TOML ``.agent-task`` files.  Keeping the helpers here prevents
 either layer from importing the other (which would create a layering violation).
 """
+from __future__ import annotations
 
 # Supported scalar/collection types in a TOML .agent-task document.
 type TomlValue = str | int | bool | list[str] | list[int]

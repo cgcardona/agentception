@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """API routes: POST /api/plan/draft and POST /api/plan/launch.
 
 POST /api/plan/draft
@@ -37,6 +35,7 @@ Steps:
 
 Boundary: zero imports from external packages.
 """
+from __future__ import annotations
 
 import asyncio
 import json

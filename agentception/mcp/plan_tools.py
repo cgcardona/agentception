@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """AgentCeption MCP plan tools — schema inspection, validation, and coordinator spawn.
 
 Provides five MCP-exposed functions:
@@ -31,6 +29,7 @@ Provides five MCP-exposed functions:
 
 Boundary constraint: zero imports from external packages.
 """
+from __future__ import annotations
 
 import asyncio
 import json
