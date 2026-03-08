@@ -52,7 +52,6 @@ codebases:
 #   phase/N      → ordering (coordinator reads to find active phase)
 #   batch/X      → milestone / sprint grouping
 #   priority/X   → urgency within a phase
-#   status/X     → lifecycle state written by agents
 #   gate/X       → human approval required before dispatch
 #   type/X       → classification of work
 #
@@ -187,22 +186,6 @@ labels:
     - name: "priority/low"
       color: "a2eeef"
       description: "Nice to have — do after higher-priority items"
-
-  # ── Status namespace ─────────────────────────────────────────────────────────────
-  # Lifecycle state written by agents as work progresses.
-  statuses:
-    - name: "status/ready"
-      color: "ffffff"
-      description: "Queued and ready for dispatch — no agent working yet"
-    - name: "status/in-progress"
-      color: "0075ca"
-      description: "Agent implementation underway"
-    - name: "status/pr-open"
-      color: "e8a2f4"
-      description: "PR created — awaiting review"
-    - name: "status/merged"
-      color: "198754"
-      description: "PR merged and closed"
 
   # ── Gate namespace ─────────────────────────────────────────────────────────────
   # Human approval required before agents can dispatch these items.

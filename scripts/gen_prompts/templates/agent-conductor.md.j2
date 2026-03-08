@@ -54,8 +54,8 @@ Pipeline state lives entirely in GitHub. No external database, no sidecar files.
 | Open issues with `batch-NN` label | Issues not yet implemented — ready for ISSUE_TO_PR |
 | Open PRs linked to `batch-NN` issues | PRs awaiting review — ready for PR_REVIEW |
 | Closed issues | Implemented and merged |
-| Open issues with `status/in-progress` | ISSUE_TO_PR agent currently working |
-| Open PRs with `status/pr-open` | PR_REVIEW agent dispatched but not yet merged |
+| Open issues with `agent/wip` | Leaf agent currently working |
+| Open PRs linked to open issues | PR_REVIEW agent dispatched but not yet merged |
 | `conductor-reminder` issue open | Pipeline was incomplete on last conductor run |
 
 ### Phase dependency order

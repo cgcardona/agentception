@@ -1334,9 +1334,6 @@ STEP 2 — CHECK CANONICAL STATE BEFORE DOING ANY WORK:
   ⚠️  Query GitHub first. Do NOT create a branch, write a file, or run mypy until
   you have confirmed no prior work exists. This is the idempotency gate.
 
-  # Mark issue as in-progress so the conductor and other agents see it's claimed.
-  # MCP: github_add_label(issue_number=N, label="status/in-progress")
-
   # Leave an audit trail: which cognitive identity claimed this issue.
   AGENT_SESSION="eng-$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%04x' $RANDOM)"
   CLAIMED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
@@ -1409,7 +1406,6 @@ STEP 2 — CHECK CANONICAL STATE BEFORE DOING ANY WORK:
   └──────────────────────────────────────────────────────────────────────────┘
 
   Self-destruct when stopping early:
-    # MCP: github_remove_label(issue_number=N, label="status/in-progress")
     # MCP: github_remove_label(issue_number=N, label="agent/wip")
     WORKTREE=$(pwd)
     cd "$REPO"
@@ -1816,10 +1812,6 @@ STEP 5 — PUSH & CREATE PR:
   fi
   # MCP: add_issue_comment(owner="cgcardona", repo="agentception", issue_number=N,
   #   body="🤖 **Implemented by agent** — PR #${MY_PR_NUM:-?}\n\n$IMPL_FINGERPRINT")
-
-  # Transition status label: in-progress → pr-open
-  # MCP: github_remove_label(issue_number=N, label="status/in-progress")
-  # MCP: github_add_label(issue_number=N, label="status/pr-open")
 
   ⚠️  VERIFY AUTO-CLOSE LINKAGE — verify immediately after PR creation:
   # GitHub auto-closes issue #<N> when the PR is merged ONLY if "Closes #<N>"
@@ -3563,9 +3555,7 @@ STEP 6 — PRE-MERGE SYNC (only if grade is A or B):
   CLOSES_ISSUES_FOR_LABEL=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(','.join(str(x) for x in d.get('target',{}).get('closes',[])))")
   if [ -n "$CLOSES_ISSUES_FOR_LABEL" ]; then
     # For each issue in CLOSES_ISSUES_FOR_LABEL:
-    # MCP: github_remove_label(issue_number=<N>, label="status/pr-open")
-    # MCP: github_add_label(issue_number=<N>, label="status/merged")
-    echo "Update issue labels via MCP github_remove_label + github_add_label"
+    echo "Issues closed automatically via PR merge (Closes #N in PR body)"
   fi
 
   # 9. Pull the merge into the main repo's local dev — so the coordinator's
@@ -5479,9 +5469,7 @@ STEP 6 — PRE-MERGE SYNC (only if grade is A or B):
   CLOSES_ISSUES_FOR_LABEL=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(','.join(str(x) for x in d.get('target',{}).get('closes',[])))")
   if [ -n "$CLOSES_ISSUES_FOR_LABEL" ]; then
     # For each issue in CLOSES_ISSUES_FOR_LABEL:
-    # MCP: github_remove_label(issue_number=<N>, label="status/pr-open")
-    # MCP: github_add_label(issue_number=<N>, label="status/merged")
-    echo "Update issue labels via MCP github_remove_label + github_add_label"
+    echo "Issues closed automatically via PR merge (Closes #N in PR body)"
   fi
 
   # 9. Pull the merge into the main repo's local dev — so the coordinator's
@@ -6659,9 +6647,6 @@ STEP 2 — CHECK CANONICAL STATE BEFORE DOING ANY WORK:
   ⚠️  Query GitHub first. Do NOT create a branch, write a file, or run mypy until
   you have confirmed no prior work exists. This is the idempotency gate.
 
-  # Mark issue as in-progress so the conductor and other agents see it's claimed.
-  # MCP: github_add_label(issue_number=N, label="status/in-progress")
-
   # Leave an audit trail: which cognitive identity claimed this issue.
   AGENT_SESSION="eng-$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%04x' $RANDOM)"
   CLAIMED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
@@ -6734,7 +6719,6 @@ STEP 2 — CHECK CANONICAL STATE BEFORE DOING ANY WORK:
   └──────────────────────────────────────────────────────────────────────────┘
 
   Self-destruct when stopping early:
-    # MCP: github_remove_label(issue_number=N, label="status/in-progress")
     # MCP: github_remove_label(issue_number=N, label="agent/wip")
     WORKTREE=$(pwd)
     cd "$REPO"
@@ -7141,10 +7125,6 @@ STEP 5 — PUSH & CREATE PR:
   fi
   # MCP: add_issue_comment(owner="cgcardona", repo="agentception", issue_number=N,
   #   body="🤖 **Implemented by agent** — PR #${MY_PR_NUM:-?}\n\n$IMPL_FINGERPRINT")
-
-  # Transition status label: in-progress → pr-open
-  # MCP: github_remove_label(issue_number=N, label="status/in-progress")
-  # MCP: github_add_label(issue_number=N, label="status/pr-open")
 
   ⚠️  VERIFY AUTO-CLOSE LINKAGE — verify immediately after PR creation:
   # GitHub auto-closes issue #<N> when the PR is merged ONLY if "Closes #<N>"
