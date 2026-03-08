@@ -43,7 +43,7 @@ def _make_repo(tmp_path: Path) -> Path:
     roles = ac / "roles"
     roles.mkdir(parents=True, exist_ok=True)
     (roles / "python-developer.md").write_text("# Python Developer", encoding="utf-8")
-    (ac / "parallel-issue-to-pr.md").write_text("# Parallel", encoding="utf-8")
+    (ac / "agent-engineer.md").write_text("# Parallel", encoding="utf-8")
     (ac / "pipeline-config.json").write_text('{"coordinator_limits": {"engineering-coordinator": 1, "qa-coordinator": 1}, "pool_size": 4}', encoding="utf-8")
     (ac / "agent-command-policy.md").write_text("# Policy", encoding="utf-8")
     return tmp_path
@@ -95,7 +95,7 @@ def test_export_includes_all_managed_files(tmp_path: Path) -> None:
         names = tar.getnames()
 
     assert ".agentception/roles/python-developer.md" in names
-    assert ".agentception/parallel-issue-to-pr.md" in names
+    assert ".agentception/agent-engineer.md" in names
     assert ".agentception/pipeline-config.json" in names
     assert ".agentception/agent-command-policy.md" in names
 

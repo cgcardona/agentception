@@ -54,10 +54,10 @@ agent. The pool stays at N concurrent workers continuously until the queue drain
 
 | File | Purpose |
 |------|---------|
-| `.agentception/parallel-issue-to-pr.md` | Full kickoff for implementation leaf agents |
-| `.agentception/parallel-pr-review.md` | Full kickoff for review leaf agents |
-| `.agentception/parallel-bugs-to-issues.md` | Full kickoff for issue-creation agents |
-| `.agentception/parallel-conductor.md` | Full kickoff for a meta-conductor (single-agent orchestration) |
+| `.agentception/agent-engineer.md` | Full kickoff for implementation leaf agents |
+| `.agentception/agent-reviewer.md` | Full kickoff for review leaf agents |
+| `.agentception/agent-triage.md` | Full kickoff for issue-creation agents |
+| `.agentception/agent-conductor.md` | Full kickoff for a meta-conductor (single-agent orchestration) |
 
 ### Cognitive Architecture (role files — who each agent IS)
 
@@ -196,7 +196,7 @@ You are the QA Coordinator. Read <repo-root>/.agentception/roles/qa-coordinator.
 
 Launch one leaf agent per PR using the Task tool. Each agent gets:
 "Read .agent-task at <WORKTREE>/.agent-task, then follow the Kickoff Prompt in
-<repo-root>/.agentception/parallel-pr-review.md.
+<repo-root>/.agentception/agent-reviewer.md.
 Your worktree is <WORKTREE>. GH_REPO=cgcardona/agentception"
 
 Your PRs: [list worktrees]
@@ -208,7 +208,7 @@ You are the Engineering Coordinator. Read <repo-root>/.agentception/roles/engine
 
 Launch one leaf agent per issue using the Task tool. Each agent gets:
 "Read .agent-task at <WORKTREE>/.agent-task, then follow the Kickoff Prompt in
-<repo-root>/.agentception/parallel-issue-to-pr.md.
+<repo-root>/.agentception/agent-engineer.md.
 Your worktree is <WORKTREE>. GH_REPO=cgcardona/agentception"
 
 Your issues: [list worktrees]
@@ -268,7 +268,7 @@ This is the ONLY thing you pass to a leaf agent. Do not add anything.
 ```
 Read the `.agent-task` file at `<WORKTREE>/.agent-task` to get your full assignment,
 then follow the complete Kickoff Prompt section in
-`<repo-root>/.agentception/parallel-issue-to-pr.md`.
+`<repo-root>/.agentception/agent-engineer.md`.
 
 Your worktree is `<WORKTREE>`. Work only in that directory.
 Repo root: <repo-root>
@@ -279,7 +279,7 @@ GH_REPO=cgcardona/agentception
 ```
 Read the `.agent-task` file at `<WORKTREE>/.agent-task` to get your full assignment,
 then follow the complete Kickoff Prompt section in
-`<repo-root>/.agentception/parallel-pr-review.md`.
+`<repo-root>/.agentception/agent-reviewer.md`.
 
 Your worktree is `<WORKTREE>`. Work only in that directory.
 Repo root: <repo-root>
