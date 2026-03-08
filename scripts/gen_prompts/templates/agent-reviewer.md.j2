@@ -45,8 +45,7 @@ needs multiple independent reviewers (e.g. one for types, one for tests, one
 for docs). Each sub-reviewer writes its grade and findings into its own
 worktree; the sub-coordinator collects them and emits a composite grade.
 
-See `agent-triage.md` → "Agent Task File Reference" for the
-full field reference.
+See `agent-engineer.md` for the full `.agent-task` field reference.
 
 ---
 
