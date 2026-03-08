@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-"""Tests for MCP Resources (formerly query tools).
+"""Tests for the MCP resource layer.
 
-Covers the full resource layer:
+Covers the full resource surface exposed by agentception/mcp/resources.py:
   - read_resource() URI dispatcher for all ac:// URIs
   - resources/list, resources/templates/list, resources/read JSON-RPC handlers
-  - Redirect behaviour: calling a retired query_* tool name returns a helpful error
+  - Redirect behaviour: calling a retired query_* / plan_get_* tool name returns
+    a helpful error pointing to the correct resource URI
   - RESOURCES and RESOURCE_TEMPLATES catalogue completeness
 
 Resources tested:
