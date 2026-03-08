@@ -142,6 +142,69 @@ class ACResourceResult(TypedDict):
 
 
 # ---------------------------------------------------------------------------
+# MCP prompt protocol types
+# ---------------------------------------------------------------------------
+
+
+class ACPromptArgument(TypedDict):
+    """Definition of a single argument accepted by a prompt template.
+
+    ``required`` is ``True`` when the argument must be provided to
+    ``prompts/get``.  Optional arguments are omitted from this field
+    when the prompt has sensible defaults.
+    """
+
+    name: str
+    description: str
+    required: bool
+
+
+class ACPromptDef(TypedDict):
+    """Definition of a single MCP prompt.
+
+    Conforms to the ``prompts/list`` response item shape.  ``arguments``
+    is an empty list for static prompts that require no parameters.
+    """
+
+    name: str
+    description: str
+    arguments: list[ACPromptArgument]
+
+
+class ACPromptContent(TypedDict):
+    """Text content carried inside an :class:`ACPromptMessage`.
+
+    ``type`` is always ``"text"`` for AgentCeption prompts.
+    """
+
+    type: str
+    text: str
+
+
+class ACPromptMessage(TypedDict):
+    """A single message in a ``prompts/get`` result.
+
+    ``role`` is ``"user"`` for every AgentCeption prompt — the prompts
+    are system instructions delivered as the first user turn.
+    """
+
+    role: str
+    content: ACPromptContent
+
+
+class ACPromptResult(TypedDict):
+    """Result of a ``prompts/get`` invocation.
+
+    ``messages`` always contains exactly one item — a ``user`` message
+    carrying the full prompt text.  Callers may prepend this message to
+    their conversation context.
+    """
+
+    description: str
+    messages: list[ACPromptMessage]
+
+
+# ---------------------------------------------------------------------------
 # JSON-RPC 2.0 envelope types
 # ---------------------------------------------------------------------------
 

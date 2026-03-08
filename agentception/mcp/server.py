@@ -6,13 +6,16 @@ Implements a spec-compliant JSON-RPC 2.0 dispatcher for both MCP Tools
 (actions with side effects) and MCP Resources (stateless, cacheable reads).
 
 Supported methods:
-  ``initialize``              — MCP handshake; declares tools + resources capabilities
+  ``initialize``              — MCP handshake; declares tools + resources + prompts capabilities
   ``initialized``             — MCP notification (no response; acknowledged silently)
+  ``ping``                    — keepalive/liveness check (responds with empty result)
   ``tools/list``              — lists all registered :class:`~agentception.mcp.types.ACToolDef`
   ``tools/call``              — dispatches to the named tool function
   ``resources/list``          — lists all static :class:`~agentception.mcp.types.ACResourceDef`
   ``resources/templates/list``— lists all :class:`~agentception.mcp.types.ACResourceTemplate`
   ``resources/read``          — reads a resource by ``ac://`` URI
+  ``prompts/list``            — lists all MCP Prompt definitions
+  ``prompts/get``             — returns the content of a named prompt by name
 
 Tool vs Resource design
   Pure reads (no side effects) are Resources, accessed via ``resources/read``.
@@ -46,15 +49,18 @@ from agentception.mcp.build_commands import (
 from agentception.mcp.log_tools import (
     log_run_blocker,
     log_run_decision,
+    log_run_error,
     log_run_message,
     log_run_step,
 )
 from agentception.mcp.github_tools import (
+    github_add_comment,
     github_add_label,
     github_claim_issue,
     github_remove_label,
     github_unclaim_issue,
 )
+from agentception.mcp.prompts import PROMPTS, get_prompt
 from agentception.mcp.plan_advance_phase import plan_advance_phase
 from agentception.mcp.plan_tools import (
     plan_get_cognitive_figures,
@@ -69,6 +75,8 @@ from agentception.mcp.resources import (
     read_resource,
 )
 from agentception.mcp.types import (
+    ACPromptDef,
+    ACPromptResult,
     ACResourceDef,
     ACResourceTemplate,
     ACToolContent,
@@ -583,6 +591,56 @@ TOOLS: list[ACToolDef] = [
             "additionalProperties": False,
         },
     ),
+    ACToolDef(
+        name="log_run_error",
+        description=(
+            "Record an unrecoverable error or crash with semantic distinction from a message. "
+            "Use this instead of log_run_message when the agent is aborting due to an "
+            "exception, API failure, or any condition it cannot recover from. "
+            "The dashboard surfaces error events differently for operator triage. "
+            "After calling this, also call build_cancel_run or build_stop_run. "
+            "Never changes run state on its own."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "issue_number": {"type": "integer"},
+                "error": {
+                    "type": "string",
+                    "description": "Human-readable description of the failure. Include exception type and message.",
+                },
+                "agent_run_id": {"type": "string"},
+            },
+            "required": ["issue_number", "error"],
+            "additionalProperties": False,
+        },
+    ),
+    # ── GitHub tools — post comments ──────────────────────────────────────────
+    ACToolDef(
+        name="github_add_comment",
+        description=(
+            "Post a Markdown comment on a GitHub issue. "
+            "Use this for fingerprint comments, status updates, handoff notes, and "
+            "any other issue comment — do NOT shell out to 'gh issue comment' directly. "
+            "Routing comments through this tool keeps them observable, logged, and "
+            "auditable. Returns {ok, issue_number, comment_url}."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "issue_number": {
+                    "type": "integer",
+                    "description": "GitHub issue number to comment on.",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Markdown body for the comment. Supports GitHub-flavoured Markdown.",
+                },
+            },
+            "required": ["issue_number", "body"],
+            "additionalProperties": False,
+        },
+    ),
 ]
 
 # ---------------------------------------------------------------------------
@@ -637,6 +695,16 @@ def list_resources() -> list[ACResourceDef]:
 def list_resource_templates() -> list[ACResourceTemplate]:
     """Return all registered MCP resource template definitions."""
     return list(RESOURCE_TEMPLATES)
+
+
+def list_prompts() -> list[ACPromptDef]:
+    """Return all registered MCP prompt definitions.
+
+    Returns:
+        A list of :class:`~agentception.mcp.types.ACPromptDef` objects,
+        one per compiled role or agent prompt file discovered at import time.
+    """
+    return list(PROMPTS)
 
 
 def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
@@ -741,11 +809,13 @@ def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
         "log_run_blocker",
         "log_run_decision",
         "log_run_message",
+        "log_run_error",
         # GitHub tools
         "github_add_label",
         "github_remove_label",
         "github_claim_issue",
         "github_unclaim_issue",
+        "github_add_comment",
     ):
         err_text = _tool_result_to_text(
             {"error": f"Tool {name!r} is async — use the async call path"}
@@ -1033,6 +1103,21 @@ async def call_tool_async(
             isError=False,
         )
 
+    if name == "log_run_error":
+        issue_num = arguments.get("issue_number")
+        err_msg = arguments.get("error")
+        if not isinstance(issue_num, int) or not isinstance(err_msg, str):
+            return ACToolResult(
+                content=[ACToolContent(type="text", text='{"error":"issue_number (int) and error (str) are required"}')],
+                isError=True,
+            )
+        run_id = arguments.get("agent_run_id")
+        result = await log_run_error(issue_num, err_msg, str(run_id) if run_id else None)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=False,
+        )
+
     # ── GitHub tools ─────────────────────────────────────────────────────────
 
     if name == "github_add_label":
@@ -1084,6 +1169,20 @@ async def call_tool_async(
                 isError=True,
             )
         result = await github_unclaim_issue(issue_num)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=not bool(result.get("ok", False)),
+        )
+
+    if name == "github_add_comment":
+        issue_num = arguments.get("issue_number")
+        body = arguments.get("body")
+        if not isinstance(issue_num, int) or not isinstance(body, str) or not body:
+            return ACToolResult(
+                content=[ACToolContent(type="text", text='{"error":"issue_number (int) and body (non-empty str) are required"}')],
+                isError=True,
+            )
+        result = await github_add_comment(issue_num, body)
         return ACToolResult(
             content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
             isError=not bool(result.get("ok", False)),
@@ -1150,7 +1249,7 @@ def handle_request(
     if method == "initialize":
         result: dict[str, object] = {
             "protocolVersion": _MCP_PROTOCOL_VERSION,
-            "capabilities": {"tools": {}, "resources": {}},
+            "capabilities": {"tools": {}, "resources": {}, "prompts": {}},
             "serverInfo": _SERVER_INFO,
         }
         return cast(dict[str, object], _make_success_response(request_id, result))
@@ -1158,6 +1257,9 @@ def handle_request(
     if method == "initialized":
         logger.debug("✅ MCP initialized notification received")
         return None
+
+    if method == "ping":
+        return cast(dict[str, object], _make_success_response(request_id, {}))
 
     # ── Tool methods ─────────────────────────────────────────────────────────
 
@@ -1203,6 +1305,31 @@ def handle_request(
             ))
 
         return cast(dict[str, object], _make_success_response(request_id, tool_result))
+
+    # ── Prompt methods (sync — catalogues are loaded at module import) ────────
+
+    if method == "prompts/list":
+        return cast(dict[str, object], _make_success_response(
+            request_id, {"prompts": list_prompts()}
+        ))
+
+    if method == "prompts/get":
+        params_p = raw.get("params")
+        if not isinstance(params_p, dict):
+            return cast(dict[str, object], _make_error_response(
+                request_id, JSONRPC_ERR_INVALID_PARAMS, "params must be an object"
+            ))
+        prompt_name = params_p.get("name")
+        if not isinstance(prompt_name, str) or not prompt_name:
+            return cast(dict[str, object], _make_error_response(
+                request_id, JSONRPC_ERR_INVALID_PARAMS, "params.name must be a non-empty string"
+            ))
+        prompt_result: ACPromptResult | None = get_prompt(prompt_name)
+        if prompt_result is None:
+            return cast(dict[str, object], _make_error_response(
+                request_id, JSONRPC_ERR_INVALID_PARAMS, f"Unknown prompt: {prompt_name!r}"
+            ))
+        return cast(dict[str, object], _make_success_response(request_id, prompt_result))
 
     # ── Resource methods (sync server returns method-not-found for reads) ─────
     # The sync handle_request is only used in tests and legacy callers; all
@@ -1260,16 +1387,19 @@ async def handle_request_async(
     logger.debug("🔧 handle_request_async: method=%r id=%r", method, request_id)
 
     if method == "initialize":
-        result: dict[str, object] = {
+        result_a: dict[str, object] = {
             "protocolVersion": _MCP_PROTOCOL_VERSION,
-            "capabilities": {"tools": {}, "resources": {}},
+            "capabilities": {"tools": {}, "resources": {}, "prompts": {}},
             "serverInfo": _SERVER_INFO,
         }
-        return cast(dict[str, object], _make_success_response(request_id, result))
+        return cast(dict[str, object], _make_success_response(request_id, result_a))
 
     if method == "initialized":
         logger.debug("✅ MCP initialized notification received")
         return None
+
+    if method == "ping":
+        return cast(dict[str, object], _make_success_response(request_id, {}))
 
     # ── Tool methods ─────────────────────────────────────────────────────────
 
@@ -1319,6 +1449,31 @@ async def handle_request_async(
             ))
 
         return cast(dict[str, object], _make_success_response(request_id, tool_result))
+
+    # ── Prompt methods ────────────────────────────────────────────────────────
+
+    if method == "prompts/list":
+        return cast(dict[str, object], _make_success_response(
+            request_id, {"prompts": list_prompts()}
+        ))
+
+    if method == "prompts/get":
+        params_pa = raw.get("params")
+        if not isinstance(params_pa, dict):
+            return cast(dict[str, object], _make_error_response(
+                request_id, JSONRPC_ERR_INVALID_PARAMS, "params must be an object"
+            ))
+        prompt_name_a = params_pa.get("name")
+        if not isinstance(prompt_name_a, str) or not prompt_name_a:
+            return cast(dict[str, object], _make_error_response(
+                request_id, JSONRPC_ERR_INVALID_PARAMS, "params.name must be a non-empty string"
+            ))
+        prompt_result_a: ACPromptResult | None = get_prompt(prompt_name_a)
+        if prompt_result_a is None:
+            return cast(dict[str, object], _make_error_response(
+                request_id, JSONRPC_ERR_INVALID_PARAMS, f"Unknown prompt: {prompt_name_a!r}"
+            ))
+        return cast(dict[str, object], _make_success_response(request_id, prompt_result_a))
 
     # ── Resource methods ──────────────────────────────────────────────────────
 

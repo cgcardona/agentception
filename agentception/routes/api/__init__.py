@@ -20,6 +20,7 @@ from .control import router as _control
 from .health import router as _health
 from .intelligence import router as _intelligence
 from .issues import router as _issues
+from .mcp import router as _mcp
 from .pipeline import router as _pipeline
 from .plan import router as _plan
 from .presets import router as _presets
@@ -36,6 +37,7 @@ router.include_router(_control)
 router.include_router(_config)
 router.include_router(_health)
 router.include_router(_intelligence)
+router.include_router(_mcp)
 router.include_router(_telemetry)
 router.include_router(_worktrees)
 router.include_router(_issues)
