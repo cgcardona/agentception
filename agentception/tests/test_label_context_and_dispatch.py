@@ -1,23 +1,27 @@
-from __future__ import annotations
-
 """Tests for GET /api/dispatch/context and the scope-based POST /api/dispatch/label.
 
 Covers:
+  - _label_slug() produces filesystem-safe slugs capped at 48 characters.
+  - _tier_for_role() returns the right tier for every role class.
   - _role_and_tier_for_scope() derives the correct tier and default role for each scope.
   - GET /api/dispatch/context returns empty lists gracefully when the DB is empty.
+  - GET /api/dispatch/prompt returns prompt content and 404 when the file is missing.
   - POST /api/dispatch/label with scope=full_initiative spawns an executive with role cto.
   - POST /api/dispatch/label with scope=phase spawns a coordinator for the sub-label.
   - POST /api/dispatch/label with scope=issue spawns an engineer for the given issue number.
   - POST /api/dispatch/label respects an explicit role override in the request.
-  - .agent-task file contains SCOPE_TYPE=issue and SCOPE_VALUE=<number> for issue scope.
-  - .agent-task file contains INITIATIVE_LABEL for phase and issue scopes.
+  - .agent-task file contains scope_type=issue and scope_value=<number> for issue scope.
+  - .agent-task file contains initiative_label for phase and issue scopes.
+  - cascade_enabled defaults to True and propagates correctly when set to False.
 
 Run targeted:
     pytest agentception/tests/test_label_context_and_dispatch.py -v
 """
 
-import asyncio
-from collections.abc import Generator
+from __future__ import annotations
+
+import tomllib
+from collections.abc import Callable, Generator
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -25,7 +29,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agentception.app import app
-from agentception.routes.api.dispatch import _role_and_tier_for_scope
+from agentception.routes.api.dispatch import (
+    _label_slug,
+    _role_and_tier_for_scope,
+    _tier_for_role,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -37,6 +45,125 @@ from agentception.routes.api.dispatch import _role_and_tier_for_scope
 def client() -> Generator[TestClient, None, None]:
     with TestClient(app) as c:
         yield c
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_fake_proc(returncode: int = 0) -> AsyncMock:
+    """Return a mock asyncio.Process whose communicate() succeeds."""
+    proc = AsyncMock()
+    proc.returncode = returncode
+    proc.communicate.return_value = (b"", b"")
+    return proc
+
+
+def _make_worktree_exec() -> MagicMock:
+    """Return a mock for asyncio.create_subprocess_exec that creates the worktree dir.
+
+    When ``git worktree add <path> -b <branch>`` is called the mock creates the
+    directory so that the subsequent .agent-task write succeeds.
+    """
+    async def _side_effect(*args: str, **_kwargs: object) -> AsyncMock:
+        if len(args) >= 4 and args[1] == "worktree" and args[2] == "add":
+            Path(args[3]).mkdir(parents=True, exist_ok=True)
+        return _make_fake_proc()
+
+    return MagicMock(side_effect=_side_effect)
+
+
+def _make_agent_task_capture() -> tuple[list[str], Callable[..., int]]:
+    """Return (written_text, capture_fn) for intercepting .agent-task writes.
+
+    Patch ``Path.write_text`` with the returned capture_fn inside a ``with``
+    block, then inspect ``written_text[0]`` after the block exits.
+    """
+    written: list[str] = []
+    original = Path.write_text
+
+    def _capture(
+        self: Path,
+        data: str,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> int:
+        if self.name == ".agent-task":
+            written.append(data)
+        return original(self, data, encoding=encoding, errors=errors, newline=newline)
+
+    return written, _capture
+
+
+def _dispatch_label_body(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "label": "ac-workflow",
+        "scope": "full_initiative",
+        "repo": "cgcardona/agentception",
+    }
+    base.update(overrides)
+    return base
+
+
+def _mock_dispatch_settings(
+    mock: MagicMock,
+    tmp_path: Path,
+    *,
+    subdir: str = "worktrees",
+) -> None:
+    """Configure a settings mock with all paths dispatch-label needs."""
+    mock.worktrees_dir = str(tmp_path / subdir)
+    mock.host_worktrees_dir = "/host/worktrees"
+    mock.host_repo_dir = str(tmp_path)
+    mock.repo_dir = str(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — _label_slug
+# ---------------------------------------------------------------------------
+
+
+def test_label_slug_replaces_non_alphanumeric_with_hyphens() -> None:
+    assert _label_slug("ac-workflow/5-plan step v2") == "ac-workflow-5-plan-step-v2"
+
+
+def test_label_slug_lowercases_input() -> None:
+    assert _label_slug("AC-WORKFLOW") == "ac-workflow"
+
+
+def test_label_slug_caps_at_48_chars() -> None:
+    assert len(_label_slug("a" * 60)) == 48
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — _tier_for_role
+# ---------------------------------------------------------------------------
+
+
+def test_tier_for_role_cto_is_executive() -> None:
+    assert _tier_for_role("cto") == "executive"
+
+
+def test_tier_for_role_ceo_is_executive() -> None:
+    assert _tier_for_role("ceo") == "executive"
+
+
+def test_tier_for_role_engineering_coordinator_is_coordinator() -> None:
+    assert _tier_for_role("engineering-coordinator") == "coordinator"
+
+
+def test_tier_for_role_pr_reviewer_is_reviewer() -> None:
+    assert _tier_for_role("pr-reviewer") == "reviewer"
+
+
+def test_tier_for_role_python_developer_is_engineer() -> None:
+    assert _tier_for_role("python-developer") == "engineer"
+
+
+def test_tier_for_role_unknown_slug_is_engineer() -> None:
+    assert _tier_for_role("rust-wizard") == "engineer"
 
 
 # ---------------------------------------------------------------------------
@@ -120,42 +247,34 @@ def test_label_context_returns_phases_and_issues(client: TestClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Helpers — patch out filesystem / git / DB for dispatch-label tests
+# GET /api/dispatch/prompt
 # ---------------------------------------------------------------------------
 
 
-def _make_fake_proc(returncode: int = 0) -> AsyncMock:
-    """Return a mock asyncio.Process whose communicate() succeeds."""
-    proc = AsyncMock()
-    proc.returncode = returncode
-    proc.communicate.return_value = (b"", b"")
-    return proc
+def test_get_dispatcher_prompt_returns_content(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    """GET /api/dispatch/prompt returns the prompt text and canonical path."""
+    (tmp_path / "dispatcher.md").write_text("# Dispatcher prompt", encoding="utf-8")
+    with patch("agentception.routes.api.dispatch.settings") as mock_settings:
+        mock_settings.ac_dir = tmp_path
+        res = client.get("/api/dispatch/prompt")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["content"] == "# Dispatcher prompt"
+    assert data["path"] == ".agentception/dispatcher.md"
 
 
-def _make_worktree_exec() -> AsyncMock:
-    """Return a mock for asyncio.create_subprocess_exec that creates the worktree dir.
-
-    When ``git worktree add <path> -b <branch>`` is called the mock creates the
-    directory so that the subsequent .agent-task write succeeds.
-    """
-    async def _side_effect(*args: str, **_kwargs: object) -> AsyncMock:
-        # args: ("git", "worktree", "add", <path>, "-b", <branch>)
-        if len(args) >= 4 and args[1] == "worktree" and args[2] == "add":
-            Path(args[3]).mkdir(parents=True, exist_ok=True)
-        return _make_fake_proc()
-
-    mock = MagicMock(side_effect=_side_effect)
-    return mock
-
-
-def _dispatch_label_body(**overrides: object) -> dict[str, object]:
-    base: dict[str, object] = {
-        "label": "ac-workflow",
-        "scope": "full_initiative",
-        "repo": "cgcardona/agentception",
-    }
-    base.update(overrides)
-    return base
+def test_get_dispatcher_prompt_404_when_missing(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    """GET /api/dispatch/prompt returns 404 when dispatcher.md is absent."""
+    with patch("agentception.routes.api.dispatch.settings") as mock_settings:
+        mock_settings.ac_dir = tmp_path
+        res = client.get("/api/dispatch/prompt")
+    assert res.status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -163,7 +282,7 @@ def _dispatch_label_body(**overrides: object) -> dict[str, object]:
 # ---------------------------------------------------------------------------
 
 
-def test_dispatch_label_full_initiative_creates_coordinator(
+def test_dispatch_label_full_initiative_creates_executive(
     client: TestClient,
     tmp_path: Path,
 ) -> None:
@@ -172,10 +291,7 @@ def test_dispatch_label_full_initiative_creates_coordinator(
         patch("agentception.routes.api.dispatch.asyncio.create_subprocess_exec", new=_make_worktree_exec()),
         patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
     ):
-        mock_settings.worktrees_dir = str(tmp_path / "worktrees")
-        mock_settings.host_worktrees_dir = "/host/worktrees"
-        mock_settings.repo_dir = str(tmp_path)
-    
+        _mock_dispatch_settings(mock_settings, tmp_path, subdir="worktrees")
         res = client.post(
             "/api/dispatch/label",
             json=_dispatch_label_body(scope="full_initiative"),
@@ -197,10 +313,7 @@ def test_dispatch_label_full_initiative_role_override(
         patch("agentception.routes.api.dispatch.asyncio.create_subprocess_exec", new=_make_worktree_exec()),
         patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
     ):
-        mock_settings.worktrees_dir = str(tmp_path / "worktrees2")
-        mock_settings.host_worktrees_dir = "/host/worktrees"
-        mock_settings.repo_dir = str(tmp_path)
-    
+        _mock_dispatch_settings(mock_settings, tmp_path, subdir="worktrees2")
         res = client.post(
             "/api/dispatch/label",
             json=_dispatch_label_body(scope="full_initiative", role="engineering-coordinator"),
@@ -226,10 +339,7 @@ def test_dispatch_label_phase_scope_is_coordinator(
         patch("agentception.routes.api.dispatch.asyncio.create_subprocess_exec", new=_make_worktree_exec()),
         patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
     ):
-        mock_settings.worktrees_dir = str(tmp_path / "worktrees3")
-        mock_settings.host_worktrees_dir = "/host/worktrees"
-        mock_settings.repo_dir = str(tmp_path)
-    
+        _mock_dispatch_settings(mock_settings, tmp_path, subdir="worktrees3")
         res = client.post(
             "/api/dispatch/label",
             json=_dispatch_label_body(
@@ -249,33 +359,18 @@ def test_dispatch_label_phase_scope_agent_task_scope_value(
     client: TestClient,
     tmp_path: Path,
 ) -> None:
-    """The .agent-task file must use the phase sub-label as SCOPE_VALUE."""
-    written_text: list[str] = []
-
-    original_write_text = Path.write_text
-
-    def _capture_write(
-        self: Path,
-        data: str,
-        encoding: str | None = None,
-        errors: str | None = None,
-        newline: str | None = None,
-    ) -> int:
-        if self.name == ".agent-task":
-            written_text.append(data)
-        return original_write_text(self, data, encoding=encoding, errors=errors, newline=newline)
+    """The .agent-task [target] must use the phase sub-label as scope_value."""
+    written_text, capture = _make_agent_task_capture()
 
     with (
         patch("agentception.routes.api.dispatch.settings") as mock_settings,
         patch("agentception.routes.api.dispatch.asyncio.create_subprocess_exec") as mock_exec,
         patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
-        patch.object(Path, "write_text", _capture_write),
+        patch.object(Path, "write_text", capture),
     ):
         wt_dir = tmp_path / "worktrees4"
         wt_dir.mkdir(parents=True)
-        mock_settings.worktrees_dir = str(wt_dir)
-        mock_settings.host_worktrees_dir = "/host/worktrees"
-        mock_settings.repo_dir = str(tmp_path)
+        _mock_dispatch_settings(mock_settings, tmp_path, subdir="worktrees4")
         mock_exec.return_value = _make_fake_proc()
 
         client.post(
@@ -287,7 +382,6 @@ def test_dispatch_label_phase_scope_agent_task_scope_value(
         )
 
     assert written_text, "No .agent-task file was written"
-    import tomllib
     task_data = tomllib.loads(written_text[0])
     assert task_data["target"]["scope_value"] == "ac-workflow/5-plan-step-v2"
     assert task_data["target"]["initiative_label"] == "ac-workflow"
@@ -308,10 +402,7 @@ def test_dispatch_label_issue_scope_is_leaf(
         patch("agentception.routes.api.dispatch.asyncio.create_subprocess_exec", new=_make_worktree_exec()),
         patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
     ):
-        mock_settings.worktrees_dir = str(tmp_path / "worktrees5")
-        mock_settings.host_worktrees_dir = "/host/worktrees"
-        mock_settings.repo_dir = str(tmp_path)
-    
+        _mock_dispatch_settings(mock_settings, tmp_path, subdir="worktrees5")
         res = client.post(
             "/api/dispatch/label",
             json=_dispatch_label_body(
@@ -330,32 +421,18 @@ def test_dispatch_label_issue_scope_agent_task_fields(
     client: TestClient,
     tmp_path: Path,
 ) -> None:
-    """The .agent-task file must use SCOPE_TYPE=issue and the issue number as SCOPE_VALUE."""
-    written_text: list[str] = []
-    original_write_text = Path.write_text
-
-    def _capture_write(
-        self: Path,
-        data: str,
-        encoding: str | None = None,
-        errors: str | None = None,
-        newline: str | None = None,
-    ) -> int:
-        if self.name == ".agent-task":
-            written_text.append(data)
-        return original_write_text(self, data, encoding=encoding, errors=errors, newline=newline)
+    """The .agent-task [target] must use scope_type=issue and the issue number as scope_value."""
+    written_text, capture = _make_agent_task_capture()
 
     with (
         patch("agentception.routes.api.dispatch.settings") as mock_settings,
         patch("agentception.routes.api.dispatch.asyncio.create_subprocess_exec") as mock_exec,
         patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
-        patch.object(Path, "write_text", _capture_write),
+        patch.object(Path, "write_text", capture),
     ):
         wt_dir = tmp_path / "worktrees6"
         wt_dir.mkdir(parents=True)
-        mock_settings.worktrees_dir = str(wt_dir)
-        mock_settings.host_worktrees_dir = "/host/worktrees"
-        mock_settings.repo_dir = str(tmp_path)
+        _mock_dispatch_settings(mock_settings, tmp_path, subdir="worktrees6")
         mock_exec.return_value = _make_fake_proc()
 
         client.post(
@@ -364,7 +441,6 @@ def test_dispatch_label_issue_scope_agent_task_fields(
         )
 
     assert written_text, "No .agent-task file was written"
-    import tomllib
     task_data = tomllib.loads(written_text[0])
     assert task_data["target"]["scope_type"] == "issue"
     assert task_data["target"]["scope_value"] == "42"
@@ -381,37 +457,21 @@ def test_cascade_enabled_defaults_to_true_in_agent_task(
     client: TestClient,
     tmp_path: Path,
 ) -> None:
-    """cascade_enabled must be True in .agent-task when not specified in request."""
-    written_text: list[str] = []
-    original_write_text = Path.write_text
-
-    def _capture(
-        self: Path,
-        data: str,
-        encoding: str | None = None,
-        errors: str | None = None,
-        newline: str | None = None,
-    ) -> int:
-        if self.name == ".agent-task":
-            written_text.append(data)
-        return original_write_text(self, data, encoding=encoding, errors=errors, newline=newline)
+    """cascade_enabled must be True in [spawn] when not specified in request."""
+    written_text, capture = _make_agent_task_capture()
 
     with (
         patch("agentception.routes.api.dispatch.settings") as mock_settings,
         patch("agentception.routes.api.dispatch.asyncio.create_subprocess_exec", new=_make_worktree_exec()),
         patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
-        patch.object(Path, "write_text", _capture),
+        patch.object(Path, "write_text", capture),
     ):
-        mock_settings.worktrees_dir = str(tmp_path / "worktrees7")
-        mock_settings.host_worktrees_dir = "/host/worktrees"
-        mock_settings.repo_dir = str(tmp_path)
-
+        _mock_dispatch_settings(mock_settings, tmp_path, subdir="worktrees7")
         client.post(
             "/api/dispatch/label",
             json=_dispatch_label_body(scope="full_initiative"),
         )
 
-    import tomllib
     assert written_text, "No .agent-task file was written"
     task_data = tomllib.loads(written_text[0])
     assert task_data["spawn"]["cascade_enabled"] is True
@@ -422,37 +482,21 @@ def test_cascade_enabled_false_written_to_agent_task(
     tmp_path: Path,
 ) -> None:
     """cascade_enabled=False must propagate into [spawn].cascade_enabled in .agent-task."""
-    written_text: list[str] = []
-    original_write_text = Path.write_text
-
-    def _capture(
-        self: Path,
-        data: str,
-        encoding: str | None = None,
-        errors: str | None = None,
-        newline: str | None = None,
-    ) -> int:
-        if self.name == ".agent-task":
-            written_text.append(data)
-        return original_write_text(self, data, encoding=encoding, errors=errors, newline=newline)
+    written_text, capture = _make_agent_task_capture()
 
     with (
         patch("agentception.routes.api.dispatch.settings") as mock_settings,
         patch("agentception.routes.api.dispatch.asyncio.create_subprocess_exec", new=_make_worktree_exec()),
         patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
-        patch.object(Path, "write_text", _capture),
+        patch.object(Path, "write_text", capture),
     ):
-        mock_settings.worktrees_dir = str(tmp_path / "worktrees8")
-        mock_settings.host_worktrees_dir = "/host/worktrees"
-        mock_settings.repo_dir = str(tmp_path)
-
+        _mock_dispatch_settings(mock_settings, tmp_path, subdir="worktrees8")
         res = client.post(
             "/api/dispatch/label",
             json=_dispatch_label_body(scope="full_initiative", cascade_enabled=False),
         )
 
     assert res.status_code == 200
-    import tomllib
     assert written_text, "No .agent-task file was written"
     task_data = tomllib.loads(written_text[0])
     assert task_data["spawn"]["cascade_enabled"] is False
