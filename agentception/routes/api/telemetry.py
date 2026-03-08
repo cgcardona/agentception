@@ -1,15 +1,20 @@
 """API routes: telemetry waves and cost aggregates."""
 from __future__ import annotations
 
-import logging
-
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 from agentception.telemetry import WaveSummary, aggregate_waves
 
-logger = logging.getLogger(__name__)
-
 router = APIRouter()
+
+
+class TelemetryCostSummary(BaseModel):
+    """Aggregate token and cost summary across all historical waves."""
+
+    total_tokens: int
+    total_cost_usd: float
+    wave_count: int
 
 
 @router.get("/telemetry/waves", tags=["telemetry"])
@@ -25,21 +30,17 @@ async def waves_api() -> list[WaveSummary]:
 
 
 @router.get("/telemetry/cost", tags=["telemetry"])
-async def total_cost_api() -> dict[str, float | int]:
+async def total_cost_api() -> TelemetryCostSummary:
     """Return the aggregate token and cost estimate across all historical waves.
 
     Sums ``estimated_tokens`` and ``estimated_cost_usd`` from every wave
     returned by ``aggregate_waves()``.  The result is a stable summary
     useful for dashboards and budget tracking without iterating wave data
     on the client side.
-
-    Returns ``{"total_tokens": int, "total_cost_usd": float, "wave_count": int}``.
     """
     waves = await aggregate_waves()
-    total_tokens = sum(w.estimated_tokens for w in waves)
-    total_cost_usd = round(sum(w.estimated_cost_usd for w in waves), 4)
-    return {
-        "total_tokens": total_tokens,
-        "total_cost_usd": total_cost_usd,
-        "wave_count": len(waves),
-    }
+    return TelemetryCostSummary(
+        total_tokens=sum(w.estimated_tokens for w in waves),
+        total_cost_usd=round(sum(w.estimated_cost_usd for w in waves), 4),
+        wave_count=len(waves),
+    )
