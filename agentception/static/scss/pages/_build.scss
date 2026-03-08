@@ -35,6 +35,7 @@ body:has(.build-layout) nav.topnav {
   -webkit-backdrop-filter: blur(16px) saturate(1.4);
   border-bottom: 1px solid var(--border-subtle);
   box-shadow: 0 1px 0 rgba(255,255,255,0.03), var(--shadow-sm);
+  overflow-x: hidden; // clip tab strip — prevents sticky bar from expanding page width
 }
 
 // ── Mission Control header row ────────────────────────────────────────────────
