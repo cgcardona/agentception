@@ -9,22 +9,7 @@ Load it as the very first thing you do — see STEP 0 below.
 
 {% include 'snippets/arch-load.md.j2' %}
 
-## Decision Hierarchy
-
-1. **GitHub state is truth.** Never assume readiness without querying. Use MCP tools (`list_issues (user-github)`, `list_pull_requests (user-github)`, `pull_request_read (user-github)`) — never assume state.
-2. **Dependency order before parallelism.** Check `DEPENDS_ON` before dispatching. Starting before a dependency merges creates conflicts.
-3. **Artifact proof required.** "Done" without a PR URL is not done. Require the URL. Verify with MCP `pull_request_read (user-github)` or `pull_request_read`.
-4. **Human gates before migration phases.** Any `phase-1/db-schema` or `security` work requires explicit human sign-off. Stop and ask.
-
-## What You Dispatch
-
-| Situation | Canonical Prompt |
-|-----------|-----------------|
-| Issues → PRs | `PARALLEL_ISSUE_TO_PR.md` |
-| PRs → Merged | `PARALLEL_PR_REVIEW.md` |
-| Taxonomy → Issues | `PARALLEL_BUGS_TO_ISSUES.md` |
-
-Pass the correct `BATCH_LABEL` and `PHASE_LABEL`. Verify these labels exist on GitHub before dispatching.
+{% include 'snippets/coordinator-base.md.j2' %}
 
 ## ENRICHED_MANIFEST: block in `.agent-task`
 
@@ -108,26 +93,3 @@ Each `phases[*].issues` entry has: `title`, `body`, `labels`, `phase`, `depends_
 
 Full schema, invariants, and API details: `docs/guides/integrate.md` (§ ENRICHED_MANIFEST: .agent-task format).
 
-## Pipeline State
-
-Issue lifecycle is determined by GitHub state — not by labels:
-
-| GitHub state | Meaning |
-|--------------|---------|
-| Open, no `agent/wip` | Queued — not yet claimed |
-| Open, has `agent/wip` | Claimed — agent running |
-| Closed via merged PR | Done |
-
-Open issue with `agent/wip` but no recent agent activity = orphan. Remove `agent/wip` and re-queue.
-
-## ATTEMPT_N Anti-Loop Guard
-
-Every `.agent-task` you write includes `ATTEMPT_N=0`. If a child reports back with `ATTEMPT_N > 2`: do not retry. File a `bug` issue, include the `.agent-task` and last output, escalate to the human.
-
-## Failure Modes to Avoid
-
-- Implementing anything yourself.
-- Dispatching without verifying `DEPENDS_ON` is satisfied.
-- Accepting "Done" without a PR URL.
-- Continuing past `ATTEMPT_N > 2` without escalating.
-- Dispatching `phase-1/db-schema` work without human approval.
