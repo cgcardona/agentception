@@ -96,8 +96,8 @@ class AgentCeptionSettings(BaseSettings):
     actually read.  Set via ``HOST_REPO_DIR`` in docker-compose or .env.
     """
     gh_repo: str = "cgcardona/agentception"
-    poll_interval_seconds: int = 5
-    github_cache_seconds: int = 10
+    poll_interval_seconds: int = 30
+    github_cache_seconds: int = 60
     ac_api_key: str = ""
     """Shared secret for authenticating requests to the ``/api/*`` routes.
 

@@ -27,6 +27,7 @@ from agentception.db.queries import (
     get_latest_active_batch_id,
     get_pending_launches,
     get_run_by_id,
+    get_run_context,
     get_run_status_counts,
     get_run_tree_by_batch_id,
 )
@@ -85,6 +86,29 @@ async def query_run(run_id: str) -> dict[str, object]:
         return {"ok": False, "error": f"Run {run_id!r} not found"}
     logger.info("✅ query_run: found run_id=%r status=%r", run_id, row["status"])
     return {"ok": True, "run": dict(row)}
+
+
+async def query_run_context(run_id: str) -> dict[str, object]:
+    """Return the full task context for a single run.
+
+    Unlike ``query_run``, this includes ``cognitive_arch`` and
+    ``task_description`` — everything an agent needs to understand its
+    complete assignment.  Served as the ``ac://runs/{run_id}/context``
+    MCP resource and used by the ``task/briefing`` prompt.
+
+    Args:
+        run_id: The run ID to look up.
+
+    Returns:
+        ``{"ok": True, "context": {...}}`` when found, or
+        ``{"ok": False, "error": "..."}`` when the run does not exist.
+    """
+    row = await get_run_context(run_id)
+    if row is None:
+        logger.warning("🔍 query_run_context: run_id=%r not found", run_id)
+        return {"ok": False, "error": f"Run {run_id!r} not found"}
+    logger.info("✅ query_run_context: found run_id=%r role=%r", run_id, row["role"])
+    return {"ok": True, "context": dict(row)}
 
 
 async def query_children(run_id: str) -> dict[str, object]:
@@ -215,6 +239,39 @@ async def query_dispatcher_state() -> dict[str, object]:
         "status_counts": [dict(c) for c in counts],
         "active_count": active_count,
         "latest_batch_id": latest_batch_id,
+    }
+
+
+async def query_run_status(run_id: str) -> dict[str, object]:
+    """Return the current status of a run — coordinators use this to poll children.
+
+    Designed for coordinator agents that need to know when their dispatched
+    child runs have completed, failed, or are still running.
+
+    The response includes the status string and, when the run has terminated,
+    the ``completed_at`` timestamp.  Poll at a reasonable interval (every
+    30–60 seconds) and stop when ``status`` is one of the terminal values.
+
+    Terminal statuses: ``"completed"``, ``"cancelled"``, ``"stopped"``.
+    Active statuses: ``"implementing"``, ``"reviewing"``, ``"pending_launch"``.
+
+    Args:
+        run_id: The run ID returned by ``build_spawn_adhoc_child``.
+
+    Returns:
+        ``{"ok": True, "run_id": str, "status": str, "completed_at": str|None}``
+        ``{"ok": False, "error": str}`` when the run_id is not found.
+    """
+    row = await get_run_context(run_id)
+    if row is None:
+        logger.warning("⚠️ query_run_status: run_id %r not found", run_id)
+        return {"ok": False, "error": f"run_id {run_id!r} not found"}
+    logger.info("✅ query_run_status: run_id=%s status=%s", run_id, row["status"])
+    return {
+        "ok": True,
+        "run_id": run_id,
+        "status": row["status"],
+        "completed_at": row.get("completed_at"),
     }
 
 

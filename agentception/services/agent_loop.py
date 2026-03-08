@@ -28,9 +28,14 @@ import json
 import logging
 from pathlib import Path
 
+from sqlalchemy import select
+
 from agentception.config import settings
+from agentception.db.engine import get_session
+from agentception.db.models import ACAgentRun
 from agentception.mcp.build_commands import build_cancel_run, build_complete_run
 from agentception.mcp.log_tools import log_run_error, log_run_step
+from agentception.mcp.prompts import get_prompt
 from agentception.mcp.server import TOOLS, call_tool_async
 from agentception.mcp.types import ACToolResult
 from agentception.models import TaskFile
@@ -56,6 +61,17 @@ logger = logging.getLogger(__name__)
 
 # Hard cap on conversation turns.  Each iteration is one LLM call.
 _DEFAULT_MAX_ITERATIONS = 50
+
+# Tool results longer than this are truncated before being stored in history.
+# read_file / run_command can easily dump 50k+ chars; keeping them unbounded
+# inflates every subsequent input token count linearly.
+_MAX_TOOL_RESULT_CHARS: int = 6_000
+
+# When the message history (excluding system) exceeds this count, old turns
+# are dropped from the middle.  The first user message (task briefing) and the
+# most-recent _HISTORY_TAIL messages are always kept.
+_MAX_HISTORY_MESSAGES: int = 40
+_HISTORY_TAIL: int = 30
 
 # Local tool names — dispatched to file/shell functions rather than MCP.
 _LOCAL_TOOL_NAMES: frozenset[str] = frozenset(
@@ -85,9 +101,9 @@ async def run_agent_loop(
     """
     worktree_path = settings.worktrees_dir / run_id
 
-    task = await _load_task(worktree_path)
+    task = await _load_task(run_id, worktree_path)
     if task is None:
-        logger.error("❌ agent_loop — no .agent-task for run_id=%s", run_id)
+        logger.error("❌ agent_loop — no task context for run_id=%s", run_id)
         await build_cancel_run(run_id)
         return
 
@@ -96,7 +112,7 @@ async def run_agent_loop(
     role_prompt = _load_role_prompt(task.role)
     system_prompt = _build_system_prompt(role_prompt, task.cognitive_arch or "")
     tool_defs = _build_tool_definitions()
-    initial_message = _build_initial_message(task, worktree_path)
+    initial_message = await _fetch_task_briefing(run_id, task, worktree_path)
 
     messages: list[dict[str, object]] = [{"role": "user", "content": initial_message}]
 
@@ -115,8 +131,9 @@ async def run_agent_loop(
         )
 
         try:
+            bounded = _prune_history(_truncate_tool_results(messages))
             response: ToolResponse = await call_openrouter_with_tools(
-                messages,
+                bounded,
                 system=system_prompt,
                 tools=tool_defs,
             )
@@ -178,15 +195,116 @@ async def run_agent_loop(
 # ---------------------------------------------------------------------------
 
 
-async def _load_task(worktree_path: Path) -> TaskFile | None:
-    """Parse the ``.agent-task`` file in *worktree_path*.
+async def _load_task(run_id: str, worktree_path: Path) -> TaskFile | None:
+    """Load task context for *run_id*, preferring the DB row over the file.
 
-    Returns ``None`` and logs an error when the file is absent or malformed.
+    Resolution order:
+    1. ``ACAgentRun`` DB row — always tried first.  When the row carries a
+       ``task_description`` the agent loop can run without any ``.agent-task``
+       file present in the worktree.
+    2. ``.agent-task`` TOML file — parsed as a supplement when present.  Its
+       fields fill in any gaps left by the DB row (e.g. issue queue, spawn
+       mode), but DB fields take precedence where both exist.
+
+    Returns ``None`` only when neither source yields a usable ``TaskFile``.
+    """
+    db_task: TaskFile | None = await _load_task_from_db(run_id)
+    file_task: TaskFile | None = await _load_task_from_file(worktree_path)
+
+    if db_task is None and file_task is None:
+        logger.error("❌ _load_task — no context for run_id=%s", run_id)
+        return None
+
+    if db_task is None:
+        return file_task
+    if file_task is None:
+        return db_task
+
+    # Merge: DB takes precedence for scalar fields; file supplies queue lists.
+    return TaskFile(
+        task=db_task.task or file_task.task,
+        id=db_task.id or file_task.id,
+        attempt_n=db_task.attempt_n or file_task.attempt_n,
+        is_resumed=db_task.is_resumed or file_task.is_resumed,
+        required_output=db_task.required_output or file_task.required_output,
+        on_block=file_task.on_block,
+        role=db_task.role or file_task.role,
+        tier=db_task.tier or file_task.tier,
+        org_domain=db_task.org_domain or file_task.org_domain,
+        cognitive_arch=db_task.cognitive_arch or file_task.cognitive_arch,
+        session_id=file_task.session_id,
+        gh_repo=file_task.gh_repo,
+        base=file_task.base,
+        batch_id=db_task.batch_id or file_task.batch_id,
+        parent_run_id=db_task.parent_run_id or file_task.parent_run_id,
+        wave=file_task.wave,
+        vp_fingerprint=file_task.vp_fingerprint,
+        spawn_sub_agents=file_task.spawn_sub_agents,
+        spawn_mode=db_task.spawn_mode or file_task.spawn_mode,
+        issue_number=db_task.issue_number or file_task.issue_number,
+        pr_number=db_task.pr_number or file_task.pr_number,
+        depends_on=file_task.depends_on,
+        closes_issues=file_task.closes_issues,
+        file_ownership=file_task.file_ownership,
+        files_changed=file_task.files_changed,
+        grade_threshold=file_task.grade_threshold,
+        has_migration=file_task.has_migration,
+        merge_after=file_task.merge_after,
+        worktree=db_task.worktree or file_task.worktree,
+        branch=db_task.branch or file_task.branch,
+        linked_pr=file_task.linked_pr,
+        draft_id=file_task.draft_id,
+        output_path=file_task.output_path,
+        output_format=file_task.output_format,
+        domain=file_task.domain,
+        issue_queue=file_task.issue_queue,
+        pr_queue=file_task.pr_queue,
+        task_description=db_task.task_description or file_task.task_description,
+    )
+
+
+async def _load_task_from_db(run_id: str) -> TaskFile | None:
+    """Build a ``TaskFile`` from the ``ACAgentRun`` DB row for *run_id*.
+
+    Returns ``None`` when no row is found.  Never raises — errors are logged
+    and ``None`` is returned so the caller can fall back to the file.
+    """
+    try:
+        async with get_session() as session:
+            run: ACAgentRun | None = await session.scalar(
+                select(ACAgentRun).where(ACAgentRun.id == run_id)
+            )
+        if run is None:
+            return None
+        return TaskFile(
+            id=run.id,
+            role=run.role,
+            cognitive_arch=run.cognitive_arch,
+            issue_number=run.issue_number,
+            pr_number=run.pr_number,
+            branch=run.branch,
+            worktree=run.worktree_path,
+            batch_id=run.batch_id,
+            parent_run_id=run.parent_run_id,
+            tier=run.tier,
+            org_domain=run.org_domain,
+            spawn_mode=run.spawn_mode,
+            task_description=run.task_description,
+        )
+    except Exception as exc:
+        logger.error("❌ _load_task_from_db error for run_id=%s: %s", run_id, exc)
+        return None
+
+
+async def _load_task_from_file(worktree_path: Path) -> TaskFile | None:
+    """Parse the ``.agent-task`` TOML file in *worktree_path*.
+
+    Returns ``None`` when the file is absent or malformed.
     """
     try:
         return await parse_agent_task(worktree_path)
     except Exception as exc:
-        logger.error("❌ _load_task error: %s", exc)
+        logger.error("❌ _load_task_from_file error: %s", exc)
         return None
 
 
@@ -225,8 +343,9 @@ You are running **inside the AgentCeption Docker container**, not on the host ma
   - ✅ `python3 -m pytest tests/`
   - ✅ `python3 -m mypy agentception/`
   - ❌ `docker compose exec agentception python3 -m pytest` (wrong — you are already inside)
-- The repository is mounted at `/app`.  The worktree for your task is at the path
-  in your `.agent-task` file (`[worktree] path`).
+- The repository is mounted at `/app`.  Your worktree path is provided in your
+  initial message.  If a `.agent-task` file exists in your worktree, it contains
+  additional pipeline configuration you may reference.
 - Git operations run in the worktree directory.
 - Use `run_command` for shell execution.  Use `read_file` / `write_file` for files.
 """
@@ -260,28 +379,47 @@ def _build_system_prompt(role_prompt: str, cognitive_arch: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _build_initial_message(task: TaskFile, worktree_path: Path) -> str:
-    """Build the first user message that kicks off the agent conversation.
+async def _fetch_task_briefing(run_id: str, task: TaskFile, worktree_path: Path) -> str:
+    """Fetch the initial agent message via the ``task/briefing`` MCP prompt.
+
+    Calls ``get_prompt("task/briefing", {"run_id": run_id})`` so the briefing
+    is rendered from the DB — no file read, no inline text construction.  This
+    is the correct MCP Prompts usage: the client (the loop) calls
+    ``prompts/get`` and uses the result as the first user message.
+
+    Falls back to a minimal inline message when the prompt cannot be resolved
+    (e.g. during DB downtime), so the loop degrades gracefully rather than
+    refusing to start.
 
     Args:
-        task: Parsed ``.agent-task`` data.
-        worktree_path: Container-side path to the worktree directory.
+        run_id: The run ID passed to the ``task/briefing`` prompt.
+        task: Merged task context (used only for the fallback message).
+        worktree_path: Container-side worktree path (used only for fallback).
 
     Returns:
-        A brief markdown message directing the agent to read its task file.
+        The first user message string for the agent conversation.
     """
-    run_id = task.id or str(worktree_path.name)
-    issue_ref = f"#{task.issue_number}" if task.issue_number else "(no issue)"
-    role = task.role or "unknown"
-    task_file_path = worktree_path / ".agent-task"
+    try:
+        result = await get_prompt("task/briefing", {"run_id": run_id})
+        if result is not None and result["messages"]:
+            text: object = result["messages"][0]["content"]["text"]
+            if isinstance(text, str) and text.strip():
+                logger.info("✅ agent_loop — task/briefing prompt resolved for run_id=%s", run_id)
+                return text
+    except Exception as exc:
+        logger.warning("⚠️ agent_loop — task/briefing prompt failed: %s", exc)
 
+    # Fallback: minimal inline message so the loop can still start.
+    logger.warning(
+        "⚠️ agent_loop — falling back to inline briefing for run_id=%s", run_id
+    )
+    role = task.role or "unknown"
+    issue_ref = f"#{task.issue_number}" if task.issue_number else "(no issue)"
     return (
-        f"You have been dispatched to work on issue {issue_ref} "
-        f"as a **{role}** agent (run `{run_id}`).\n\n"
-        f"Your worktree is at: `{worktree_path}`\n"
-        f"Your configuration is at: `{task_file_path}`\n\n"
-        f"Start by reading your `.agent-task` file to understand your full "
-        f"instructions, then proceed with your work."
+        f"You are a **{role}** agent (run `{run_id}`) working on issue {issue_ref}.\n\n"
+        f"Your worktree is at: `{worktree_path}`\n\n"
+        f"Read `ac://runs/{run_id}/context` for your full task context, "
+        f"then proceed with your work."
     )
 
 
@@ -326,6 +464,72 @@ def _build_tool_definitions() -> list[ToolDefinition]:
         tool_defs.append(_mcp_tool_to_openai(name, description, input_schema))
 
     return tool_defs
+
+
+# ---------------------------------------------------------------------------
+# Context management — keep token count bounded across iterations
+# ---------------------------------------------------------------------------
+
+
+def _truncate_tool_results(
+    messages: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Truncate oversized tool-result content to ``_MAX_TOOL_RESULT_CHARS``.
+
+    Tool calls such as ``read_file`` and ``run_command`` can return tens of
+    thousands of characters.  Every subsequent LLM turn pays full input-token
+    price for that content, so we cap it here.  The model still sees the
+    beginning and a clear truncation marker.
+    """
+    out: list[dict[str, object]] = []
+    for msg in messages:
+        if msg.get("role") == "tool":
+            raw = msg.get("content", "")
+            if isinstance(raw, str) and len(raw) > _MAX_TOOL_RESULT_CHARS:
+                msg = dict(msg)
+                msg["content"] = (
+                    raw[:_MAX_TOOL_RESULT_CHARS]
+                    + f"\n... [truncated — {len(raw) - _MAX_TOOL_RESULT_CHARS} chars omitted]"
+                )
+        out.append(msg)
+    return out
+
+
+def _prune_history(
+    messages: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Drop old turns from the middle of the message history.
+
+    Keeps:
+    - The first message (always the task briefing — acts as a persistent anchor).
+    - The most-recent ``_HISTORY_TAIL`` messages, trimmed so they start on an
+      ``assistant`` turn.
+
+    Starting on an assistant turn is required: the Anthropic API enforces
+    strict user→assistant alternation.  Inserting a sentinel ``user`` message
+    before a ``tool`` message would produce two consecutive non-assistant
+    messages and result in a 400.  We instead splice directly from the first
+    ``assistant`` message in the tail so the structure is always:
+
+        user (task briefing) → assistant → tool(s) → assistant → …
+    """
+    if len(messages) <= _MAX_HISTORY_MESSAGES:
+        return messages
+
+    tail = messages[-_HISTORY_TAIL:]
+
+    # Advance past any leading tool/user messages in the tail so we start on
+    # an assistant turn.  This preserves the required alternating structure.
+    start = next(
+        (i for i, m in enumerate(tail) if m.get("role") == "assistant"),
+        0,
+    )
+    tail = tail[start:]
+
+    if not tail:
+        return messages  # safety: nothing to prune without breaking structure
+
+    return messages[:1] + tail
 
 
 # ---------------------------------------------------------------------------

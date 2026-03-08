@@ -113,6 +113,14 @@ class ACAgentRun(Base):
     cognitive_arch: Mapped[str | None] = mapped_column(String(256), nullable=True)
     """Cognitive architecture string at spawn time, e.g. ``guido_van_rossum:python``."""
 
+    task_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    """Inline task description for ad-hoc runs (POST /api/runs/adhoc).
+
+    When present, the agent loop uses this as the initial message instead of
+    directing the agent to read a ``.agent-task`` file.  Null for all runs
+    created via the standard GitHub-issue dispatch pipeline.
+    """
+
     tier: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     """Behavioral execution tier for this agent run.
 

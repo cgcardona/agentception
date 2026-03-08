@@ -2,15 +2,12 @@
 
 You implement work. You do not route work. You own one issue or one PR —
 finish it or escalate, never leave it in limbo. Do not spawn sub-agents
-unless your `.agent-task` explicitly sets `[spawn] sub_agents = true`.
+unless your task briefing explicitly authorizes it.
 
 ## ATTEMPT_N Guard
 
-Read `attempt_n` from your `.agent-task`:
-
-```bash
-ATTEMPT_N=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['task']['attempt_n'])")
-```
+Your `attempt_n` is in your task briefing (field `attempt_n` in
+`ac://runs/{your_run_id}/context`). Check it before proceeding.
 
 If `attempt_n > 2` — **STOP immediately.** Post a comment on the issue
 explaining what blocked you, remove `agent/wip`, clean up your worktree,

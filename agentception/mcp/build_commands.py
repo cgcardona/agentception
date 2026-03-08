@@ -372,3 +372,64 @@ async def build_stop_run(run_id: str) -> dict[str, object]:
         }
     logger.info("✅ build_stop_run: %r → stopped", run_id)
     return {"ok": True, "run_id": run_id, "status": "stopped"}
+
+
+async def build_spawn_adhoc_child(
+    parent_run_id: str,
+    role: str,
+    task_description: str,
+    figure: str = "",
+    base_branch: str = "origin/dev",
+) -> dict[str, object]:
+    """Spawn a child agent run from within another agent's tool loop.
+
+    This is the MCP-native way for a coordinator to dispatch engineer agents.
+    It is equivalent to ``POST /api/runs/adhoc`` but callable directly by an
+    agent without touching the REST API.
+
+    The child run gets its own git worktree, a DB row with
+    ``parent_run_id`` linking it to this coordinator, and the agent loop
+    fires immediately as an asyncio task.
+
+    Args:
+        parent_run_id: ``run_id`` of the calling coordinator — used to link
+            the child in the DB for hierarchy tracking.
+        role: Role slug for the child agent (e.g. ``"python-developer"``).
+        task_description: Plain-language description of the child's task.
+            Be specific: files to touch, expected output, constraints.
+        figure: Cognitive figure slug override (e.g. ``"guido_van_rossum"``).
+            When empty the default for the role is used.
+        base_branch: Git ref to branch the worktree from.
+
+    Returns:
+        ``{"ok": True, "child_run_id": str, "worktree_path": str,
+           "cognitive_arch": str}`` on success.
+        ``{"ok": False, "error": str}`` if worktree or DB creation fails.
+    """
+    from agentception.services.run_factory import RunCreationError, create_and_launch_run  # noqa: PLC0415
+
+    try:
+        result = await create_and_launch_run(
+            role=role,
+            task_description=task_description,
+            figure=figure or None,
+            base_branch=base_branch,
+            parent_run_id=parent_run_id,
+        )
+    except RunCreationError as exc:
+        logger.error(
+            "❌ build_spawn_adhoc_child: failed for parent=%s role=%s — %s",
+            parent_run_id, role, exc,
+        )
+        return {"ok": False, "error": str(exc)}
+
+    logger.info(
+        "✅ build_spawn_adhoc_child: parent=%s spawned child=%s role=%s",
+        parent_run_id, result["run_id"], role,
+    )
+    return {
+        "ok": True,
+        "child_run_id": result["run_id"],
+        "worktree_path": result["worktree_path"],
+        "cognitive_arch": result["cognitive_arch"],
+    }

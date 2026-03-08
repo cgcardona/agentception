@@ -383,7 +383,21 @@ async def call_openrouter_with_tools(
     """
     full_messages: list[dict[str, object]] = []
     if system:
-        full_messages.append({"role": "system", "content": system})
+        # Wrap system content in a content-block array so Anthropic's prompt
+        # caching can be applied.  The ephemeral cache lasts 5 minutes and
+        # charges ~10% of the normal input-token price on cache hits — the
+        # system prompt is identical across every iteration of the same run,
+        # so it will be served from cache on turns 2-N.
+        full_messages.append({
+            "role": "system",
+            "content": [
+                {
+                    "type": "text",
+                    "text": system,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+        })
     full_messages.extend(messages)
 
     payload: dict[str, object] = {

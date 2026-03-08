@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 import pytest
 
-from agentception.mcp.prompts import PROMPTS, get_prompt
+from agentception.mcp.prompts import PROMPTS, get_static_prompt
 from agentception.mcp.server import handle_request, handle_request_async, list_prompts
 
 
@@ -77,14 +77,14 @@ class TestPromptsCatalogue:
 
 class TestGetPrompt:
     def test_unknown_name_returns_none(self) -> None:
-        result = get_prompt("unknown/nonexistent")
+        result = get_static_prompt("unknown/nonexistent")
         assert result is None
 
     def test_role_prompt_returns_content(self) -> None:
         fake_content = "# CTO Role\n\nYou are the CTO.\n"
         with patch.object(Path, "exists", return_value=True), \
              patch.object(Path, "read_text", return_value=fake_content):
-            result = get_prompt("role/cto")
+            result = get_static_prompt("role/cto")
         assert result is not None
         assert result["description"] != ""
         assert len(result["messages"]) == 1
@@ -97,17 +97,17 @@ class TestGetPrompt:
         fake_content = "# Dispatcher\n\nYou dispatch agents.\n"
         with patch.object(Path, "exists", return_value=True), \
              patch.object(Path, "read_text", return_value=fake_content):
-            result = get_prompt("agent/dispatcher")
+            result = get_static_prompt("agent/dispatcher")
         assert result is not None
         assert result["messages"][0]["content"]["text"] == fake_content
 
     def test_role_not_found_returns_none(self) -> None:
         with patch.object(Path, "exists", return_value=False):
-            result = get_prompt("role/nonexistent-role-xyz")
+            result = get_static_prompt("role/nonexistent-role-xyz")
         assert result is None
 
     def test_wrong_prefix_returns_none(self) -> None:
-        result = get_prompt("unknown/cto")
+        result = get_static_prompt("unknown/cto")
         assert result is None
 
 

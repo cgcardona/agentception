@@ -12,6 +12,7 @@ import path continues to work unchanged.
 
 from fastapi import APIRouter
 
+from .adhoc import router as _adhoc
 from .agent_run import router as _agent_run
 from .system import router as _system
 from .dispatch import router as _dispatch
@@ -31,6 +32,7 @@ from .wizard import router as _wizard
 from .worktrees import router as _worktrees
 
 router = APIRouter(prefix="/api", tags=["api"])
+router.include_router(_adhoc)
 router.include_router(_agent_run)
 router.include_router(_system)
 router.include_router(_dispatch)
