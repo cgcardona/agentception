@@ -71,18 +71,28 @@ labels:
     color: "0075ca"
     description: "Claimed by a pipeline agent — do not assign manually"
 
+  # ── Pipeline state labels ──────────────────────────────────────────────────────
+  # Applied/removed automatically by the system — never set manually.
+  # pipeline/active  : issue is ready for agent dispatch (phase 0, or phase gate opened)
+  # pipeline/gated   : issue is waiting for a prior phase to complete
+  # blocked/deps     : issue has open ticket-level dependencies; poller removes once all deps close
+  pipeline:
+    - name: "pipeline/active"
+      color: "2ecc71"
+      description: "Ready for agent dispatch — phase gate is open"
+    - name: "pipeline/gated"
+      color: "d73a4a"
+      description: "Phase gate closed — prior phase must complete before dispatch"
+    - name: "blocked/deps"
+      color: "cfd3d7"
+      description: "Has open ticket dependencies — poller removes once all deps close"
+
   # ── Special labels ────────────────────────────────────────────────────────────
   # Labels used for pipeline control that don't fit other namespaces.
   special:
     - name: "conductor-reminder"
       color: "e4e669"
       description: "Open: pipeline incomplete — re-run agent-conductor.md"
-    - name: "ticket-blocked"
-      color: "cfd3d7"
-      description: "Blocked on a dep issue — poller removes once all deps close"
-    - name: "blocked"
-      color: "d73a4a"
-      description: "Blocked on external dependency — cannot proceed"
 
   # ── Team namespace ─────────────────────────────────────────────────────────────
   # CEO reads team/* labels to discover which C-level coordinators to dispatch.

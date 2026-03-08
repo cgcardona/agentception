@@ -9,9 +9,9 @@ removing the configured blocked label and adding the configured active label.
 Label names are read from ``pipeline-config.json`` so they remain configurable
 without a code change:
 
-- ``phase_advance_blocked_label`` (default ``"blocked"``) — removed from
+- ``phase_advance_blocked_label`` (default ``"pipeline/gated"``) — removed from
   to-phase issues that were waiting on the previous phase.
-- ``phase_advance_active_label`` (default ``"pipeline-active"``) — added to
+- ``phase_advance_active_label`` (default ``"pipeline/active"``) — added to
   to-phase issues to signal they are ready for dispatch.
 
 This function is async and must be called from the ``call_tool_async``
@@ -184,8 +184,8 @@ async def _unlock_issue(
 
     Args:
         issue_number:  GitHub issue number.
-        blocked_label: Label name to remove (e.g. ``"blocked"``).
-        active_label:  Label name to add (e.g. ``"pipeline-active"``).
+        blocked_label: Label name to remove (e.g. ``"pipeline/gated"``).
+        active_label:  Label name to add (e.g. ``"pipeline/active"``).
     """
     await remove_label_from_issue(issue_number, blocked_label)
     await add_label_to_issue(issue_number, active_label)

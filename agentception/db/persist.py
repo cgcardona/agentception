@@ -28,7 +28,7 @@ from sqlalchemy import select
 # interpreted as initiative slugs.  Any label whose prefix-before-"/" matches
 # one of these is a taxonomy label, not a plan-pipeline initiative.
 _TAXONOMY_NAMESPACES: frozenset[str] = frozenset(
-    {"agent", "batch", "gate", "phase", "priority", "team", "type"}
+    {"agent", "batch", "blocked", "gate", "phase", "pipeline", "priority", "team", "type"}
 )
 
 from agentception.db.engine import get_session

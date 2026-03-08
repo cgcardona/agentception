@@ -74,7 +74,7 @@ def _make_session_ctx(issues: list[MagicMock], has_existing_phase: bool) -> Magi
 async def test_reseed_derives_sequential_deps_from_scoped_labels() -> None:
     """When initiative_phases is empty, phases are seeded with sequential deps."""
     issues = [
-        _mock_issue(["ac-build", "ac-build/0-foundation", "pipeline-active"]),
+        _mock_issue(["ac-build", "ac-build/0-foundation", "pipeline/active"]),
         _mock_issue(["ac-build", "ac-build/1-features", "blocked"]),
         _mock_issue(["ac-build", "ac-build/2-polish", "blocked"]),
     ]
@@ -115,7 +115,7 @@ async def test_reseed_derives_sequential_deps_from_scoped_labels() -> None:
 async def test_reseed_skips_initiative_with_existing_phase_metadata() -> None:
     """If initiative_phases already has rows, the initiative is not reseeded."""
     issues = [
-        _mock_issue(["ac-build", "ac-build/0-foundation", "pipeline-active"]),
+        _mock_issue(["ac-build", "ac-build/0-foundation", "pipeline/active"]),
     ]
     captured: list[str] = []
 
@@ -141,7 +141,7 @@ async def test_reseed_skips_initiative_with_existing_phase_metadata() -> None:
 async def test_reseed_skips_initiative_with_no_scoped_labels() -> None:
     """Issues with no scoped labels produce no phase metadata."""
     issues = [
-        _mock_issue(["ac-build", "pipeline-active"]),  # no ac-build/* label
+        _mock_issue(["ac-build", "pipeline/active"]),  # no ac-build/* label
     ]
     captured: list[str] = []
 

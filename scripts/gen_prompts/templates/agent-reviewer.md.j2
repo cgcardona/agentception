@@ -753,8 +753,8 @@ STEP 6 — PRE-MERGE SYNC (only if grade is A or B):
   │ URL and the exact error, and let the user merge manually.                  │
   └─────────────────────────────────────────────────────────────────────────────
 
-  # 6. Clear agent:wip now that the PR is merged — it must not persist on closed PRs.
-       # MCP: github_remove_label(issue_number=N, label="agent:wip")
+  # 6. Clear agent/wip now that the PR is merged — it must not persist on closed PRs.
+       # MCP: github_remove_label(issue_number=N, label="agent/wip")
 
   # 7. Delete the remote branch — CHECK EXISTENCE FIRST.
   # GitHub auto-delete-head-branches is ENABLED on this repo, so the branch is
@@ -796,7 +796,7 @@ STEP 6 — PRE-MERGE SYNC (only if grade is A or B):
          #       issue_number=<N>, state="closed", state_reason="completed")
          # MCP: add_issue_comment(owner="{{ gh_repo.split('/')[0] }}", repo="{{ gh_repo.split('/')[1] }}",
          #       issue_number=<N>, body="$CLOSE_COMMENT")
-         # MCP: github_remove_label(issue_number=<N>, label="agent:wip")
+         # MCP: github_remove_label(issue_number=<N>, label="agent/wip")
          echo "Close each issue via MCP issue_write + add_issue_comment + github_remove_label"
        else
          # Fallback: re-parse the PR body if CLOSES_ISSUES was empty in task file
@@ -967,7 +967,7 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
       # Pick the next unclaimed issue from ACTIVE_LABEL only.
       # MCP: list_issues (user-github)(label="$ACTIVE_LABEL", state="open")
       # Filter out any with label "{{ claim_label }}" (already claimed),
-      # "blocked" (phase-gated), or "ticket-blocked" (unresolved ticket-level
+      # "pipeline/gated" (phase-gated), or "blocked/deps" (unresolved ticket-level
       # dependency — the poller removes this label once all deps close).
       # Take the lowest-numbered remaining issue.
       NEXT_ISSUE=<lowest unclaimed issue number from MCP response>
@@ -1079,7 +1079,7 @@ TASK
       NEXT_BRANCH=<headRefName from MCP response>
       NEXT_WORKTREE="$HOME/.agentception/worktrees/agentception/pr-$NEXT_PR"
       git -C "$REPO" worktree add "$NEXT_WORKTREE" "origin/$NEXT_BRANCH"
-      # ⚠️  Do NOT add agent:wip here. The reviewer claims the label itself in STEP 3
+      # ⚠️  Do NOT add agent/wip here. The reviewer claims the label itself in STEP 3
       # after passing the idempotency gate. Adding it here causes stale labels when the
       # reviewer is never launched or crashes before claiming.
 
@@ -1152,7 +1152,7 @@ TASK
   fi
 
 STEP 9 — SELF-DESTRUCT (always run this after STEP 8, merge or not, early stop or not):
-  # Unconditionally clear agent:wip — covers D/F grade, merge failure, and timeout paths
+  # Unconditionally clear agent/wip — covers D/F grade, merge failure, and timeout paths
   # where STEP 6 was never reached. Removing a non-existent label is a no-op.
   # MCP: github_remove_label(issue_number=N, label="{{ claim_label }}")
   WORKTREE=$(pwd)

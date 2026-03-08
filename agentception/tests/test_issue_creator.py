@@ -219,7 +219,7 @@ async def test_file_issues_emits_done_event_last() -> None:
 
 @pytest.mark.anyio
 async def test_file_issues_edits_body_for_depends_on() -> None:
-    """An issue with depends_on gets a body edit and a ticket-blocked label add."""
+    """An issue with depends_on gets a body edit and a blocked/deps label add."""
     spec = _make_spec(with_depends_on=True)
 
     create_count = 0
@@ -253,11 +253,11 @@ async def test_file_issues_edits_body_for_depends_on() -> None:
     )
     assert body_arg is not None and "Blocked by:" in body_arg
 
-    # Separate add_label_to_issue call stamps ticket-blocked on the dep issue.
+    # Separate add_label_to_issue call stamps blocked/deps on the dep issue.
     add_label_mock.assert_awaited_once()
     call_args = add_label_mock.call_args
     assert call_args is not None
-    assert call_args.args[1] == "ticket-blocked"
+    assert call_args.args[1] == "blocked/deps"
 
     blocked_events = [e for e in events if e["t"] == "blocked"]
     assert len(blocked_events) == 1
@@ -381,7 +381,7 @@ async def test_file_issues_yields_error_on_create_failure() -> None:
 @pytest.mark.anyio
 async def test_bootstrap_labels_creates_scoped_phase_labels() -> None:
     """_bootstrap_labels creates '{initiative}/{N}-{slug}' labels, not bare phase labels.
-    Also ensures the pipeline-gate labels (pipeline-active, blocked) are created.
+    Also ensures the pipeline-gate labels (pipeline/active, pipeline/gated, blocked/deps) are created.
     """
     spec = _make_spec(initiative="ac-build")
     created_labels: list[str] = []
@@ -407,8 +407,9 @@ async def test_bootstrap_labels_creates_scoped_phase_labels() -> None:
     # Initiative label itself must be created.
     assert "ac-build" in created_labels
     # Pipeline-gate labels must always be bootstrapped.
-    assert "pipeline-active" in created_labels
-    assert "blocked" in created_labels
+    assert "pipeline/active" in created_labels
+    assert "pipeline/gated" in created_labels
+    assert "blocked/deps" in created_labels
 
 
 @pytest.mark.anyio
@@ -444,13 +445,13 @@ async def test_file_issues_uses_scoped_labels_on_gh_create() -> None:
         bare_phase = [lbl for lbl in label_args if lbl.startswith("phase-") and "/" not in lbl]
         assert bare_phase == [], f"Unexpected global phase label(s): {bare_phase}"
         # Every issue gets exactly one pipeline-gate label.
-        gate = [lbl for lbl in label_args if lbl in ("pipeline-active", "blocked")]
+        gate = [lbl for lbl in label_args if lbl in ("pipeline/active", "pipeline/gated")]
         assert len(gate) == 1, f"Expected exactly one gate label, got {gate}"
 
 
 @pytest.mark.anyio
 async def test_file_issues_phase_gate_labels_by_phase_position() -> None:
-    """Phase 0 issues get 'pipeline-active'; phase 1+ issues get 'blocked'."""
+    """Phase 0 issues get 'pipeline/active'; phase 1+ issues get 'pipeline/gated'."""
     spec = _make_spec(initiative="ac-workflow")
     # Capture (phase_scoped_label, gate_label) per create call.
     phase_gate_pairs: list[tuple[str, str]] = []
@@ -460,7 +461,7 @@ async def test_file_issues_phase_gate_labels_by_phase_position() -> None:
         if "create" in cmd:
             label_args = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--label"]
             scoped = next((lbl for lbl in label_args if lbl.startswith("ac-workflow/")), "")
-            gate = next((lbl for lbl in label_args if lbl in ("pipeline-active", "blocked")), "")
+            gate = next((lbl for lbl in label_args if lbl in ("pipeline/active", "pipeline/gated")), "")
             phase_gate_pairs.append((scoped, gate))
             return _mock_proc(stdout=_issue_url(len(phase_gate_pairs)))
         return _mock_proc()
@@ -474,9 +475,9 @@ async def test_file_issues_phase_gate_labels_by_phase_position() -> None:
     assert phase_gate_pairs, "No create calls recorded"
     for scoped, gate in phase_gate_pairs:
         if scoped.endswith("/0-foundation"):
-            assert gate == "pipeline-active", f"Phase-0 issue got {gate!r} instead of pipeline-active"
+            assert gate == "pipeline/active", f"Phase-0 issue got {gate!r} instead of pipeline/active"
         else:
-            assert gate == "blocked", f"Non-phase-0 issue got {gate!r} instead of blocked"
+            assert gate == "pipeline/gated", f"Non-phase-0 issue got {gate!r} instead of pipeline/gated"
 
 
 def test_embed_phase_gate_appends_blocking_notice() -> None:

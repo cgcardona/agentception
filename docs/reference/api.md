@@ -383,7 +383,7 @@ Send a user message into a running agent's context. The agent's SSE stream picks
 
 #### `POST /api/runs/{run_id}/stop`
 
-Stop a running agent. Sets `status = DONE`, removes the `agent:wip` label.
+Stop a running agent. Sets `status = DONE`, removes the `agent/wip` label.
 
 ---
 
@@ -441,7 +441,7 @@ Legacy orchestration control endpoints. Prefer MCP tools for new integrations.
 | `POST` | `/api/control/spawn` | Spawn a single agent |
 | `POST` | `/api/control/spawn-wave` | Spawn a wave of agents |
 | `POST` | `/api/control/sweep` | Sweep stale runs |
-| `POST` | `/api/control/reset-build` | Full reset: remove all worktrees, clear all agent:wip, set active runs to unknown |
+| `POST` | `/api/control/reset-build` | Full reset: remove all worktrees, clear all agent/wip, set active runs to unknown |
 | `POST` | `/api/control/trigger-poll` | Trigger an immediate GitHub poll |
 
 ---

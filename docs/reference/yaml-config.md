@@ -41,7 +41,7 @@ repo:
 
 ```yaml
 pipeline:
-  claim_label: "agent:wip"
+  claim_label: "agent/wip"
   max_pool_size: 0
   phases:
     - "ac-workflow/0-foundation"
@@ -50,7 +50,7 @@ pipeline:
 
 | Key | Description |
 |-----|-------------|
-| `claim_label` | GitHub label applied to issues when an agent claims them. Remove to release. Default: `"agent:wip"`. |
+| `claim_label` | GitHub label applied to issues when an agent claims them. Remove to release. Default: `"agent/wip"`. |
 | `max_pool_size` | Unused — agents are spawned without a concurrency cap. Set to `0`. |
 | `phases` | **Strict phase order** for the active initiative. The CTO and chain-spawn logic iterate this list top-to-bottom. Add/remove phases here, then update the matching `labels.phases` section and re-run `generate.py`. |
 
@@ -92,7 +92,7 @@ Single source of truth for all GitHub labels. Running `sync_labels.sh` creates/u
 ```yaml
 labels:
   claim:
-    name: "agent:wip"
+    name: "agent/wip"
     color: "0075ca"
     description: "Claimed by a pipeline agent — do not assign manually"
 
@@ -120,7 +120,7 @@ labels:
 
 | Section | Description |
 |---------|-------------|
-| `claim` | The `agent:wip` claim label — applied/removed at runtime by agents. |
+| `claim` | The `agent/wip` claim label — applied/removed at runtime by agents. |
 | `project` | Top-level initiative label (e.g. `ac-workflow`). Update when switching projects. |
 | `phases` | Phase labels — must match `pipeline.phases` in name and order. |
 | `utility` | Standard triage/status labels (bug, enhancement, documentation, etc.). |

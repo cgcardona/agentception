@@ -150,7 +150,7 @@ Step 3: Run your tier's GitHub queries via MCP to discover what needs doing.
   coordinator (engineering-coordinator role) — call:
     list_issues (user-github)(label="{scope_value}", state="open")
   Filter out any issues with label "{{ claim_label }}" (already claimed),
-  "blocked" (phase-gated — prior phase not yet complete), or "ticket-blocked"
+  "pipeline/gated" (phase-gated — prior phase not yet complete), or "blocked/deps"
   (has unresolved ticket-level dependencies — do not dispatch until all are closed).
   Only work on issues with none of these three labels.
   Then: spawn one engineer per eligible issue (all in parallel via Task calls).

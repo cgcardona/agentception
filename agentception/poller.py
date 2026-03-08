@@ -499,7 +499,7 @@ async def _build_board_issues(
 
 
 async def _auto_advance_phases(repo: str) -> None:
-    """Automatically remove the ``blocked`` label and add ``pipeline-active`` when a phase gate opens.
+    """Automatically remove the ``pipeline/gated`` label and add ``pipeline/active`` when a phase gate opens.
 
     Called on every tick after ``persist_tick`` and ``reseed_missing_initiative_phases``.
     Reads the DB-computed phase completion state, finds any phases whose
@@ -578,11 +578,11 @@ async def _auto_advance_phases(repo: str) -> None:
                     )
 
 
-async def _auto_unblock_ticket_deps(repo: str) -> None:
-    """Remove ``ticket-blocked`` from issues whose all ticket-level deps have closed.
+async def _auto_unblock_deps(repo: str) -> None:
+    """Remove ``blocked/deps`` from issues whose all ticket-level deps have closed.
 
     Called on every tick after ``_auto_advance_phases``.  For each open issue
-    that still carries the ``ticket-blocked`` label, checks whether every issue
+    that still carries the ``blocked/deps`` label, checks whether every issue
     in its ``depends_on_json`` list is now ``closed`` in the DB.  If so,
     removes the label so the engineering coordinator will pick it up on the
     next dispatch.
@@ -590,50 +590,50 @@ async def _auto_unblock_ticket_deps(repo: str) -> None:
     DB is the source of truth here — the poller has already written the latest
     GitHub state into ``ACIssue.state`` before this function runs.
     """
-    from agentception.db.queries import get_closed_issue_numbers, get_ticket_blocked_open_issues
+    from agentception.db.queries import get_blocked_deps_open_issues, get_closed_issue_numbers
     from agentception.readers.github import remove_label_from_issue
 
     try:
-        candidates = await get_ticket_blocked_open_issues(repo)
+        candidates = await get_blocked_deps_open_issues(repo)
         if not candidates:
             return
         closed = await get_closed_issue_numbers(repo)
         for row in candidates:
             if all(dep in closed for dep in row["dep_numbers"]):
                 try:
-                    await remove_label_from_issue(row["github_number"], "ticket-blocked")
+                    await remove_label_from_issue(row["github_number"], "blocked/deps")
                     logger.info(
-                        "✅ _auto_unblock_ticket_deps: #%d all deps closed — removed ticket-blocked",
+                        "✅ _auto_unblock_deps: #%d all deps closed — removed blocked/deps",
                         row["github_number"],
                     )
                 except Exception as exc:
                     logger.warning(
-                        "⚠️  _auto_unblock_ticket_deps: could not remove label from #%d: %s",
+                        "⚠️  _auto_unblock_deps: could not remove label from #%d: %s",
                         row["github_number"],
                         exc,
                     )
     except Exception as exc:
-        logger.warning("⚠️  _auto_unblock_ticket_deps: failed: %s", exc)
+        logger.warning("⚠️  _auto_unblock_deps: failed: %s", exc)
 
 
-async def _stamp_missing_ticket_blocked(repo: str) -> None:
-    """Re-apply ``ticket-blocked`` to issues whose deps are recorded but the label is absent.
+async def _stamp_missing_blocked_deps(repo: str) -> None:
+    """Re-apply ``blocked/deps`` to issues whose deps are recorded but the label is absent.
 
     This is the server-side safety net for a silent failure mode in
     ``file_issues``: if ``add_label_to_issue`` threw a ``RuntimeError`` that was
     caught by the (now-fixed) shared try/except, the body was edited but the
     label was never applied.  On the next poller tick this function detects the
-    gap — ``depends_on_json`` non-empty but ``ticket-blocked`` missing — and
+    gap — ``depends_on_json`` non-empty but ``blocked/deps`` missing — and
     re-stamps the label provided at least one dep is still open.
 
-    Called on every tick immediately before ``_auto_unblock_ticket_deps`` so the
+    Called on every tick immediately before ``_auto_unblock_deps`` so the
     unblock pass always operates on a correct label set.
     """
-    from agentception.db.queries import get_closed_issue_numbers, get_issues_missing_ticket_blocked
+    from agentception.db.queries import get_closed_issue_numbers, get_issues_missing_blocked_deps
     from agentception.readers.github import add_label_to_issue
 
     try:
-        candidates = await get_issues_missing_ticket_blocked(repo)
+        candidates = await get_issues_missing_blocked_deps(repo)
         if not candidates:
             return
         closed = await get_closed_issue_numbers(repo)
@@ -641,20 +641,20 @@ async def _stamp_missing_ticket_blocked(repo: str) -> None:
             if all(dep in closed for dep in row["dep_numbers"]):
                 continue  # All deps already closed — no need to block
             try:
-                await add_label_to_issue(row["github_number"], "ticket-blocked")
+                await add_label_to_issue(row["github_number"], "blocked/deps")
                 logger.info(
-                    "✅ _stamp_missing_ticket_blocked: re-stamped ticket-blocked on #%d (deps: %s)",
+                    "✅ _stamp_missing_blocked_deps: re-stamped blocked/deps on #%d (deps: %s)",
                     row["github_number"],
                     row["dep_numbers"],
                 )
             except Exception as exc:
                 logger.warning(
-                    "⚠️  _stamp_missing_ticket_blocked: could not stamp #%d: %s",
+                    "⚠️  _stamp_missing_blocked_deps: could not stamp #%d: %s",
                     row["github_number"],
                     exc,
                 )
     except Exception as exc:
-        logger.warning("⚠️  _stamp_missing_ticket_blocked: failed: %s", exc)
+        logger.warning("⚠️  _stamp_missing_blocked_deps: failed: %s", exc)
 
 
 async def tick() -> PipelineState:
@@ -713,12 +713,12 @@ async def tick() -> PipelineState:
         await reseed_missing_initiative_phases(settings.gh_repo)
         # Auto-unblock next-phase issues whenever a phase gate closes.
         await _auto_advance_phases(settings.gh_repo)
-        # Re-stamp ticket-blocked on issues whose label was lost (e.g. silent
-        # API failure during file_issues).  Must run before _auto_unblock so
+        # Re-stamp blocked/deps on issues whose label was lost (e.g. silent
+        # API failure during file_issues).  Must run before _auto_unblock_deps so
         # the unblock pass always sees a correct label set.
-        await _stamp_missing_ticket_blocked(settings.gh_repo)
-        # Auto-remove ticket-blocked label when all ticket-level deps have closed.
-        await _auto_unblock_ticket_deps(settings.gh_repo)
+        await _stamp_missing_blocked_deps(settings.gh_repo)
+        # Auto-remove blocked/deps label when all ticket-level deps have closed.
+        await _auto_unblock_deps(settings.gh_repo)
     except Exception as exc:
         logger.warning("⚠️  DB persist skipped (non-fatal): %s", exc)
 

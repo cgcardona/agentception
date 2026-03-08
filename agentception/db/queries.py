@@ -2042,17 +2042,17 @@ async def get_pending_launches() -> list[PendingLaunchRow]:
         return []
 
 
-class TicketBlockedRow(TypedDict):
-    """One open issue that carries the ``ticket-blocked`` label and has dependencies."""
+class BlockedDepsRow(TypedDict):
+    """One open issue that carries the ``blocked/deps`` label and has dependencies."""
 
     github_number: int
     dep_numbers: list[int]
 
 
-async def get_ticket_blocked_open_issues(repo: str) -> list[TicketBlockedRow]:
-    """Return open issues that still carry the ``ticket-blocked`` label.
+async def get_blocked_deps_open_issues(repo: str) -> list[BlockedDepsRow]:
+    """Return open issues that still carry the ``blocked/deps`` label.
 
-    Used by the poller to decide which ``ticket-blocked`` labels can be
+    Used by the poller to decide which ``blocked/deps`` labels can be
     removed because all ticket-level dependencies have since closed.
 
     Falls back to ``[]`` on DB error.
@@ -2067,30 +2067,30 @@ async def get_ticket_blocked_open_issues(repo: str) -> list[TicketBlockedRow]:
             )
             rows = result.scalars().all()
 
-        out: list[TicketBlockedRow] = []
+        out: list[BlockedDepsRow] = []
         for row in rows:
             labels: list[str] = json.loads(row.labels_json or "[]")
-            if "ticket-blocked" not in labels:
+            if "blocked/deps" not in labels:
                 continue
             dep_numbers: list[int] = json.loads(row.depends_on_json or "[]")
             if not dep_numbers:
                 continue
             out.append(
-                TicketBlockedRow(
+                BlockedDepsRow(
                     github_number=row.github_number,
                     dep_numbers=dep_numbers,
                 )
             )
         return out
     except Exception as exc:
-        logger.warning("❌ get_ticket_blocked_open_issues failed: %s", exc)
+        logger.warning("❌ get_blocked_deps_open_issues failed: %s", exc)
         return []
 
 
-async def get_issues_missing_ticket_blocked(repo: str) -> list[TicketBlockedRow]:
-    """Return open issues that have deps recorded but are missing the ``ticket-blocked`` label.
+async def get_issues_missing_blocked_deps(repo: str) -> list[BlockedDepsRow]:
+    """Return open issues that have deps recorded but are missing the ``blocked/deps`` label.
 
-    Used by the poller's ``_stamp_missing_ticket_blocked`` to re-apply the label
+    Used by the poller's ``_stamp_missing_blocked_deps`` to re-apply the label
     when the initial stamp in ``file_issues`` failed silently (e.g. a transient
     GitHub API error caught by the old shared try/except).  Only issues whose
     ``depends_on_json`` is non-empty are considered — the body-based backfill in
@@ -2109,23 +2109,23 @@ async def get_issues_missing_ticket_blocked(repo: str) -> list[TicketBlockedRow]
             )
             rows = result.scalars().all()
 
-        out: list[TicketBlockedRow] = []
+        out: list[BlockedDepsRow] = []
         for row in rows:
             dep_numbers: list[int] = json.loads(row.depends_on_json or "[]")
             if not dep_numbers:
                 continue
             labels: list[str] = json.loads(row.labels_json or "[]")
-            if "ticket-blocked" in labels:
+            if "blocked/deps" in labels:
                 continue
             out.append(
-                TicketBlockedRow(
+                BlockedDepsRow(
                     github_number=row.github_number,
                     dep_numbers=dep_numbers,
                 )
             )
         return out
     except Exception as exc:
-        logger.warning("❌ get_issues_missing_ticket_blocked failed: %s", exc)
+        logger.warning("❌ get_issues_missing_blocked_deps failed: %s", exc)
         return []
 
 

@@ -74,8 +74,8 @@ that repeats after each wave of children completes, until both queues drain.
 ```
 loop:
   issues ← list_issues(label=scope_value, state="open")
-            filtered: exclude "agent:wip" (claimed), "blocked" (phase-gated),
-                      "ticket-blocked" (unresolved dependencies)
+            filtered: exclude "agent/wip" (claimed), "pipeline/gated" (phase-gated),
+                      "blocked/deps" (has open ticket dependencies)
   prs    ← list_pull_requests(state="open", unreviewed=true)
 
   issues > 0:
@@ -108,7 +108,7 @@ optional chain-spawn.
 
 ```
 enter:
-  claim scope_value                            # mark issue/PR as "agent:wip"
+  claim scope_value                            # mark issue/PR as "agent/wip"
 
   scope_type == "issue":
     read issue, check out branch, implement
@@ -242,7 +242,7 @@ Loops until both queues are empty.
 ```
 # Open issues for the scope label
 github_list_issues(label="$SCOPE_VALUE", state="open")
-# → filter: exclude issues labelled "agent:wip" (claimed) or "blocked" (phase-gated)
+# → filter: exclude issues labelled "agent/wip" (claimed) or "pipeline/gated" (phase-gated)
 # Only work on issues that have neither label.
 ```
 
