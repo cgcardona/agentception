@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """MCP Prompts catalogue for AgentCeption.
 
 Exposes every compiled role file and agent prompt as a first-class MCP Prompt
@@ -21,6 +19,9 @@ All prompts are static (no arguments) and returned as a single ``user`` message
 whose ``text`` is the raw Markdown file content.  Agents may prepend the
 returned message to their conversation context.
 """
+
+from __future__ import annotations
+
 
 import logging
 from pathlib import Path

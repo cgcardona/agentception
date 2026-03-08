@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Tests for the MCP Prompts capability.
 
 Covers:
@@ -10,6 +8,9 @@ Covers:
   - ping JSON-RPC handler
   - initialize declares prompts capability
 """
+
+from __future__ import annotations
+
 
 import json
 from pathlib import Path

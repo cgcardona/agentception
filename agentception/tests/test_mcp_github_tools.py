@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Tests for the MCP github-tools layer.
 
 Covers all five GitHub tools (github_add_label, github_remove_label,
@@ -13,6 +11,9 @@ Test categories:
   - Async-only guard: github tools must fail from the sync call_tool path
   - Error propagation: RuntimeError from readers.github surfaces as ok=false
 """
+
+from __future__ import annotations
+
 
 import json
 from unittest.mock import AsyncMock, patch
