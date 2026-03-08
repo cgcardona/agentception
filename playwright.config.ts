@@ -13,7 +13,7 @@ import { defineConfig, devices } from '@playwright/test';
  * page.route() in each test — no real API keys are required.
  */
 export default defineConfig({
-  testDir: './tests/e2e',
+  testDir: './agentception/tests/e2e',
   timeout: 30_000,
   // Retry flaky tests once in CI; never locally (fail fast for dev).
   retries: process.env['CI'] ? 2 : 0,

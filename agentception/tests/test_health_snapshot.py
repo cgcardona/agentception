@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Tests for the HealthSnapshot Pydantic model."""
+
+from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError

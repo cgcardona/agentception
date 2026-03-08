@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Tests for plan_advance_phase MCP tool.
 
 Covers:
@@ -8,6 +6,8 @@ Covers:
 - Edge case: to_phase has no issues → success with unlocked_count=0.
 - MCP server dispatch: plan_advance_phase routed through call_tool_async.
 """
+
+from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
