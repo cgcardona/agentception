@@ -3,9 +3,15 @@
 [![CI](https://github.com/cgcardona/agentception/actions/workflows/ci.yml/badge.svg)](https://github.com/cgcardona/agentception/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> *The infinite machine behind the machines.*
+> *The Singularity is here. The infinite machine behind the machines.*
 
-**AgentCeption** is a multi-agent orchestration system that turns any idea into a phase-gated plan, files the GitHub issues, and dispatches an org chart of AI agents to execute it — autonomously, in parallel, while you sleep.
+For all of recorded history, human progress has been constrained by one thing: the number of hours in a day multiplied by the number of people willing to work. We called it scarcity, and we built entire economic systems around managing it.
+
+Then something changed.
+
+Autonomous AI agents can now reason, plan, write code, open pull requests, and report back. The singularity isn't near. **It's here.** Every hour an agent spends filing tickets, writing boilerplate, and opening PRs is an hour a human gets back to think, to create, to be human. We are moving from a world of scarcity into a world of **superabundance**.
+
+AgentCeption is a bet on that future.
 
 ```
 Brain dump → Structured plan → GitHub issues → Agent org tree → PRs → Merged
@@ -21,7 +27,9 @@ One input. Zero boilerplate. The work happens.
 2. **Review** — The YAML opens in an editor. Adjust anything. Click **Create Issues** to file everything on GitHub.
 3. **Ship** — The board shows your phases. Click **Launch** on an unlocked phase. A CTO agent surveys the board and cascades work down to coordinators and engineers, each working in an isolated git worktree. PRs appear. Phases unlock. You watch.
 
-Every agent has a **cognitive architecture** — a composed identity (historical thinkers + archetypes + skill domains + behavioral atoms) injected into its context. You are deploying *reasoners*, not LLM calls.
+Every agent has a **cognitive architecture** — a composed identity (historical thinkers + archetypes + skill domains + behavioral atoms) injected into its context. You are deploying *reasoners*, not LLM calls. This is the infrastructure for deploying **judgment at scale**.
+
+Most AI coding tools are power tools. They make individual developers faster. AgentCeption is not a power tool. It is a **force multiplier on the organizational unit itself** — what would a brilliant 10-person team look like if the team had no size limit? The creative renaissance that has always been one good team away is now one brain dump away.
 
 ---
 
