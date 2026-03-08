@@ -12,14 +12,14 @@ Canonical reference: `docs/agent-tree-protocol.md`
 
 ## MCP server identifier
 
-All AgentCeption MCP tools are on server **`agentception`**.
-When using `CallMcpTool`, always pass `server="agentception"`.
+All AgentCeption MCP tools are on server **`user-agentception`**.
+When using `CallMcpTool`, always pass `server="user-agentception"`.
 
 ---
 
 ## Step 1 — Read the queue
 
-Call the `query_pending_runs` MCP tool (server: `agentception`).
+Call the `query_pending_runs` MCP tool (server: `user-agentception`).
 
 It returns a list of pending launches shaped like:
 
@@ -104,7 +104,7 @@ agents have the Task tool and can spawn their own children.
 **For executive and coordinator tiers** (`tier` is `executive` or `coordinator`):
 
 ```
-You are an AgentCeption manager agent. Your briefing:
+You are an AgentCeption coordinator agent. Your briefing:
 
 WORKTREE:       {host_worktree_path}
 ROLE:           {role}
@@ -141,8 +141,12 @@ Step 3: Run your tier's GitHub queries via MCP to discover what needs doing.
   executive tier — call BOTH MCP tools:
     list_issues (user-github)(label="{scope_value}", state="open")
     list_pull_requests (user-github)(state="open")
-  Then: spawn engineering-coordinator if open issues exist,
-        spawn qa-coordinator if open PRs exist (cleanup sweep only).
+  Then follow the CTO spawn decision — these branches are mutually exclusive:
+    issues > 0              → spawn engineering-coordinator only.
+                              (engineers chain-spawn their own pr-reviewer workers;
+                               never spawn a qa-coordinator while issues remain)
+    issues == 0, PRs > 0   → spawn qa-coordinator only (cleanup sweep).
+    issues == 0, PRs == 0  → exit.
 
   coordinator tier (engineering-coordinator role) — call:
     list_issues (user-github)(label="{scope_value}", state="open")
@@ -163,7 +167,10 @@ Step 4: For each child you spawn:
   - Spawn via Task (subagent_type="generalPurpose").
 
 Step 5: Wait for all children to complete, then check GitHub again.
-  Loop until both queues (issues + PRs) are empty for your scope.
+  Loop until your queue is empty:
+    engineering-coordinator → loop until no eligible issues remain.
+    qa-coordinator          → loop until no unreviewed PRs remain.
+    executive               → loop until both issues and PRs are empty.
 
 Step 6: Report each major step via MCP:
   log_run_step     — when starting a query or spawn wave
@@ -171,7 +178,7 @@ Step 6: Report each major step via MCP:
 Always pass agent_run_id="{run_id}".
 ```
 
-**For leaf tiers** (`tier` is `engineer` or `reviewer`):
+**For worker tiers** (`tier` is `engineer` or `reviewer`):
 
 ```
 You are an AgentCeption agent. Your full briefing is in your .agent-task file.
@@ -211,7 +218,10 @@ Step 3: Read your assigned {scope_type} via MCP:
   reviewer  → pull_request_read (user-github)(number={scope_value})
 
 Step 4: Follow your role instructions exactly.
-  engineer  → implement the issue in your worktree, open a PR against dev.
+  engineer  → implement the issue in your worktree, open a PR against dev,
+              then IMMEDIATELY chain-spawn a pr-reviewer Task before calling
+              build_complete_run. Set the reviewer's parent_run_id to your
+              run_id, tier to "reviewer", and org_domain to "qa".
   reviewer  → review the PR thoroughly, approve+merge or request changes.
 
 Step 5: Report progress via MCP tools at every significant step:
@@ -260,8 +270,8 @@ Then exit. You are done.
 
 ## Rules
 
-- Always use `subagent_type="generalPurpose"` for all agent Tasks (leaf and manager).
+- Always use `subagent_type="generalPurpose"` for all agent Tasks (worker and coordinator).
 - Always claim (acknowledge) before spawning — prevents double-dispatch.
 - Always read the `.agent-task` file before spawning — `tier` and `scope_value` drive the briefing.
-- Manager agents spawn their own children — you only spawn the top-level node.
+- Coordinator agents spawn their own children — you only spawn the top-level coordinator.
 - Do not loop indefinitely — drain the queue and exit.
