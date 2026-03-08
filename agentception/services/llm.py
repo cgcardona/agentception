@@ -9,7 +9,7 @@ Patterns and implementation standards for the LLM client:
   - Exponential backoff retry on 429/5xx/timeout
   - Persistent httpx.AsyncClient (re-used across requests, not recreated per call)
 
-Two public entry points:
+Three public entry points:
 
 ``call_openrouter(user_prompt, ...)``
     Waits for the full completion and returns the text.  No retry for now on
@@ -20,6 +20,13 @@ Two public entry points:
       {"type": "thinking", "text": "..."}  -- reasoning token (chain of thought)
       {"type": "content",  "text": "..."}  -- output token (the actual YAML)
     Callers map these to their own SSE event format.
+
+``call_openrouter_with_tools(messages, ...)``
+    Multi-turn tool-use call.  Accepts a message history and a list of OpenAI-
+    format tool definitions.  Returns a :class:`ToolResponse` containing the
+    model's text output, any tool calls it made, and the stop reason.  The
+    caller is responsible for dispatching tool calls and appending results to
+    the message list before calling again.  Used by the Cursor-free agent loop.
 
 The key is read from ``settings.openrouter_api_key`` (env var
 ``OPENROUTER_API_KEY``).  A missing key raises ``RuntimeError``.
@@ -51,6 +58,49 @@ class LLMChunk(TypedDict):
 
     type: Literal["thinking", "content"]
     text: str
+
+
+# ---------------------------------------------------------------------------
+# Tool-use types (used by call_openrouter_with_tools and agent_loop)
+# ---------------------------------------------------------------------------
+
+
+class ToolFunction(TypedDict):
+    """Function spec inside an OpenAI-format tool definition."""
+
+    name: str
+    description: str
+    parameters: dict[str, object]
+
+
+class ToolDefinition(TypedDict):
+    """OpenAI-format tool definition passed to the model."""
+
+    type: Literal["function"]
+    function: ToolFunction
+
+
+class ToolCallFunction(TypedDict):
+    """Function call detail inside a tool_call response block."""
+
+    name: str
+    arguments: str  # JSON-encoded argument dict
+
+
+class ToolCall(TypedDict):
+    """A single tool invocation returned by the model."""
+
+    id: str
+    type: Literal["function"]
+    function: ToolCallFunction
+
+
+class ToolResponse(TypedDict):
+    """Return value from ``call_openrouter_with_tools``."""
+
+    stop_reason: str  # "stop" | "tool_calls" | "length"
+    content: str  # text output (empty when stop_reason is "tool_calls")
+    tool_calls: list[ToolCall]  # empty when stop_reason is "stop"
 
 
 def _base_headers() -> dict[str, str]:
@@ -292,4 +342,144 @@ async def call_openrouter_stream(
     logger.info(
         "✅ LLM stream done — thinking=%d chars content=%d chars",
         total_thinking, total_content,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Multi-turn tool-use call (used by the Cursor-free agent loop)
+# ---------------------------------------------------------------------------
+
+
+async def call_openrouter_with_tools(
+    messages: list[dict[str, object]],
+    *,
+    system: str,
+    tools: list[ToolDefinition],
+    model: str = _MODEL,
+    temperature: float = 0.0,
+    max_tokens: int = 8192,
+) -> ToolResponse:
+    """Call Claude via OpenRouter with tool-use support.
+
+    The caller maintains the full message history and passes it on every turn.
+    This function is stateless — it sends one request and returns the result.
+
+    Args:
+        messages: Conversation history (user / assistant / tool messages).
+            The system prompt is NOT included here; pass it via ``system``.
+        system: System prompt prepended to every request.
+        tools: OpenAI-format tool definitions the model may call.
+        model: OpenRouter model identifier.
+        temperature: Sampling temperature.  Defaults to 0 for determinism.
+        max_tokens: Maximum tokens the model may emit per turn.
+
+    Returns:
+        :class:`ToolResponse` with ``stop_reason``, ``content``, and a
+        (possibly empty) list of ``tool_calls`` to dispatch.
+
+    Raises:
+        RuntimeError: Missing API key or unrecoverable HTTP failure.
+        httpx.HTTPStatusError: Non-2xx after retries.
+    """
+    full_messages: list[dict[str, object]] = []
+    if system:
+        full_messages.append({"role": "system", "content": system})
+    full_messages.extend(messages)
+
+    payload: dict[str, object] = {
+        "model": model,
+        "messages": full_messages,
+        "tools": tools,
+        "tool_choice": "auto",
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "stream": False,
+        "provider": {"order": ["anthropic"], "allow_fallbacks": False},
+    }
+
+    logger.info(
+        "✅ LLM tool-use call — model=%s turns=%d tools=%d",
+        model,
+        len(messages),
+        len(tools),
+    )
+
+    client = _get_client()
+    last_error: Exception | None = None
+
+    for attempt in range(_MAX_RETRIES + 1):
+        if attempt > 0:
+            backoff = 2**attempt
+            logger.warning("⚠️ LLM retry %d/%d after %ds", attempt, _MAX_RETRIES, backoff)
+            await asyncio.sleep(backoff)
+        try:
+            resp = await client.post(_OPENROUTER_URL, json=payload)
+            resp.raise_for_status()
+            break
+        except httpx.HTTPStatusError as exc:
+            last_error = exc
+            if exc.response.status_code in (429, 500, 502, 503, 504):
+                continue
+            raise
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            last_error = exc
+            continue
+    else:
+        raise last_error or RuntimeError("LLM tool-use request failed after retries")
+
+    data: object = resp.json()
+    if not isinstance(data, dict):
+        raise ValueError(f"Unexpected OpenRouter response type: {type(data)}")
+    choices: object = data.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise ValueError(f"OpenRouter returned no choices: {data}")
+    first: object = choices[0]
+    if not isinstance(first, dict):
+        raise ValueError(f"Unexpected choice format: {first}")
+
+    finish_reason: object = first.get("finish_reason", "stop")
+    if not isinstance(finish_reason, str):
+        finish_reason = "stop"
+
+    message: object = first.get("message")
+    if not isinstance(message, dict):
+        raise ValueError(f"Unexpected message format: {first}")
+
+    raw_content: object = message.get("content") or ""
+    content = raw_content if isinstance(raw_content, str) else ""
+
+    raw_tool_calls: object = message.get("tool_calls") or []
+    if not isinstance(raw_tool_calls, list):
+        raw_tool_calls = []
+
+    tool_calls: list[ToolCall] = []
+    for tc in raw_tool_calls:
+        if not isinstance(tc, dict):
+            continue
+        tc_id: object = tc.get("id", "")
+        tc_fn: object = tc.get("function")
+        if not isinstance(tc_id, str) or not isinstance(tc_fn, dict):
+            continue
+        fn_name: object = tc_fn.get("name", "")
+        fn_args: object = tc_fn.get("arguments", "{}")
+        if not isinstance(fn_name, str) or not isinstance(fn_args, str):
+            continue
+        tool_calls.append(
+            ToolCall(
+                id=tc_id,
+                type="function",
+                function=ToolCallFunction(name=fn_name, arguments=fn_args),
+            )
+        )
+
+    logger.info(
+        "✅ LLM tool-use done — stop_reason=%s content_chars=%d tool_calls=%d",
+        finish_reason,
+        len(content),
+        len(tool_calls),
+    )
+    return ToolResponse(
+        stop_reason=finish_reason,
+        content=content,
+        tool_calls=tool_calls,
     )
