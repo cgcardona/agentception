@@ -362,12 +362,12 @@ phases:
 - `coordinator_arch` — maps role slugs to arch strings for orchestration agents (CTO, engineering-coordinator, qa-coordinator, and any future C-level or coordinator variant). Keys are open-ended; new coordinator types require no schema changes.
 - `cognitive_arch` (per issue) — the fully-resolved arch string baked into the issue body at filing time. Leaf engineers read this from the issue and load the matching persona.
 
-### MCP tool: `plan_get_cognitive_figures`
+### MCP resource: `ac://plan/figures/{role}`
 
-Agents and the Phase 1A LLM planner can call this tool to get the filtered figure catalog for any role:
+Agents and the Phase 1A LLM planner can read this resource to get the filtered figure catalog for any role:
 
 ```
-plan_get_cognitive_figures(role: str)
+FetchMcpResource(server="user-agentception", uri="ac://plan/figures/python-developer")
 → {role: str, figures: [{id, display_name, description}, ...]}
 ```
 

@@ -2,15 +2,22 @@ from __future__ import annotations
 
 """AgentCeption MCP JSON-RPC 2.0 server.
 
-Implements a minimal but spec-compliant JSON-RPC 2.0 dispatcher for the
-AgentCeption MCP tool layer.  The dispatcher is synchronous and stateless —
-it handles exactly one request per call to :func:`handle_request`.
+Implements a spec-compliant JSON-RPC 2.0 dispatcher for both MCP Tools
+(actions with side effects) and MCP Resources (stateless, cacheable reads).
 
 Supported methods:
-  ``initialize``  — MCP protocol handshake (returns server capabilities)
-  ``initialized`` — MCP notification (no response; acknowledged silently)
-  ``tools/list``  — returns all registered :class:`~agentception.mcp.types.ACToolDef`
-  ``tools/call``  — dispatches to the named tool function
+  ``initialize``              — MCP handshake; declares tools + resources capabilities
+  ``initialized``             — MCP notification (no response; acknowledged silently)
+  ``tools/list``              — lists all registered :class:`~agentception.mcp.types.ACToolDef`
+  ``tools/call``              — dispatches to the named tool function
+  ``resources/list``          — lists all static :class:`~agentception.mcp.types.ACResourceDef`
+  ``resources/templates/list``— lists all :class:`~agentception.mcp.types.ACResourceTemplate`
+  ``resources/read``          — reads a resource by ``ac://`` URI
+
+Tool vs Resource design
+  Pure reads (no side effects) are Resources, accessed via ``resources/read``.
+  Actions that mutate state (build_*, log_*, github_*, plan mutations) remain Tools.
+  See :mod:`agentception.mcp.resources` for the full URI catalogue.
 
 Error handling follows the JSON-RPC 2.0 specification:
   - Parse errors     → code -32700 (never raised here; caller parses JSON)
@@ -42,17 +49,6 @@ from agentception.mcp.log_tools import (
     log_run_message,
     log_run_step,
 )
-from agentception.mcp.query_tools import (
-    query_active_runs,
-    query_agent_task,
-    query_children,
-    query_dispatcher_state,
-    query_pending_runs,
-    query_run,
-    query_run_events,
-    query_run_tree,
-    query_system_health,
-)
 from agentception.mcp.github_tools import (
     github_add_label,
     github_claim_issue,
@@ -67,7 +63,14 @@ from agentception.mcp.plan_tools import (
     plan_validate_manifest,
     plan_validate_spec,
 )
+from agentception.mcp.resources import (
+    RESOURCES,
+    RESOURCE_TEMPLATES,
+    read_resource,
+)
 from agentception.mcp.types import (
+    ACResourceDef,
+    ACResourceTemplate,
     ACToolContent,
     ACToolDef,
     ACToolResult,
@@ -94,19 +97,13 @@ _SERVER_INFO: dict[str, object] = {"name": "agentception", "version": "0.1.1"}
 
 #: All tools exposed by this MCP server.  Each entry is an :class:`ACToolDef`
 #: mapping the tool name to its description and input JSON Schema.
+#:
+#: Read-only state inspection is exposed as MCP Resources (see :data:`RESOURCES`
+#: and :data:`RESOURCE_TEMPLATES`), not as Tools.  Tools are for actions
+#: that mutate state (build_*, log_*, github_*) or that require validation
+#: input (plan_validate_*, plan_spawn_coordinator, plan_advance_phase).
 TOOLS: list[ACToolDef] = [
-    ACToolDef(
-        name="plan_get_schema",
-        description=(
-            "Return the JSON Schema for PlanSpec — the plan-step-v2 YAML contract. "
-            "Use this to understand the required structure before calling plan_validate_spec."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {},
-            "additionalProperties": False,
-        },
-    ),
+    # ── Plan tools — validation and mutations only (reads are Resources) ──────
     ACToolDef(
         name="plan_validate_spec",
         description=(
@@ -123,44 +120,6 @@ TOOLS: list[ACToolDef] = [
                 }
             },
             "required": ["spec_json"],
-            "additionalProperties": False,
-        },
-    ),
-    ACToolDef(
-        name="plan_get_labels",
-        description=(
-            "Fetch the full GitHub label list for the configured repository. "
-            "Returns {labels: [{name: str, description: str}, ...]}."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {},
-            "additionalProperties": False,
-        },
-    ),
-    ACToolDef(
-        name="plan_get_cognitive_figures",
-        description=(
-            "Return the catalog of cognitive architecture figures compatible with a given role slug. "
-            "Reads role-taxonomy.yaml to filter figures by role, then returns each figure's id, "
-            "display name, and one-line description. "
-            "Use this before assigning cognitive_arch fields in a PlanSpec so assignments are "
-            "grounded in the actual available figures for each role. "
-            "Returns {role: str, figures: [{id: str, display_name: str, description: str}, ...]} "
-            "or {role: str, figures: [], error: str} when the role is unknown."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "role": {
-                    "type": "string",
-                    "description": (
-                        "Role slug from role-taxonomy.yaml — e.g. 'cto', "
-                        "'engineering-coordinator', 'qa-coordinator', 'python-developer'."
-                    ),
-                }
-            },
-            "required": ["role"],
             "additionalProperties": False,
         },
     ),
@@ -305,154 +264,13 @@ TOOLS: list[ACToolDef] = [
             "additionalProperties": False,
         },
     ),
-    # ── Query tools — read-only state inspection ──────────────────────────────
-    ACToolDef(
-        name="query_pending_runs",
-        description=(
-            "Return all issues queued for launch from the AgentCeption UI. "
-            "The Dispatcher calls this once to discover what the UI has queued. "
-            "Each item has run_id, issue_number, role, host_worktree_path, and batch_id. "
-            "The role tells you what kind of agent to spawn — a leaf worker implements "
-            "one issue directly; a coordinator reads its role file and spawns its own "
-            "children via the Task tool."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {},
-            "additionalProperties": False,
-        },
-    ),
-    ACToolDef(
-        name="query_run",
-        description=(
-            "Return lightweight metadata for a single run by run_id. "
-            "Agents call this on startup to determine their current state (status, "
-            "issue_number, parent_run_id, worktree_path, tier, role, batch_id). "
-            "Returns ok=false when the run does not exist."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "run_id": {"type": "string", "description": "The run ID to look up."},
-            },
-            "required": ["run_id"],
-            "additionalProperties": False,
-        },
-    ),
-    ACToolDef(
-        name="query_children",
-        description=(
-            "Return all runs spawned by a given parent run_id, ordered by spawn time. "
-            "Coordinator and VP-tier agents use this to track the state of engineers they dispatched."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "run_id": {"type": "string", "description": "The parent run ID."},
-            },
-            "required": ["run_id"],
-            "additionalProperties": False,
-        },
-    ),
-    ACToolDef(
-        name="query_run_events",
-        description=(
-            "Return structured MCP events for a run (log_run_step, log_run_blocker, etc.). "
-            "Agents use this to reconstruct what happened in a previous session after a crash. "
-            "Pass after_id to page through events incrementally."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "run_id": {"type": "string", "description": "The run to query events for."},
-                "after_id": {
-                    "type": "integer",
-                    "description": "Return only events with DB id > this value. Defaults to 0.",
-                    "default": 0,
-                },
-            },
-            "required": ["run_id"],
-            "additionalProperties": False,
-        },
-    ),
-    ACToolDef(
-        name="query_agent_task",
-        description=(
-            "Return the raw text content of the .agent-task TOML file for a run. "
-            "Agents use this to verify their own configuration on startup or after a restart. "
-            "Returns ok=false if the worktree has been torn down or the file does not exist."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "run_id": {"type": "string", "description": "The run to read the agent task for."},
-            },
-            "required": ["run_id"],
-            "additionalProperties": False,
-        },
-    ),
-    ACToolDef(
-        name="query_active_runs",
-        description=(
-            "Return all runs currently in a live or blocked state "
-            "(pending_launch, implementing, reviewing, blocked). "
-            "Supervisory agents and the Dispatcher use this for a system-wide snapshot."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {},
-            "additionalProperties": False,
-        },
-    ),
-    ACToolDef(
-        name="query_run_tree",
-        description=(
-            "Return all runs in a batch as a flat list with parent_run_id references. "
-            "Assemble into a tree by following parent_run_id. "
-            "Used by the Dispatcher and supervisory agents to visualise the run hierarchy."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "batch_id": {"type": "string", "description": "The batch fingerprint to query."},
-            },
-            "required": ["batch_id"],
-            "additionalProperties": False,
-        },
-    ),
-    ACToolDef(
-        name="query_dispatcher_state",
-        description=(
-            "Return current dispatcher state: run counts per status, active run total, "
-            "and the latest active batch_id. "
-            "Designed for supervisory agents that need a high-level view of the system."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {},
-            "additionalProperties": False,
-        },
-    ),
-    ACToolDef(
-        name="query_system_health",
-        description=(
-            "Return a system-health snapshot: DB reachability, total runs per status. "
-            "Always returns a result — db_ok=false signals a degraded database. "
-            "Use for diagnostics and health checks."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {},
-            "additionalProperties": False,
-        },
-    ),
     # ── Build commands — explicit state transitions only ──────────────────────
     ACToolDef(
         name="build_claim_run",
         description=(
             "Atomically claim a pending run before spawning its Task agent. "
-            "Call this with the run_id from query_pending_runs immediately before "
-            "firing the Task so the run cannot be double-claimed by a concurrent "
+            "Call this with the run_id from the ac://runs/pending resource immediately "
+            "before firing the Task so the run cannot be double-claimed by a concurrent "
             "Dispatcher. Transitions the run from pending_launch to implementing. "
             "Returns {ok: true, run_id, previous_state} on success, or "
             "{ok: false, reason} if the run was already claimed — skip that item."
@@ -811,12 +629,25 @@ def list_tools() -> list[ACToolDef]:
     return list(TOOLS)
 
 
+def list_resources() -> list[ACResourceDef]:
+    """Return all registered static MCP resource definitions."""
+    return list(RESOURCES)
+
+
+def list_resource_templates() -> list[ACResourceTemplate]:
+    """Return all registered MCP resource template definitions."""
+    return list(RESOURCE_TEMPLATES)
+
+
 def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
     """Dispatch a ``tools/call`` request to the named tool function.
 
-    Note: ``plan_get_labels`` and ``plan_spawn_coordinator`` are async and
-    cannot be invoked here directly.  Callers that need those tools must use
-    the async variants directly or wrap this dispatcher in an async context.
+    Note: all tools that require async I/O (build_*, log_*, github_*, plan
+    mutations) cannot be invoked here directly — they return an error directing
+    the caller to use the async path.  Use :func:`call_tool_async` instead.
+
+    Read-only state inspection has moved to MCP Resources; calling a retired
+    ``query_*`` or ``plan_get_*`` tool name returns a descriptive error.
 
     Args:
         name:      The tool name as it appears in the ``tools/list`` response.
@@ -829,11 +660,32 @@ def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
 
     Never raises — all errors are returned as ``isError=True`` results.
     """
-    if name == "plan_get_schema":
-        schema = plan_get_schema()
-        text = _tool_result_to_text(schema)
-        content: list[ACToolContent] = [ACToolContent(type="text", text=text)]
-        return ACToolResult(content=content, isError=False)
+    # Helpful error for callers still using retired query_* / plan_get_* tools.
+    _RESOURCE_REDIRECTS: dict[str, str] = {
+        "query_pending_runs": "ac://runs/pending",
+        "query_run": "ac://runs/{run_id}",
+        "query_children": "ac://runs/{run_id}/children",
+        "query_run_events": "ac://runs/{run_id}/events",
+        "query_agent_task": "ac://runs/{run_id}/task",
+        "query_active_runs": "ac://runs/active",
+        "query_run_tree": "ac://batches/{batch_id}/tree",
+        "query_dispatcher_state": "ac://system/dispatcher",
+        "query_system_health": "ac://system/health",
+        "plan_get_schema": "ac://plan/schema",
+        "plan_get_labels": "ac://plan/labels",
+        "plan_get_cognitive_figures": "ac://plan/figures/{role}",
+    }
+    if name in _RESOURCE_REDIRECTS:
+        uri = _RESOURCE_REDIRECTS[name]
+        err_text = _tool_result_to_text(
+            {
+                "error": (
+                    f"'{name}' has been promoted to a MCP Resource. "
+                    f"Use resources/read with URI: {uri!r}"
+                )
+            }
+        )
+        return ACToolResult(content=[ACToolContent(type="text", text=err_text)], isError=True)
 
     if name == "plan_validate_spec":
         spec_json = arguments.get("spec_json")
@@ -871,38 +723,10 @@ def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
             isError=is_error,
         )
 
-    if name == "plan_get_cognitive_figures":
-        role = arguments.get("role")
-        if not isinstance(role, str) or not role:
-            err_text = _tool_result_to_text(
-                {"error": "Missing or invalid required argument 'role' (must be a non-empty string)"}
-            )
-            return ACToolResult(
-                content=[ACToolContent(type="text", text=err_text)],
-                isError=True,
-            )
-        result_figures = plan_get_cognitive_figures(role)
-        text = _tool_result_to_text(result_figures)
-        is_error = "error" in result_figures
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=text)],
-            isError=is_error,
-        )
-
     if name in (
         "plan_get_labels",
         "plan_spawn_coordinator",
         "plan_advance_phase",
-        # Query tools
-        "query_pending_runs",
-        "query_run",
-        "query_children",
-        "query_run_events",
-        "query_agent_task",
-        "query_active_runs",
-        "query_run_tree",
-        "query_dispatcher_state",
-        "query_system_health",
         # Build commands
         "build_claim_run",
         "build_spawn_child_run",
@@ -976,103 +800,6 @@ async def call_tool_async(
         return ACToolResult(
             content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
             isError=is_error,
-        )
-
-    # ── Query tools ─────────────────────────────────────────────────────────
-
-    if name == "query_pending_runs":
-        result = await query_pending_runs()
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=False,
-        )
-
-    if name == "query_run":
-        qr_run_id = arguments.get("run_id")
-        if not isinstance(qr_run_id, str) or not qr_run_id:
-            return ACToolResult(
-                content=[ACToolContent(type="text", text='{"error":"query_run requires a non-empty run_id"}')],
-                isError=True,
-            )
-        result = await query_run(qr_run_id)
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=not bool(result.get("ok", False)),
-        )
-
-    if name == "query_children":
-        qc_run_id = arguments.get("run_id")
-        if not isinstance(qc_run_id, str) or not qc_run_id:
-            return ACToolResult(
-                content=[ACToolContent(type="text", text='{"error":"query_children requires a non-empty run_id"}')],
-                isError=True,
-            )
-        result = await query_children(qc_run_id)
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=False,
-        )
-
-    if name == "query_run_events":
-        qre_run_id = arguments.get("run_id")
-        if not isinstance(qre_run_id, str) or not qre_run_id:
-            return ACToolResult(
-                content=[ACToolContent(type="text", text='{"error":"query_run_events requires a non-empty run_id"}')],
-                isError=True,
-            )
-        after_id_raw = arguments.get("after_id", 0)
-        after_id = int(after_id_raw) if isinstance(after_id_raw, int) else 0
-        result = await query_run_events(qre_run_id, after_id)
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=False,
-        )
-
-    if name == "query_agent_task":
-        qat_run_id = arguments.get("run_id")
-        if not isinstance(qat_run_id, str) or not qat_run_id:
-            return ACToolResult(
-                content=[ACToolContent(type="text", text='{"error":"query_agent_task requires a non-empty run_id"}')],
-                isError=True,
-            )
-        result = await query_agent_task(qat_run_id)
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=not bool(result.get("ok", False)),
-        )
-
-    if name == "query_active_runs":
-        result = await query_active_runs()
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=False,
-        )
-
-    if name == "query_run_tree":
-        qrt_batch_id = arguments.get("batch_id")
-        if not isinstance(qrt_batch_id, str) or not qrt_batch_id:
-            return ACToolResult(
-                content=[ACToolContent(type="text", text='{"error":"query_run_tree requires a non-empty batch_id"}')],
-                isError=True,
-            )
-        result = await query_run_tree(qrt_batch_id)
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=False,
-        )
-
-    if name == "query_dispatcher_state":
-        result = await query_dispatcher_state()
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=False,
-        )
-
-    if name == "query_system_health":
-        result = await query_system_health()
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=False,
         )
 
     # ── Build commands ───────────────────────────────────────────────────────
@@ -1421,16 +1148,14 @@ def handle_request(
     # ── MCP lifecycle handshake ──────────────────────────────────────────────
 
     if method == "initialize":
-        # Respond with our protocol version and tool capability declaration.
         result: dict[str, object] = {
             "protocolVersion": _MCP_PROTOCOL_VERSION,
-            "capabilities": {"tools": {}},
+            "capabilities": {"tools": {}, "resources": {}},
             "serverInfo": _SERVER_INFO,
         }
         return cast(dict[str, object], _make_success_response(request_id, result))
 
     if method == "initialized":
-        # JSON-RPC notification — no id, no response required.
         logger.debug("✅ MCP initialized notification received")
         return None
 
@@ -1479,6 +1204,17 @@ def handle_request(
 
         return cast(dict[str, object], _make_success_response(request_id, tool_result))
 
+    # ── Resource methods (sync server returns method-not-found for reads) ─────
+    # The sync handle_request is only used in tests and legacy callers; all
+    # resource reads require async I/O.  Direct async callers to handle_request_async.
+
+    if method in ("resources/list", "resources/templates/list", "resources/read"):
+        return cast(dict[str, object], _make_error_response(
+            request_id,
+            JSONRPC_ERR_METHOD_NOT_FOUND,
+            f"Method '{method}' requires the async path — use handle_request_async",
+        ))
+
     return cast(dict[str, object], _make_error_response(
         request_id,
         JSONRPC_ERR_METHOD_NOT_FOUND,
@@ -1526,7 +1262,7 @@ async def handle_request_async(
     if method == "initialize":
         result: dict[str, object] = {
             "protocolVersion": _MCP_PROTOCOL_VERSION,
-            "capabilities": {"tools": {}},
+            "capabilities": {"tools": {}, "resources": {}},
             "serverInfo": _SERVER_INFO,
         }
         return cast(dict[str, object], _make_success_response(request_id, result))
@@ -1534,6 +1270,8 @@ async def handle_request_async(
     if method == "initialized":
         logger.debug("✅ MCP initialized notification received")
         return None
+
+    # ── Tool methods ─────────────────────────────────────────────────────────
 
     if method == "tools/list":
         tools = list_tools()
@@ -1581,6 +1319,50 @@ async def handle_request_async(
             ))
 
         return cast(dict[str, object], _make_success_response(request_id, tool_result))
+
+    # ── Resource methods ──────────────────────────────────────────────────────
+
+    if method == "resources/list":
+        resources = list_resources()
+        return cast(dict[str, object], _make_success_response(
+            request_id, {"resources": resources}
+        ))
+
+    if method == "resources/templates/list":
+        templates = list_resource_templates()
+        return cast(dict[str, object], _make_success_response(
+            request_id, {"resourceTemplates": templates}
+        ))
+
+    if method == "resources/read":
+        params_r = raw.get("params")
+        if not isinstance(params_r, dict):
+            return cast(dict[str, object], _make_error_response(
+                request_id,
+                JSONRPC_ERR_INVALID_PARAMS,
+                "params must be an object for resources/read",
+            ))
+        uri = params_r.get("uri")
+        if not isinstance(uri, str) or not uri:
+            return cast(dict[str, object], _make_error_response(
+                request_id,
+                JSONRPC_ERR_INVALID_PARAMS,
+                "params.uri must be a non-empty string",
+            ))
+        try:
+            resource_result = await read_resource(uri)
+        except Exception as exc:
+            logger.error(
+                "❌ handle_request_async: internal error in read_resource — %s",
+                exc,
+                exc_info=True,
+            )
+            return cast(dict[str, object], _make_error_response(
+                request_id,
+                JSONRPC_ERR_INTERNAL_ERROR,
+                f"Internal error: {exc}",
+            ))
+        return cast(dict[str, object], _make_success_response(request_id, resource_result))
 
     return cast(dict[str, object], _make_error_response(
         request_id,

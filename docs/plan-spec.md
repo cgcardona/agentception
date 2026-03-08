@@ -28,7 +28,7 @@ User brain dump (free text)
   GitHub Issues tagged by phase label
 ```
 
-MCP is **not** involved in plan generation. Claude is called directly from AgentCeption's backend (OpenRouter). MCP only enters after the user clicks Launch, when a coordinator agent uses MCP tools (`plan_get_labels`, etc.) to file issues.
+MCP is **not** involved in plan generation. Claude is called directly from AgentCeption's backend (OpenRouter). MCP only enters after the user clicks Launch, when a coordinator agent reads the `ac://plan/labels` resource and uses mutation tools to file issues.
 
 ---
 
@@ -226,7 +226,7 @@ When the user clicks **Launch**, AgentCeption:
 
 The **coordinator agent** (running in Cursor via MCP) then:
 
-1. Calls `plan_get_labels()` to fetch the phase label configuration.
+1. Reads the `ac://plan/labels` resource to fetch the phase label configuration.
 2. Iterates phases in order. For each phase:
    - Creates all GitHub issues in that phase from the PlanIssue data.
    - Applies the phase label and sets `depends_on` metadata.
