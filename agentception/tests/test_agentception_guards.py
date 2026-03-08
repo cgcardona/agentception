@@ -7,9 +7,9 @@ Coverage:
 - detect_out_of_order_prs() returns PRViolation when phase label mismatches
 - detect_out_of_order_prs() skips PRs with no 'Closes #N' reference
 - close_pr() is called via the /api/intelligence/pr-violations/{n}/close route
-- detect_stale_claims() flags issues with agent:wip but no worktree
+- detect_stale_claims() flags issues with agent/wip but no worktree
 - detect_stale_claims() ignores issues whose worktree exists
-- clear_stale_claim endpoint removes the agent:wip label
+- clear_stale_claim endpoint removes the agent/wip label
 - stale claims from guards propagate into PipelineState.alerts via detect_alerts()
 
 Run targeted:

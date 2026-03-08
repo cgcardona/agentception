@@ -176,16 +176,16 @@ async def _do_spawn(body: SpawnRequest) -> SpawnResult:
         if isinstance(raw_labels, list)
         else []
     )
-    if "agent:wip" in label_names:
+    if "agent/wip" in label_names:
         raise HTTPException(
             status_code=409,
-            detail=f"Issue #{issue_number} is already claimed (agent:wip label present)",
+            detail=f"Issue #{issue_number} is already claimed (agent/wip label present)",
         )
 
     # ── 3. Pre-flight: check for an existing worktree BEFORE claiming ─────────
     # Claiming (add_wip_label) is irreversible in the short term; checking the
     # worktree path first prevents leaving an issue permanently labelled
-    # agent:wip with no agent actually working on it.
+    # agent/wip with no agent actually working on it.
     branch = f"feat/issue-{issue_number}"
     worktree_path = settings.worktrees_dir / f"issue-{issue_number}"
 
@@ -198,7 +198,7 @@ async def _do_spawn(body: SpawnRequest) -> SpawnResult:
             ),
         )
 
-    # ── 4. Add agent:wip label ────────────────────────────────────────────────
+    # ── 4. Add agent/wip label ────────────────────────────────────────────────
     await add_wip_label(issue_number)
 
     repo_dir = str(settings.repo_dir)
@@ -327,7 +327,7 @@ async def spawn_agent(request: Request, body: SpawnRequest) -> Response:
         When the issue number does not exist on GitHub or the issue is not
         open (already closed or merged).
     HTTP 409
-        When the issue already carries an ``agent:wip`` label, indicating
+        When the issue already carries an ``agent/wip`` label, indicating
         another agent has already claimed it.
     HTTP 500
         When the git worktree creation fails (e.g. directory already exists).
@@ -449,7 +449,7 @@ class ResetBuildResult(BaseModel):
 
 @router.post("/control/reset-build", tags=["control"])
 async def reset_build() -> ResetBuildResult:
-    """Remove all agent worktrees, clear all agent:wip labels, and reset run statuses.
+    """Remove all agent worktrees, clear all agent/wip labels, and reset run statuses.
 
     Use this to start over from scratch: no worktrees, no in-motion labels,
     and no pending_launch/implementing/reviewing runs in the DB.  The main
@@ -500,7 +500,7 @@ async def reset_build() -> ResetBuildResult:
     )
     await prune_proc.communicate()
 
-    # ── 2. Clear agent:wip from every issue that has it ────────────────────
+    # ── 2. Clear agent/wip from every issue that has it ────────────────────
     try:
         wip_issues = await get_wip_issues()
         for issue in wip_issues:
@@ -544,11 +544,11 @@ class SweepResult(BaseModel):
 
 @router.post("/control/sweep", tags=["control"])
 async def sweep_stale(dry_run: bool = False) -> SweepResult:
-    """Delete all stale agent branches, remove orphan worktrees, and clear stale agent:wip labels.
+    """Delete all stale agent branches, remove orphan worktrees, and clear stale agent/wip labels.
 
     A branch is stale when it is an agent branch (``feat/issue-N`` or
         ``feat/plan-*``) with no live git worktree checked out on it.
-    A claim is stale when an issue carries ``agent:wip`` but has no matching
+    A claim is stale when an issue carries ``agent/wip`` but has no matching
     worktree directory.
 
     Parameters
@@ -604,7 +604,7 @@ async def sweep_stale(dry_run: bool = False) -> SweepResult:
         if pruned:
             removed_worktrees.append(f"pruned: {pruned}")
 
-    # ── 3. Stale agent:wip labels (issue claimed but no worktree on disk) ────
+    # ── 3. Stale agent/wip labels (issue claimed but no worktree on disk) ────
     try:
         wip_issues = await get_wip_issues()
         stale_claims = await detect_stale_claims(wip_issues, settings.worktrees_dir)

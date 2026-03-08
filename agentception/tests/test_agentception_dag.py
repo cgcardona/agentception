@@ -190,12 +190,12 @@ async def test_build_dag_chain() -> None:
 
 @pytest.mark.anyio
 async def test_build_dag_has_wip_flag() -> None:
-    """Issues with the 'agent:wip' label should have has_wip=True."""
+    """Issues with the 'agent/wip' label should have has_wip=True."""
     issue = {
         "number": 55,
         "title": "WIP issue",
         "state": "open",
-        "labels": [{"name": "agent:wip"}, {"name": "enhancement"}],
+        "labels": [{"name": "agent/wip"}, {"name": "enhancement"}],
         "body": "",
     }
     with patch(
@@ -206,7 +206,7 @@ async def test_build_dag_has_wip_flag() -> None:
         dag = await build_dag()
 
     assert dag.nodes[0].has_wip is True
-    assert "agent:wip" in dag.nodes[0].labels
+    assert "agent/wip" in dag.nodes[0].labels
     assert "enhancement" in dag.nodes[0].labels
 
 

@@ -12,8 +12,8 @@ are delegated to the ``user-github`` MCP server — use those tools directly.
 Tool catalogue:
   github_add_label     — add a label to an issue (invalidates cache)
   github_remove_label  — remove a label from an issue (invalidates cache, idempotent)
-  github_claim_issue   — add the agent:wip claim label to an issue
-  github_unclaim_issue — remove the agent:wip claim label from an issue
+  github_claim_issue   — add the agent/wip claim label to an issue
+  github_unclaim_issue — remove the agent/wip claim label from an issue
 """
 
 import logging
@@ -67,7 +67,7 @@ async def github_remove_label(issue_number: int, label: str) -> dict[str, object
 
 
 async def github_claim_issue(issue_number: int) -> dict[str, object]:
-    """Claim an issue for this agent by adding the ``agent:wip`` label.
+    """Claim an issue for this agent by adding the ``agent/wip`` label.
 
     Idiomatic pipeline action — call this before starting work on an issue
     so no other agent double-claims it.  Invalidates the cache.
@@ -88,7 +88,7 @@ async def github_claim_issue(issue_number: int) -> dict[str, object]:
 
 
 async def github_unclaim_issue(issue_number: int) -> dict[str, object]:
-    """Release an issue claim by removing the ``agent:wip`` label.
+    """Release an issue claim by removing the ``agent/wip`` label.
 
     Call this when finishing work or when aborting so the issue becomes
     available for another agent.  Invalidates the cache.

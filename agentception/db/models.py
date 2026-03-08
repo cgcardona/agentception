@@ -57,7 +57,7 @@ class ACWave(Base):
     """BATCH_ID from the .agent-task file (e.g. ``eng-20260302T084507Z-16da``)."""
 
     phase_label: Mapped[str] = mapped_column(String(256), nullable=False)
-    """Active phase label at spawn time (e.g. ``ac-ui/0-critical-bugs``)."""
+    """Active phase label at spawn time (e.g. ``phase/0`` or ``team/engineering``)."""
 
     role: Mapped[str] = mapped_column(String(128), nullable=False)
     """Agent role used for this wave (e.g. ``python-developer``)."""
@@ -473,7 +473,7 @@ class ACIssueWorkflowState(Base):
     """Denormalised for fast initiative-scoped queries."""
 
     phase_key: Mapped[str | None] = mapped_column(String(256), nullable=True)
-    """Scoped phase label (e.g. ``ac-ui/0-critical-bugs``)."""
+    """Scoped phase label (e.g. ``phase/0`` or ``team/engineering``)."""
 
     lane: Mapped[str] = mapped_column(String(32), nullable=False, default="todo")
     """Canonical swim lane: ``todo`` | ``active`` | ``pr_open`` | ``reviewing`` | ``done``."""

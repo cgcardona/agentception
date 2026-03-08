@@ -165,7 +165,7 @@ async def test_get_open_issues_no_label() -> None:
 
 @pytest.mark.anyio
 async def test_get_wip_issues_empty() -> None:
-    """get_wip_issues() must return an empty list when no agent:wip issues exist."""
+    """get_wip_issues() must return an empty list when no agent/wip issues exist."""
     with patch(
         "agentception.readers.github.asyncio.create_subprocess_exec",
         return_value=_make_process(b"[]"),
@@ -177,7 +177,7 @@ async def test_get_wip_issues_empty() -> None:
 
 @pytest.mark.anyio
 async def test_get_wip_issues_passes_label() -> None:
-    """get_wip_issues() must delegate to get_open_issues with label='agent:wip'."""
+    """get_wip_issues() must delegate to get_open_issues with label='agent/wip'."""
     with patch(
         "agentception.readers.github.asyncio.create_subprocess_exec",
         return_value=_make_process(b"[]"),
@@ -185,7 +185,7 @@ async def test_get_wip_issues_passes_label() -> None:
         await get_wip_issues()
 
     call_args = mock_exec.call_args[0]
-    assert "agent:wip" in call_args
+    assert "agent/wip" in call_args
 
 
 # ---------------------------------------------------------------------------
@@ -202,10 +202,10 @@ async def test_get_active_label_returns_first_match_from_config() -> None:
     mock_config = PipelineConfig(
         coordinator_limits={"engineering-coordinator": 1, "qa-coordinator": 1},
         pool_size=4,
-        active_labels_order=["ac-ui/0-critical-bugs", "ac-ui/1-design-tokens", "ac-ui/2-data-model"],
+        active_labels_order=["phase/0", "phase/1", "phase/2"],
     )
     # Issues only have ac-ui/1 and ac-ui/2 labels (phase 0 is all done)
-    label_names = ["ac-ui/1-design-tokens", "ac-ui/2-data-model", "enhancement"]
+    label_names = ["phase/1", "phase/2", "enhancement"]
 
     with (
         patch.object(_pc, "read_pipeline_config", return_value=mock_config),
@@ -217,7 +217,7 @@ async def test_get_active_label_returns_first_match_from_config() -> None:
         result = await get_active_label()
 
     # ac-ui/0 has no open issues, so ac-ui/1 is the first match
-    assert result == "ac-ui/1-design-tokens"
+    assert result == "phase/1"
 
 
 @pytest.mark.anyio
@@ -229,7 +229,7 @@ async def test_get_active_label_returns_none_when_no_configured_labels_have_issu
     mock_config = PipelineConfig(
         coordinator_limits={"engineering-coordinator": 1, "qa-coordinator": 1},
         pool_size=4,
-        active_labels_order=["ac-ui/0-critical-bugs", "ac-ui/1-design-tokens"],
+        active_labels_order=["phase/0", "phase/1"],
     )
     # No ac-ui/* issues open
     label_names_no_match = ["enhancement", "batch-01", "bug"]
@@ -322,7 +322,7 @@ async def test_close_pr_raises_on_failure() -> None:
 
 @pytest.mark.anyio
 async def test_clear_wip_label_passes_remove_label() -> None:
-    """clear_wip_label() must pass --remove-label agent:wip to gh."""
+    """clear_wip_label() must pass --remove-label agent/wip to gh."""
     with patch(
         "agentception.readers.github.asyncio.create_subprocess_exec",
         return_value=_make_process(b""),
@@ -331,7 +331,7 @@ async def test_clear_wip_label_passes_remove_label() -> None:
 
     call_args = mock_exec.call_args[0]
     assert "--remove-label" in call_args
-    assert "agent:wip" in call_args
+    assert "agent/wip" in call_args
 
 
 @pytest.mark.anyio
@@ -386,7 +386,7 @@ async def test_get_issue_raises_on_failure() -> None:
 
 @pytest.mark.anyio
 async def test_add_wip_label_passes_add_label() -> None:
-    """add_wip_label() must pass --add-label agent:wip to gh."""
+    """add_wip_label() must pass --add-label agent/wip to gh."""
     with patch(
         "agentception.readers.github.asyncio.create_subprocess_exec",
         return_value=_make_process(b""),
@@ -395,7 +395,7 @@ async def test_add_wip_label_passes_add_label() -> None:
 
     call_args = mock_exec.call_args[0]
     assert "--add-label" in call_args
-    assert "agent:wip" in call_args
+    assert "agent/wip" in call_args
 
 
 @pytest.mark.anyio

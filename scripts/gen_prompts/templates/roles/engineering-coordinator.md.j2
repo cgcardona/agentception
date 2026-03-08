@@ -31,6 +31,7 @@ SEED:
        # create first; if it already exists, edit to enforce the canonical color.
        # Never rely on create alone — it fails silently if the label exists, leaving
        # a stale color from a previous run.
+       # Note: label name uses slash notation — quote it to avoid shell interpretation.
        gh label create "{{ claim_label }}" \
          --color "0075ca" \
          --description "Claimed by a pipeline agent — do not assign manually" \
@@ -75,19 +76,30 @@ SEED:
          fi
        done
 
-  3. Query open unclaimed issues — ACTIVE_LABEL only (passed by parent in your dispatch prompt):
-       # ACTIVE_LABEL is the single {{ active_label_prefix }}* label assigned to you.
-       # NEVER query all {{ active_label_prefix }}* labels — you are scoped to exactly one label per coordinator run.
-       # This prevents you from accidentally claiming issues from a later phase.
-       ACTIVE_LABEL="<from dispatch prompt>"
-       # MCP: list_issues (user-github)(state="open", label="$ACTIVE_LABEL")
-       # → filter result to exclude issues that have any of these labels:
-       #     "{{ claim_label }}"  (already claimed by another agent)
-       #     "blocked"            (phase-gated — prior phase not yet complete)
-       #     "ticket-blocked"     (has unresolved ticket-level dependency — the
-       #                           poller removes this label automatically once
-       #                           all deps close; never dispatch these manually)
-     If empty → report "implementation queue clear for $ACTIVE_LABEL." Stop.
+  3. Query open unclaimed issues — TEAM_LABELS + ACTIVE_PHASE only (passed by CTO in dispatch prompt):
+       # ACTIVE_PHASE is the phase/* label assigned to you (e.g. "phase/0").
+       # TEAM_LABELS is the set of team/* labels you are scoped to (e.g. "team/engineering").
+       # NEVER query all issues — always filter by BOTH a team label AND the active phase.
+       # This prevents claiming issues from later phases or other teams.
+
+       ACTIVE_PHASE="<from dispatch prompt>"  # e.g. "phase/0"
+       TEAM_LABEL="<primary team label from dispatch prompt>"  # e.g. "team/engineering"
+
+       # For each team label in scope, query issues at the active phase:
+       CANDIDATES=()
+       for TEAM_LABEL in $TEAM_LABELS; do
+         # MCP: list_issues (user-github)(state="open", labels=["$TEAM_LABEL", "$ACTIVE_PHASE"])
+         # → filter result to exclude issues that have any of these labels:
+         #     "{{ claim_label }}"  (already claimed by another agent)
+         #     "blocked"            (phase-gated — prior phase not yet complete)
+         #     "ticket-blocked"     (has unresolved ticket-level dependency — the
+         #                           poller removes this label automatically once
+         #                           all deps close; never dispatch these manually)
+         # → append remaining to CANDIDATES
+       done
+
+       # Sort CANDIDATES by priority/* label (priority/critical first, then high, medium, low, none).
+     If CANDIDATES empty → report "implementation queue clear for $ACTIVE_PHASE." Stop.
 
   3.5 Open-PR guard — skip issues that already have an open PR:
        # An implementer worktree may be pruned after the PR is created, causing

@@ -242,7 +242,7 @@ def test_overview_shows_analyze_button_for_unclaimed_issues(client: TestClient) 
     from agentception.models import BoardIssue, PipelineState
 
     state = PipelineState(
-        active_label="ac-ui/0-critical-bugs",
+        active_label="phase/0",
         issues_open=1,
         prs_open=0,
         agents=[],

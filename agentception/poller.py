@@ -128,7 +128,7 @@ async def merge_agents(
 
     Status derivation rules (applied in priority order):
     1. Worktree branch matches an open PR ``headRefName`` → REVIEWING
-    2. Worktree issue number appears in ``agent:wip`` issues → IMPLEMENTING
+    2. Worktree issue number appears in ``agent/wip`` issues → IMPLEMENTING
     3. ``WORKFLOW=bugs-to-issues`` (coordinator/brain-dump) → IMPLEMENTING
        These agents have no issue number or PR; they are actively planning.
     4. Otherwise → UNKNOWN
@@ -157,7 +157,7 @@ async def merge_agents(
             status = AgentStatus.REVIEWING
         elif tf.issue_number is not None:
             # Any worktree with a valid issue number is implementing. We do not
-            # require the agent:wip GitHub label here — the worktree's existence
+            # require the agent/wip GitHub label here — the worktree's existence
             # is the authoritative signal. The label is useful for stale-claim
             # detection (a label without a worktree) but should not gate board
             # visibility, because leaf agents may not have claimed the issue yet
@@ -212,7 +212,7 @@ async def detect_alerts(
     """Detect pipeline problems and return human-readable alert strings plus structured stale claims.
 
     Three alert classes:
-    1. **Stale claim** — an ``agent:wip`` issue has no live worktree.
+    1. **Stale claim** — an ``agent/wip`` issue has no live worktree.
     2. **Out-of-order PR** — an open PR's labels include an agentception phase
        that no longer matches the currently active phase.
     3. **Stuck agent** — the most-recent commit in a worktree is > 30 min old.
@@ -224,8 +224,8 @@ async def detect_alerts(
     alerts: list[str] = []
     now = time.time()
 
-    # ── Alert 1: agent:wip issue with no matching worktree ─────────────────
-    # Self-heal: automatically clear the agent:wip label when there is no live
+    # ── Alert 1: agent/wip issue with no matching worktree ─────────────────
+    # Self-heal: automatically clear the agent/wip label when there is no live
     # worktree for the issue.  The worktree is the source of truth — if it is
     # gone, the claim is orphaned and can be safely released so the issue
     # becomes available for re-spawn.
@@ -238,7 +238,7 @@ async def detect_alerts(
         alerts.append(f"Stale claim on #{claim.issue_number}")
         try:
             await clear_wip_label(claim.issue_number)
-            logger.info("✅ Auto-healed stale claim: removed agent:wip from #%d", claim.issue_number)
+            logger.info("✅ Auto-healed stale claim: removed agent/wip from #%d", claim.issue_number)
         except Exception as exc:
             logger.warning("⚠️  Auto-heal failed for #%d: %s", claim.issue_number, exc)
 

@@ -547,8 +547,8 @@ def test_all_tiers_produce_valid_task_content() -> None:
     """Every tier/scope combination must produce a parseable .agent-task."""
     combos: list[tuple[str, Tier, ScopeType, str]] = [
         ("cto", "executive", "label", "ac-workflow"),
-        ("engineering-coordinator", "coordinator", "label", "ac-ui/0-bugs"),
-        ("qa-coordinator", "coordinator", "label", "ac-ui/0-bugs"),
+        ("engineering-coordinator", "coordinator", "label", "phase/0"),
+        ("qa-coordinator", "coordinator", "label", "phase/0"),
         ("python-developer", "engineer", "issue", "42"),
         ("pr-reviewer", "reviewer", "pr", "112"),
     ]

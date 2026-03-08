@@ -114,7 +114,7 @@ def test_spawn_creates_worktree_and_task_file(
         patch(
             "agentception.routes.api.control.get_active_label",
             new_callable=AsyncMock,
-            return_value="ac-ui/1-design-tokens",
+            return_value="phase/1",
         ),
         patch("agentception.routes.api.control.add_wip_label", new_callable=AsyncMock),
         patch(
@@ -160,10 +160,10 @@ def test_spawn_creates_worktree_and_task_file(
 
 
 def test_spawn_already_claimed_returns_409(client: TestClient) -> None:
-    """POST /api/control/spawn must return 409 when the issue already has agent:wip."""
+    """POST /api/control/spawn must return 409 when the issue already has agent/wip."""
     with patch(
         "agentception.routes.api.control.get_issue",
-        return_value=_open_issue(42, "Fix the thing", labels=["agent:wip", "enhancement"]),
+        return_value=_open_issue(42, "Fix the thing", labels=["agent/wip", "enhancement"]),
     ):
         response = client.post(
             "/api/control/spawn",
@@ -342,7 +342,7 @@ def test_spawn_returns_html_when_accept_text_html(
         patch(
             "agentception.routes.api.control.get_active_label",
             new_callable=AsyncMock,
-            return_value="ac-ui/4",
+            return_value="phase/4",
         ),
         patch("agentception.routes.api.control.add_wip_label", new_callable=AsyncMock),
         patch("agentception.routes.api.control.settings.worktrees_dir", worktree_dir),

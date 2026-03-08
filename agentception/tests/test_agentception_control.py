@@ -4,7 +4,7 @@ from __future__ import annotations
 
 Tests cover:
 - 404 returned for an unknown worktree slug.
-- Successful kill: worktree removal, agent:wip label cleared, prune called.
+- Successful kill: worktree removal, agent/wip label cleared, prune called.
 - Slug with no .agent-task file (no issue number) — still succeeds.
 
 Run targeted:
@@ -102,7 +102,7 @@ def test_kill_removes_worktree_and_clears_label(
         "git worktree remove must be called"
     )
     assert any("issue" in c and "edit" in c for c in calls), (
-        "gh issue edit must be called to clear agent:wip"
+        "gh issue edit must be called to clear agent/wip"
     )
     assert any("worktree" in c and "prune" in c for c in calls), (
         "git worktree prune must be called"

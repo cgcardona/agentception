@@ -276,7 +276,7 @@ TOOLS: list[ACToolDef] = [
     ACToolDef(
         name="github_claim_issue",
         description=(
-            "Claim a GitHub issue for this agent by adding the 'agent:wip' label. "
+            "Claim a GitHub issue for this agent by adding the 'agent/wip' label. "
             "Call this before starting work to prevent double-claiming. "
             "Invalidates the read cache. Returns {ok, issue_number, claimed: true}."
         ),
@@ -292,7 +292,7 @@ TOOLS: list[ACToolDef] = [
     ACToolDef(
         name="github_unclaim_issue",
         description=(
-            "Release an issue claim by removing the 'agent:wip' label. "
+            "Release an issue claim by removing the 'agent/wip' label. "
             "Call this when finishing or aborting work. "
             "Invalidates the read cache. Returns {ok, issue_number, claimed: false}."
         ),

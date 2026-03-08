@@ -69,7 +69,7 @@ async def _run(cmd: list[str]) -> tuple[int, str, str]:
 
 @router.post("/kill/{slug}")
 async def kill_agent(slug: str) -> JSONResponse:
-    """Force-remove an agent worktree and clear the ``agent:wip`` GitHub label.
+    """Force-remove an agent worktree and clear the ``agent/wip`` GitHub label.
 
     Slug is the bare directory name under ``settings.worktrees_dir``, e.g.
     ``issue-553`` or ``pr-607``.
@@ -77,7 +77,7 @@ async def kill_agent(slug: str) -> JSONResponse:
     Steps:
     1. Verify the worktree directory exists (404 if not).
     2. ``git worktree remove --force <path>`` — detaches and removes the directory.
-    3. Parse ``.agent-task`` for ``ISSUE_NUMBER`` and clear ``agent:wip`` on that
+    3. Parse ``.agent-task`` for ``ISSUE_NUMBER`` and clear ``agent/wip`` on that
        issue via ``gh issue edit``.
     4. ``git worktree prune`` — cleans up stale refs in the main repo.
 
@@ -109,7 +109,7 @@ async def kill_agent(slug: str) -> JSONResponse:
             except OSError as rm_err:
                 logger.warning("⚠️ rm -rf fallback failed for %s: %s", worktree, rm_err)
 
-    # Step 2: clear agent:wip on the related issue (best-effort).
+    # Step 2: clear agent/wip on the related issue (best-effort).
     if issue_number is not None:
         gh_rc, _, gh_err = await _run(
             [
@@ -120,13 +120,13 @@ async def kill_agent(slug: str) -> JSONResponse:
                 "--repo",
                 settings.gh_repo,
                 "--remove-label",
-                "agent:wip",
+                "agent/wip",
             ]
         )
         if gh_rc != 0:
             logger.warning("⚠️ gh issue edit exited %d: %s", gh_rc, gh_err.strip())
         else:
-            logger.info("✅ Cleared agent:wip from issue #%d", issue_number)
+            logger.info("✅ Cleared agent/wip from issue #%d", issue_number)
     else:
         logger.warning("⚠️ No ISSUE_NUMBER in .agent-task for worktree '%s'", slug)
 

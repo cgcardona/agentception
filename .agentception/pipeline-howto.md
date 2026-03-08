@@ -40,7 +40,7 @@ YOU (human)
 
 **How it works:** Coordinators seed the initial pool. Each leaf agent, the moment it finishes
 its work (PR opened / PR merged), queries GitHub for the next unclaimed item, claims
-it with a `agent:wip` label, creates a new worktree, and spawns a fresh leaf agent
+it with a `agent/wip` label, creates a new worktree, and spawns a fresh leaf agent
 via the Task tool — before it exits. No batch boundaries. No waiting for the slowest
 agent. The pool stays at N concurrent workers continuously until the queue drains.
 

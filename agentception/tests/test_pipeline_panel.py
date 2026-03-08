@@ -44,9 +44,9 @@ def client() -> Generator[TestClient, None, None]:
 @pytest.fixture()
 def labels() -> list[str]:
     return [
-        "ac-ui/0-critical-bugs",
-        "ac-ui/1-design-tokens",
-        "ac-ui/2-data-model",
+        "phase/0",
+        "phase/1",
+        "phase/2",
     ]
 
 
@@ -54,16 +54,16 @@ def labels() -> list[str]:
 def state_with_lanes(labels: list[str]) -> PipelineState:
     """PipelineState with board issues spread across two phases."""
     return PipelineState(
-        active_label="ac-ui/0-critical-bugs",
+        active_label="phase/0",
         issues_open=3,
         prs_open=0,
         agents=[],
         alerts=[],
         polled_at=time.time(),
         board_issues=[
-            BoardIssue(number=10, title="Bug alpha", phase_label="ac-ui/0-critical-bugs"),
-            BoardIssue(number=11, title="Bug beta", phase_label="ac-ui/0-critical-bugs"),
-            BoardIssue(number=20, title="Token issue", phase_label="ac-ui/1-design-tokens"),
+            BoardIssue(number=10, title="Bug alpha", phase_label="phase/0"),
+            BoardIssue(number=11, title="Bug beta", phase_label="phase/0"),
+            BoardIssue(number=20, title="Token issue", phase_label="phase/1"),
         ],
     )
 

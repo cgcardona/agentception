@@ -520,7 +520,7 @@ async def get_board_issues(
         issues: list[BoardIssueRow] = []
         for row in rows:
             labels = json.loads(row.labels_json)
-            is_claimed = "agent:wip" in labels
+            is_claimed = "agent/wip" in labels
             if not include_claimed and is_claimed:
                 continue
             issues.append(
@@ -557,7 +557,7 @@ async def get_board_counts(
 
         total = len(rows)
         claimed = sum(
-            1 for r in rows if "agent:wip" in json.loads(r.labels_json)
+            1 for r in rows if "agent/wip" in json.loads(r.labels_json)
         )
         return {"total": total, "claimed": claimed, "unclaimed": total - claimed}
     except Exception as exc:
@@ -833,7 +833,7 @@ async def get_issue_detail(
             state=issue.state,
             labels=labels,
             phase_label=issue.phase_label,
-            claimed="agent:wip" in labels,
+            claimed="agent/wip" in labels,
             first_seen_at=issue.first_seen_at.isoformat(),
             last_synced_at=issue.last_synced_at.isoformat(),
             closed_at=issue.closed_at.isoformat() if issue.closed_at else None,

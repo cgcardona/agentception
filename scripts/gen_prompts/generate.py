@@ -70,7 +70,8 @@ def _build_context(config: dict) -> dict:  # type: ignore[type-arg]
     active_name: str = codebases["active"]
     active: dict = codebases[active_name]  # type: ignore[type-arg]
 
-    phases: list[str] = pipeline["phases"]
+    # phases is optional — agents discover active phases dynamically from GitHub labels.
+    phases: list[str] = pipeline.get("phases", [])
 
     return {
         # Repo
@@ -83,8 +84,8 @@ def _build_context(config: dict) -> dict:  # type: ignore[type-arg]
         "phases": phases,
         # Space-separated for shell for-loops, broken across lines for readability
         "phases_shell": _phases_shell(phases),
-        # Prefix for the current active codebase labels
-        "label_prefix": active["label_prefix"],
+        # Prefix for the current active codebase labels (team/ namespace)
+        "label_prefix": active.get("label_prefix", "team/"),
 
         # Active codebase
         "active_name": active_name,
@@ -92,7 +93,7 @@ def _build_context(config: dict) -> dict:  # type: ignore[type-arg]
         "active_mypy": active["mypy"],
         "active_test_dir": active["test_dir"],
         "active_test_glob": active["test_glob"],
-        "active_label_prefix": active["label_prefix"],
+        "active_label_prefix": active.get("label_prefix", "team/"),
 
         # All codebases (for reference in templates)
         "codebases": {k: v for k, v in codebases.items() if k != "active"},
@@ -151,7 +152,12 @@ def _render(config: dict) -> dict[Path, str]:  # type: ignore[type-arg]
 
 
 def _build_sync_labels_sh(config: dict) -> str:  # type: ignore[type-arg]
-    """Generate sync_labels.sh — idempotent gh label create/edit script."""
+    """Generate sync_labels.sh — idempotent gh label create/edit script.
+
+    Handles any label section structure in config.yaml: a section value may be
+    either a single dict (one label) or a list of dicts (multiple labels). Each
+    dict must have 'name', 'color', and 'description' keys.
+    """
     labels_cfg = config.get("labels", {})
     gh_repo = config["repo"]["gh_slug"]
 
@@ -180,40 +186,27 @@ def _build_sync_labels_sh(config: dict) -> str:  # type: ignore[type-arg]
         "",
     ]
 
-    # Claim label
-    if "claim" in labels_cfg:
-        cl = labels_cfg["claim"]
-        lines.append("echo '── Claim label ──────────────────────────────────────────────'")
-        lines.append(f"sync_label {_sh_quote(cl['name'])} {_sh_quote(cl['color'])} {_sh_quote(cl['description'])}")
-        lines.append("")
+    for section_name, section_data in labels_cfg.items():
+        title = section_name.replace("_", " ").title()
+        # Pad the title line to 60 chars for a consistent look
+        border = "─" * max(1, 60 - len(title) - 4)
+        lines.append(f"echo '── {title} {border}'")
 
-    # Project label
-    if "project" in labels_cfg:
-        pl = labels_cfg["project"]
-        lines.append("echo '── Project label ────────────────────────────────────────────'")
-        lines.append(f"sync_label {_sh_quote(pl['name'])} {_sh_quote(pl['color'])} {_sh_quote(pl['description'])}")
-        lines.append("")
-
-    # Phase labels
-    if "phases" in labels_cfg:
-        lines.append("echo '── Phase labels ─────────────────────────────────────────────'")
-        for label in labels_cfg["phases"]:
+        if isinstance(section_data, dict) and "name" in section_data:
+            # Single label entry (e.g. the 'claim' section)
             lines.append(
-                f"sync_label {_sh_quote(label['name'])} "
-                f"{_sh_quote(label['color'])} "
-                f"{_sh_quote(label['description'])}"
+                f"sync_label {_sh_quote(section_data['name'])} "
+                f"{_sh_quote(section_data['color'])} "
+                f"{_sh_quote(section_data['description'])}"
             )
-        lines.append("")
-
-    # Utility labels
-    if "utility" in labels_cfg:
-        lines.append("echo '── Utility labels ───────────────────────────────────────────'")
-        for label in labels_cfg["utility"]:
-            lines.append(
-                f"sync_label {_sh_quote(label['name'])} "
-                f"{_sh_quote(label['color'])} "
-                f"{_sh_quote(label['description'])}"
-            )
+        elif isinstance(section_data, list):
+            for label in section_data:
+                if isinstance(label, dict) and "name" in label:
+                    lines.append(
+                        f"sync_label {_sh_quote(label['name'])} "
+                        f"{_sh_quote(label['color'])} "
+                        f"{_sh_quote(label['description'])}"
+                    )
         lines.append("")
 
     lines.append("echo ''")
