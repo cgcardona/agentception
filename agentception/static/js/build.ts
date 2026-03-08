@@ -2,10 +2,11 @@
  * build.ts — Mission Control Alpine component.
  *
  * Manages:
- *  - activeIssue        — the issue card currently being inspected
- *  - events[]           — structured MCP events from /ship/runs/{run_id}/stream
- *  - thoughts[]         — raw CoT messages from the same SSE stream
- *  - labelDispatch modal — scope-based launch: full initiative / phase / single issue
+ *  - activeIssue  — the issue card currently being inspected
+ *  - events[]     — structured MCP events from /ship/runs/{run_id}/stream
+ *  - thoughts[]   — raw CoT messages from the same SSE stream
+ *
+ * Launch is handled exclusively by the Org Designer overlay (org_designer.ts).
  *
  * See docs/agent-tree-protocol.md for the node-type spec.
  */
@@ -56,33 +57,6 @@ interface TreeTierGroup {
   nodes: AgentTreeNode[];
 }
 
-interface PhaseItem {
-  label: string;
-  count: number;
-}
-
-interface IssueItem {
-  number: number;
-  title: string;
-}
-
-interface ContextResponse {
-  phases: PhaseItem[];
-  issues: IssueItem[];
-}
-
-export interface DispatchResult {
-  run_id: string;
-  batch_id: string;
-  tier: string;
-  role: string;
-  label: string;
-  worktree: string;
-  host_worktree: string;
-  agent_task_path: string;
-  status: string;
-}
-
 interface ApiErrorBody {
   detail?: string;
 }
@@ -104,33 +78,9 @@ interface SseThought {
   content: string;
 }
 
-type CoordinatorTypeKey = 'cto' | 'engineering-manager' | 'qa-lead';
-type AgentTypeKey = 'coordinator' | 'leaf';
-type ScopeType = 'full_initiative' | 'phase' | 'issue';
-
-interface CoordinatorTypeOption {
-  value: CoordinatorTypeKey;
-  label: string;
-  desc: string;
-  role: string;
-}
-
 interface TreeResponse {
   nodes: AgentTreeNode[];
   batch_id: string | null;
-}
-
-interface DispatchBody {
-  label: string;
-  scope: ScopeType;
-  repo: string;
-  scope_label?: string;
-  scope_issue_number?: number;
-  role?: string;
-}
-
-interface OpenLabelDispatchDetail {
-  label?: string;
 }
 
 // ── Component definition ─────────────────────────────────────────────────────
@@ -161,97 +111,6 @@ export function buildPage() {
     chatSending: false,
     chatError: null as string | null,
     agentStopping: false,
-
-    // ── label-dispatch (launch) modal state ─────────────────────────────
-    labelDispatchOpen: false,
-    labelDispatchLabel: '',
-
-    agentType: 'coordinator' as AgentTypeKey,
-    coordinatorType: 'cto' as CoordinatorTypeKey,
-
-    coordinatorTypes: [
-      {
-        value: 'cto',
-        label: 'CTO',
-        desc: 'Surveys all open tickets + PRs and assembles the full team',
-        role: 'cto',
-      },
-      {
-        value: 'engineering-manager',
-        label: 'Engineering Manager',
-        desc: 'Owns one phase — pulls tickets and spawns leaf workers',
-        role: 'engineering-coordinator',
-      },
-      {
-        value: 'qa-lead',
-        label: 'QA Lead',
-        desc: 'Surveys open PRs and spawns reviewers',
-        role: 'qa-coordinator',
-      },
-    ] as CoordinatorTypeOption[],
-
-    scopePhases: [] as PhaseItem[],
-    selectedPhase: '',
-    scopeIssues: [] as IssueItem[],
-    selectedIssueNumber: null as number | null,
-    labelContextLoading: false,
-    labelContextLoaded: false,
-
-    showAdvanced: false,
-    advancedRole: '',
-
-    labelDispatching: false,
-    labelDispatchError: null as string | null,
-    labelDispatchSuccess: false,
-    labelDispatchResult: null as DispatchResult | null,
-    dispatcherCopied: false,
-    cancellingDispatch: false,
-
-    // ── derived scope + role ─────────────────────────────────────────────
-
-    get _derivedScope(): ScopeType {
-      if (this.agentType === 'leaf') return 'issue';
-      if (this.coordinatorType === 'engineering-manager') return 'phase';
-      return 'full_initiative';
-    },
-
-    get _derivedRole(): string | null {
-      if (this.advancedRole.trim()) return this.advancedRole.trim();
-      if (this.agentType === 'leaf') return null;
-      if (this.coordinatorType === 'cto') return 'cto';
-      if (this.coordinatorType === 'engineering-manager') return 'engineering-coordinator';
-      if (this.coordinatorType === 'qa-lead') return 'qa-coordinator';
-      return null;
-    },
-
-    get launchPreviewText(): string {
-      const label = this.labelDispatchLabel;
-      if (this.agentType === 'coordinator') {
-        if (this.coordinatorType === 'cto') {
-          return `A CTO will survey all open tickets and PRs under "${label}" and assemble its own team.`;
-        }
-        if (this.coordinatorType === 'engineering-manager') {
-          if (!this.selectedPhase) return 'Choose a phase to see the preview.';
-          return `An Engineering Manager will pull all tickets in phase "${this.selectedPhase}" and spawn workers.`;
-        }
-        if (this.coordinatorType === 'qa-lead') {
-          return `A QA Lead will survey all open PRs under "${label}" and spawn reviewers.`;
-        }
-      }
-      if (this.agentType === 'leaf') {
-        if (!this.selectedIssueNumber) return 'Choose a ticket to see the preview.';
-        const found = this.scopeIssues.find((i) => i.number === this.selectedIssueNumber);
-        const title = found ? found.title : `#${this.selectedIssueNumber}`;
-        return `One leaf agent will work on #${this.selectedIssueNumber}: "${title}".`;
-      }
-      return '';
-    },
-
-    get launchReady(): boolean {
-      if (this.agentType === 'leaf') return this.selectedIssueNumber !== null;
-      if (this.coordinatorType === 'engineering-manager') return this.selectedPhase !== '';
-      return true;
-    },
 
     // ── agent tree computed groupings ────────────────────────────────────
 
@@ -443,141 +302,6 @@ export function buildPage() {
       } catch {
         this.agentTreeNodes = [];
         this.agentTreeBatchId = null;
-      }
-    },
-
-    // ── label-dispatch (launch) modal ────────────────────────────────────
-
-    openLabelDispatch(detail: OpenLabelDispatchDetail): void {
-      this.labelDispatchLabel = detail.label ?? '';
-      this.agentType = 'coordinator';
-      this.coordinatorType = 'cto';
-      this.scopePhases = [];
-      this.scopeIssues = [];
-      this.selectedPhase = '';
-      this.selectedIssueNumber = null;
-      this.labelContextLoading = false;
-      this.labelContextLoaded = false;
-      this.showAdvanced = false;
-      this.advancedRole = '';
-      this.labelDispatchError = null;
-      this.labelDispatchSuccess = false;
-      this.labelDispatchResult = null;
-      this.labelDispatching = false;
-      this.dispatcherCopied = false;
-      this.cancellingDispatch = false;
-      this.labelDispatchOpen = true;
-      void this._loadLabelContext().then(() => {
-        if (this.scopeIssues.length === 1) {
-          this.agentType = 'leaf';
-          this.selectedIssueNumber = this.scopeIssues[0].number;
-        }
-      });
-    },
-
-    closeLabelDispatch(): void {
-      this.labelDispatchOpen = false;
-    },
-
-    async cancelPendingDispatch(): Promise<void> {
-      const runId = this.labelDispatchResult?.run_id;
-      if (!runId) return;
-      this.cancellingDispatch = true;
-      try {
-        const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/cancel`, {
-          method: 'POST',
-        });
-        if (res.ok || res.status === 204) {
-          this.labelDispatchSuccess = false;
-          this.labelDispatchResult = null;
-          this.labelDispatchOpen = false;
-        } else {
-          const data = (await res.json().catch(() => ({}))) as ApiErrorBody;
-          this.labelDispatchError = data.detail ?? `Cancel failed (${res.status})`;
-          this.labelDispatchSuccess = false;
-        }
-      } catch (err) {
-        this.labelDispatchError = `Network error: ${(err as Error).message}`;
-        this.labelDispatchSuccess = false;
-      } finally {
-        this.cancellingDispatch = false;
-      }
-    },
-
-    async _loadLabelContext(): Promise<void> {
-      if (this.labelContextLoaded || this.labelContextLoading) return;
-      this.labelContextLoading = true;
-      try {
-        const url =
-          `/api/dispatch/context` +
-          `?label=${encodeURIComponent(this.labelDispatchLabel)}` +
-          `&repo=${encodeURIComponent(this.repo)}`;
-        const res = await fetch(url);
-        if (res.ok) {
-          const data = (await res.json()) as ContextResponse;
-          this.scopePhases = data.phases ?? [];
-          this.scopeIssues = data.issues ?? [];
-          this.labelContextLoaded = true;
-        }
-      } catch {
-        // Non-fatal — pickers will be empty; coordinator path still works.
-      } finally {
-        this.labelContextLoading = false;
-      }
-    },
-
-    async copyDispatcherPrompt(): Promise<void> {
-      try {
-        const res = await fetch('/api/dispatch/prompt');
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = (await res.json()) as { content: string };
-        await navigator.clipboard.writeText(data.content);
-        this.dispatcherCopied = true;
-        setTimeout(() => { this.dispatcherCopied = false; }, 3000);
-      } catch (err) {
-        alert(`Could not copy prompt: ${(err as Error).message}`);
-      }
-    },
-
-    async submitLabelDispatch(): Promise<void> {
-      if (!this.launchReady) return;
-      this.labelDispatching = true;
-      this.labelDispatchError = null;
-
-      const scope = this._derivedScope;
-      const body: DispatchBody = {
-        label: this.labelDispatchLabel,
-        scope,
-        repo: this.repo,
-      };
-      if (scope === 'phase' && this.selectedPhase) {
-        body.scope_label = this.selectedPhase;
-      }
-      if (scope === 'issue' && this.selectedIssueNumber !== null) {
-        body.scope_issue_number = this.selectedIssueNumber;
-      }
-      const role = this._derivedRole;
-      if (role) {
-        body.role = role;
-      }
-
-      try {
-        const res = await fetch('/api/dispatch/label', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        const data = (await res.json()) as DispatchResult | ApiErrorBody;
-        if (!res.ok) {
-          this.labelDispatchError = (data as ApiErrorBody).detail ?? `Error ${res.status}`;
-        } else {
-          this.labelDispatchResult = data as DispatchResult;
-          this.labelDispatchSuccess = true;
-        }
-      } catch (err) {
-        this.labelDispatchError = `Network error: ${(err as Error).message}`;
-      } finally {
-        this.labelDispatching = false;
       }
     },
 
