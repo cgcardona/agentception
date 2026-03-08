@@ -17,8 +17,10 @@ Static resources
     ac://runs/pending         — runs queued for Dispatcher launch
     ac://system/dispatcher    — dispatcher run counters and active batch_id
     ac://system/health        — DB reachability and per-status run counts
+    ac://system/config        — pipeline label config (claim label, active label, etc.)
     ac://plan/schema          — PlanSpec JSON Schema (changes only on deploy)
     ac://plan/labels          — GitHub label catalogue for the configured repo
+    ac://roles/list           — available role slugs in the team taxonomy
 
 Templated resources (RFC 6570)
     ac://runs/{run_id}                  — lightweight metadata for one run
@@ -28,12 +30,15 @@ Templated resources (RFC 6570)
     ac://runs/{run_id}/task             — raw .agent-task TOML text
     ac://batches/{batch_id}/tree        — all runs in a batch, flat list
     ac://plan/figures/{role}            — cognitive-arch figures for a role
+    ac://roles/{slug}                   — role definition Markdown for a slug
 """
 
 import json
 import logging
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from agentception.config import settings
 from agentception.mcp.plan_tools import (
     plan_get_cognitive_figures,
     plan_get_labels,
@@ -60,6 +65,11 @@ from agentception.mcp.types import (
 logger = logging.getLogger(__name__)
 
 _MIME = "application/json"
+
+# Root of the compiled .agentception/ directory.  Works both inside Docker
+# (/app is the repo root) and during local development.
+_APP_ROOT = Path(__file__).parent.parent.parent
+_AGENTCEPTION_DIR = _APP_ROOT / ".agentception"
 
 # ---------------------------------------------------------------------------
 # Static resource catalogue
@@ -121,6 +131,27 @@ RESOURCES: list[ACResourceDef] = [
         description=(
             "Full GitHub label list for the configured repository. "
             "Returns {labels: [{name: str, description: str}, ...]}."
+        ),
+        mimeType=_MIME,
+    ),
+    ACResourceDef(
+        uri="ac://system/config",
+        name="Pipeline config",
+        description=(
+            "Current pipeline label configuration: claim_label, active_label, "
+            "gated_label, and the configured GitHub repo. "
+            "Read before writing labels to ensure you are using the canonical names."
+        ),
+        mimeType=_MIME,
+    ),
+    ACResourceDef(
+        uri="ac://roles/list",
+        name="Available roles",
+        description=(
+            "All role slugs defined in the team taxonomy. "
+            "Returns {roles: [str, ...]} sorted alphabetically. "
+            "Use a slug from this list when calling build_spawn_child_run or "
+            "reading ac://roles/{slug}."
         ),
         mimeType=_MIME,
     ),
@@ -192,11 +223,56 @@ RESOURCE_TEMPLATES: list[ACResourceTemplate] = [
         ),
         mimeType=_MIME,
     ),
+    ACResourceTemplate(
+        uriTemplate="ac://roles/{slug}",
+        name="Role definition",
+        description=(
+            "Full role definition Markdown for a given role slug. "
+            "Returns {slug, content: str} where content is the raw Markdown. "
+            "Use ac://roles/list to discover available slugs. "
+            "Returns ok=false when the slug is not found."
+        ),
+        mimeType=_MIME,
+    ),
 ]
 
 # ---------------------------------------------------------------------------
 # URI dispatcher
 # ---------------------------------------------------------------------------
+
+
+def _get_system_config() -> dict[str, object]:
+    """Return current pipeline label configuration from settings."""
+    return {
+        "gh_repo": settings.gh_repo,
+        "claim_label": "agent/wip",
+        "active_label": "pipeline/active",
+        "gated_label": "pipeline/gated",
+        "blocked_label": "blocked/deps",
+    }
+
+
+def _get_roles_list() -> dict[str, object]:
+    """Return sorted list of all available role slugs."""
+    roles_dir = _AGENTCEPTION_DIR / "roles"
+    if not roles_dir.is_dir():
+        logger.warning("⚠️  ac://roles/list: roles directory not found at %s", roles_dir)
+        return {"roles": [], "error": "roles directory not found"}
+    slugs = sorted(p.stem for p in roles_dir.glob("*.md"))
+    return {"roles": slugs, "count": len(slugs)}
+
+
+def _get_role(uri: str, slug: str) -> dict[str, object]:
+    """Return the Markdown content of a role definition file."""
+    path = _AGENTCEPTION_DIR / "roles" / f"{slug}.md"
+    if not path.exists():
+        return {"ok": False, "error": f"Role {slug!r} not found"}
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        logger.error("❌ ac://roles/%s: could not read file — %s", slug, exc)
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True, "slug": slug, "content": content}
 
 
 def _content(uri: str, data: dict[str, object]) -> ACResourceResult:
@@ -260,6 +336,8 @@ async def _dispatch(
             return _content(uri, await query_system_health())
         if path_parts == ["dispatcher"]:
             return _content(uri, await query_dispatcher_state())
+        if path_parts == ["config"]:
+            return _content(uri, _get_system_config())
         return _not_found(uri)
 
     # ── ac://plan/* ──────────────────────────────────────────────────────────
@@ -317,6 +395,14 @@ async def _dispatch(
                         pass
                 return _content(uri, await query_run_events(run_id, after_id))
 
+        return _not_found(uri)
+
+    # ── ac://roles/* ─────────────────────────────────────────────────────────
+    if domain == "roles":
+        if path_parts == ["list"]:
+            return _content(uri, _get_roles_list())
+        if len(path_parts) == 1:
+            return _content(uri, _get_role(uri, path_parts[0]))
         return _not_found(uri)
 
     return _not_found(uri)

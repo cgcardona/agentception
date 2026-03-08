@@ -6,10 +6,17 @@ Every function in this module appends an event to ``ac_agent_events``.
 None of these tools change run state.  They are idempotent in the sense
 that duplicate calls produce duplicate events (safe to retry).
 
+Event type catalogue
+--------------------
+``step_start``  — agent is entering a named execution step
+``blocker``     — agent is stalled on an external dependency
+``decision``    — agent made a significant architectural choice
+``message``     — free-form informational note
+``error``       — unrecoverable failure or crash (semantic; use before cancelling)
+
 Rules
 -----
 - These tools NEVER change run state.  State transitions live in build_commands.py.
-- Return ``{event_id}`` so callers can correlate events.
 - All calls are best-effort — a DB failure returns ``ok: False`` but never
   raises an exception that would abort the agent.
 """
@@ -137,3 +144,37 @@ async def log_run_message(
     )
     logger.info("✅ log_run_message: issue=%d message=%r", issue_number, message[:80])
     return {"ok": True, "event": "message"}
+
+
+async def log_run_error(
+    issue_number: int,
+    error: str,
+    agent_run_id: str | None = None,
+) -> dict[str, object]:
+    """Record an unrecoverable error or crash with semantic distinction.
+
+    Use this instead of :func:`log_run_message` when the agent is aborting
+    due to an exception, API failure, or any condition it cannot recover from.
+    The dashboard surfaces ``error`` events differently from free-form messages
+    so operators can triage failures at a glance.
+
+    After calling this tool, transition the run to ``cancelled`` or ``stopped``
+    by calling ``build_cancel_run`` or ``build_stop_run`` as appropriate.
+
+    Args:
+        issue_number: GitHub issue number the agent is working on.
+        error: Human-readable description of the failure (include exception
+               type and message where available).
+        agent_run_id: Optional run id (e.g. ``"issue-938"``).
+
+    Returns:
+        ``{"ok": True, "event": "error"}``
+    """
+    await persist_agent_event(
+        issue_number=issue_number,
+        event_type="error",
+        payload={"error": error},
+        agent_run_id=agent_run_id,
+    )
+    logger.error("❌ log_run_error: issue=%d — %s", issue_number, error)
+    return {"ok": True, "event": "error"}

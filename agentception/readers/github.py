@@ -762,3 +762,53 @@ async def clear_wip_label(issue_number: int) -> None:
 
     logger.info("✅ Removed agent/wip from issue #%d", issue_number)
     _cache_invalidate()
+
+
+async def add_comment_to_issue(issue_number: int, body: str) -> str:
+    """Post a Markdown comment on a GitHub issue and return the comment URL.
+
+    Uses ``gh issue comment`` with ``--body`` so the body is passed as a
+    command-line argument rather than via stdin, keeping the subprocess call
+    straightforward and testable.
+
+    Does NOT invalidate the label/issue cache — comments do not affect the
+    fields that the cache tracks.
+
+    Parameters
+    ----------
+    issue_number:
+        GitHub issue number to comment on.
+    body:
+        Markdown text for the comment body.
+
+    Returns
+    -------
+    str
+        The URL of the newly created comment
+        (e.g. ``"https://github.com/org/repo/issues/42#issuecomment-123456"``).
+
+    Raises
+    ------
+    RuntimeError
+        When ``gh`` exits with a non-zero status.
+    """
+    repo = settings.gh_repo
+
+    proc = await asyncio.create_subprocess_exec(
+        "gh", "issue", "comment", str(issue_number),
+        "--repo", repo,
+        "--body", body,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"gh issue comment failed (exit {proc.returncode}): "
+            f"{stderr.decode().strip()!r}"
+        )
+
+    comment_url = stdout.decode().strip()
+    logger.info("✅ Added comment to issue #%d: %s", issue_number, comment_url)
+    return comment_url
