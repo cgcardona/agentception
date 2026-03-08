@@ -20,17 +20,17 @@ A second, independent bug exists at the root: **`cto.md` hardcodes `COGNITIVE_AR
 | # | spawn_site | file:line | agent_type | arch_received | arch_forwarded | intro_triggered |
 |---|---|---|---|---|---|---|
 | 1 | `POST /api/dispatch/issue` | `agentception/routes/api/dispatch.py:212` | leaf / engineer | **Y** | N/A (leaf) | **N** |
-| 2 | `POST /api/dispatch/label` (scope=full_initiative) | `agentception/routes/api/dispatch.py:499` | executive (CTO) | **Y** | **Y** (via build_spawn_child) | **Y** *(hardcoded arch)* |
+| 2 | `POST /api/dispatch/label` (scope=full_initiative) | `agentception/routes/api/dispatch.py:499` | coordinator (CTO) | **Y** | **Y** (via build_spawn_child) | **Y** *(hardcoded arch)* |
 | 3 | `POST /api/dispatch/label` (scope=phase) | `agentception/routes/api/dispatch.py:499` | coordinator | **Y** | **Y** (via build_spawn_child) | **Y** |
 | 4 | `POST /api/dispatch/label` (scope=issue) | `agentception/routes/api/dispatch.py:499` | leaf / engineer | **Y** | N/A (leaf) | **N** |
 | 5 | `build_spawn_child` MCP tool → `spawn_child()` service | `agentception/mcp/build_tools.py:210`, `agentception/services/spawn_child.py:352` | any (coordinator or leaf) | **Y** | **Y** (all children) | **Conditional** *(Y for coordinator roles, N for leaf roles)* |
 | 6 | `plan_spawn_coordinator` MCP tool → `_build_coordinator_task()` | `agentception/mcp/plan_tools.py:220`, `agentception/routes/api/_shared.py:116` | coordinator (bugs-to-issues workflow) | **Y** | **Y** (hardcoded from `ROLE_DEFAULT_FIGURE`) | **Y** |
-| 7 | `_build_conductor_task()` | `agentception/routes/api/_shared.py:180` | executive / conductor | **Y** | **Y** (hardcoded from `ROLE_DEFAULT_FIGURE`) | **Y** |
+| 7 | `_build_conductor_task()` | `agentception/routes/api/_shared.py:180` | coordinator / conductor | **Y** | **Y** (hardcoded from `ROLE_DEFAULT_FIGURE`) | **Y** |
 | 8 | Engineering Coordinator → `build_spawn_child` (per-issue) | `.agentception/roles/engineering-coordinator.md:158` | leaf / engineer | **Y** | N/A (leaf) | **N** |
 | 9 | QA Coordinator → `build_spawn_child` (per-PR) | `.agentception/roles/qa-coordinator.md` | leaf / pr-reviewer | **Y** | N/A (leaf) | **N** |
 | 10 | CTO sub-spawn (engineering-coordinator child) | `.agentception/roles/cto.md:~290` | coordinator | **Y** | **Y** | **Y** |
 | 11 | CTO sub-spawn (qa-coordinator child) | `.agentception/roles/cto.md:~3888` | coordinator | **Y** | **Y** | **Y** |
-| 12 | Dispatcher → Task call for executive/coordinator | `.agentception/dispatcher.md:100` | executive / coordinator | **Y** *(in .agent-task)* | **Y** | **Y** *(role file reads from .agent-task)* |
+| 12 | Dispatcher → Task call for coordinator | `.agentception/dispatcher.md:100` | coordinator | **Y** *(in .agent-task)* | **Y** | **Y** *(role file reads from .agent-task)* |
 | 13 | Dispatcher → Task call for leaf engineer/reviewer | `.agentception/dispatcher.md:154` | leaf | **Y** *(in .agent-task)* | N/A (leaf) | **N** |
 
 **Column definitions:**
@@ -320,7 +320,7 @@ result = await build_spawn_child(
 
 ### Contract
 
-Every agent — regardless of tier (executive, coordinator, engineer, reviewer) — **must output a single visible sentence as the very first response** in its session, before any tool call, shell command, or implementation work:
+Every agent — regardless of tier (coordinator, engineer, reviewer) — **must output a single visible sentence as the very first response** in its session, before any tool call, shell command, or implementation work:
 
 ```
 My name is {display_name}. My cognitive architecture is: {one-sentence description}.

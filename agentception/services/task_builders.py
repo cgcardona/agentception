@@ -230,7 +230,7 @@ def _build_conductor_task(
         },
         "agent": {
             "role": "conductor",
-            "tier": "executive",
+            "tier": "coordinator",
             "cognitive_arch": conductor_arch,
         },
         "repo": {

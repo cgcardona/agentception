@@ -6,7 +6,7 @@ Covers:
   - _role_and_tier_for_scope() derives the correct tier and default role for each scope.
   - GET /api/dispatch/context returns empty lists gracefully when the DB is empty.
   - GET /api/dispatch/prompt returns prompt content and 404 when the file is missing.
-  - POST /api/dispatch/label with scope=full_initiative spawns an executive with role cto.
+  - POST /api/dispatch/label with scope=full_initiative spawns a root coordinator with role cto.
   - POST /api/dispatch/label with scope=phase spawns a coordinator for the sub-label.
   - POST /api/dispatch/label with scope=issue spawns an engineer for the given issue number.
   - POST /api/dispatch/label respects an explicit role override in the request.
@@ -142,12 +142,12 @@ def test_label_slug_caps_at_48_chars() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_tier_for_role_cto_is_executive() -> None:
-    assert _tier_for_role("cto") == "executive"
+def test_tier_for_role_cto_is_coordinator() -> None:
+    assert _tier_for_role("cto") == "coordinator"
 
 
-def test_tier_for_role_ceo_is_executive() -> None:
-    assert _tier_for_role("ceo") == "executive"
+def test_tier_for_role_ceo_is_coordinator() -> None:
+    assert _tier_for_role("ceo") == "coordinator"
 
 
 def test_tier_for_role_engineering_coordinator_is_coordinator() -> None:
@@ -171,9 +171,9 @@ def test_tier_for_role_unknown_slug_is_engineer() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_scope_full_initiative_is_executive() -> None:
+def test_scope_full_initiative_is_coordinator() -> None:
     role, tier = _role_and_tier_for_scope("full_initiative", None)
-    assert tier == "executive"
+    assert tier == "coordinator"
     assert role == "cto"
 
 
@@ -282,7 +282,7 @@ def test_get_dispatcher_prompt_404_when_missing(
 # ---------------------------------------------------------------------------
 
 
-def test_dispatch_label_full_initiative_creates_executive(
+def test_dispatch_label_full_initiative_creates_root_coordinator(
     client: TestClient,
     tmp_path: Path,
 ) -> None:
@@ -299,7 +299,7 @@ def test_dispatch_label_full_initiative_creates_executive(
 
     assert res.status_code == 200
     data = res.json()
-    assert data["tier"] == "executive"
+    assert data["tier"] == "coordinator"
     assert data["role"] == "cto"
     assert data["label"] == "ac-workflow"
 

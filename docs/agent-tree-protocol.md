@@ -56,13 +56,12 @@ chain-spawned reviewers and find no additional PRs to cover.
 ## Tiers
 
 Tiers are the runtime execution label written into every `.agent-task` file.
-They map directly onto the two agent types: coordinators carry tier `root` or
+They map directly onto the two agent types: coordinators carry tier
 `coordinator`; workers carry tier `engineer` or `reviewer`.
 
 | Tier | Agent type | Role examples | GitHub scope | Can spawn |
 |------|-----------|--------------|--------------|-----------|
-| `root` | coordinator | `ceo`, `cto` | issues **and** PRs filtered to `SCOPE_VALUE` | any coordinator or worker |
-| `coordinator` | coordinator | `engineering-coordinator` | **issues only** filtered to `SCOPE_VALUE` | any engineering worker role |
+| `coordinator` | coordinator | `ceo`, `cto`, `engineering-coordinator` | issues **and/or** PRs filtered to `SCOPE_VALUE` | any coordinator or worker |
 | `coordinator` | coordinator | `qa-coordinator` | **PRs only** — cleanup sweep when issues = 0 | `pr-reviewer` |
 | `engineer` | worker | `python-developer`, `frontend-developer`, `devops-engineer`, … | **one issue** (`SCOPE_VALUE` = issue number) | `pr-reviewer` (chain-spawn after opening PR) |
 | `reviewer` | worker | `pr-reviewer` | **one PR** (`SCOPE_VALUE` = PR number) | nothing |
@@ -90,11 +89,11 @@ strictly required to start.
 # ── Identity ──────────────────────────────────────────────────────────────────
 RUN_ID        = "label-AC-UI-0-CRITICAL-BUGS-20260303T200000Z-a1b2"
 ROLE          = "cto"
-TIER          = "executive"        # behavioral tier: executive|coordinator|engineer|reviewer
+TIER          = "coordinator"      # behavioral tier: coordinator|engineer|reviewer
 ORG_DOMAIN    = "c-suite"          # UI hierarchy slot: c-suite|engineering|qa
 
 # ── Scope ─────────────────────────────────────────────────────────────────────
-# SCOPE_TYPE  label   → executive/coordinator tiers; SCOPE_VALUE is a GitHub label string
+# SCOPE_TYPE  label   → coordinator tiers; SCOPE_VALUE is a GitHub label string
 # SCOPE_TYPE  issue   → engineer worker; SCOPE_VALUE is the issue number (string)
 # SCOPE_TYPE  pr      → reviewer worker; SCOPE_VALUE is the PR number (string)
 SCOPE_TYPE    = "label"
@@ -102,7 +101,7 @@ SCOPE_VALUE   = "AC-UI/0-CRITICAL-BUGS"
 
 # ── Provenance ────────────────────────────────────────────────────────────────
 GH_REPO       = "cgcardona/agentception"
-BRANCH        = ""                  # empty for executive/coordinator tiers
+BRANCH        = ""                  # empty for coordinator tiers
 WORKTREE      = "$HOME/.agentception/worktrees/agentception/label-AC-UI-0-..."
 BATCH_ID      = "label-AC-UI-0-20260303T200000Z-a1b2"
 PARENT_RUN_ID = ""                  # empty for root; set by spawner for all other tiers
@@ -278,8 +277,8 @@ They do NOT call `build_report_done` — they exit naturally after their queue d
 
 | Tier | Agent type | Selectable roles | Spawned by |
 |------|-----------|-----------------|------------|
-| `root` | coordinator | `ceo` | dispatcher (AgentCeption UI / MCP) |
-| `root` | coordinator | `cto` | dispatcher, or CEO coordinator when present |
+| `coordinator` | coordinator | `ceo` | dispatcher (AgentCeption UI / MCP) |
+| `coordinator` | coordinator | `cto` | dispatcher, or CEO coordinator when present |
 | `coordinator` | coordinator | `engineering-coordinator` | CTO (always when issues > 0) |
 | `coordinator` | coordinator | `qa-coordinator` | CTO (cleanup sweep only — issues == 0, PRs > 0) |
 | `engineer` | worker | `python-developer`, `frontend-developer`, `typescript-developer`, `react-developer`, `go-developer`, `rust-developer`, `api-developer`, `devops-engineer`, `data-engineer`, `site-reliability-engineer`, `security-engineer`, `mobile-developer`, `ios-developer`, `android-developer`, `full-stack-developer`, `architect`, `technical-writer`, `test-engineer`, `ml-engineer`, `systems-programmer`, `rails-developer`, `database-architect` | engineering-coordinator |

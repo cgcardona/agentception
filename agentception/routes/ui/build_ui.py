@@ -14,7 +14,7 @@ GET  /ship/runs/{run_id}/stream            — SSE: structured events + thinking
 The board shows all issues grouped by phase with live PR/agent-run status.
 The inspector panel streams events from ``ac_agent_events`` and thinking
 messages from ``ac_agent_messages`` for a selected agent run.  The hierarchy
-panel renders the full agent tree (executive → coordinator → leaf) from the
+panel renders the full agent tree (coordinator → leaf) from the
 most recently active batch for the current initiative.
 """
 

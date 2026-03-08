@@ -119,7 +119,7 @@ on_block = "escalate"
 
 [agent]
 role = "conductor"
-tier = "executive"
+tier = "coordinator"
 
 [repo]
 gh_repo = "$GH_REPO"

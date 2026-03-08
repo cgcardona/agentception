@@ -341,7 +341,7 @@ async def test_query_run_tree_returns_nodes() -> None:
             "role": "cto",
             "status": "implementing",
             "agent_status": "implementing",
-            "tier": "executive",
+            "tier": "coordinator",
             "org_domain": "c-suite",
             "parent_run_id": None,
             "issue_number": None,
