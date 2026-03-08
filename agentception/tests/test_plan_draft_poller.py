@@ -4,7 +4,7 @@ from __future__ import annotations
 
 AgentCeption has zero LLM calls in the plan pipeline.
 
-1. AgentCeption writes .agent-task (TOML v2 with workflow="plan-spec") — POST /api/plan/draft
+1. AgentCeption writes .agent-task (TOML with workflow="plan-spec") — POST /api/plan/draft
 2. Cursor's agent picks it up (Cursor's concern — not tested here)
 3. Cursor calls plan_get_schema() MCP tool to get the PlanSpec format
 4. Cursor writes YAML to output path
@@ -358,7 +358,7 @@ async def test_plan_draft_agent_task_structure_is_poller_compatible(
 ) -> None:
     """The .agent-task written by POST /api/plan/draft is parseable by scan_plan_draft_worktrees.
 
-    This is a structural contract test: it verifies that the TOML v2 format
+    This is a structural contract test: it verifies that the TOML format
     used by the route and the parser in the poller are always in sync.  A field
     name mismatch (e.g., missing output.draft_id) would cause the poller to
     silently skip every plan-draft worktree, resulting in no plan_draft_ready

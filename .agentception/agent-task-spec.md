@@ -363,7 +363,7 @@ Repeated table. For non-code workflows — any domain agent producing structured
 
 ```toml
 [task]
-version = "2.0"
+version = "0.1.1"
 workflow = "issue-to-pr"
 id = "3f4a9c2e-1b8d-4e7f-a6c5-9d2e8f0b1a3c"
 created_at = 2026-03-03T13:48:21Z
@@ -412,7 +412,7 @@ linked_pr = 0
 
 ```toml
 [task]
-version = "2.0"
+version = "0.1.1"
 workflow = "plan-spec"
 id = "8b2c4d1e-9f3a-4b7e-c5d8-2e1f6a9b0c3d"
 created_at = 2026-03-03T14:22:00Z
@@ -468,7 +468,7 @@ Admins should be able to:
 
 ```toml
 [task]
-version = "2.0"
+version = "0.1.1"
 workflow = "task-to-deliverable"
 id = "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f"
 created_at = 2026-03-03T15:00:00Z

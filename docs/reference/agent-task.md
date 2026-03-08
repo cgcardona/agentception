@@ -5,7 +5,7 @@
 > **Format:** [TOML 1.0](https://toml.io/en/v1.0.0)  
 > **Parser:** `agentception/readers/worktrees.py` → `TaskFile` Pydantic model  
 > **Version:** 2.0  
-> **Model:** `TaskFile` in `agentception/models/__init__.py` covers the full TOML v2 spec (task, agent, repo, pipeline, spawn, target, worktree, output, domain, and `issue_queue` / `pr_queue` via `IssueSub` / `PRSub`).
+> **Model:** `TaskFile` in `agentception/models/__init__.py` covers the full TOML spec (task, agent, repo, pipeline, spawn, target, worktree, output, domain, and `issue_queue` / `pr_queue` via `IssueSub` / `PRSub`).
 
 ---
 
@@ -132,7 +132,7 @@ Used when Cursor does LLM work and writes a result to disk.
 
 ```toml
 [task]
-version = "2.0"
+version = "0.1.1"
 workflow = "issue-to-pr"
 id = "3f4a9c2e-1b8d-4e7f-a6c5-9d2e8f0b1a3c"
 created_at = 2026-03-03T13:48:21Z

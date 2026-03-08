@@ -16,7 +16,7 @@ Side effects
    Docker-mounted path (``/worktrees`` in-container, ``~/.agentception/worktrees/agentception``
    on the host) — so mypy/pytest can reference it via ``/worktrees/<name>``
    inside the container without path mismatches.
-2. A ``.agent-task`` file is written to the new worktree in TOML v2 format
+2. A ``.agent-task`` file is written to the new worktree in TOML format
    (see ``agentception.services.toml_task.render_toml_str``).
 
 POST /api/plan/launch
@@ -103,7 +103,7 @@ async def post_plan_draft(request: PlanDraftRequest) -> PlanDraftResponse:
     2. Run ``git worktree add <worktrees_dir>/plan-draft-<draft_id>`` off origin/dev.
        Uses the canonical ``settings.worktrees_dir`` so the path is visible inside
        Docker at ``/worktrees/plan-draft-<draft_id>`` — never ``/tmp/``.
-    3. Write a TOML v2 .agent-task to that path so a Cursor agent can pick it up.
+    3. Write a TOML .agent-task to that path so a Cursor agent can pick it up.
     4. Return PlanDraftResponse immediately.
 
     Returns 422 if text is empty/whitespace (validated by PlanDraftRequest).

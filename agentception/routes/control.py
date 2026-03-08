@@ -31,7 +31,7 @@ router = APIRouter(prefix="/api/control", tags=["control"])
 def _parse_issue_number(worktree: Path) -> int | None:
     """Read .agent-task in ``worktree`` and return the issue number, or None.
 
-    Parses the TOML v2 ``.agent-task`` format and reads ``target.issue_number``.
+    Parses the TOML ``.agent-task`` format and reads ``target.issue_number``.
     Returns ``None`` when the file is absent, unreadable, or the field is missing.
     """
     import tomllib

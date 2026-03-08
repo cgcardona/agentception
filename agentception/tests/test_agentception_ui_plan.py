@@ -47,10 +47,10 @@ def client() -> Generator[TestClient, None, None]:
 
 
 def test_parse_task_fields_extracts_toml_fields() -> None:
-    """_parse_task_fields must parse TOML v2 .agent-task content correctly."""
+    """_parse_task_fields must parse TOML .agent-task content correctly."""
     content = textwrap.dedent("""\
         [task]
-        version = "2.0"
+        version = "0.1.1"
         workflow = "bugs-to-issues"
 
         [pipeline]
@@ -247,7 +247,7 @@ def test_plan_run_text_returns_plan(client: TestClient, tmp_path: Path) -> None:
     run_dir.mkdir()
     task_file = run_dir / ".agent-task"
     task_file.write_text(
-        '[task]\nversion = "2.0"\nworkflow = "bugs-to-issues"\n\n'
+        '[task]\nversion = "0.1.1"\nworkflow = "bugs-to-issues"\n\n'
         '[pipeline]\nbatch_id = "plan-20260303-164033"\n\n'
         '[plan_draft]\ndump = "- Fix login\\n- Add dark mode"\n',
         encoding="utf-8",

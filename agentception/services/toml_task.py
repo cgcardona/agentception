@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-"""Shared TOML v2 helpers for ``.agent-task`` file generation.
+"""Shared TOML helpers for ``.agent-task`` file generation.
 
 Both API routes (``routes/api/_shared.py``) and services (``services/spawn_child.py``)
-need to emit TOML v2 ``.agent-task`` files.  Keeping the helpers here prevents
+need to emit TOML ``.agent-task`` files.  Keeping the helpers here prevents
 either layer from importing the other (which would create a layering violation).
 """
 

@@ -28,7 +28,7 @@ from agentception.readers.worktrees import (
 
 @pytest.fixture()
 def issue_task_content() -> str:
-    """Minimal TOML v2 .agent-task content for an issue-to-pr workflow."""
+    """Minimal TOML .agent-task content for an issue-to-pr workflow."""
     return (
         "[task]\n"
         'workflow = "issue-to-pr"\n'
@@ -61,7 +61,7 @@ def issue_task_content() -> str:
 
 @pytest.fixture()
 def pr_review_task_content() -> str:
-    """Minimal TOML v2 .agent-task content for a pr-review workflow."""
+    """Minimal TOML .agent-task content for a pr-review workflow."""
     return (
         "[task]\n"
         'workflow = "pr-review"\n'
@@ -158,7 +158,7 @@ async def test_parse_agent_task_toml_with_comments(tmp_path: Path) -> None:
     """parse_agent_task handles valid TOML with comments and blank lines."""
     task_file = tmp_path / ".agent-task"
     task_file.write_text(
-        "# TOML v2 agent task\n"
+        "# TOML agent task\n"
         "\n"
         "[task]\n"
         'workflow = "issue-to-pr"\n'

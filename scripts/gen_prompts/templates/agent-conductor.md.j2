@@ -109,7 +109,7 @@ git worktree add --detach "$WT" "$DEV_SHA"
 # label (e.g. phase/2) to limit scope to one phase.
 cat > "$WT/.agent-task" <<TASKEOF
 [task]
-version = "2.0"
+version = "0.1.1"
 workflow = "conductor"
 id = "$(uuidgen | tr '[:upper:]' '[:lower:]')"
 created_at = "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
