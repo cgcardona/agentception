@@ -2143,24 +2143,8 @@ $preset-accents: (
               box-shadow 0.18s ease,
               border-color 0.15s ease;
 
-  // Ghost large number in the corner
-  &::after {
-    content: attr(data-count);
-    position: absolute;
-    bottom: -0.5rem;
-    right: 0.75rem;
-    font-size: 5rem;
-    font-weight: 900;
-    line-height: 1;
-    opacity: 0.04;
-    pointer-events: none;
-    color: #fff;
-    transition: opacity 0.2s;
-  }
-
   &:hover {
     transform: translateY(-3px) scale(1.01);
-    &::after { opacity: 0.07; }
   }
 
   // ── Accent variants ──────────────────────────────────────────────────────
@@ -2243,17 +2227,18 @@ $preset-accents: (
   }
 }
 
-.od-preset-card__node-count {
-  position: absolute;
-  top: 1rem;
-  right: 1rem;
-  font-size: 0.6rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: rgba(255,255,255,0.25);
-  background: rgba(255,255,255,0.06);
-  border-radius: 100px;
-  padding: 0.15rem 0.5rem;
+.od-preset-card__date {
+  font-size: 0.65rem;
+  color: rgba(255,255,255,0.3);
+  letter-spacing: 0.03em;
+}
+
+.od-presets__loading {
+  color: rgba(255,255,255,0.35);
+  font-size: 0.85rem;
+  padding: 1rem 0;
+  text-align: center;
+  letter-spacing: 0.04em;
 }
 
 .od-preset-card__name {

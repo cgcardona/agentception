@@ -502,6 +502,7 @@
   <template x-if="presetsOpen">
     <div class="od-presets">
 
+      {# Start fresh ─────────────────────────────────────────────────────── #}
       <div class="od-presets__section">
         <h3 class="od-presets__section-title">Start fresh</h3>
         <button class="od-preset-card od-preset-card--blank" @click="loadBlank()">
@@ -510,23 +511,31 @@
         </button>
       </div>
 
-      <div class="od-presets__section">
-        <h3 class="od-presets__section-title">Built-in templates</h3>
-        <div class="od-presets__grid">
-          <template x-for="t in builtInTemplates" :key="t.id">
-            <button class="od-preset-card"
-                    :class="'od-preset-card--' + t.accent"
-                    :data-count="t.nodeCount"
-                    @click="loadPreset(t.id)">
-              <span class="od-preset-card__icon" x-text="t.icon"></span>
-              <span class="od-preset-card__node-count" x-text="t.nodeCount + ' nodes'"></span>
-              <span class="od-preset-card__name" x-text="t.name"></span>
-              <span class="od-preset-card__desc" x-text="t.description"></span>
-            </button>
-          </template>
-        </div>
-      </div>
+      {# Built-in templates — grouped, fetched from API ─────────────────── #}
+      <template x-if="presetsLoading">
+        <div class="od-presets__loading">Loading templates…</div>
+      </template>
 
+      <template x-if="!presetsLoading">
+        <template x-for="section in groupedBuiltIns" :key="section.group">
+          <div class="od-presets__section">
+            <h3 class="od-presets__section-title" x-text="section.label"></h3>
+            <div class="od-presets__grid">
+              <template x-for="t in section.presets" :key="t.id">
+                <button class="od-preset-card"
+                        :class="'od-preset-card--' + t.accent"
+                        @click="loadPreset(t.id)">
+                  <span class="od-preset-card__icon" x-text="t.icon"></span>
+                  <span class="od-preset-card__name" x-text="t.name"></span>
+                  <span class="od-preset-card__desc" x-text="t.description"></span>
+                </button>
+              </template>
+            </div>
+          </div>
+        </template>
+      </template>
+
+      {# My designs — user-saved presets ────────────────────────────────── #}
       <template x-if="userPresets.length > 0">
         <div class="od-presets__section">
           <h3 class="od-presets__section-title">My designs</h3>
@@ -534,7 +543,7 @@
             <template x-for="p in userPresets" :key="p.id">
               <button class="od-preset-card od-preset-card--user" @click="loadPreset(p.id)">
                 <span class="od-preset-card__icon">✎</span>
-                <span class="od-preset-card__node-count"
+                <span class="od-preset-card__date"
                       x-text="new Date(p.updatedAt).toLocaleDateString()"></span>
                 <span class="od-preset-card__name" x-text="p.name"></span>
                 <button class="od-preset-card__delete"

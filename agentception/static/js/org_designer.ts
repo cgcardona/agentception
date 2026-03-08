@@ -117,6 +117,22 @@ export interface FigureItem {
   name: string;
 }
 
+/** Preset summary returned by GET /api/org-presets (no tree). */
+interface ApiPresetSummary {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  accent: string;
+  node_count: number;
+  group: string;
+}
+
+/** Full preset returned by GET /api/org-presets/{id}. */
+interface ApiPresetDetail extends ApiPresetSummary {
+  template: PresetTemplate;
+}
+
 /** Phase entry from GET /api/dispatch/context. */
 interface PhaseItem {
   label: string;
@@ -472,133 +488,19 @@ function buildTree(tmpl: PresetTemplate): OrgNode {
   };
 }
 
-function nodeCount(tmpl: PresetTemplate): number {
-  return 1 + (tmpl.children ?? []).reduce((s, c) => s + nodeCount(c), 0);
-}
+/** Human-readable labels for preset group slugs. */
+const GROUP_LABELS: Record<string, string> = {
+  engineering: 'Engineering',
+  data:        'ML / Data',
+  executive:   'Executive',
+  product:     'Product',
+  marketing:   'Marketing',
+  security:    'Security',
+  operations:  'Operations',
+};
 
-const BUILT_IN_TEMPLATES: ReadonlyArray<{
-  id: string;
-  name: string;
-  description: string;
-  icon: string;
-  accent: string;
-  nodeCount: number;
-  template: PresetTemplate;
-}> = [
-  {
-    id: 'builtin-cto-full',
-    name: 'CTO + Full Team',
-    description: 'CTO surveys all tickets & PRs, spawns an Engineering Manager and QA Lead who each assemble their own workers.',
-    icon: '⬡',
-    accent: 'violet',
-    get nodeCount() { return nodeCount(this.template); },
-    template: {
-      role: 'cto',
-      children: [
-        {
-          role: 'engineering-coordinator',
-          children: [
-            { role: 'python-developer' },
-            { role: 'typescript-developer' },
-          ],
-        },
-        {
-          role: 'qa-coordinator',
-          children: [{ role: 'pr-reviewer' }],
-        },
-      ],
-    },
-  },
-  {
-    id: 'builtin-eng-sprint',
-    name: 'Engineering Sprint',
-    description: 'Engineering Manager pulls a single phase, spawns dev workers and a PR Reviewer. Fast and focused.',
-    icon: '⚡',
-    accent: 'blue',
-    get nodeCount() { return nodeCount(this.template); },
-    template: {
-      role: 'engineering-coordinator',
-      children: [
-        { role: 'python-developer' },
-        { role: 'typescript-developer' },
-        { role: 'pr-reviewer' },
-      ],
-    },
-  },
-  {
-    id: 'builtin-qa-pass',
-    name: 'QA Review Pass',
-    description: 'QA Lead surveys all open PRs and dispatches a dedicated reviewer for each one.',
-    icon: '◎',
-    accent: 'amber',
-    get nodeCount() { return nodeCount(this.template); },
-    template: {
-      role: 'qa-coordinator',
-      children: [{ role: 'pr-reviewer' }, { role: 'pr-reviewer' }],
-    },
-  },
-  {
-    id: 'builtin-single-cto',
-    name: 'Single CTO',
-    description: 'One CTO agent working solo. Surveys the initiative and decides what to do next. Perfect for smoke tests.',
-    icon: '✦',
-    accent: 'emerald',
-    get nodeCount() { return nodeCount(this.template); },
-    template: { role: 'cto' },
-  },
-  {
-    id: 'builtin-quick-fix',
-    name: 'Quick Fix',
-    description: 'One engineer, one reviewer. The smallest possible team — ideal for a single focused ticket.',
-    icon: '⚑',
-    accent: 'cyan',
-    get nodeCount() { return nodeCount(this.template); },
-    template: {
-      role: 'engineering-coordinator',
-      children: [{ role: 'python-developer' }],
-    },
-  },
-  {
-    id: 'builtin-ceo-full',
-    name: 'CEO + Full Org',
-    description: 'A CEO delegates to a CTO who then assembles the full engineering and QA hierarchy beneath them.',
-    icon: '◈',
-    accent: 'rose',
-    get nodeCount() { return nodeCount(this.template); },
-    template: {
-      role: 'ceo',
-      children: [{
-        role: 'cto',
-        children: [
-          {
-            role: 'engineering-coordinator',
-            children: [{ role: 'python-developer' }, { role: 'typescript-developer' }],
-          },
-          {
-            role: 'qa-coordinator',
-            children: [{ role: 'pr-reviewer' }],
-          },
-        ],
-      }],
-    },
-  },
-  {
-    id: 'builtin-ml-team',
-    name: 'ML Team',
-    description: 'ML Coordinator assembles a research and engineering crew — great for data-heavy initiatives.',
-    icon: '◆',
-    accent: 'teal',
-    get nodeCount() { return nodeCount(this.template); },
-    template: {
-      role: 'ml-coordinator',
-      children: [
-        { role: 'ml-engineer' },
-        { role: 'ml-researcher' },
-        { role: 'data-scientist' },
-      ],
-    },
-  },
-];
+/** Display order for preset groups in the picker. */
+const GROUP_ORDER = ['engineering', 'data', 'executive', 'product', 'marketing', 'security', 'operations'];
 
 function presetsKey(repo: string): string {
   return `ac_presets_${repo}`;
@@ -806,11 +708,12 @@ interface OrgDesignerComponent {
 
   // ── Preset management
   presetsOpen: boolean;
+  presetsLoading: boolean;
+  builtInPresets: ApiPresetSummary[];
   userPresets: OrgPreset[];
   activePresetId: string | null;
   saveAsMode: boolean;
   saveAsName: string;
-  builtInTemplates: ReadonlyArray<{ id: string; name: string; description: string; icon: string; accent: string; nodeCount: number }>;
 
   // ── Node editor
   selectedNodeId: string | null;
@@ -843,6 +746,7 @@ interface OrgDesignerComponent {
   readonly launchPreviewText: string;
   readonly activePresetName: string;
   readonly activePresetIsBuiltIn: boolean;
+  readonly groupedBuiltIns: Array<{ group: string; label: string; presets: ApiPresetSummary[] }>;
 
   // ── Methods
   openDesigner(label: string, repo: string, figures: FigureItem[]): void;
@@ -879,12 +783,13 @@ export function orgDesigner(): OrgDesignerComponent {
     figures:    [],
 
     // ── Preset management ─────────────────────────────────────────────────────
-    presetsOpen:      true,
-    userPresets:      [] as OrgPreset[],
-    activePresetId:   null as string | null,
-    saveAsMode:       false,
-    saveAsName:       '',
-    builtInTemplates: BUILT_IN_TEMPLATES,
+    presetsOpen:    true,
+    presetsLoading: false,
+    builtInPresets: [] as ApiPresetSummary[],
+    userPresets:    [] as OrgPreset[],
+    activePresetId: null as string | null,
+    saveAsMode:     false,
+    saveAsName:     '',
 
     // ── Node editor state ─────────────────────────────────────────────────────
     selectedNodeId: null,
@@ -940,13 +845,25 @@ export function orgDesigner(): OrgDesignerComponent {
 
     get activePresetName(): string {
       if (!this.activePresetId) return '';
-      const builtin = BUILT_IN_TEMPLATES.find(t => t.id === this.activePresetId);
+      const builtin = this.builtInPresets.find(t => t.id === this.activePresetId);
       if (builtin) return builtin.name;
       return this.userPresets.find(p => p.id === this.activePresetId)?.name ?? '';
     },
 
     get activePresetIsBuiltIn(): boolean {
-      return BUILT_IN_TEMPLATES.some(t => t.id === this.activePresetId);
+      return this.builtInPresets.some(t => t.id === this.activePresetId);
+    },
+
+    get groupedBuiltIns(): Array<{ group: string; label: string; presets: ApiPresetSummary[] }> {
+      const map = new Map<string, ApiPresetSummary[]>();
+      for (const p of this.builtInPresets) {
+        const list = map.get(p.group) ?? [];
+        list.push(p);
+        map.set(p.group, list);
+      }
+      return GROUP_ORDER
+        .filter(g => map.has(g))
+        .map(g => ({ group: g, label: GROUP_LABELS[g] ?? g, presets: map.get(g)! }));
     },
 
     // ── Lifecycle ──────────────────────────────────────────────────────────────
@@ -967,6 +884,15 @@ export function orgDesigner(): OrgDesignerComponent {
 
       void this._loadPhases();
 
+      // Fetch built-in preset summaries from the API.
+      this.presetsLoading = true;
+      void fetch('/api/org-presets')
+        .then(async r => {
+          if (r.ok) this.builtInPresets = await r.json() as ApiPresetSummary[];
+        })
+        .catch(() => { /* non-critical — grid will be empty */ })
+        .finally(() => { this.presetsLoading = false; });
+
       // If there is a saved in-progress session for this initiative, jump
       // straight to the canvas.  Otherwise show the preset picker first.
       const saved = loadFromStorage(repo, label);
@@ -975,9 +901,9 @@ export function orgDesigner(): OrgDesignerComponent {
         this.presetsOpen  = false;
         this._openCanvas();
       } else {
-        this._root        = null;
+        this._root          = null;
         this.activePresetId = null;
-        this.presetsOpen  = true;
+        this.presetsOpen    = true;
       }
     },
 
@@ -988,15 +914,23 @@ export function orgDesigner(): OrgDesignerComponent {
     // ── Preset management ─────────────────────────────────────────────────────
 
     loadPreset(id: string): void {
-      const builtin = BUILT_IN_TEMPLATES.find(t => t.id === id);
-      if (builtin) {
-        this._root = buildTree(builtin.template);
-      } else {
-        const user = this.userPresets.find(p => p.id === id);
-        if (!user) return;
-        // Clone via serialize/deserialize so edits don't mutate the stored preset.
-        this._root = restoreNode(JSON.parse(JSON.stringify(user.tree)) as Partial<OrgNode>);
+      if (id.startsWith('builtin-')) {
+        // Fetch the tree template from the API, then open the canvas.
+        void (async () => {
+          const resp = await fetch(`/api/org-presets/${id}`);
+          if (!resp.ok) return;
+          const detail = await resp.json() as ApiPresetDetail;
+          this._root = buildTree(detail.template);
+          this.activePresetId = id;
+          this._openCanvas();
+        })();
+        return;
       }
+      // User-saved preset — already in memory.
+      const user = this.userPresets.find(p => p.id === id);
+      if (!user) return;
+      // Clone via serialize/deserialize so edits don't mutate the stored preset.
+      this._root = restoreNode(JSON.parse(JSON.stringify(user.tree)) as Partial<OrgNode>);
       this.activePresetId = id;
       this.presetsOpen    = false;
       this.selectedNodeId = null;
