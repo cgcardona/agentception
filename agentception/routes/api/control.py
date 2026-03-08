@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from starlette.responses import Response
 
 from agentception.config import settings
 from agentception.models import (
+    VALID_ROLES,
     SpawnConductorRequest,
     SpawnConductorResult,
     SpawnCoordinatorRequest,
@@ -148,8 +150,6 @@ async def _do_spawn(body: SpawnRequest) -> SpawnResult:
     HTTPException(500)
         When ``git worktree add`` fails.
     """
-    import re as _re
-
     issue_number = body.issue_number
 
     # ── 1. Fetch issue state from GitHub ──────────────────────────────────────
@@ -261,7 +261,7 @@ async def _do_spawn(body: SpawnRequest) -> SpawnResult:
         issue_body = ""
 
     # Extract "Depends on #NNN" patterns as a list of ints for the TOML builder.
-    dep_matches = _re.findall(r"[Dd]epends\s+on\s+#(\d+)", issue_body)
+    dep_matches = re.findall(r"[Dd]epends\s+on\s+#(\d+)", issue_body)
     depends_on: list[int] = [int(m) for m in dep_matches]
 
     # Derive COGNITIVE_ARCH from issue body so the agent gets the right persona.
@@ -381,7 +381,6 @@ async def spawn_wave(role: str = "python-developer") -> WaveSpawnResult:
     HTTP 422
         When ``role`` is not a recognised role slug.
     """
-    from agentception.models import VALID_ROLES
     if role not in VALID_ROLES:
         raise HTTPException(
             status_code=422,
