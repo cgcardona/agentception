@@ -22,6 +22,7 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
@@ -29,6 +30,8 @@ from sqlalchemy import select
 from starlette.requests import Request
 
 from typing import TypedDict
+
+import yaml
 
 from agentception.config import settings
 from agentception.db.engine import get_session
@@ -49,12 +52,44 @@ from agentception.db.queries import (
 from agentception.services.cognitive_arch import figure_display_name, ROLE_DEFAULT_FIGURE
 from ._shared import _TEMPLATES
 
+_TAXONOMY_PATH = (
+    Path(__file__).parent.parent.parent.parent / "scripts" / "gen_prompts" / "role-taxonomy.yaml"
+)
+
 
 class FigureItem(TypedDict):
     """A cognitive architecture figure entry for the Org Designer picker."""
 
     id: str
     name: str
+
+
+def _build_role_figure_map() -> dict[str, list[str]]:
+    """Parse role-taxonomy.yaml and return {role_slug: [compatible_figure_ids]}.
+
+    Degrades gracefully to an empty dict when the YAML is missing or malformed.
+    Only figure IDs that are also present in ``_FIGURES`` are retained so the
+    dropdown never offers a figure the backend doesn't know about.
+    """
+    try:
+        raw: object = yaml.safe_load(_TAXONOMY_PATH.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            return {}
+        result: dict[str, list[str]] = {}
+        for level in raw.get("levels", []):
+            if not isinstance(level, dict):
+                continue
+            for role in level.get("roles", []):
+                if not isinstance(role, dict):
+                    continue
+                slug = role.get("slug")
+                if not isinstance(slug, str) or not slug:
+                    continue
+                figs: object = role.get("compatible_figures", [])
+                result[slug] = [str(f) for f in figs] if isinstance(figs, list) else []
+        return result
+    except Exception:
+        return {}
 
 
 # Built once at import time — the figure catalog is static.
@@ -75,6 +110,14 @@ _FIGURES: list[FigureItem] = sorted(
     ],
     key=lambda f: f["name"],
 )
+
+# Map role slug → list of compatible figure IDs.  Built at import time from the
+# taxonomy YAML so the figure dropdown can filter by the selected role.
+_known_figure_ids: frozenset[str] = frozenset(f["id"] for f in _FIGURES)
+_ROLE_FIGURE_MAP: dict[str, list[str]] = {
+    slug: [fig for fig in figs if fig in _known_figure_ids]
+    for slug, figs in _build_role_figure_map().items()
+}
 
 
 class EnrichedIssueRow(TypedDict):
@@ -222,6 +265,7 @@ async def build_page(
             "total_issues": total_issues,
             "open_issues": open_issues,
             "figures": _FIGURES,
+            "role_figure_map": _ROLE_FIGURE_MAP,
         },
     )
 

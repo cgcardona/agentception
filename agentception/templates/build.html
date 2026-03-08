@@ -435,7 +435,7 @@
             {# Step 2: Specific role — filtered to the selected type #}
             <div class="od-editor__field">
               <label class="od-editor__label">Role</label>
-              <select class="od-editor__select" x-model="editRole">
+              <select class="od-editor__select" x-model="editRole" @change="onRoleChange()">
                 <option value="">— select role —</option>
                 <template x-for="group in filteredRoleGroups" :key="group.label">
                   <optgroup :label="group.label">
@@ -452,7 +452,7 @@
               <label class="od-editor__label">Cognitive arch figure <em class="od-editor__optional">(optional)</em></label>
               <select class="od-editor__select" x-model="editFigure">
                 <option value="">— role default —</option>
-                <template x-for="fig in figures" :key="fig.id">
+                <template x-for="fig in filteredFigures" :key="fig.id">
                   <option :value="fig.id" x-text="fig.name"></option>
                 </template>
               </select>
@@ -475,9 +475,10 @@
 </div>{# /.od-overlay #}
 
 <script>
-  window._buildRepo      = {{ repo | tojson }};
-  window._buildRepoName  = {{ repo_name | tojson }};
+  window._buildRepo       = {{ repo | tojson }};
+  window._buildRepoName   = {{ repo_name | tojson }};
   window._buildInitiative = {{ initiative | tojson }};
-  window._orgFigures     = {{ figures | tojson }};
+  window._orgFigures      = {{ figures | tojson }};
+  window._roleFigureMap   = {{ role_figure_map | tojson }};
 </script>
 {% endblock %}
