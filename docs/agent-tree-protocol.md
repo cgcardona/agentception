@@ -26,9 +26,7 @@ Worker examples: `python-developer`, `frontend-developer`, `pr-reviewer`.
 ## The tree
 
 ```
-[any coordinator]  ← any coordinator can be root; the tree is pruned at the entry point
-      │
-[ceo] (optional)
+[ceo]  ← example root; any coordinator can be root — tree is pruned at the entry point
  └── cto  (coordinator)
       ├── engineering-coordinator  (coordinator)
       │    └── engineer            (worker — one issue)
