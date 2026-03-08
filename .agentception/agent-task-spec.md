@@ -224,7 +224,7 @@ Async result rendezvous. Used when Cursor does LLM work and writes a result back
 | `path` | string | `plan-spec`, `task-to-deliverable` | Absolute path Cursor writes its output to |
 | `draft_id` | string | `plan-spec` | UUID correlating to the AgentCeption dashboard request |
 | `format` | string | any | Output format: `"yaml"` \| `"json"` \| `"markdown"` \| `"toml"` |
-| `schema_tool` | string | `plan-spec` | MCP tool to call to get the output schema: `"plan_get_schema"` |
+| `schema_tool` | string | `plan-spec` | MCP resource URI to read the output schema: `"ac://plan/schema"` |
 
 When `output.path` is present, the AgentCeption poller watches for this file.
 When it appears, the poller emits an SSE event:
@@ -261,8 +261,8 @@ collected from the web UI, dispatched to Cursor for YAML generation.
 
 ```toml
 [plan_draft]
-mcp_tools_hint = "call plan_get_schema() to get the PlanSpec TOML schema first"
-output_schema = "plan_get_schema"
+mcp_tools_hint = "read ac://plan/schema to get the PlanSpec YAML schema first"
+output_schema = "ac://plan/schema"
 dump = """
 We need to build a billing system.
 - Users should be able to subscribe to monthly or annual plans
@@ -442,10 +442,10 @@ path = "/tmp/worktrees/plan-draft-8b2c4d1e"
 path = "/tmp/worktrees/plan-draft-8b2c4d1e/.plan-output.yaml"
 draft_id = "8b2c4d1e-9f3a-4b7e-c5d8-2e1f6a9b0c3d"
 format = "yaml"
-schema_tool = "plan_get_schema"
+schema_tool = "ac://plan/schema"
 
 [plan_draft]
-mcp_tools_hint = "call plan_get_schema() first to get the PlanSpec YAML format, then produce valid YAML matching that schema"
+mcp_tools_hint = "read ac://plan/schema first to get the PlanSpec YAML format, then produce valid YAML matching that schema"
 dump = """
 We need to build a billing system for our SaaS product.
 

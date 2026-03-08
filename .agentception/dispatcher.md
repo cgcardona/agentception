@@ -12,14 +12,20 @@ Canonical reference: `docs/agent-tree-protocol.md`
 
 ## MCP server identifier
 
-All AgentCeption MCP tools are on server **`user-agentception`**.
-When using `CallMcpTool`, always pass `server="user-agentception"`.
+All AgentCeption MCP tools and resources are on server **`user-agentception`**.
+
+- **Tools** (state mutations): use `CallMcpTool` with `server="user-agentception"`.
+- **Resources** (pure reads): use `FetchMcpResource` with `server="user-agentception"`.
 
 ---
 
 ## Step 1 — Read the queue
 
-Call the `query_pending_runs` MCP tool (server: `user-agentception`).
+Read the `ac://runs/pending` resource (server: `user-agentception`):
+
+```
+FetchMcpResource(server="user-agentception", uri="ac://runs/pending")
+```
 
 It returns a list of pending launches shaped like:
 
@@ -242,7 +248,7 @@ After spawning all Tasks simultaneously, wait for all of them to return before p
 
 ## Step 5 — Check for more
 
-After each batch completes, call `query_pending_runs` again.
+After each batch completes, read `ac://runs/pending` again.
 If more items were queued while you were working (user dispatched more from
 the UI), spawn them too.
 

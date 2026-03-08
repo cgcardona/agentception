@@ -6,9 +6,9 @@ Covers every layer introduced in the feat/cognitive-arch-in-plan-spec branch:
 
 1. Model layer  — PlanIssue.cognitive_arch, PlanSpec.coordinator_arch,
                   PlanSpec.to_yaml() round-trip.
-2. MCP tool     — plan_get_cognitive_figures(role).
-3. MCP server   — registration and call_tool dispatch for
-                  plan_get_cognitive_figures.
+2. plan_tools   — plan_get_cognitive_figures(role) function.
+3. MCP resource — plan_get_cognitive_figures is exposed as ac://plan/figures/{role}
+                  Resource (not a Tool) and routed correctly via read_resource().
 4. Issue creator — _embed_cognitive_arch, _create_one embedding.
 5. Cognitive arch service — _extract_cognitive_arch_from_body,
                             _resolve_cognitive_arch priority order.
@@ -290,13 +290,22 @@ class TestPlanGetCognitiveFigures:
 
 
 class TestMcpServerCognitiveFigures:
-    def test_tool_is_registered(self) -> None:
+    def test_is_resource_not_tool(self) -> None:
+        """plan_get_cognitive_figures is a Resource (ac://plan/figures/{role}), not a Tool."""
+        from agentception.mcp.resources import RESOURCE_TEMPLATES
         from agentception.mcp.server import list_tools
 
-        names = [t["name"] for t in list_tools()]
-        assert "plan_get_cognitive_figures" in names
+        tool_names = [t["name"] for t in list_tools()]
+        assert "plan_get_cognitive_figures" not in tool_names
 
-    def test_call_tool_dispatches_correctly(self, tmp_path: Path) -> None:
+        template_uris = {t["uriTemplate"] for t in RESOURCE_TEMPLATES}
+        assert "ac://plan/figures/{role}" in template_uris
+
+    @pytest.mark.anyio
+    async def test_read_resource_dispatches_correctly(self, tmp_path: Path) -> None:
+        """ac://plan/figures/{role} resource routes to plan_get_cognitive_figures."""
+        from agentception.mcp.resources import read_resource
+
         tax_path = tmp_path / "role-taxonomy.yaml"
         tax_path.write_text(yaml.dump(_fake_taxonomy({"cto": ["jeff_dean"]})))
         figs_dir = tmp_path / "figures"
@@ -309,18 +318,26 @@ class TestMcpServerCognitiveFigures:
             patch("agentception.mcp.plan_tools._TAXONOMY_PATH", tax_path),
             patch("agentception.mcp.plan_tools._ARCHETYPES_DIR", figs_dir),
         ):
-            result = call_tool("plan_get_cognitive_figures", {"role": "cto"})
+            result = await read_resource("ac://plan/figures/cto")
 
-        assert result["isError"] is False
-        payload: object = json.loads(result["content"][0]["text"])
+        payload: object = json.loads(result["contents"][0]["text"])
         assert isinstance(payload, dict)
         assert payload.get("role") == "cto"
 
-    def test_call_tool_missing_role_returns_error(self) -> None:
+    @pytest.mark.anyio
+    async def test_read_resource_call_tool_redirect_returns_error(self) -> None:
+        """Calling the retired plan_get_cognitive_figures tool returns a redirect error."""
         result = call_tool("plan_get_cognitive_figures", {})
         assert result["isError"] is True
+        payload: object = json.loads(result["content"][0]["text"])
+        assert isinstance(payload, dict)
+        assert "ac://plan/figures/{role}" in str(payload.get("error", ""))
 
-    def test_call_tool_unknown_role_is_error(self, tmp_path: Path) -> None:
+    @pytest.mark.anyio
+    async def test_read_resource_unknown_role_returns_error_in_payload(self, tmp_path: Path) -> None:
+        """ac://plan/figures/{role} for an unknown role returns an error-keyed payload."""
+        from agentception.mcp.resources import read_resource
+
         tax_path = tmp_path / "nonexistent.yaml"
         figs_dir = tmp_path / "figures"
         figs_dir.mkdir()
@@ -328,10 +345,11 @@ class TestMcpServerCognitiveFigures:
             patch("agentception.mcp.plan_tools._TAXONOMY_PATH", tax_path),
             patch("agentception.mcp.plan_tools._ARCHETYPES_DIR", figs_dir),
         ):
-            result = call_tool(
-                "plan_get_cognitive_figures", {"role": "unknown-role-xyz"}
-            )
-        assert result["isError"] is True
+            result = await read_resource("ac://plan/figures/unknown-role-xyz")
+
+        payload: object = json.loads(result["contents"][0]["text"])
+        assert isinstance(payload, dict)
+        assert "error" in payload or payload.get("figures") == []
 
 
 # ---------------------------------------------------------------------------

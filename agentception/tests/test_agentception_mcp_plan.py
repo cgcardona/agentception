@@ -4,11 +4,12 @@ from __future__ import annotations
 manifest validation, and coordinator spawn (AC-870 + AC-871).
 
 Covers:
-- agentception.mcp.types: ACToolDef shape, ACToolResult shape
+- agentception.mcp.types: ACToolDef, ACToolResult, ACResourceDef, ACResourceResult shapes
 - agentception.mcp.plan_tools: plan_get_schema(), plan_validate_spec()
 - agentception.mcp.plan_tools: plan_get_labels(), plan_validate_manifest(),
   plan_spawn_coordinator() (AC-871)
-- agentception.mcp.server: list_tools(), call_tool(), handle_request()
+- agentception.mcp.server: list_tools(), list_resources(), call_tool(), handle_request()
+- Resources: plan_get_schema and plan_get_labels are now ac:// Resources, not Tools
 
 Boundary: zero imports from external packages.
 """
@@ -28,8 +29,17 @@ from agentception.mcp.plan_tools import (
     plan_validate_manifest,
     plan_validate_spec,
 )
-from agentception.mcp.server import TOOLS, call_tool, call_tool_async, handle_request, list_tools
+from agentception.mcp.server import (
+    TOOLS,
+    call_tool,
+    call_tool_async,
+    handle_request,
+    list_resources,
+    list_tools,
+)
 from agentception.mcp.types import (
+    ACResourceDef,
+    ACResourceResult,
     ACToolDef,
     ACToolResult,
     JSONRPC_ERR_INVALID_PARAMS,
@@ -330,10 +340,12 @@ def test_list_tools_returns_non_empty_list() -> None:
     assert len(tools) > 0
 
 
-def test_list_tools_contains_plan_get_schema() -> None:
-    """list_tools() includes plan_get_schema."""
-    names = {t["name"] for t in list_tools()}
-    assert "plan_get_schema" in names
+def test_plan_get_schema_is_resource_not_tool() -> None:
+    """plan_get_schema is exposed as ac://plan/schema Resource, not as a Tool."""
+    tool_names = {t["name"] for t in list_tools()}
+    assert "plan_get_schema" not in tool_names
+    resource_uris = {r["uri"] for r in list_resources()}
+    assert "ac://plan/schema" in resource_uris
 
 
 def test_list_tools_contains_plan_validate_spec() -> None:
@@ -342,10 +354,12 @@ def test_list_tools_contains_plan_validate_spec() -> None:
     assert "plan_validate_spec" in names
 
 
-def test_list_tools_contains_plan_get_labels() -> None:
-    """list_tools() includes plan_get_labels (AC-871)."""
-    names = {t["name"] for t in list_tools()}
-    assert "plan_get_labels" in names
+def test_plan_get_labels_is_resource_not_tool() -> None:
+    """plan_get_labels is exposed as ac://plan/labels Resource, not as a Tool (AC-871)."""
+    tool_names = {t["name"] for t in list_tools()}
+    assert "plan_get_labels" not in tool_names
+    resource_uris = {r["uri"] for r in list_resources()}
+    assert "ac://plan/labels" in resource_uris
 
 
 def test_list_tools_contains_plan_validate_manifest() -> None:
@@ -386,19 +400,13 @@ def test_tools_module_constant_matches_list_tools() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_call_tool_plan_get_schema_returns_result() -> None:
-    """call_tool plan_get_schema returns isError=False with JSON content."""
+def test_call_tool_plan_get_schema_returns_redirect_error() -> None:
+    """call_tool plan_get_schema returns isError=True with redirect message (now a Resource)."""
     result = call_tool("plan_get_schema", {})
-    assert result["isError"] is False
-    assert len(result["content"]) == 1
-
-
-def test_call_tool_plan_get_schema_content_is_valid_json() -> None:
-    """call_tool plan_get_schema content text is valid JSON."""
-    result = call_tool("plan_get_schema", {})
-    text = result["content"][0]["text"]
-    parsed = json.loads(text)
-    assert isinstance(parsed, dict)
+    assert result["isError"] is True
+    payload = json.loads(result["content"][0]["text"])
+    assert "ac://plan/schema" in payload["error"]
+    assert "resources/read" in payload["error"]
 
 
 def test_call_tool_plan_validate_spec_valid_returns_no_error() -> None:
@@ -483,11 +491,15 @@ def test_handle_request_tools_list_string_id() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_handle_request_tools_call_plan_get_schema() -> None:
-    """handle_request tools/call plan_get_schema returns success result."""
+def test_handle_request_tools_call_plan_get_schema_returns_redirect() -> None:
+    """handle_request tools/call plan_get_schema returns redirect error (now a Resource)."""
     resp = _unwrap(handle_request(_call_request("plan_get_schema", {})))
     assert "result" in resp
-    assert "error" not in resp
+    result = resp["result"]
+    assert isinstance(result, dict)
+    assert result.get("isError") is True
+    payload = json.loads(result["content"][0]["text"])
+    assert "ac://plan/schema" in payload["error"]
 
 
 def test_handle_request_tools_call_plan_validate_spec_valid() -> None:
