@@ -183,7 +183,7 @@ def _dirname(path: str) -> str:
 
 
 def _issue_is_claimed(iss: dict[str, object]) -> bool:
-    """Return True when an issue carries the ``agent:wip`` label.
+    """Return True when an issue carries the ``agent/wip`` label.
 
     Handles both list-of-strings and list-of-label-objects shapes so the
     helper works correctly regardless of which GitHub reader format is used.
@@ -192,11 +192,11 @@ def _issue_is_claimed(iss: dict[str, object]) -> bool:
     if not isinstance(raw, list):
         return False
     for lbl in raw:
-        if isinstance(lbl, str) and lbl == "agent:wip":
+        if isinstance(lbl, str) and lbl == "agent/wip":
             return True
         if isinstance(lbl, dict):
             name = lbl.get("name")
-            if name == "agent:wip":
+            if name == "agent/wip":
                 return True
     return False
 

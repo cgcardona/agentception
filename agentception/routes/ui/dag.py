@@ -22,7 +22,7 @@ async def dag_page(request: Request) -> HTMLResponse:
 
     Fetches all open issues, parses their dependency declarations, and renders
     an interactive SVG graph using D3.js (loaded from CDN).  Nodes are coloured
-    by ``agentception/*`` phase label; the ``agent:wip`` issues are highlighted
+    by ``agentception/*`` phase label; the ``agent/wip`` issues are highlighted
     with a green stroke; closed nodes are rendered at 50% opacity.
 
     Enriches each node with:

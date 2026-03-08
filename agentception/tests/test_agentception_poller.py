@@ -185,12 +185,12 @@ async def test_unsubscribe_idempotent() -> None:
 
 @pytest.mark.anyio
 async def test_stale_claim_alert_detected(tmp_path: Path) -> None:
-    """An agent:wip issue with no live worktree should produce a stale-claim alert."""
+    """An agent/wip issue with no live worktree should produce a stale-claim alert."""
     board = GitHubBoard(
         active_label="agentception/0-scaffold",
         open_issues=[{"number": 42, "title": "Test issue", "labels": [], "body": ""}],
         open_prs=[],
-        wip_issues=[{"number": 42, "title": "Test issue", "labels": [{"name": "agent:wip"}]}],
+        wip_issues=[{"number": 42, "title": "Test issue", "labels": [{"name": "agent/wip"}]}],
     )
     # No worktrees — issue 42 has no live worktree.
     with (
@@ -216,7 +216,7 @@ async def test_no_stale_claim_when_worktree_exists(tmp_path: Path) -> None:
         active_label="agentception/0-scaffold",
         open_issues=[],
         open_prs=[],
-        wip_issues=[{"number": 99, "title": "In progress", "labels": [{"name": "agent:wip"}]}],
+        wip_issues=[{"number": 99, "title": "In progress", "labels": [{"name": "agent/wip"}]}],
     )
     # Create the expected worktree directory so the issue is considered live.
     (tmp_path / "issue-99").mkdir()
@@ -323,12 +323,12 @@ async def test_merge_agents_reviewing_status() -> None:
 
 @pytest.mark.anyio
 async def test_merge_agents_implementing_status() -> None:
-    """A worktree whose issue is agent:wip but has no PR should be IMPLEMENTING."""
+    """A worktree whose issue is agent/wip but has no PR should be IMPLEMENTING."""
     board = GitHubBoard(
         active_label=None,
         open_issues=[],
         open_prs=[],
-        wip_issues=[{"number": 20, "title": "...", "labels": [{"name": "agent:wip"}]}],
+        wip_issues=[{"number": 20, "title": "...", "labels": [{"name": "agent/wip"}]}],
     )
     worktrees = [_make_worktree(issue_number=20, branch="feat/issue-20")]
     agents = await merge_agents(worktrees, board)
@@ -339,10 +339,10 @@ async def test_merge_agents_implementing_status() -> None:
 
 @pytest.mark.anyio
 async def test_merge_agents_implementing_when_issue_number_present() -> None:
-    """A worktree with an issue_number is IMPLEMENTING regardless of agent:wip label.
+    """A worktree with an issue_number is IMPLEMENTING regardless of agent/wip label.
 
     The worktree's existence is the authoritative signal — we no longer require
-    the agent:wip GitHub label because leaf agents may not have claimed the
+    the agent/wip GitHub label because leaf agents may not have claimed the
     issue by the time the first poller tick fires.
     """
     worktrees = [_make_worktree(issue_number=30, branch="feat/issue-30")]
@@ -373,7 +373,7 @@ async def test_merge_agents_passes_pr_number_from_task_file() -> None:
         active_label=None,
         open_issues=[],
         open_prs=[],
-        wip_issues=[{"number": 20, "title": "...", "labels": [{"name": "agent:wip"}]}],
+        wip_issues=[{"number": 20, "title": "...", "labels": [{"name": "agent/wip"}]}],
     )
     agents = await merge_agents([worktree], board)
 

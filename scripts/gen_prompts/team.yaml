@@ -21,20 +21,24 @@ org:
     ceo:
       # Steve Jobs: product taste, simplicity, "insanely great."
       # The CEO sets vision and culture; never writes code.
+      # Surveys team/* labels on GitHub issues to discover which C-levels to dispatch.
       figures: [steve_jobs]
       archetype: the_visionary
       skills: []
       cognitive_arch: "steve_jobs"
+      teams_owned: []   # CEO owns no team directly — routes to C-levels below
 
     cto:
       # von Neumann: systematic, architectural, throughput-obsessed.
       # The CTO is the top-level orchestrator — no skill domains.
+      # Owns all engineering-family teams.
       figures: [von_neumann]
       archetype: the_architect
       atom_overrides:
         cognitive_rhythm: burst
       skills: []
       cognitive_arch: "von_neumann"
+      teams_owned: [engineering, qa, infrastructure, mobile, platform]
 
     cpo:
       # Lovelace: visionary, sees what the machine could become.
@@ -42,6 +46,7 @@ org:
       archetype: the_visionary
       skills: []
       cognitive_arch: "lovelace"
+      teams_owned: [product, design]
 
     cfo:
       # von Neumann: quantitative, systematic, cross-domain.
@@ -49,6 +54,7 @@ org:
       archetype: the_scholar
       skills: []
       cognitive_arch: "von_neumann"
+      teams_owned: []
 
     ciso:
       # Bruce Schneier: threat model first, security theater last.
@@ -56,6 +62,7 @@ org:
       archetype: the_guardian
       skills: []
       cognitive_arch: "bruce_schneier"
+      teams_owned: [security]
 
     cdo:
       # Shannon: information theory, signal/noise, data strategy.
@@ -63,6 +70,7 @@ org:
       archetype: the_architect
       skills: []
       cognitive_arch: "shannon"
+      teams_owned: [data, ml]
 
     cmo:
       # Steve Jobs: clarity of message, narrative, simplicity.
@@ -70,6 +78,7 @@ org:
       archetype: the_visionary
       skills: []
       cognitive_arch: "steve_jobs"
+      teams_owned: [marketing]
 
     coo:
       # Jeff Bezos: operational discipline, Day 1, working backwards.
@@ -77,6 +86,7 @@ org:
       archetype: the_operator
       skills: []
       cognitive_arch: "jeff_bezos"
+      teams_owned: []
 
   coordinator:
     engineering:
@@ -86,6 +96,8 @@ org:
       archetype: the_pragmatist
       skills: []
       cognitive_arch: "hamming"
+      c_level_owner: cto
+      label: "team/engineering"
 
     qa:
       # Dijkstra: proof-oriented, uncompromising on correctness.
@@ -94,54 +106,80 @@ org:
       archetype: the_guardian
       skills: []
       cognitive_arch: "dijkstra"
+      c_level_owner: cto
+      label: "team/qa"
 
     product:
       figures: [steve_jobs]
       archetype: the_visionary
       skills: []
       cognitive_arch: "steve_jobs"
+      c_level_owner: cpo
+      label: "team/product"
 
     design:
       figures: [lovelace]
       archetype: the_visionary
       skills: []
       cognitive_arch: "lovelace"
+      c_level_owner: cpo
+      label: "team/design"
 
     data:
       figures: [shannon]
       archetype: the_architect
       skills: []
       cognitive_arch: "shannon"
+      c_level_owner: cdo
+      label: "team/data"
 
     security:
       figures: [bruce_schneier]
       archetype: the_guardian
       skills: []
       cognitive_arch: "bruce_schneier"
+      c_level_owner: ciso
+      label: "team/security"
 
     infrastructure:
       figures: [ritchie]
       archetype: the_operator
       skills: []
       cognitive_arch: "ritchie"
+      c_level_owner: cto
+      label: "team/infrastructure"
 
     mobile:
       figures: [lovelace]
       archetype: the_visionary
       skills: []
       cognitive_arch: "lovelace"
+      c_level_owner: cto
+      label: "team/mobile"
 
     platform:
       figures: [ritchie]
       archetype: the_architect
       skills: []
       cognitive_arch: "ritchie"
+      c_level_owner: cto
+      label: "team/platform"
 
     ml:
       figures: [yann_lecun]
       archetype: the_visionary
       skills: []
       cognitive_arch: "yann_lecun"
+      c_level_owner: cdo
+      label: "team/ml"
+
+    marketing:
+      figures: [steve_jobs]
+      archetype: the_visionary
+      skills: []
+      cognitive_arch: "steve_jobs"
+      c_level_owner: cmo
+      label: "team/marketing"
 
   leaf:
     # Leaf agents are dynamically assigned by the Engineering Coordinator based on the

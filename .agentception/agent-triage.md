@@ -118,8 +118,8 @@ batch_num = 3                        # batch number (used in worktree name)
 # Labels MUST exist on GitHub before agents try to apply them.
 # Run the Label Pre-flight script (below) before creating worktrees.
 [target]
-phase_label = "ac-ui/0-foundation"     # phase label — drives issue-to-pr ordering
-labels_to_apply = "enhancement,ac-ui/0-foundation,batch-01"
+phase_label = "team/0-foundation"     # phase label — drives issue-to-pr ordering
+labels_to_apply = "enhancement,team/0-foundation,batch-01"
 # ↑ Comma-separated. Each applied individually (|| true) so one failure
 #   never blocks the others. Add domain labels here too.
 
@@ -632,7 +632,7 @@ and the resolved upstream #N cross-links written. An empty URL list is a failure
 
 ```bash
 # 1. Verify every issue has correct labels
-# MCP: list_issues(owner="cgcardona", repo="agentception", labels="ac-ui/0-foundation", state="open")
+# MCP: list_issues(owner="cgcardona", repo="agentception", labels="team/0-foundation", state="open")
 # Check each result's labels list for the expected labels.
 
 # 2. Verify dependency text in issue bodies
@@ -645,7 +645,7 @@ git worktree list  # should show only main repo
 
 # 4. Issues are immediately available for agent-engineer.md
 # Dispatch by phase label (foundational phases first):
-# MCP: list_issues(owner="cgcardona", repo="agentception", labels="ac-ui/0-foundation", state="open")
+# MCP: list_issues(owner="cgcardona", repo="agentception", labels="team/0-foundation", state="open")
 ```
 
 ---

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 Contains two families of guards:
 
-**Stale-claim detection** (AC-404): An issue carrying ``agent:wip`` with no
+**Stale-claim detection** (AC-404): An issue carrying ``agent/wip`` with no
 corresponding worktree on the local filesystem indicates an agent that was
 killed or crashed before removing its label, leaving the issue permanently
 locked out of the scheduling pool.
@@ -46,9 +46,9 @@ async def detect_stale_claims(
     wip_issues: list[dict[str, object]],
     worktrees_dir: Path,
 ) -> list[StaleClaim]:
-    """Detect issues with ``agent:wip`` label but no corresponding worktree.
+    """Detect issues with ``agent/wip`` label but no corresponding worktree.
 
-    For each open issue labelled ``agent:wip``, computes the expected worktree
+    For each open issue labelled ``agent/wip``, computes the expected worktree
     path ``worktrees_dir / f"issue-{number}"``.  When that path does not exist
     on the filesystem, the issue is classified as a stale claim.
 

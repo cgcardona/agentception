@@ -171,16 +171,16 @@ def test_pipeline_api_reflects_populated_state(
 def two_batch_state() -> PipelineState:
     """PipelineState with board_issues spanning two distinct phase_labels (batches)."""
     return PipelineState(
-        active_label="ac-ui",
+        active_label="team/engineering",
         issues_open=3,
         prs_open=0,
         agents=[],
         alerts=[],
         polled_at=time.time(),
         board_issues=[
-            BoardIssue(number=101, title="Alpha Issue 1", phase_label="ac-ui/1-alpha"),
-            BoardIssue(number=102, title="Alpha Issue 2", phase_label="ac-ui/1-alpha"),
-            BoardIssue(number=201, title="Beta Issue 1", phase_label="ac-ui/2-beta"),
+            BoardIssue(number=101, title="Alpha Issue 1", phase_label="phase/1"),
+            BoardIssue(number=102, title="Alpha Issue 2", phase_label="phase/1"),
+            BoardIssue(number=201, title="Beta Issue 1", phase_label="phase/2"),
         ],
     )
 

@@ -60,23 +60,26 @@ Pipeline state lives entirely in GitHub. No external database, no sidecar files.
 
 ### Phase dependency order
 
-Phases must be completed in order. Within a phase, all batches run in parallel.
+Phases must be completed in strict numeric order. Phase `phase/N` cannot start
+until `phase/N-1` has all issues closed. Within a phase, all batches run in parallel.
 
 ```
-phase-1/db-schema      →  phase-2/core-api      →  phase-3/api-extensions
-phase-4/new-ui-pages   →  phase-5/ui-enhancements
-phase-6/seed-data      →  phase-7/machine-access
+phase/0  →  phase/1  →  phase/2  →  phase/3  →  phase/4  →  phase/5  →  ...
 ```
 
-A batch is "ready" if:
-- Its phase's predecessor phase has all issues closed (merged), AND
+The conductor discovers phases dynamically from GitHub labels — it reads all open issues,
+collects unique `phase/*` labels, sorts by the numeric suffix, and finds the lowest with
+open issues. No phase list is hardcoded here.
+
+A phase is "ready" if:
+- All lower-numbered phases have zero open issues (fully merged), AND
 - It has open issues (ISSUE_TO_PR) or open PRs (PR_REVIEW).
 
-⚠️  **Human approval gates** — these batches require explicit human sign-off before dispatch:
-- Any batch in `phase-1/db-schema` containing an Alembic migration — migration chains
-  must be audited for MERGE_AFTER ordering before parallel review.
-- Any issue or PR labeled `security`.
-- Any PR that modifies `agentception/protocol/events.py` (SSE contract — Swift frontend impact).
+⚠️  **Human approval gates** — these items require explicit human sign-off before dispatch:
+- Any issue or PR labeled `gate/db-migration` — migration chains must be audited for
+  MERGE_AFTER ordering before parallel review.
+- Any issue or PR labeled `gate/security`.
+- Any PR that modifies `agentception/protocol/events.py` (SSE contract — client impact).
 
 ---
 
@@ -103,7 +106,7 @@ git worktree add --detach "$WT" "$DEV_SHA"
 
 # Write the conductor task file.
 # PHASE_FILTER: leave empty to run the full pipeline, or set to a single phase
-# label (e.g. phase-3/api-extensions) to limit scope to one phase.
+# label (e.g. phase/2) to limit scope to one phase.
 cat > "$WT/.agent-task" <<TASKEOF
 [task]
 version = "2.0"
@@ -231,23 +234,27 @@ STEP 2 — QUERY GITHUB PIPELINE STATE:
   # Build a complete picture of the pipeline from GitHub labels.
   # Do not assume — derive everything from live GitHub state.
 
-  echo "=== OPEN ISSUES BY PHASE/BATCH ==="
-  if [ -n "$PHASE_FILTER" ]; then
+  echo "=== DISCOVER ACTIVE PHASES AND OPEN ISSUES ==="
+  # Phases are discovered dynamically — query ALL open issues and read their phase/* labels.
+  # MCP: list_issues(owner="cgcardona", repo="agentception",
+  #   state="open")
+  # Returns: ALL_ISSUES — full list of open issues with number, title, labels
+  #
+  # From ALL_ISSUES:
+  #   1. Collect unique phase/* labels → sort numerically by the number after "phase/"
+  #   2. For each phase (sorted), count open issues in that phase
+  #
+  # If PHASE_FILTER is set:
+  #   Only consider issues with labels matching PHASE_FILTER
+  ALL_PHASES=<unique sorted phase/* labels extracted from ALL_ISSUES>
+  echo "Phases with open issues: ${ALL_PHASES[*]:-none}"
+  echo ""
+  for phase in "${ALL_PHASES[@]}"; do
     # MCP: list_issues(owner="cgcardona", repo="agentception",
-    #   labels=[PHASE_FILTER], state="open")
-    # Returns: list of open issues with number, title, labels (up to 100)
-  else
-    # Query all phase labels in priority order
-    for phase in "phase-1/db-schema" "phase-2/core-api" "phase-3/api-extensions" \
-                 "phase-4/new-ui-pages" "phase-5/ui-enhancements" \
-                 "phase-6/seed-data" "phase-7/machine-access"; do
-      # MCP: list_issues(owner="cgcardona", repo="agentception",
-      #   labels=[phase], state="open")
-      # Returns: list — set COUNT to length; for each item print "number | title | labels"
-      echo ""
-      echo "── $phase (COUNT open issues) ──"
-    done
-  fi
+    #   labels=[phase], state="open")
+    # Returns: list — set COUNT to length; for each item print "number | title | labels"
+    echo "── $phase (COUNT open issues) ──"
+  done
 
   echo ""
   echo "=== OPEN PRs ==="
@@ -256,14 +263,14 @@ STEP 2 — QUERY GITHUB PIPELINE STATE:
   # Returns: list of open PRs — for each print "#number | title | headRefName"
 
 STEP 3 — RESOLVE DEPENDENCY GRAPH:
-  # Determine which phases are fully merged (all issues closed) and which have work.
-  # This drives the "ready" determination for each batch.
+  # Phases are strictly ordered by their numeric suffix (phase/0 → phase/1 → ...).
+  # A phase is "active" if all lower-numbered phases have zero open issues.
+  # The active phase is the single lowest-numbered phase with open issues.
+  # Only ONE phase is active at a time — the pipeline advances sequentially.
 
-  # For each phase, count open issues:
+  # Using ALL_PHASES from STEP 2 (sorted numerically), count open issues per phase:
   declare -A PHASE_OPEN=()
-  for phase in "phase-1/db-schema" "phase-2/core-api" "phase-3/api-extensions" \
-               "phase-4/new-ui-pages" "phase-5/ui-enhancements" \
-               "phase-6/seed-data" "phase-7/machine-access"; do
+  for phase in "${ALL_PHASES[@]}"; do
     # MCP: list_issues(owner="cgcardona", repo="agentception",
     #   labels=[phase], state="open")
     # Returns: list — set COUNT to length of result
@@ -272,38 +279,22 @@ STEP 3 — RESOLVE DEPENDENCY GRAPH:
     echo "  $phase: $COUNT open issues"
   done
 
-  # Phase ordering groups (a group must fully close before the next group starts):
-  # Group A: phase-1 → phase-2 → phase-3
-  # Group B: phase-4 → phase-5
-  # Group C: phase-6 → phase-7
-  #
-  # The ACTIVE phase in each group is the lowest-numbered phase with open issues.
-  # Within a phase, all batches with open issues run in parallel.
-
-  # Determine active phases:
+  # Determine the single active phase: lowest-numbered phase with open issues.
+  # All lower phases must be fully closed before this phase can dispatch.
   ACTIVE_PHASES=()
-  # Group A
-  if [ "${PHASE_OPEN[phase-1/db-schema]:-0}" -gt 0 ]; then
-    ACTIVE_PHASES+=("phase-1/db-schema")
-  elif [ "${PHASE_OPEN[phase-2/core-api]:-0}" -gt 0 ]; then
-    ACTIVE_PHASES+=("phase-2/core-api")
-  elif [ "${PHASE_OPEN[phase-3/api-extensions]:-0}" -gt 0 ]; then
-    ACTIVE_PHASES+=("phase-3/api-extensions")
-  fi
-  # Group B
-  if [ "${PHASE_OPEN[phase-4/new-ui-pages]:-0}" -gt 0 ]; then
-    ACTIVE_PHASES+=("phase-4/new-ui-pages")
-  elif [ "${PHASE_OPEN[phase-5/ui-enhancements]:-0}" -gt 0 ]; then
-    ACTIVE_PHASES+=("phase-5/ui-enhancements")
-  fi
-  # Group C
-  if [ "${PHASE_OPEN[phase-6/seed-data]:-0}" -gt 0 ]; then
-    ACTIVE_PHASES+=("phase-6/seed-data")
-  elif [ "${PHASE_OPEN[phase-7/machine-access]:-0}" -gt 0 ]; then
-    ACTIVE_PHASES+=("phase-7/machine-access")
-  fi
+  PREV_CLEAR=true
+  for phase in "${ALL_PHASES[@]}"; do
+    COUNT="${PHASE_OPEN[$phase]:-0}"
+    if [ "$PREV_CLEAR" = "true" ] && [ "$COUNT" -gt 0 ]; then
+      ACTIVE_PHASES+=("$phase")
+      PREV_CLEAR=false  # only ONE active phase at a time — stop here
+      break
+    elif [ "$COUNT" -gt 0 ]; then
+      echo "  $phase is blocked: lower phases still have open issues"
+    fi
+  done
 
-  echo "Active phases: ${ACTIVE_PHASES[*]}"
+  echo "Active phases: ${ACTIVE_PHASES[*]:-none}"
 
   # Collect ready issues (no PR yet) and ready PRs (open, not merged) from active phases
   READY_ISSUES=()
@@ -340,22 +331,26 @@ STEP 3 — RESOLVE DEPENDENCY GRAPH:
 STEP 4 — HUMAN APPROVAL GATE:
   # Check for gated items before dispatching.
   # Gated items must NOT be dispatched without explicit human sign-off.
+  # Gate labels: gate/db-migration, gate/security, gate/api-contract
 
   GATED=false
 
-  # Check for phase-1 (DB schema / Alembic migrations)
   for issue_entry in "${READY_ISSUES[@]}"; do
     ISSUE_NUM="${issue_entry%%|*}"
     # MCP: issue_read(owner="cgcardona", repo="agentception",
     #   issue_number=ISSUE_NUM)
     # Returns: issue object — extract .labels | map(.name) | join(",") as LABELS
-    if echo "$LABELS" | grep -q "phase-1/db-schema"; then
-      echo "⚠️  HUMAN GATE: Issue #$ISSUE_NUM is in phase-1/db-schema (Alembic migration)."
+    if echo "$LABELS" | grep -q "gate/db-migration"; then
+      echo "⚠️  HUMAN GATE: Issue #$ISSUE_NUM has gate/db-migration (Alembic migration)."
       echo "   Verify MERGE_AFTER chain before dispatching. Requires human sign-off."
       GATED=true
     fi
-    if echo "$LABELS" | grep -q "security"; then
-      echo "⚠️  HUMAN GATE: Issue #$ISSUE_NUM has 'security' label. Requires human sign-off."
+    if echo "$LABELS" | grep -q "gate/security"; then
+      echo "⚠️  HUMAN GATE: Issue #$ISSUE_NUM has gate/security label. Requires human sign-off."
+      GATED=true
+    fi
+    if echo "$LABELS" | grep -q "gate/api-contract"; then
+      echo "⚠️  HUMAN GATE: Issue #$ISSUE_NUM has gate/api-contract. Coordinate with all consumers."
       GATED=true
     fi
   done
@@ -410,7 +405,7 @@ STEP 5 — DISPATCH COORDINATORS:
     echo ""
     echo "✅ Pipeline is idle. No open issues or PRs in any active phase."
     echo "   Either all work is done, or all remaining batches are gated."
-    echo "   Push new GitHub issues with phase/batch labels to continue."
+    echo "   Push new GitHub issues with phase/* and team/* labels to continue."
   fi
 
 STEP 6 — COLLECT COORDINATOR REPORTS:
@@ -432,7 +427,7 @@ STEP 7 — REMINDER GATE:
 
   # MCP: list_issues(owner="cgcardona", repo="agentception",
   #   state="open")
-  # Returns: all open issues — filter client-side: select those with any label starting with "phase-"
+  # Returns: all open issues — filter client-side: select those with any label starting with "phase/"
   # Set REMAINING_ISSUES to filtered count
   REMAINING_ISSUES=0  # set to MCP filtered count
   # MCP: list_pull_requests(owner="cgcardona", repo="agentception",
@@ -456,9 +451,7 @@ Re-run the conductor by pasting the kickoff prompt from \`.agentception/agent-co
 into a new Cursor composer window rooted in the conductor worktree.
 
 ### Open issues by phase
-$(for phase in "phase-1/db-schema" "phase-2/core-api" "phase-3/api-extensions" \
-     "phase-4/new-ui-pages" "phase-5/ui-enhancements" \
-     "phase-6/seed-data" "phase-7/machine-access"; do
+$(for phase in "${ALL_PHASES[@]}"; do
   # MCP: list_issues(owner="cgcardona", repo="agentception",
   #   labels=[phase], state="open")
   # Returns: list — set COUNT to length; if COUNT > 0, emit "- $phase: $COUNT open issues"
@@ -467,8 +460,9 @@ done)
 
 ### Gated items (require human sign-off before conductor can proceed)
 # MCP: list_issues(owner="cgcardona", repo="agentception",
-#   labels=["phase-1/db-schema"], state="open")
+#   labels=["gate/db-migration"], state="open")
 # Returns: list — for each item emit "- Issue #number: title"
+# Also check for gate/security and gate/api-contract labels.
 
 ### Failed PRs (D/F grade — not merged, needs human review)
 # MCP: list_pull_requests(owner="cgcardona", repo="agentception",
@@ -519,7 +513,7 @@ done)
     echo ""
     echo "✅ Pipeline is fully idle. No open issues or PRs with phase labels."
     echo "   All batches are implemented and merged. Well done."
-    echo "   Push new GitHub issues with phase/batch labels to start the next development cycle."
+    echo "   Push new GitHub issues with phase/* and team/* labels to start the next development cycle."
   fi
 
 STEP 7.5 — POST-WAVE STALE BRANCH CLEANUP:
@@ -566,7 +560,7 @@ export GH_REPO=cgcardona/agentception
 gh label create "conductor-reminder" \
   --repo "$GH_REPO" \
   --color "e4e669" \
-  --description "Open: pipeline incomplete — re-run PARALLEL_CONDUCTOR.md" \
+  --description "Open: pipeline incomplete — re-run agent-conductor.md" \
   2>/dev/null || true
 
 echo "✅ conductor-reminder label ready"

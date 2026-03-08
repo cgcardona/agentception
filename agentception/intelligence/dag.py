@@ -114,7 +114,7 @@ async def build_dag() -> DependencyDAG:
                 elif isinstance(lbl, str):
                     label_names.append(lbl)
 
-        has_wip = "agent:wip" in label_names
+        has_wip = "agent/wip" in label_names
         deps = parse_deps_from_body(body)
 
         nodes.append(

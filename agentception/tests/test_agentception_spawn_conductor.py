@@ -58,7 +58,7 @@ def test_spawn_conductor_success(client: TestClient, tmp_path: Path) -> None:
     ):
         response = client.post(
             "/api/control/spawn-conductor",
-            json={"phases": ["ac-ui/1-bugs", "ac-ui/2-features"]},
+            json={"phases": ["phase/0", "phase/1"]},
         )
 
     assert response.status_code == 200
@@ -105,7 +105,7 @@ def test_spawn_conductor_task_file_written_to_disk(
     ):
         response = client.post(
             "/api/control/spawn-conductor",
-            json={"phases": ["ac-ui/1-bugs"]},
+            json={"phases": ["phase/0"]},
         )
 
     assert response.status_code == 200
@@ -114,7 +114,7 @@ def test_spawn_conductor_task_file_written_to_disk(
     assert task_file.exists(), ".agent-task file not found in worktree"
     content = task_file.read_text(encoding="utf-8")
     assert 'workflow = "conductor"' in content
-    assert 'phases = ["ac-ui/1-bugs"]' in content
+    assert 'phases = ["phase/0"]' in content
     assert "sub_agents = true" in content
     assert 'required_output = "wave_complete"' in content
 
@@ -201,7 +201,7 @@ def test_spawn_conductor_existing_worktree_returns_409(
     ):
         response = client.post(
             "/api/control/spawn-conductor",
-            json={"phases": ["ac-ui/1-bugs"]},
+            json={"phases": ["phase/0"]},
         )
 
     assert response.status_code == 409
@@ -236,7 +236,7 @@ def test_spawn_conductor_git_failure_returns_500(
     ):
         response = client.post(
             "/api/control/spawn-conductor",
-            json={"phases": ["ac-ui/1-bugs"]},
+            json={"phases": ["phase/0"]},
         )
 
     assert response.status_code == 500

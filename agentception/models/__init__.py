@@ -120,7 +120,7 @@ class AgentNode(BaseModel):
 
 
 class StaleClaim(BaseModel):
-    """A GitHub issue with ``agent:wip`` label but no corresponding local worktree.
+    """A GitHub issue with ``agent/wip`` label but no corresponding local worktree.
 
     Produced by :func:`~agentception.intelligence.guards.detect_stale_claims`
     and included in :class:`PipelineState` so the dashboard can surface a

@@ -529,7 +529,7 @@ STEP 2 — CHECK CANONICAL STATE BEFORE DOING ANY WORK:
   └────────────────────────────────────────────────────────────────────────┘
 
   Self-destruct when stopping early:
-    # MCP: github_remove_label(issue_number=N, label="agent:wip")
+    # MCP: github_remove_label(issue_number=N, label="agent/wip")
     WORKTREE=$(pwd)
     cd "$REPO"
     git worktree remove --force "$WORKTREE"
@@ -541,7 +541,7 @@ STEP 3 — CHECKOUT & SYNC (only if STEP 2 shows the PR is open and unreviewed):
   # Only runs after STEP 2's idempotency gate passes, so it never creates stale labels.
   # All exit paths (STEP 2 early-stop, merge, D/F grade, timeout) remove this label.
   # MCP: github_claim_issue(issue_number=N)
-  #   (equivalent to: github_add_label(issue_number=N, label="agent:wip"))
+  #   (equivalent to: github_add_label(issue_number=N, label="agent/wip"))
 
   ⚠️  COMMIT GUARD — run this first if any files are modified in your worktree:
   Git will abort the merge if any tracked file has uncommitted local changes.
@@ -956,7 +956,7 @@ STEP 5.5 — MERGE ORDER GATE (sequential chain safety):
         echo "   This PR (#$N) will NOT be merged — merging out of order would break"
         echo "   the dependency chain."
         echo "   Action: fix PR #$MERGE_AFTER manually, then re-run this review agent."
-        # MCP: github_remove_label(issue_number=N, label="agent:wip")
+        # MCP: github_remove_label(issue_number=N, label="agent/wip")
         WORKTREE=$(pwd)
         cd "$REPO"
         git worktree remove --force "$WORKTREE"
@@ -1259,14 +1259,12 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
   if [ "$SPAWN_MODE" = "chain" ]; then
     # ── CHAIN MODE: merge happened → spawn next engineer for next unclaimed issue ──
 
-    # Mirror the CTO's label-ordering logic: find the lowest-numbered ac-ui/* label
+    # Mirror the CTO's label-ordering logic: find the lowest-numbered team/* label
     # that still has open issues. NEVER pick from a later label while an earlier one
     # still has work. This prevents later-phase issues from being claimed prematurely.
     ACTIVE_LABEL=""
     # For each phase label in order, check if open issues exist:
-       for label in ac-ui/0-critical-bugs ac-ui/1-design-tokens \
-                        ac-ui/2-data-model ac-ui/3-core-pages \
-                        ac-ui/4-controls-intelligence ac-ui/5-polish; do
+
       # MCP: list_issues (user-github)(label="$label", state="open") → .count
       COUNT=<count from MCP response>
       if [ "$COUNT" -gt 0 ]; then
@@ -1291,11 +1289,11 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
 
     NEXT_ISSUE=""
     if [ -z "$ACTIVE_LABEL" ]; then
-      echo "ℹ️  No open ac-ui/ or batch issues remain — chain complete."
+      echo "ℹ️  No open team/ or batch issues remain — chain complete."
     else
       # Pick the next unclaimed issue from ACTIVE_LABEL only.
       # MCP: list_issues (user-github)(label="$ACTIVE_LABEL", state="open")
-      # Filter out any with label "agent:wip" (already claimed),
+      # Filter out any with label "agent/wip" (already claimed),
       # "blocked" (phase-gated), or "ticket-blocked" (unresolved ticket-level
       # dependency — the poller removes this label once all deps close).
       # Take the lowest-numbered remaining issue.
@@ -1340,7 +1338,7 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
 
       # Resolve the primary label so the engineer can route mypy/tests correctly.
       # MCP: issue_read (user-github)(number=$NEXT_ISSUE) → .labels
-      # Pick the first label starting with "ac-ui/"
+      # Pick the first label starting with "team/"
       NEXT_ISSUE_LABEL=<label from MCP response>
 
       cat > "$NEXT_WORKTREE/.agent-task" <<TASK
@@ -1399,7 +1397,7 @@ TASK
   else
     # ── POOL MODE: spawned by QA Coordinator; spawn the next REVIEWER for the next open PR ──
 
-    # MCP: list_pull_requests (user-github)(state="open") → filter out any with label "agent:wip"
+    # MCP: list_pull_requests (user-github)(state="open") → filter out any with label "agent/wip"
     # Take the first unclaimed PR targeting dev.
     NEXT_PR=<first unclaimed PR number from MCP response>
 
@@ -1483,7 +1481,7 @@ TASK
 STEP 9 — SELF-DESTRUCT (always run this after STEP 8, merge or not, early stop or not):
   # Unconditionally clear agent:wip — covers D/F grade, merge failure, and timeout paths
   # where STEP 6 was never reached. Removing a non-existent label is a no-op.
-  # MCP: github_remove_label(issue_number=N, label="agent:wip")
+  # MCP: github_remove_label(issue_number=N, label="agent/wip")
   WORKTREE=$(pwd)
   BRANCH_TO_DELETE=$(git rev-parse --abbrev-ref HEAD)
   WORKTREE=$(pwd)
@@ -1707,9 +1705,9 @@ GH_REPO=${GH_REPO:-cgcardona/agentception}
 WTNAME=$(basename "$(pwd)")
 # Determine if this PR is an AgentCeption PR:
 # Call pull_request_read(owner="cgcardona", repo="agentception", pullNumber=N)
-# If any label name contains "ac-ui/", run:
+# If any label name contains "team/", run:
 #   docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/" 2>&1 | tail -5
-# Otherwise (generic PR — no "ac-ui/" labels), run:
+# Otherwise (generic PR — no "team/" labels), run:
 REPO=$(git worktree list | head -1 | awk '{print $1}')
 cd "$REPO" && docker compose exec agentception sh -c \
   "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/" 2>&1 | tail -5

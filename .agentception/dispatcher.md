@@ -27,12 +27,12 @@ It returns a list of pending launches shaped like:
 {
   "pending": [
     {
-      "run_id": "label-ac-ui/0-critical-a1b2c3",
+      "run_id": "label-team/0-critical-a1b2c3",
       "issue_number": 0,
       "role": "cto",
-      "branch": "agent/ac-ui/0-a1b2",
-      "host_worktree_path": "$HOME/.agentception/worktrees/agentception/label-ac-ui/0-a1b2c3",
-      "batch_id": "label-ac-ui/0-critical-20260303T120000Z-a1b2"
+      "branch": "agent/team/0-a1b2",
+      "host_worktree_path": "$HOME/.agentception/worktrees/agentception/label-team/0-a1b2c3",
+      "batch_id": "label-team/0-critical-20260303T120000Z-a1b2"
     }
   ],
   "count": 1
@@ -146,7 +146,7 @@ Step 3: Run your tier's GitHub queries via MCP to discover what needs doing.
 
   coordinator tier (engineering-coordinator role) — call:
     list_issues (user-github)(label="{scope_value}", state="open")
-  Filter out any issues with label "agent:wip" (already claimed),
+  Filter out any issues with label "agent/wip" (already claimed),
   "blocked" (phase-gated — prior phase not yet complete), or "ticket-blocked"
   (has unresolved ticket-level dependencies — do not dispatch until all are closed).
   Only work on issues with none of these three labels.

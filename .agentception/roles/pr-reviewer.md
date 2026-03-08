@@ -58,9 +58,9 @@ GH_REPO=${GH_REPO:-cgcardona/agentception}
 WTNAME=$(basename "$(pwd)")
 # Determine if this PR is an AgentCeption PR:
 # Call pull_request_read(owner="cgcardona", repo="agentception", pullNumber=N)
-# If any label name contains "ac-ui/", run:
+# If any label name contains "team/", run:
 #   docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/" 2>&1 | tail -5
-# Otherwise (generic PR — no "ac-ui/" labels), run:
+# Otherwise (generic PR — no "team/" labels), run:
 REPO=$(git worktree list | head -1 | awk '{print $1}')
 cd "$REPO" && docker compose exec agentception sh -c \
   "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/" 2>&1 | tail -5

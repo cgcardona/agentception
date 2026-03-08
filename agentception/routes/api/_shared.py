@@ -11,7 +11,7 @@ Contains:
 - ``_build_agent_task``: re-exported from ``services.task_builders``.
 - ``_build_coordinator_task``: re-exported from ``services.task_builders``.
 - ``_build_conductor_task``: re-exported from ``services.task_builders``.
-- ``_issue_is_claimed_api``: checks ``agent:wip`` label presence.
+- ``_issue_is_claimed_api``: checks ``agent/wip`` label presence.
 """
 
 from pathlib import Path
@@ -35,13 +35,13 @@ _SENTINEL: Path = settings.ac_dir / ".pipeline-pause"
 
 
 def _issue_is_claimed_api(iss: dict[str, object]) -> bool:
-    """Return True when an issue carries the ``agent:wip`` label."""
+    """Return True when an issue carries the ``agent/wip`` label."""
     raw = iss.get("labels")
     if not isinstance(raw, list):
         return False
     for lbl in raw:
-        if isinstance(lbl, str) and lbl == "agent:wip":
+        if isinstance(lbl, str) and lbl == "agent/wip":
             return True
-        if isinstance(lbl, dict) and lbl.get("name") == "agent:wip":
+        if isinstance(lbl, dict) and lbl.get("name") == "agent/wip":
             return True
     return False

@@ -37,6 +37,7 @@ SEED:
   1. Ensure the claim label exists with canonical color (idempotent):
        # create first; if it exists, edit to enforce canonical color — never rely on
        # create alone, it fails silently if the label exists, leaving a stale color.
+       # Note: label name uses slash notation — quote it to avoid shell interpretation.
        gh label create "{{ claim_label }}" \
          --color "0075ca" \
          --description "Claimed by a pipeline agent — do not assign manually" \

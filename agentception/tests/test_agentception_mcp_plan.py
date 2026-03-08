@@ -594,7 +594,7 @@ async def test_plan_get_labels_returns_label_list() -> None:
     mock_labels = [
         {"name": "bug", "description": "Something is broken"},
         {"name": "enhancement", "description": "New feature"},
-        {"name": "agent:wip", "description": ""},
+        {"name": "agent/wip", "description": ""},
     ]
     with patch("agentception.mcp.plan_tools.gh_json", return_value=mock_labels):
         result = await plan_get_labels()
@@ -604,7 +604,7 @@ async def test_plan_get_labels_returns_label_list() -> None:
     assert isinstance(labels, list)
     assert len(labels) == 3
     assert labels[0] == {"name": "bug", "description": "Something is broken"}
-    assert labels[2] == {"name": "agent:wip", "description": ""}
+    assert labels[2] == {"name": "agent/wip", "description": ""}
 
 
 @pytest.mark.anyio

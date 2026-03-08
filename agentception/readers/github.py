@@ -397,12 +397,12 @@ async def get_pr_reviews(pr_number: int) -> list[dict[str, object]]:
 
 
 async def get_wip_issues() -> list[dict[str, object]]:
-    """Return issues currently labelled ``agent:wip``.
+    """Return issues currently labelled ``agent/wip``.
 
-    An ``agent:wip`` label signals that a pipeline agent has claimed the
+    An ``agent/wip`` label signals that a pipeline agent has claimed the
     issue.  The dashboard uses this to detect in-flight work.
     """
-    return await get_open_issues(label="agent:wip")
+    return await get_open_issues(label="agent/wip")
 
 
 async def get_active_label() -> str | None:
@@ -560,7 +560,7 @@ async def close_pr(number: int, comment: str) -> None:
 
 
 async def add_wip_label(issue_number: int) -> None:
-    """Add the ``agent:wip`` label to an issue to claim it for a pipeline agent.
+    """Add the ``agent/wip`` label to an issue to claim it for a pipeline agent.
 
     Invalidates the cache so subsequent ``get_wip_issues()`` calls immediately
     reflect the new label without waiting for TTL expiry.
@@ -580,7 +580,7 @@ async def add_wip_label(issue_number: int) -> None:
     proc = await asyncio.create_subprocess_exec(
         "gh", "issue", "edit", str(issue_number),
         "--repo", repo,
-        "--add-label", "agent:wip",
+        "--add-label", "agent/wip",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -592,7 +592,7 @@ async def add_wip_label(issue_number: int) -> None:
             f"{stderr.decode().strip()!r}"
         )
 
-    logger.info("✅ Added agent:wip to issue #%d", issue_number)
+    logger.info("✅ Added agent/wip to issue #%d", issue_number)
     _cache_invalidate()
 
 
@@ -731,7 +731,7 @@ async def remove_label_from_issue(issue_number: int, label: str) -> None:
 
 
 async def clear_wip_label(issue_number: int) -> None:
-    """Remove the ``agent:wip`` label from an issue.
+    """Remove the ``agent/wip`` label from an issue.
 
     Called by the control plane after an agent completes its task so the
     issue no longer shows up in ``get_wip_issues()``.
@@ -741,14 +741,14 @@ async def clear_wip_label(issue_number: int) -> None:
     Parameters
     ----------
     issue_number:
-        GitHub issue number to remove ``agent:wip`` from.
+        GitHub issue number to remove ``agent/wip`` from.
     """
     repo = settings.gh_repo
 
     proc = await asyncio.create_subprocess_exec(
         "gh", "issue", "edit", str(issue_number),
         "--repo", repo,
-        "--remove-label", "agent:wip",
+        "--remove-label", "agent/wip",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -760,5 +760,5 @@ async def clear_wip_label(issue_number: int) -> None:
             f"{stderr.decode().strip()!r}"
         )
 
-    logger.info("✅ Removed agent:wip from issue #%d", issue_number)
+    logger.info("✅ Removed agent/wip from issue #%d", issue_number)
     _cache_invalidate()

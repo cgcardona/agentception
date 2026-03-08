@@ -612,7 +612,7 @@ STEP 2 — CHECK CANONICAL STATE BEFORE DOING ANY WORK:
   if [ "$ISSUE_STATE" = "CLOSED" ]; then
     echo "⚠️  Issue #<N> is already CLOSED on GitHub. No work needed."
     # MCP: github_remove_label(issue_number=N, label="status/in-progress")
-    # MCP: github_remove_label(issue_number=N, label="agent:wip")
+    # MCP: github_remove_label(issue_number=N, label="agent/wip")
     WORKTREE=$(pwd)
     cd "$REPO"
     git worktree remove --force "$WORKTREE"
@@ -647,7 +647,7 @@ STEP 2 — CHECK CANONICAL STATE BEFORE DOING ANY WORK:
 
   Self-destruct when stopping early:
     # MCP: github_remove_label(issue_number=N, label="status/in-progress")
-    # MCP: github_remove_label(issue_number=N, label="agent:wip")
+    # MCP: github_remove_label(issue_number=N, label="agent/wip")
     WORKTREE=$(pwd)
     cd "$REPO"
     git worktree remove --force "$WORKTREE"
@@ -694,7 +694,7 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
       echo "   B) If the dependency's code IS required (e.g. imports a module that doesn't exist yet)"
       echo "      → clean abort: remove agent:wip, remove this worktree, and skip this issue."
       echo "      CLEAN ABORT sequence:"
-      echo "        MCP: github_remove_label(issue_number=N, label=\"agent:wip\")"
+      echo "        MCP: github_remove_label(issue_number=N, label=\"agent/wip\")"
       echo "        MCP: github_remove_label(issue_number=N, label=\"status/in-progress\")"
       echo "        cd \"\$REPO\""
       echo "        git worktree remove --force \"\$WORKTREE\""
