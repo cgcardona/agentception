@@ -42,7 +42,8 @@ from agentception.services.llm import (
     ToolResponse,
     call_openrouter_with_tools,
 )
-from agentception.tools.definitions import FILE_TOOL_DEFS, SHELL_TOOL_DEF
+from agentception.services.code_indexer import search_codebase
+from agentception.tools.definitions import FILE_TOOL_DEFS, SEARCH_CODEBASE_TOOL_DEF, SHELL_TOOL_DEF
 from agentception.tools.file_tools import (
     list_directory,
     read_file,
@@ -58,7 +59,7 @@ _DEFAULT_MAX_ITERATIONS = 50
 
 # Local tool names — dispatched to file/shell functions rather than MCP.
 _LOCAL_TOOL_NAMES: frozenset[str] = frozenset(
-    {"read_file", "write_file", "list_directory", "search_text", "run_command"}
+    {"read_file", "write_file", "list_directory", "search_text", "run_command", "search_codebase"}
 )
 
 
@@ -312,6 +313,7 @@ def _build_tool_definitions() -> list[ToolDefinition]:
     """
     tool_defs: list[ToolDefinition] = list(FILE_TOOL_DEFS)
     tool_defs.append(SHELL_TOOL_DEF)
+    tool_defs.append(SEARCH_CODEBASE_TOOL_DEF)
 
     for mcp_tool in TOOLS:
         name: object = mcp_tool.get("name")
@@ -451,5 +453,14 @@ async def _dispatch_local_tool(
         cwd_raw = args.get("cwd")
         cwd = _resolve(cwd_raw, worktree_path) if cwd_raw is not None else worktree_path
         return await run_command(command_raw, cwd)
+
+    if name == "search_codebase":
+        query_raw = args.get("query")
+        if not isinstance(query_raw, str):
+            return {"ok": False, "error": "search_codebase: 'query' must be a string"}
+        n_raw = args.get("n_results", 5)
+        n_results = int(n_raw) if isinstance(n_raw, int) else 5
+        matches = await search_codebase(query_raw, n_results)
+        return {"ok": True, "matches": matches}
 
     return {"ok": False, "error": f"Unknown local tool: {name!r}"}

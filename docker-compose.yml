@@ -85,7 +85,7 @@ services:
   # Qdrant — vector store for semantic search over agent transcripts / docs
   # ==========================================================================
   qdrant:
-    image: qdrant/qdrant:v1.7.4
+    image: qdrant/qdrant:v1.17.0
     container_name: agentception-qdrant
     restart: unless-stopped
     volumes:

@@ -105,6 +105,30 @@ class AgentCeptionSettings(BaseSettings):
     falls back to the keyword-based heuristic classifier — no LLM is required
     for the service to start.
     """
+    # ── Qdrant / code search ──────────────────────────────────────────────────
+    qdrant_url: str = "http://agentception-qdrant:6333"
+    """Internal URL of the Qdrant vector store.
+
+    Set via ``QDRANT_URL`` env var.  Defaults to the Docker Compose service
+    name on port 6333 (the Qdrant REST port inside the network).  On the host
+    the Qdrant REST API is exposed at ``http://127.0.0.1:6335``.
+    """
+    qdrant_collection: str = "code"
+    """Name of the Qdrant collection used for codebase vectors."""
+    embed_model: str = "BAAI/bge-small-en-v1.5"
+    """FastEmbed model name for generating code chunk embeddings.
+
+    ``BAAI/bge-small-en-v1.5`` produces 384-dimensional vectors and is
+    fast enough to index a mid-sized codebase in seconds on CPU.  The model
+    is downloaded from HuggingFace Hub on first use and cached in
+    ``FASTEMBED_CACHE_DIR`` (default ``/tmp/fastembed_cache``).
+    """
+    embed_model_dim: int = 384
+    """Vector dimension produced by ``embed_model``.
+
+    Must match the model — ``BAAI/bge-small-en-v1.5`` produces 384-dimensional
+    vectors.  Override when switching to a different model.
+    """
     database_url: str | None = None
     """Async database URL for AgentCeption's own ac_* tables.
 
