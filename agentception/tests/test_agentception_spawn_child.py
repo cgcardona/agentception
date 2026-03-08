@@ -3,7 +3,7 @@ from __future__ import annotations
 """Tests for the universal child-node spawner (agentception/services/spawn_child.py).
 
 Covers:
-  - tier parameter contract (coordinator / engineer / reviewer).
+  - tier parameter contract (coordinator / worker).
   - _build_child_task() field presence and correctness for each scope type.
   - spawn_child() happy path (mocked git + DB) for coordinator and leaf.
   - spawn_child() produces tier = (not node_type =) in .agent-task.
@@ -160,18 +160,18 @@ def test_build_child_task_org_domain_absent_when_none() -> None:
 
 def test_build_child_task_tier_and_org_domain_are_separate() -> None:
     """tier and org_domain are written as two independent TOML keys."""
-    task = _make_task(tier="reviewer", org_domain="qa")
-    assert 'tier = "reviewer"' in task
+    task = _make_task(tier="worker", org_domain="qa")
+    assert 'tier = "worker"' in task
     assert 'org_domain = "qa"' in task
     # Behavioral tier must not bleed into org domain
     assert 'tier = "qa"' not in task
-    assert 'org_domain = "reviewer"' not in task
+    assert 'org_domain = "worker"' not in task
 
 
 def test_build_child_task_engineer_tier() -> None:
-    task = _make_task(tier="engineer", role="python-developer", scope_type="issue",
+    task = _make_task(tier="worker", role="python-developer", scope_type="issue",
                       scope_value="42", issue_number=42)
-    assert 'tier = "engineer"' in task
+    assert 'tier = "worker"' in task
 
 
 def test_build_child_task_coordinator_label_scope_query_hint() -> None:
@@ -184,7 +184,7 @@ def test_build_child_task_issue_scope_includes_issue_fields() -> None:
     task = _make_task(
         scope_type="issue",
         scope_value="42",
-        tier="engineer",
+        tier="worker",
         role="python-developer",
         issue_number=42,
         issue_title="Fix the thing",
@@ -199,7 +199,7 @@ def test_build_child_task_pr_scope_includes_pr_fields() -> None:
     task = _make_task(
         scope_type="pr",
         scope_value="112",
-        tier="reviewer",
+        tier="worker",
         role="pr-reviewer",
         pr_number=112,
     )
@@ -218,7 +218,7 @@ def test_build_child_task_coordinator_includes_both_queries() -> None:
 def test_build_child_task_coord_fingerprint_written_when_provided() -> None:
     """COORD_FINGERPRINT is written to the task file when the caller provides it."""
     task = _make_task(
-        tier="engineer",
+        tier="worker",
         role="python-developer",
         scope_type="issue",
         scope_value="42",
@@ -234,7 +234,7 @@ def test_build_child_task_coord_fingerprint_present() -> None:
     task = _build_child_task(
         run_id="issue-42-abc",
         role="python-developer",
-        tier="engineer",
+        tier="worker",
         org_domain="engineering",
         scope_type="issue",
         scope_value="42",
@@ -308,7 +308,7 @@ async def test_spawn_child_leaf_issue_happy_path() -> None:
         result = await spawn_child(
             parent_run_id="coord-engineering-xyz",
             role="python-developer",
-            tier="engineer",
+            tier="worker",
             scope_type="issue",
             scope_value="42",
             gh_repo="owner/repo",
@@ -316,7 +316,7 @@ async def test_spawn_child_leaf_issue_happy_path() -> None:
             issue_body="Uses FastAPI Depends and response_model",
         )
 
-    assert result.tier == "engineer"
+    assert result.tier == "worker"
     assert result.run_id.startswith("issue-42-")
     # COGNITIVE_ARCH should reflect fastapi skill from the body keyword
     assert "fastapi" in result.cognitive_arch
@@ -340,13 +340,13 @@ async def test_spawn_child_leaf_pr_happy_path() -> None:
         result = await spawn_child(
             parent_run_id="coord-qa-xyz",
             role="pr-reviewer",
-            tier="reviewer",
+            tier="worker",
             scope_type="pr",
             scope_value="112",
             gh_repo="owner/repo",
         )
 
-    assert result.tier == "reviewer"
+    assert result.tier == "worker"
     assert result.run_id.startswith("pr-112-")
     assert "michael_fagan" in result.cognitive_arch
 
@@ -375,7 +375,7 @@ async def test_spawn_child_tier_written_to_agent_task() -> None:
         await spawn_child(
             parent_run_id="coord-engineering-xyz",
             role="python-developer",
-            tier="engineer",
+            tier="worker",
             scope_type="issue",
             scope_value="5",
             gh_repo="owner/repo",
@@ -383,7 +383,7 @@ async def test_spawn_child_tier_written_to_agent_task() -> None:
 
     assert written_content, "write_text was never called"
     content = written_content[0]
-    assert 'tier = "engineer"' in content
+    assert 'tier = "worker"' in content
     # NODE_TYPE / node_type must not appear (internal only, derived from tier)
     assert "NODE_TYPE=" not in content
     assert "node_type =" not in content
@@ -407,7 +407,7 @@ async def test_spawn_child_skills_hint_overrides_body_extraction() -> None:
         result = await spawn_child(
             parent_run_id="coord-xyz",
             role="frontend-developer",
-            tier="engineer",
+            tier="worker",
             scope_type="issue",
             scope_value="99",
             gh_repo="owner/repo",
@@ -450,7 +450,7 @@ async def test_spawn_child_worktree_failure_raises_spawn_child_error() -> None:
         await spawn_child(
             parent_run_id="coord-xyz",
             role="python-developer",
-            tier="engineer",
+            tier="worker",
             scope_type="issue",
             scope_value="1",
             gh_repo="owner/repo",
@@ -481,7 +481,7 @@ async def test_spawn_child_file_write_failure_cleans_up_worktree() -> None:
         await spawn_child(
             parent_run_id="coord-xyz",
             role="python-developer",
-            tier="engineer",
+            tier="worker",
             scope_type="issue",
             scope_value="2",
             gh_repo="owner/repo",
@@ -525,7 +525,7 @@ def test_spawn_child_result_to_dict_org_domain_none() -> None:
         run_id="leaf-abc",
         host_worktree_path="/host/path",
         worktree_path="/container/path",
-        tier="engineer",
+        tier="worker",
         org_domain=None,
         role="python-developer",
         cognitive_arch="guido:python",
@@ -534,7 +534,7 @@ def test_spawn_child_result_to_dict_org_domain_none() -> None:
         scope_value="42",
     )
     d = result.to_dict()
-    assert d["tier"] == "engineer"
+    assert d["tier"] == "worker"
     assert d["org_domain"] is None
 
 
@@ -549,8 +549,8 @@ def test_all_tiers_produce_valid_task_content() -> None:
         ("cto", "coordinator", "label", "ac-workflow"),
         ("engineering-coordinator", "coordinator", "label", "phase/0"),
         ("qa-coordinator", "coordinator", "label", "phase/0"),
-        ("python-developer", "engineer", "issue", "42"),
-        ("pr-reviewer", "reviewer", "pr", "112"),
+        ("python-developer", "worker", "issue", "42"),
+        ("pr-reviewer", "worker", "pr", "112"),
     ]
     for role, tier, scope_type, scope_value in combos:
         task = _make_task(

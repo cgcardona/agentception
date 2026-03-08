@@ -320,7 +320,7 @@ result = await build_spawn_child(
 
 ### Contract
 
-Every agent — regardless of tier (coordinator, engineer, reviewer) — **must output a single visible sentence as the very first response** in its session, before any tool call, shell command, or implementation work:
+Every agent — regardless of tier (coordinator, worker) — **must output a single visible sentence as the very first response** in its session, before any tool call, shell command, or implementation work:
 
 ```
 My name is {display_name}. My cognitive architecture is: {one-sentence description}.

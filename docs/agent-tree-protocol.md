@@ -56,15 +56,14 @@ chain-spawned reviewers and find no additional PRs to cover.
 ## Tiers
 
 Tiers are the runtime execution label written into every `.agent-task` file.
-They map directly onto the two agent types: coordinators carry tier
-`coordinator`; workers carry tier `engineer` or `reviewer`.
+They map exactly onto the two agent types: both carry either `coordinator`
+or `worker`. The `scope_type` field and the agent's `role` distinguish what
+kind of work a worker performs — the tier does not.
 
 | Tier | Agent type | Role examples | GitHub scope | Can spawn |
 |------|-----------|--------------|--------------|-----------|
-| `coordinator` | coordinator | `ceo`, `cto`, `engineering-coordinator` | issues **and/or** PRs filtered to `SCOPE_VALUE` | any coordinator or worker |
-| `coordinator` | coordinator | `qa-coordinator` | **PRs only** — cleanup sweep when issues = 0 | `pr-reviewer` |
-| `engineer` | worker | `python-developer`, `frontend-developer`, `devops-engineer`, … | **one issue** (`SCOPE_VALUE` = issue number) | `pr-reviewer` (chain-spawn after opening PR) |
-| `reviewer` | worker | `pr-reviewer` | **one PR** (`SCOPE_VALUE` = PR number) | nothing |
+| `coordinator` | coordinator | `ceo`, `cto`, `engineering-coordinator`, `qa-coordinator` | issues and/or PRs filtered to `SCOPE_VALUE` (exact scope determined by role) | any coordinator or worker |
+| `worker` | worker | `python-developer`, `pr-reviewer`, `devops-engineer`, … | **one issue** or **one PR** (`SCOPE_VALUE` = number; `scope_type` tells the worker which) | one downstream worker only (chain-spawn) |
 
 ### CTO spawn decision
 
@@ -89,7 +88,7 @@ strictly required to start.
 # ── Identity ──────────────────────────────────────────────────────────────────
 RUN_ID        = "label-AC-UI-0-CRITICAL-BUGS-20260303T200000Z-a1b2"
 ROLE          = "cto"
-TIER          = "coordinator"      # behavioral tier: coordinator|engineer|reviewer
+TIER          = "coordinator"      # behavioral tier: coordinator|worker
 ORG_DOMAIN    = "c-suite"          # UI hierarchy slot: c-suite|engineering|qa
 
 # ── Scope ─────────────────────────────────────────────────────────────────────
@@ -119,7 +118,7 @@ HOST_ROLE_FILE = "<host-repo-root>/.agentception/roles/cto.md"
 ```toml
 RUN_ID        = "issue-42-20260303T200100Z-c3d4"
 ROLE          = "python-developer"
-TIER          = "engineer"
+TIER          = "worker"
 ORG_DOMAIN    = "engineering"
 SCOPE_TYPE    = "issue"
 SCOPE_VALUE   = "42"
@@ -138,7 +137,7 @@ HOST_ROLE_FILE = "<host-repo-root>/.agentception/roles/python-developer.md"
 ```toml
 RUN_ID        = "pr-99-20260303T200200Z-e5f6"
 ROLE          = "pr-reviewer"
-TIER          = "reviewer"
+TIER          = "worker"
 ORG_DOMAIN    = "qa"               # dashboard places this node under the QA column
 SCOPE_TYPE    = "pr"
 SCOPE_VALUE   = "99"
@@ -146,18 +145,18 @@ GH_REPO       = "cgcardona/agentception"
 BRANCH        = ""
 WORKTREE      = "$HOME/.agentception/worktrees/agentception/pr-99"
 BATCH_ID      = "label-AC-UI-0-20260303T200000Z-a1b2"
-PARENT_RUN_ID = "issue-42-20260303T200100Z-c3d4"  # ← engineer that spawned this reviewer
+PARENT_RUN_ID = "issue-42-20260303T200100Z-c3d4"  # ← worker that spawned this reviewer
 AC_URL        = "http://localhost:10003"
 ROLE_FILE     = "<container-repo-root>/.agentception/roles/pr-reviewer.md"
 HOST_ROLE_FILE = "<host-repo-root>/.agentception/roles/pr-reviewer.md"
 ```
 
 > **`TIER` vs `ORG_DOMAIN`:** `TIER` is the behavioral execution tier —
-> it tells the agent what kind of work it does (coordinator: survey+spawn vs
-> worker: implement or review).
+> `coordinator` surveys and spawns; `worker` claims one unit of work and executes it.
+> The worker's *kind* of work (issue vs PR) is carried by `SCOPE_TYPE` and `ROLE`, not `TIER`.
 > `ORG_DOMAIN` is the organisational slot for the UI hierarchy (c-suite, engineering, qa).
-> A chain-spawned PR reviewer has `TIER=reviewer` and `ORG_DOMAIN=qa` even though its
-> `PARENT_RUN_ID` points to an engineer worker, so the dashboard nests it under the QA
+> A chain-spawned PR reviewer has `TIER=worker` and `ORG_DOMAIN=qa` even though its
+> `PARENT_RUN_ID` points to an implementing worker, so the dashboard nests it under the QA
 > column without requiring a physical QA coordinator to be running.
 
 > `<repo-root>` is the absolute path to the cloned repository on the host
@@ -204,10 +203,10 @@ Each engineer self-replaces (spawns its successor before exiting).
 github_list_prs(state="open")
 ```
 
-Spawns one `reviewer` Task per unreviewed PR, up to 3 concurrently.
+Spawns one `pr-reviewer` worker Task per unreviewed PR, up to 3 concurrently.
 Only spawned by the CTO when `ISSUES == 0` and stale unreviewed PRs remain.
 
-### `engineer` (worker)
+### `worker` — implementing (scope_type=issue)
 
 ```
 # Read the single assigned issue
@@ -215,13 +214,13 @@ github_get_issue(number=$SCOPE_VALUE)
 ```
 
 Implements the issue, opens a PR, then **immediately chain-spawns a
-`pr-reviewer` Task** before calling `report/done`. The reviewer's
-`PARENT_RUN_ID` is set to this engineer's `RUN_ID`, `TIER` is set to
-`reviewer`, and `ORG_DOMAIN` to `qa`. This makes the reviewer a logical child
-of the engineer in the hierarchy even though no physical QA coordinator is
+`pr-reviewer` worker Task** before calling `report/done`. The reviewer's
+`PARENT_RUN_ID` is set to this worker's `RUN_ID`, `TIER` is `worker`, and
+`ORG_DOMAIN` is `qa`. This makes the reviewer a logical child of the
+implementing worker in the hierarchy even though no physical QA coordinator is
 running.
 
-### `reviewer` (worker)
+### `worker` — reviewing (scope_type=pr)
 
 ```
 # Read the single assigned PR
@@ -229,8 +228,10 @@ github_get_pr(number=$SCOPE_VALUE)
 ```
 
 Reviews, requests changes or approves+merges, calls `report/done`, exits.
-Spawned by **either** an engineer (chain-spawn) **or** a `qa-coordinator`
-(cleanup sweep) — the reviewer worker itself behaves identically in both cases.
+Spawned by **either** an implementing worker (chain-spawn) **or** a
+`qa-coordinator` (cleanup sweep) — the reviewing worker behaves identically in
+both cases. The `role` field (`pr-reviewer`) and `scope_type=pr` fully identify
+it; no separate tier value is needed.
 
 ---
 
@@ -243,17 +244,17 @@ Spawned by **either** an engineer (chain-spawn) **or** a `qa-coordinator`
   `POST /api/runs/{run_id}/acknowledge` for each child run_id before
   spawning its Task, preventing double-dispatch.
 - **PARENT_RUN_ID propagation**: every child task receives its physical
-  spawner's `RUN_ID`. For chain-spawned reviewers this is the engineer's
-  `RUN_ID`, not the coordinator's.
+  spawner's `RUN_ID`. For chain-spawned reviewing workers this is the
+  implementing worker's `RUN_ID`, not the coordinator's.
 - **ORG_DOMAIN propagation**: every child task should include an
   `ORG_DOMAIN` field (c-suite | engineering | qa). The UI uses this
   field to place workers and coordinators in the hierarchy without requiring a
-  physical parent coordinator to be running. Chain-spawned reviewers must pass
-  `org_domain="qa"`.
+  physical parent coordinator to be running. Chain-spawned reviewing workers
+  must pass `org_domain="qa"`.
 - **No concurrent QA coordinator when issues remain**: the CTO must never
-  spawn a QA coordinator when `ISSUES > 0`. Engineer workers chain-spawn their
-  own reviewer workers; a concurrent QA coordinator would race against them and
-  find no PRs to review.
+  spawn a QA coordinator when `ISSUES > 0`. Implementing workers chain-spawn
+  their own reviewing workers; a concurrent QA coordinator would race against
+  them and find no PRs to review.
 
 ---
 
@@ -281,5 +282,5 @@ They do NOT call `build_report_done` — they exit naturally after their queue d
 | `coordinator` | coordinator | `cto` | dispatcher, or CEO coordinator when present |
 | `coordinator` | coordinator | `engineering-coordinator` | CTO (always when issues > 0) |
 | `coordinator` | coordinator | `qa-coordinator` | CTO (cleanup sweep only — issues == 0, PRs > 0) |
-| `engineer` | worker | `python-developer`, `frontend-developer`, `typescript-developer`, `react-developer`, `go-developer`, `rust-developer`, `api-developer`, `devops-engineer`, `data-engineer`, `site-reliability-engineer`, `security-engineer`, `mobile-developer`, `ios-developer`, `android-developer`, `full-stack-developer`, `architect`, `technical-writer`, `test-engineer`, `ml-engineer`, `systems-programmer`, `rails-developer`, `database-architect` | engineering-coordinator |
+| `worker` | worker | `python-developer`, `frontend-developer`, `typescript-developer`, `react-developer`, `go-developer`, `rust-developer`, `api-developer`, `devops-engineer`, `data-engineer`, `site-reliability-engineer`, `security-engineer`, `mobile-developer`, `ios-developer`, `android-developer`, `full-stack-developer`, `architect`, `technical-writer`, `test-engineer`, `ml-engineer`, `systems-programmer`, `rails-developer`, `database-architect` | engineering-coordinator |
 | `reviewer` | worker | `pr-reviewer` | engineer worker (chain-spawn after PR open) **or** qa-coordinator (cleanup sweep) |

@@ -58,8 +58,8 @@ together define exactly what GitHub queries to make and which children to spawn:
 | `tier` | `scope_type` | What `scope_value` means | GitHub queries |
 |--------|-------------|--------------------------|----------------|
 | `coordinator` | `label` | GitHub label string | `list_issues (user-github)` + `list_pull_requests (user-github)` (root/CTO), or issues only (engineering), or PRs only (qa) |
-| `engineer` | `issue` | Issue number (string) | `issue_read (user-github)(issue_number=<scope_value>)` |
-| `reviewer` | `pr` | PR number (string) | `pull_request_read (user-github)(pr_number=<scope_value>)` |
+| `worker` | `issue` | Issue number (string) | `issue_read (user-github)(issue_number=<scope_value>)` |
+| `worker` | `pr` | PR number (string) | `pull_request_read (user-github)(pr_number=<scope_value>)` |
 
 The `.agent-task` file contains inline comments with the MCP tool calls
 for this tier — pass them verbatim to the spawned agent in the briefing below.
@@ -100,7 +100,7 @@ arch resolution — the stub is sufficient for this MVP verification pass.
 Use `subagent_type="generalPurpose"` — **never `shell`**. Only `generalPurpose`
 agents have the Task tool and can spawn their own children.
 
-**For coordinator tiers** (`tier` is `coordinator`):
+**For coordinator tier** (`tier` is `coordinator`):
 
 ```
 You are an AgentCeption coordinator agent. Your briefing:
@@ -177,7 +177,7 @@ Step 6: Report each major step via MCP:
 Always pass agent_run_id="{run_id}".
 ```
 
-**For worker tiers** (`tier` is `engineer` or `reviewer`):
+**For worker tier** (`tier` is `worker`):
 
 ```
 You are an AgentCeption agent. Your full briefing is in your .agent-task file.

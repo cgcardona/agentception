@@ -307,14 +307,13 @@ def _tier_for_role(role: str) -> Tier:
     """Return the behavioral tier for a role slug.
 
     All coordinator roles (C-suite and sub-coordinators alike) survey their
-    scope and spawn children → ``coordinator``.  PR reviewers → ``reviewer``,
-    everything else → ``engineer``.
+    scope and spawn children → ``coordinator``.  Every other role is a
+    ``worker`` — it claims one unit of work and executes it, whether that
+    work is implementing an issue or reviewing a PR.
     """
     if role in _COORDINATOR_ROLES:
         return "coordinator"
-    if role in {"pr-reviewer", "qa-coordinator"}:
-        return "reviewer"
-    return "engineer"
+    return "worker"
 
 
 #: Map role slug prefixes/exact slugs to their org domain (UI hierarchy slot).
@@ -381,8 +380,8 @@ class LabelDispatchRequest(BaseModel):
     - ``"phase"`` — a coordinator handles just one phase sub-label; supply
       *scope_label* with the sub-label string.  ``tier`` is
       ``"coordinator"``.
-    - ``"issue"`` — a single engineer agent works on one issue; supply
-      *scope_issue_number*.  ``tier`` is ``"engineer"``.
+    - ``"issue"`` — a single worker agent implements one issue; supply
+      *scope_issue_number*.  ``tier`` is ``"worker"``.
 
     *role* is optional.  When omitted the server derives a sensible default
     (``cto`` for ``full_initiative``, ``engineering-coordinator`` for
