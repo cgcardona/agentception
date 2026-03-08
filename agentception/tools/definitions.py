@@ -1,4 +1,4 @@
-"""OpenAI-format tool definitions for the local file and shell tools.
+"""OpenAI-format tool definitions for the local file, shell, and search tools.
 
 These are imported by ``agent_loop.py`` and merged with the MCP tool
 catalogue before being sent to the model on every iteration.
@@ -147,6 +147,39 @@ SHELL_TOOL_DEF: ToolDefinition = ToolDefinition(
                 },
             },
             "required": ["command"],
+            "additionalProperties": False,
+        },
+    ),
+)
+
+SEARCH_CODEBASE_TOOL_DEF: ToolDefinition = ToolDefinition(
+    type="function",
+    function=ToolFunction(
+        name="search_codebase",
+        description=(
+            "Semantically search the codebase using natural language. "
+            "More powerful than pattern matching — use it to find code by concept: "
+            "'where is authentication handled?', 'find the GitHub API client', "
+            "'show me the error handling for LLM calls'. "
+            "Requires the codebase to have been indexed via POST /api/system/index-codebase. "
+            "Returns the most relevant code chunks with their file paths and line numbers."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Natural language description of what you are looking for.",
+                },
+                "n_results": {
+                    "type": "integer",
+                    "description": "Number of results to return (default 5, max 20).",
+                    "default": 5,
+                    "minimum": 1,
+                    "maximum": 20,
+                },
+            },
+            "required": ["query"],
             "additionalProperties": False,
         },
     ),
