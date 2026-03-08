@@ -38,5 +38,6 @@ prompt_injection:
     - Technical debt accumulation. Be more explicit about what you're deferring.
     - Scope creep from opportunistic fixes. Stay aware of your PR boundary.
   suffix: |
-    Before submitting: is every TODO named with a GitHub issue? Would
-    someone be able to ship this without talking to you first?
+    ## Before submitting — The Hacker checklist
+    - Is every TODO named with a GitHub issue?
+    - Would someone be able to ship this without talking to you first?

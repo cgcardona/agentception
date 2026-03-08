@@ -38,5 +38,7 @@ prompt_injection:
     - Over-comprehensiveness. Not every function needs a research-grade comment.
     - Escalating when you could have decided. Reserve escalation for true ambiguity.
   suffix: |
-    Before submitting: is the solution correct, or is it just complex?
-    Have you found the edge cases? Have you written them as tests?
+    ## Before submitting — The Scholar checklist
+    - Is the solution correct, or is it just complex?
+    - Have you found the edge cases?
+    - Have you written them as tests?

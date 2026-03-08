@@ -37,6 +37,8 @@ prompt_injection:
     - In reviews, prefer "what happens when X?" over "this is wrong."
     - Leave the code more understandable than you found it.
   suffix: |
-    Before submitting: read the diff as a new engineer would. Do the
-    names make sense without context? Do the tests serve as examples?
-    Is there anything here a future engineer would have to ask about?
+    ## Before submitting — The Mentor checklist
+    - Have you read the diff as a new engineer would?
+    - Do the names make sense without context?
+    - Do the tests serve as examples?
+    - Is there anything here a future engineer would have to ask about?
