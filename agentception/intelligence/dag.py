@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Dependency DAG builder for the AgentCeption intelligence layer.
 
 Parses every open issue body for ``Depends on #NNN`` patterns and assembles
@@ -16,6 +14,7 @@ Typical usage::
     for (src, dst) in dag.edges:
         print(f"#{src} depends on #{dst}")
 """
+from __future__ import annotations
 
 import logging
 

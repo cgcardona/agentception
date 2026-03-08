@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Pipeline guard functions for the AgentCeption intelligence layer.
 
 Contains two families of guards:
@@ -21,15 +19,16 @@ Public API:
 - ``detect_out_of_order_prs()``— main detection coroutine; called by poller
                                   and the /api/intelligence/pr-violations route
 """
+from __future__ import annotations
 
 import logging
 import re
 from pathlib import Path
 
+from pydantic import BaseModel
+
 from agentception.models import StaleClaim
 from agentception.readers.github import get_active_label, get_issue, get_open_prs_with_body
-
-from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
