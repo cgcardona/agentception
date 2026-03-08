@@ -65,16 +65,39 @@ kind of work a worker performs — the tier does not.
 | `coordinator` | coordinator | `ceo`, `cto`, `engineering-coordinator`, `qa-coordinator` | issues and/or PRs filtered to `scope_value` (exact scope determined by role) | any coordinator or worker |
 | `worker` | worker | `python-developer`, `pr-reviewer`, `devops-engineer`, … | **one issue** or **one PR** (`scope_value` = number; `scope_type` tells the worker which) | one downstream worker only (chain-spawn) |
 
-### CTO spawn decision
+### Root coordinator spawn loop
+
+Applies to any coordinator whose role surveys **both** the issue queue and the
+PR queue (e.g. `cto`, `ceo`). This is not a one-shot decision — it is a loop
+that repeats after each wave of children completes, until both queues drain.
 
 ```
-ISSUES > 0  → spawn 1 engineering-coordinator, 0 QA coordinators
-              (engineers chain-spawn their own reviewers)
-ISSUES == 0
-  PRs > 0   → spawn 0 engineering-coordinators, 1 QA coordinator
-              (cleanup sweep — handles PRs whose reviewer crashed)
-  PRs == 0  → done, exit
+loop:
+  issues ← list_issues(label=scope_value, state="open")
+            filtered: exclude "agent:wip" (claimed), "blocked" (phase-gated),
+                      "ticket-blocked" (unresolved dependencies)
+  prs    ← list_pull_requests(state="open", unreviewed=true)
+
+  issues > 0:
+    spawn 1 engineering-coordinator          # covers all eligible issues
+    # implementing workers chain-spawn their own reviewing workers immediately
+    # after opening each PR — no qa-coordinator needed while issues remain
+    wait → loop
+
+  issues == 0, prs > 0:
+    spawn 1 qa-coordinator                   # cleanup sweep only
+    # covers PRs whose implementing worker crashed before chain-spawning a reviewer
+    wait → loop
+
+  issues == 0, prs == 0:
+    exit                                     # both queues fully drained
 ```
+
+**Key invariant:** a `qa-coordinator` is **never** spawned while issues remain.
+Implementing workers chain-spawn their reviewing workers immediately after
+opening a PR. A concurrent `qa-coordinator` would race against those
+chain-spawned reviewers and attempt to claim PRs that are already covered,
+producing duplicate review runs.
 
 ---
 
@@ -92,9 +115,9 @@ TIER          = "coordinator"      # behavioral tier: coordinator|worker
 ORG_DOMAIN    = "c-suite"          # UI hierarchy slot: c-suite|engineering|qa
 
 # ── Scope ─────────────────────────────────────────────────────────────────────
-# SCOPE_TYPE  label   → coordinator tiers; SCOPE_VALUE is a GitHub label string
-# SCOPE_TYPE  issue   → engineer worker; SCOPE_VALUE is the issue number (string)
-# SCOPE_TYPE  pr      → reviewer worker; SCOPE_VALUE is the PR number (string)
+# SCOPE_TYPE  label   → coordinator; scope_value is a GitHub label string
+# SCOPE_TYPE  issue   → implementing worker; scope_value is the issue number (string)
+# SCOPE_TYPE  pr      → reviewing worker; scope_value is the PR number (string)
 SCOPE_TYPE    = "label"
 SCOPE_VALUE   = "AC-UI/0-CRITICAL-BUGS"
 
