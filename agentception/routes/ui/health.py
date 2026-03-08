@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """UI route: GET /ui/health/widget — HTMX-polled System Health card fragment.
 
 Calls ``health_collector.collect()`` and renders ``partials/health_card.html``
@@ -9,6 +7,7 @@ Thresholds (from issue #941):
   nominal   — github_api_latency_ms < 500 AND memory_rss_mb < 512
   elevated  — any threshold exceeded (or probe failed, i.e. latency == -1.0)
 """
+from __future__ import annotations
 
 import logging
 
