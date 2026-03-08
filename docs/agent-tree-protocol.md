@@ -26,7 +26,9 @@ Worker examples: `python-developer`, `frontend-developer`, `pr-reviewer`.
 ## The tree
 
 ```
-[ceo]  ← optional; cto becomes root when absent
+[any coordinator]  ← any coordinator can be root; the tree is pruned at the entry point
+      │
+[ceo] (optional)
  └── cto  (coordinator)
       ├── engineering-coordinator  (coordinator)
       │    └── engineer            (worker — one issue)
@@ -50,10 +52,6 @@ Worker examples: `python-developer`, `frontend-developer`, `pr-reviewer`.
 spawn only the single `pr-reviewer` worker that covers their own PR.  A
 concurrent QA coordinator launched while issues remain would race against
 chain-spawned reviewers and find no additional PRs to cover.
-
-Any coordinator can be the entry point. When you launch at
-`engineering-coordinator`, there is no CTO or CEO above it — the tree is
-pruned at that coordinator.
 
 ---
 
