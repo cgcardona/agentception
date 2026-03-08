@@ -571,9 +571,6 @@ Task(worktree="/path/to/issue-405", prompt=KICKOFF_PROMPT)
 sub-worktrees with sub-task files and launches leaf agents. This creates
 a tree of unlimited depth and width.
 
-See `agent-triage.md` → "Agent Task File Reference" for the
-full field reference including nested orchestration patterns.
-
 ---
 
 Each sub-agent gets its own ephemeral worktree. Worktrees are created at kickoff,
@@ -2228,8 +2225,7 @@ needs multiple independent reviewers (e.g. one for types, one for tests, one
 for docs). Each sub-reviewer writes its grade and findings into its own
 worktree; the sub-coordinator collects them and emits a composite grade.
 
-See `agent-triage.md` → "Agent Task File Reference" for the
-full field reference.
+See `agent-engineer.md` for the full `.agent-task` field reference.
 
 ---
 
@@ -4142,8 +4138,7 @@ needs multiple independent reviewers (e.g. one for types, one for tests, one
 for docs). Each sub-reviewer writes its grade and findings into its own
 worktree; the sub-coordinator collects them and emits a composite grade.
 
-See `agent-triage.md` → "Agent Task File Reference" for the
-full field reference.
+See `agent-engineer.md` for the full `.agent-task` field reference.
 
 ---
 
@@ -5883,9 +5878,6 @@ Task(worktree="/path/to/issue-405", prompt=KICKOFF_PROMPT)
 `[spawn] sub_agents = true` acts as a sub-coordinator: it creates its own
 sub-worktrees with sub-task files and launches leaf agents. This creates
 a tree of unlimited depth and width.
-
-See `agent-triage.md` → "Agent Task File Reference" for the
-full field reference including nested orchestration patterns.
 
 ---
 

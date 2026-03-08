@@ -485,8 +485,9 @@ class SpawnCoordinatorRequest(BaseModel):
 
     ``plan_text`` is the user's raw unstructured text — feature ideas, bug
     descriptions, or any free-form list of work items.  The coordinator agent
-    reads this field from its ``.agent-task`` file and runs the Phase Planner
-    step in ``agent-triage.md``, producing labelled GitHub issues.
+    reads this field from its ``.agent-task`` file and runs Phase 1A (LLM →
+    PlanSpec YAML) followed by Phase 1B (human review), then creates labelled
+    GitHub issues via the AgentCeption planning pipeline.
 
     ``label_prefix`` optionally scopes the generated phase labels to a named
     initiative (e.g. ``"q2-rewrite"`` → labels like ``phase-1/q2-rewrite``).

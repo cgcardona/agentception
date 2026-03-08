@@ -652,15 +652,15 @@ async def trigger_poll() -> JSONResponse:
 async def spawn_coordinator(body: SpawnCoordinatorRequest) -> SpawnCoordinatorResult:
     """Seed a coordinator worktree from a free-form brain dump.
 
-    Creates a git worktree and writes an ``.agent-task`` file that tells a
-    Cursor background agent to run as coordinator using
-    ``agent-triage.md``.  The agent will:
+    Creates a git worktree and writes an ``.agent-task`` file that kicks off
+    the AgentCeption planning pipeline (Phase 1A → Phase 1B → issue creation
+    → agent dispatch).  The agent will:
 
-    1. Run the Phase Planner against the ``BRAIN_DUMP`` field.
-    2. Create required GitHub labels (phase/*, priority/*, type/*, gate/*).
-    3. Create one sub-worktree per phase-batch.
-    4. Write ``.agent-task`` files for each sub-agent.
-    5. Launch sub-agents via the Cursor Task tool.
+    1. Run Phase 1A: LLM reads the ``BRAIN_DUMP`` and produces a PlanSpec YAML.
+    2. Run Phase 1B: human reviews and approves the plan via the Build dashboard.
+    3. Create required GitHub labels (phase/*, priority/*, type/*, gate/*).
+    4. Create GitHub issues from the approved plan.
+    5. Dispatch leaf agents via the CEO → CTO → Coordinator → Engineer hierarchy.
 
     This endpoint only creates the worktree and task file.  The caller
     (AgentCeption UI) instructs the user to open the returned
