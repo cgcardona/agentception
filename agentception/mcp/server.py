@@ -42,10 +42,11 @@ from agentception.mcp.build_commands import (
     build_claim_run,
     build_complete_run,
     build_resume_run,
-    build_spawn_child_run,
+    build_spawn_adhoc_child,
     build_stop_run,
     build_teardown_worktree,
 )
+from agentception.mcp.query_tools import query_run_status
 from agentception.mcp.log_tools import (
     log_run_blocker,
     log_run_decision,
@@ -296,85 +297,68 @@ TOOLS: list[ACToolDef] = [
         },
     ),
     ACToolDef(
-        name="build_spawn_child_run",
+        name="build_spawn_adhoc_child",
         description=(
-            "Create a child agent node in the agent tree. "
-            "Any coordinator agent calls this to atomically create a worktree, "
-            "write a .agent-task file with TIER, COGNITIVE_ARCH, and full "
-            "lineage fields, register a DB record, and auto-claim the run. "
-            "Returns {ok, child_run_id, worktree_path, tier, org_domain, role, "
-            "cognitive_arch, agent_task_path, scope_type, scope_value}. "
-            "After calling this tool, immediately fire a Task with the briefing: "
-            "'Read your .agent-task at {worktree_path}/.agent-task and follow "
-            "the instructions for your role.' "
-            "This is the canonical way to grow the agent tree at runtime."
+            "Spawn a child agent run from within a coordinator's tool loop. "
+            "This is the MCP-native way for a coordinator to dispatch engineer agents. "
+            "It creates a git worktree, a DB row with parent_run_id linking it to this "
+            "coordinator, and fires the agent loop immediately as an asyncio task. "
+            "No .agent-task file is written — the child receives its context entirely "
+            "via the task/briefing MCP prompt and ac://runs/{run_id}/context resource. "
+            "Returns {ok, child_run_id, worktree_path, cognitive_arch}. "
+            "After calling this tool, use query_run_status to poll for completion."
         ),
         inputSchema={
             "type": "object",
             "properties": {
                 "parent_run_id": {
                     "type": "string",
-                    "description": "run_id of the calling agent (lineage tracking).",
+                    "description": "run_id of this coordinator — links the child in the DB hierarchy.",
                 },
                 "role": {
                     "type": "string",
-                    "description": "Child role slug (e.g. 'engineering-coordinator', 'python-developer').",
+                    "description": "Role slug for the child agent (e.g. 'python-developer').",
                 },
-                "tier": {
-                    "type": "string",
-                    "enum": ["coordinator", "worker"],
-                    "description": "Behavioral execution tier.",
-                },
-                "org_domain": {
-                    "type": "string",
-                    "enum": ["c-suite", "engineering", "qa"],
-                    "description": "Organisational slot for UI hierarchy. Optional.",
-                },
-                "scope_type": {
-                    "type": "string",
-                    "enum": ["label", "issue", "pr"],
-                    "description": "'label' for coordinator nodes, 'issue' for engineer nodes, 'pr' for reviewer nodes.",
-                },
-                "scope_value": {
-                    "type": "string",
-                    "description": "Label string, issue number (as string), or PR number (as string).",
-                },
-                "gh_repo": {
-                    "type": "string",
-                    "description": "'owner/repo' string.",
-                },
-                "issue_body": {
-                    "type": "string",
-                    "description": "Issue body for COGNITIVE_ARCH skill extraction (issue-scoped children).",
-                },
-                "issue_title": {
-                    "type": "string",
-                    "description": "Issue title written to ISSUE_TITLE field.",
-                },
-                "skills_hint": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Explicit skill list override for COGNITIVE_ARCH (bypasses keyword extraction).",
-                },
-                "coord_fingerprint": {
+                "task_description": {
                     "type": "string",
                     "description": (
-                        "The spawning coordinator's fingerprint string. Written as "
-                        "COORD_FINGERPRINT in the child's .agent-task so leaf agents "
-                        "can include it in their GitHub fingerprint comments."
+                        "Plain-language description of the child's task. "
+                        "Be specific: files to touch, expected output, constraints. "
+                        "This is the first thing the child agent reads."
                     ),
                 },
-                "cognitive_arch": {
+                "figure": {
                     "type": "string",
-                    "description": (
-                        "When provided, forward this exact cognitive architecture string "
-                        "to the child without re-resolving. Coordinators must pass their "
-                        "own cognitive_arch here so the field propagates unchanged through "
-                        "every tier of the agent tree."
-                    ),
+                    "description": "Cognitive figure slug override (e.g. 'guido_van_rossum'). Omit to use the role default.",
+                },
+                "base_branch": {
+                    "type": "string",
+                    "description": "Git ref to branch the child worktree from. Defaults to 'origin/dev'.",
                 },
             },
-            "required": ["parent_run_id", "role", "tier", "scope_type", "scope_value", "gh_repo"],
+            "required": ["parent_run_id", "role", "task_description"],
+            "additionalProperties": False,
+        },
+    ),
+    ACToolDef(
+        name="query_run_status",
+        description=(
+            "Return the current status of a run. "
+            "Coordinators use this to poll child runs spawned with build_spawn_adhoc_child. "
+            "Poll every 30–60 seconds until status is a terminal value. "
+            "Terminal statuses: 'completed', 'cancelled', 'stopped'. "
+            "Active statuses: 'implementing', 'reviewing', 'pending_launch'. "
+            "Returns {ok, run_id, status, completed_at}."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "run_id": {
+                    "type": "string",
+                    "description": "The child_run_id returned by build_spawn_adhoc_child.",
+                },
+            },
+            "required": ["run_id"],
             "additionalProperties": False,
         },
     ),
@@ -797,13 +781,15 @@ def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
         "plan_advance_phase",
         # Build commands
         "build_claim_run",
-        "build_spawn_child_run",
+        "build_spawn_adhoc_child",
         "build_complete_run",
         "build_teardown_worktree",
         "build_block_run",
         "build_resume_run",
         "build_cancel_run",
         "build_stop_run",
+        # Query tools
+        "query_run_status",
         # Log tools
         "log_run_step",
         "log_run_blocker",
@@ -890,56 +876,50 @@ async def call_tool_async(
             isError=not bool(result.get("ok", False)),
         )
 
-    if name == "build_spawn_child_run":
+    if name == "build_spawn_adhoc_child":
         parent_run_id = arguments.get("parent_run_id")
         role = arguments.get("role")
-        tier_arg = arguments.get("tier")
-        scope_type = arguments.get("scope_type")
-        scope_value = arguments.get("scope_value")
-        gh_repo = arguments.get("gh_repo")
+        task_description = arguments.get("task_description")
         if (
-            not isinstance(parent_run_id, str)
-            or not isinstance(role, str)
-            or not isinstance(tier_arg, str)
-            or not isinstance(scope_type, str)
-            or not isinstance(scope_value, str)
-            or not isinstance(gh_repo, str)
+            not isinstance(parent_run_id, str) or not parent_run_id
+            or not isinstance(role, str) or not role
+            or not isinstance(task_description, str) or not task_description
         ):
             err_text = _tool_result_to_text(
-                {"error": "parent_run_id, role, tier, scope_type, scope_value, gh_repo (strings) are required"}
+                {"error": "parent_run_id, role, task_description (non-empty strings) are required"}
             )
             return ACToolResult(
                 content=[ACToolContent(type="text", text=err_text)],
                 isError=True,
             )
-        issue_body_raw = arguments.get("issue_body", "")
-        issue_body = str(issue_body_raw) if issue_body_raw else ""
-        issue_title_raw = arguments.get("issue_title", "")
-        issue_title = str(issue_title_raw) if issue_title_raw else ""
-        org_domain_raw = arguments.get("org_domain", "")
-        org_domain = str(org_domain_raw) if org_domain_raw else ""
-        skills_raw = arguments.get("skills_hint")
-        skills_hint: list[str] | None = None
-        if isinstance(skills_raw, list):
-            skills_hint = [str(s) for s in skills_raw]
-        coord_fp_raw = arguments.get("coord_fingerprint")
-        coord_fingerprint: str | None = str(coord_fp_raw) if isinstance(coord_fp_raw, str) else None
-        cognitive_arch_raw = arguments.get("cognitive_arch", "")
-        cognitive_arch: str = str(cognitive_arch_raw) if isinstance(cognitive_arch_raw, str) else ""
-        result = await build_spawn_child_run(
+        figure_raw = arguments.get("figure", "")
+        figure: str = str(figure_raw) if isinstance(figure_raw, str) else ""
+        base_branch_raw = arguments.get("base_branch", "origin/dev")
+        base_branch: str = str(base_branch_raw) if isinstance(base_branch_raw, str) else "origin/dev"
+        result = await build_spawn_adhoc_child(
             parent_run_id=parent_run_id,
             role=role,
-            tier=tier_arg,
-            scope_type=scope_type,
-            scope_value=scope_value,
-            gh_repo=gh_repo,
-            org_domain=org_domain,
-            issue_body=issue_body,
-            issue_title=issue_title,
-            skills_hint=skills_hint,
-            coord_fingerprint=coord_fingerprint,
-            cognitive_arch=cognitive_arch,
+            task_description=task_description,
+            figure=figure,
+            base_branch=base_branch,
         )
+        is_error = not bool(result.get("ok", False))
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=is_error,
+        )
+
+    if name == "query_run_status":
+        run_id_arg = arguments.get("run_id")
+        if not isinstance(run_id_arg, str) or not run_id_arg:
+            err_text = _tool_result_to_text(
+                {"error": "query_run_status requires a non-empty run_id string"}
+            )
+            return ACToolResult(
+                content=[ACToolContent(type="text", text=err_text)],
+                isError=True,
+            )
+        result = await query_run_status(run_id_arg)
         is_error = not bool(result.get("ok", False))
         return ACToolResult(
             content=[ACToolContent(type="text", text=_tool_result_to_text(result))],

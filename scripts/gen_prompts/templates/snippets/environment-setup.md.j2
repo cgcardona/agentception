@@ -1,22 +1,22 @@
-## Environment (agents read this first)
+## Environment
 
-**You are running inside a Cursor worktree.** Your working directory is NOT the main repo.
+**You are running inside a git worktree.** Your working directory is an isolated
+checkout created from the target base branch. It is NOT the main repository.
 
 ```bash
 # Derive paths — run these at the start of your session
-REPO=$(git worktree list | head -1 | awk '{print $1}')   # local filesystem path to main repo
+REPO=$(git worktree list | head -1 | awk '{print $1}')   # filesystem path to main repo
 WTNAME=$(basename "$(pwd)")                               # this worktree's name
-# Docker path to your worktree: /worktrees/$WTNAME
 
-# GitHub repo slug — HARDCODED. NEVER derive from local path or directory name.
-export GH_REPO={{ gh_repo }}
+# Inside Docker the worktree is mounted at:
+# /worktrees/$WTNAME
 ```
 
 | Item | Value |
 |------|-------|
-| Your worktree root | current directory (contains `.agent-task`) |
+| Your worktree root | current directory |
 | Main repo (local path) | first entry of `git worktree list` |
-| GitHub repo slug | `{{ gh_repo }}` — always hardcoded, never derived |
+| GitHub repo slug | from your task briefing (`ac://runs/{your_run_id}/context`) |
 | Docker compose location | main repo |
 | Your worktree inside Docker | `/worktrees/$WTNAME` |
 
@@ -35,10 +35,10 @@ the container. After creating your feature branch, your worktree's code is
 REPO=$(git worktree list | head -1 | awk '{print $1}')
 WTNAME=$(basename "$(pwd)")
 
-# mypy — agentception codebase
+# mypy
 cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
 
-# pytest — agentception codebase
+# pytest
 cd "$REPO" && docker compose exec agentception sh -c \
   "PYTHONPATH=/worktrees/$WTNAME pytest /worktrees/$WTNAME/agentception/tests/test_<module>.py -v"
 ```
@@ -56,7 +56,7 @@ the `dev` branch with uncommitted changes.
 
 ### Command policy
 
-Consult `.agentception/agent-command-policy.md` for the full tier list. Summary:
+Summary:
 - **Green (auto-allow):** `ls`, `git status/log/diff/fetch`, `issue_read (user-github)`, `list_pull_requests (user-github)`, `mypy`, `pytest`, `rg`
 - **Yellow (review before running):** `docker compose build`, `rm <single file>`, `git rebase`
 - **Red (never):** `rm -rf`, `git push --force`, `git push origin dev`, `docker system prune`

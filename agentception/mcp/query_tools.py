@@ -242,6 +242,39 @@ async def query_dispatcher_state() -> dict[str, object]:
     }
 
 
+async def query_run_status(run_id: str) -> dict[str, object]:
+    """Return the current status of a run — coordinators use this to poll children.
+
+    Designed for coordinator agents that need to know when their dispatched
+    child runs have completed, failed, or are still running.
+
+    The response includes the status string and, when the run has terminated,
+    the ``completed_at`` timestamp.  Poll at a reasonable interval (every
+    30–60 seconds) and stop when ``status`` is one of the terminal values.
+
+    Terminal statuses: ``"completed"``, ``"cancelled"``, ``"stopped"``.
+    Active statuses: ``"implementing"``, ``"reviewing"``, ``"pending_launch"``.
+
+    Args:
+        run_id: The run ID returned by ``build_spawn_adhoc_child``.
+
+    Returns:
+        ``{"ok": True, "run_id": str, "status": str, "completed_at": str|None}``
+        ``{"ok": False, "error": str}`` when the run_id is not found.
+    """
+    row = await get_run_context(run_id)
+    if row is None:
+        logger.warning("⚠️ query_run_status: run_id %r not found", run_id)
+        return {"ok": False, "error": f"run_id {run_id!r} not found"}
+    logger.info("✅ query_run_status: run_id=%s status=%s", run_id, row["status"])
+    return {
+        "ok": True,
+        "run_id": run_id,
+        "status": row["status"],
+        "completed_at": row.get("completed_at"),
+    }
+
+
 async def query_system_health() -> dict[str, object]:
     """Return a system-health snapshot for supervisory agents.
 
