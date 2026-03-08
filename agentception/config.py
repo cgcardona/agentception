@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """AgentCeption service configuration.
 
 Settings map directly to unprefixed environment variables (e.g. ``GH_REPO``,
@@ -18,6 +16,8 @@ primary repo, omit those fields and let ``REPO_DIR`` / ``WORKTREES_DIR`` win.
 calls it at the top of every tick so a project switch via the GUI takes effect
 within one polling interval — no service restart required.
 """
+
+from __future__ import annotations
 
 import json
 import logging
@@ -96,6 +96,22 @@ class AgentCeptionSettings(BaseSettings):
     actually read.  Set via ``HOST_REPO_DIR`` in docker-compose or .env.
     """
     gh_repo: str = "cgcardona/agentception"
+    poll_interval_seconds: int = 5
+    github_cache_seconds: int = 10
+    openrouter_api_key: str = ""
+    """OpenRouter API key for direct LLM calls (plan phase preview, enrichment).
+
+    Set via ``OPENROUTER_API_KEY`` env var.  When absent the Phase Planner
+    falls back to the keyword-based heuristic classifier — no LLM is required
+    for the service to start.
+    """
+    database_url: str | None = None
+    """Async database URL for AgentCeption's own ac_* tables.
+
+    Set via ``DATABASE_URL`` env var (docker-compose injects this).
+    Falls back to a local SQLite file when absent so the service starts
+    without Postgres in pure-filesystem dev mode.
+    """
 
     @property
     def ac_dir(self) -> Path:
@@ -106,22 +122,6 @@ class AgentCeptionSettings(BaseSettings):
         to the IDE.
         """
         return self.repo_dir / ".agentception"
-    poll_interval_seconds: int = 5
-    github_cache_seconds: int = 10
-    database_url: str | None = None
-    openrouter_api_key: str = ""
-    """OpenRouter API key for direct LLM calls (plan phase preview, enrichment).
-
-    Set via ``OPENROUTER_API_KEY`` env var.  When absent the Phase Planner
-    falls back to the keyword-based heuristic classifier — no LLM is required
-    for the service to start.
-    """
-    """Async database URL for AgentCeption's own ac_* tables.
-
-    Set via ``DATABASE_URL`` env var (docker-compose injects this).
-    Falls back to a local SQLite file when absent so the service starts
-    without Postgres in pure-filesystem dev mode.
-    """
 
     @model_validator(mode="after")
     def _apply_active_project(self) -> AgentCeptionSettings:
