@@ -691,536 +691,778 @@ function nodeCardHtml(
     </div>`;
 }
 
-// ── Alpine magic properties ───────────────────────────────────────────────────
+// ── HTML escape helper ────────────────────────────────────────────────────────
 
-interface AlpineMagics {
-  $nextTick(callback?: () => void): Promise<void>;
+function escHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
-// ── Component interface ───────────────────────────────────────────────────────
+// ── OrgDesigner plain JS class ────────────────────────────────────────────────
 
-interface OrgDesignerComponent {
-  // ── Overlay state
-  open: boolean;
-  initiative: string;
-  repo: string;
-  figures: FigureItem[];
-  /** role slug → compatible figure IDs from role-taxonomy.yaml (injected at page load). */
-  roleFigureMap: Record<string, string[]>;
+/**
+ * OrgDesigner — replaces the former Alpine component factory.
+ *
+ * The overlay HTML is always present in the DOM (hidden via CSS by default).
+ * The class owns all interactivity: it attaches event listeners once in the
+ * constructor, then calls _syncDOM() and targeted _render*() helpers to keep
+ * the DOM in sync with private state.
+ *
+ * The CustomEvent bridge (`open-org-designer`) from the buildPage Alpine
+ * component is unchanged — this class listens on `window` for that event.
+ */
+class OrgDesigner {
+  // ── Overlay / session ──────────────────────────────────────────────────────
+  private _initiative  = '';
+  private _repo        = '';
+  private _figures: FigureItem[]               = [];
+  private _roleFigureMap: Record<string, string[]> = {};
 
-  // ── Preset management
-  presetsOpen: boolean;
-  presetsLoading: boolean;
-  builtInPresets: ApiPresetSummary[];
-  userPresets: OrgPreset[];
-  activePresetId: string | null;
-  saveAsMode: boolean;
-  saveAsName: string;
+  // ── Preset management ──────────────────────────────────────────────────────
+  private _presetsOpen    = true;
+  private _presetsLoading = false;
+  private _builtInPresets: ApiPresetSummary[] = [];
+  private _userPresets:    OrgPreset[]         = [];
+  private _activePresetId: string | null       = null;
+  private _saveAsMode = false;
+  private _saveAsName = '';
 
-  // ── Node editor
-  selectedNodeId: string | null;
-  editType: 'coordinator' | 'worker';
-  editParentRole: string | null;
-  editRole: string;
-  editFigure: string;
-  editScope: 'full_initiative' | 'phase';
-  editScopeLabel: string;
-  phases: PhaseItem[];
+  // ── Node editor ────────────────────────────────────────────────────────────
+  private _selectedNodeId: string | null          = null;
+  private _editType:       'coordinator' | 'worker' = 'coordinator';
+  private _editParentRole: string | null          = null;
+  private _editRole        = '';
+  private _editFigure      = '';
+  private _editScope:      'full_initiative' | 'phase' = 'full_initiative';
+  private _editScopeLabel  = '';
+  private _phases:         PhaseItem[]            = [];
 
-  // ── Submission
-  launching: boolean;
-  launchError: string | null;
-  launchSuccess: boolean;
-  launchResult: DispatchResponse | null;
+  // ── Submission ─────────────────────────────────────────────────────────────
+  private _launching     = false;
+  private _launchError:  string | null          = null;
+  private _launchSuccess = false;
+  private _launchResult: DispatchResponse | null = null;
 
-  // ── Internal (D3 / mutable tree — not Alpine-reactive)
-  _root: OrgNode | null;
-  _container: HTMLElement | null;
+  // ── Internal ───────────────────────────────────────────────────────────────
+  private _root:      OrgNode | null      = null;
+  private _container: HTMLElement | null  = null;
+  private _el:        HTMLElement;
 
-  // ── Static data exposed to template
-  roleGroups: RoleGroup[];
+  constructor(el: HTMLElement) {
+    this._el = el;
+    const win = window as unknown as Record<string, unknown>;
+    this._roleFigureMap = (win['_roleFigureMap'] as Record<string, string[]>) ?? {};
+    this._attachListeners();
+  }
 
-  // ── Computed
-  readonly selectedNode: OrgNode | null;
-  readonly filteredRoleGroups: RoleGroup[];
-  readonly filteredFigures: FigureItem[];
-  readonly availableEditTypes: Array<'coordinator' | 'worker'>;
-  readonly launchReady: boolean;
-  readonly launchPreviewText: string;
-  readonly activePresetName: string;
-  readonly activePresetIsBuiltIn: boolean;
-  readonly groupedBuiltIns: Array<{ group: string; label: string; presets: ApiPresetSummary[] }>;
+  // ── Typed querySelector helpers ────────────────────────────────────────────
 
-  // ── Methods
-  openDesigner(label: string, repo: string, figures: FigureItem[]): void;
-  onRoleChange(): void;
-  close(): void;
-  loadPreset(id: string): void;
-  loadBlank(): void;
-  saveCurrentAsPreset(): void;
-  updateActivePreset(): void;
-  deletePreset(id: string, e: MouseEvent): void;
-  _openCanvas(): void;
-  addChild(parentId: string): void;
-  removeNodeById(id: string): void;
-  selectNodeById(id: string): void;
-  _openEditor(id: string, parentRole: string | null, type: 'coordinator' | 'worker'): void;
-  onTypeChange(): void;
-  applyEdit(): void;
-  cancelEdit(): void;
-  clearDesign(): void;
-  _saveToStorage(): void;
-  _loadPhases(): Promise<void>;
-  _findParentRole(childId: string): string | null;
-  _render(): void;
-  launch(): Promise<void>;
-}
+  private _q<T extends Element>(sel: string): T {
+    const found = this._el.querySelector<T>(sel);
+    if (!found) throw new Error(`OrgDesigner: missing element ${sel}`);
+    return found;
+  }
 
-// ── Alpine component factory ──────────────────────────────────────────────────
+  private _qs<T extends Element>(sel: string): T | null {
+    return this._el.querySelector<T>(sel);
+  }
 
-export function orgDesigner(): OrgDesignerComponent {
-  return {
-    // ── Overlay state ─────────────────────────────────────────────────────────
-    open:          false,
-    initiative:    '',
-    repo:          '',
-    figures:       [],
-    roleFigureMap: (typeof window !== 'undefined' && '_roleFigureMap' in window
-      ? (window as unknown as Record<string, unknown>)['_roleFigureMap'] as Record<string, string[]>
-      : {}) as Record<string, string[]>,
+  // ── Event listener wiring ──────────────────────────────────────────────────
 
-    // ── Preset management ─────────────────────────────────────────────────────
-    presetsOpen:    true,
-    presetsLoading: false,
-    builtInPresets: [] as ApiPresetSummary[],
-    userPresets:    [] as OrgPreset[],
-    activePresetId: null as string | null,
-    saveAsMode:     false,
-    saveAsName:     '',
+  private _attachListeners(): void {
+    // Open: fired by the "Design org →" button inside the buildPage component.
+    window.addEventListener('open-org-designer', (e: Event) => {
+      const d = (e as CustomEvent<{ label: string; repo: string; figures: FigureItem[] }>).detail;
+      this.openDesigner(d.label, d.repo, d.figures);
+    });
 
-    // ── Node editor state ─────────────────────────────────────────────────────
-    selectedNodeId: null,
-    editType:       'coordinator',
-    editParentRole: null,
-    editRole:       '',
-    editFigure:     '',
-    editScope:      'full_initiative',
-    editScopeLabel: '',
-    phases:         [],
+    // Close on Escape key.
+    window.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && this._el.classList.contains('is-open')) this.close();
+    });
 
-    // ── Submission state ──────────────────────────────────────────────────────
-    launching:    false,
-    launchError:  null,
-    launchSuccess:false,
-    launchResult: null,
+    this._q<HTMLButtonElement>('#od-close-btn')
+      .addEventListener('click', () => this.close());
 
-    // ── Internal ──────────────────────────────────────────────────────────────
-    _root:      null,
-    _container: null,
-    roleGroups: ROLE_GROUPS,
+    this._q<HTMLButtonElement>('#od-launch-btn')
+      .addEventListener('click', () => void this.launch());
 
-    // ── Computed ──────────────────────────────────────────────────────────────
+    this._q<HTMLButtonElement>('#od-presets-btn')
+      .addEventListener('click', () => this.clearDesign());
 
-    get selectedNode(): OrgNode | null {
-      if (!this.selectedNodeId || !this._root) return null;
-      return findNode(this._root, this.selectedNodeId);
-    },
+    this._q<HTMLButtonElement>('#od-blank-btn')
+      .addEventListener('click', () => this.loadBlank());
 
-    /** Role groups filtered by editType AND parent role constraints. */
-    get filteredRoleGroups(): RoleGroup[] {
-      return filterGroupsForParent(ROLE_GROUPS, this.editParentRole, this.editType);
-    },
+    this._q<HTMLButtonElement>('#od-saveas-btn')
+      .addEventListener('click', () => {
+        this._saveAsMode = true;
+        this._syncDOM();
+        queueMicrotask(() => this._qs<HTMLInputElement>('#od-saveas-input')?.focus());
+      });
 
-    /**
-     * Figure list filtered to those compatible with the currently selected role.
-     * Falls back to the full list when the role is blank or has no taxonomy entry.
-     */
-    get filteredFigures(): FigureItem[] {
-      if (!this.editRole) return this.figures;
-      const compatible = this.roleFigureMap[this.editRole];
-      if (!compatible || compatible.length === 0) return this.figures;
-      const allowed = new Set(compatible);
-      return this.figures.filter(f => allowed.has(f.id));
-    },
+    this._q<HTMLButtonElement>('#od-update-btn')
+      .addEventListener('click', () => this.updateActivePreset());
 
-    /** Which type tabs are valid given the parent — hides irrelevant radio options. */
-    get availableEditTypes(): Array<'coordinator' | 'worker'> {
-      if (!this.editParentRole) return ['coordinator', 'worker'];
-      return availableChildTypes(this.editParentRole);
-    },
+    this._q<HTMLButtonElement>('#od-saveas-confirm')
+      .addEventListener('click', () => this.saveCurrentAsPreset());
 
-    get launchReady(): boolean {
-      return !!(this._root && this._root.role && !this.launching && !this.launchSuccess);
-    },
+    this._q<HTMLButtonElement>('#od-saveas-cancel')
+      .addEventListener('click', () => {
+        this._saveAsMode = false;
+        this._syncDOM();
+      });
 
-    get launchPreviewText(): string {
-      if (!this._root || !this._root.role) return 'Configure root node first';
-      const figMap  = new Map(this.figures.map(f => [f.id, f.name]));
-      const figName = this._root.figure ? (figMap.get(this._root.figure) ?? this._root.figure) : 'role default';
-      const extra   = countNodes(this._root) - 1;
-      const note    = extra > 0 ? ` + ${extra} child${extra === 1 ? '' : 'ren'}` : '';
-      return `Launch ${roleLabel(this._root.role)} (${figName})${note} →`;
-    },
+    const saveAsInput = this._q<HTMLInputElement>('#od-saveas-input');
+    saveAsInput.addEventListener('input', () => {
+      this._saveAsName = saveAsInput.value;
+      this._q<HTMLButtonElement>('#od-saveas-confirm').disabled = !this._saveAsName.trim();
+    });
+    saveAsInput.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Enter')  this.saveCurrentAsPreset();
+      if (e.key === 'Escape') { this._saveAsMode = false; this._syncDOM(); }
+    });
 
-    get activePresetName(): string {
-      if (!this.activePresetId) return '';
-      const builtin = this.builtInPresets.find(t => t.id === this.activePresetId);
-      if (builtin) return builtin.name;
-      return this.userPresets.find(p => p.id === this.activePresetId)?.name ?? '';
-    },
+    // Type radio buttons.
+    const radCoord  = this._q<HTMLInputElement>('#od-type-coordinator');
+    const radWorker = this._q<HTMLInputElement>('#od-type-worker');
+    radCoord.addEventListener('change', () => {
+      if (radCoord.checked) { this._editType = 'coordinator'; this._onTypeChange(); }
+    });
+    radWorker.addEventListener('change', () => {
+      if (radWorker.checked) { this._editType = 'worker'; this._onTypeChange(); }
+    });
 
-    get activePresetIsBuiltIn(): boolean {
-      return this.builtInPresets.some(t => t.id === this.activePresetId);
-    },
+    // Role select — filter figures when role changes.
+    const roleSelect = this._q<HTMLSelectElement>('#od-role-select');
+    roleSelect.addEventListener('change', () => {
+      this._editRole = roleSelect.value;
+      this._onRoleChange();
+      this._renderFigureOptions();
+      this._syncDOM();
+    });
 
-    get groupedBuiltIns(): Array<{ group: string; label: string; presets: ApiPresetSummary[] }> {
-      const map = new Map<string, ApiPresetSummary[]>();
-      for (const p of this.builtInPresets) {
-        const list = map.get(p.group) ?? [];
-        list.push(p);
-        map.set(p.group, list);
+    // Figure select — track value.
+    const figureSelect = this._q<HTMLSelectElement>('#od-figure-select');
+    figureSelect.addEventListener('change', () => { this._editFigure = figureSelect.value; });
+
+    // Editor buttons.
+    this._q<HTMLButtonElement>('#od-apply-btn')
+      .addEventListener('click', () => this.applyEdit());
+    this._q<HTMLButtonElement>('#od-editor-close')
+      .addEventListener('click', () => this.cancelEdit());
+    this._q<HTMLButtonElement>('#od-cancel-btn')
+      .addEventListener('click', () => this.cancelEdit());
+  }
+
+  // ── Computed helpers ───────────────────────────────────────────────────────
+
+  private _selectedNode(): OrgNode | null {
+    if (!this._selectedNodeId || !this._root) return null;
+    return findNode(this._root, this._selectedNodeId);
+  }
+
+  private _filteredRoleGroups(): RoleGroup[] {
+    return filterGroupsForParent(ROLE_GROUPS, this._editParentRole, this._editType);
+  }
+
+  private _filteredFigures(): FigureItem[] {
+    if (!this._editRole) return this._figures;
+    const compatible = this._roleFigureMap[this._editRole];
+    if (!compatible || compatible.length === 0) return this._figures;
+    const allowed = new Set(compatible);
+    return this._figures.filter(f => allowed.has(f.id));
+  }
+
+  private _launchReady(): boolean {
+    return !!(this._root && this._root.role && !this._launching && !this._launchSuccess);
+  }
+
+  private _launchPreviewText(): string {
+    if (!this._root || !this._root.role) return 'Configure root node first';
+    const figMap  = new Map(this._figures.map(f => [f.id, f.name]));
+    const figName = this._root.figure
+      ? (figMap.get(this._root.figure) ?? this._root.figure)
+      : 'role default';
+    const extra = countNodes(this._root) - 1;
+    const note  = extra > 0 ? ` + ${extra} child${extra === 1 ? '' : 'ren'}` : '';
+    return `Launch ${roleLabel(this._root.role)} (${figName})${note} →`;
+  }
+
+  private _activePresetName(): string {
+    if (!this._activePresetId) return '';
+    const builtin = this._builtInPresets.find(t => t.id === this._activePresetId);
+    if (builtin) return builtin.name;
+    return this._userPresets.find(p => p.id === this._activePresetId)?.name ?? '';
+  }
+
+  private _activePresetIsBuiltIn(): boolean {
+    return this._builtInPresets.some(t => t.id === this._activePresetId);
+  }
+
+  private _groupedBuiltIns(): Array<{ group: string; label: string; presets: ApiPresetSummary[] }> {
+    const map = new Map<string, ApiPresetSummary[]>();
+    for (const p of this._builtInPresets) {
+      const list = map.get(p.group) ?? [];
+      list.push(p);
+      map.set(p.group, list);
+    }
+    return GROUP_ORDER
+      .filter(g => map.has(g))
+      .map(g => ({ group: g, label: GROUP_LABELS[g] ?? g, presets: map.get(g)! }));
+  }
+
+  // ── DOM sync ───────────────────────────────────────────────────────────────
+
+  /**
+   * Synchronise all header, section-visibility, and editor-state DOM
+   * with the current private state.  Call after any state mutation.
+   */
+  private _syncDOM(): void {
+    // Initiative text.
+    const initEl = this._qs<HTMLElement>('#od-initiative');
+    if (initEl) initEl.textContent = this._initiative;
+
+    // Preset badge — canvas view + active preset only.
+    const badgeEl = this._qs<HTMLElement>('#od-preset-badge');
+    if (badgeEl) {
+      const show = !this._presetsOpen && !!this._activePresetId;
+      badgeEl.classList.toggle('od-hidden', !show);
+      if (show) badgeEl.textContent = this._activePresetName();
+    }
+
+    // Save-as row — canvas view + saveAsMode.
+    const saveAsRow = this._qs<HTMLElement>('#od-saveas-row');
+    if (saveAsRow) {
+      const show = !this._presetsOpen && this._saveAsMode;
+      saveAsRow.classList.toggle('od-hidden', !show);
+    }
+
+    // Canvas controls (update + save-as buttons) — canvas view, not save-as mode.
+    const canvasCtrl = this._qs<HTMLElement>('#od-canvas-controls');
+    if (canvasCtrl) canvasCtrl.classList.toggle('od-hidden', this._presetsOpen || this._saveAsMode);
+
+    // Update button — only for user (non-builtin) presets.
+    const updateBtn = this._qs<HTMLButtonElement>('#od-update-btn');
+    if (updateBtn) {
+      updateBtn.classList.toggle('od-hidden', !this._activePresetId || this._activePresetIsBuiltIn());
+    }
+
+    // Launch error.
+    const errEl = this._qs<HTMLElement>('#od-launch-err');
+    if (errEl) {
+      errEl.classList.toggle('od-hidden', !this._launchError);
+      errEl.textContent = this._launchError ?? '';
+    }
+
+    // Launch success.
+    const okEl     = this._qs<HTMLElement>('#od-launch-ok');
+    const runIdEl  = this._qs<HTMLElement>('#od-run-id');
+    if (okEl) {
+      const showOk = this._launchSuccess && !!this._launchResult;
+      okEl.classList.toggle('od-hidden', !showOk);
+      if (runIdEl && this._launchResult) runIdEl.textContent = this._launchResult.run_id;
+    }
+
+    // Back-to-presets button — canvas view only.
+    const presetsBtn = this._qs<HTMLButtonElement>('#od-presets-btn');
+    if (presetsBtn) presetsBtn.classList.toggle('od-hidden', this._presetsOpen);
+
+    // Launch button — canvas view only.
+    const launchBtn = this._qs<HTMLButtonElement>('#od-launch-btn');
+    if (launchBtn) {
+      launchBtn.classList.toggle('od-hidden', this._presetsOpen);
+      launchBtn.disabled    = !this._launchReady();
+      launchBtn.textContent = this._launching ? 'Queuing…' : this._launchPreviewText();
+    }
+
+    // Preset picker section vs canvas/body section.
+    this._qs<HTMLElement>('#od-presets-section')
+      ?.classList.toggle('od-hidden', !this._presetsOpen);
+    this._qs<HTMLElement>('#od-body')
+      ?.classList.toggle('od-hidden', this._presetsOpen);
+
+    // Node editor panel.
+    const editorEl = this._qs<HTMLElement>('#od-editor');
+    if (editorEl) {
+      const node = this._selectedNode();
+      editorEl.classList.toggle('od-hidden', !node);
+      if (node) {
+        // Title.
+        const titleEl = this._qs<HTMLElement>('#od-editor-title');
+        if (titleEl) titleEl.textContent = node.role ? 'Edit node' : 'Define node';
+
+        // Type radios + active label.
+        const radCoord  = this._qs<HTMLInputElement>('#od-type-coordinator');
+        const radWorker = this._qs<HTMLInputElement>('#od-type-worker');
+        const lblCoord  = this._qs<HTMLLabelElement>('#od-type-label-coordinator');
+        const lblWorker = this._qs<HTMLLabelElement>('#od-type-label-worker');
+        if (radCoord)  radCoord.checked  = this._editType === 'coordinator';
+        if (radWorker) radWorker.checked = this._editType === 'worker';
+        if (lblCoord)  lblCoord.classList.toggle('od-type-opt--active',  this._editType === 'coordinator');
+        if (lblWorker) lblWorker.classList.toggle('od-type-opt--active', this._editType === 'worker');
+
+        // Role and figure select current values.
+        const roleSelect   = this._qs<HTMLSelectElement>('#od-role-select');
+        const figureSelect = this._qs<HTMLSelectElement>('#od-figure-select');
+        if (roleSelect)   roleSelect.value   = this._editRole;
+        if (figureSelect) figureSelect.value = this._editFigure;
+
+        // Apply button disabled until a role is chosen.
+        const applyBtn = this._qs<HTMLButtonElement>('#od-apply-btn');
+        if (applyBtn) applyBtn.disabled = !this._editRole;
       }
-      return GROUP_ORDER
-        .filter(g => map.has(g))
-        .map(g => ({ group: g, label: GROUP_LABELS[g] ?? g, presets: map.get(g)! }));
-    },
+    }
+  }
 
-    // ── Lifecycle ──────────────────────────────────────────────────────────────
+  // ── Dynamic render helpers ─────────────────────────────────────────────────
 
-    openDesigner(label: string, repo: string, figures: FigureItem[]): void {
-      this.initiative     = label;
-      this.repo           = repo;
-      this.figures        = figures;
-      this.launchError    = null;
-      this.launchSuccess  = false;
-      this.launchResult   = null;
-      this.launching      = false;
-      this.selectedNodeId = null;
-      this.saveAsMode     = false;
-      this.saveAsName     = '';
-      this.userPresets    = loadUserPresets(repo);
-      this.open           = true;
+  /** Rebuild built-in preset card grid and user presets list. */
+  private _renderPresets(): void {
+    const loadingEl = this._qs<HTMLElement>('#od-presets-loading');
+    if (loadingEl) loadingEl.classList.toggle('od-hidden', !this._presetsLoading);
 
-      void this._loadPhases();
-
-      // Fetch built-in preset summaries from the API.
-      this.presetsLoading = true;
-      void fetch('/api/org-presets')
-        .then(async r => {
-          if (r.ok) this.builtInPresets = await r.json() as ApiPresetSummary[];
-        })
-        .catch(() => { /* non-critical — grid will be empty */ })
-        .finally(() => { this.presetsLoading = false; });
-
-      // If there is a saved in-progress session for this initiative, jump
-      // straight to the canvas.  Otherwise show the preset picker first.
-      const saved = loadFromStorage(repo, label);
-      if (saved) {
-        this._root        = saved;
-        this.presetsOpen  = false;
-        this._openCanvas();
+    const builtinEl = this._qs<HTMLElement>('#od-builtin-sections');
+    if (builtinEl) {
+      if (this._presetsLoading) {
+        builtinEl.innerHTML = '';
       } else {
-        this._root          = null;
-        this.activePresetId = null;
-        this.presetsOpen    = true;
+        builtinEl.innerHTML = this._groupedBuiltIns().map(section => `
+          <div class="od-presets__section">
+            <h3 class="od-presets__section-title">${escHtml(section.label)}</h3>
+            <div class="od-presets__grid">
+              ${section.presets.map(t => `
+                <button class="od-preset-card od-preset-card--${escHtml(t.accent)}"
+                        data-preset-id="${escHtml(t.id)}">
+                  <span class="od-preset-card__icon">${escHtml(t.icon)}</span>
+                  <span class="od-preset-card__name">${escHtml(t.name)}</span>
+                  <span class="od-preset-card__desc">${escHtml(t.description)}</span>
+                </button>
+              `).join('')}
+            </div>
+          </div>
+        `).join('');
+        builtinEl.querySelectorAll<HTMLButtonElement>('[data-preset-id]').forEach(btn => {
+          btn.addEventListener('click', () => this.loadPreset(btn.dataset['presetId'] ?? ''));
+        });
       }
-    },
+    }
 
-    close(): void {
-      this.open = false;
-    },
-
-    // ── Preset management ─────────────────────────────────────────────────────
-
-    loadPreset(id: string): void {
-      if (id.startsWith('builtin-')) {
-        // Fetch the tree template from the API, then open the canvas.
-        void (async () => {
-          const resp = await fetch(`/api/org-presets/${id}`);
-          if (!resp.ok) return;
-          const detail = await resp.json() as ApiPresetDetail;
-          this._root          = buildTree(detail.template);
-          this.activePresetId = id;
-          this.presetsOpen    = false;
-          this.selectedNodeId = null;
-          this._openCanvas();
-        })();
-        return;
-      }
-      // User-saved preset — already in memory.
-      const user = this.userPresets.find(p => p.id === id);
-      if (!user) return;
-      // Clone via serialize/deserialize so edits don't mutate the stored preset.
-      this._root = restoreNode(JSON.parse(JSON.stringify(user.tree)) as Partial<OrgNode>);
-      this.activePresetId = id;
-      this.presetsOpen    = false;
-      this.selectedNodeId = null;
-      this._saveToStorage();
-      this._openCanvas();
-    },
-
-    loadBlank(): void {
-      this._root          = makeNode('', '');
-      this.activePresetId = null;
-      this.presetsOpen    = false;
-      this.selectedNodeId = null;
-      clearStorage(this.repo, this.initiative);
-      this._openCanvas();
-    },
-
-    saveCurrentAsPreset(): void {
-      if (!this.saveAsName.trim() || !this._root) return;
-      const preset: OrgPreset = {
-        id:        `user_${Date.now()}`,
-        name:      this.saveAsName.trim(),
-        tree:      this._root,
-        updatedAt: new Date().toISOString(),
-      };
-      this.userPresets    = [...this.userPresets, preset];
-      saveUserPresets(this.repo, this.userPresets);
-      this.activePresetId = preset.id;
-      this.saveAsMode     = false;
-      this.saveAsName     = '';
-    },
-
-    updateActivePreset(): void {
-      if (!this.activePresetId || !this._root || this.activePresetIsBuiltIn) return;
-      const idx = this.userPresets.findIndex(p => p.id === this.activePresetId);
-      if (idx === -1) return;
-      const updated: OrgPreset = {
-        ...this.userPresets[idx],
-        tree:      this._root,
-        updatedAt: new Date().toISOString(),
-      };
-      const next = [...this.userPresets];
-      next[idx]       = updated;
-      this.userPresets = next;
-      saveUserPresets(this.repo, this.userPresets);
-    },
-
-    deletePreset(id: string, e: MouseEvent): void {
-      e.stopPropagation();
-      this.userPresets = this.userPresets.filter(p => p.id !== id);
-      saveUserPresets(this.repo, this.userPresets);
-      if (this.activePresetId === id) this.activePresetId = null;
-    },
-
-    _openCanvas(): void {
-      void (this as unknown as AlpineMagics).$nextTick(() => {
-        this._container = document.getElementById('od-canvas');
-        requestAnimationFrame(() => {
-          this._render();
-          if (this._root && !this._root.role) {
-            this._openEditor(this._root.id, null, 'coordinator');
-          }
+    const userSection = this._qs<HTMLElement>('#od-user-section');
+    const userGrid    = this._qs<HTMLElement>('#od-user-grid');
+    if (userSection && userGrid) {
+      userSection.classList.toggle('od-hidden', this._userPresets.length === 0);
+      userGrid.innerHTML = this._userPresets.map(p => `
+        <button class="od-preset-card od-preset-card--user" data-user-preset-id="${escHtml(p.id)}">
+          <span class="od-preset-card__icon">✎</span>
+          <span class="od-preset-card__date">${escHtml(new Date(p.updatedAt).toLocaleDateString())}</span>
+          <span class="od-preset-card__name">${escHtml(p.name)}</span>
+          <button class="od-preset-card__delete" data-delete-id="${escHtml(p.id)}"
+                  title="Delete this preset">×</button>
+        </button>
+      `).join('');
+      userGrid.querySelectorAll<HTMLButtonElement>('[data-user-preset-id]').forEach(btn => {
+        btn.addEventListener('click', () => this.loadPreset(btn.dataset['userPresetId'] ?? ''));
+      });
+      userGrid.querySelectorAll<HTMLButtonElement>('[data-delete-id]').forEach(btn => {
+        btn.addEventListener('click', (e: MouseEvent) => {
+          e.stopPropagation();
+          this.deletePreset(btn.dataset['deleteId'] ?? '', e);
         });
       });
-    },
+    }
+  }
 
-    // ── Phase loading ─────────────────────────────────────────────────────────
+  /** Rebuild role <optgroup>/<option> elements in the role select. */
+  private _renderRoleOptions(): void {
+    const select = this._qs<HTMLSelectElement>('#od-role-select');
+    if (!select) return;
+    select.innerHTML = '<option value="">— select role —</option>' +
+      this._filteredRoleGroups().map(group => `
+        <optgroup label="${escHtml(group.label)}">
+          ${group.roles.map(r =>
+            `<option value="${escHtml(r.slug)}">${escHtml(r.label)}</option>`,
+          ).join('')}
+        </optgroup>
+      `).join('');
+    select.value = this._editRole;
+  }
 
-    async _loadPhases(): Promise<void> {
-      try {
-        const url = `/api/dispatch/context?label=${encodeURIComponent(this.initiative)}&repo=${encodeURIComponent(this.repo)}`;
-        const res = await fetch(url);
-        if (res.ok) {
-          const data = await res.json() as ContextResponse;
-          this.phases = data.phases ?? [];
+  /** Rebuild figure <option> elements, filtered by the current role. */
+  private _renderFigureOptions(): void {
+    const select = this._qs<HTMLSelectElement>('#od-figure-select');
+    if (!select) return;
+    select.innerHTML = '<option value="">— role default —</option>' +
+      this._filteredFigures()
+        .map(f => `<option value="${escHtml(f.id)}">${escHtml(f.name)}</option>`)
+        .join('');
+    select.value = this._editFigure;
+  }
+
+  // ── Lifecycle ──────────────────────────────────────────────────────────────
+
+  openDesigner(label: string, repo: string, figures: FigureItem[]): void {
+    this._initiative     = label;
+    this._repo           = repo;
+    this._figures        = figures;
+    this._launchError    = null;
+    this._launchSuccess  = false;
+    this._launchResult   = null;
+    this._launching      = false;
+    this._selectedNodeId = null;
+    this._saveAsMode     = false;
+    this._saveAsName     = '';
+    this._userPresets    = loadUserPresets(repo);
+
+    this._el.classList.add('is-open');
+
+    void this._loadPhases();
+
+    // Fetch built-in preset summaries from the API.
+    this._presetsLoading = true;
+    this._syncDOM();
+    this._renderPresets();
+
+    void fetch('/api/org-presets')
+      .then(async r => {
+        if (r.ok) this._builtInPresets = await r.json() as ApiPresetSummary[];
+      })
+      .catch(() => { /* non-critical — grid will be empty */ })
+      .finally(() => {
+        this._presetsLoading = false;
+        this._syncDOM();
+        this._renderPresets();
+      });
+
+    // If there is a saved in-progress session for this initiative, jump
+    // straight to the canvas.  Otherwise show the preset picker first.
+    const saved = loadFromStorage(repo, label);
+    if (saved) {
+      this._root        = saved;
+      this._presetsOpen = false;
+      this._openCanvas();
+    } else {
+      this._root           = null;
+      this._activePresetId = null;
+      this._presetsOpen    = true;
+      this._syncDOM();
+      this._renderPresets();
+    }
+  }
+
+  close(): void {
+    this._el.classList.remove('is-open');
+  }
+
+  // ── Preset management ──────────────────────────────────────────────────────
+
+  loadPreset(id: string): void {
+    if (id.startsWith('builtin-')) {
+      void (async () => {
+        const resp = await fetch(`/api/org-presets/${id}`);
+        if (!resp.ok) return;
+        const detail        = await resp.json() as ApiPresetDetail;
+        this._root          = buildTree(detail.template);
+        this._activePresetId = id;
+        this._presetsOpen   = false;
+        this._selectedNodeId = null;
+        this._openCanvas();
+      })();
+      return;
+    }
+    // User-saved preset — already in memory.
+    const user = this._userPresets.find(p => p.id === id);
+    if (!user) return;
+    this._root           = restoreNode(JSON.parse(JSON.stringify(user.tree)) as Partial<OrgNode>);
+    this._activePresetId = id;
+    this._presetsOpen    = false;
+    this._selectedNodeId = null;
+    this._saveToStorage();
+    this._openCanvas();
+  }
+
+  loadBlank(): void {
+    this._root           = makeNode('', '');
+    this._activePresetId = null;
+    this._presetsOpen    = false;
+    this._selectedNodeId = null;
+    clearStorage(this._repo, this._initiative);
+    this._openCanvas();
+  }
+
+  saveCurrentAsPreset(): void {
+    if (!this._saveAsName.trim() || !this._root) return;
+    const preset: OrgPreset = {
+      id:        `user_${Date.now()}`,
+      name:      this._saveAsName.trim(),
+      tree:      this._root,
+      updatedAt: new Date().toISOString(),
+    };
+    this._userPresets    = [...this._userPresets, preset];
+    saveUserPresets(this._repo, this._userPresets);
+    this._activePresetId = preset.id;
+    this._saveAsMode     = false;
+    this._saveAsName     = '';
+    this._syncDOM();
+  }
+
+  updateActivePreset(): void {
+    if (!this._activePresetId || !this._root || this._activePresetIsBuiltIn()) return;
+    const idx = this._userPresets.findIndex(p => p.id === this._activePresetId);
+    if (idx === -1) return;
+    const updated: OrgPreset = {
+      ...this._userPresets[idx],
+      tree:      this._root,
+      updatedAt: new Date().toISOString(),
+    };
+    const next = [...this._userPresets];
+    next[idx]         = updated;
+    this._userPresets = next;
+    saveUserPresets(this._repo, this._userPresets);
+  }
+
+  deletePreset(id: string, e: MouseEvent): void {
+    e.stopPropagation();
+    this._userPresets = this._userPresets.filter(p => p.id !== id);
+    saveUserPresets(this._repo, this._userPresets);
+    if (this._activePresetId === id) this._activePresetId = null;
+    this._renderPresets();
+    this._syncDOM();
+  }
+
+  private _openCanvas(): void {
+    this._syncDOM();
+    this._renderPresets();
+    queueMicrotask(() => {
+      this._container = this._el.querySelector<HTMLElement>('#od-canvas');
+      requestAnimationFrame(() => {
+        this._render();
+        if (this._root && !this._root.role) {
+          this._openEditor(this._root.id, null, 'coordinator');
         }
-      } catch {
-        // Non-critical — scope picker just won't show phases.
+      });
+    });
+  }
+
+  // ── Phase loading ──────────────────────────────────────────────────────────
+
+  private async _loadPhases(): Promise<void> {
+    try {
+      const url = `/api/dispatch/context?label=${encodeURIComponent(this._initiative)}&repo=${encodeURIComponent(this._repo)}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data   = await res.json() as ContextResponse;
+        this._phases = data.phases ?? [];
       }
-    },
+    } catch {
+      // Non-critical — scope picker just won't show phases.
+    }
+  }
 
-    // ── Tree mutations ────────────────────────────────────────────────────────
+  // ── Tree mutations ─────────────────────────────────────────────────────────
 
-    addChild(parentId: string): void {
-      if (!this._root) return;
-      const parent = findNode(this._root, parentId);
-      if (!parent) return;
-      const child = makeNode('', '');
-      parent.children.push(child);
-      this._render();
-      this._saveToStorage();
-      // Prefer coordinator children for coordinator parents, worker otherwise.
-      const types = availableChildTypes(parent.role);
-      const defaultType: 'coordinator' | 'worker' =
-        isCoordinator(parent.role) && types.includes('coordinator') ? 'coordinator' : 'worker';
-      this._openEditor(child.id, parent.role, defaultType);
-    },
+  private addChild(parentId: string): void {
+    if (!this._root) return;
+    const parent = findNode(this._root, parentId);
+    if (!parent) return;
+    const child = makeNode('', '');
+    parent.children.push(child);
+    this._render();
+    this._saveToStorage();
+    const types = availableChildTypes(parent.role);
+    const defaultType: 'coordinator' | 'worker' =
+      isCoordinator(parent.role) && types.includes('coordinator') ? 'coordinator' : 'worker';
+    this._openEditor(child.id, parent.role, defaultType);
+  }
 
-    removeNodeById(id: string): void {
-      if (!this._root || id === this._root.id) return;
-      pruneNode(this._root, id);
-      if (this.selectedNodeId === id) this.selectedNodeId = null;
-      this._render();
-      this._saveToStorage();
-    },
+  private removeNodeById(id: string): void {
+    if (!this._root || id === this._root.id) return;
+    pruneNode(this._root, id);
+    if (this._selectedNodeId === id) this._selectedNodeId = null;
+    this._render();
+    this._saveToStorage();
+    this._syncDOM();
+  }
 
-    selectNodeById(id: string): void {
-      if (!this._root) return;
-      const node = findNode(this._root, id);
-      if (!node) return;
-      const parentRole = this._findParentRole(id);
-      const type: 'coordinator' | 'worker' = node.role
-        ? (isCoordinator(node.role) ? 'coordinator' : 'worker')
-        : 'coordinator';
-      this._openEditor(id, parentRole, type);
-    },
+  private selectNodeById(id: string): void {
+    if (!this._root) return;
+    const node = findNode(this._root, id);
+    if (!node) return;
+    const parentRole = this._findParentRole(id);
+    const type: 'coordinator' | 'worker' = node.role
+      ? (isCoordinator(node.role) ? 'coordinator' : 'worker')
+      : 'coordinator';
+    this._openEditor(id, parentRole, type);
+  }
 
-    /** Walk the tree to find the role of the parent of *childId*. */
-    _findParentRole(childId: string): string | null {
-      function walk(node: OrgNode, target: string): string | null {
-        for (const c of node.children) {
-          if (c.id === target) return node.role || null;
-          const found = walk(c, target);
-          if (found !== undefined) return found;
+  private _findParentRole(childId: string): string | null {
+    function walk(node: OrgNode, target: string): string | null {
+      for (const c of node.children) {
+        if (c.id === target) return node.role || null;
+        const found = walk(c, target);
+        if (found !== undefined) return found;
+      }
+      return undefined as unknown as null;
+    }
+    if (!this._root) return null;
+    return walk(this._root, childId);
+  }
+
+  private _openEditor(id: string, parentRole: string | null, type: 'coordinator' | 'worker'): void {
+    if (!this._root) return;
+    const node = findNode(this._root, id);
+    if (!node) return;
+    this._selectedNodeId = id;
+    this._editParentRole = parentRole;
+    this._editType       = type;
+    this._editRole       = node.role;
+    this._editFigure     = node.figure;
+    this._editScope      = node.scope;
+    this._editScopeLabel = node.scopeLabel;
+    this._syncDOM();
+    this._renderRoleOptions();
+    this._renderFigureOptions();
+  }
+
+  private _onTypeChange(): void {
+    this._editRole   = '';
+    this._editFigure = '';
+    this._syncDOM();
+    this._renderRoleOptions();
+    this._renderFigureOptions();
+  }
+
+  private _onRoleChange(): void {
+    if (!this._editFigure) return;
+    const compatible = this._roleFigureMap[this._editRole];
+    if (compatible && compatible.length > 0 && !compatible.includes(this._editFigure)) {
+      this._editFigure = '';
+    }
+  }
+
+  applyEdit(): void {
+    if (!this._root) return;
+    const node = findNode(this._root, this._selectedNodeId ?? '');
+    if (!node) return;
+    node.role       = this._editRole;
+    node.figure     = this._editFigure;
+    node.scope      = this._editScope;
+    node.scopeLabel = this._editScope === 'phase' ? this._editScopeLabel : '';
+    this._selectedNodeId = null;
+    this._render();
+    this._saveToStorage();
+    this._syncDOM();
+  }
+
+  cancelEdit(): void {
+    if (this._selectedNodeId && this._root) {
+      const node = findNode(this._root, this._selectedNodeId);
+      if (node && !node.role) {
+        if (node.id === this._root.id) {
+          // Blank root cancelled — go back to preset picker.
+          this._presetsOpen    = true;
+          this._selectedNodeId = null;
+          this._syncDOM();
+          this._renderPresets();
+          return;
         }
-        return undefined as unknown as null;
+        // Blank child cancelled — remove it.
+        pruneNode(this._root, this._selectedNodeId);
+        this._render();
+        this._saveToStorage();
       }
-      if (!this._root) return null;
-      return walk(this._root, childId);
-    },
+    }
+    this._selectedNodeId = null;
+    this._syncDOM();
+  }
 
-    _openEditor(id: string, parentRole: string | null, type: 'coordinator' | 'worker'): void {
-      if (!this._root) return;
-      const node = findNode(this._root, id);
-      if (!node) return;
-      this.selectedNodeId = id;
-      this.editParentRole = parentRole;
-      this.editType       = type;
-      this.editRole       = node.role;
-      this.editFigure     = node.figure;
-      this.editScope      = node.scope;
-      this.editScopeLabel = node.scopeLabel;
-    },
+  clearDesign(): void {
+    clearStorage(this._repo, this._initiative);
+    this._root           = null;
+    this._selectedNodeId = null;
+    this._activePresetId = null;
+    this._launchSuccess  = false;
+    this._launchResult   = null;
+    this._launchError    = null;
+    this._saveAsMode     = false;
+    this._saveAsName     = '';
+    this._presetsOpen    = true;
+    this._syncDOM();
+    this._renderPresets();
+  }
 
-    onTypeChange(): void {
-      this.editRole = '';
-      this.editFigure = '';
-    },
+  // ── localStorage ──────────────────────────────────────────────────────────
 
-    /**
-     * Called when the role select changes.
-     * Clears editFigure when the current selection is no longer in the
-     * filtered figure list for the new role, preventing a stale value
-     * from being sent to the backend.
-     */
-    onRoleChange(): void {
-      if (!this.editFigure) return;
-      const compatible = this.roleFigureMap[this.editRole];
-      if (compatible && compatible.length > 0 && !compatible.includes(this.editFigure)) {
-        this.editFigure = '';
+  private _saveToStorage(): void {
+    if (this._root) saveToStorage(this._repo, this._initiative, this._root);
+  }
+
+  // ── D3 render ─────────────────────────────────────────────────────────────
+
+  private _render(): void {
+    if (!this._container || !this._root) return;
+    renderD3(
+      this._root,
+      this._container,
+      this._figures,
+      this._selectedNodeId,
+      id => { this.addChild(id); },
+      id => { this.removeNodeById(id); },
+      id => { this.selectNodeById(id); },
+    );
+    this._syncDOM();
+  }
+
+  // ── Launch ─────────────────────────────────────────────────────────────────
+
+  async launch(): Promise<void> {
+    if (!this._launchReady() || !this._root) return;
+    this._launching   = true;
+    this._launchError = null;
+    this._syncDOM();
+
+    const payload = {
+      label:                   this._initiative,
+      scope:                   this._root.scope,
+      scope_label:             this._root.scope === 'phase' ? this._root.scopeLabel : undefined,
+      repo:                    this._repo,
+      role:                    this._root.role,
+      cognitive_arch_override: this._root.figure || null,
+      org_tree:                serializeNode(this._root),
+    };
+
+    try {
+      const res  = await fetch('/api/dispatch/label', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload),
+      });
+      const data = await res.json() as DispatchResponse | DispatchError;
+      if (!res.ok) {
+        this._launchError = (data as DispatchError).detail ?? `Error ${res.status}`;
+      } else {
+        const dispatched     = data as DispatchResponse;
+        this._launchResult   = dispatched;
+        this._launchSuccess  = true;
+        this._root.launched  = true;
+        this._root.runId     = dispatched.run_id;
+        this._render();
       }
-    },
+    } catch (err) {
+      this._launchError = `Network error: ${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      this._launching = false;
+      this._syncDOM();
+    }
+  }
+}
 
-    applyEdit(): void {
-      if (!this._root) return;
-      const node = findNode(this._root, this.selectedNodeId ?? '');
-      if (!node) return;
-      node.role       = this.editRole;
-      node.figure     = this.editFigure;
-      node.scope      = this.editScope;
-      node.scopeLabel = this.editScope === 'phase' ? this.editScopeLabel : '';
-      this.selectedNodeId = null;
-      this._render();
-      this._saveToStorage();
-    },
+// ── Entry point ───────────────────────────────────────────────────────────────
 
-    cancelEdit(): void {
-      if (this.selectedNodeId && this._root) {
-        const node = findNode(this._root, this.selectedNodeId);
-        if (node && !node.role) {
-          if (node.id === this._root.id) {
-            // Blank root cancelled — go back to preset picker rather than closing.
-            this.presetsOpen    = true;
-            this.selectedNodeId = null;
-            return;
-          }
-          // Blank child cancelled — remove it.
-          pruneNode(this._root, this.selectedNodeId);
-          this._render();
-          this._saveToStorage();
-        }
-      }
-      this.selectedNodeId = null;
-    },
-
-    /** Clear the current canvas and return to the preset picker. */
-    clearDesign(): void {
-      clearStorage(this.repo, this.initiative);
-      this._root          = null;
-      this.selectedNodeId = null;
-      this.activePresetId = null;
-      this.launchSuccess  = false;
-      this.launchResult   = null;
-      this.launchError    = null;
-      this.saveAsMode     = false;
-      this.saveAsName     = '';
-      this.presetsOpen    = true;
-    },
-
-    // ── localStorage ──────────────────────────────────────────────────────────
-
-    _saveToStorage(): void {
-      if (this._root) saveToStorage(this.repo, this.initiative, this._root);
-    },
-
-    // ── D3 render ─────────────────────────────────────────────────────────────
-
-    _render(): void {
-      if (!this._container || !this._root) return;
-      renderD3(
-        this._root,
-        this._container,
-        this.figures,
-        this.selectedNodeId,
-        id => { this.addChild(id); },
-        id => { this.removeNodeById(id); },
-        id => { this.selectNodeById(id); },
-      );
-    },
-
-    // ── Launch ────────────────────────────────────────────────────────────────
-
-    async launch(): Promise<void> {
-      if (!this.launchReady || !this._root) return;
-      this.launching  = true;
-      this.launchError = null;
-
-      const payload = {
-        label:                   this.initiative,
-        scope:                   this._root.scope,
-        scope_label:             this._root.scope === 'phase' ? this._root.scopeLabel : undefined,
-        repo:                    this.repo,
-        role:                    this._root.role,
-        cognitive_arch_override: this._root.figure || null,
-        org_tree:                serializeNode(this._root),
-      };
-
-      try {
-        const res  = await fetch('/api/dispatch/label', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify(payload),
-        });
-        const data = await res.json() as DispatchResponse | DispatchError;
-        if (!res.ok) {
-          this.launchError = (data as DispatchError).detail ?? `Error ${res.status}`;
-        } else {
-          const dispatched    = data as DispatchResponse;
-          this.launchResult   = dispatched;
-          this.launchSuccess  = true;
-          // Mark root as launched — D3 re-renders it green with run_id.
-          this._root.launched = true;
-          this._root.runId    = dispatched.run_id;
-          this._render();
-        }
-      } catch (err) {
-        this.launchError = `Network error: ${err instanceof Error ? err.message : String(err)}`;
-      } finally {
-        this.launching = false;
-      }
-    },
-  } as OrgDesignerComponent;
+export function initOrgDesigner(): void {
+  const el = document.getElementById('od-overlay');
+  if (el instanceof HTMLElement) new OrgDesigner(el);
 }

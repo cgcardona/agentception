@@ -247,230 +247,167 @@
 
 {# ── Org Designer overlay ─────────────────────────────────────────────────── #}
 {# Position: fixed — lives outside the scrollable layout so it covers the UI. #}
-<div class="od-overlay"
-     x-data='orgDesigner()'
-     x-show="open"
-     x-cloak
-     @open-org-designer.window="openDesigner($event.detail.label, $event.detail.repo, $event.detail.figures)"
-     @keydown.escape.window="close()"
->
+{# Managed entirely by the OrgDesigner plain-JS class in org_designer.ts.     #}
+{# Alpine is NOT used here — visibility toggled via .is-open CSS class.       #}
+<div class="od-overlay" id="od-overlay">
 
   {# ── Top bar ──────────────────────────────────────────────────────────── #}
   <div class="od-header">
     <span class="od-header__title">Agent Org</span>
-    <span class="od-header__initiative" x-text="initiative"></span>
+    <span class="od-header__initiative" id="od-initiative"></span>
 
-    {# Active preset name badge (canvas view only) #}
-    <template x-if="!presetsOpen && activePresetId">
-      <span class="od-header__preset-badge" x-text="activePresetName"></span>
-    </template>
+    {# Active preset name badge — shown in canvas view when a preset is active #}
+    <span class="od-header__preset-badge od-hidden" id="od-preset-badge"></span>
 
-    {# Save-as inline input #}
-    <template x-if="!presetsOpen && saveAsMode">
-      <div class="od-header__save-as">
-        <input class="od-header__save-input"
-               type="text"
-               x-model="saveAsName"
-               placeholder="Name this design…"
-               @keydown.enter="saveCurrentAsPreset()"
-               @keydown.escape="saveAsMode = false"
-               x-effect="saveAsMode && $el.focus()">
-        <button class="od-header__btn od-header__btn--save-confirm"
-                :disabled="!saveAsName.trim()"
-                @click="saveCurrentAsPreset()">Save</button>
-        <button class="od-header__btn od-header__btn--save-cancel"
-                @click="saveAsMode = false">✕</button>
-      </div>
-    </template>
+    {# Save-as inline input — shown in canvas view when save-as mode is active #}
+    <div class="od-header__save-as od-hidden" id="od-saveas-row">
+      <input class="od-header__save-input"
+             type="text"
+             id="od-saveas-input"
+             placeholder="Name this design…">
+      <button class="od-header__btn od-header__btn--save-confirm"
+              id="od-saveas-confirm"
+              disabled>Save</button>
+      <button class="od-header__btn od-header__btn--save-cancel"
+              id="od-saveas-cancel">✕</button>
+    </div>
 
-    {# Save / Update controls — canvas view, not save-as mode #}
-    <template x-if="!presetsOpen && !saveAsMode">
-      <template x-if="activePresetId && !activePresetIsBuiltIn">
-        <button class="od-header__btn od-header__btn--update"
-                @click="updateActivePreset()"
-                title="Overwrite this preset with the current design">
-          ↑ Update
-        </button>
-      </template>
-    </template>
-    <template x-if="!presetsOpen && !saveAsMode">
+    {# Canvas controls — shown in canvas view, not save-as mode #}
+    <div id="od-canvas-controls" class="od-hidden" style="display:contents">
+      {# Update button — only for user (non-builtin) presets #}
+      <button class="od-header__btn od-header__btn--update od-hidden"
+              id="od-update-btn"
+              title="Overwrite this preset with the current design">
+        ↑ Update
+      </button>
       <button class="od-header__btn od-header__btn--saveas"
-              @click="saveAsMode = true"
+              id="od-saveas-btn"
               title="Save current design as a named preset">
         ＋ Save as…
       </button>
-    </template>
+    </div>
 
     {# Error / success feedback #}
-    <template x-if="launchError">
-      <span class="od-header__launch-err" x-text="launchError"></span>
-    </template>
-    <template x-if="launchSuccess && launchResult">
-      <span class="od-header__launch-ok">
-        ✅ Dispatched <code x-text="launchResult.run_id"></code>
-      </span>
-    </template>
+    <span class="od-header__launch-err od-hidden" id="od-launch-err"></span>
+    <span class="od-header__launch-ok od-hidden" id="od-launch-ok">
+      ✅ Dispatched <code id="od-run-id"></code>
+    </span>
 
-    {# Back to presets (canvas view only) #}
-    <template x-if="!presetsOpen">
-      <button class="od-header__btn od-header__btn--presets"
-              @click="clearDesign()"
-              title="Back to preset picker">
-        ⋮ Presets
-      </button>
-    </template>
+    {# Back to presets — canvas view only #}
+    <button class="od-header__btn od-header__btn--presets od-hidden"
+            id="od-presets-btn"
+            title="Back to preset picker">
+      ⋮ Presets
+    </button>
 
     {# Launch button — canvas view only #}
-    <template x-if="!presetsOpen">
-      <button class="od-header__btn od-header__btn--launch"
-              :disabled="!launchReady"
-              @click="launch()"
-              x-text="launching ? 'Queuing…' : launchPreviewText">
-      </button>
-    </template>
+    <button class="od-header__btn od-header__btn--launch od-hidden"
+            id="od-launch-btn"
+            disabled>
+      Configure root node first
+    </button>
 
-    <button class="od-header__btn od-header__btn--close" @click="close()">✕ Close</button>
+    <button class="od-header__btn od-header__btn--close" id="od-close-btn">✕ Close</button>
   </div>
 
   {# ── Preset picker ─────────────────────────────────────────────────────── #}
-  <template x-if="presetsOpen">
-    <div class="od-presets">
+  {# Shown when presetsOpen is true; JS class toggles od-hidden.             #}
+  <div class="od-presets" id="od-presets-section">
 
-      {# Start fresh ─────────────────────────────────────────────────────── #}
-      <div class="od-presets__section">
-        <h3 class="od-presets__section-title">Start fresh</h3>
-        <button class="od-preset-card od-preset-card--blank" @click="loadBlank()">
-          <span class="od-preset-card__name">✦ New blank design</span>
-          <span class="od-preset-card__desc">Start with an empty canvas and build from scratch</span>
-        </button>
-      </div>
-
-      {# Built-in templates — grouped, fetched from API ─────────────────── #}
-      <template x-if="presetsLoading">
-        <div class="od-presets__loading">Loading templates…</div>
-      </template>
-
-      <template x-if="!presetsLoading">
-        <template x-for="section in groupedBuiltIns" :key="section.group">
-          <div class="od-presets__section">
-            <h3 class="od-presets__section-title" x-text="section.label"></h3>
-            <div class="od-presets__grid">
-              <template x-for="t in section.presets" :key="t.id">
-                <button class="od-preset-card"
-                        :class="'od-preset-card--' + t.accent"
-                        @click="loadPreset(t.id)">
-                  <span class="od-preset-card__icon" x-text="t.icon"></span>
-                  <span class="od-preset-card__name" x-text="t.name"></span>
-                  <span class="od-preset-card__desc" x-text="t.description"></span>
-                </button>
-              </template>
-            </div>
-          </div>
-        </template>
-      </template>
-
-      {# My designs — user-saved presets ────────────────────────────────── #}
-      <template x-if="userPresets.length > 0">
-        <div class="od-presets__section">
-          <h3 class="od-presets__section-title">My designs</h3>
-          <div class="od-presets__user-grid">
-            <template x-for="p in userPresets" :key="p.id">
-              <button class="od-preset-card od-preset-card--user" @click="loadPreset(p.id)">
-                <span class="od-preset-card__icon">✎</span>
-                <span class="od-preset-card__date"
-                      x-text="new Date(p.updatedAt).toLocaleDateString()"></span>
-                <span class="od-preset-card__name" x-text="p.name"></span>
-                <button class="od-preset-card__delete"
-                        @click="deletePreset(p.id, $event)"
-                        title="Delete this preset">×</button>
-              </button>
-            </template>
-          </div>
-        </div>
-      </template>
-
+    {# Start fresh #}
+    <div class="od-presets__section">
+      <h3 class="od-presets__section-title">Start fresh</h3>
+      <button class="od-preset-card od-preset-card--blank" id="od-blank-btn">
+        <span class="od-preset-card__name">✦ New blank design</span>
+        <span class="od-preset-card__desc">Start with an empty canvas and build from scratch</span>
+      </button>
     </div>
-  </template>
+
+    {# Built-in templates loading indicator #}
+    <div class="od-presets__loading od-hidden" id="od-presets-loading">Loading templates…</div>
+
+    {# Built-in template cards — populated by _renderPresets() #}
+    <div id="od-builtin-sections"></div>
+
+    {# My designs — user-saved presets, populated by _renderPresets() #}
+    <div class="od-presets__section od-hidden" id="od-user-section">
+      <h3 class="od-presets__section-title">My designs</h3>
+      <div class="od-presets__user-grid" id="od-user-grid"></div>
+    </div>
+
+  </div>
 
   {# ── Canvas + editor split ─────────────────────────────────────────────── #}
-  <template x-if="!presetsOpen">
-    <div class="od-body">
+  {# Hidden in preset picker view; JS class toggles od-hidden.              #}
+  <div class="od-body od-hidden" id="od-body">
 
-      {# D3 renders the tree inside this div #}
-      <div class="od-canvas" id="od-canvas"></div>
+    {# D3 renders the tree inside this div #}
+    <div class="od-canvas" id="od-canvas"></div>
 
-      {# Node editor side panel — visible when a node is selected #}
-      <template x-if="selectedNode">
-        <div class="od-editor">
-          <div class="od-editor__header">
-            <span x-text="selectedNode && selectedNode.role ? 'Edit node' : 'Define node'"></span>
-            <button class="od-editor__close" @click="cancelEdit()">✕</button>
-          </div>
+    {# Node editor side panel — hidden until a node is selected #}
+    <div class="od-editor od-hidden" id="od-editor">
+      <div class="od-editor__header">
+        <span id="od-editor-title">Define node</span>
+        <button class="od-editor__close" id="od-editor-close">✕</button>
+      </div>
 
-          <div class="od-editor__body">
+      <div class="od-editor__body">
 
-            {# Step 1: Coordinator or Worker — the first and most important choice #}
-            <div class="od-editor__field">
-              <label class="od-editor__label">Type</label>
-              <div class="od-type-radio">
-                <label class="od-type-opt" :class="{'od-type-opt--active': editType === 'coordinator'}">
-                  <input type="radio" x-model="editType" value="coordinator" @change="onTypeChange()">
-                  <span class="od-type-opt__icon">⬡</span>
-                  <span class="od-type-opt__text">
-                    <strong>Coordinator</strong>
-                    <em>Surveys scope, assembles team</em>
-                  </span>
-                </label>
-                <label class="od-type-opt" :class="{'od-type-opt--active': editType === 'worker'}">
-                  <input type="radio" x-model="editType" value="worker" @change="onTypeChange()">
-                  <span class="od-type-opt__icon">⚙</span>
-                  <span class="od-type-opt__text">
-                    <strong>Worker</strong>
-                    <em>Does the work directly</em>
-                  </span>
-                </label>
-              </div>
-            </div>
-
-            {# Step 2: Specific role — filtered to the selected type #}
-            <div class="od-editor__field">
-              <label class="od-editor__label">Role</label>
-              <select class="od-editor__select" x-model="editRole" @change="onRoleChange()">
-                <option value="">— select role —</option>
-                <template x-for="group in filteredRoleGroups" :key="group.label">
-                  <optgroup :label="group.label">
-                    <template x-for="r in group.roles" :key="r.slug">
-                      <option :value="r.slug" x-text="r.label"></option>
-                    </template>
-                  </optgroup>
-                </template>
-              </select>
-            </div>
-
-            {# Step 3: Cognitive architecture figure (optional) #}
-            <div class="od-editor__field">
-              <label class="od-editor__label">Cognitive arch figure <em class="od-editor__optional">(optional)</em></label>
-              <select class="od-editor__select" x-model="editFigure">
-                <option value="">— role default —</option>
-                <template x-for="fig in filteredFigures" :key="fig.id">
-                  <option :value="fig.id" x-text="fig.name"></option>
-                </template>
-              </select>
-            </div>
-
-          </div>
-
-          <div class="od-editor__actions">
-            <button class="od-editor__btn od-editor__btn--apply"
-                    :disabled="!editRole"
-                    @click="applyEdit()">Apply</button>
-            <button class="od-editor__btn od-editor__btn--cancel" @click="cancelEdit()">Cancel</button>
+        {# Step 1: Coordinator or Worker #}
+        <div class="od-editor__field">
+          <label class="od-editor__label">Type</label>
+          <div class="od-type-radio">
+            <label class="od-type-opt od-type-opt--active" id="od-type-label-coordinator">
+              <input type="radio" name="od-edit-type"
+                     id="od-type-coordinator" value="coordinator" checked>
+              <span class="od-type-opt__icon">⬡</span>
+              <span class="od-type-opt__text">
+                <strong>Coordinator</strong>
+                <em>Surveys scope, assembles team</em>
+              </span>
+            </label>
+            <label class="od-type-opt" id="od-type-label-worker">
+              <input type="radio" name="od-edit-type"
+                     id="od-type-worker" value="worker">
+              <span class="od-type-opt__icon">⚙</span>
+              <span class="od-type-opt__text">
+                <strong>Worker</strong>
+                <em>Does the work directly</em>
+              </span>
+            </label>
           </div>
         </div>
-      </template>
 
-    </div>{# /.od-body #}
-  </template>
+        {# Step 2: Role — filtered by type; options populated by _renderRoleOptions() #}
+        <div class="od-editor__field">
+          <label class="od-editor__label">Role</label>
+          <select class="od-editor__select" id="od-role-select">
+            <option value="">— select role —</option>
+          </select>
+        </div>
+
+        {# Step 3: Cognitive arch figure — filtered by role; populated by _renderFigureOptions() #}
+        <div class="od-editor__field">
+          <label class="od-editor__label">
+            Cognitive arch figure <em class="od-editor__optional">(optional)</em>
+          </label>
+          <select class="od-editor__select" id="od-figure-select">
+            <option value="">— role default —</option>
+          </select>
+        </div>
+
+      </div>
+
+      <div class="od-editor__actions">
+        <button class="od-editor__btn od-editor__btn--apply"
+                id="od-apply-btn"
+                disabled>Apply</button>
+        <button class="od-editor__btn od-editor__btn--cancel"
+                id="od-cancel-btn">Cancel</button>
+      </div>
+    </div>
+
+  </div>{# /.od-body #}
 
 </div>{# /.od-overlay #}
 
