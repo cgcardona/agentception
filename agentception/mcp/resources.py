@@ -51,6 +51,7 @@ from agentception.mcp.query_tools import (
     query_dispatcher_state,
     query_pending_runs,
     query_run,
+    query_run_context,
     query_run_events,
     query_run_tree,
     query_system_health,
@@ -194,11 +195,25 @@ RESOURCE_TEMPLATES: list[ACResourceTemplate] = [
         mimeType=_MIME,
     ),
     ACResourceTemplate(
+        uriTemplate="ac://runs/{run_id}/context",
+        name="Run task context",
+        description=(
+            "Full task context for a run — the authoritative DB-sourced record. "
+            "Includes role, cognitive_arch, task_description, issue_number, "
+            "worktree_path, branch, status, tier, org_domain, batch_id, and "
+            "parent_run_id. "
+            "Read on startup instead of parsing a .agent-task file. "
+            "Returns ok=false when the run does not exist."
+        ),
+        mimeType=_MIME,
+    ),
+    ACResourceTemplate(
         uriTemplate="ac://runs/{run_id}/task",
         name="Agent task file",
         description=(
             "Raw text content of the .agent-task TOML file for a run. "
-            "Read to verify configuration on startup or after a restart. "
+            "Prefer ac://runs/{run_id}/context for DB-sourced runs — this "
+            "resource is retained for pipeline runs that write a TOML file. "
             "Returns ok=false if the worktree has been torn down."
         ),
         mimeType=_MIME,
@@ -381,6 +396,9 @@ async def _dispatch(
 
             if sub == "children" and len(path_parts) == 2:
                 return _content(uri, await query_children(run_id))
+
+            if sub == "context" and len(path_parts) == 2:
+                return _content(uri, await query_run_context(run_id))
 
             if sub == "task" and len(path_parts) == 2:
                 return _content(uri, await query_agent_task(run_id))

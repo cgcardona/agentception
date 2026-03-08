@@ -2677,6 +2677,72 @@ async def get_run_by_id(run_id: str) -> RunSummaryRow | None:
         return None
 
 
+class RunContextRow(TypedDict):
+    """Full task context for an agent run — the authoritative DB-sourced record.
+
+    Extends :class:`RunSummaryRow` with the fields needed to brief an agent:
+    ``cognitive_arch`` and ``task_description``.  Used by
+    ``ac://runs/{run_id}/context`` and the ``task/briefing`` MCP prompt.
+    """
+
+    run_id: str
+    status: str
+    role: str
+    cognitive_arch: str | None
+    task_description: str | None
+    issue_number: int | None
+    pr_number: int | None
+    branch: str | None
+    worktree_path: str | None
+    batch_id: str | None
+    tier: str | None
+    org_domain: str | None
+    parent_run_id: str | None
+    spawned_at: str
+    last_activity_at: str | None
+    completed_at: str | None
+
+
+async def get_run_context(run_id: str) -> RunContextRow | None:
+    """Return the full task context for *run_id* from the DB.
+
+    Unlike :func:`get_run_by_id`, this includes ``cognitive_arch`` and
+    ``task_description`` — everything needed to fully brief an agent or
+    populate the ``ac://runs/{run_id}/context`` MCP resource.
+
+    Returns ``None`` when the run does not exist or on DB error.
+    """
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun).where(ACAgentRun.id == run_id)
+            )
+            row = result.scalar_one_or_none()
+        if row is None:
+            return None
+        return RunContextRow(
+            run_id=row.id,
+            status=row.status,
+            role=row.role,
+            cognitive_arch=row.cognitive_arch,
+            task_description=row.task_description,
+            issue_number=row.issue_number,
+            pr_number=row.pr_number,
+            branch=row.branch,
+            worktree_path=row.worktree_path,
+            batch_id=row.batch_id,
+            tier=row.tier,
+            org_domain=row.org_domain,
+            parent_run_id=row.parent_run_id,
+            spawned_at=row.spawned_at.isoformat(),
+            last_activity_at=(row.last_activity_at.isoformat() if row.last_activity_at else None),
+            completed_at=(row.completed_at.isoformat() if row.completed_at else None),
+        )
+    except Exception as exc:
+        logger.warning("⚠️  get_run_context DB query failed (non-fatal): %s", exc)
+        return None
+
+
 async def get_children_by_parent_id(parent_run_id: str) -> list[RunSummaryRow]:
     """Return all runs spawned by *parent_run_id*, ordered by spawn time.
 

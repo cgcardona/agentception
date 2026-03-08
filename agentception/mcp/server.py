@@ -60,7 +60,7 @@ from agentception.mcp.github_tools import (
     github_remove_label,
     github_unclaim_issue,
 )
-from agentception.mcp.prompts import PROMPTS, get_prompt
+from agentception.mcp.prompts import PROMPTS, get_prompt, get_static_prompt
 from agentception.mcp.plan_advance_phase import plan_advance_phase
 from agentception.mcp.plan_tools import (
     plan_get_cognitive_figures,
@@ -1306,7 +1306,9 @@ def handle_request(
 
         return cast(dict[str, object], _make_success_response(request_id, tool_result))
 
-    # ── Prompt methods (sync — catalogues are loaded at module import) ────────
+    # ── Prompt methods (sync — static prompts only) ───────────────────────────
+    # Parameterized prompts (task/*) require async DB access; callers using
+    # the sync path should use handle_request_async for those.
 
     if method == "prompts/list":
         return cast(dict[str, object], _make_success_response(
@@ -1324,7 +1326,13 @@ def handle_request(
             return cast(dict[str, object], _make_error_response(
                 request_id, JSONRPC_ERR_INVALID_PARAMS, "params.name must be a non-empty string"
             ))
-        prompt_result: ACPromptResult | None = get_prompt(prompt_name)
+        if prompt_name.startswith("task/"):
+            return cast(dict[str, object], _make_error_response(
+                request_id,
+                JSONRPC_ERR_INVALID_PARAMS,
+                f"Prompt {prompt_name!r} requires async resolution — use handle_request_async.",
+            ))
+        prompt_result: ACPromptResult | None = get_static_prompt(prompt_name)
         if prompt_result is None:
             return cast(dict[str, object], _make_error_response(
                 request_id, JSONRPC_ERR_INVALID_PARAMS, f"Unknown prompt: {prompt_name!r}"
@@ -1468,7 +1476,12 @@ async def handle_request_async(
             return cast(dict[str, object], _make_error_response(
                 request_id, JSONRPC_ERR_INVALID_PARAMS, "params.name must be a non-empty string"
             ))
-        prompt_result_a: ACPromptResult | None = get_prompt(prompt_name_a)
+        raw_args = params_pa.get("arguments")
+        prompt_args: dict[str, str] = (
+            {k: str(v) for k, v in raw_args.items() if isinstance(v, str)}
+            if isinstance(raw_args, dict) else {}
+        )
+        prompt_result_a: ACPromptResult | None = await get_prompt(prompt_name_a, prompt_args)
         if prompt_result_a is None:
             return cast(dict[str, object], _make_error_response(
                 request_id, JSONRPC_ERR_INVALID_PARAMS, f"Unknown prompt: {prompt_name_a!r}"

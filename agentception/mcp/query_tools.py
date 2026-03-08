@@ -27,6 +27,7 @@ from agentception.db.queries import (
     get_latest_active_batch_id,
     get_pending_launches,
     get_run_by_id,
+    get_run_context,
     get_run_status_counts,
     get_run_tree_by_batch_id,
 )
@@ -85,6 +86,29 @@ async def query_run(run_id: str) -> dict[str, object]:
         return {"ok": False, "error": f"Run {run_id!r} not found"}
     logger.info("✅ query_run: found run_id=%r status=%r", run_id, row["status"])
     return {"ok": True, "run": dict(row)}
+
+
+async def query_run_context(run_id: str) -> dict[str, object]:
+    """Return the full task context for a single run.
+
+    Unlike ``query_run``, this includes ``cognitive_arch`` and
+    ``task_description`` — everything an agent needs to understand its
+    complete assignment.  Served as the ``ac://runs/{run_id}/context``
+    MCP resource and used by the ``task/briefing`` prompt.
+
+    Args:
+        run_id: The run ID to look up.
+
+    Returns:
+        ``{"ok": True, "context": {...}}`` when found, or
+        ``{"ok": False, "error": "..."}`` when the run does not exist.
+    """
+    row = await get_run_context(run_id)
+    if row is None:
+        logger.warning("🔍 query_run_context: run_id=%r not found", run_id)
+        return {"ok": False, "error": f"Run {run_id!r} not found"}
+    logger.info("✅ query_run_context: found run_id=%r role=%r", run_id, row["role"])
+    return {"ok": True, "context": dict(row)}
 
 
 async def query_children(run_id: str) -> dict[str, object]:

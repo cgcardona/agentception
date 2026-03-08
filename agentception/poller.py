@@ -777,7 +777,15 @@ async def polling_loop() -> None:
     Designed to be launched as an ``asyncio.Task`` from the FastAPI lifespan.
     Errors inside a single tick are logged and swallowed so one bad GitHub
     response cannot kill the entire dashboard.
+
+    Rate-limit backoff: when GitHub returns a rate-limit error we back off
+    exponentially (60 s → 120 s → 240 s, capped at 300 s) rather than
+    hammering the API on every loop iteration.
     """
+    _RATE_LIMIT_BACKOFF_INITIAL: int = 60
+    _RATE_LIMIT_BACKOFF_MAX: int = 300
+    _rate_limit_backoff: int = 0  # 0 = not in backoff
+
     logger.info(
         "✅ AgentCeption polling loop started (interval=%ds)",
         settings.poll_interval_seconds,
@@ -785,9 +793,25 @@ async def polling_loop() -> None:
     while True:
         try:
             await tick()
+            _rate_limit_backoff = 0  # reset on success
             await asyncio.sleep(settings.poll_interval_seconds)
         except asyncio.CancelledError:
             logger.info("✅ Polling loop stopped cleanly")
             return
         except Exception as exc:
-            logger.warning("⚠️  Polling loop error: %s", exc)
+            exc_str = str(exc).lower()
+            if "rate limit" in exc_str or "rate_limit" in exc_str:
+                if _rate_limit_backoff == 0:
+                    _rate_limit_backoff = _RATE_LIMIT_BACKOFF_INITIAL
+                else:
+                    _rate_limit_backoff = min(
+                        _rate_limit_backoff * 2, _RATE_LIMIT_BACKOFF_MAX
+                    )
+                logger.warning(
+                    "⚠️  GitHub rate limit hit — backing off %ds before retry",
+                    _rate_limit_backoff,
+                )
+                await asyncio.sleep(_rate_limit_backoff)
+            else:
+                logger.warning("⚠️  Polling loop error: %s", exc)
+                await asyncio.sleep(settings.poll_interval_seconds)

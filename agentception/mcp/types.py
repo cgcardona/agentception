@@ -23,9 +23,10 @@ Resource URIs follow the ``ac://`` scheme with REST-like path segments:
   Templated resources (parameters in braces, RFC 6570):
     ac://runs/{run_id}                — single run metadata
     ac://runs/{run_id}/children       — child runs spawned by this run
+    ac://runs/{run_id}/context        — full task context (DB-sourced, replaces .agent-task)
     ac://runs/{run_id}/events         — structured event log
     ac://runs/{run_id}/events?after_id={n} — paginated event log
-    ac://runs/{run_id}/task           — raw .agent-task TOML file
+    ac://runs/{run_id}/task           — raw .agent-task TOML file (pipeline runs only)
     ac://batches/{batch_id}/tree      — full batch run tree
     ac://plan/figures/{role}          — cognitive-arch figures for a role
 """

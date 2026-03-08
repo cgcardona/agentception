@@ -1,23 +1,30 @@
 """MCP Prompts catalogue for AgentCeption.
 
-Exposes every compiled role file and agent prompt as a first-class MCP Prompt
-so clients can discover and fetch them via ``prompts/list`` and ``prompts/get``
-without any filesystem access.
+Two categories of prompts:
+
+Static prompts (no arguments)
+    ``role/<slug>``  — role definition Markdown from ``.agentception/roles/<slug>.md``
+    ``agent/<name>`` — compiled agent prompts from ``.agentception/<name>.md``
+
+    Named after their filesystem source.  Returned as a single ``user`` message
+    whose ``text`` is the raw Markdown file content.
+
+Parameterized prompts (require arguments, DB-backed)
+    ``task/briefing`` — full task briefing for a run, resolved live from the DB.
+        Arguments: ``run_id`` (required)
+        Returns a rendered Markdown briefing combining the run's task context
+        (role, cognitive_arch, task_description or issue reference, worktree
+        path, branch) with the agent's full role definition.
+
+        This is what replaces the ``.agent-task`` file read in the agent loop.
+        The loop calls ``get_prompt("task/briefing", {"run_id": run_id})`` to
+        get the initial user message — no file indirection, no inline text
+        pasted into the conversation, just MCP protocol from start to finish.
 
 Prompt naming convention
-------------------------
-``role/<slug>``
-    Role definition file from ``.agentception/roles/<slug>.md`` — one per role
-    slug in the team taxonomy (e.g. ``role/python-developer``, ``role/cto``).
-
-``agent/<name>``
-    Compiled agent-level prompt from ``.agentception/<name>.md`` — covers the
-    dispatcher, engineer, reviewer, conductor, and policy documents that agents
-    load at runtime.
-
-All prompts are static (no arguments) and returned as a single ``user`` message
-whose ``text`` is the raw Markdown file content.  Agents may prepend the
-returned message to their conversation context.
+    ``role/<slug>``     role definition files
+    ``agent/<name>``    compiled agent-level prompts
+    ``task/<name>``     dynamic, argument-driven task prompts (DB-backed)
 """
 
 from __future__ import annotations
@@ -26,6 +33,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from agentception.db.queries import RunContextRow, get_run_context
 from agentception.mcp.types import (
     ACPromptArgument,
     ACPromptContent,
@@ -72,6 +80,30 @@ _AGENT_FILENAME_MAP: dict[str, str] = {
     "agent/conflict-rules": "conflict-rules",
 }
 
+# ---------------------------------------------------------------------------
+# Parameterized prompt catalogue
+# ---------------------------------------------------------------------------
+
+#: Prompts that require runtime arguments and are resolved from the DB.
+_PARAMETERIZED_PROMPTS: list[ACPromptDef] = [
+    ACPromptDef(
+        name="task/briefing",
+        description=(
+            "Full task briefing for a run — role definition, cognitive architecture, "
+            "and task assignment resolved live from the DB. "
+            "Pass run_id to receive the complete initial message for the agent loop. "
+            "Replaces reading a .agent-task file."
+        ),
+        arguments=[
+            ACPromptArgument(
+                name="run_id",
+                description="The run ID to fetch the briefing for (e.g. 'adhoc-81fd84e7d64d').",
+                required=True,
+            )
+        ],
+    ),
+]
+
 
 def _discover_role_prompts() -> list[ACPromptDef]:
     """Build the role-prompt catalogue from .agentception/roles/*.md files."""
@@ -107,33 +139,43 @@ def _build_agent_prompt_defs() -> list[ACPromptDef]:
 
 
 def _build_catalogue() -> list[ACPromptDef]:
-    """Assemble the full prompt catalogue: agent prompts first, then roles."""
-    return _build_agent_prompt_defs() + _discover_role_prompts()
+    """Assemble the full prompt catalogue: parameterized → agent → roles."""
+    return _PARAMETERIZED_PROMPTS + _build_agent_prompt_defs() + _discover_role_prompts()
 
 
 #: Full prompt catalogue, built once at module import time.
 PROMPTS: list[ACPromptDef] = _build_catalogue()
 
 # ---------------------------------------------------------------------------
-# Prompt getter
+# Prompt getter — async to support DB-backed parameterized prompts
 # ---------------------------------------------------------------------------
 
 
-def get_prompt(name: str) -> ACPromptResult | None:
+async def get_prompt(
+    name: str,
+    arguments: dict[str, str] | None = None,
+) -> ACPromptResult | None:
     """Return the content of a named prompt.
 
-    Reads the corresponding ``.agentception/`` Markdown file and wraps it in
-    an :class:`ACPromptResult` with a single ``user`` message.
+    For static prompts (``role/*``, ``agent/*``) the backing Markdown file is
+    read from disk.  For parameterized prompts (``task/*``) the result is
+    resolved live from the DB using the supplied *arguments*.
 
     Args:
         name: Prompt name as returned by ``prompts/list``
-              (e.g. ``"role/python-developer"`` or ``"agent/dispatcher"``).
+              (e.g. ``"role/python-developer"``, ``"task/briefing"``).
+        arguments: Key/value pairs for parameterized prompts.
+                   Ignored for static prompts.
 
     Returns:
         :class:`ACPromptResult` on success, ``None`` when the prompt name is
-        unknown or the backing file does not exist.
+        unknown, the backing file does not exist, or a required argument is
+        missing.
     """
-    path = _resolve_path(name)
+    if name == "task/briefing":
+        return await _get_task_briefing(arguments or {})
+
+    path = _resolve_static_path(name)
     if path is None:
         logger.warning("⚠️  get_prompt: unknown prompt name %r", name)
         return None
@@ -156,8 +198,181 @@ def get_prompt(name: str) -> ACPromptResult | None:
     )
 
 
-def _resolve_path(name: str) -> Path | None:
-    """Map a prompt name to its backing file path, or None if unknown."""
+# ---------------------------------------------------------------------------
+# task/briefing — DB-backed parameterized prompt
+# ---------------------------------------------------------------------------
+
+
+async def _get_task_briefing(arguments: dict[str, str]) -> ACPromptResult | None:
+    """Render the task/briefing prompt for a given run_id.
+
+    Pulls the full task context from the DB, loads the role definition file,
+    and composes a structured Markdown briefing that serves as the agent's
+    complete initial message.
+
+    Returns ``None`` when ``run_id`` is missing from *arguments* or the run
+    does not exist in the DB.
+    """
+    run_id = arguments.get("run_id", "").strip()
+    if not run_id:
+        logger.warning("⚠️  task/briefing: missing required argument 'run_id'")
+        return None
+
+    ctx = await get_run_context(run_id)
+    if ctx is None:
+        logger.warning("⚠️  task/briefing: run_id=%r not found in DB", run_id)
+        return None
+
+    role = ctx["role"]
+    role_content = _load_role_content(role)
+    text = _render_task_briefing(ctx, role_content)
+
+    return ACPromptResult(
+        description=f"Task briefing for run {run_id} — role: {role}",
+        messages=[
+            ACPromptMessage(
+                role="user",
+                content=ACPromptContent(type="text", text=text),
+            )
+        ],
+    )
+
+
+def _render_task_briefing(ctx: RunContextRow, role_content: str) -> str:
+    """Compose the Markdown briefing from task context and role definition."""
+    run_id: str = ctx["run_id"]
+    role: str = ctx["role"]
+    cognitive_arch: str = ctx["cognitive_arch"] or "not set"
+    worktree_path: str = ctx["worktree_path"] or "not set"
+    branch: str = ctx["branch"] or "not set"
+    issue_number: int | None = ctx["issue_number"]
+    task_description: str | None = ctx["task_description"]
+    batch_id: str | None = ctx["batch_id"]
+    parent_run_id: str | None = ctx["parent_run_id"]
+
+    # Build the assignment section — differs between ad-hoc and issue runs.
+    if task_description:
+        assignment = str(task_description).strip()
+    elif issue_number:
+        assignment = (
+            f"Implement GitHub issue **#{issue_number}**.\n\n"
+            f"Read `ac://runs/{run_id}/context` for full task context, "
+            f"then read the issue body on GitHub to understand the requirements."
+        )
+    else:
+        assignment = (
+            f"Read `ac://runs/{run_id}/context` for your full task context."
+        )
+
+    # Build lineage section only when relevant (non-root runs).
+    lineage_lines: list[str] = []
+    if batch_id:
+        lineage_lines.append(f"**Batch:** `{batch_id}`")
+    if parent_run_id:
+        lineage_lines.append(f"**Spawned by:** `{parent_run_id}`")
+    lineage = "\n".join(lineage_lines)
+
+    parts: list[str] = [
+        f"## Task Briefing — run `{run_id}`",
+        "",
+        f"**Role:** {role}  ",
+        f"**Cognitive Architecture:** {cognitive_arch}  ",
+        f"**Worktree:** `{worktree_path}`  ",
+        f"**Branch:** `{branch}`",
+    ]
+
+    if lineage:
+        parts.append("")
+        parts.append(lineage)
+
+    parts += [
+        "",
+        "---",
+        "",
+        "## Your Assignment",
+        "",
+        assignment,
+        "",
+        "---",
+        "",
+        "## Available MCP Resources",
+        "",
+        f"- `ac://runs/{run_id}/context` — your full task context from the DB",
+        f"- `ac://runs/{run_id}/events` — prior activity log (resume after crash)",
+        f"- `ac://runs/{run_id}/children` — child runs you have spawned",
+        "- `ac://system/config` — pipeline label names",
+        "",
+        "---",
+    ]
+
+    if role_content:
+        parts += [
+            "",
+            "## Your Role Definition",
+            "",
+            role_content.strip(),
+        ]
+
+    return "\n".join(parts)
+
+
+def _load_role_content(role: str) -> str:
+    """Return the Markdown content of the role file for *role*, or empty string."""
+    if not role:
+        return ""
+    path = _AGENTCEPTION_DIR / "roles" / f"{role}.md"
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        logger.warning("⚠️  task/briefing: role file not found for %r", role)
+        return ""
+    except OSError as exc:
+        logger.warning("⚠️  task/briefing: could not read role file for %r: %s", role, exc)
+        return ""
+
+
+# ---------------------------------------------------------------------------
+# Sync accessor for static prompts (used by the sync MCP handler path)
+# ---------------------------------------------------------------------------
+
+
+def get_static_prompt(name: str) -> ACPromptResult | None:
+    """Return a static prompt without hitting the DB.
+
+    Only handles ``role/*`` and ``agent/*`` prompts.  Returns ``None`` for
+    parameterized prompts (``task/*``) — the caller should reject those with
+    an appropriate error message directing clients to the async path.
+
+    Use :func:`get_prompt` (async) for parameterized prompts.
+    """
+    path = _resolve_static_path(name)
+    if path is None:
+        return None
+
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        logger.error("❌ get_static_prompt: could not read %s — %s", path, exc)
+        return None
+
+    return ACPromptResult(
+        description=_get_description(name),
+        messages=[
+            ACPromptMessage(
+                role="user",
+                content=ACPromptContent(type="text", text=text),
+            )
+        ],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Static prompt helpers
+# ---------------------------------------------------------------------------
+
+
+def _resolve_static_path(name: str) -> Path | None:
+    """Map a static prompt name to its backing file path, or None if unknown."""
     if name.startswith("role/"):
         slug = name[5:]
         path = _AGENTCEPTION_DIR / "roles" / f"{slug}.md"

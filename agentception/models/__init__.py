@@ -325,6 +325,14 @@ class TaskFile(BaseModel):
     # Queues (TOML repeated tables)
     issue_queue: list[IssueSub] = []
     pr_queue: list[PRSub] = []
+    # Ad-hoc / DB-sourced runs only
+    task_description: str | None = None
+    """Inline task description injected directly into the initial agent message.
+
+    When set (ad-hoc runs via POST /api/runs/adhoc), the agent loop uses this
+    as the task briefing and does not instruct the agent to read a file.
+    Absent for all standard issue-dispatch runs.
+    """
 
 
 class AbModeConfig(BaseModel):
