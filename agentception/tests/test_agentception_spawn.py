@@ -603,7 +603,7 @@ def test_build_conductor_task_emits_valid_toml(tmp_path: Path) -> None:
     assert parsed["task"]["workflow"] == "conductor"
     assert parsed["task"]["version"] == "2.0"
     assert parsed["agent"]["role"] == "conductor"
-    assert parsed["agent"]["tier"] == "executive"
+    assert parsed["agent"]["tier"] == "coordinator"
     assert parsed["spawn"]["sub_agents"] is True
     assert parsed["target"]["phases"] == ["ac-build/phase-0", "ac-build/phase-1"]
     assert parsed["target"]["org"] == "engineering"

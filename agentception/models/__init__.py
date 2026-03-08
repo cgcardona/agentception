@@ -87,8 +87,8 @@ class AgentNode(BaseModel):
     or has completed its assigned task. Children are spawned sub-agents.
 
     ``tier`` is the behavioral execution tier:
-    - ``"executive"``   — top-level coordinator; surveys the whole initiative.
-    - ``"coordinator"`` — mid-level coordinator; surveys a domain or phase.
+    - ``"coordinator"`` — surveys its scope and spawns children; any coordinator
+                          can be the tree root.
     - ``"engineer"``    — leaf worker; implements one issue.
     - ``"reviewer"``    — leaf reviewer; reviews one PR.
 
@@ -287,7 +287,7 @@ class TaskFile(BaseModel):
     # [agent]
     role: str | None = None
     tier: str | None = None
-    """Behavioral execution tier: executive | coordinator | engineer | reviewer."""
+    """Behavioral execution tier: coordinator | engineer | reviewer."""
     org_domain: str | None = None
     """Organisational slot for UI hierarchy: c-suite | engineering | qa."""
     cognitive_arch: str | None = None

@@ -116,7 +116,7 @@ class ACAgentRun(Base):
     tier: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     """Behavioral execution tier for this agent run.
 
-    Values: ``executive`` | ``coordinator`` | ``engineer`` | ``reviewer``.
+    Values: ``coordinator`` | ``engineer`` | ``reviewer``.
     Written from the ``TIER=`` field in the ``.agent-task`` file.
     Null for rows spawned before migration 0012.
     """

@@ -66,7 +66,7 @@ Because the LLM reads the entire file, **any valid TOML you add is immediately a
 | Field | Type | Description |
 |-------|------|-------------|
 | `role` | string | Role slug: `python-developer`, `cto`, `engineering-coordinator`, etc. |
-| `logical_tier` | string | `executive`, `coordinator`, `engineer`, or `reviewer` |
+| `logical_tier` | string | `coordinator`, `engineer`, or `reviewer` |
 | `cognitive_arch` | string | `"figure:skill1:skill2"` — composed by `resolve_arch.py` |
 | `node_type` | string | `coordinator` or `leaf` — drives dispatch behavior |
 

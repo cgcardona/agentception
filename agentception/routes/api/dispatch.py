@@ -306,12 +306,12 @@ _COORDINATOR_ROLES: frozenset[str] = frozenset({
 def _tier_for_role(role: str) -> Tier:
     """Return the behavioral tier for a role slug.
 
-    Coordinator roles survey their scope and spawn children → ``coordinator``
-    or ``executive`` for C-suite roles.  All other roles are leaf agents:
-    PR reviewers → ``reviewer``, everything else → ``engineer``.
+    All coordinator roles (C-suite and sub-coordinators alike) survey their
+    scope and spawn children → ``coordinator``.  PR reviewers → ``reviewer``,
+    everything else → ``engineer``.
     """
     if role in _COORDINATOR_ROLES:
-        return "executive" if role in {"cto", "ceo", "cpo", "coo", "cdo", "cfo", "ciso", "cmo", "csto"} else "coordinator"
+        return "coordinator"
     if role in {"pr-reviewer", "qa-coordinator"}:
         return "reviewer"
     return "engineer"
@@ -375,9 +375,9 @@ class LabelDispatchRequest(BaseModel):
 
     *scope* is the primary selector:
 
-    - ``"full_initiative"`` — an executive agent surveys every open ticket
-      under *label* and assembles its own child team.  ``tier`` is
-      ``"executive"``.
+    - ``"full_initiative"`` — a root coordinator (e.g. CTO) surveys every
+      open ticket under *label* and assembles its own child team.  ``tier``
+      is ``"coordinator"``.
     - ``"phase"`` — a coordinator handles just one phase sub-label; supply
       *scope_label* with the sub-label string.  ``tier`` is
       ``"coordinator"``.

@@ -1368,10 +1368,6 @@ $_sw-gap: 0.5rem;
   }
 
   // Tier colour accents on the left edge
-  &--executive {
-    border-left: 2px solid var(--accent);
-  }
-
   &--coordinator {
     border-left: 2px solid rgba(139, 92, 246, 0.5);
   }

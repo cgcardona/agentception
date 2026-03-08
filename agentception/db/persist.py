@@ -972,8 +972,8 @@ async def persist_agent_run_dispatch(
 
     ``cognitive_arch`` is written to the DB column added in migration 0005.
 
-    ``tier`` is the behavioral execution tier: ``executive | coordinator |
-    engineer | reviewer``.  Added in migration 0012.
+    ``tier`` is the behavioral execution tier: ``coordinator | engineer |
+    reviewer``.  Added in migration 0012.
 
     ``org_domain`` is the organisational slot for UI hierarchy visualisation:
     ``c-suite | engineering | qa``.  A chain-spawned PR reviewer should pass

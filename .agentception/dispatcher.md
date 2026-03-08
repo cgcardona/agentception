@@ -57,8 +57,7 @@ together define exactly what GitHub queries to make and which children to spawn:
 
 | `tier` | `scope_type` | What `scope_value` means | GitHub queries |
 |--------|-------------|--------------------------|----------------|
-| `executive` | `label` | GitHub label string | `list_issues (user-github)` + `list_pull_requests (user-github)` filtered to the label |
-| `coordinator` | `label` | GitHub label string | `list_issues (user-github)` only (engineering) or `list_pull_requests (user-github)` only (qa) |
+| `coordinator` | `label` | GitHub label string | `list_issues (user-github)` + `list_pull_requests (user-github)` (root/CTO), or issues only (engineering), or PRs only (qa) |
 | `engineer` | `issue` | Issue number (string) | `issue_read (user-github)(issue_number=<scope_value>)` |
 | `reviewer` | `pr` | PR number (string) | `pull_request_read (user-github)(pr_number=<scope_value>)` |
 
@@ -101,7 +100,7 @@ arch resolution — the stub is sufficient for this MVP verification pass.
 Use `subagent_type="generalPurpose"` — **never `shell`**. Only `generalPurpose`
 agents have the Task tool and can spawn their own children.
 
-**For executive and coordinator tiers** (`tier` is `executive` or `coordinator`):
+**For coordinator tiers** (`tier` is `coordinator`):
 
 ```
 You are an AgentCeption coordinator agent. Your briefing:
@@ -138,7 +137,7 @@ Step 2: Read your .agent-task file:
 
 Step 3: Run your tier's GitHub queries via MCP to discover what needs doing.
 
-  executive tier — call BOTH MCP tools:
+  root coordinator (cto / ceo role) — call BOTH MCP tools:
     list_issues (user-github)(label="{scope_value}", state="open")
     list_pull_requests (user-github)(state="open")
   Then follow the CTO spawn decision — these branches are mutually exclusive:
@@ -148,7 +147,7 @@ Step 3: Run your tier's GitHub queries via MCP to discover what needs doing.
     issues == 0, PRs > 0   → spawn qa-coordinator only (cleanup sweep).
     issues == 0, PRs == 0  → exit.
 
-  coordinator tier (engineering-coordinator role) — call:
+  coordinator (engineering-coordinator role) — call:
     list_issues (user-github)(label="{scope_value}", state="open")
   Filter out any issues with label "agent/wip" (already claimed),
   "blocked" (phase-gated — prior phase not yet complete), or "ticket-blocked"
@@ -156,7 +155,7 @@ Step 3: Run your tier's GitHub queries via MCP to discover what needs doing.
   Only work on issues with none of these three labels.
   Then: spawn one engineer per eligible issue (all in parallel via Task calls).
 
-  coordinator tier (qa-coordinator role) — call:
+  coordinator (qa-coordinator role) — call:
     list_pull_requests (user-github)(state="open")
   Then: spawn one pr-reviewer per open PR (all in parallel via Task calls).
 
@@ -170,7 +169,7 @@ Step 5: Wait for all children to complete, then check GitHub again.
   Loop until your queue is empty:
     engineering-coordinator → loop until no eligible issues remain.
     qa-coordinator          → loop until no unreviewed PRs remain.
-    executive               → loop until both issues and PRs are empty.
+    root coordinator (cto/ceo) → loop until both issues and PRs are empty.
 
 Step 6: Report each major step via MCP:
   log_run_step     — when starting a query or spawn wave

@@ -3,7 +3,7 @@ from __future__ import annotations
 """Tests for the universal child-node spawner (agentception/services/spawn_child.py).
 
 Covers:
-  - tier parameter contract (executive / coordinator / engineer / reviewer).
+  - tier parameter contract (coordinator / engineer / reviewer).
   - _build_child_task() field presence and correctness for each scope type.
   - spawn_child() happy path (mocked git + DB) for coordinator and leaf.
   - spawn_child() produces tier = (not node_type =) in .agent-task.
@@ -546,7 +546,7 @@ def test_spawn_child_result_to_dict_org_domain_none() -> None:
 def test_all_tiers_produce_valid_task_content() -> None:
     """Every tier/scope combination must produce a parseable .agent-task."""
     combos: list[tuple[str, Tier, ScopeType, str]] = [
-        ("cto", "executive", "label", "ac-workflow"),
+        ("cto", "coordinator", "label", "ac-workflow"),
         ("engineering-coordinator", "coordinator", "label", "phase/0"),
         ("qa-coordinator", "coordinator", "label", "phase/0"),
         ("python-developer", "engineer", "issue", "42"),

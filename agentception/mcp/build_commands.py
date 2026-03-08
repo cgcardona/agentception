@@ -101,7 +101,7 @@ async def build_spawn_child_run(
     Args:
         parent_run_id:  ``run_id`` of the calling agent (lineage tracking).
         role:           Child's role slug (e.g. ``"engineering-coordinator"``).
-        tier:           Behavioral execution tier — ``"executive"``, ``"coordinator"``,
+        tier:           Behavioral execution tier — ``"coordinator"``,
                         ``"engineer"``, or ``"reviewer"``.
         scope_type:     ``"label"``, ``"issue"``, or ``"pr"``.
         scope_value:    Label string, or issue/PR number as a string.
@@ -119,10 +119,8 @@ async def build_spawn_child_run(
                        "tier": ..., "org_domain": ..., "role": ..., "cognitive_arch": ...}``
         On failure: ``{"ok": False, "error": "<reason>"}``
     """
-    if tier == "executive":
-        typed_tier: Tier = "executive"
-    elif tier == "coordinator":
-        typed_tier = "coordinator"
+    if tier == "coordinator":
+        typed_tier: Tier = "coordinator"
     elif tier == "engineer":
         typed_tier = "engineer"
     elif tier == "reviewer":
@@ -130,7 +128,7 @@ async def build_spawn_child_run(
     else:
         return {
             "ok": False,
-            "error": f"tier must be executive/coordinator/engineer/reviewer, got {tier!r}",
+            "error": f"tier must be coordinator/engineer/reviewer, got {tier!r}",
         }
 
     if scope_type == "label":

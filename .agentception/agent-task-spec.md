@@ -99,7 +99,7 @@ Who is executing this task.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `role` | string | yes | Role slug: `"python-developer"`, `"pr-reviewer"`, `"qa-coordinator"`, etc. |
-| `tier` | string | yes | Behavioral execution tier: `"executive"` \| `"coordinator"` \| `"engineer"` \| `"reviewer"`. Written as `TIER=` in the `.agent-task` file. Tells the agent and the dashboard its place in the pipeline hierarchy. |
+| `tier` | string | yes | Behavioral execution tier: `"coordinator"` \| `"engineer"` \| `"reviewer"`. Written as `TIER=` in the `.agent-task` file. Tells the agent and the dashboard its place in the pipeline hierarchy. Any coordinator can be the tree root — the entry point is pruned at dispatch time. |
 | `org_domain` | string | no | Organisational slot for UI hierarchy: `"c-suite"` \| `"engineering"` \| `"qa"`. Written as `ORG_DOMAIN=` when provided. A chain-spawned PR reviewer with `tier=reviewer` should have `org_domain=qa` so the dashboard places it under the QA column regardless of its physical parent. |
 | `cognitive_arch` | string | yes | `"figure:skill1:skill2"` — resolved by `resolve_arch.py` |
 | `session_id` | string | no | Set by the agent at runtime: `"eng-20260303T134821Z-a7f2"` |
