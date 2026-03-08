@@ -9,7 +9,7 @@ For all of recorded history, human progress has been constrained by one thing: t
 
 Then something changed.
 
-Autonomous AI agents can now reason, plan, write code, open pull requests, and report back. The singularity isn't near. **It's here.** Every hour an agent spends filing tickets, writing boilerplate, and opening PRs is an hour a human gets back to think, to create, to be human. We are moving from a world of scarcity into a world of **superabundance**.
+Autonomous AI agents can now reason, plan, write code, open pull requests, and report back. The singularity isn't near. **It's here.** When agents can carry the full cognitive load of an org — planning, dependency modeling, implementation, review — humans get to operate at the level of ideas. We are moving from a world of scarcity into a world of **superabundance**.
 
 AgentCeption is a bet on that future.
 
