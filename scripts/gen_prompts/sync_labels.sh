@@ -8,15 +8,14 @@
 set -euo pipefail
 GH_REPO="cgcardona/agentception"
 
-# Helper: create label if absent, otherwise update color + description.
+# Helper: create or update a label idempotently.
+# gh label create --force creates if absent, updates if present.
 sync_label() {
   local name="$1" color="$2" desc="$3"
-  if gh label list --repo "$GH_REPO" --limit 200 | grep -q "^${name}\b"; then
-    gh label edit "$name" --repo "$GH_REPO" --color "$color" --description "$desc"
-    echo "  ✏️  updated: $name"
+  if gh label create "$name" --repo "$GH_REPO" --color "$color" --description "$desc" --force 2>&1; then
+    echo "  ✅ synced: $name"
   else
-    gh label create "$name" --repo "$GH_REPO" --color "$color" --description "$desc"
-    echo "  ✅ created: $name"
+    echo "  ❌ failed: $name"
   fi
 }
 
