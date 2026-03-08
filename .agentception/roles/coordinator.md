@@ -132,16 +132,15 @@ Full schema, invariants, and API details: `docs/guides/integrate.md` (§ ENRICHE
 
 ## Pipeline State
 
-Read from GitHub labels only:
+Issue lifecycle is determined by GitHub state — not by labels:
 
-| Label | Meaning |
-|-------|---------|
-| `status/ready` | Queued, no agent started |
-| `status/in-progress` | Agent working — check for open PR |
-| `status/pr-open` | PR awaiting review |
-| `status/merged` | Done |
+| GitHub state | Meaning |
+|--------------|---------|
+| Open, no `agent/wip` | Queued — not yet claimed |
+| Open, has `agent/wip` | Claimed — agent running |
+| Closed via merged PR | Done |
 
-`status/in-progress` with no open PR and no recent activity = orphan. Remove the label and re-queue.
+Open issue with `agent/wip` but no recent agent activity = orphan. Remove `agent/wip` and re-queue.
 
 ## ATTEMPT_N Anti-Loop Guard
 

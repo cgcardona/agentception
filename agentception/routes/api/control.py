@@ -657,7 +657,7 @@ async def spawn_coordinator(body: SpawnCoordinatorRequest) -> SpawnCoordinatorRe
     ``agent-triage.md``.  The agent will:
 
     1. Run the Phase Planner against the ``BRAIN_DUMP`` field.
-    2. Create required GitHub labels (phase-N/*, status/*, priority/*).
+    2. Create required GitHub labels (phase/*, priority/*, type/*, gate/*).
     3. Create one sub-worktree per phase-batch.
     4. Write ``.agent-task`` files for each sub-agent.
     5. Launch sub-agents via the Cursor Task tool.

@@ -1134,9 +1134,7 @@ STEP 6 — PRE-MERGE SYNC (only if grade is A or B):
   CLOSES_ISSUES_FOR_LABEL=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(','.join(str(x) for x in d.get('target',{}).get('closes',[])))")
   if [ -n "$CLOSES_ISSUES_FOR_LABEL" ]; then
     # For each issue in CLOSES_ISSUES_FOR_LABEL:
-    # MCP: github_remove_label(issue_number=<N>, label="status/pr-open")
-    # MCP: github_add_label(issue_number=<N>, label="status/merged")
-    echo "Update issue labels via MCP github_remove_label + github_add_label"
+    echo "Issues closed automatically via PR merge (Closes #N in PR body)"
   fi
 
   # 9. Pull the merge into the main repo's local dev — so the coordinator's

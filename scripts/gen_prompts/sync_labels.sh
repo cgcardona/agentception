@@ -62,12 +62,6 @@ sync_label 'priority/high' 'e67e22' 'High priority — do this wave'
 sync_label 'priority/medium' 'f59f00' 'Normal priority'
 sync_label 'priority/low' 'a2eeef' 'Nice to have — do after higher-priority items'
 
-echo '── Statuses ────────────────────────────────────────────────'
-sync_label 'status/ready' 'ffffff' 'Queued and ready for dispatch — no agent working yet'
-sync_label 'status/in-progress' '0075ca' 'Agent implementation underway'
-sync_label 'status/pr-open' 'e8a2f4' 'PR created — awaiting review'
-sync_label 'status/merged' '198754' 'PR merged and closed'
-
 echo '── Gates ───────────────────────────────────────────────────'
 sync_label 'gate/db-migration' 'd63939' 'Human gate: Alembic migration — verify MERGE_AFTER chain first'
 sync_label 'gate/security' 'd73a4a' 'Human gate: security review required before dispatch'
