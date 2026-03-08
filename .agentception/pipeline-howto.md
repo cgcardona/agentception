@@ -88,9 +88,9 @@ agent. The pool stays at N concurrent workers continuously until the queue drain
 
 ---
 
-## The `.agent-task` File Format (TOML v2)
+## The `.agent-task` File Format (TOML)
 
-Every worktree gets exactly one `.agent-task` file in TOML v2 format. The canonical prompts parse it.
+Every worktree gets exactly one `.agent-task` file in TOML format. The canonical prompts parse it.
 
 ```toml
 [task]
@@ -181,7 +181,7 @@ git worktree add ~/.agentception/worktrees/agentception/pr-{N} origin/$BRANCH
 
 ### Step 3 — Write `.agent-task` files
 
-One file per worktree. Use the TOML v2 format above. Key fields:
+One file per worktree. Use the TOML format above. Key fields:
 - `role =` — pick from: `python-developer`, `database-architect`, `pr-reviewer`
 - `scope.description =` — multi-line description of what to build/review
 

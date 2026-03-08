@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Task-file builders for agent worktrees.
 
-Provides three pure functions that construct the TOML v2 content of
+Provides three pure functions that construct the TOML content of
 ``.agent-task`` files.  They belong in ``services/`` rather than
 ``routes/api/`` so that modules in ``mcp/`` can import them without
 triggering the ``routes/api`` package initialisation (which imports
@@ -50,7 +50,7 @@ def _build_agent_task(
     file_ownership: list[str] | None = None,
     is_resumed: bool = False,
 ) -> str:
-    """Build the TOML v2 content of a ``.agent-task`` file for an engineer agent.
+    """Build the TOML content of a ``.agent-task`` file for an engineer agent.
 
     Emits a fully-structured TOML document following the v2.0 spec in
     ``.agentception/agent-task-spec.md``.  The file is consumed by both the
@@ -123,7 +123,7 @@ def _build_coordinator_task(
     coordinator_arch: dict[str, str] | None = None,
     is_resumed: bool = False,
 ) -> str:
-    """Build the TOML v2 ``.agent-task`` content for a plan coordinator worktree.
+    """Build the TOML ``.agent-task`` content for a plan coordinator worktree.
 
     The coordinator agent reads ``task.workflow = "bugs-to-issues"`` and runs
     the Phase Planner, creates GitHub labels, creates worktrees for each batch,
@@ -199,7 +199,7 @@ def _build_conductor_task(
     branch: str,
     is_resumed: bool = False,
 ) -> str:
-    """Build the TOML v2 ``.agent-task`` content for a conductor worktree.
+    """Build the TOML ``.agent-task`` content for a conductor worktree.
 
     The conductor agent reads ``task.workflow = "conductor"`` and coordinates
     across the listed phases, spawning sub-agents for each unclaimed issue.

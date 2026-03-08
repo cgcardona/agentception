@@ -49,7 +49,7 @@ def _make_task_file(
     wt_dir.mkdir(parents=True, exist_ok=True)
     task_file = wt_dir / ".agent-task"
     task_file.write_text(
-        f'[task]\nversion = "2.0"\nworkflow = "issue-to-pr"\nattempt_n = 0\n\n'
+        f'[task]\nversion = "0.1.1"\nworkflow = "issue-to-pr"\nattempt_n = 0\n\n'
         f'[pipeline]\nbatch_id = "{batch_id}"\n\n'
         f'[target]\nissue_number = {issue_number}\n',
         encoding="utf-8",

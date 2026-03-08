@@ -194,7 +194,7 @@ for entry in "${PRS[@]}"; do
 
   cat > "$WT/.agent-task" <<TASKEOF
 [task]
-version = "2.0"
+version = "0.1.1"
 workflow = "pr-review"
 id = "$(uuidgen | tr '[:upper:]' '[:lower:]')"
 created_at = "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -1340,7 +1340,7 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
 
       cat > "$NEXT_WORKTREE/.agent-task" <<TASK
 [task]
-version = "2.0"
+version = "0.1.1"
 workflow = "issue-to-pr"
 id = "$(uuidgen | tr '[:upper:]' '[:lower:]')"
 created_at = "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -1419,7 +1419,7 @@ TASK
       [ "$NEXT_HAS_MIG" -gt 0 ] && NEXT_HAS_MIG_VAL=true || NEXT_HAS_MIG_VAL=false
       cat > "$NEXT_WORKTREE/.agent-task" <<TASK
 [task]
-version = "2.0"
+version = "0.1.1"
 workflow = "pr-review"
 id = "$(uuidgen | tr '[:upper:]' '[:lower:]')"
 created_at = "$(date -u +%Y-%m-%dT%H:%M:%SZ)"

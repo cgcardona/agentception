@@ -227,9 +227,9 @@ def _build_child_task(
     pr_number: int | None = None,
     is_resumed: bool = False,
 ) -> str:
-    """Build the TOML v2 content of a ``.agent-task`` file for any tree node.
+    """Build the TOML content of a ``.agent-task`` file for any tree node.
 
-    Emits a fully-structured TOML v2 document consumed by both
+    Emits a fully-structured TOML document consumed by both
     ``parse_agent_task()`` (dashboard poller) and Cursor LLM agents.
     All fields must be valid TOML — no KEY=VALUE lines.
 

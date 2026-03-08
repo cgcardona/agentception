@@ -56,13 +56,13 @@ When you are spawned via the planning pipeline (`POST /api/plan/launch` or the `
 
 ### Format
 
-The file is TOML v2 format with structured `[section]` headers. The manifest is stored in the `[plan_draft]` section as a TOML multiline string (`dump` key). Parse that string as JSON to get the manifest.
+The file is TOML format with structured `[section]` headers. The manifest is stored in the `[plan_draft]` section as a TOML multiline string (`dump` key). Parse that string as JSON to get the manifest.
 
 **Minimal example:**
 
 ````toml
 [task]
-version = "2.0"
+version = "0.1.1"
 workflow = "bugs-to-issues"
 id = "abc12345-6789-0def-ghij-klmnopqrstuv"
 created_at = "2026-03-05T14:22:01Z"

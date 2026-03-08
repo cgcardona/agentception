@@ -234,7 +234,7 @@ class PipelineState(BaseModel):
 
 
 class IssueSub(BaseModel):
-    """One entry from ``[[issue_queue]]`` in a TOML v2 .agent-task file.
+    """One entry from ``[[issue_queue]]`` in a TOML .agent-task file.
 
     Coordinator agents receive a list of these; each becomes one worktree and
     one leaf agent. All fields except ``branch`` and ``file_ownership`` are
@@ -251,7 +251,7 @@ class IssueSub(BaseModel):
 
 
 class PRSub(BaseModel):
-    """One entry from ``[[pr_queue]]`` in a TOML v2 .agent-task file.
+    """One entry from ``[[pr_queue]]`` in a TOML .agent-task file.
 
     QA coordinator agents receive a list of these; each is one PR to review
     with merge order and grade threshold. All fields except ``closes_issues``
@@ -271,7 +271,7 @@ class PRSub(BaseModel):
 class TaskFile(BaseModel):
     """Parsed content of a ``.agent-task`` file from a worktree.
 
-    Supports both the legacy KEY=value format and the TOML v2 spec
+    Supports both the legacy KEY=value format and the TOML spec
     (see .agentception/agent-task-spec.md). Every field maps from a TOML section
     or a legacy key. Unknown keys are silently ignored. All fields are optional
     to ensure graceful handling of missing or malformed task files.
@@ -323,7 +323,7 @@ class TaskFile(BaseModel):
     output_format: str | None = None
     # [domain]
     domain: str | None = None
-    # Queues (TOML v2 repeated tables)
+    # Queues (TOML repeated tables)
     issue_queue: list[IssueSub] = []
     pr_queue: list[PRSub] = []
 

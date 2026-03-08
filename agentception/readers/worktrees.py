@@ -53,7 +53,7 @@ async def list_active_worktrees() -> list[TaskFile]:
 
 
 async def parse_agent_task(worktree_path: Path) -> TaskFile | None:
-    """Parse a TOML v2 ``.agent-task`` file into a TaskFile model.
+    """Parse a TOML ``.agent-task`` file into a TaskFile model.
 
     Returns ``None`` when the file is absent, unreadable, or so malformed
     that no valid TaskFile can be constructed. Malformed TOML is logged as
@@ -167,7 +167,7 @@ def _str_list_val(sec: dict[str, object], key: str) -> list[str]:
 
 
 def _build_task_file_from_toml(data: dict[str, object], worktree_path: Path) -> TaskFile:
-    """Map TOML v2 ``.agent-task`` sections to ``TaskFile`` fields.
+    """Map TOML ``.agent-task`` sections to ``TaskFile`` fields.
 
     Section → field mapping follows ``.agentception/agent-task-spec.md`` v2.0.
     Unknown fields are silently ignored; all TaskFile fields are optional so

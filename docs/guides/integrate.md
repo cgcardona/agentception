@@ -75,13 +75,13 @@ The `x-cloak` attribute prevents a flash of the bar before Alpine initialises. T
 
 ## Agent-task format for plan coordinator spawning
 
-When `POST /api/plan/launch` spawns a coordinator agent via `plan_spawn_coordinator()`, it writes an `.agent-task` file to the coordinator's git worktree. That file uses **TOML v2 format** (spec version `2.0`) with a special `[enriched]` section containing the JSON manifest payload.
+When `POST /api/plan/launch` spawns a coordinator agent via `plan_spawn_coordinator()`, it writes an `.agent-task` file to the coordinator's git worktree. That file uses **TOML format** (spec version `0.1.1`) with a special `[enriched]` section containing the JSON manifest payload.
 
 ### File format
 
 ```toml
 [task]
-version = "2.0"
+version = "0.1.1"
 workflow = "bugs-to-issues"
 id = "3f4a9c2e-1b8d-4e7f-a6c5-9d2e8f0b1a3c"
 created_at = 2026-03-05T14:22:01Z

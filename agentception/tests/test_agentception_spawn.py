@@ -6,7 +6,7 @@ Covers POST /api/control/spawn and GET /agents/spawn.
 All GitHub calls and git operations are mocked — no live network, no
 filesystem side-effects.
 
-Also covers TOML v2 output of _build_agent_task(), _build_coordinator_task(),
+Also covers TOML output of _build_agent_task(), _build_coordinator_task(),
 and _build_conductor_task() (AC-49): each builder must emit valid TOML that
 round-trips through tomllib into the correct TaskFile fields.
 
@@ -145,7 +145,7 @@ def test_spawn_creates_worktree_and_task_file(
     assert "issue-42" in data["worktree"]
     assert "issue-42" in data["host_worktree"]
     assert data["branch"] == "feat/issue-42"
-    # TOML v2 output: check key = value format
+    # TOML output: check key = value format
     assert "issue_number = 42" in data["agent_task"]
     assert 'branch = "feat/issue-42"' in data["agent_task"]
     assert 'role = "python-developer"' in data["agent_task"]
@@ -458,7 +458,7 @@ def test_spawn_request_rejects_unknown_role() -> None:
         SpawnRequest(issue_number=1, role="hacker")
 
 
-# ── TOML v2 builder tests (AC-49) ─────────────────────────────────────────────
+# ── TOML builder tests (AC-49) ─────────────────────────────────────────────
 
 
 def _fake_worktree(tmp_path: Path, name: str = "issue-99") -> Path:
@@ -690,12 +690,12 @@ def test_build_agent_task_file_ownership_defaults_to_empty_array(tmp_path: Path)
 
 
 # ---------------------------------------------------------------------------
-# _build_child_task — TOML v2 output regression (swim lane fix)
+# _build_child_task — TOML output regression (swim lane fix)
 # ---------------------------------------------------------------------------
 
 
 def test_build_child_task_issue_scope_emits_valid_toml(tmp_path: Path) -> None:
-    """_build_child_task() must emit valid TOML v2 for issue-scoped agents.
+    """_build_child_task() must emit valid TOML for issue-scoped agents.
 
     Regression: spawn_child previously emitted KEY=VALUE which parse_agent_task()
     (now TOML-only) silently dropped, leaving no ACAgentRun row and cards stuck
@@ -736,7 +736,7 @@ def test_build_child_task_issue_scope_emits_valid_toml(tmp_path: Path) -> None:
 
 
 def test_build_child_task_pr_scope_emits_valid_toml() -> None:
-    """_build_child_task() must emit valid TOML v2 for PR-scoped (reviewer) agents."""
+    """_build_child_task() must emit valid TOML for PR-scoped (reviewer) agents."""
     output = _build_child_task(
         run_id="pr-142-def456",
         role="pr-reviewer",
@@ -761,7 +761,7 @@ def test_build_child_task_pr_scope_emits_valid_toml() -> None:
 
 
 def test_build_child_task_label_scope_emits_valid_toml() -> None:
-    """_build_child_task() must emit valid TOML v2 for label-scoped (coordinator) agents."""
+    """_build_child_task() must emit valid TOML for label-scoped (coordinator) agents."""
     output = _build_child_task(
         run_id="coord-ac-workflow-ghi789",
         role="engineering-coordinator",

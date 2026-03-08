@@ -47,7 +47,7 @@ def test_kill_response_has_hx_trigger_toast(client: TestClient, tmp_path: Path) 
     worktree = tmp_path / "issue-999"
     worktree.mkdir()
     (worktree / ".agent-task").write_text(
-        '[task]\nversion = "2.0"\nworkflow = "issue-to-pr"\nattempt_n = 0\n\n'
+        '[task]\nversion = "0.1.1"\nworkflow = "issue-to-pr"\nattempt_n = 0\n\n'
         '[target]\nissue_number = 999\n\n'
         '[repo]\ngh_repo = "cgcardona/agentception"\n',
         encoding="utf-8",

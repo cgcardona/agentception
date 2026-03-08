@@ -23,7 +23,7 @@ from agentception.readers.worktrees import parse_agent_task
 
 
 # ---------------------------------------------------------------------------
-# TaskFile — TOML v2 .agent-task parser
+# TaskFile — TOML .agent-task parser
 # ---------------------------------------------------------------------------
 
 

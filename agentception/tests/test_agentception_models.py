@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 """Tests for agentception/models.py — VALID_ROLES taxonomy sync (issue #822)
-and TaskFile / IssueSub / PRSub TOML v2 expansion (issue #47).
+and TaskFile / IssueSub / PRSub TOML expansion (issue #47).
 
 Verifies that ``VALID_ROLES`` is derived from the role taxonomy, and that
-TaskFile, IssueSub, and PRSub validate correctly with all TOML v2 fields.
+TaskFile, IssueSub, and PRSub validate correctly with all TOML fields.
 
 Run targeted:
     pytest agentception/tests/test_agentception_models.py -v
@@ -106,11 +106,11 @@ def test_valid_roles_contains_new_taxonomy_roles() -> None:
     )
 
 
-# ── TaskFile / IssueSub / PRSub (issue #47 — TOML v2 spec) ─────────────────────
+# ── TaskFile / IssueSub / PRSub (issue #47 — TOML spec) ─────────────────────
 
 
 def test_task_file_with_all_new_fields_validates() -> None:
-    """TaskFile accepts all new TOML v2 fields and validates correctly."""
+    """TaskFile accepts all new TOML fields and validates correctly."""
     tf = TaskFile(
         task="issue-to-pr",
         id="3f4a9c2e-1b8d-4e7f-a6c5-9d2e8f0b1a3c",
@@ -180,7 +180,7 @@ def test_pr_sub_validates_correctly() -> None:
     """PRSub validates with required and optional fields."""
     sub = PRSub(
         number=642,
-        title="Add TaskFile TOML v2 fields",
+        title="Add TaskFile TOML fields",
         branch="feat/issue-47",
         role="pr-reviewer",
         cognitive_arch="turing:python",
@@ -189,7 +189,7 @@ def test_pr_sub_validates_correctly() -> None:
         closes_issues=[47],
     )
     assert sub.number == 642
-    assert sub.title == "Add TaskFile TOML v2 fields"
+    assert sub.title == "Add TaskFile TOML fields"
     assert sub.grade_threshold == "A"
     assert sub.merge_order == 2
     assert sub.closes_issues == [47]
