@@ -33,7 +33,7 @@ export interface ActiveIssue {
   swim_lane: string;
 }
 
-type AgentTier = 'coordinator' | 'engineer' | 'reviewer' | 'unknown';
+type AgentTier = 'coordinator' | 'worker' | 'unknown';
 
 export interface AgentTreeNode {
   id: string;
@@ -115,7 +115,7 @@ export function buildPage() {
     // ── agent tree computed groupings ────────────────────────────────────
 
     get treeTiers(): TreeTierGroup[] {
-      const ORDER: AgentTier[] = ['coordinator', 'engineer', 'reviewer'];
+      const ORDER: AgentTier[] = ['coordinator', 'worker'];
       const byTier: Partial<Record<AgentTier, AgentTreeNode[]>> = {};
       for (const node of this.agentTreeNodes) {
         const t = (node.tier ?? 'unknown') as AgentTier;
@@ -124,8 +124,7 @@ export function buildPage() {
       }
       const LABELS: Record<AgentTier, string> = {
         coordinator: 'Coordinators',
-        engineer:    'Engineers',
-        reviewer:    'Reviewers',
+        worker:      'Workers',
         unknown:     'Agents',
       };
       return ORDER

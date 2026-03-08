@@ -496,7 +496,7 @@ TOOLS: list[ACToolDef] = [
                 },
                 "tier": {
                     "type": "string",
-                    "enum": ["coordinator", "engineer", "reviewer"],
+                    "enum": ["coordinator", "worker"],
                     "description": "Behavioral execution tier.",
                 },
                 "org_domain": {

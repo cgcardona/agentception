@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 ScopeType = Literal["label", "issue", "pr"]
 
 #: Behavioral execution tier — what the agent *does* in the pipeline.
-Tier = Literal["coordinator", "engineer", "reviewer"]
+Tier = Literal["coordinator", "worker"]
 
 #: Internal structural position derived from Tier; used only for MCP query hints.
 _NodeType = Literal["coordinator", "leaf"]
@@ -70,7 +70,7 @@ def _tier_to_node_type(tier: Tier) -> _NodeType:
     """Derive structural position from behavioral tier.
 
     ``coordinator`` surveys its scope and spawns children.
-    ``engineer`` and ``reviewer`` work a single issue or PR.
+    ``worker`` claims one unit of work (issue or PR) and executes it.
     """
     if tier == "coordinator":
         return "coordinator"
@@ -87,7 +87,7 @@ class SpawnChildResult:
         host_worktree_path:  Absolute path on the HOST filesystem.
         worktree_path:       Absolute path inside the container.
         tier:                Behavioral tier written to the ``.agent-task`` —
-                             one of ``coordinator | engineer | reviewer``.
+                             one of ``coordinator | worker``.
         org_domain:          Organisational slot for UI hierarchy (``c-suite``,
                              ``engineering``, or ``qa``).  ``None`` when not specified.
         role:                Role slug (e.g. ``"engineering-coordinator"``).
@@ -234,7 +234,7 @@ def _build_child_task(
     All fields must be valid TOML — no KEY=VALUE lines.
 
     ``tier`` is the behavioral execution tier:
-    ``coordinator | engineer | reviewer``.
+    ``coordinator | worker``.
     """
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -378,7 +378,7 @@ async def spawn_child(
         parent_run_id:      ``run_id`` of the calling agent (lineage tracking).
         role:               Child's role slug (e.g. ``"engineering-coordinator"``).
         tier:               Behavioral execution tier for this child —
-                            ``"coordinator"``, ``"engineer"``, or ``"reviewer"``.
+                            ``"coordinator"`` or ``"worker"``.
                             Written as ``TIER=`` in the
                             ``.agent-task`` file.  The caller always knows which
                             tier it is spawning — this is never inferred.

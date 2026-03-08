@@ -383,7 +383,7 @@
   {# highlighted. If a parent_run_id exists, the coordinator node links to   #}
   {# it so you can walk up the tree.                                          #}
   {% set current_tier = node.tier or '' %}
-  {% set leaf_tier = current_tier in ('engineer', 'reviewer') %}
+  {% set leaf_tier = current_tier == 'worker' %}
   <div class="org-chain">
 
     {# Coordinator node — links to parent when current tier is a worker #}
@@ -406,8 +406,8 @@
     <div class="org-node
       {%- if leaf_tier %} org-node--current
       {%- else %} org-node--dim{%- endif %}">
-      <span class="org-node__emoji">{% if current_tier == 'reviewer' %}🔍{% else %}⚙️{% endif %}</span>
-      <span class="org-node__label">{% if current_tier == 'reviewer' %}Reviewer{% else %}Engineer{% endif %}</span>
+      <span class="org-node__emoji">{% if node.role == 'pr-reviewer' %}🔍{% else %}⚙️{% endif %}</span>
+      <span class="org-node__label">{% if node.role == 'pr-reviewer' %}Reviewer{% else %}Engineer{% endif %}</span>
       <span class="org-node__sub">Worker</span>
     </div>
 

@@ -4,13 +4,13 @@ from __future__ import annotations
 
 Covers:
   - TaskFile parser reads tier, org_domain, parent_run_id from TOML sections.
-  - A chain-spawned PR reviewer can have tier=reviewer AND org_domain=qa
+  - A chain-spawned PR reviewer can have tier=worker AND org_domain=qa
     simultaneously.
   - AgentNode carries all three lineage fields.
   - PendingLaunchRow and AgentRunRow TypedDicts include tier and org_domain.
   - Migration 0012 replaces node_type + logical_tier with tier + org_domain.
   - dispatch-label .agent-task writer includes TIER= and ORG_DOMAIN=.
-  - engineering-coordinator reviewer heredoc sets TIER=reviewer ORG_DOMAIN=qa.
+  - engineering-coordinator reviewer heredoc sets TIER=worker ORG_DOMAIN=qa.
 """
 
 import re
@@ -58,11 +58,11 @@ def _toml_task(
 async def test_task_file_parses_tier(tmp_path: Path) -> None:
     """[agent].tier is read into TaskFile.tier (behavioral execution tier)."""
     (tmp_path / ".agent-task").write_text(
-        _toml_task(workflow="pr-review", role="pr-reviewer", tier="reviewer", parent_run_id="issue-42")
+        _toml_task(workflow="pr-review", role="pr-reviewer", tier="worker", parent_run_id="issue-42")
     )
     tf = await parse_agent_task(tmp_path)
     assert tf is not None
-    assert tf.tier == "reviewer"
+    assert tf.tier == "worker"
     assert tf.parent_run_id == "issue-42"
 
 
@@ -82,15 +82,15 @@ async def test_task_file_parses_org_domain(tmp_path: Path) -> None:
 async def test_task_file_parses_both_fields_independently(tmp_path: Path) -> None:
     """tier and org_domain are parsed as separate fields — the core invariant.
 
-    A chain-spawned PR reviewer has tier=reviewer (behavioral) and
+    A chain-spawned PR reviewer has tier=worker (behavioral) and
     org_domain=qa (org slot) at the same time.
     """
     (tmp_path / ".agent-task").write_text(
-        _toml_task(role="pr-reviewer", tier="reviewer", org_domain="qa", parent_run_id="issue-42")
+        _toml_task(role="pr-reviewer", tier="worker", org_domain="qa", parent_run_id="issue-42")
     )
     tf = await parse_agent_task(tmp_path)
     assert tf is not None
-    assert tf.tier == "reviewer"
+    assert tf.tier == "worker"
     assert tf.org_domain == "qa"
     assert tf.parent_run_id == "issue-42"
 
@@ -99,14 +99,14 @@ async def test_task_file_parses_both_fields_independently(tmp_path: Path) -> Non
 async def test_task_file_tier_does_not_bleed_into_org_domain(tmp_path: Path) -> None:
     """TIER value must not appear in org_domain and vice versa."""
     (tmp_path / ".agent-task").write_text(
-        _toml_task(role="pr-reviewer", tier="engineer", org_domain="engineering")
+        _toml_task(role="pr-reviewer", tier="worker", org_domain="engineering")
     )
     tf = await parse_agent_task(tmp_path)
     assert tf is not None
-    assert tf.tier == "engineer"
+    assert tf.tier == "worker"
     assert tf.org_domain == "engineering"
     assert tf.tier != "engineering"
-    assert tf.org_domain != "engineer"
+    assert tf.org_domain != "worker"
 
 
 @pytest.mark.anyio
@@ -145,11 +145,11 @@ def test_agent_node_carries_tier_and_org_domain() -> None:
         id="pr-99",
         role="pr-reviewer",
         status=AgentStatus.REVIEWING,
-        tier="reviewer",
+        tier="worker",
         org_domain="qa",
         parent_run_id="issue-42",
     )
-    assert node.tier == "reviewer"
+    assert node.tier == "worker"
     assert node.org_domain == "qa"
     assert node.parent_run_id == "issue-42"
 
@@ -172,12 +172,12 @@ def test_agent_node_serialises_lineage_fields() -> None:
         id="pr-99",
         role="pr-reviewer",
         status=AgentStatus.REVIEWING,
-        tier="reviewer",
+        tier="worker",
         org_domain="qa",
         parent_run_id="issue-42",
     )
     d = node.model_dump()
-    assert d["tier"] == "reviewer"
+    assert d["tier"] == "worker"
     assert d["org_domain"] == "qa"
     assert d["parent_run_id"] == "issue-42"
 

@@ -537,7 +537,7 @@ def test_build_agent_task_round_trips_to_task_file(tmp_path: Path) -> None:
     )
     assert tf.task == "issue-to-pr"
     assert tf.role == "python-developer"
-    assert tf.tier == "engineer"
+    assert tf.tier == "worker"
     assert tf.cognitive_arch == "turing:python"
     assert tf.issue_number == 77
     assert tf.depends_on == [10, 11]
@@ -704,7 +704,7 @@ def test_build_child_task_issue_scope_emits_valid_toml(tmp_path: Path) -> None:
     output = _build_child_task(
         run_id="issue-48-abc123",
         role="python-developer",
-        tier="engineer",
+        tier="worker",
         org_domain="engineering",
         scope_type="issue",
         scope_value="48",
@@ -723,7 +723,7 @@ def test_build_child_task_issue_scope_emits_valid_toml(tmp_path: Path) -> None:
     parsed = tomllib.loads(output)
     assert parsed["task"]["workflow"] == "issue-to-pr"
     assert parsed["agent"]["role"] == "python-developer"
-    assert parsed["agent"]["tier"] == "engineer"
+    assert parsed["agent"]["tier"] == "worker"
     assert parsed["agent"]["org_domain"] == "engineering"
     assert parsed["agent"]["cognitive_arch"] == "von_neumann:python"
     assert parsed["repo"]["gh_repo"] == "owner/repo"
@@ -740,7 +740,7 @@ def test_build_child_task_pr_scope_emits_valid_toml() -> None:
     output = _build_child_task(
         run_id="pr-142-def456",
         role="pr-reviewer",
-        tier="reviewer",
+        tier="worker",
         org_domain="qa",
         scope_type="pr",
         scope_value="142",
@@ -755,7 +755,7 @@ def test_build_child_task_pr_scope_emits_valid_toml() -> None:
     )
     parsed = tomllib.loads(output)
     assert parsed["task"]["workflow"] == "pr-review"
-    assert parsed["agent"]["tier"] == "reviewer"
+    assert parsed["agent"]["tier"] == "worker"
     assert parsed["agent"]["org_domain"] == "qa"
     assert parsed["target"]["pr_number"] == 142
 

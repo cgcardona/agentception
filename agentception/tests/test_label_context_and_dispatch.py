@@ -8,7 +8,7 @@ Covers:
   - GET /api/dispatch/prompt returns prompt content and 404 when the file is missing.
   - POST /api/dispatch/label with scope=full_initiative spawns a root coordinator with role cto.
   - POST /api/dispatch/label with scope=phase spawns a coordinator for the sub-label.
-  - POST /api/dispatch/label with scope=issue spawns an engineer for the given issue number.
+  - POST /api/dispatch/label with scope=issue spawns a worker for the given issue number.
   - POST /api/dispatch/label respects an explicit role override in the request.
   - .agent-task file contains scope_type=issue and scope_value=<number> for issue scope.
   - .agent-task file contains initiative_label for phase and issue scopes.
@@ -154,16 +154,16 @@ def test_tier_for_role_engineering_coordinator_is_coordinator() -> None:
     assert _tier_for_role("engineering-coordinator") == "coordinator"
 
 
-def test_tier_for_role_pr_reviewer_is_reviewer() -> None:
-    assert _tier_for_role("pr-reviewer") == "reviewer"
+def test_tier_for_role_pr_reviewer_is_worker() -> None:
+    assert _tier_for_role("pr-reviewer") == "worker"
 
 
-def test_tier_for_role_python_developer_is_engineer() -> None:
-    assert _tier_for_role("python-developer") == "engineer"
+def test_tier_for_role_python_developer_is_worker() -> None:
+    assert _tier_for_role("python-developer") == "worker"
 
 
-def test_tier_for_role_unknown_slug_is_engineer() -> None:
-    assert _tier_for_role("rust-wizard") == "engineer"
+def test_tier_for_role_unknown_slug_is_worker() -> None:
+    assert _tier_for_role("rust-wizard") == "worker"
 
 
 # ---------------------------------------------------------------------------
@@ -183,9 +183,9 @@ def test_scope_phase_is_coordinator() -> None:
     assert role == "engineering-coordinator"
 
 
-def test_scope_issue_is_engineer() -> None:
+def test_scope_issue_is_worker() -> None:
     role, tier = _role_and_tier_for_scope("issue", None)
-    assert tier == "engineer"
+    assert tier == "worker"
     assert role == "python-developer"
 
 
@@ -197,7 +197,7 @@ def test_scope_role_override_respected() -> None:
 
 def test_scope_role_override_blank_ignored() -> None:
     role, tier = _role_and_tier_for_scope("issue", "  ")
-    assert tier == "engineer"
+    assert tier == "worker"
     assert role == "python-developer"
 
 
@@ -413,7 +413,7 @@ def test_dispatch_label_issue_scope_is_leaf(
 
     assert res.status_code == 200
     data = res.json()
-    assert data["tier"] == "engineer"
+    assert data["tier"] == "worker"
     assert data["role"] == "python-developer"
 
 
@@ -445,7 +445,7 @@ def test_dispatch_label_issue_scope_agent_task_fields(
     assert task_data["target"]["scope_type"] == "issue"
     assert task_data["target"]["scope_value"] == "42"
     assert task_data["target"]["initiative_label"] == "ac-workflow"
-    assert task_data["agent"]["tier"] == "engineer"
+    assert task_data["agent"]["tier"] == "worker"
 
 
 # ---------------------------------------------------------------------------

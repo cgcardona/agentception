@@ -89,12 +89,11 @@ class AgentNode(BaseModel):
     ``tier`` is the behavioral execution tier:
     - ``"coordinator"`` — surveys its scope and spawns children; any coordinator
                           can be the tree root.
-    - ``"engineer"``    — leaf worker; implements one issue.
-    - ``"reviewer"``    — leaf reviewer; reviews one PR.
+    - ``"worker"``      — claims one unit of work (issue or PR) and executes it.
 
     ``org_domain`` is the organisational slot for UI hierarchy visualisation —
     ``"c-suite"``, ``"engineering"``, or ``"qa"``.  A chain-spawned PR reviewer
-    that was seeded by an engineering leaf will have ``tier="reviewer"`` and
+    that was seeded by an engineering worker will have ``tier="worker"`` and
     ``org_domain="qa"`` so the board places it under the QA column rather than
     under its physical parent.
 
@@ -287,7 +286,7 @@ class TaskFile(BaseModel):
     # [agent]
     role: str | None = None
     tier: str | None = None
-    """Behavioral execution tier: coordinator | engineer | reviewer."""
+    """Behavioral execution tier: coordinator | worker."""
     org_domain: str | None = None
     """Organisational slot for UI hierarchy: c-suite | engineering | qa."""
     cognitive_arch: str | None = None

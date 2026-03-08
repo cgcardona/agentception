@@ -101,8 +101,8 @@ async def build_spawn_child_run(
     Args:
         parent_run_id:  ``run_id`` of the calling agent (lineage tracking).
         role:           Child's role slug (e.g. ``"engineering-coordinator"``).
-        tier:           Behavioral execution tier — ``"coordinator"``,
-                        ``"engineer"``, or ``"reviewer"``.
+        tier:           Behavioral execution tier — ``"coordinator"``
+                        or ``"worker"``.
         scope_type:     ``"label"``, ``"issue"``, or ``"pr"``.
         scope_value:    Label string, or issue/PR number as a string.
         gh_repo:        ``"owner/repo"`` string.
@@ -121,14 +121,12 @@ async def build_spawn_child_run(
     """
     if tier == "coordinator":
         typed_tier: Tier = "coordinator"
-    elif tier == "engineer":
-        typed_tier = "engineer"
-    elif tier == "reviewer":
-        typed_tier = "reviewer"
+    elif tier == "worker":
+        typed_tier = "worker"
     else:
         return {
             "ok": False,
-            "error": f"tier must be coordinator/engineer/reviewer, got {tier!r}",
+            "error": f"tier must be coordinator/worker, got {tier!r}",
         }
 
     if scope_type == "label":

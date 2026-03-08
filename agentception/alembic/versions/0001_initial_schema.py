@@ -52,7 +52,7 @@ def upgrade() -> None:
         sa.Column("spawn_mode", sa.Text(), nullable=True),
         sa.Column("batch_id", sa.String(128), nullable=True),
         sa.Column("cognitive_arch", sa.String(256), nullable=True),
-        # tier: behavioral execution role (coordinator | engineer | reviewer)
+        # tier: behavioral execution role (coordinator | worker)
         sa.Column("tier", sa.String(64), nullable=True),
         # org_domain: org-chart slot for UI hierarchy (c-suite | engineering | qa)
         sa.Column("org_domain", sa.String(64), nullable=True),
