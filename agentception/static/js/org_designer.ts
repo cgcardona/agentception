@@ -920,8 +920,10 @@ export function orgDesigner(): OrgDesignerComponent {
           const resp = await fetch(`/api/org-presets/${id}`);
           if (!resp.ok) return;
           const detail = await resp.json() as ApiPresetDetail;
-          this._root = buildTree(detail.template);
+          this._root          = buildTree(detail.template);
           this.activePresetId = id;
+          this.presetsOpen    = false;
+          this.selectedNodeId = null;
           this._openCanvas();
         })();
         return;
