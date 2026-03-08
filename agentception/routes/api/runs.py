@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Run lifecycle API routes — UI-facing only.
 
 Agents interact with AgentCeption exclusively through the ``user-agentception``
@@ -15,6 +13,7 @@ Agent-facing routes (GET /pending, POST /acknowledge, /children, /step,
   query_pending_runs, build_claim_run, build_spawn_child_run,
   log_run_step, log_run_blocker, log_run_decision, build_complete_run.
 """
+from __future__ import annotations
 
 import datetime
 import logging
