@@ -24,6 +24,13 @@ from typing import TYPE_CHECKING, TypedDict
 
 from sqlalchemy import select
 
+# Label namespace prefixes that are part of the taxonomy and must never be
+# interpreted as initiative slugs.  Any label whose prefix-before-"/" matches
+# one of these is a taxonomy label, not a plan-pipeline initiative.
+_TAXONOMY_NAMESPACES: frozenset[str] = frozenset(
+    {"agent", "batch", "gate", "phase", "priority", "team", "type"}
+)
+
 from agentception.db.engine import get_session
 from agentception.db.models import (
     ACAgentEvent,
@@ -629,14 +636,16 @@ async def _recompute_workflow_state(session: object, repo: str) -> list[str]:
         issue_num = issue.github_number
         issue_labels: list[str] = json.loads(issue.labels_json or "[]")
 
-        # Derive initiative and phase from labels.
+        # Derive initiative and phase from labels — skip taxonomy namespaces.
         initiative: str | None = None
         phase_key: str | None = None
         for lbl in issue_labels:
             if "/" in lbl:
-                initiative = lbl.split("/")[0]
-                phase_key = lbl
-                break
+                slug = lbl.split("/")[0]
+                if slug not in _TAXONOMY_NAMESPACES:
+                    initiative = slug
+                    phase_key = lbl
+                    break
 
         # Get best PR for this issue.
         issue_candidates = [c for c in all_candidates if c["issue_number"] == issue_num]
@@ -1338,7 +1347,8 @@ async def reseed_missing_initiative_phases(repo: str) -> None:
                 for lbl in labels:
                     if "/" in lbl:
                         slug, _, _ = lbl.partition("/")
-                        initiative_phase_labels.setdefault(slug, set()).add(lbl)
+                        if slug not in _TAXONOMY_NAMESPACES:
+                            initiative_phase_labels.setdefault(slug, set()).add(lbl)
 
             for initiative, phase_label_set in initiative_phase_labels.items():
                 # Skip if the dep graph already exists for this repo+initiative.

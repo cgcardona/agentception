@@ -162,3 +162,36 @@ async def test_reseed_skips_initiative_with_no_scoped_labels() -> None:
         await reseed_missing_initiative_phases("owner/repo")
 
     assert captured == [], "No scoped labels → nothing to reseed"
+
+
+@pytest.mark.anyio
+async def test_reseed_ignores_taxonomy_namespace_labels() -> None:
+    """Taxonomy labels (team/*, phase/*, priority/*, type/*, etc.) must never
+    be treated as initiative slugs even when they contain a '/'."""
+    issues = [
+        # issue #285-style: taxonomy labels only, no plan-pipeline initiative label
+        _mock_issue(
+            ["team/engineering", "phase/0", "priority/medium", "type/testing", "smoke-test"]
+        ),
+    ]
+    captured: list[str] = []
+
+    async def fake_persist(
+        repo: str, initiative: str, batch_id: str, phases: list[PhaseEntry]
+    ) -> None:
+        captured.append(initiative)
+
+    ctx = _make_session_ctx(issues, has_existing_phase=False)
+    with (
+        patch("agentception.db.persist.get_session", return_value=ctx),
+        patch(
+            "agentception.db.persist.persist_initiative_phases",
+            side_effect=fake_persist,
+        ),
+    ):
+        await reseed_missing_initiative_phases("owner/repo")
+
+    assert captured == [], (
+        "team/*, phase/*, priority/*, type/* are taxonomy labels — "
+        "they must not be registered as initiative slugs"
+    )
