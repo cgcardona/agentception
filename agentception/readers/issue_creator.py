@@ -9,7 +9,7 @@ that the user reviewed in the CodeMirror editor and creates real GitHub issues
 Execution order
 ---------------
 1. Ensure all required labels exist (initiative label + scoped phase labels +
-   pipeline-active + blocked).
+   pipeline/active + pipeline/gated).
 2. Iterate phases in order.  Within each phase, create issues concurrently.
 3. After all issues are created and GitHub numbers are known, edit any issue
    whose ``depends_on`` list is non-empty to append a "Blocked by: #X" line.
@@ -18,12 +18,12 @@ Labels applied to every issue
 ------------------------------
 - ``{spec.initiative}``               e.g. ``ac-build``
 - ``{spec.initiative}/{phase.label}`` e.g. ``ac-build/phase-0``
-- ``pipeline-active``                 phase 0 (first phase) only — ready for dispatch
-- ``blocked``                         phase 1+ — phase-gated until prior phase closes
+- ``pipeline/active``                 phase 0 (first phase) only — ready for dispatch
+- ``pipeline/gated``                  phase 1+ — phase-gated until prior phase closes
 
-When ``plan_advance_phase`` runs it removes ``blocked`` and adds
-``pipeline-active`` to the newly unlocked phase, so the pipeline-active /
-blocked labels always reflect the live execution frontier.
+When ``plan_advance_phase`` runs it removes ``pipeline/gated`` and adds
+``pipeline/active`` to the newly unlocked phase, so the pipeline/active /
+pipeline/gated labels always reflect the live execution frontier.
 """
 
 import asyncio
@@ -182,8 +182,8 @@ async def _gh_edit_body(repo: str, number: int, new_body: str) -> None:
 async def _bootstrap_labels(spec: PlanSpec) -> None:
     """Ensure all required labels exist in the repo.
 
-    Creates the initiative label, all scoped phase labels, and the two
-    pipeline-gate labels (``pipeline-active`` / ``blocked``).  Labels are
+    Creates the initiative label, all scoped phase labels, and the three
+    pipeline-gate labels (``pipeline/active`` / ``pipeline/gated`` / ``blocked/deps``).  Labels are
     namespaced per initiative — no bare global phase-N labels are created.
     Phase colors are assigned by position (``_PHASE_PALETTE[idx % len]``) so
     any slug convention and any number of phases receives a distinct color.
@@ -195,19 +195,19 @@ async def _bootstrap_labels(spec: PlanSpec) -> None:
             f"Initiative: {spec.initiative}",
         ),
         ensure_label_exists(
-            "pipeline-active",
+            "pipeline/active",
             "0E8A16",
-            "Issue is in the active phase — ready for agent dispatch",
+            "Ready for agent dispatch — phase gate is open",
         ),
         ensure_label_exists(
-            "blocked",
+            "pipeline/gated",
             "B60205",
-            "Issue is blocked — waiting for a prior phase to complete",
+            "Phase gate closed — prior phase must complete before dispatch",
         ),
         ensure_label_exists(
-            "ticket-blocked",
+            "blocked/deps",
             "E4B429",
-            "Issue has unresolved ticket-level dependencies — do not dispatch until all are closed",
+            "Has open ticket dependencies — poller removes once all deps close",
         ),
     ]
     for idx, phase in enumerate(spec.phases):
@@ -325,7 +325,7 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
     index = 0
     for phase_idx, phase in enumerate(spec.phases):
         # Phase 0 is immediately workable; all later phases are phase-gated.
-        gate_label = "pipeline-active" if phase_idx == 0 else "blocked"
+        gate_label = "pipeline/active" if phase_idx == 0 else "pipeline/gated"
         labels = [spec.initiative, f"{spec.initiative}/{phase.label}", gate_label]
         # For phase 1+ embed the blocking phase label into the issue body so
         # agents reading the ticket immediately know what must complete first.
@@ -410,21 +410,21 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
                 logger.warning("⚠️ Could not edit body of #%d for depends_on: %s", our_number, exc)
                 continue
 
-            # Stamp ticket-blocked so coordinators can filter this issue out
+            # Stamp blocked/deps so coordinators can filter this issue out
             # until all its deps are closed.  Separated from the body edit so a
             # label-API failure never silently leaves an issue unblocked: the
-            # poller's _stamp_missing_ticket_blocked will re-apply it next tick.
+            # poller's _stamp_missing_blocked_deps will re-apply it next tick.
             try:
-                await add_label_to_issue(our_number, "ticket-blocked")
+                await add_label_to_issue(our_number, "blocked/deps")
             except RuntimeError as exc:
                 logger.error(
-                    "❌ #%d body edited but ticket-blocked stamp failed — poller will re-stamp: %s",
+                    "❌ #%d body edited but blocked/deps stamp failed — poller will re-stamp: %s",
                     our_number,
                     exc,
                 )
             else:
                 logger.info(
-                    "✅ #%d blocked_by %s — ticket-blocked label added",
+                    "✅ #%d blocked_by %s — blocked/deps label added",
                     our_number,
                     [f"#{n}" for n in blocker_numbers],
                 )
@@ -435,7 +435,7 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
                 blocked_by=blocker_numbers,
             )
 
-    # Persist ticket-level deps to DB so the Build board can display them.
+    # Persist dep relationships to DB so the Build board can display them.
     await persist_issue_depends_on(repo, issue_deps)
 
     # ── 4. Persist phase DAG and display order ────────────────────────────

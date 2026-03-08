@@ -22,6 +22,6 @@
     "security",
     "api-contract"
   ],
-  "phase_advance_blocked_label": "blocked",
-  "phase_advance_active_label": "pipeline-active"
+  "phase_advance_blocked_label": "pipeline/gated",
+  "phase_advance_active_label": "pipeline/active"
 }

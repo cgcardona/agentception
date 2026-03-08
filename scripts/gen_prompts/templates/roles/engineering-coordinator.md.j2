@@ -92,8 +92,8 @@ SEED:
          # MCP: list_issues (user-github)(state="open", labels=["$TEAM_LABEL", "$ACTIVE_PHASE"])
          # → filter result to exclude issues that have any of these labels:
          #     "{{ claim_label }}"  (already claimed by another agent)
-         #     "blocked"            (phase-gated — prior phase not yet complete)
-         #     "ticket-blocked"     (has unresolved ticket-level dependency — the
+         #     "pipeline/gated"     (phase-gated — prior phase not yet complete)
+         #     "blocked/deps"       (has unresolved ticket-level dependency — the
          #                           poller removes this label automatically once
          #                           all deps close; never dispatch these manually)
          # → append remaining to CANDIDATES
@@ -116,8 +116,8 @@ SEED:
        done
 
   3.6 Dependency gate — CRITICAL for sequential issues:
-     Primary signal: if an issue has the "ticket-blocked" label (already filtered
-     out in step 3), it must NOT be seeded. The poller removes "ticket-blocked"
+     Primary signal: if an issue has the "blocked/deps" label (already filtered
+     out in step 3), it must NOT be seeded. The poller removes "blocked/deps"
      automatically once all deps close, so by the time this coordinator runs, any
      issue without that label has met its ticket-level deps.
      Secondary signal (belt-and-suspenders): parse "Blocked by #NNN" from the

@@ -33,8 +33,8 @@ def _make_pipeline_config(**overrides: object) -> PipelineConfig:
         "max_qa_vps": 1,
         "pool_size_per_vp": 4,
         "active_labels_order": ["phase-1", "phase-2"],
-        "phase_advance_blocked_label": "blocked",
-        "phase_advance_active_label": "pipeline-active",
+        "phase_advance_blocked_label": "pipeline/gated",
+        "phase_advance_active_label": "pipeline/active",
     }
     defaults.update(overrides)
     return PipelineConfig.model_validate(defaults)
@@ -93,9 +93,9 @@ async def test_plan_advance_phase_all_closed_unlocks_to_phase_issues() -> None:
 
     # Correct label names used.
     for call in mock_remove.call_args_list:
-        assert call.args[1] == "blocked"
+        assert call.args[1] == "pipeline/gated"
     for call in mock_add.call_args_list:
-        assert call.args[1] == "pipeline-active"
+        assert call.args[1] == "pipeline/active"
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +217,7 @@ async def test_plan_advance_phase_no_from_phase_issues_unlocks_to_phase() -> Non
 
     assert result["advanced"] is True
     assert result["unlocked_count"] == 1
-    mock_add.assert_called_once_with(30, "pipeline-active")
+    mock_add.assert_called_once_with(30, "pipeline/active")
 
 
 # ---------------------------------------------------------------------------
@@ -246,9 +246,9 @@ async def test_unlock_issue_calls_remove_then_add() -> None:
             new=fake_add,
         ),
     ):
-        await _unlock_issue(42, "blocked", "pipeline-active")
+        await _unlock_issue(42, "pipeline/gated", "pipeline/active")
 
-    assert call_order == ["remove:blocked", "add:pipeline-active"]
+    assert call_order == ["remove:pipeline/gated", "add:pipeline/active"]
 
 
 # ---------------------------------------------------------------------------

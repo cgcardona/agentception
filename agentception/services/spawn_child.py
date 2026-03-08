@@ -335,7 +335,7 @@ def _mcp_hints(scope_type: ScopeType, scope_value: str, tier: Tier) -> str:
         lines += [
             f"# MCP: github_list_issues(label='{scope_value}', state='open')",
             "# MCP: github_list_prs(state='open')",
-            "# NOTE: exclude issues labelled 'agent/wip' (claimed) or 'blocked' (phase-gated)",
+            "# NOTE: exclude issues labelled 'agent/wip' (claimed) or 'pipeline/gated' (phase-gated)",
         ]
     elif node_type == "leaf" and scope_type == "issue":
         lines.append(f"# MCP: github_get_issue(number={scope_value})")

@@ -22,10 +22,13 @@ sync_label() {
 echo '── Claim ───────────────────────────────────────────────────'
 sync_label 'agent/wip' '0075ca' 'Claimed by a pipeline agent — do not assign manually'
 
+echo '── Pipeline ────────────────────────────────────────────────'
+sync_label 'pipeline/active' '2ecc71' 'Ready for agent dispatch — phase gate is open'
+sync_label 'pipeline/gated' 'd73a4a' 'Phase gate closed — prior phase must complete before dispatch'
+sync_label 'blocked/deps' 'cfd3d7' 'Has open ticket dependencies — poller removes once all deps close'
+
 echo '── Special ─────────────────────────────────────────────────'
 sync_label 'conductor-reminder' 'e4e669' 'Open: pipeline incomplete — re-run agent-conductor.md'
-sync_label 'ticket-blocked' 'cfd3d7' 'Blocked on a dep issue — poller removes once all deps close'
-sync_label 'blocked' 'd73a4a' 'Blocked on external dependency — cannot proceed'
 
 echo '── Teams ───────────────────────────────────────────────────'
 sync_label 'team/engineering' '7c3aed' 'Engineering team (owned by CTO)'

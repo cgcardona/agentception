@@ -79,7 +79,7 @@ def _build_agent_task(
         },
         "agent": {
             "role": role,
-            "tier": "engineer",
+            "tier": "worker",
             "org_domain": "engineering",
             "cognitive_arch": cognitive_arch,
         },

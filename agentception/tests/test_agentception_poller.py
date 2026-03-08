@@ -764,9 +764,9 @@ async def test_auto_advance_phases_does_not_advance_complete_phase() -> None:
 
 
 @pytest.mark.anyio
-async def test_auto_unblock_ticket_deps_removes_label_when_all_deps_closed() -> None:
-    """ticket-blocked is removed when every dep issue is closed in the DB."""
-    from agentception.poller import _auto_unblock_ticket_deps
+async def test_auto_unblock_deps_removes_label_when_all_deps_closed() -> None:
+    """blocked/deps is removed when every dep issue is closed in the DB."""
+    from agentception.poller import _auto_unblock_deps
 
     candidates = [{"github_number": 177, "dep_numbers": [175]}]
     closed = {175}
@@ -774,7 +774,7 @@ async def test_auto_unblock_ticket_deps_removes_label_when_all_deps_closed() -> 
 
     with (
         patch(
-            "agentception.db.queries.get_ticket_blocked_open_issues",
+            "agentception.db.queries.get_blocked_deps_open_issues",
             new=AsyncMock(return_value=candidates),
         ),
         patch(
@@ -786,15 +786,15 @@ async def test_auto_unblock_ticket_deps_removes_label_when_all_deps_closed() -> 
             remove_mock,
         ),
     ):
-        await _auto_unblock_ticket_deps("cgcardona/agentception")
+        await _auto_unblock_deps("cgcardona/agentception")
 
-    remove_mock.assert_awaited_once_with(177, "ticket-blocked")
+    remove_mock.assert_awaited_once_with(177, "blocked/deps")
 
 
 @pytest.mark.anyio
-async def test_auto_unblock_ticket_deps_skips_when_dep_still_open() -> None:
-    """ticket-blocked is NOT removed when any dep issue is still open."""
-    from agentception.poller import _auto_unblock_ticket_deps
+async def test_auto_unblock_deps_skips_when_dep_still_open() -> None:
+    """blocked/deps is NOT removed when any dep issue is still open."""
+    from agentception.poller import _auto_unblock_deps
 
     candidates = [{"github_number": 177, "dep_numbers": [175]}]
     closed: set[int] = set()  # 175 still open
@@ -802,7 +802,7 @@ async def test_auto_unblock_ticket_deps_skips_when_dep_still_open() -> None:
 
     with (
         patch(
-            "agentception.db.queries.get_ticket_blocked_open_issues",
+            "agentception.db.queries.get_blocked_deps_open_issues",
             new=AsyncMock(return_value=candidates),
         ),
         patch(
@@ -814,22 +814,22 @@ async def test_auto_unblock_ticket_deps_skips_when_dep_still_open() -> None:
             remove_mock,
         ),
     ):
-        await _auto_unblock_ticket_deps("cgcardona/agentception")
+        await _auto_unblock_deps("cgcardona/agentception")
 
     remove_mock.assert_not_awaited()
 
 
 @pytest.mark.anyio
-async def test_auto_unblock_ticket_deps_skips_when_no_candidates() -> None:
+async def test_auto_unblock_deps_skips_when_no_candidates() -> None:
     """No GitHub calls made when queue is empty."""
-    from agentception.poller import _auto_unblock_ticket_deps
+    from agentception.poller import _auto_unblock_deps
 
     remove_mock = AsyncMock()
     closed_mock = AsyncMock(return_value=set())
 
     with (
         patch(
-            "agentception.db.queries.get_ticket_blocked_open_issues",
+            "agentception.db.queries.get_blocked_deps_open_issues",
             new=AsyncMock(return_value=[]),
         ),
         patch(
@@ -841,25 +841,25 @@ async def test_auto_unblock_ticket_deps_skips_when_no_candidates() -> None:
             remove_mock,
         ),
     ):
-        await _auto_unblock_ticket_deps("cgcardona/agentception")
+        await _auto_unblock_deps("cgcardona/agentception")
 
     closed_mock.assert_not_awaited()
     remove_mock.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
-# _stamp_missing_ticket_blocked — regression for silent label-stamp failure
+# _stamp_missing_blocked_deps — regression for silent label-stamp failure
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.anyio
-async def test_stamp_missing_ticket_blocked_restamps_when_dep_open() -> None:
-    """ticket-blocked is applied when depends_on_json has an open dep but label is absent.
+async def test_stamp_missing_blocked_deps_restamps_when_dep_open() -> None:
+    """blocked/deps is applied when depends_on_json has an open dep but label is absent.
 
     Regression: issue_creator used a shared try/except that silently swallowed
     add_label_to_issue failures, leaving issues dispatchable despite open blockers.
     """
-    from agentception.poller import _stamp_missing_ticket_blocked
+    from agentception.poller import _stamp_missing_blocked_deps
 
     candidates = [{"github_number": 177, "dep_numbers": [175]}]
     closed: set[int] = set()  # 175 still open
@@ -867,7 +867,7 @@ async def test_stamp_missing_ticket_blocked_restamps_when_dep_open() -> None:
 
     with (
         patch(
-            "agentception.db.queries.get_issues_missing_ticket_blocked",
+            "agentception.db.queries.get_issues_missing_blocked_deps",
             new=AsyncMock(return_value=candidates),
         ),
         patch(
@@ -879,15 +879,15 @@ async def test_stamp_missing_ticket_blocked_restamps_when_dep_open() -> None:
             add_mock,
         ),
     ):
-        await _stamp_missing_ticket_blocked("cgcardona/agentception")
+        await _stamp_missing_blocked_deps("cgcardona/agentception")
 
-    add_mock.assert_awaited_once_with(177, "ticket-blocked")
+    add_mock.assert_awaited_once_with(177, "blocked/deps")
 
 
 @pytest.mark.anyio
-async def test_stamp_missing_ticket_blocked_skips_when_all_deps_closed() -> None:
+async def test_stamp_missing_blocked_deps_skips_when_all_deps_closed() -> None:
     """No label is added when every dep is already closed (issue is about to be unblocked)."""
-    from agentception.poller import _stamp_missing_ticket_blocked
+    from agentception.poller import _stamp_missing_blocked_deps
 
     candidates = [{"github_number": 177, "dep_numbers": [175]}]
     closed = {175}  # dep already closed
@@ -895,7 +895,7 @@ async def test_stamp_missing_ticket_blocked_skips_when_all_deps_closed() -> None
 
     with (
         patch(
-            "agentception.db.queries.get_issues_missing_ticket_blocked",
+            "agentception.db.queries.get_issues_missing_blocked_deps",
             new=AsyncMock(return_value=candidates),
         ),
         patch(
@@ -907,22 +907,22 @@ async def test_stamp_missing_ticket_blocked_skips_when_all_deps_closed() -> None
             add_mock,
         ),
     ):
-        await _stamp_missing_ticket_blocked("cgcardona/agentception")
+        await _stamp_missing_blocked_deps("cgcardona/agentception")
 
     add_mock.assert_not_awaited()
 
 
 @pytest.mark.anyio
-async def test_stamp_missing_ticket_blocked_skips_when_no_candidates() -> None:
-    """No GitHub calls when every issue already has ticket-blocked or has no deps."""
-    from agentception.poller import _stamp_missing_ticket_blocked
+async def test_stamp_missing_blocked_deps_skips_when_no_candidates() -> None:
+    """No GitHub calls when every issue already has blocked/deps or has no deps."""
+    from agentception.poller import _stamp_missing_blocked_deps
 
     add_mock = AsyncMock()
     closed_mock = AsyncMock(return_value=set())
 
     with (
         patch(
-            "agentception.db.queries.get_issues_missing_ticket_blocked",
+            "agentception.db.queries.get_issues_missing_blocked_deps",
             new=AsyncMock(return_value=[]),
         ),
         patch(
@@ -934,7 +934,7 @@ async def test_stamp_missing_ticket_blocked_skips_when_no_candidates() -> None:
             add_mock,
         ),
     ):
-        await _stamp_missing_ticket_blocked("cgcardona/agentception")
+        await _stamp_missing_blocked_deps("cgcardona/agentception")
 
     closed_mock.assert_not_awaited()
     add_mock.assert_not_awaited()

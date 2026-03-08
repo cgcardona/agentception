@@ -143,9 +143,9 @@ Before finalising your four, confirm each pair is independent:
 
 If issues are **dependent** (B cannot ship without A):
 1. State it in the issue body: `**Depends on #A** — implement after #A is merged.`
-2. Label it `ticket-blocked` (distinct from `blocked`, which is the phase-gate label).
+2. Label it `blocked/deps` (distinct from `pipeline/gated`, which is the phase-gate label).
 3. Do **not** assign it to a parallel agent until #A is merged.
-4. The poller automatically removes `ticket-blocked` once all dependencies close.
+4. The poller automatically removes `blocked/deps` once all dependencies close.
 5. Only then is it safe for the coordinator to pick it up in the next dispatch cycle.
 
 ---
@@ -685,7 +685,7 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
       echo "   A) If the dependency's code is NOT needed to implement this issue → proceed."
       echo "      Note unmet deps in the PR body. Use TYPE_CHECKING guards for any missing imports."
       echo "   B) If the dependency's code IS required (e.g. imports a module that doesn't exist yet)"
-      echo "      → clean abort: remove agent:wip, remove this worktree, and skip this issue."
+      echo "      → clean abort: remove agent/wip, remove this worktree, and skip this issue."
       echo "      CLEAN ABORT sequence:"
       echo "        MCP: github_remove_label(issue_number=N, label=\"agent/wip\")"
       echo "        MCP: github_remove_label(issue_number=N, label=\"status/in-progress\")"
@@ -1008,7 +1008,7 @@ STEP 5 — PUSH & CREATE PR:
   if [ -n "$MY_PR_NUM" ]; then
     sed -i '' "s/^LINKED_PR=.*/LINKED_PR=$MY_PR_NUM/" .agent-task 2>/dev/null || true
     echo "✅ LINKED_PR=$MY_PR_NUM written back to .agent-task"
-    # ⚠️  Do NOT add agent:wip to the PR here. agent:wip on a PR means
+    # ⚠️  Do NOT add agent/wip to the PR here. agent/wip on a PR means
     # "a reviewer is actively working on this." The reviewer claims it in STEP 3
     # of agent-reviewer.md after its idempotency gate passes. The idempotency
     # gate (reviewDecision = APPROVED check) already prevents double-reviews without
@@ -1070,7 +1070,7 @@ STEP 6 — SPAWN A QA REVIEWER FOR YOUR OWN PR (run this before self-destructing
     # Create a fresh review worktree at the PR branch tip.
     REVIEW_WORKTREE="$HOME/.agentception/worktrees/agentception/pr-$MY_PR"
     git -C "$REPO" worktree add "$REVIEW_WORKTREE" "origin/$MY_BRANCH"
-    # ⚠️  Do NOT add agent:wip here. The reviewer claims the label itself in STEP 3
+    # ⚠️  Do NOT add agent/wip here. The reviewer claims the label itself in STEP 3
     # after passing the idempotency gate. Adding it here causes stale labels when the
     # reviewer is never launched or crashes before claiming.
 
@@ -1236,8 +1236,8 @@ same parallel batch.
 
 **Dependency detection:** If issue B cannot function without A's code:
 1. Note `**Depends on #A**` in B's issue body.
-2. Label B as `ticket-blocked` (NOT `blocked` — `blocked` is for phase-gating only).
-3. The poller removes `ticket-blocked` automatically once A is closed.
+2. Label B as `blocked/deps` (NOT `pipeline/gated` — `pipeline/gated` is for phase-gating only).
+3. The poller removes `blocked/deps` automatically once A is closed.
 4. Merge A first; the coordinator will pick up B on the next dispatch cycle.
 
 ### Step C — Confirm `dev` is up to date
