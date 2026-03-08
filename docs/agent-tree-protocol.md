@@ -62,8 +62,8 @@ kind of work a worker performs — the tier does not.
 
 | Tier | Agent type | Role examples | GitHub scope | Can spawn |
 |------|-----------|--------------|--------------|-----------|
-| `coordinator` | coordinator | `ceo`, `cto`, `engineering-coordinator`, `qa-coordinator` | issues and/or PRs filtered to `SCOPE_VALUE` (exact scope determined by role) | any coordinator or worker |
-| `worker` | worker | `python-developer`, `pr-reviewer`, `devops-engineer`, … | **one issue** or **one PR** (`SCOPE_VALUE` = number; `scope_type` tells the worker which) | one downstream worker only (chain-spawn) |
+| `coordinator` | coordinator | `ceo`, `cto`, `engineering-coordinator`, `qa-coordinator` | issues and/or PRs filtered to `scope_value` (exact scope determined by role) | any coordinator or worker |
+| `worker` | worker | `python-developer`, `pr-reviewer`, `devops-engineer`, … | **one issue** or **one PR** (`scope_value` = number; `scope_type` tells the worker which) | one downstream worker only (chain-spawn) |
 
 ### CTO spawn decision
 
