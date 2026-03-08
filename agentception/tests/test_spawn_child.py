@@ -1,11 +1,11 @@
-from __future__ import annotations
-
 """Tests for cognitive architecture propagation through agent spawn chains.
 
 Verifies that ``spawn_child()`` forwards the parent's ``cognitive_arch``
 unchanged rather than re-resolving it, and that the propagation works across
 a multi-tier tree (root coordinator → child coordinator → leaf).
 """
+
+from __future__ import annotations
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch

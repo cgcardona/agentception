@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """AgentCeption FastAPI application factory.
 
 Entry point: ``uvicorn agentception.app:app --port 10003 --reload``
@@ -15,6 +13,8 @@ Architecture:
 - JSON API routes live in ``agentception/routes/``.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 from collections.abc import AsyncGenerator, AsyncIterator
@@ -27,6 +27,7 @@ from sse_starlette.sse import EventSourceResponse
 from starlette.requests import Request
 
 from agentception.db.engine import close_db, init_db
+from agentception.middleware.auth import ApiKeyMiddleware
 from agentception.poller import polling_loop, subscribe, unsubscribe
 from agentception.services.worktree_reaper import reap_stale_worktrees
 from agentception.routes.api import router as api_router
@@ -84,6 +85,9 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None,
 )
+
+# Auth middleware — validates AC_API_KEY on /api/* routes when the key is set.
+app.add_middleware(ApiKeyMiddleware)
 
 # Mount static assets — CSS, future JS bundles.
 app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")

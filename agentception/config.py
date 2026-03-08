@@ -98,6 +98,22 @@ class AgentCeptionSettings(BaseSettings):
     gh_repo: str = "cgcardona/agentception"
     poll_interval_seconds: int = 5
     github_cache_seconds: int = 10
+    ac_api_key: str = ""
+    """Shared secret for authenticating requests to the ``/api/*`` routes.
+
+    Set via ``AC_API_KEY`` env var.  When set, every request to ``/api/*``
+    must include either:
+
+    - ``Authorization: Bearer <key>`` header, **or**
+    - ``X-API-Key: <key>`` header.
+
+    When left empty (default), authentication is disabled — safe for local
+    Docker-only deployments where the service is bound to ``127.0.0.1``.
+    For any public or shared deployment this **must** be set to a random,
+    high-entropy value.  Generate one with:
+
+        python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+    """
     openrouter_api_key: str = ""
     """OpenRouter API key for direct LLM calls (plan phase preview, enrichment).
 

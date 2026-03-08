@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Structural smoke tests for the AgentCeption Alembic migration chain.
 
 Validates the migration chain without a live database connection:
@@ -12,6 +10,8 @@ Validates the migration chain without a live database connection:
 A full integration test (``alembic upgrade head`` against a real Postgres)
 runs in CI against the docker-compose postgres service on port 5433.
 """
+
+from __future__ import annotations
 
 import re
 from pathlib import Path

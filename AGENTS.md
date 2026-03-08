@@ -86,7 +86,7 @@ Every task follows this complete lifecycle — no step is optional:
    ```bash
    docker compose exec agentception mypy agentception/ tests/                              # zero errors
    docker compose exec agentception python3 tools/typing_audit.py --dirs agentception/ tests/ --max-any 0  # passes
-   docker compose exec agentception pytest tests/ -v                                       # all green
+   docker compose exec agentception pytest agentception/tests/ -v                          # all green
    docker compose exec agentception python3 /app/scripts/gen_prompts/generate.py --check  # no drift
    npm run build   # only if .js or .scss files changed
    ```
@@ -366,7 +366,7 @@ There is no third option. A codebase with known broken tests that everyone steps
 0. [ ] Confirm you are on a feature branch or inside a worktree — **never on `dev` or `main`**
 1. [ ] `docker compose exec agentception mypy agentception/ tests/` — clean, zero errors
 2. [ ] `docker compose exec agentception python3 tools/typing_audit.py --dirs agentception/ tests/ --max-any 0` — passes
-3. [ ] `docker compose exec agentception pytest tests/ -v` — all green (unit + integration + regression)
+3. [ ] `docker compose exec agentception pytest agentception/tests/ -v` — all green (unit + integration + regression)
 4. [ ] Regression test added if this is a bug fix (named `test_<what_broke>_<fixed_behavior>`)
 5. [ ] `docker compose exec agentception python3 /app/scripts/gen_prompts/generate.py --check` — no drift (run without `--check` first if you edited `.j2` templates, then re-run with `--check`)
 6. [ ] Zero broken tests — fix any you find, not just yours

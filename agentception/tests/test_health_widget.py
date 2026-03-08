@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Tests for GET /ui/health/widget — the HTMX System Health card fragment.
 
 Covers:
@@ -11,6 +9,8 @@ Covers:
   - Status dot is --elevated when latency sentinel (-1.0) is present
   - _fmt_uptime helper formats durations correctly
 """
+
+from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 

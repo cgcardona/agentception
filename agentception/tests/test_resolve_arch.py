@@ -1,16 +1,17 @@
-from __future__ import annotations
 """Tests for resolve_arch.py cognitive architecture resolution.
 
 Verifies that the resolver produces non-empty, well-formed output for a variety
 of figure + skill-domain combinations without needing any external services.
 """
+
+from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-RESOLVE_ARCH = Path(__file__).parent.parent / "scripts" / "gen_prompts" / "resolve_arch.py"
+RESOLVE_ARCH = Path(__file__).parent.parent.parent / "scripts" / "gen_prompts" / "resolve_arch.py"
 
 
 @pytest.mark.parametrize(
