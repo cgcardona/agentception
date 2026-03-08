@@ -51,16 +51,16 @@ Read each item's `.agent-task` file at:
 {host_worktree_path}/.agent-task
 ```
 
-The file contains `TIER`, `SCOPE_TYPE`, and `SCOPE_VALUE` in addition to the
-fields you already know. These three together define exactly what GitHub queries
-to make and which children to spawn:
+The file contains `tier`, `scope_type`, and `scope_value` (under the `[agent]`
+and `[target]` sections) in addition to the fields you already know. These three
+together define exactly what GitHub queries to make and which children to spawn:
 
-| TIER | SCOPE_TYPE | What SCOPE_VALUE means | GitHub queries |
-|------|-----------|------------------------|----------------|
+| `tier` | `scope_type` | What `scope_value` means | GitHub queries |
+|--------|-------------|--------------------------|----------------|
 | `executive` | `label` | GitHub label string | `list_issues (user-github)` + `list_pull_requests (user-github)` filtered to the label |
 | `coordinator` | `label` | GitHub label string | `list_issues (user-github)` only (engineering) or `list_pull_requests (user-github)` only (qa) |
-| `engineer` | `issue` | Issue number (string) | `issue_read (user-github)(issue_number=SCOPE_VALUE)` |
-| `reviewer` | `pr` | PR number (string) | `pull_request_read (user-github)(pr_number=SCOPE_VALUE)` |
+| `engineer` | `issue` | Issue number (string) | `issue_read (user-github)(issue_number=<scope_value>)` |
+| `reviewer` | `pr` | PR number (string) | `pull_request_read (user-github)(pr_number=<scope_value>)` |
 
 The `.agent-task` file contains inline comments with the MCP tool calls
 for this tier — pass them verbatim to the spawned agent in the briefing below.
@@ -89,8 +89,8 @@ it was already claimed.
 cat {host_worktree_path}/.agent-task
 ```
 
-Extract: `TIER`, `SCOPE_TYPE`, `SCOPE_VALUE`, `GH_REPO`, `ROLE`, `ROLE_FILE`,
-`COGNITIVE_ARCH` (from the `[agent]` section), and `HOST_ROLE_FILE`.
+Extract: `tier`, `scope_type`, `scope_value` (from `[target]`), `gh_repo` (from `[repo]`),
+`role`, `cognitive_arch`, `role_file`, `host_role_file` (from `[agent]`).
 
 Set `{arch_text}` to the string `"MVP working"` and `{arch_display_name}` to
 `{cognitive_arch}`. Do not call `resolve_arch.py` or any shell command for
@@ -101,7 +101,7 @@ arch resolution — the stub is sufficient for this MVP verification pass.
 Use `subagent_type="generalPurpose"` — **never `shell`**. Only `generalPurpose`
 agents have the Task tool and can spawn their own children.
 
-**For executive and coordinator tiers** (`TIER` is `executive` or `coordinator`):
+**For executive and coordinator tiers** (`tier` is `executive` or `coordinator`):
 
 ```
 You are an AgentCeption manager agent. Your briefing:
@@ -159,7 +159,7 @@ Step 3: Run your tier's GitHub queries via MCP to discover what needs doing.
 Step 4: For each child you spawn:
   - Write a .agent-task in a fresh git worktree:
       git worktree add /tmp/worktrees/cgcardona/agentception/{child_run_id} -b {child_branch}
-  - Set TIER, SCOPE_TYPE, SCOPE_VALUE, PARENT_RUN_ID={run_id} correctly.
+  - Set `tier`, `scope_type`, `scope_value`, `parent_run_id`=`{run_id}` correctly in the child `.agent-task`.
   - Spawn via Task (subagent_type="generalPurpose").
 
 Step 5: Wait for all children to complete, then check GitHub again.
@@ -171,7 +171,7 @@ Step 6: Report each major step via MCP:
 Always pass agent_run_id="{run_id}".
 ```
 
-**For leaf tiers** (`TIER` is `engineer` or `reviewer`):
+**For leaf tiers** (`tier` is `engineer` or `reviewer`):
 
 ```
 You are an AgentCeption agent. Your full briefing is in your .agent-task file.
@@ -262,6 +262,6 @@ Then exit. You are done.
 
 - Always use `subagent_type="generalPurpose"` for all agent Tasks (leaf and manager).
 - Always claim (acknowledge) before spawning — prevents double-dispatch.
-- Always read the `.agent-task` file before spawning — TIER and SCOPE_VALUE drive the briefing.
+- Always read the `.agent-task` file before spawning — `tier` and `scope_value` drive the briefing.
 - Manager agents spawn their own children — you only spawn the top-level node.
 - Do not loop indefinitely — drain the queue and exit.
