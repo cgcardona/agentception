@@ -370,3 +370,89 @@ def test_dispatch_label_issue_scope_agent_task_fields(
     assert task_data["target"]["scope_value"] == "42"
     assert task_data["target"]["initiative_label"] == "ac-workflow"
     assert task_data["agent"]["tier"] == "engineer"
+
+
+# ---------------------------------------------------------------------------
+# cascade_enabled field — smoke-test mode
+# ---------------------------------------------------------------------------
+
+
+def test_cascade_enabled_defaults_to_true_in_agent_task(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    """cascade_enabled must be True in .agent-task when not specified in request."""
+    written_text: list[str] = []
+    original_write_text = Path.write_text
+
+    def _capture(
+        self: Path,
+        data: str,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> int:
+        if self.name == ".agent-task":
+            written_text.append(data)
+        return original_write_text(self, data, encoding=encoding, errors=errors, newline=newline)
+
+    with (
+        patch("agentception.routes.api.dispatch.settings") as mock_settings,
+        patch("agentception.routes.api.dispatch.asyncio.create_subprocess_exec", new=_make_worktree_exec()),
+        patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
+        patch.object(Path, "write_text", _capture),
+    ):
+        mock_settings.worktrees_dir = str(tmp_path / "worktrees7")
+        mock_settings.host_worktrees_dir = "/host/worktrees"
+        mock_settings.repo_dir = str(tmp_path)
+
+        client.post(
+            "/api/dispatch/label",
+            json=_dispatch_label_body(scope="full_initiative"),
+        )
+
+    import tomllib
+    assert written_text, "No .agent-task file was written"
+    task_data = tomllib.loads(written_text[0])
+    assert task_data["spawn"]["cascade_enabled"] is True
+
+
+def test_cascade_enabled_false_written_to_agent_task(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    """cascade_enabled=False must propagate into [spawn].cascade_enabled in .agent-task."""
+    written_text: list[str] = []
+    original_write_text = Path.write_text
+
+    def _capture(
+        self: Path,
+        data: str,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> int:
+        if self.name == ".agent-task":
+            written_text.append(data)
+        return original_write_text(self, data, encoding=encoding, errors=errors, newline=newline)
+
+    with (
+        patch("agentception.routes.api.dispatch.settings") as mock_settings,
+        patch("agentception.routes.api.dispatch.asyncio.create_subprocess_exec", new=_make_worktree_exec()),
+        patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
+        patch.object(Path, "write_text", _capture),
+    ):
+        mock_settings.worktrees_dir = str(tmp_path / "worktrees8")
+        mock_settings.host_worktrees_dir = "/host/worktrees"
+        mock_settings.repo_dir = str(tmp_path)
+
+        res = client.post(
+            "/api/dispatch/label",
+            json=_dispatch_label_body(scope="full_initiative", cascade_enabled=False),
+        )
+
+    assert res.status_code == 200
+    import tomllib
+    assert written_text, "No .agent-task file was written"
+    task_data = tomllib.loads(written_text[0])
+    assert task_data["spawn"]["cascade_enabled"] is False

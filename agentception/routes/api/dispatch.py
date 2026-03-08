@@ -417,6 +417,15 @@ class LabelDispatchRequest(BaseModel):
     the launched agent knows the exact hierarchy it is expected to spawn.
     When absent the agent infers its own team structure from the ticket list.
     """
+    cascade_enabled: bool = True
+    """When False the launched agent must not spawn any child agents.
+
+    Used for incremental smoke-testing: prove one tier works before wiring it
+    to the next.  The agent reads this flag from ``[spawn].cascade_enabled``
+    in its ``.agent-task`` and, if False, outputs its self-introduction,
+    calls ``log_run_step`` + ``build_complete_run`` via MCP, and exits without
+    querying GitHub or dispatching children.
+    """
 
 
 class LabelDispatchResponse(BaseModel):
@@ -564,6 +573,9 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
         "worktree": {
             "path": host_worktree_path,
             "branch": branch,
+        },
+        "spawn": {
+            "cascade_enabled": req.cascade_enabled,
         },
         "meta": {
             "run_id": run_id,
