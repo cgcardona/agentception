@@ -32,11 +32,17 @@ from agentception.models import AgentNode, AgentStatus
 
 
 def _make_run(status: str = "pending_launch") -> ACAgentRun:
-    """Return a minimal ACAgentRun ORM object with the given status."""
+    """Return a minimal ACAgentRun ORM object with the given status.
+
+    issue_number is set to a non-None value because these tests simulate
+    issue-backed runs.  Ad-hoc runs (issue_number=None) are intentionally
+    excluded from the orphan sweep and have a separate lifecycle.
+    """
     run = ACAgentRun(
         id="label-developer-experience-layer-5492de",
         role="cto",
         status=status,
+        issue_number=1,
         branch="agent/developer-experience-layer-b735",
         worktree_path="/worktrees/label-developer-experience-layer-5492de",
         spawned_at=datetime.datetime.now(datetime.timezone.utc),

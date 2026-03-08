@@ -385,7 +385,7 @@ def _expand_cognitive_arch(cognitive_arch: str) -> str:
         return ""
     try:
         # resolve_arch is not a package — imported via sys.path manipulation above.
-        import resolve_arch  # type: ignore[import-not-found]  # noqa: PLC0415
+        import resolve_arch  # noqa: PLC0415
         figure_ids, skill_ids = resolve_arch.parse_cognitive_arch(cognitive_arch)
         return str(resolve_arch.assemble(figure_ids, skill_ids, mode="implementer"))
     except Exception as exc:  # noqa: BLE001
