@@ -27,7 +27,7 @@ services:
       # HOST_ROLE_FILE so Cursor agents (on the host) can resolve role files.
       # Override via HOST_REPO_DIR in .env when the repo is not at the default.
       HOST_REPO_DIR: ${HOST_REPO_DIR:-}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       # gh CLI reads GITHUB_TOKEN when the keychain (macOS) is unavailable inside Docker.
       # Set GITHUB_TOKEN in .env to a PAT with repo+issues scope.
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
