@@ -99,6 +99,36 @@ opening a PR. A concurrent `qa-coordinator` would race against those
 chain-spawned reviewers and attempt to claim PRs that are already covered,
 producing duplicate review runs.
 
+### Worker execution loop
+
+Applies to any worker (`scope_type` = `issue` or `pr`). Workers do not survey
+a queue — they are dispatched with exactly one unit of work already assigned
+in the `.agent-task` file. The "loop" is a single pass followed by an
+optional chain-spawn.
+
+```
+enter:
+  claim scope_value                            # mark issue/PR as "agent:wip"
+
+  scope_type == "issue":
+    read issue, check out branch, implement
+    open PR
+    chain-spawn 1 reviewing worker             # immediate — before exiting
+    exit
+
+  scope_type == "pr":
+    read PR diff, write review, approve or request-changes
+    # no chain-spawn — reviewing worker is always a leaf
+    exit
+```
+
+**Key invariant:** an implementing worker (`scope_type=issue`) **always**
+chain-spawns a reviewing worker before it exits — even if it believes the
+PR is trivial. The reviewing worker is the only agent authorised to call the
+PR approved. If the implementing worker crashes after opening the PR but
+before chain-spawning, the parent `qa-coordinator` sweep picks up the orphaned
+PR on its next loop iteration.
+
 ---
 
 ## `.agent-task` file format
