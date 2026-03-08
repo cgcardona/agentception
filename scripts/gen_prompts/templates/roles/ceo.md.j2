@@ -105,6 +105,54 @@ file. Load it as the very first thing you do, before any tool call or analysis.
 
 {% include 'snippets/coordinator-base.md.j2' %}
 
+## STEP 0.5 — CHECK CASCADE MODE
+
+```bash
+CASCADE_ENABLED=$(python3 -c "
+import tomllib
+d = tomllib.loads(open('.agent-task').read())
+print(str(d.get('spawn', {}).get('cascade_enabled', True)).lower())
+" 2>/dev/null || echo "true")
+RUN_ID=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('meta', {}).get('run_id', ''))" 2>/dev/null || echo "")
+TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+```
+
+If `CASCADE_ENABLED` is **`false`** — this is a diagnostic smoke-test run.
+**Do NOT query GitHub. Do NOT dispatch any children.** Instead:
+
+1. Output this block verbatim as visible text:
+
+```
+✅ CEO smoke test — pipeline node verified.
+
+  Role:              $ROLE
+  Cognitive arch:    $COGNITIVE_ARCH
+  Run ID:            $RUN_ID
+  Timestamp:         $TIMESTAMP
+  cascade_enabled:   false — no children dispatched.
+```
+
+2. Call the AgentCeption MCP tools (server: `agentception`):
+
+```
+log_run_step(
+  issue_number=0,
+  step_name="CEO smoke test — cognitive arch loaded: {COGNITIVE_ARCH} at {TIMESTAMP}",
+  agent_run_id="{RUN_ID}"
+)
+
+build_complete_run(
+  issue_number=0,
+  pr_url="",
+  summary="CEO smoke test complete. Role={ROLE} Arch={COGNITIVE_ARCH} Timestamp={TIMESTAMP}",
+  agent_run_id="{RUN_ID}"
+)
+```
+
+3. **Stop here.** Do not proceed to STEP 1.
+
+---
+
 ## STEP 1 — SURVEY: Discover Active Teams
 
 ```
