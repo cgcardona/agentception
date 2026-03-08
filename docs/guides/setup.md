@@ -36,7 +36,10 @@ Open `.env` and fill in the required values:
 | `DB_PASSWORD` | **Yes** | Postgres password. No default — the compose file requires it explicitly. | Generate with `openssl rand -hex 16` |
 | `GH_REPO` | **Yes** | The `owner/repo` this AgentCeption instance orchestrates. | Your GitHub repo |
 | `GITHUB_TOKEN` | Optional | GitHub PAT with `repo` + `issues` scope. If you have `~/.config/gh` configured (via `gh auth login`), the container volume-mounts it and you can leave this blank. | [github.com/settings/tokens](https://github.com/settings/tokens) |
-| `OPENROUTER_API_KEY` | Optional | OpenRouter API key. Required for Phase 1A LLM planning. Without it the service starts, but the planner falls back to a keyword classifier. | [openrouter.ai/keys](https://openrouter.ai/keys) |
+| `OPENROUTER_API_KEY` | Optional | OpenRouter API key. Required for Phase 1A LLM planning and the Cursor-free agent loop. Without it the service starts, but planning and agent execution are unavailable. | [openrouter.ai/keys](https://openrouter.ai/keys) |
+| `AC_API_KEY` | Optional | Shared secret for authenticating all `/api/*` requests. Leave empty for local-only deployments. Required when exposing the service on a shared server or the public internet. | Generate with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"` |
+| `QDRANT_URL` | Optional | Internal Qdrant REST endpoint. | Default: `http://agentception-qdrant:6333` |
+| `QDRANT_COLLECTION` | Optional | Qdrant collection for code vectors. | Default: `code` |
 | `HOST_WORKTREES_DIR` | Optional | Host path where agent git worktrees are created. Use an absolute path (no `~` — compose doesn't expand it). | Default: `~/.agentception/worktrees` |
 | `WORKTREES_DIR` | Optional | Container-internal path that maps to `HOST_WORKTREES_DIR`. Add a matching volume in `docker-compose.override.yml` if you change this. | Default: `/worktrees` |
 | `REPO_DIR` | Optional | Absolute path to the cloned agentception repo on the host. Used for git operations inside the container. | Default: `/app` (the container working directory) |
@@ -132,7 +135,42 @@ Both should return HTTP 200.
 
 ---
 
-## Step 7 — Configure Cursor MCP (optional)
+## Step 7 — Index the codebase for semantic search (optional)
+
+The Cursor-free agent loop uses a Qdrant vector index to give agents `@Codebase`-style semantic search without Cursor. Trigger indexing with a single API call:
+
+```bash
+curl -X POST http://localhost:10003/api/system/index-codebase
+# → {"ok": true, "message": "Codebase indexing started in the background."}
+```
+
+Indexing runs in the background. The first run downloads the FastEmbed model (`BAAI/bge-small-en-v1.5`, ~130 MB) from HuggingFace; subsequent runs are cached and complete in seconds. Watch progress in the container logs:
+
+```bash
+docker compose logs -f agentception | grep code_indexer
+```
+
+Verify the index is populated:
+
+```bash
+curl "http://localhost:10003/api/system/search?q=openrouter+api+key&n=3"
+# → {"ok": true, "query": "openrouter api key", "n_results": 3, "matches": [...]}
+```
+
+Re-index after significant code changes (e.g. after merging a large PR).
+
+If `AC_API_KEY` is set, include it:
+
+```bash
+curl -X POST http://localhost:10003/api/system/index-codebase \
+  -H "Authorization: Bearer your-key"
+```
+
+See the [Cursor-Free Agent Loop guide](agent-loop.md) for full documentation.
+
+---
+
+## Step 8 — Configure Cursor MCP (optional)
 
 To use AgentCeption tools from Cursor, add to `~/.cursor/mcp.json`:
 

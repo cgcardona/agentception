@@ -13,18 +13,25 @@ agentception/
   telemetry.py     → Structured logging setup
 
   routes/
-    api/           → JSON/SSE API endpoints
+    api/           → JSON/SSE API endpoints (including /api/runs/*/execute, /api/system/*)
     ui/            → Jinja2/HTMX/Alpine.js page handlers
 
+  middleware/      → Starlette middleware (auth.py — API key validation)
   readers/         → LLM planner, GitHub client, worktree manager, transcript reader
-  services/        → LLM calls (OpenRouter), external integrations
+  services/        → LLM calls (OpenRouter), agent loop, code indexer
+    llm.py         → call_openrouter(), call_openrouter_with_tools()
+    agent_loop.py  → Cursor-free agent execution loop
+    code_indexer.py → Qdrant codebase indexing + semantic search
+  tools/           → Local agent tools (file I/O, shell, semantic search definitions)
+    file_tools.py  → read_file, write_file, list_directory, search_text
+    shell_tools.py → run_command (with denylist)
+    definitions.py → OpenAI-format JSON schemas for all local tools
   mcp/             → MCP server for Cursor/Claude tool integration
   db/              → SQLAlchemy async models, Alembic migrations, engine
   intelligence/    → Cognitive architecture engine
   static/          → Compiled JS/CSS bundles (build with npm run build)
   templates/       → Jinja2 HTML templates
-  docs/            → Internal design documents (plan-spec, agent-tree-protocol, etc.)
-  tests/           → Unit, integration, regression, and E2E tests
+  tests/           → Unit, integration, regression, and E2E tests (single directory)
 ```
 
 ## Service Dependencies
@@ -37,6 +44,8 @@ agentception/
 
 ## Data Flow
 
+### Planning pipeline (Phase 1A → GitHub issues → dispatch)
+
 ```
 Browser / Cursor MCP
       ↓
@@ -44,13 +53,48 @@ FastAPI routes (thin HTTP handlers)
       ↓
 readers/ (LLM planner, GitHub, worktree)
       ↓
-services/ (OpenRouter LLM calls)
+services/llm.py (OpenRouter → Anthropic HTTPS)
       ↓
 GitHub API → Issues, PRs, Worktrees
       ↓
-Agents (dispatched via Cursor CLI)
+POST /api/runs/{run_id}/execute  ← Cursor-free dispatch
+      ↓
+services/agent_loop.py
       ↓
 PRs → merged → next phase unlocks
+```
+
+### Cursor-free agent execution (per-run)
+
+```
+POST /api/runs/{run_id}/execute
+      ↓
+agent_loop.py
+  ├─ load .agent-task TOML
+  ├─ load role markdown + resolve_arch.py (cognitive arch)
+  ├─ build tool catalogue (file + shell + search_codebase + MCP)
+  └─ conversation loop ─→ OpenRouter ─→ Anthropic Claude
+         ↓ tool calls
+   ┌─────────────────────────────────────────┐
+   │  read_file / write_file / list_dir      │ ← tools/file_tools.py
+   │  run_command (denylist enforced)        │ ← tools/shell_tools.py
+   │  search_codebase (Qdrant cosine search) │ ← services/code_indexer.py
+   │  GitHub / pipeline MCP tools           │ ← mcp/server.py
+   └─────────────────────────────────────────┘
+      ↓ on completion
+  build_complete_run() / build_cancel_run()
+```
+
+### Codebase indexing (one-time, then incremental)
+
+```
+POST /api/system/index-codebase
+      ↓ (background task)
+code_indexer.py
+  ├─ walk source files (.py .ts .md .yml …)
+  ├─ chunk (~1500 chars, 200-char overlap)
+  ├─ embed → fastembed BAAI/bge-small-en-v1.5 (ONNX, CPU, no API key)
+  └─ upsert 384-dim vectors → Qdrant
 ```
 
 ## Agent Hierarchy
@@ -218,6 +262,7 @@ phases:
 
 - [Plan Spec format](plan-spec.md)
 - [Agent tree protocol](agent-tree-protocol.md)
-- [Cursor agent spawning](cursor-agent-spawning.md)
+- [Cursor-Free Agent Loop](guides/agent-loop.md)
 - [MCP integration guide](guides/mcp.md)
+- [Security Guide](guides/security.md)
 - [Type contracts reference](reference/type-contracts.md)
