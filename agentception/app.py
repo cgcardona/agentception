@@ -43,13 +43,14 @@ logging.config.dictConfig(
             },
         },
         "loggers": {
-            # AgentCeption application code — INFO so agent loop steps are visible.
+            # AgentCeption application code — INFO so agent loop steps are
+            # visible in docker logs.  propagate=True lets pytest's caplog
+            # fixture capture these records in tests without a custom handler.
             "agentception": {
-                "handlers": ["console"],
                 "level": "INFO",
-                "propagate": False,
+                "propagate": True,
             },
-            # Uvicorn and third-party noise stays at WARNING to keep output readable.
+            # Uvicorn and third-party noise stays at WARNING.
             "uvicorn": {"level": "WARNING"},
             "uvicorn.error": {"level": "WARNING"},
             "uvicorn.access": {"level": "WARNING"},

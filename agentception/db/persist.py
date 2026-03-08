@@ -852,7 +852,11 @@ async def _upsert_agent_runs(
         )
     )
     for orphan in orphan_result.scalars().all():
-        if orphan.id not in live_ids:
+        # Ad-hoc runs (issue_number is None) are managed by the asyncio task
+        # lifecycle, not by the GitHub polling loop.  Exclude them from the
+        # orphan sweep so the polling tick never flips an in-progress adhoc
+        # run to "failed" just because it isn't backed by a GitHub issue.
+        if orphan.id not in live_ids and orphan.issue_number is not None:
             if orphan.pr_number is not None:
                 # Engineer completed — PR exists but the agent is done working.
                 # "done" puts the card in the "PR Open" lane (any status with
