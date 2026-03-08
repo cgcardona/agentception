@@ -353,7 +353,7 @@ async def plan_preview(body: PlanDraftRequest) -> StreamingResponse:
     Returns ``text/event-stream``.  Each event is a JSON object on a ``data:``
     line.  See module docstring for the full event shape reference.
 
-    Requires ``OPENROUTER_API_KEY`` to be configured — returns HTTP 503 if absent.
+    Requires ``ANTHROPIC_API_KEY`` to be configured — returns HTTP 503 if absent.
     """
     from agentception.config import settings as _cfg
     from agentception.models import PlanSpec
@@ -441,10 +441,10 @@ async def plan_preview(body: PlanDraftRequest) -> StreamingResponse:
             logger.error("❌ Plan stream error: %s | accumulated (200): %s", exc, accumulated[:200])
             yield _sse(_PreviewErrorEvent(t="error", detail=str(exc)))
 
-    if not _cfg.openrouter_api_key:
+    if not _cfg.anthropic_api_key:
         raise HTTPException(
             status_code=503,
-            detail="OPENROUTER_API_KEY is not configured. Set it to use the Plan step.",
+            detail="ANTHROPIC_API_KEY is not configured. Set it to use the Plan step.",
         )
 
     return StreamingResponse(_llm_stream(), media_type="text/event-stream")

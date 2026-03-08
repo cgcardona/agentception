@@ -186,11 +186,11 @@ async def test_preview_whitespace_dump_returns_422(async_client: AsyncClient) ->
 
 @pytest.mark.anyio
 async def test_preview_missing_api_key_returns_503(async_client: AsyncClient) -> None:
-    """When OPENROUTER_API_KEY is absent the endpoint returns HTTP 503."""
+    """When ANTHROPIC_API_KEY is absent the endpoint returns HTTP 503."""
     from agentception.config import settings
 
     # model_copy produces a new Pydantic settings instance with the field overridden.
-    settings_no_key = settings.model_copy(update={"openrouter_api_key": None})
+    settings_no_key = settings.model_copy(update={"anthropic_api_key": None})
     with patch("agentception.config.settings", settings_no_key):
         resp = await async_client.post(
             "/api/plan/preview", json={"dump": "do some things", "label_prefix": ""}
@@ -222,7 +222,7 @@ async def test_preview_valid_input_streams_chunk_and_done_events(
         ),
         patch(
             "agentception.config.settings",
-            MagicMock(openrouter_api_key="test-key", **_passthrough_settings()),
+            MagicMock(anthropic_api_key="test-key", **_passthrough_settings()),
         ),
     ):
         resp = await async_client.post(
@@ -266,7 +266,7 @@ async def test_preview_thinking_chunks_are_discarded(async_client: AsyncClient) 
         ),
         patch(
             "agentception.config.settings",
-            MagicMock(openrouter_api_key="test-key", **_passthrough_settings()),
+            MagicMock(anthropic_api_key="test-key", **_passthrough_settings()),
         ),
     ):
         resp = await async_client.post(
@@ -302,7 +302,7 @@ async def test_preview_prose_response_yields_error_event(async_client: AsyncClie
         ),
         patch(
             "agentception.config.settings",
-            MagicMock(openrouter_api_key="test-key", **_passthrough_settings()),
+            MagicMock(anthropic_api_key="test-key", **_passthrough_settings()),
         ),
     ):
         resp = await async_client.post(
@@ -342,7 +342,7 @@ async def test_preview_context_pack_is_prepended_to_dump(async_client: AsyncClie
         ),
         patch(
             "agentception.config.settings",
-            MagicMock(openrouter_api_key="test-key", **_passthrough_settings()),
+            MagicMock(anthropic_api_key="test-key", **_passthrough_settings()),
         ),
     ):
         await async_client.post(
@@ -719,7 +719,7 @@ def _passthrough_settings() -> dict[str, object]:
     When we replace ``agentception.config.settings`` with a ``MagicMock`` the
     mock auto-stubs every attribute access, which is fine for most calls.  The
     one exception is any attribute explicitly checked for truthiness in the
-    handler itself (like ``openrouter_api_key``).  All others are left to the
+    handler itself (like ``anthropic_api_key``).  All others are left to the
     MagicMock default.
     """
     return {}

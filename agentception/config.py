@@ -114,10 +114,11 @@ class AgentCeptionSettings(BaseSettings):
 
         python3 -c "import secrets; print(secrets.token_urlsafe(32))"
     """
-    openrouter_api_key: str = ""
-    """OpenRouter API key for direct LLM calls (plan phase preview, enrichment).
+    anthropic_api_key: str = ""
+    """Anthropic API key for all LLM calls (agent loop, plan phase, enrichment).
 
-    Set via ``OPENROUTER_API_KEY`` env var.  When absent the Phase Planner
+    Set via ``ANTHROPIC_API_KEY`` env var.  Obtain a key from
+    https://console.anthropic.com → API Keys.  When absent the Phase Planner
     falls back to the keyword-based heuristic classifier — no LLM is required
     for the service to start.
     """

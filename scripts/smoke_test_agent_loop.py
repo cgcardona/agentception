@@ -110,7 +110,7 @@ def step_trigger_indexing() -> None:
 def step_semantic_search() -> None:
     print("─── Step 4: Semantic search verification ───")
     queries = [
-        "openrouter api key configuration",
+        "anthropic api key configuration",
         "agent loop tool dispatch",
         "qdrant collection indexing",
     ]

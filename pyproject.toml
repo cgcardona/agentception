@@ -62,6 +62,13 @@ show_error_codes = true
 module = ["sqlalchemy.*", "alembic.*", "asyncpg.*", "aiosqlite.*", "markdown"]
 ignore_missing_imports = true
 
+# resolve_arch lives in scripts/gen_prompts/ and is not a package — added to
+# sys.path at runtime.  Suppress the import-not-found error here rather than
+# using a # type: ignore at every call site.
+[[tool.mypy.overrides]]
+module = ["resolve_arch"]
+ignore_missing_imports = true
+
 # pytest decorators are untyped by design
 [[tool.mypy.overrides]]
 module = ["agentception.tests.*"]

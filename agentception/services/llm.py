@@ -1,35 +1,33 @@
 from __future__ import annotations
 
-"""Async OpenRouter client for AgentCeption's direct LLM calls.
+"""Async Anthropic client for AgentCeption's direct LLM calls.
 
-Patterns and implementation standards for the LLM client:
-  - Provider routing lock (Anthropic direct, no Bedrock/Vertex fallback)
-  - Extended reasoning via payload["reasoning"] — yields thinking deltas
-    separately from content deltas so the UI can display them differently
-  - Exponential backoff retry on 429/5xx/timeout
-  - Persistent httpx.AsyncClient (re-used across requests, not recreated per call)
+All three public entry points target the Anthropic Messages API directly
+(https://api.anthropic.com/v1/messages).  Prompt caching (cache_control:
+ephemeral on the system prompt) is active for claude-sonnet-4-6 and later,
+giving ~90% input-token discount on turns 2-N of every agent run.
 
 Three public entry points:
 
 ``call_openrouter(user_prompt, ...)``
-    Waits for the full completion and returns the text.  No retry for now on
-    the non-streaming path (used only for MCP tools where latency matters less).
+    Waits for the full completion and returns the text.  Used by the Phase
+    Planner and MCP tools where a single-turn, non-streaming response suffices.
 
 ``call_openrouter_stream(user_prompt, ...)``
-    AsyncGenerator that yields dicts as SSE-ready events:
-      {"type": "thinking", "text": "..."}  -- reasoning token (chain of thought)
+    AsyncGenerator that yields :class:`LLMChunk` dicts as SSE-ready events:
+      {"type": "thinking", "text": "..."}  -- extended-thinking token
       {"type": "content",  "text": "..."}  -- output token (the actual YAML)
     Callers map these to their own SSE event format.
 
 ``call_openrouter_with_tools(messages, ...)``
-    Multi-turn tool-use call.  Accepts a message history and a list of OpenAI-
-    format tool definitions.  Returns a :class:`ToolResponse` containing the
-    model's text output, any tool calls it made, and the stop reason.  The
-    caller is responsible for dispatching tool calls and appending results to
-    the message list before calling again.  Used by the Cursor-free agent loop.
+    Multi-turn tool-use call.  Accepts an OpenAI-format message history and
+    a list of OpenAI-format tool definitions; converts both to Anthropic wire
+    format internally so the caller (agent_loop) does not need to change.
+    Returns a :class:`ToolResponse` with the model's text, any tool calls,
+    and the stop reason.
 
-The key is read from ``settings.openrouter_api_key`` (env var
-``OPENROUTER_API_KEY``).  A missing key raises ``RuntimeError``.
+The key is read from ``settings.anthropic_api_key`` (env var
+``ANTHROPIC_API_KEY``).  A missing key raises ``RuntimeError``.
 """
 
 import asyncio
@@ -44,13 +42,14 @@ from agentception.config import settings
 
 logger = logging.getLogger(__name__)
 
-_OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-_MODEL = "anthropic/claude-sonnet-4.6"
+_ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+# Anthropic model IDs — strip the "anthropic/" OpenRouter prefix and replace
+# the dot in the minor version with a hyphen to match Anthropic's ID format.
+_MODEL = "claude-sonnet-4-6-20260217"
+_OPUS_MODEL = "claude-opus-4-6-20260217"
+_ANTHROPIC_VERSION = "2023-06-01"
 _DEFAULT_TIMEOUT = 120.0
 _MAX_RETRIES = 2
-
-# Both Claude 4.x models support reasoning and caching via Anthropic direct.
-_REASONING_MODELS = {"anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6"}
 
 
 class LLMChunk(TypedDict):
@@ -61,7 +60,7 @@ class LLMChunk(TypedDict):
 
 
 # ---------------------------------------------------------------------------
-# Tool-use types (used by call_openrouter_with_tools and agent_loop)
+# Tool-use types — public interface unchanged; internal wire format differs
 # ---------------------------------------------------------------------------
 
 
@@ -74,7 +73,7 @@ class ToolFunction(TypedDict):
 
 
 class ToolDefinition(TypedDict):
-    """OpenAI-format tool definition passed to the model."""
+    """OpenAI-format tool definition passed in by callers."""
 
     type: Literal["function"]
     function: ToolFunction
@@ -103,25 +102,30 @@ class ToolResponse(TypedDict):
     tool_calls: list[ToolCall]  # empty when stop_reason is "stop"
 
 
-def _base_headers() -> dict[str, str]:
-    """Build the shared HTTP headers for every OpenRouter request."""
-    api_key = settings.openrouter_api_key
-    if not api_key:
+# ---------------------------------------------------------------------------
+# HTTP client helpers
+# ---------------------------------------------------------------------------
+
+
+def _api_key() -> str:
+    key = settings.anthropic_api_key
+    if not key:
         raise RuntimeError(
-            "OPENROUTER_API_KEY is not configured -- "
-            "set it in .env and restart the agentception service."
+            "ANTHROPIC_API_KEY is not configured — "
+            "set it in .env and restart the agentception service.  "
+            "Obtain a key at https://console.anthropic.com → API Keys."
         )
+    return key
+
+
+def _base_headers() -> dict[str, str]:
+    """Build the HTTP headers required by every Anthropic API request."""
     return {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://agentception.local",
-        "X-Title": "AgentCeption",
+        "x-api-key": _api_key(),
+        "anthropic-version": _ANTHROPIC_VERSION,
+        "content-type": "application/json",
     }
 
-
-# ---------------------------------------------------------------------------
-# Persistent client (re-used across requests for connection pooling)
-# ---------------------------------------------------------------------------
 
 _shared_client: httpx.AsyncClient | None = None
 
@@ -130,15 +134,113 @@ def _get_client() -> httpx.AsyncClient:
     """Return the module-level shared client, creating it on first call."""
     global _shared_client
     if _shared_client is None or _shared_client.is_closed:
-        _shared_client = httpx.AsyncClient(
-            timeout=_DEFAULT_TIMEOUT,
-            headers=_base_headers(),
-        )
+        _shared_client = httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT)
     return _shared_client
 
 
 # ---------------------------------------------------------------------------
-# Non-streaming call (used by MCP tools and validate endpoint)
+# Format converters — OpenAI ↔ Anthropic
+# ---------------------------------------------------------------------------
+
+
+def _tools_to_anthropic(tools: list[ToolDefinition]) -> list[dict[str, object]]:
+    """Convert OpenAI-format tool definitions to Anthropic's input_schema format."""
+    result: list[dict[str, object]] = []
+    for tool in tools:
+        fn = tool["function"]
+        result.append(
+            {
+                "name": fn["name"],
+                "description": fn.get("description", ""),
+                "input_schema": fn["parameters"],
+            }
+        )
+    return result
+
+
+def _messages_to_anthropic(
+    messages: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Convert OpenAI-format message history to Anthropic Messages format.
+
+    Key differences handled here:
+    - ``role: "tool"`` messages (tool results) become ``role: "user"`` messages
+      containing ``tool_result`` content blocks.  Consecutive tool-result
+      messages are collapsed into a single user turn (Anthropic requires it).
+    - ``role: "assistant"`` messages with ``tool_calls`` become assistant
+      messages whose ``content`` is an array of ``tool_use`` blocks.
+    """
+    out: list[dict[str, object]] = []
+    i = 0
+    while i < len(messages):
+        msg = messages[i]
+        role: object = msg.get("role", "")
+
+        if role == "user":
+            raw = msg.get("content", "")
+            out.append({"role": "user", "content": raw})
+            i += 1
+
+        elif role == "assistant":
+            blocks: list[dict[str, object]] = []
+            text = msg.get("content") or ""
+            if isinstance(text, str) and text:
+                blocks.append({"type": "text", "text": text})
+
+            raw_calls = msg.get("tool_calls") or []
+            if isinstance(raw_calls, list):
+                for tc in raw_calls:
+                    if not isinstance(tc, dict):
+                        continue
+                    fn = tc.get("function")
+                    if not isinstance(fn, dict):
+                        continue
+                    args_raw = fn.get("arguments", "{}")
+                    try:
+                        args: object = (
+                            json.loads(args_raw)
+                            if isinstance(args_raw, str)
+                            else args_raw
+                        )
+                    except json.JSONDecodeError:
+                        args = {}
+                    blocks.append(
+                        {
+                            "type": "tool_use",
+                            "id": tc.get("id", ""),
+                            "name": fn.get("name", ""),
+                            "input": args,
+                        }
+                    )
+            # Anthropic requires non-empty content; send empty string if no blocks.
+            out.append(
+                {"role": "assistant", "content": blocks if blocks else ""}
+            )
+            i += 1
+
+        elif role == "tool":
+            # Collapse consecutive tool-result messages into one user turn.
+            results: list[dict[str, object]] = []
+            while i < len(messages) and messages[i].get("role") == "tool":
+                tr = messages[i]
+                results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tr.get("tool_call_id", ""),
+                        "content": str(tr.get("content", "")),
+                    }
+                )
+                i += 1
+            out.append({"role": "user", "content": results})
+
+        else:
+            i += 1
+
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Non-streaming call — simple prompt → text completion
 # ---------------------------------------------------------------------------
 
 
@@ -149,7 +251,7 @@ async def call_openrouter(
     temperature: float = 0.2,
     max_tokens: int = 4096,
 ) -> str:
-    """Call Claude Sonnet via OpenRouter and return the full text response.
+    """Call Claude via the Anthropic API and return the full text response.
 
     Args:
         user_prompt: The user-turn message.
@@ -158,28 +260,21 @@ async def call_openrouter(
         max_tokens: Maximum tokens in the completion.
 
     Returns:
-        The raw text string of the model's first completion choice.
+        The raw text string of the model's response.
 
     Raises:
-        RuntimeError: When ``OPENROUTER_API_KEY`` is not set.
+        RuntimeError: When ``ANTHROPIC_API_KEY`` is not set.
         httpx.HTTPStatusError: On non-2xx responses after retries.
         httpx.TimeoutException: When the request exceeds ``_DEFAULT_TIMEOUT``.
     """
-    messages: list[dict[str, str]] = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": user_prompt})
-
     payload: dict[str, object] = {
         "model": _MODEL,
-        "messages": messages,
-        "temperature": temperature,
         "max_tokens": max_tokens,
-        "stream": False,
-        # Lock to direct Anthropic — avoids Bedrock/Vertex variants that may
-        # behave differently with caching / reasoning params.
-        "provider": {"order": ["anthropic"], "allow_fallbacks": False},
+        "temperature": temperature,
+        "messages": [{"role": "user", "content": user_prompt}],
     }
+    if system_prompt:
+        payload["system"] = system_prompt
 
     logger.info("✅ LLM call — model=%s prompt_chars=%d", _MODEL, len(user_prompt))
 
@@ -188,11 +283,11 @@ async def call_openrouter(
 
     for attempt in range(_MAX_RETRIES + 1):
         if attempt > 0:
-            backoff = 2 ** attempt
+            backoff = 2**attempt
             logger.warning("⚠️ LLM retry %d/%d after %ds", attempt, _MAX_RETRIES, backoff)
             await asyncio.sleep(backoff)
         try:
-            resp = await client.post(_OPENROUTER_URL, json=payload)
+            resp = await client.post(_ANTHROPIC_URL, json=payload, headers=_base_headers())
             resp.raise_for_status()
             break
         except httpx.HTTPStatusError as exc:
@@ -208,26 +303,26 @@ async def call_openrouter(
 
     data: object = resp.json()
     if not isinstance(data, dict):
-        raise ValueError(f"Unexpected OpenRouter response type: {type(data)}")
-    choices: object = data.get("choices")
-    if not isinstance(choices, list) or not choices:
-        raise ValueError(f"OpenRouter returned no choices: {data}")
-    first: object = choices[0]
-    if not isinstance(first, dict):
-        raise ValueError(f"Unexpected choice format: {first}")
-    message: object = first.get("message")
-    if not isinstance(message, dict):
-        raise ValueError(f"Unexpected message format: {first}")
-    content: object = message.get("content", "")
-    if not isinstance(content, str):
-        raise ValueError(f"Unexpected content type: {type(content)}")
+        raise ValueError(f"Unexpected Anthropic response type: {type(data)}")
 
-    logger.info("✅ LLM response — %d chars", len(content))
-    return content
+    content_blocks: object = data.get("content", [])
+    if not isinstance(content_blocks, list):
+        raise ValueError(f"Anthropic returned unexpected content: {data}")
+
+    text_parts: list[str] = []
+    for block in content_blocks:
+        if isinstance(block, dict) and block.get("type") == "text":
+            text = block.get("text", "")
+            if isinstance(text, str):
+                text_parts.append(text)
+
+    result = "".join(text_parts)
+    logger.info("✅ LLM response — %d chars", len(result))
+    return result
 
 
 # ---------------------------------------------------------------------------
-# Streaming call with extended reasoning
+# Streaming call with extended thinking
 # ---------------------------------------------------------------------------
 
 
@@ -235,68 +330,72 @@ async def call_openrouter_stream(
     user_prompt: str,
     *,
     system_prompt: str | None = None,
-    temperature: float = 0.2,
-    max_tokens: int = 4096,
+    temperature: float = 1.0,
+    max_tokens: int = 16000,
     reasoning_fraction: float = 0.35,
 ) -> AsyncGenerator[LLMChunk, None]:
-    """Stream chunks from Claude Sonnet with extended reasoning enabled.
+    """Stream chunks from Claude with extended thinking enabled.
 
     Yields :class:`LLMChunk` dicts with ``type`` set to:
 
     ``"thinking"``
-        Reasoning token from ``delta.reasoning_details`` (chain of thought).
-        Shown in the UI as dim/muted text before the YAML appears.
+        Extended-thinking token (chain of thought before the answer).
+        Shown in the UI as dim/muted text.
 
     ``"content"``
-        Output token from ``delta.content`` (the actual YAML being written).
+        Output token (the actual YAML being written).
         Shown as bright green code text.
 
-    Provider lock, reasoning budget, and retry logic below.
+    Note: Anthropic requires ``temperature=1`` when extended thinking is
+    enabled.  The ``temperature`` parameter is accepted for API compatibility
+    but overridden to 1.0 internally when a thinking budget is active.
 
     Args:
         user_prompt: The user-turn message.
         system_prompt: Optional system-turn message.
-        temperature: Sampling temperature.
-        max_tokens: Maximum total tokens (reasoning + output).
-        reasoning_fraction: Fraction of ``max_tokens`` reserved for reasoning
-            (default 0.35 → ~1400 tokens of thinking on a 4096 budget).
+        temperature: Ignored when thinking is enabled (must be 1.0 per Anthropic).
+        max_tokens: Maximum total tokens (thinking + output).
+        reasoning_fraction: Fraction of ``max_tokens`` reserved for thinking.
 
     Raises:
         RuntimeError: Missing API key.
-        httpx.HTTPStatusError: Non-2xx from OpenRouter after retries.
+        httpx.HTTPStatusError: Non-2xx after retries.
         httpx.TimeoutException: Request timeout.
     """
-    messages: list[dict[str, str]] = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": user_prompt})
+    thinking_budget = max(int(max_tokens * reasoning_fraction), 1024)
 
-    reasoning_budget = max(int(max_tokens * reasoning_fraction), 1024)
+    messages: list[dict[str, object]] = [
+        {"role": "user", "content": user_prompt}
+    ]
 
     payload: dict[str, object] = {
         "model": _MODEL,
-        "messages": messages,
-        "temperature": temperature,
         "max_tokens": max_tokens,
+        # temperature must be 1 when extended thinking is active (Anthropic requirement).
+        "temperature": 1.0,
+        "thinking": {"type": "enabled", "budget_tokens": thinking_budget},
+        "messages": messages,
         "stream": True,
-        # Lock to direct Anthropic (same rationale as non-streaming path).
-        "provider": {"order": ["anthropic"], "allow_fallbacks": False},
     }
-
-    if _MODEL in _REASONING_MODELS:
-        payload["reasoning"] = {"max_tokens": reasoning_budget}
-        logger.info("🧠 Reasoning enabled — budget=%d tokens", reasoning_budget)
+    if system_prompt:
+        payload["system"] = system_prompt
 
     logger.info(
-        "✅ LLM stream start — model=%s prompt_chars=%d reasoning=%d",
-        _MODEL, len(user_prompt), reasoning_budget,
+        "✅ LLM stream start — model=%s prompt_chars=%d thinking_budget=%d",
+        _MODEL,
+        len(user_prompt),
+        thinking_budget,
     )
 
     total_thinking = 0
     total_content = 0
 
-    async with _get_client().stream("POST", _OPENROUTER_URL, json=payload) as resp:
+    async with _get_client().stream(
+        "POST", _ANTHROPIC_URL, json=payload, headers=_base_headers()
+    ) as resp:
         resp.raise_for_status()
+        # Anthropic SSE: each line is "data: {json}" or an event header.
+        # content_block_delta carries {"type": "thinking_delta"|"text_delta", ...}
         async for line in resp.aiter_lines():
             if not line.startswith("data: "):
                 continue
@@ -304,49 +403,41 @@ async def call_openrouter_stream(
             if raw == "[DONE]":
                 break
             try:
-                chunk: object = json.loads(raw)
-                if not isinstance(chunk, dict):
+                event: object = json.loads(raw)
+                if not isinstance(event, dict):
                     continue
-                choices: object = chunk.get("choices")
-                if not isinstance(choices, list) or not choices:
+                if event.get("type") != "content_block_delta":
                     continue
-                choice: object = choices[0]
-                if not isinstance(choice, dict):
-                    continue
-                delta: object = choice.get("delta")
+                delta: object = event.get("delta")
                 if not isinstance(delta, dict):
                     continue
 
-                # Reasoning tokens — chain of thought from Anthropic via OR.
-                # Both delta.reasoning (string) and delta.reasoning_details (array)
-                # are present; use only the structured array to avoid double-emit
-                # (streaming response pattern).
-                for detail in delta.get("reasoning_details") or []:
-                    if not isinstance(detail, dict):
-                        continue
-                    if detail.get("type") == "reasoning.text":
-                        text: object = detail.get("text", "")
-                        if isinstance(text, str) and text:
-                            total_thinking += len(text)
-                            yield LLMChunk(type="thinking", text=text)
+                delta_type: object = delta.get("type")
 
-                # Output content tokens.
-                content_text: object = delta.get("content", "")
-                if isinstance(content_text, str) and content_text:
-                    total_content += len(content_text)
-                    yield LLMChunk(type="content", text=content_text)
+                if delta_type == "thinking_delta":
+                    thinking: object = delta.get("thinking", "")
+                    if isinstance(thinking, str) and thinking:
+                        total_thinking += len(thinking)
+                        yield LLMChunk(type="thinking", text=thinking)
+
+                elif delta_type == "text_delta":
+                    text: object = delta.get("text", "")
+                    if isinstance(text, str) and text:
+                        total_content += len(text)
+                        yield LLMChunk(type="content", text=text)
 
             except (json.JSONDecodeError, KeyError, IndexError, AttributeError):
                 continue
 
     logger.info(
         "✅ LLM stream done — thinking=%d chars content=%d chars",
-        total_thinking, total_content,
+        total_thinking,
+        total_content,
     )
 
 
 # ---------------------------------------------------------------------------
-# Multi-turn tool-use call (used by the Cursor-free agent loop)
+# Multi-turn tool-use call — used by the agent loop
 # ---------------------------------------------------------------------------
 
 
@@ -359,17 +450,21 @@ async def call_openrouter_with_tools(
     temperature: float = 0.0,
     max_tokens: int = 8192,
 ) -> ToolResponse:
-    """Call Claude via OpenRouter with tool-use support.
+    """Call Claude via the Anthropic API with tool-use support.
 
-    The caller maintains the full message history and passes it on every turn.
-    This function is stateless — it sends one request and returns the result.
+    Accepts and returns OpenAI-format data structures so the caller
+    (agent_loop) does not need to change.  The conversion to Anthropic's
+    wire format — content-block arrays, tool_use/tool_result blocks,
+    input_schema instead of parameters — happens internally.
+
+    Prompt caching is applied to the system prompt (cache_control: ephemeral).
+    Turn 1 writes the cache; turns 2-N read it at ~10% of normal input cost.
 
     Args:
-        messages: Conversation history (user / assistant / tool messages).
-            The system prompt is NOT included here; pass it via ``system``.
-        system: System prompt prepended to every request.
+        messages: OpenAI-format conversation history (user/assistant/tool).
+        system: System prompt prepended to every request (cached).
         tools: OpenAI-format tool definitions the model may call.
-        model: OpenRouter model identifier.
+        model: Anthropic model ID.
         temperature: Sampling temperature.  Defaults to 0 for determinism.
         max_tokens: Maximum tokens the model may emit per turn.
 
@@ -381,34 +476,27 @@ async def call_openrouter_with_tools(
         RuntimeError: Missing API key or unrecoverable HTTP failure.
         httpx.HTTPStatusError: Non-2xx after retries.
     """
-    full_messages: list[dict[str, object]] = []
-    if system:
-        # Wrap system content in a content-block array so Anthropic's prompt
-        # caching can be applied.  The ephemeral cache lasts 5 minutes and
-        # charges ~10% of the normal input-token price on cache hits — the
-        # system prompt is identical across every iteration of the same run,
-        # so it will be served from cache on turns 2-N.
-        full_messages.append({
-            "role": "system",
-            "content": [
-                {
-                    "type": "text",
-                    "text": system,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-        })
-    full_messages.extend(messages)
+    anthropic_tools = _tools_to_anthropic(tools)
+    anthropic_messages = _messages_to_anthropic(messages)
+
+    # System prompt as a cacheable content-block array.
+    # cache_control: ephemeral → 5-minute TTL; charged at ~10% on cache hits.
+    system_block: list[dict[str, object]] = [
+        {
+            "type": "text",
+            "text": system,
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
 
     payload: dict[str, object] = {
         "model": model,
-        "messages": full_messages,
-        "tools": tools,
-        "tool_choice": "auto",
+        "system": system_block,
+        "messages": anthropic_messages,
+        "tools": anthropic_tools,
+        "tool_choice": {"type": "auto"},
         "temperature": temperature,
         "max_tokens": max_tokens,
-        "stream": False,
-        "provider": {"order": ["anthropic"], "allow_fallbacks": False},
     }
 
     logger.info(
@@ -427,7 +515,9 @@ async def call_openrouter_with_tools(
             logger.warning("⚠️ LLM retry %d/%d after %ds", attempt, _MAX_RETRIES, backoff)
             await asyncio.sleep(backoff)
         try:
-            resp = await client.post(_OPENROUTER_URL, json=payload)
+            resp = await client.post(
+                _ANTHROPIC_URL, json=payload, headers=_base_headers()
+            )
             resp.raise_for_status()
             break
         except httpx.HTTPStatusError as exc:
@@ -443,57 +533,70 @@ async def call_openrouter_with_tools(
 
     data: object = resp.json()
     if not isinstance(data, dict):
-        raise ValueError(f"Unexpected OpenRouter response type: {type(data)}")
-    choices: object = data.get("choices")
-    if not isinstance(choices, list) or not choices:
-        raise ValueError(f"OpenRouter returned no choices: {data}")
-    first: object = choices[0]
-    if not isinstance(first, dict):
-        raise ValueError(f"Unexpected choice format: {first}")
+        raise ValueError(f"Unexpected Anthropic response type: {type(data)}")
 
-    finish_reason: object = first.get("finish_reason", "stop")
-    if not isinstance(finish_reason, str):
-        finish_reason = "stop"
+    # Map Anthropic stop reasons to the internal convention the agent loop expects.
+    # Anthropic: "tool_use" | "end_turn" | "max_tokens"
+    # Internal:  "tool_calls" | "stop"   | "length"
+    raw_stop: object = data.get("stop_reason", "end_turn")
+    if raw_stop == "tool_use":
+        stop_reason = "tool_calls"
+    elif raw_stop == "max_tokens":
+        stop_reason = "length"
+    else:
+        stop_reason = "stop"
 
-    message: object = first.get("message")
-    if not isinstance(message, dict):
-        raise ValueError(f"Unexpected message format: {first}")
+    content_blocks: object = data.get("content", [])
+    if not isinstance(content_blocks, list):
+        content_blocks = []
 
-    raw_content: object = message.get("content") or ""
-    content = raw_content if isinstance(raw_content, str) else ""
-
-    raw_tool_calls: object = message.get("tool_calls") or []
-    if not isinstance(raw_tool_calls, list):
-        raw_tool_calls = []
-
+    text_parts: list[str] = []
     tool_calls: list[ToolCall] = []
-    for tc in raw_tool_calls:
-        if not isinstance(tc, dict):
-            continue
-        tc_id: object = tc.get("id", "")
-        tc_fn: object = tc.get("function")
-        if not isinstance(tc_id, str) or not isinstance(tc_fn, dict):
-            continue
-        fn_name: object = tc_fn.get("name", "")
-        fn_args: object = tc_fn.get("arguments", "{}")
-        if not isinstance(fn_name, str) or not isinstance(fn_args, str):
-            continue
-        tool_calls.append(
-            ToolCall(
-                id=tc_id,
-                type="function",
-                function=ToolCallFunction(name=fn_name, arguments=fn_args),
-            )
-        )
 
+    for block in content_blocks:
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("type")
+        if btype == "text":
+            t = block.get("text", "")
+            if isinstance(t, str):
+                text_parts.append(t)
+        elif btype == "tool_use":
+            tool_input: object = block.get("input", {})
+            # Convert input dict back to JSON string (OpenAI ToolCallFunction expects it).
+            args_str = (
+                json.dumps(tool_input)
+                if isinstance(tool_input, dict)
+                else "{}"
+            )
+            tool_calls.append(
+                ToolCall(
+                    id=str(block.get("id", "")),
+                    type="function",
+                    function=ToolCallFunction(
+                        name=str(block.get("name", "")),
+                        arguments=args_str,
+                    ),
+                )
+            )
+
+    # Log cache usage when present — useful for verifying savings.
+    usage: object = data.get("usage", {})
+    if isinstance(usage, dict):
+        cache_write = usage.get("cache_creation_input_tokens", 0)
+        cache_read = usage.get("cache_read_input_tokens", 0)
+        if cache_write or cache_read:
+            logger.info(
+                "✅ LLM cache — written=%d read=%d",
+                cache_write,
+                cache_read,
+            )
+
+    content = "".join(text_parts)
     logger.info(
         "✅ LLM tool-use done — stop_reason=%s content_chars=%d tool_calls=%d",
-        finish_reason,
+        stop_reason,
         len(content),
         len(tool_calls),
     )
-    return ToolResponse(
-        stop_reason=finish_reason,
-        content=content,
-        tool_calls=tool_calls,
-    )
+    return ToolResponse(stop_reason=stop_reason, content=content, tool_calls=tool_calls)
