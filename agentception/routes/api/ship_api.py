@@ -1,11 +1,10 @@
-from __future__ import annotations
-
 """Ship page API routes — UI actions scoped to an initiative.
 
 Endpoint
 --------
-POST /api/ship/{org}/{repo}/{initiative}/advance — advance the phase gate for an initiative.
+POST /api/ship/{repo}/{initiative}/advance — advance the phase gate for an initiative.
 """
+from __future__ import annotations
 
 import logging
 
@@ -25,9 +24,9 @@ router = APIRouter(prefix="/ship", tags=["ship"])
 
 
 class AdvancePhaseBody(BaseModel):
-    """Body for ``POST /api/ship/{org}/{repo}/{initiative}/advance``.
+    """Body for ``POST /api/ship/{repo}/{initiative}/advance``.
 
-    ``org``, ``repo``, and ``initiative`` are encoded in the URL path.
+    ``repo`` and ``initiative`` are encoded in the URL path.
     """
 
     from_phase: str
