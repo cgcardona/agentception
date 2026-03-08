@@ -1470,22 +1470,14 @@ $od-coord-color: #a78bfa;   // purple for coordinators
 $od-worker-color:#34d399;   // emerald for workers
 $od-pending-color:#4b5563;  // gray for unconfigured
 
-// Utility: mirrors x-show/x-if hide patterns for the plain-JS org designer.
-// The !important overrides any display value set on the element by other rules.
-.od-hidden { display: none !important; }
-
 .od-overlay {
   position: fixed;
   inset: 0;
   z-index: 400;           // high enough to cover everything
-  display: none;          // hidden by default; JS class adds .is-open to show
+  display: flex;
   flex-direction: column;
   background: $od-bg;
-
-  &.is-open {
-    display: flex;
-    animation: od-enter 0.2s ease-out both;
-  }
+  animation: od-enter 0.2s ease-out both;
 }
 
 @keyframes od-enter {

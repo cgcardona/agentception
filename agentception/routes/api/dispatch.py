@@ -642,19 +642,27 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
 # ---------------------------------------------------------------------------
 
 
+class DispatcherPromptResponse(BaseModel):
+    """Response for GET /api/dispatch/prompt."""
+
+    content: str
+    path: str
+
+
 @router.get("/prompt")
-async def get_dispatcher_prompt() -> dict[str, str]:
+async def get_dispatcher_prompt() -> DispatcherPromptResponse:
     """Return the Dispatcher prompt markdown so the UI can offer a one-click copy.
 
     The prompt lives at ``.agentception/dispatcher.md`` in the repo.
-    Returns ``{"content": "<markdown>", "path": "<rel path>"}`` or a 404 if
-    the file is missing.
+    Raises 404 if the file is missing.
     """
-    path = settings.ac_dir / "dispatcher.md"
-    if not path.exists():
+    prompt_path = settings.ac_dir / "dispatcher.md"
+    if not prompt_path.exists():
         raise HTTPException(
             status_code=404,
             detail="Dispatcher prompt not found at .agentception/dispatcher.md",
         )
-    content = path.read_text(encoding="utf-8")
-    return {"content": content, "path": ".agentception/dispatcher.md"}
+    return DispatcherPromptResponse(
+        content=prompt_path.read_text(encoding="utf-8"),
+        path=".agentception/dispatcher.md",
+    )

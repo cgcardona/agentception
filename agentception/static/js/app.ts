@@ -16,7 +16,7 @@
  *   controls.ts     ✅ — controlsKill
  *   build.ts        ✅ — buildPage, renderMd
  *   plan.ts         ✅ — planForm
- *   org_designer.ts ✅ — initOrgDesigner (plain JS class, not Alpine)
+ *   org_designer.ts ✅ — orgDesigner
  *   overview.js     🟡 — pipelineDashboard, agentCard, phaseSwitcher,
  *                         pipelineControl, sweepControl, waveControl,
  *                         conductorModal, runConductorPanel, scalingAdvisor,
@@ -39,11 +39,7 @@ import { toastStore } from './toast.ts';
 import { controlsKill } from './controls.ts';
 import { buildPage, renderMd } from './build.ts';
 import { planForm } from './plan.ts';
-import { initOrgDesigner } from './org_designer.ts';
-
-// Initialise the Org Designer plain-JS class immediately (DOM is parsed by the
-// time module scripts execute).
-initOrgDesigner();
+import { orgDesigner } from './org_designer.ts';
 
 // ── Legacy JS modules (converted when their pages are reactivated) ───────────
 import {
@@ -71,6 +67,7 @@ Object.assign(window as unknown as Record<string, unknown>, {
   buildPage,
   renderMd,
   planForm,
+  orgDesigner,
   // JS modules (untyped until converted)
   pipelineDashboard, agentCard, phaseSwitcher, pipelineControl,
   sweepControl, waveControl, conductorModal, scalingAdvisor, prViolations,
