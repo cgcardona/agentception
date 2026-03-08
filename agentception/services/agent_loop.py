@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from pathlib import Path
 
 from sqlalchemy import select
@@ -58,6 +59,15 @@ from agentception.tools.file_tools import (
 from agentception.tools.shell_tools import run_command
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Cognitive architecture expansion — resolve_arch.py lives under scripts/ and
+# is not a proper Python package.  We add its directory to sys.path once so
+# that `import resolve_arch` works without restructuring the repo.
+# ---------------------------------------------------------------------------
+_RESOLVE_ARCH_DIR = Path(__file__).parent.parent.parent / "scripts" / "gen_prompts"
+if str(_RESOLVE_ARCH_DIR) not in sys.path:
+    sys.path.insert(0, str(_RESOLVE_ARCH_DIR))
 
 # Hard cap on conversation turns.  Each iteration is one LLM call.
 _DEFAULT_MAX_ITERATIONS = 50
@@ -351,23 +361,80 @@ You are running **inside the AgentCeption Docker container**, not on the host ma
 """
 
 
+def _expand_cognitive_arch(cognitive_arch: str) -> str:
+    """Expand a ``cognitive_arch`` slug string into the full identity block.
+
+    Calls ``resolve_arch.assemble()`` which renders the figure's
+    ``prompt_injection.prefix``, governing heuristic, failure modes, archetype
+    profile, skill domain fragments, and ``prompt_injection.suffix`` into a
+    single Markdown block — the complete cognitive identity for this agent.
+
+    Falls back gracefully: if the arch string is empty, a skill ID is unknown,
+    or any other error occurs, returns the raw string (or empty string) so the
+    agent loop never crashes on a resolution failure.
+
+    Args:
+        cognitive_arch: String like ``"guido_van_rossum:python:fastapi"`` or
+            ``"linus_torvalds,shannon:htmx:jinja2"``.
+
+    Returns:
+        Full multi-section Markdown cognitive identity block, typically
+        5 000–12 000 characters.  Empty string when *cognitive_arch* is empty.
+    """
+    if not cognitive_arch:
+        return ""
+    try:
+        # resolve_arch is not a package — imported via sys.path manipulation above.
+        import resolve_arch  # type: ignore[import-not-found]  # noqa: PLC0415
+        figure_ids, skill_ids = resolve_arch.parse_cognitive_arch(cognitive_arch)
+        return str(resolve_arch.assemble(figure_ids, skill_ids, mode="implementer"))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "⚠️ _expand_cognitive_arch: falling back to raw string — %s: %s",
+            type(exc).__name__, exc,
+        )
+        return cognitive_arch.strip()
+
+
 def _build_system_prompt(role_prompt: str, cognitive_arch: str) -> str:
-    """Assemble the full system prompt from the role file and cognitive arch context.
+    """Assemble the full system prompt from role definition and cognitive identity.
+
+    The system prompt has three layers, all injected before the first user
+    message and cached by Anthropic's prompt-caching infrastructure:
+
+    1. **Role definition** — the agent's operational instructions (what to do,
+       how to communicate, what tools to use, what to never do).
+    2. **Cognitive identity** — the fully-expanded cognitive architecture block:
+       figure ``prompt_injection.prefix`` (first-person identity statement),
+       governing heuristic, failure modes with compensations, archetype profile,
+       skill domain prompt fragments, and figure ``prompt_injection.suffix``
+       (personal review checklist).  This is ~5 000–12 000 characters of rich,
+       hand-crafted identity text that shapes every reasoning step.
+    3. **Runtime environment note** — where the agent is running and how to
+       invoke Python/Docker/git correctly.
+
+    The cognitive identity block is expanded here — not fetched via MCP — so
+    it is always present from turn 1, benefits from prompt caching, and never
+    depends on the agent deciding to call a resource.  The ``ac://arch/*`` MCP
+    resources remain available for mid-task introspection and for coordinators
+    browsing figures to assign to child agents.
 
     Args:
         role_prompt: Raw Markdown content of the agent's role file.
-        cognitive_arch: Cognitive architecture context string from ``.agent-task``.
+        cognitive_arch: Cognitive architecture string (e.g. ``"guido_van_rossum:python"``).
 
     Returns:
-        A single multi-part system prompt string.
+        A single multi-part system prompt string ready to be sent as the
+        ``system`` field of an Anthropic API call.
     """
     parts: list[str] = []
 
     if role_prompt:
         parts.append(role_prompt.strip())
 
-    if cognitive_arch:
-        parts.append(f"---\n## Cognitive Architecture Context\n\n{cognitive_arch.strip()}")
+    expanded = _expand_cognitive_arch(cognitive_arch)
+    if expanded:
+        parts.append(f"---\n\n{expanded.strip()}")
 
     parts.append(_RUNTIME_ENV_NOTE.strip())
 
