@@ -705,6 +705,8 @@ interface OrgDesignerComponent {
   initiative: string;
   repo: string;
   figures: FigureItem[];
+  /** role slug → compatible figure IDs from role-taxonomy.yaml (injected at page load). */
+  roleFigureMap: Record<string, string[]>;
 
   // ── Preset management
   presetsOpen: boolean;
@@ -741,6 +743,7 @@ interface OrgDesignerComponent {
   // ── Computed
   readonly selectedNode: OrgNode | null;
   readonly filteredRoleGroups: RoleGroup[];
+  readonly filteredFigures: FigureItem[];
   readonly availableEditTypes: Array<'coordinator' | 'worker'>;
   readonly launchReady: boolean;
   readonly launchPreviewText: string;
@@ -750,6 +753,7 @@ interface OrgDesignerComponent {
 
   // ── Methods
   openDesigner(label: string, repo: string, figures: FigureItem[]): void;
+  onRoleChange(): void;
   close(): void;
   loadPreset(id: string): void;
   loadBlank(): void;
@@ -777,10 +781,13 @@ interface OrgDesignerComponent {
 export function orgDesigner(): OrgDesignerComponent {
   return {
     // ── Overlay state ─────────────────────────────────────────────────────────
-    open:       false,
-    initiative: '',
-    repo:       '',
-    figures:    [],
+    open:          false,
+    initiative:    '',
+    repo:          '',
+    figures:       [],
+    roleFigureMap: (typeof window !== 'undefined' && '_roleFigureMap' in window
+      ? (window as unknown as Record<string, unknown>)['_roleFigureMap'] as Record<string, string[]>
+      : {}) as Record<string, string[]>,
 
     // ── Preset management ─────────────────────────────────────────────────────
     presetsOpen:    true,
@@ -822,6 +829,18 @@ export function orgDesigner(): OrgDesignerComponent {
     /** Role groups filtered by editType AND parent role constraints. */
     get filteredRoleGroups(): RoleGroup[] {
       return filterGroupsForParent(ROLE_GROUPS, this.editParentRole, this.editType);
+    },
+
+    /**
+     * Figure list filtered to those compatible with the currently selected role.
+     * Falls back to the full list when the role is blank or has no taxonomy entry.
+     */
+    get filteredFigures(): FigureItem[] {
+      if (!this.editRole) return this.figures;
+      const compatible = this.roleFigureMap[this.editRole];
+      if (!compatible || compatible.length === 0) return this.figures;
+      const allowed = new Set(compatible);
+      return this.figures.filter(f => allowed.has(f.id));
     },
 
     /** Which type tabs are valid given the parent — hides irrelevant radio options. */
@@ -1078,6 +1097,21 @@ export function orgDesigner(): OrgDesignerComponent {
 
     onTypeChange(): void {
       this.editRole = '';
+      this.editFigure = '';
+    },
+
+    /**
+     * Called when the role select changes.
+     * Clears editFigure when the current selection is no longer in the
+     * filtered figure list for the new role, preventing a stale value
+     * from being sent to the backend.
+     */
+    onRoleChange(): void {
+      if (!this.editFigure) return;
+      const compatible = this.roleFigureMap[this.editRole];
+      if (compatible && compatible.length > 0 && !compatible.includes(this.editFigure)) {
+        this.editFigure = '';
+      }
     },
 
     applyEdit(): void {
