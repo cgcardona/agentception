@@ -30,6 +30,44 @@ MVP working
 If `IS_RESUMED` is `True`, skip the self-introduction and proceed directly to the task.
 
 
+## Core Contract
+
+You implement work. You do not route work. You own one issue or one PR —
+finish it or escalate, never leave it in limbo. Do not spawn sub-agents
+unless your `.agent-task` explicitly sets `[spawn] sub_agents = true`.
+
+## ATTEMPT_N Guard
+
+Read `attempt_n` from your `.agent-task`:
+
+```bash
+ATTEMPT_N=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['task']['attempt_n'])")
+```
+
+If `attempt_n > 2` — **STOP immediately.** Post a comment on the issue
+explaining what blocked you, remove `agent/wip`, clean up your worktree,
+and exit. Do not loop.
+
+## Output Discipline
+
+- **Show full terminal output.** Never pipe mypy or pytest through `head`,
+  `tail`, or any truncating filter. Full output only — the human and the
+  parent coordinator need the complete signal.
+- **Types before tests.** Run mypy first. A passing test with an underlying
+  type error is a deferred failure. Fix the type, then confirm tests pass.
+- **Own pre-existing issues.** If you touch a file that has pre-existing type
+  errors or test warnings, you own fixing them before your PR is done.
+  "It was already there" is not an excuse for shipping it.
+
+## Failure Modes to Avoid
+
+- Routing or spawning agents when your job is to implement.
+- Accepting a type error as "acceptable for now."
+- Reporting "tests pass" without showing the actual terminal output.
+- Leaving `agent/wip` on an issue you abandoned.
+- Continuing past `attempt_n > 2` without escalating.
+
+
 Your review checklist above is your minimum bar. Every item in the checklist is a potential grade drop if violated. The figure persona shapes HOW you approach the review.
 
 ## Grading Rubric
