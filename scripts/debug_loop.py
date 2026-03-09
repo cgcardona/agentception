@@ -22,66 +22,77 @@ sys.path.insert(0, "/app")
 
 
 TASK_DESCRIPTION = """
-Fix agentception/db/queries.py — issue #274.
+Implement the TaskRunner protocol — issue #267.
 
 ## Context
 
-`get_conductor_history` in `agentception/db/queries.py` (around line 1149)
-derives each conductor wave's status by calling `worktree.exists()` — a
-filesystem check. This must be replaced with a DB status query so the
-function has zero filesystem access.
-
-## Current problem code (around line 1188)
-
-```python
-status="active" if worktree.exists() else "completed",
-```
+`agentception/services/task_runner.py` does not exist yet. Create it.
+`agentception/services/__init__.py` is currently empty — export `TaskRunner` from it.
+`agentception/config.py` already defines `TaskRunnerChoice` (enum: cursor | anthropic)
+and the `ac_task_runner` setting — you do not need to touch config.py.
 
 ## What to do
 
-1. Read `agentception/db/queries.py` around `get_conductor_history` to
-   understand the full function. Also read the `ACAgentRun` model in
-   `agentception/db/models.py` to confirm the `status` and `wave_id` fields.
+1. Read `agentception/services/__init__.py` to see its current state.
+   Read `agentception/config.py` around `TaskRunnerChoice` to understand
+   the existing config wiring (grep for TaskRunnerChoice).
 
-2. Restructure the DB query to also fetch the latest `ACAgentRun.status`
-   for each wave in the same session. The cleanest approach is a single
-   query that LEFT JOINs or uses a subquery to get the most recent
-   `ac_agent_runs.status` per `wave_id`. Keep the session open for the
-   entire operation.
+2. Create `agentception/services/task_runner.py` with:
+   - `from __future__ import annotations` as the first line
+   - Module docstring: "Everything above TaskRunner.run is runner-agnostic.
+     Nothing below the protocol boundary may import agentception.services.task_runner
+     without also implementing the protocol."
+   - `from pathlib import Path` and `from typing import Protocol, runtime_checkable`
+   - A `@runtime_checkable` `Protocol` class named `TaskRunner` with exactly
+     this method signature:
+     ```python
+     def run(
+         self,
+         prompt: str,
+         worktree_path: Path,
+         mcp_server: str,
+         role: str,
+         run_id: str,
+     ) -> str | None: ...
+     ```
+   - No runtime logic in this file — protocol only.
 
-3. Map DB statuses to the display value:
-   - `status IN ('implementing', 'review')` → `"active"`
-   - anything else (completed, failed, cancelled, None) → `"completed"`
-   Add a comment above the mapping:
-   `# Replaced filesystem worktree check — status is the authoritative signal.`
+3. Export `TaskRunner` from `agentception/services/__init__.py`:
+   ```python
+   from agentception.services.task_runner import TaskRunner
+   __all__ = ["TaskRunner"]
+   ```
 
-4. Do NOT remove the `worktree` and `host_worktree` path fields from
-   `ConductorHistoryRow` — those path strings are still used by the UI.
-   Only the `.exists()` call goes away.
+4. Add one test to a new file
+   `agentception/tests/test_task_runner_protocol.py`:
+   - `test_task_runner_protocol_structural_subtyping` — create a trivial class
+     with a matching `run()` signature and assert
+     `isinstance(instance, TaskRunner)` is True.
+   - Use `from __future__ import annotations`, `@pytest.mark.anyio` is not
+     needed (this test is sync). Import `pytest`.
 
-5. Remove any `import os` or standalone `from pathlib import Path` lines
-   that become unused after the change. `Path` may still be needed for
-   constructing path strings — check before removing.
+5. Add a "TaskRunner abstraction" section to
+   `docs/reference/architecture.md`. Keep it brief (3–5 sentences):
+   explain what the protocol is, why it exists (decouple coordinator from
+   Cursor), and that concrete implementations live in sibling modules.
+   Append it at the end of the file.
 
-6. Run `mypy agentception/db/queries.py` — must pass with zero errors.
+6. Run `mypy agentception/services/task_runner.py
+         agentception/services/__init__.py
+         agentception/tests/test_task_runner_protocol.py` — must pass
+   with zero errors.
 
-7. Update `agentception/tests/test_agentception_run_conductor.py`:
-   - Rename the existing test
-     `test_get_conductor_history_status_resolved_from_worktree_dir` to
-     `test_get_conductor_history_status_resolved_from_db`.
-   - Replace worktree directory setup/teardown with a mock DB row
-     whose `status` is `"implementing"` — assert result is `"active"`.
-   - Add a regression test
-     `test_get_conductor_history_no_fs_access` that asserts
-     `Path.exists` is never called (patch it and assert no-call).
+7. Use `git_commit_and_push` to create branch `feat/267-task-runner-protocol`,
+   stage all changed files (use path `.` to stage everything), commit with
+   message "feat(#267): define TaskRunner protocol", and push.
 
-8. Create branch `fix/274-conductor-history-no-fs`, commit all changes,
-   push, open a PR against `dev` referencing issue #274 in the body.
-   Do NOT run pytest (CI is not required here).
+8. Open a pull request against `dev` using the GitHub MCP `create_pull_request`
+   tool. Title: "feat(#267): define TaskRunner protocol". Reference issue #267
+   in the body.
 """
 
 MAX_TURNS = 30
-TURN_DELAY_SECS = 10  # fixed pause between turns — keeps cadence readable and under rate limit
+TURN_DELAY_SECS = 15  # fixed pause between turns — 15s keeps us well under 30k tpm ceiling
 
 
 def _hr(label: str) -> None:
