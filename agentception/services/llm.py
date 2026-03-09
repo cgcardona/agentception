@@ -49,6 +49,32 @@ _OPUS_MODEL = "claude-opus-4-5-20250929"
 _ANTHROPIC_VERSION = "2023-06-01"
 _DEFAULT_TIMEOUT = 120.0
 _MAX_RETRIES = 2
+# Minimum seconds to wait after a 429 before retrying.  Anthropic's rolling
+# TPM window does not clear in 2–4s, so the standard exponential backoff used
+# for transient errors is wrong here — it just adds more calls to the burst.
+# We read the Retry-After header when present; otherwise this is the floor.
+_RATE_LIMIT_BACKOFF_SECS: float = 20.0
+
+
+async def _rate_limit_sleep(response: httpx.Response, attempt: int) -> None:
+    """Sleep the appropriate amount after a 429 response.
+
+    Reads the ``Retry-After`` header from the response when present; otherwise
+    uses an exponentially growing backoff starting at ``_RATE_LIMIT_BACKOFF_SECS``.
+    """
+    retry_after_raw = response.headers.get("retry-after", "")
+    try:
+        wait = max(float(retry_after_raw), _RATE_LIMIT_BACKOFF_SECS)
+    except (ValueError, TypeError):
+        wait = _RATE_LIMIT_BACKOFF_SECS * (2.0**attempt)
+    logger.warning(
+        "⚠️ LLM rate-limited (429) retry %d/%d — sleeping %.0fs (Retry-After=%r)",
+        attempt + 1,
+        _MAX_RETRIES,
+        wait,
+        retry_after_raw or "not set",
+    )
+    await asyncio.sleep(wait)
 
 
 class LLMChunk(TypedDict):
@@ -291,21 +317,26 @@ async def call_anthropic(
     last_error: Exception | None = None
 
     for attempt in range(_MAX_RETRIES + 1):
-        if attempt > 0:
-            backoff = 2**attempt
-            logger.warning("⚠️ LLM retry %d/%d after %ds", attempt, _MAX_RETRIES, backoff)
-            await asyncio.sleep(backoff)
         try:
             resp = await client.post(_ANTHROPIC_URL, json=payload, headers=_base_headers())
             resp.raise_for_status()
             break
         except httpx.HTTPStatusError as exc:
             last_error = exc
-            if exc.response.status_code in (429, 500, 502, 503, 504):
+            if exc.response.status_code == 429:
+                await _rate_limit_sleep(exc.response, attempt)
+                continue
+            if exc.response.status_code in (500, 502, 503, 504):
+                backoff = 2 ** (attempt + 1)
+                logger.warning("⚠️ LLM retry %d/%d after %ds", attempt + 1, _MAX_RETRIES, backoff)
+                await asyncio.sleep(backoff)
                 continue
             raise
         except (httpx.TimeoutException, httpx.NetworkError, ssl.SSLError) as exc:
             last_error = exc
+            backoff = 2 ** (attempt + 1)
+            logger.warning("⚠️ LLM retry %d/%d after %ds", attempt + 1, _MAX_RETRIES, backoff)
+            await asyncio.sleep(backoff)
             continue
     else:
         raise last_error or RuntimeError("LLM request failed after retries")
@@ -519,10 +550,6 @@ async def call_anthropic_with_tools(
     last_error: Exception | None = None
 
     for attempt in range(_MAX_RETRIES + 1):
-        if attempt > 0:
-            backoff = 2**attempt
-            logger.warning("⚠️ LLM retry %d/%d after %ds", attempt, _MAX_RETRIES, backoff)
-            await asyncio.sleep(backoff)
         try:
             resp = await client.post(
                 _ANTHROPIC_URL, json=payload, headers=_base_headers()
@@ -531,11 +558,20 @@ async def call_anthropic_with_tools(
             break
         except httpx.HTTPStatusError as exc:
             last_error = exc
-            if exc.response.status_code in (429, 500, 502, 503, 504):
+            if exc.response.status_code == 429:
+                await _rate_limit_sleep(exc.response, attempt)
+                continue
+            if exc.response.status_code in (500, 502, 503, 504):
+                backoff = 2 ** (attempt + 1)
+                logger.warning("⚠️ LLM retry %d/%d after %ds", attempt + 1, _MAX_RETRIES, backoff)
+                await asyncio.sleep(backoff)
                 continue
             raise
         except (httpx.TimeoutException, httpx.NetworkError, ssl.SSLError) as exc:
             last_error = exc
+            backoff = 2 ** (attempt + 1)
+            logger.warning("⚠️ LLM retry %d/%d after %ds", attempt + 1, _MAX_RETRIES, backoff)
+            await asyncio.sleep(backoff)
             continue
     else:
         raise last_error or RuntimeError("LLM tool-use request failed after retries")
