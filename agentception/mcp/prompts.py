@@ -451,8 +451,10 @@ def _render_task_briefing(ctx: RunContextRow, role_content: str) -> str:
     elif issue_number:
         assignment = (
             f"Implement GitHub issue **#{issue_number}**.\n\n"
-            f"Read `ac://runs/{run_id}/context` for full task context, "
-            f"then read the issue body on GitHub to understand the requirements."
+            f"The full issue body was not injected into this briefing. "
+            f"Read `ac://runs/{run_id}/context` for available task context. "
+            f"Use `gh issue view {issue_number}` (shell) to fetch the issue body — "
+            f"this is more reliable than the `issue_read` MCP tool for initial context loading."
         )
     else:
         assignment = f"Read `ac://runs/{run_id}/context` for your full task context."
