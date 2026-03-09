@@ -4,8 +4,8 @@ from __future__ import annotations
 
 All three public entry points target the Anthropic Messages API directly
 (https://api.anthropic.com/v1/messages).  Prompt caching (cache_control:
-ephemeral on the system prompt) is active for claude-sonnet-4-6 and later,
-giving ~90% input-token discount on turns 2-N of every agent run.
+ephemeral on the system prompt) is active; confirmed working on
+claude-sonnet-4-5-20250929, giving ~90% input-token discount on turns 2-N.
 
 Three public entry points:
 
@@ -43,8 +43,8 @@ from agentception.config import settings
 logger = logging.getLogger(__name__)
 
 _ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
-_MODEL = "claude-sonnet-4-6"
-_OPUS_MODEL = "claude-opus-4-6"
+_MODEL = "claude-sonnet-4-5-20250929"
+_OPUS_MODEL = "claude-opus-4-5-20250929"
 _ANTHROPIC_VERSION = "2023-06-01"
 _DEFAULT_TIMEOUT = 120.0
 _MAX_RETRIES = 2
