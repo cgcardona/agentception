@@ -645,6 +645,14 @@ async def call_anthropic_with_tools(
         )
 
     content = "".join(text_parts)
+
+    # Log a readable snippet of the agent's text reply so watch_run.py can
+    # display what the model said between tool calls.  Newlines are collapsed
+    # to spaces so the snippet stays on one log line.
+    if content.strip():
+        snippet = content[:400].replace("\n", " ").strip()
+        logger.info("✅ LLM reply — chars=%d text=%s", len(content), snippet)
+
     logger.info(
         "✅ LLM tool-use done — stop_reason=%s content_chars=%d tool_calls=%d",
         stop_reason,
