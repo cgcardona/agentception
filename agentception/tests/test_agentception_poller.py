@@ -381,13 +381,18 @@ async def test_merge_agents_implementing_when_issue_number_present() -> None:
 
 @pytest.mark.anyio
 async def test_merge_agents_unknown_status() -> None:
-    """A worktree with no issue_number AND no PR AND no task name is UNKNOWN."""
-    # A run with no issue_number, no PR, and worker tier — truly unknown.
+    """Ad-hoc runs (no issue_number, no PR) display as IMPLEMENTING for the dashboard.
+
+    Runs with no issue/PR number are ad-hoc coordinator sub-runs or runs
+    that were not tied to a GitHub issue.  The poller shows them as IMPLEMENTING
+    rather than FAILED to avoid false-positive failure signals — their real status
+    is managed entirely by the agent loop's lifecycle, never by the poller.
+    """
     wt = _make_worktree(issue_number=None, branch="feat/unknown-thing")
     agents = await merge_agents([wt], _empty_board())
 
     assert len(agents) == 1
-    assert agents[0].status == AgentStatus.FAILED
+    assert agents[0].status == AgentStatus.IMPLEMENTING
 
 
 @pytest.mark.anyio

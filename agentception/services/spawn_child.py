@@ -54,6 +54,7 @@ from typing import Literal
 from agentception.config import settings
 from agentception.db.persist import acknowledge_agent_run, persist_agent_run_dispatch
 from agentception.services.cognitive_arch import _resolve_cognitive_arch
+from agentception.services.run_factory import _configure_worktree_auth, _index_worktree
 
 logger = logging.getLogger(__name__)
 
@@ -323,6 +324,14 @@ async def spawn_child(
         raise SpawnChildError(f"git worktree add failed: {err}")
 
     logger.info("✅ spawn_child: worktree created at %s", worktree_path)
+
+    # Embed GITHUB_TOKEN in the worktree remote URL so git push works inside
+    # the container without a separate credential helper.
+    await _configure_worktree_auth(Path(worktree_path), run_id)
+
+    # Index the worktree into a per-run Qdrant collection so agents can use
+    # search_codebase with the run-specific collection.  Non-blocking.
+    asyncio.create_task(_index_worktree(Path(worktree_path), run_id))
 
     # Persist DB record — all task context goes to the DB row.
     # file is written.  Agents read their full briefing from the DB via the
