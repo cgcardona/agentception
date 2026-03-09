@@ -27,7 +27,7 @@ Templated resources (RFC 6570)
     ac://runs/{run_id}/children         — child runs spawned by this run
     ac://runs/{run_id}/events           — full structured event log
     ac://runs/{run_id}/events?after_id={n} — paginated event log (n > 0)
-    ac://runs/{run_id}/task             — raw .agent-task TOML text
+    ac://runs/{run_id}/task             — raw .agent-task TOML (plan-draft runs only)
     ac://batches/{batch_id}/tree        — all runs in a batch, flat list
     ac://plan/figures/{role}            — cognitive-arch figures for a role
     ac://roles/{slug}                   — role definition Markdown for a slug
@@ -229,11 +229,11 @@ RESOURCE_TEMPLATES: list[ACResourceTemplate] = [
         uriTemplate="ac://runs/{run_id}/context",
         name="Run task context",
         description=(
-            "Full task context for a run — the authoritative DB-sourced record. "
-            "Includes role, cognitive_arch, task_description, issue_number, "
-            "worktree_path, branch, status, tier, org_domain, batch_id, and "
-            "parent_run_id. "
-            "Read on startup instead of parsing a .agent-task file. "
+            "Full task context for a run — the authoritative DB-sourced RunContextRow. "
+            "Includes run_id, status, role, cognitive_arch, task_description, "
+            "issue_number, pr_number, worktree_path, branch, tier, org_domain, "
+            "batch_id, parent_run_id, coord_fingerprint, gh_repo, is_resumed, "
+            "spawned_at, last_activity_at, completed_at. "
             "Returns ok=false when the run does not exist."
         ),
         mimeType=_MIME,
@@ -242,10 +242,10 @@ RESOURCE_TEMPLATES: list[ACResourceTemplate] = [
         uriTemplate="ac://runs/{run_id}/task",
         name="Agent task file",
         description=(
-            "Raw text content of the .agent-task TOML file for a run. "
-            "Prefer ac://runs/{run_id}/context for DB-sourced runs — this "
-            "resource is retained for pipeline runs that write a TOML file. "
-            "Returns ok=false if the worktree has been torn down."
+            "Raw text content of the .agent-task TOML file for plan-draft runs "
+            "(planning-pipeline only). Not present for standard dispatch runs — "
+            "use ac://runs/{run_id}/context for DB-sourced task context. "
+            "Returns ok=false if the worktree has been torn down or no file exists."
         ),
         mimeType=_MIME,
     ),

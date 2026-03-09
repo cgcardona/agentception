@@ -148,12 +148,15 @@ async def query_run_events(run_id: str, after_id: int = 0) -> dict[str, object]:
 
 
 async def query_agent_task(run_id: str) -> dict[str, object]:
-    """Return the parsed contents of the ``.agent-task`` file for *run_id*.
+    """Return the raw ``.agent-task`` TOML text for *run_id* (planning pipeline only).
 
-    The file is read from disk at ``{worktree_path}/.agent-task``.  If the
-    worktree does not exist yet (pending launch) or has already been torn
-    down, returns ``{"ok": False, "error": "..."}`` so agents can handle
-    the failure gracefully.
+    Standard dispatch runs do not write ``.agent-task`` files — use
+    ``ac://runs/{run_id}/context`` for their task context.  This function
+    exists for plan-draft runs created by the planning pipeline, which still
+    write a TOML file at ``{worktree_path}/.agent-task``.
+
+    Returns ``{"ok": False, "error": "..."}`` when the worktree is missing,
+    the run has no worktree path, or the file does not exist.
 
     Args:
         run_id: The run to read the agent task for.
