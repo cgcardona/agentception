@@ -146,21 +146,17 @@ fi
 
 ```
 
-Post the claim comment — **always prefer MCP**:
+Post the claim comment via GitHub MCP:
 
 ```
-# Preferred (MCP — logged and auditable):
-github_add_comment(issue_number=<ISSUE_NUMBER>, body="🔖 **Claimed by agent**\n\n<CLAIM_FINGERPRINT>")
-
-# Fallback (only if MCP unavailable):
-# gh issue comment "$ISSUE_NUMBER" --repo "$GH_REPO" \
-#   --body "🔖 **Claimed by agent**\n\n$CLAIM_FINGERPRINT" 2>/dev/null || true
+add_issue_comment(owner=<OWNER>, repo=<REPO>, issue_number=<ISSUE_NUMBER>,
+                  body="🔖 **Claimed by agent**\n\n<CLAIM_FINGERPRINT>")
 ```
 
 ### Event 2 — PR Created
 
 Include `$CLAIM_FINGERPRINT` verbatim at the end of the PR body when calling
-`create_pull_request` (via `user-github` MCP):
+`create_pull_request` via GitHub MCP:
 
 ```
 body = "## Summary\n...\n\nCloses #<ISSUE_NUMBER>\n\n<CLAIM_FINGERPRINT>"
@@ -169,10 +165,6 @@ body = "## Summary\n...\n\nCloses #<ISSUE_NUMBER>\n\n<CLAIM_FINGERPRINT>"
 ### Event 3 — Done (after PR is merged or work is complete)
 
 ```
-# Preferred (MCP):
-github_add_comment(issue_number=<ISSUE_NUMBER>, body="🤖 **Implemented by agent** — PR #<PR_NUMBER>\n\n<CLAIM_FINGERPRINT>")
-
-# Fallback:
-# gh issue comment "$ISSUE_NUMBER" --repo "$GH_REPO" \
-#   --body "🤖 **Implemented by agent** — PR #$PR_NUMBER\n\n$CLAIM_FINGERPRINT" 2>/dev/null || true
+add_issue_comment(owner=<OWNER>, repo=<REPO>, issue_number=<ISSUE_NUMBER>,
+                  body="🤖 **Implemented by agent** — PR #<PR_NUMBER>\n\n<CLAIM_FINGERPRINT>")
 ```

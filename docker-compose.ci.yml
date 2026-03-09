@@ -14,7 +14,7 @@ services:
       REPO_DIR: /app
       WORKTREES_DIR: /tmp/agentception-worktrees
       GH_REPO: ${GH_REPO:-cgcardona/agentception}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
     # volumes: [] does NOT work in Compose v2 to clear the base list.
     # Instead we remap to paths that exist unconditionally in any runner:
