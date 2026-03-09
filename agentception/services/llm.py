@@ -95,15 +95,19 @@ class ToolCall(TypedDict):
 class ToolResponse(TypedDict):
     """Return value from ``call_anthropic_with_tools``.
 
-    ``input_tokens`` is populated from the Anthropic ``usage.input_tokens``
-    field (sum of regular + cached tokens) and is used by the agent loop's
-    token-rate guard to stay within the Anthropic rate limit.
+    ``input_tokens`` covers all tokens billed this turn (including cached
+    reads at their discounted rate).  ``cache_creation_input_tokens`` and
+    ``cache_read_input_tokens`` are non-zero only when prompt caching is
+    active; they are used by the debug script and telemetry to confirm cache
+    hits and quantify the per-turn discount.
     """
 
     stop_reason: str  # "stop" | "tool_calls" | "length"
     content: str  # text output (empty when stop_reason is "tool_calls")
     tool_calls: list[ToolCall]  # empty when stop_reason is "stop"
     input_tokens: NotRequired[int]  # total input tokens consumed this turn
+    cache_creation_input_tokens: NotRequired[int]  # tokens written to cache (Turn 1)
+    cache_read_input_tokens: NotRequired[int]  # tokens read from cache (Turns 2-N)
 
 
 # ---------------------------------------------------------------------------
@@ -587,16 +591,20 @@ async def call_anthropic_with_tools(
     # Extract token counts — used for rate-limit accounting in the agent loop.
     usage: object = data.get("usage", {})
     input_tokens: int = 0
+    cache_creation_tokens: int = 0
+    cache_read_tokens: int = 0
     if isinstance(usage, dict):
         raw_input = usage.get("input_tokens", 0)
         input_tokens = int(raw_input) if isinstance(raw_input, int) else 0
-        cache_write = usage.get("cache_creation_input_tokens", 0)
-        cache_read = usage.get("cache_read_input_tokens", 0)
+        raw_write = usage.get("cache_creation_input_tokens", 0)
+        cache_creation_tokens = int(raw_write) if isinstance(raw_write, int) else 0
+        raw_read = usage.get("cache_read_input_tokens", 0)
+        cache_read_tokens = int(raw_read) if isinstance(raw_read, int) else 0
         logger.info(
             "✅ LLM usage — input=%d cache_written=%d cache_read=%d",
             input_tokens,
-            cache_write,
-            cache_read,
+            cache_creation_tokens,
+            cache_read_tokens,
         )
 
     content = "".join(text_parts)
@@ -611,4 +619,6 @@ async def call_anthropic_with_tools(
         content=content,
         tool_calls=tool_calls,
         input_tokens=input_tokens,
+        cache_creation_input_tokens=cache_creation_tokens,
+        cache_read_input_tokens=cache_read_tokens,
     )

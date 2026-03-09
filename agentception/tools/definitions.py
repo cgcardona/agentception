@@ -36,10 +36,52 @@ FILE_TOOL_DEFS: list[ToolDefinition] = [
     ToolDefinition(
         type="function",
         function=ToolFunction(
+            name="replace_in_file",
+            description=(
+                "Replace an exact string in a file with new text. "
+                "PREFER this over write_file for targeted edits — only the matched region changes, "
+                "the rest of the file is untouched. "
+                "old_string must match exactly (including whitespace and newlines). "
+                "Fails if old_string is not found, or if it matches more than once and "
+                "allow_multiple is not set — use a longer anchor to make it unique. "
+                "Relative paths are resolved from the worktree root."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the file to edit (relative or absolute).",
+                    },
+                    "old_string": {
+                        "type": "string",
+                        "description": "Exact text to find and replace.",
+                    },
+                    "new_string": {
+                        "type": "string",
+                        "description": "Replacement text.",
+                    },
+                    "allow_multiple": {
+                        "type": "boolean",
+                        "description": (
+                            "When true, replace every occurrence of old_string. "
+                            "Default false — fails if old_string matches more than once."
+                        ),
+                        "default": False,
+                    },
+                },
+                "required": ["path", "old_string", "new_string"],
+                "additionalProperties": False,
+            },
+        ),
+    ),
+    ToolDefinition(
+        type="function",
+        function=ToolFunction(
             name="write_file",
             description=(
                 "Write text content to a file, creating parent directories as needed. "
-                "Overwrites existing content. "
+                "Overwrites the entire file — use replace_in_file for targeted edits. "
                 "Relative paths are resolved from the worktree root."
             ),
             parameters={

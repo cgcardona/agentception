@@ -147,10 +147,17 @@ async def main() -> None:
             print(f"  ❌ LLM error: {exc}")
             break
 
+        cache_written = response.get("cache_creation_input_tokens", 0)
+        cache_read = response.get("cache_read_input_tokens", 0)
+        cache_note = ""
+        if cache_written:
+            cache_note = f"  (✍ wrote {cache_written} to cache)"
+        elif cache_read:
+            cache_note = f"  (⚡ read {cache_read} from cache — ~10% cost)"
+        else:
+            cache_note = "  (⚠️  no cache hit)"
         print(f"  stop_reason   = {response['stop_reason']}")
-        print(f"  input tokens  = {response.get('input_tokens', '?')}")
-        print(f"  cache_written = {response.get('cache_creation_input_tokens', 0)}")
-        print(f"  cache_read    = {response.get('cache_read_input_tokens', 0)}")
+        print(f"  input tokens  = {response.get('input_tokens', '?')}{cache_note}")
         print(f"  tool_calls    = {len(response['tool_calls'])}")
 
         if response["content"]:

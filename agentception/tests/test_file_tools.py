@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agentception.tools.file_tools import list_directory, read_file, search_text, write_file
+from agentception.tools.file_tools import list_directory, read_file, replace_in_file, search_text, write_file
 
 
 # ---------------------------------------------------------------------------
@@ -152,6 +152,69 @@ class TestListDirectory:
         result = list_directory(d)
         assert result["ok"] is True
         assert result["entries"] == []
+
+
+# ---------------------------------------------------------------------------
+# replace_in_file
+# ---------------------------------------------------------------------------
+
+
+class TestReplaceInFile:
+    def test_replaces_unique_string(self, tmp_path: Path) -> None:
+        p = tmp_path / "doc.md"
+        p.write_text("| OLD_ROW | value |\n| NEXT_ROW | val |\n")
+        result = replace_in_file(p, "| OLD_ROW | value |", "| NEW_ROW | value |")
+        assert result["ok"] is True
+        assert result["replacements"] == 1
+        assert "NEW_ROW" in p.read_text()
+        assert "OLD_ROW" not in p.read_text()
+
+    def test_old_string_not_found_returns_error(self, tmp_path: Path) -> None:
+        p = tmp_path / "file.txt"
+        p.write_text("hello world")
+        result = replace_in_file(p, "does not exist", "replacement")
+        assert result["ok"] is False
+        assert "not found" in str(result["error"]).lower()
+
+    def test_multiple_matches_without_flag_returns_error(self, tmp_path: Path) -> None:
+        p = tmp_path / "file.txt"
+        p.write_text("foo bar foo baz foo")
+        result = replace_in_file(p, "foo", "qux")
+        assert result["ok"] is False
+        assert "3" in str(result["error"])
+
+    def test_allow_multiple_replaces_all(self, tmp_path: Path) -> None:
+        p = tmp_path / "file.txt"
+        p.write_text("foo bar foo baz foo")
+        result = replace_in_file(p, "foo", "qux", allow_multiple=True)
+        assert result["ok"] is True
+        assert result["replacements"] == 3
+        assert p.read_text() == "qux bar qux baz qux"
+
+    def test_preserves_surrounding_content(self, tmp_path: Path) -> None:
+        p = tmp_path / "setup.md"
+        p.write_text("line 1\nTARGET LINE\nline 3\n")
+        result = replace_in_file(p, "TARGET LINE", "REPLACED LINE")
+        assert result["ok"] is True
+        assert p.read_text() == "line 1\nREPLACED LINE\nline 3\n"
+
+    def test_accepts_string_path(self, tmp_path: Path) -> None:
+        p = tmp_path / "str.txt"
+        p.write_text("old content")
+        result = replace_in_file(str(p), "old content", "new content")
+        assert result["ok"] is True
+
+    def test_missing_file_returns_error(self, tmp_path: Path) -> None:
+        result = replace_in_file(tmp_path / "ghost.txt", "old", "new")
+        assert result["ok"] is False
+        assert "not found" in str(result["error"]).lower()
+
+    def test_multiline_anchor(self, tmp_path: Path) -> None:
+        p = tmp_path / "multi.txt"
+        p.write_text("line A\nline B\nline C\n")
+        result = replace_in_file(p, "line A\nline B", "line X\nline Y")
+        assert result["ok"] is True
+        assert p.read_text() == "line X\nline Y\nline C\n"
 
 
 # ---------------------------------------------------------------------------

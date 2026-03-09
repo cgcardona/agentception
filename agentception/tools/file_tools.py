@@ -106,6 +106,72 @@ def list_directory(path: str | Path) -> dict[str, object]:
     return {"ok": True, "entries": entries}
 
 
+def replace_in_file(
+    path: str | Path,
+    old_string: str,
+    new_string: str,
+    *,
+    allow_multiple: bool = False,
+) -> dict[str, object]:
+    """Replace an exact string in *path* with *new_string*.
+
+    Safer than ``write_file`` for targeted edits because only the matched
+    region changes; the rest of the file is untouched.  If the anchor text
+    appears more than once and ``allow_multiple`` is ``False``, the call
+    fails rather than making an ambiguous edit.
+
+    Args:
+        path: File to edit.
+        old_string: Exact text to find (must be unique unless allow_multiple).
+        new_string: Replacement text.
+        allow_multiple: When ``True``, replace every occurrence.  When
+            ``False`` (default), fail if the anchor matches more than once.
+
+    Returns:
+        ``{"ok": True, "replacements": int}`` on success, or
+        ``{"ok": False, "error": str}`` on any failure.
+    """
+    p = Path(path)
+    try:
+        original = p.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        logger.warning("⚠️ replace_in_file — not found: %s", p)
+        return {"ok": False, "error": f"File not found: {p}"}
+    except PermissionError:
+        logger.warning("⚠️ replace_in_file — permission denied: %s", p)
+        return {"ok": False, "error": f"Permission denied: {p}"}
+    except OSError as exc:
+        logger.warning("⚠️ replace_in_file — OS error: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+    count = original.count(old_string)
+    if count == 0:
+        return {"ok": False, "error": "replace_in_file: old_string not found in file"}
+    if count > 1 and not allow_multiple:
+        return {
+            "ok": False,
+            "error": (
+                f"replace_in_file: old_string matches {count} times — "
+                "use a longer anchor to make it unique, "
+                "or pass allow_multiple=true to replace all occurrences"
+            ),
+        }
+
+    updated = original.replace(old_string, new_string)
+    try:
+        p.write_text(updated, encoding="utf-8")
+    except PermissionError:
+        logger.warning("⚠️ replace_in_file — permission denied writing: %s", p)
+        return {"ok": False, "error": f"Permission denied writing: {p}"}
+    except OSError as exc:
+        logger.warning("⚠️ replace_in_file — OS write error: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+    replacements = count if allow_multiple else 1
+    logger.info("✅ replace_in_file — %s (%d replacement(s))", p, replacements)
+    return {"ok": True, "replacements": replacements}
+
+
 async def search_text(
     pattern: str,
     directory: str | Path,

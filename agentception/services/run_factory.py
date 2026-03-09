@@ -118,7 +118,13 @@ async def _create_worktree(
     base_ref: str,
     run_id: str,
 ) -> None:
-    """Create a git worktree at *worktree_path* branching off *base_ref*."""
+    """Create a git worktree at *worktree_path* branching off *base_ref*.
+
+    After creation the worktree's remote URL is rewritten to embed the
+    ``GITHUB_TOKEN`` so that ``git push`` works inside the container without
+    a separate credential helper.  The token lives only in the worktree's
+    local git config — it is not committed.
+    """
     worktree_path.parent.mkdir(parents=True, exist_ok=True)
     proc = await asyncio.create_subprocess_exec(
         "git", "worktree", "add", "-b", branch_name, str(worktree_path), base_ref,
@@ -131,7 +137,63 @@ async def _create_worktree(
         err = stderr.decode().strip()
         logger.error("❌ _create_worktree failed for run_id=%s: %s", run_id, err)
         raise RunCreationError(f"git worktree add failed: {err}")
+
+    await _configure_worktree_auth(worktree_path, run_id)
     logger.info("✅ worktree created — %s", worktree_path)
+
+
+async def _configure_worktree_auth(worktree_path: Path, run_id: str) -> None:
+    """Embed GITHUB_TOKEN in the worktree remote URL so git push works natively.
+
+    Transforms ``https://github.com/owner/repo.git`` into
+    ``https://x-access-token:<token>@github.com/owner/repo.git`` and writes
+    it to the worktree's local git config only.  If ``GITHUB_TOKEN`` is not
+    set, logs a warning and leaves the remote unchanged.
+    """
+    import os  # noqa: PLC0415
+
+    token = os.environ.get("GITHUB_TOKEN", "")
+    if not token:
+        logger.warning("⚠️ GITHUB_TOKEN not set — git push will require manual auth in worktrees")
+        return
+
+    # Read the current remote URL.
+    url_proc = await asyncio.create_subprocess_exec(
+        "git", "remote", "get-url", "origin",
+        cwd=str(worktree_path),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    url_out, _ = await url_proc.communicate()
+    remote_url = url_out.decode().strip()
+
+    if not remote_url.startswith("https://"):
+        # SSH remotes already handle auth via ssh-agent — nothing to do.
+        return
+
+    # Inject token into URL, avoiding double-injection if already present.
+    if "@" not in remote_url.split("://", 1)[-1]:
+        authed_url = remote_url.replace(
+            "https://", f"https://x-access-token:{token}@", 1
+        )
+    else:
+        authed_url = remote_url
+
+    set_proc = await asyncio.create_subprocess_exec(
+        "git", "remote", "set-url", "origin", authed_url,
+        cwd=str(worktree_path),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, set_err = await set_proc.communicate()
+    if set_proc.returncode != 0:
+        logger.warning(
+            "⚠️ _configure_worktree_auth — could not set remote URL for run_id=%s: %s",
+            run_id, set_err.decode().strip(),
+        )
+        return
+
+    logger.info("✅ worktree auth configured — run_id=%s", run_id)
 
 
 async def _insert_run(
