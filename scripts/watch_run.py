@@ -57,10 +57,6 @@ _RE_INSERT = re.compile(
 _RE_WRITE = re.compile(
     r"write_file — (?P<path>\S+)"
 )
-_RE_SEARCH_CODE = re.compile(
-    r"search_codebase — (?P<hits>\d+) result"
-)
-
 # shell commands (agent_loop.py run_command lines)
 _RE_SHELL_CMD = re.compile(
     r"run_command — '(?P<cmd>.+?)' \(cwd=(?P<cwd>[^)]+)\)"
@@ -112,7 +108,6 @@ class _State:
     iteration: int = 0
     total: int = 50
     history_len: int = 0
-    pending_tool: str | None = None  # last seen dispatch_tool name, waiting for result
 
 
 _state = _State()
@@ -218,24 +213,46 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
         # Non-iteration step — agent wrote something meaningful
         return f"{ts}  {CYAN}{BOLD}📋 {step}{RESET}"
 
-    # ── dispatch_tool — record what tool is in-flight ─────────────────────────
+    # ── dispatch_tool ──────────────────────────────────────────────────────────
+    # Tools split into two groups:
+    #   A) Tools that emit a separate result line from agentception.tools.*
+    #      → suppress dispatch line, render the result line below.
+    #   B) Tools with no result line (search_codebase, search_text, GitHub tools,
+    #      log_run_step, git_commit_and_push)
+    #      → render at dispatch time immediately.
+    _RESULT_LINE_TOOLS = frozenset({
+        "read_file_lines", "replace_in_file", "insert_after_in_file",
+        "write_file", "list_directory",
+    })
     dtm = _RE_DISPATCH_TOOL.search(msg)
     if dtm:
         rid = dtm.group("run_id")
         if run_id_filter and rid != run_id_filter:
             return None
         _state.current_run_id = rid
-        _state.pending_tool = dtm.group("tool")
-        return None  # rendered when the result line arrives
+        tool_name = dtm.group("tool")
+        if tool_name in _RESULT_LINE_TOOLS:
+            # Result line will come from agentception.tools.file_tools — suppress here.
+            return None
+        if tool_name == "search_codebase":
+            return f"{ts}  {BLUE}🔍 search_codebase{RESET}"
+        if tool_name == "search_text":
+            return f"{ts}  {BLUE}🔍 search_text{RESET}"
+        if tool_name == "log_run_step":
+            return None  # rendered via _RE_RUN_STEP
+        if tool_name == "git_commit_and_push":
+            return None  # rendered via _RE_GIT_COMMIT
+        if tool_name == "run_command":
+            return None  # rendered via _RE_SHELL_CMD
+        # Unknown tool — show it
+        return f"{ts}  {BLUE}{_tool_icon(tool_name)} {tool_name}{RESET}"
 
-    # ── file_tools result lines ────────────────────────────────────────────────
-    tool = _state.pending_tool or "?"
+    # ── file_tools result lines (rendered independently of dispatch) ───────────
 
     rfm = _RE_READ_FILE.search(msg)
     if rfm and "file_tools" in module:
         path = _shorten_path(rfm.group("path"))
         start, end, total = rfm.group("start"), rfm.group("end"), rfm.group("total")
-        _state.pending_tool = None
         return (
             f"{ts}  {BLUE}{_tool_icon('read_file_lines')} read{RESET}  "
             f"{WHITE}{path}{RESET}  {GREY}lines {start}–{end} / {total}{RESET}"
@@ -245,7 +262,6 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
     if rpm and "file_tools" in module:
         path = _shorten_path(rpm.group("path"))
         count = rpm.group("count")
-        _state.pending_tool = None
         return (
             f"{ts}  {GREEN}{_tool_icon('replace_in_file')} replaced{RESET}  "
             f"{WHITE}{path}{RESET}  {GREY}({count} replacement{'s' if count != '1' else ''}){RESET}"
@@ -254,7 +270,6 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
     inm = _RE_INSERT.search(msg)
     if inm and "file_tools" in module:
         path = _shorten_path(inm.group("path"))
-        _state.pending_tool = None
         return (
             f"{ts}  {GREEN}{_tool_icon('insert_after_in_file')} inserted{RESET}  "
             f"{WHITE}{path}{RESET}"
@@ -263,32 +278,10 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
     wfm = _RE_WRITE.search(msg)
     if wfm and "file_tools" in module:
         path = _shorten_path(wfm.group("path"))
-        _state.pending_tool = None
         return (
             f"{ts}  {GREEN}{_tool_icon('write_file')} wrote{RESET}  "
             f"{WHITE}{path}{RESET}"
         )
-
-    # search_codebase result (logged by code_indexer or agent_loop)
-    scm = _RE_SEARCH_CODE.search(msg)
-    if scm:
-        hits = scm.group("hits")
-        _state.pending_tool = None
-        return (
-            f"{ts}  {BLUE}🔍 search{RESET}  {GREY}→ {hits} results{RESET}"
-        )
-
-    # ── dispatch_tool for tools that have no separate result line ─────────────
-    # Render search_codebase / GitHub / other tools at dispatch time
-    # (their results either appear separately or not at all)
-    if _state.pending_tool and "agent_loop" in module and "dispatch_tool" not in msg:
-        # Not a match for any result line — clear pending so we don't ghost
-        pass
-
-    # Show search_codebase dispatches when there's no result line yet
-    if "dispatch_tool" in msg and _state.pending_tool == "search_codebase":
-        # Already captured above; suppress duplicate
-        return None
 
     # ── shell command ──────────────────────────────────────────────────────────
     scmd = _RE_SHELL_CMD.search(msg)
