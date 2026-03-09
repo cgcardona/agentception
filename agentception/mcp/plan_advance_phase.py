@@ -24,7 +24,7 @@ import logging
 from agentception.config import settings
 from agentception.readers.github import (
     add_label_to_issue,
-    gh_json,
+    get_issues_with_all_labels,
     remove_label_from_issue,
 )
 from agentception.readers.pipeline_config import read_pipeline_config
@@ -135,40 +135,25 @@ async def plan_advance_phase(
 async def _fetch_issues_with_labels(
     repo: str, labels: list[str]
 ) -> list[dict[str, object]]:
-    """Fetch GitHub issues that carry every label in *labels*.
+    """Fetch GitHub issues that carry every label in *labels* (AND semantics).
 
-    ``gh issue list --label`` ANDs multiple ``--label`` flags — only issues
-    with all of the given labels are returned.
+    Delegates to :func:`~agentception.readers.github.get_issues_with_all_labels`
+    which uses the GitHub REST API ``labels`` comma-separated query parameter —
+    returning only issues that carry all specified labels.
 
     Args:
-        repo:   GitHub repository in ``owner/name`` format.
+        repo:   GitHub repository in ``owner/name`` format (unused — the
+                reader reads from ``settings.gh_repo``).
         labels: Label names that must all be present on matching issues.
 
     Returns:
         List of issue dicts; each has at minimum ``number`` (int) and
-        ``state`` (``"OPEN"`` or ``"CLOSED"``).
+        ``state`` (``"OPEN"`` or ``"CLOSED"`` — normalised to uppercase).
 
     Raises:
-        RuntimeError: When ``gh`` exits with a non-zero status.
+        RuntimeError: When the GitHub REST API returns a non-2xx status.
     """
-    args = [
-        "issue", "list",
-        "--repo", repo,
-        "--state", "all",
-        "--json", "number,state",
-        "--limit", "200",
-    ]
-    for label in labels:
-        args += ["--label", label]
-
-    cache_key = f"plan_advance_phase:labels={'|'.join(sorted(labels))}"
-    result = await gh_json(args, ".", cache_key)
-    if not isinstance(result, list):
-        raise RuntimeError(
-            "_fetch_issues_with_labels: expected list from gh, "
-            f"got {type(result).__name__}"
-        )
-    return [item for item in result if isinstance(item, dict)]
+    return await get_issues_with_all_labels(labels, state="all", limit=200)
 
 
 async def _unlock_issue(

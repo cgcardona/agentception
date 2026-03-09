@@ -37,7 +37,7 @@ import yaml
 from pydantic import ValidationError
 
 from agentception.models import EnrichedManifest, PlanSpec
-from agentception.readers.github import gh_json
+from agentception.readers.github import get_repo_labels
 
 # Path to the cognitive archetypes directory (repo root / scripts / gen_prompts / ...)
 _ARCHETYPES_DIR: Path = (
@@ -230,35 +230,21 @@ def plan_validate_spec(spec_json: str) -> dict[str, object]:
 async def plan_get_labels() -> dict[str, object]:
     """Fetch the full GitHub label list for the configured repository.
 
-    Uses :func:`agentception.readers.github.gh_json` to call
-    ``gh label list --json name,description`` and returns the result in a
-    shape suitable for use as LLM context when assigning labels to enriched
-    issues.
+    Uses :func:`agentception.readers.github.get_repo_labels` to call the
+    GitHub REST API and returns the result in a shape suitable for use as LLM
+    context when assigning labels to enriched issues.
 
     Returns:
         ``{"labels": [{"name": str, "description": str}, ...]}``
-        Returns an empty list if the gh CLI returns an unexpected type.
+        Returns an empty list when the API call fails or returns no labels.
     """
     from agentception.config import settings
 
     repo = settings.gh_repo
-    args = [
-        "label", "list",
-        "--repo", repo,
-        "--json", "name,description",
-        "--limit", "100",
-    ]
-    result = await gh_json(args, ".", "plan_get_labels")
-    if not isinstance(result, list):
-        logger.warning(
-            "⚠️ plan_get_labels: unexpected gh output type %s", type(result).__name__
-        )
-        return {"labels": []}
+    raw = await get_repo_labels(limit=100)
 
     labels: list[dict[str, str]] = []
-    for item in result:
-        if not isinstance(item, dict):
-            continue
+    for item in raw:
         name = item.get("name", "")
         description = item.get("description", "")
         labels.append({
