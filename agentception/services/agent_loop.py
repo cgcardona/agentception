@@ -24,9 +24,12 @@ Pipeline
 
 from __future__ import annotations
 
+import asyncio
+import collections
 import json
 import logging
 import sys
+import time
 from pathlib import Path
 
 from sqlalchemy import select
@@ -74,13 +77,47 @@ _DEFAULT_MAX_ITERATIONS = 50
 # Tool results longer than this are truncated before being stored in history.
 # read_file / run_command can easily dump 50k+ chars; keeping them unbounded
 # inflates every subsequent input token count linearly.
-_MAX_TOOL_RESULT_CHARS: int = 6_000
+_MAX_TOOL_RESULT_CHARS: int = 3_000
 
 # When the message history (excluding system) exceeds this count, old turns
 # are dropped from the middle.  The first user message (task briefing) and the
 # most-recent _HISTORY_TAIL messages are always kept.
-_MAX_HISTORY_MESSAGES: int = 40
-_HISTORY_TAIL: int = 30
+_MAX_HISTORY_MESSAGES: int = 20
+_HISTORY_TAIL: int = 14
+
+# ---------------------------------------------------------------------------
+# Token-rate guard — keeps input token consumption under the Tier 1 limit
+# (30 000 tokens/minute).  We target 27 000 to leave a safety margin.
+# ---------------------------------------------------------------------------
+
+# Target: 90 % of the 30 000 input-token/minute Tier-1 limit.
+_INPUT_TPM_TARGET: int = 27_000
+_TPM_WINDOW_SECS: float = 60.0
+
+# Rolling window of (monotonic_timestamp, input_tokens) pairs.
+# Module-level; acceptable for single-agent-per-process deployments.
+_tpm_window: collections.deque[tuple[float, int]] = collections.deque()
+
+
+def _tpm_record_and_get_sleep(input_tokens: int) -> float:
+    """Record *input_tokens* in the rolling 60-second window.
+
+    Returns the number of seconds the caller should sleep before making
+    the next API call.  Returns ``0.0`` when no throttling is needed.
+
+    Uses ``time.monotonic`` so the window is immune to clock adjustments.
+    """
+    now = time.monotonic()
+    while _tpm_window and now - _tpm_window[0][0] >= _TPM_WINDOW_SECS:
+        _tpm_window.popleft()
+    _tpm_window.append((now, input_tokens))
+    total = sum(t for _, t in _tpm_window)
+    if total >= _INPUT_TPM_TARGET and _tpm_window:
+        oldest_ts = _tpm_window[0][0]
+        sleep_secs = _TPM_WINDOW_SECS - (now - oldest_ts) + 1.0
+        return max(0.0, sleep_secs)
+    return 0.0
+
 
 # Local tool names — dispatched to file/shell functions rather than MCP.
 _LOCAL_TOOL_NAMES: frozenset[str] = frozenset(
@@ -151,6 +188,16 @@ async def run_agent_loop(
             await log_run_error(issue_number, f"LLM error: {exc}", run_id)
             await build_cancel_run(run_id)
             return
+
+        # Token-rate guard — self-throttle before the next iteration if we are
+        # approaching the 30 000 input-tokens/minute Tier-1 limit.
+        sleep_secs = _tpm_record_and_get_sleep(response.get("input_tokens", 0))
+        if sleep_secs > 0.0:
+            logger.warning(
+                "⚠️ agent_loop: TPM guard — sleeping %.1fs to stay under rate limit",
+                sleep_secs,
+            )
+            await asyncio.sleep(sleep_secs)
 
         # Append assistant message to history.
         assistant_msg: dict[str, object] = {"role": "assistant", "content": response["content"]}

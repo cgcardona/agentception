@@ -458,3 +458,35 @@ class TestDispatchToolCalls:
         result = await _dispatch_single_tool(bad_tc, tmp_path, "run-1")
         assert result["ok"] is False
         assert "json" in str(result["error"]).lower()
+
+
+class TestTpmRateGuard:
+    """Unit tests for _tpm_record_and_get_sleep."""
+
+    def setup_method(self) -> None:
+        """Clear the module-level window before each test."""
+        import agentception.services.agent_loop as al
+        al._tpm_window.clear()
+
+    def test_under_limit_returns_zero(self) -> None:
+        """Below the token limit → no sleep required."""
+        from agentception.services.agent_loop import _tpm_record_and_get_sleep
+
+        sleep = _tpm_record_and_get_sleep(5_000)
+        assert sleep == 0.0
+
+    def test_over_limit_returns_positive_sleep(self) -> None:
+        """Exceeding the 27K target → a positive sleep duration is returned."""
+        from agentception.services.agent_loop import _tpm_record_and_get_sleep
+
+        sleep = _tpm_record_and_get_sleep(28_000)
+        assert sleep > 0.0
+
+    def test_multiple_calls_accumulate(self) -> None:
+        """Multiple calls within the window accumulate token counts."""
+        from agentception.services.agent_loop import _tpm_record_and_get_sleep
+
+        _tpm_record_and_get_sleep(10_000)
+        _tpm_record_and_get_sleep(10_000)
+        sleep = _tpm_record_and_get_sleep(10_000)
+        assert sleep > 0.0
