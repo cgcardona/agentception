@@ -463,13 +463,22 @@ def _render_task_briefing(ctx: RunContextRow, role_content: str) -> str:
     if parent_run_id:
         lineage_lines.append(f"**Spawned by:** `{parent_run_id}`")
 
+    worktree_collection = f"worktree-{run_id}"
+
     parts: list[str] = [
         f"## Task Briefing — run `{run_id}`",
         "",
         f"**Role:** {role}  ",
         f"**Cognitive Architecture:** `{cognitive_arch}`  ",
         f"**Worktree:** `{worktree_path}`  ",
-        f"**Branch:** `{branch}`",
+        f"**Branch:** `{branch}`  ",
+        f"**Search index:** `{worktree_collection}` (your worktree) · `code` (full repo)",
+        "",
+        "> **Before you read any file:** call `search_codebase` first.",
+        "> One semantic query ('where is X defined', 'pattern for Y') returns exact",
+        "> file paths and line numbers in a single turn.",
+        "> Pass `collection: \"{worktree_collection}\"` to scope results to your worktree.",
+        "> The `code` collection (default) indexes the full repository.",
     ]
 
     if lineage_lines:
