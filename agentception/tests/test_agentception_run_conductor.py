@@ -59,7 +59,7 @@ async def test_get_conductor_history_status_resolved_from_db(
     wave_id_active = "conductor-20260303-100000"
     wave_id_done = "conductor-20260303-110000"
 
-    rows = [
+    rows: list[tuple[MagicMock, str | None]] = [
         (_make_wave(wave_id_active), "implementing"),  # active run → "active"
         (_make_wave(wave_id_done), "completed"),        # terminal run → "completed"
     ]
@@ -86,7 +86,7 @@ async def test_get_conductor_history_reviewing_is_active(tmp_path: Path) -> None
     """A wave whose latest run is 'reviewing' is also considered active."""
     from agentception.db.queries import get_conductor_history
 
-    rows = [(_make_wave("conductor-review"), "reviewing")]
+    rows: list[tuple[MagicMock, str | None]] = [(_make_wave("conductor-review"), "reviewing")]
 
     with patch(
         "agentception.db.queries.get_session",
@@ -102,7 +102,7 @@ async def test_get_conductor_history_no_run_is_completed(tmp_path: Path) -> None
     """A wave with no associated run (LEFT JOIN → None) is marked completed."""
     from agentception.db.queries import get_conductor_history
 
-    rows = [(_make_wave("conductor-orphan"), None)]
+    rows: list[tuple[MagicMock, str | None]] = [(_make_wave("conductor-orphan"), None)]
 
     with patch(
         "agentception.db.queries.get_session",
@@ -118,7 +118,7 @@ async def test_get_conductor_history_no_fs_access(tmp_path: Path) -> None:
     """get_conductor_history must never call Path.exists — status comes from DB."""
     from agentception.db.queries import get_conductor_history
 
-    rows = [(_make_wave("conductor-20260303-100000"), "implementing")]
+    rows: list[tuple[MagicMock, str | None]] = [(_make_wave("conductor-20260303-100000"), "implementing")]
 
     with patch(
         "agentception.db.queries.get_session",

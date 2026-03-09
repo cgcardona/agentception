@@ -845,6 +845,10 @@ async def _dispatch_local_tool(
             return {"ok": False, "error": "git_commit_and_push: 'branch' must be a string"}
         if not isinstance(msg_raw, str):
             return {"ok": False, "error": "git_commit_and_push: 'commit_message' must be a string"}
+        # Coerce a bare string (e.g. ".") to a single-element list so the model
+        # doesn't have to retry just because it forgot the JSON array brackets.
+        if isinstance(paths_raw, str):
+            paths_raw = [paths_raw]
         if not isinstance(paths_raw, list) or not paths_raw:
             return {"ok": False, "error": "git_commit_and_push: 'paths' must be a non-empty array"}
         str_paths = [p for p in paths_raw if isinstance(p, str)]

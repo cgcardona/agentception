@@ -252,7 +252,7 @@ The browser loads **compiled bundles**, not source files directly:
 | Setup/deploy | `docs/guides/setup.md` |
 | MCP integration | `docs/guides/integrate.md` |
 | API reference | `docs/reference/api.md` |
-| Architecture | `docs/reference/architecture.md` |
+| Architecture | `docs/architecture.md` |
 | Cognitive arch | `docs/reference/cognitive-arch.md` |
 | Testing | `docs/guides/testing.md` |
 | Security | `docs/guides/security.md` |
