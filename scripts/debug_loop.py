@@ -61,6 +61,7 @@ async def main() -> None:
         _load_task,
         _load_role_prompt,
         _fetch_task_briefing,
+        _tpm_record_and_get_sleep,
     )
     from agentception.services.github_mcp_client import GitHubMCPClient
     from agentception.services.llm import call_anthropic_with_tools
@@ -147,11 +148,27 @@ async def main() -> None:
             print(f"  ❌ LLM error: {exc}")
             break
 
+        input_tokens = response.get("input_tokens", 0)
+        cache_written = response.get("cache_creation_input_tokens", 0)
+        cache_read = response.get("cache_read_input_tokens", 0)
+        cache_note = ""
+        if cache_written:
+            cache_note = f"  (✍ wrote {cache_written} to cache)"
+        elif cache_read:
+            cache_note = f"  (⚡ read {cache_read} from cache — ~10% cost)"
+        else:
+            cache_note = "  (⚠️  no cache hit)"
         print(f"  stop_reason   = {response['stop_reason']}")
-        print(f"  input tokens  = {response.get('input_tokens', '?')}")
-        print(f"  cache_written = {response.get('cache_creation_input_tokens', 0)}")
-        print(f"  cache_read    = {response.get('cache_read_input_tokens', 0)}")
+        print(f"  input tokens  = {input_tokens}{cache_note}")
         print(f"  tool_calls    = {len(response['tool_calls'])}")
+
+        # TPM throttle — same guard as the real agent loop.
+        # Records this turn's tokens in the shared rolling 60-second window
+        # and sleeps if we're approaching the 30k tokens/minute ceiling.
+        sleep_secs = _tpm_record_and_get_sleep(input_tokens if isinstance(input_tokens, int) else 0)
+        if sleep_secs > 0:
+            print(f"\n  ⏳ TPM throttle — sleeping {sleep_secs:.1f}s to stay under rate limit …", flush=True)
+            await asyncio.sleep(sleep_secs)
 
         if response["content"]:
             _dump("Model text", response["content"])

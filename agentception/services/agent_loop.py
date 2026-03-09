@@ -56,6 +56,7 @@ from agentception.tools.definitions import FILE_TOOL_DEFS, SEARCH_CODEBASE_TOOL_
 from agentception.tools.file_tools import (
     list_directory,
     read_file,
+    replace_in_file,
     search_text,
     write_file,
 )
@@ -122,7 +123,15 @@ def _tpm_record_and_get_sleep(input_tokens: int) -> float:
 
 # Local tool names — dispatched to file/shell functions rather than MCP.
 _LOCAL_TOOL_NAMES: frozenset[str] = frozenset(
-    {"read_file", "write_file", "list_directory", "search_text", "run_command", "search_codebase"}
+    {
+        "read_file",
+        "replace_in_file",
+        "write_file",
+        "list_directory",
+        "search_text",
+        "run_command",
+        "search_codebase",
+    }
 )
 
 
@@ -738,6 +747,25 @@ async def _dispatch_local_tool(
     if name == "read_file":
         path = _resolve(args.get("path"), worktree_path)
         return read_file(path)
+
+    if name == "replace_in_file":
+        path_raw = args.get("path")
+        old_raw = args.get("old_string")
+        new_raw = args.get("new_string")
+        if not isinstance(path_raw, str):
+            return {"ok": False, "error": "replace_in_file: 'path' must be a string"}
+        if not isinstance(old_raw, str):
+            return {"ok": False, "error": "replace_in_file: 'old_string' must be a string"}
+        if not isinstance(new_raw, str):
+            return {"ok": False, "error": "replace_in_file: 'new_string' must be a string"}
+        allow_raw = args.get("allow_multiple", False)
+        allow = bool(allow_raw) if isinstance(allow_raw, bool) else False
+        return replace_in_file(
+            _resolve(path_raw, worktree_path),
+            old_raw,
+            new_raw,
+            allow_multiple=allow,
+        )
 
     if name == "write_file":
         path_raw = args.get("path")
