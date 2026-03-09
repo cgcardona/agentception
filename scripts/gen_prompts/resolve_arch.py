@@ -418,14 +418,18 @@ def render_fingerprint(
     arch_display = _normalize_arch_display(arch)
     timestamp = started_at if started_at else _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+    # Always present
     rows = [
         f"| **Role** | `{role}` |",
         f"| **Architecture** | `{arch_display}` |",
         f"| **Session** | `{session}` |",
-        f"| **Batch** | `{batch}` |",
-        f"| **Coordinator** | `{coordinator}` |",
-        f"| **Claimed at** | `{timestamp}` |",
     ]
+    # Org-hierarchy fields — omitted when the agent has no coordinator above it
+    if batch and batch != "none":
+        rows.append(f"| **Batch** | `{batch}` |")
+    if coordinator and coordinator != "unset":
+        rows.append(f"| **Coordinator** | `{coordinator}` |")
+    rows.append(f"| **Claimed at** | `{timestamp}` |")
 
     lines = [
         "<details>",

@@ -80,6 +80,10 @@ Extract these variables from your briefing before doing anything else:
 
 ```bash
 # Set from your task/briefing — never read a file
+# COGNITIVE_ARCH="<cognitive_arch from briefing>"
+# ROLE="<role from briefing>"
+# BATCH_ID="<batch_id from briefing, or 'none' if absent>"
+# COORD_FINGERPRINT="<coord_fingerprint from briefing, or 'unset' if absent>"
 # PR_NUMBER="<pr_number from briefing>"
 # GH_REPO="<gh_repo from briefing>"
 # ISSUE_NUMBER="<issue_number from briefing>"
@@ -95,6 +99,74 @@ cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTN
 
 Your job is to ensure the PR does not *introduce* new errors. But if you touch a file with pre-existing errors, you own them.
 
+## Audit Trail — Required at Every Touch Point
+
+Generate your fingerprint once at the start; reuse `$REVIEW_FINGERPRINT` in every subsequent event.
+
+**Generate fingerprint** (run in your worktree shell at session start):
+
+```bash
+AGENT_SESSION="eng-$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%04x' $RANDOM)"
+CLAIMED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+REPO=$(git worktree list | head -1 | awk '{print $1}')
+
+CLAIM_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" \
+  "${COGNITIVE_ARCH:-unset}" \
+  --fingerprint \
+  --role "${ROLE:-developer}" \
+  --session "$AGENT_SESSION" \
+  --batch "${BATCH_ID:-none}" \
+  --coordinator "${COORD_FINGERPRINT:-unset}" \
+  --started-at "$CLAIMED_AT" 2>/dev/null)
+
+# Fallback: resolve_arch.py unavailable — build the table in shell.
+# Org-hierarchy rows (Batch, Coordinator) are included only when present,
+# matching the conditional logic in resolve_arch.py render_fingerprint().
+if [ -z "$CLAIM_FINGERPRINT" ]; then
+  _FP_ROWS="| **Role** | \`${ROLE:-developer}\` |
+| **Architecture** | \`${COGNITIVE_ARCH:-unset}\` |
+| **Session** | \`$AGENT_SESSION\` |"
+  [ "${BATCH_ID:-none}" != "none" ] && \
+    _FP_ROWS="$_FP_ROWS
+| **Batch** | \`$BATCH_ID\` |"
+  [ "${COORD_FINGERPRINT:-unset}" != "unset" ] && \
+    _FP_ROWS="$_FP_ROWS
+| **Coordinator** | \`$COORD_FINGERPRINT\` |"
+  _FP_ROWS="$_FP_ROWS
+| **Claimed at** | \`$CLAIMED_AT\` |"
+  CLAIM_FINGERPRINT="<details>
+<summary>🤖 Agent Fingerprint</summary>
+
+| | |
+|---|---|
+$_FP_ROWS
+
+</details>"
+fi
+
+REVIEW_FINGERPRINT="$CLAIM_FINGERPRINT"
+```
+
+### Event 1 — Review Started (immediately when you begin)
+
+```
+github_add_comment(issue_number=<ISSUE_NUMBER>, body="🔍 **Review started**\n\n<REVIEW_FINGERPRINT>")
+```
+
+### Event 2 — Grade Assigned (A or B → merge)
+
+Include `$REVIEW_FINGERPRINT` in the merge comment posted after `github_merge_pr`:
+
+```
+github_add_comment(issue_number=<ISSUE_NUMBER>, body="✅ **Grade: A/B — Merged**\n\n<grade summary>\n\n<REVIEW_FINGERPRINT>")
+```
+
+### Event 3 — Blocked (D or F → do not merge)
+
+```
+github_add_comment(issue_number=<ISSUE_NUMBER>, body="🚫 **Grade: D/F — Blocked**\n\n<blocking reason>\n\n<REVIEW_FINGERPRINT>")
+```
+
 ## Approval and Merge Protocol
 
 Once you have assigned a grade:
@@ -102,10 +174,10 @@ Once you have assigned a grade:
 - **A or B** — approve and merge using MCP tools (never shell out):
   1. `github_approve_pr(pr_number=PR_NUMBER)` — submit the approving review.
   2. `github_merge_pr(pr_number=PR_NUMBER, delete_branch=true)` — squash-merge and delete the head branch.
-  3. `github_add_comment(issue_number=ISSUE_NUMBER, body="...")` — post your grade and summary on the issue.
+  3. Post Event 2 comment with `$REVIEW_FINGERPRINT` (see Audit Trail above).
 - **C** — fix in place, re-run mypy + tests, re-grade. Do not stop here.
-- **D** — do not merge. Post a comment explaining the blocking issue and open a follow-up GitHub issue.
-- **F** — do not merge. Escalate immediately via `github_add_comment` and stop.
+- **D** — do not merge. Post Event 3 comment with `$REVIEW_FINGERPRINT` and open a follow-up issue.
+- **F** — do not merge. Post Event 3 comment with `$REVIEW_FINGERPRINT` and escalate immediately.
 
 ## Decision Hierarchy
 
@@ -123,3 +195,4 @@ Once you have assigned a grade:
 - Accepting `cast()` or `Any` as "acceptable for now."
 - Treating pre-existing mypy errors as permission to add more.
 - Merging before MERGE_AFTER dependency clears.
+- Forgetting to post fingerprint at Event 1 (review started) or Event 2/3 (outcome).
