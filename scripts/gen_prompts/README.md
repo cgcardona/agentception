@@ -85,7 +85,7 @@ scripts/gen_prompts/
       engineering-coordinator.md.j2
       qa-coordinator.md.j2
       pr-reviewer.md.j2
-      python-developer.md.j2
+      developer.md.j2
       coordinator.md.j2
       database-architect.md.j2
     PARALLEL_BUGS_TO_ISSUES.md.j2
@@ -199,7 +199,7 @@ The engineering coordinator writes `COGNITIVE_ARCH` to `.agent-task` at spawn ti
 ```bash
 ISSUE=671
 WORKTREE="$HOME/.agentception/worktrees/agentception/issue-671"
-ROLE_FILE="$HOME/.agentception/roles/python-developer.md"
+ROLE_FILE="$HOME/.agentception/roles/developer.md"
 ISSUE_LABEL="agentception/2-telemetry"
 SPAWN_MODE=direct
 COGNITIVE_ARCH=dijkstra+python        # figure + skill domain

@@ -39,7 +39,7 @@ def agent_node() -> AgentNode:
     """A single AgentNode with known transcript path for testing."""
     return AgentNode(
         id="issue-616",
-        role="python-developer",
+        role="developer",
         status=AgentStatus.IMPLEMENTING,
         issue_number=616,
         branch="feat/issue-616-agent-inspector-ui",
@@ -62,7 +62,7 @@ def pipeline_with_agent(agent_node: AgentNode) -> PipelineState:
     )
     parent = AgentNode(
         id="issue-616",
-        role="python-developer",
+        role="developer",
         status=AgentStatus.IMPLEMENTING,
         issue_number=616,
         message_count=3,
@@ -116,7 +116,7 @@ def test_agent_detail_renders_transcript(
     ):
         response = client.get("/agents/issue-616")
     assert response.status_code == 200
-    assert "python-developer" in response.text
+    assert "developer" in response.text
     assert "Implement issue 616 now." in response.text
     assert "On it. Reading the issue" in response.text
 
@@ -213,7 +213,7 @@ def test_agents_list_api_returns_array(
     assert isinstance(data, list)
     assert len(data) >= 1
     assert data[0]["id"] == "issue-616"
-    assert data[0]["role"] == "python-developer"
+    assert data[0]["role"] == "developer"
 
 
 def test_agents_list_api_empty_state(client: TestClient) -> None:

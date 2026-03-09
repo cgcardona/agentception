@@ -159,7 +159,7 @@ def test_tier_for_role_pr_reviewer_is_worker() -> None:
 
 
 def test_tier_for_role_python_developer_is_worker() -> None:
-    assert _tier_for_role("python-developer") == "worker"
+    assert _tier_for_role("developer") == "worker"
 
 
 def test_tier_for_role_unknown_slug_is_worker() -> None:
@@ -186,7 +186,7 @@ def test_scope_phase_is_coordinator() -> None:
 def test_scope_issue_is_worker() -> None:
     role, tier = _role_and_tier_for_scope("issue", None)
     assert tier == "worker"
-    assert role == "python-developer"
+    assert role == "developer"
 
 
 def test_scope_role_override_respected() -> None:
@@ -198,7 +198,7 @@ def test_scope_role_override_respected() -> None:
 def test_scope_role_override_blank_ignored() -> None:
     role, tier = _role_and_tier_for_scope("issue", "  ")
     assert tier == "worker"
-    assert role == "python-developer"
+    assert role == "developer"
 
 
 # ---------------------------------------------------------------------------
@@ -382,7 +382,7 @@ def test_dispatch_label_issue_scope_is_leaf(
     assert res.status_code == 200
     data = res.json()
     assert data["tier"] == "worker"
-    assert data["role"] == "python-developer"
+    assert data["role"] == "developer"
 
 
 def test_dispatch_label_issue_scope_persists_issue_number_to_db(

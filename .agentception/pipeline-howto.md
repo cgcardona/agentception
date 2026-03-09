@@ -65,7 +65,7 @@ agent. The pool stays at N concurrent workers continuously until the queue drain
 | `.agentception/roles/cto.md` | CTO agent |
 | `.agentception/roles/engineering-coordinator.md` | Engineering Coordinator |
 | `.agentception/roles/qa-coordinator.md` | QA Coordinator |
-| `.agentception/roles/python-developer.md` | Leaf implementation agents (Python/API work) |
+| `.agentception/roles/developer.md` | Leaf implementation agents (Python/API work) |
 | `.agentception/roles/database-architect.md` | Leaf agents on migrations / seed data |
 | `.agentception/roles/pr-reviewer.md` | Leaf review agents |
 | `.agentception/roles/coordinator.md` | Mid-tier coordinators |
@@ -99,8 +99,8 @@ issue_number = 423            # issue number (for issue-to-pr)
 pr_number = 485               # PR number (for pr-review)
 branch = "feat/issue-423"     # git branch name
 worktree_path = "$HOME/.agentception/worktrees/agentception/issue-423"
-role = "python-developer"     # which cognitive architecture to load
-role_file = "<repo-root>/.agentception/roles/python-developer.md"
+role = "developer"     # which cognitive architecture to load
+role_file = "<repo-root>/.agentception/roles/developer.md"
 base = "dev"
 gh_repo = "cgcardona/agentception"
 closes_issues = [423]
@@ -182,7 +182,7 @@ git worktree add ~/.agentception/worktrees/agentception/pr-{N} origin/$BRANCH
 ### Step 3 — Write `.agent-task` files
 
 One file per worktree. Use the TOML format above. Key fields:
-- `role =` — pick from: `python-developer`, `database-architect`, `pr-reviewer`
+- `role =` — pick from: `developer`, `database-architect`, `pr-reviewer`
 - `scope.description =` — multi-line description of what to build/review
 
 ### Step 4 — Launch the two managers (skip the CTO for simple waves)

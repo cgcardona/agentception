@@ -28,22 +28,10 @@ _TEMPLATES = Jinja2Templates(directory=str(_HERE.parent.parent / "templates"))
 # Roles not listed here fall into the "Other" catch-all category, which
 # appears last so newly-added taxonomy roles are always visible in the form.
 _ROLE_CATEGORY_MAP: dict[str, tuple[str, int]] = {
-    # Backend
-    "python-developer":         ("Backend", 0),
-    "api-developer":            ("Backend", 1),
-    "database-architect":       ("Backend", 2),
-    "systems-programmer":       ("Backend", 3),
-    "go-developer":             ("Backend", 4),
-    "rails-developer":          ("Backend", 5),
-    # Frontend
-    "frontend-developer":       ("Frontend", 0),
-    "mobile-developer":         ("Frontend", 1),
-    "full-stack-developer":     ("Frontend", 2),
-    "typescript-developer":     ("Frontend", 3),
-    "react-developer":          ("Frontend", 4),
-    # Mobile
-    "ios-developer":            ("Mobile", 0),
-    "android-developer":        ("Mobile", 1),
+    # Engineering — language/framework comes from cognitive architecture, not role slug
+    "developer":                ("Engineering", 0),
+    "database-architect":       ("Engineering", 1),
+    "architect":                ("Engineering", 2),
     # Quality
     "test-engineer":            ("Quality", 0),
     "pr-reviewer":              ("Quality", 1),
@@ -57,15 +45,10 @@ _ROLE_CATEGORY_MAP: dict[str, tuple[str, int]] = {
     "data-engineer":            ("Data / AI", 1),
     "ml-researcher":            ("Data / AI", 2),
     "data-scientist":           ("Data / AI", 3),
-    # Systems
-    "rust-developer":           ("Systems", 0),
-    # Architecture
-    "architect":                ("Architecture", 0),
 }
 
 _CATEGORY_ORDER: list[str] = [
-    "Backend", "Frontend", "Mobile", "Quality", "Infrastructure",
-    "Data / AI", "Systems", "Architecture", "Other",
+    "Engineering", "Quality", "Infrastructure", "Data / AI", "Other",
 ]
 
 
@@ -146,7 +129,7 @@ def _fmt_role(role: str) -> str:
 
         "cto"                   → "CTO"
         "vp-engineering"        → "VP Engineering"
-        "python-developer"      → "Python Developer"
+        "developer"             → "Developer"
     """
     return " ".join(
         p.upper() if p.lower() in _ROLE_ACRONYMS else p.title()

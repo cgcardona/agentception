@@ -58,7 +58,7 @@ def _make_agent(
 ) -> AgentNode:
     return AgentNode(
         id=agent_id,
-        role="python-developer",
+        role="developer",
         status=AgentStatus.IMPLEMENTING,
         issue_number=42,
         transcript_path=transcript_path,
@@ -131,7 +131,7 @@ def test_agents_api_returns_agents_list(client: TestClient) -> None:
     assert isinstance(body, list)
     assert len(body) == 1
     assert body[0]["id"] == "issue-99"
-    assert body[0]["role"] == "python-developer"
+    assert body[0]["role"] == "developer"
 
 
 # ── GET /api/agents/{agent_id} ────────────────────────────────────────────────

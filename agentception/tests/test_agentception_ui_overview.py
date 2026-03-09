@@ -50,7 +50,7 @@ def populated_state() -> PipelineState:
         agents=[
             AgentNode(
                 id="issue-615",
-                role="python-developer",
+                role="developer",
                 status=AgentStatus.IMPLEMENTING,
                 issue_number=615,
                 branch="feat/issue-615-overview-ui",
@@ -159,7 +159,7 @@ def test_pipeline_api_reflects_populated_state(
     assert data["active_label"] == "agentception/0-scaffold"
     assert data["issues_open"] == 3
     assert len(data["agents"]) == 1
-    assert data["agents"][0]["role"] == "python-developer"
+    assert data["agents"][0]["role"] == "developer"
     assert data["agents"][0]["status"] == "implementing"
     assert len(data["alerts"]) == 1
 

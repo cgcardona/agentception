@@ -39,7 +39,7 @@ def test_agent_node_lineage_fields_default_none() -> None:
     """AgentNode.tier, org_domain, and parent_run_id default to None."""
     node = AgentNode(
         id="issue-1",
-        role="python-developer",
+        role="developer",
         status=AgentStatus.IMPLEMENTING,
     )
     assert node.tier is None

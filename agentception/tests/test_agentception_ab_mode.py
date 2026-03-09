@@ -80,7 +80,7 @@ def _make_config(enabled: bool, variant_a: str | None = None, variant_b: str | N
         active_labels_order=[],
         ab_mode=AbModeConfig(
             enabled=enabled,
-            target_role="python-developer",
+            target_role="developer",
             variant_a_file=variant_a,
             variant_b_file=variant_b,
         ),
@@ -92,8 +92,8 @@ async def test_ab_mode_selects_variant_a_for_even_batch() -> None:
     """select_role_file returns variant_a_file when A/B mode is on and batch second is even."""
     config = _make_config(
         enabled=True,
-        variant_a=".agentception/roles/python-developer.md",
-        variant_b=".agentception/roles/python-developer-v2.md",
+        variant_a=".agentception/roles/developer.md",
+        variant_b=".agentception/roles/developer-v2.md",
     )
     # Seconds = 00 (even) → variant A
     even_batch_id = "eng-20260302T120000Z-abcd"
@@ -104,7 +104,7 @@ async def test_ab_mode_selects_variant_a_for_even_batch() -> None:
     ):
         result = await select_role_file(even_batch_id, "default.md")
 
-    assert result == ".agentception/roles/python-developer.md"
+    assert result == ".agentception/roles/developer.md"
 
 
 @pytest.mark.anyio
@@ -112,8 +112,8 @@ async def test_ab_mode_selects_variant_b_for_odd_batch() -> None:
     """select_role_file returns variant_b_file when A/B mode is on and batch second is odd."""
     config = _make_config(
         enabled=True,
-        variant_a=".agentception/roles/python-developer.md",
-        variant_b=".agentception/roles/python-developer-v2.md",
+        variant_a=".agentception/roles/developer.md",
+        variant_b=".agentception/roles/developer-v2.md",
     )
     # Seconds = 01 (odd) → variant B
     odd_batch_id = "eng-20260302T120001Z-abcd"
@@ -124,7 +124,7 @@ async def test_ab_mode_selects_variant_b_for_odd_batch() -> None:
     ):
         result = await select_role_file(odd_batch_id, "default.md")
 
-    assert result == ".agentception/roles/python-developer-v2.md"
+    assert result == ".agentception/roles/developer-v2.md"
 
 
 @pytest.mark.anyio
@@ -132,8 +132,8 @@ async def test_ab_mode_disabled_uses_default_role() -> None:
     """select_role_file returns default_role_file when A/B mode is disabled."""
     config = _make_config(
         enabled=False,
-        variant_a=".agentception/roles/python-developer.md",
-        variant_b=".agentception/roles/python-developer-v2.md",
+        variant_a=".agentception/roles/developer.md",
+        variant_b=".agentception/roles/developer-v2.md",
     )
     batch_id = "eng-20260302T120001Z-abcd"
 
@@ -151,8 +151,8 @@ async def test_ab_mode_unparseable_batch_id_falls_back_to_default() -> None:
     """select_role_file returns default_role_file when the BATCH_ID cannot be parsed."""
     config = _make_config(
         enabled=True,
-        variant_a=".agentception/roles/python-developer.md",
-        variant_b=".agentception/roles/python-developer-v2.md",
+        variant_a=".agentception/roles/developer.md",
+        variant_b=".agentception/roles/developer-v2.md",
     )
 
     with patch(

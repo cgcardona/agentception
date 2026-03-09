@@ -213,12 +213,12 @@ def test_get_preset_detail_includes_template() -> None:
 
 def test_count_single_node() -> None:
     """`_count` returns 1 for a leaf node with no children."""
-    assert _count(_t("python-developer")) == 1
+    assert _count(_t("developer")) == 1
 
 
 def test_count_flat_children() -> None:
     """`_count` returns 1 + n for a root with n leaf children."""
-    root = _t("engineering-coordinator", _t("python-developer"), _t("typescript-developer"))
+    root = _t("engineering-coordinator", _t("developer"), _t("developer"))
     assert _count(root) == 3
 
 
@@ -226,8 +226,8 @@ def test_count_nested_children() -> None:
     """`_count` correctly sums a two-level nested tree."""
     tree = _t("cto",
               _t("engineering-coordinator",
-                 _t("python-developer"),
-                 _t("go-developer")),
+                 _t("developer"),
+                 _t("developer")),
               _t("qa-coordinator",
                  _t("pr-reviewer")))
     # cto(1) + eng-coord(1) + python-dev(1) + go-dev(1) + qa-coord(1) + pr-reviewer(1) = 6
@@ -236,13 +236,13 @@ def test_count_nested_children() -> None:
 
 def test_t_sets_role_and_children() -> None:
     """`_t` correctly populates role and children on the returned node."""
-    child_a = _t("python-developer")
-    child_b = _t("typescript-developer")
+    child_a = _t("developer")
+    child_b = _t("developer")
     parent = _t("engineering-coordinator", child_a, child_b)
     assert parent.role == "engineering-coordinator"
     assert len(parent.children) == 2
-    assert parent.children[0].role == "python-developer"
-    assert parent.children[1].role == "typescript-developer"
+    assert parent.children[0].role == "developer"
+    assert parent.children[1].role == "developer"
 
 
 def test_t_with_figure() -> None:
@@ -259,7 +259,7 @@ def test_t_leaf_has_empty_children() -> None:
 
 def test_mk_node_count_matches_tree() -> None:
     """`_mk` computes node_count from the template automatically."""
-    tmpl = _t("cto", _t("python-developer"), _t("go-developer"))
+    tmpl = _t("cto", _t("developer"), _t("developer"))
     detail = _mk("test-preset", "Test", "Desc", "⬡", "blue", "engineering", tmpl)
     assert detail.node_count == _count(tmpl)  # == 3
 

@@ -60,7 +60,7 @@ def _mock_run_dict(
     """Build a minimal RunForIssueRow-shaped dict for mock patching."""
     return {
         "id": "issue-82",
-        "role": "python-developer",
+        "role": "developer",
         "status": status,
         "agent_status": agent_status,
         "pr_number": None,

@@ -144,14 +144,14 @@ def test_infer_role_cto() -> None:
 
 
 def test_infer_role_python_developer() -> None:
-    """An assistant message containing 'python-developer' maps to that role."""
+    """An assistant message containing 'developer' maps to that role."""
     messages = [
         {
             "role": "assistant",
-            "text": "You are a python-developer on the AgentCeption project.",
+            "text": "You are a developer on the AgentCeption project.",
         },
     ]
-    assert infer_role_from_messages(messages) == "python-developer"
+    assert infer_role_from_messages(messages) == "developer"
 
 
 def test_infer_role_pr_reviewer() -> None:
@@ -248,7 +248,7 @@ async def test_build_agent_tree_single_node(tmp_path: Path) -> None:
         node_dir / f"{uuid}.jsonl",
         [
             ("user", "Implement issue #42"),
-            ("assistant", "python-developer here. Starting implementation."),
+            ("assistant", "developer here. Starting implementation."),
         ],
     )
 
@@ -256,7 +256,7 @@ async def test_build_agent_tree_single_node(tmp_path: Path) -> None:
 
     assert node is not None
     assert node.id == uuid
-    assert node.role == "python-developer"
+    assert node.role == "developer"
     assert node.message_count == 2
     assert node.children == []
     assert node.transcript_path is not None
@@ -309,7 +309,7 @@ async def test_build_agent_tree_coordinator_no_own_jsonl(tmp_path: Path) -> None
     child_uuid = "eeeeeeee-0000-0000-0000-000000000001"
     _write_jsonl(
         sub_dir / f"{child_uuid}.jsonl",
-        [("assistant", "I am a python-developer agent.")],
+        [("assistant", "I am a developer agent.")],
     )
 
     node = await build_agent_tree(uuid, tmp_path)

@@ -33,7 +33,7 @@ async def test_pipeline_emits_event_on_completion() -> None: ...
 
 # Parametrize for multiple scenarios:
 @pytest.mark.parametrize("role,expected", [
-    ("python-developer", "hopper"),
+    ("developer", "hopper"),
     ("database-architect", "dijkstra"),
 ])
 def test_figure_selected_for_role(role: str, expected: str) -> None: ...

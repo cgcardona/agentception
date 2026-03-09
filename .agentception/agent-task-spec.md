@@ -54,7 +54,7 @@ All fields are present in the JSON returned by `ac://runs/{run_id}/context`.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `role` | string | Role slug: `"python-developer"`, `"pr-reviewer"`, `"engineering-coordinator"`, etc. |
+| `role` | string | Role slug: `"developer"`, `"pr-reviewer"`, `"engineering-coordinator"`, etc. |
 | `tier` | string \| null | Execution tier: `"coordinator"` \| `"worker"` |
 | `org_domain` | string \| null | UI hierarchy slot: `"c-suite"` \| `"engineering"` \| `"qa"` |
 | `cognitive_arch` | string \| null | `"figure:skill1:skill2"` resolved by `resolve_arch.py` |

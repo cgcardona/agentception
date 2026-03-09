@@ -173,7 +173,7 @@ via the AgentCeption `task/briefing` MCP prompt. You do not need to read any fil
 
 Your context includes:
 - **`cognitive_arch`** — your archetype (e.g. `guido_van_rossum:python`)
-- **`role`** — your role slug (e.g. `python-developer`)
+- **`role`** — your role slug (e.g. `developer`)
 - **`is_resumed`** — whether this is a resumed run (check your briefing header)
 
 ⚠️ MANDATORY SELF-INTRODUCTION — skip only if your briefing indicates `is_resumed = True`:

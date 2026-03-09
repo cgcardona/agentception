@@ -43,7 +43,7 @@ async def create_and_launch_run(
     delegate here so the behaviour is always identical.
 
     Args:
-        role: Role slug (e.g. ``"python-developer"``).
+        role: Role slug (e.g. ``"developer"``).
         task_description: Plain-language task injected as the agent's first message.
         figure: Cognitive figure override (e.g. ``"guido_van_rossum"``).
             When ``None`` the default for the role is used.

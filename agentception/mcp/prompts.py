@@ -13,9 +13,13 @@ Static prompts (no arguments)
 Parameterized prompts (require arguments, DB-backed)
     ``task/briefing`` — full task briefing for a run, resolved live from the DB.
         Arguments: ``run_id`` (required)
-        Returns a rendered Markdown briefing combining the run's task context
-        (role, cognitive_arch, task_description or issue reference, worktree
-        path, branch) with the agent's full role definition.
+
+        Returns a fully self-contained Markdown briefing.  The cognitive
+        architecture (figure + skills) is inlined directly — the agent receives
+        the figure's reasoning identity, heuristic, failure modes, and checklist,
+        plus every assigned skill's technical standards and review checklist,
+        all in the initial message.  No follow-up MCP reads are required to
+        internalize the full cognitive context.
 
         The loop calls ``get_prompt("task/briefing", {"run_id": run_id})`` to
         get the initial user message — task context is sourced entirely from
@@ -32,6 +36,9 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TypedDict
+
+import yaml
 
 from agentception.db.queries import RunContextRow, get_run_context
 from agentception.mcp.types import (
@@ -49,6 +56,99 @@ logger = logging.getLogger(__name__)
 _MCP_DIR = Path(__file__).parent
 _APP_ROOT = _MCP_DIR.parent.parent
 _AGENTCEPTION_DIR = _APP_ROOT / ".agentception"
+
+# Cognitive architecture corpus — same root used by resources.py.
+_ARCH_ROOT = _APP_ROOT / "scripts" / "gen_prompts" / "cognitive_archetypes"
+
+
+# ---------------------------------------------------------------------------
+# Typed shapes for the cognitive-arch YAML files we read
+# ---------------------------------------------------------------------------
+
+
+class _PromptInjection(TypedDict, total=False):
+    prefix: str
+    suffix: str
+
+
+class _FigureData(TypedDict, total=False):
+    display_name: str
+    heuristic: str
+    failure_modes: list[str]
+    prompt_injection: _PromptInjection
+
+
+class _SkillData(TypedDict, total=False):
+    display_name: str
+    prompt_fragment: str
+    review_checklist: str
+
+
+# ---------------------------------------------------------------------------
+# YAML loaders for cognitive-arch corpus
+# ---------------------------------------------------------------------------
+
+
+def _load_figure(figure_id: str) -> _FigureData:
+    """Read and return a figure YAML as a typed dict.
+
+    Returns an empty dict (all optional fields absent) when the file is not
+    found or unparseable — callers must handle missing fields gracefully.
+    """
+    path = _ARCH_ROOT / "figures" / f"{figure_id}.yaml"
+    if not path.exists():
+        logger.warning("⚠️  briefing: figure '%s' not found at %s", figure_id, path)
+        return {}
+    try:
+        raw: object = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            return {}
+        data: _FigureData = {}
+        if isinstance(raw.get("display_name"), str):
+            data["display_name"] = raw["display_name"]
+        if isinstance(raw.get("heuristic"), str):
+            data["heuristic"] = raw["heuristic"]
+        fm = raw.get("failure_modes")
+        if isinstance(fm, list):
+            data["failure_modes"] = [str(m) for m in fm]
+        pi = raw.get("prompt_injection")
+        if isinstance(pi, dict):
+            inj: _PromptInjection = {}
+            if isinstance(pi.get("prefix"), str):
+                inj["prefix"] = pi["prefix"]
+            if isinstance(pi.get("suffix"), str):
+                inj["suffix"] = pi["suffix"]
+            data["prompt_injection"] = inj
+        return data
+    except Exception as exc:  # noqa: BLE001
+        logger.error("❌ briefing: could not load figure '%s': %s", figure_id, exc)
+        return {}
+
+
+def _load_skill(skill_id: str) -> _SkillData:
+    """Read and return a skill-domain YAML as a typed dict.
+
+    Returns an empty dict when the file is not found or unparseable.
+    """
+    path = _ARCH_ROOT / "skill_domains" / f"{skill_id}.yaml"
+    if not path.exists():
+        logger.warning("⚠️  briefing: skill '%s' not found at %s", skill_id, path)
+        return {}
+    try:
+        raw: object = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            return {}
+        data: _SkillData = {}
+        if isinstance(raw.get("display_name"), str):
+            data["display_name"] = raw["display_name"]
+        if isinstance(raw.get("prompt_fragment"), str):
+            data["prompt_fragment"] = raw["prompt_fragment"]
+        if isinstance(raw.get("review_checklist"), str):
+            data["review_checklist"] = raw["review_checklist"]
+        return data
+    except Exception as exc:  # noqa: BLE001
+        logger.error("❌ briefing: could not load skill '%s': %s", skill_id, exc)
+        return {}
 
 # ---------------------------------------------------------------------------
 # Static prompt catalogue
@@ -160,7 +260,7 @@ async def get_prompt(
 
     Args:
         name: Prompt name as returned by ``prompts/list``
-              (e.g. ``"role/python-developer"``, ``"task/briefing"``).
+              (e.g. ``"role/developer"``, ``"task/briefing"``).
         arguments: Key/value pairs for parameterized prompts.
                    Ignored for static prompts.
 
@@ -252,8 +352,89 @@ def _parse_arch_components(cognitive_arch: str) -> tuple[list[str], list[str]]:
     return figures, skills
 
 
+def _render_figure_section(figure_ids: list[str]) -> list[str]:
+    """Inline the cognitive identity for all assigned figures.
+
+    Produces the prefix prose, heuristic, and failure modes for each figure.
+    The suffix (pre-submit checklist) is rendered separately at the end of the
+    briefing so the agent encounters it immediately before submitting work.
+    """
+    parts: list[str] = []
+    for fig_id in figure_ids:
+        data = _load_figure(fig_id)
+        display = data.get("display_name") or fig_id
+        parts += ["", f"## Cognitive Identity — {display}", ""]
+        prefix = (data.get("prompt_injection") or {}).get("prefix", "")
+        if prefix:
+            parts.append(prefix.strip())
+            parts.append("")
+        heuristic = data.get("heuristic", "")
+        if heuristic:
+            parts += [f"> **Heuristic:** {heuristic.strip()}", ""]
+        failure_modes = data.get("failure_modes") or []
+        if failure_modes:
+            parts += ["### Failure Modes (active compensations — read before starting)", ""]
+            for fm in failure_modes:
+                parts.append(f"- {fm.strip()}")
+            parts.append("")
+    return parts
+
+
+def _render_skill_sections(skill_ids: list[str]) -> list[str]:
+    """Inline the prompt_fragment for each assigned skill domain."""
+    if not skill_ids:
+        return []
+    parts: list[str] = ["", "---", ""]
+    for skill_id in skill_ids:
+        data = _load_skill(skill_id)
+        fragment = data.get("prompt_fragment", "")
+        if fragment:
+            parts.append(fragment.strip())
+            parts.append("")
+    return parts
+
+
+def _render_submit_checklist(figure_ids: list[str], skill_ids: list[str]) -> list[str]:
+    """Render the pre-submit checklist: figure suffix + skill review checklists.
+
+    Placed at the end of the briefing so the agent reads it immediately before
+    opening a PR — the moment the checklist is most actionable.
+    """
+    parts: list[str] = ["", "---", "", "## Before Submitting", ""]
+    has_content = False
+
+    for fig_id in figure_ids:
+        data = _load_figure(fig_id)
+        suffix = (data.get("prompt_injection") or {}).get("suffix", "")
+        if suffix:
+            parts.append(suffix.strip())
+            parts.append("")
+            has_content = True
+
+    for skill_id in skill_ids:
+        skill_data = _load_skill(skill_id)
+        display = skill_data.get("display_name") or skill_id
+        checklist = skill_data.get("review_checklist", "")
+        if checklist:
+            parts += [f"### {display} checklist", ""]
+            for line in str(checklist).strip().splitlines():
+                stripped = line.strip()
+                if stripped:
+                    parts.append(f"- {stripped}" if not stripped.startswith("-") else stripped)
+            parts.append("")
+            has_content = True
+
+    return parts if has_content else []
+
+
 def _render_task_briefing(ctx: RunContextRow, role_content: str) -> str:
-    """Compose the Markdown briefing from task context and role definition."""
+    """Compose the Markdown briefing from task context and role definition.
+
+    Cognitive architecture is fully inlined — the agent receives the figure's
+    reasoning identity, heuristic, failure modes, and pre-submit checklist, plus
+    every assigned skill's technical standards and review checklist, all in this
+    single message.  No follow-up MCP reads are required for cognitive context.
+    """
     run_id: str = ctx["run_id"]
     role: str = ctx["role"]
     cognitive_arch: str = ctx["cognitive_arch"] or "not set"
@@ -264,10 +445,9 @@ def _render_task_briefing(ctx: RunContextRow, role_content: str) -> str:
     batch_id: str | None = ctx["batch_id"]
     parent_run_id: str | None = ctx["parent_run_id"]
 
-    # Parse cognitive architecture into components for direct MCP resource links.
     figure_ids, skill_ids = _parse_arch_components(cognitive_arch)
 
-    # Build the assignment section — differs between ad-hoc and issue runs.
+    # Build the assignment section.
     if task_description:
         assignment = str(task_description).strip()
     elif issue_number:
@@ -277,17 +457,13 @@ def _render_task_briefing(ctx: RunContextRow, role_content: str) -> str:
             f"then read the issue body on GitHub to understand the requirements."
         )
     else:
-        assignment = (
-            f"Read `ac://runs/{run_id}/context` for your full task context."
-        )
+        assignment = f"Read `ac://runs/{run_id}/context` for your full task context."
 
-    # Build lineage section only when relevant (non-root runs).
     lineage_lines: list[str] = []
     if batch_id:
         lineage_lines.append(f"**Batch:** `{batch_id}`")
     if parent_run_id:
         lineage_lines.append(f"**Spawned by:** `{parent_run_id}`")
-    lineage = "\n".join(lineage_lines)
 
     parts: list[str] = [
         f"## Task Briefing — run `{run_id}`",
@@ -298,9 +474,8 @@ def _render_task_briefing(ctx: RunContextRow, role_content: str) -> str:
         f"**Branch:** `{branch}`",
     ]
 
-    if lineage:
-        parts.append("")
-        parts.append(lineage)
+    if lineage_lines:
+        parts += ["", *lineage_lines]
 
     parts += [
         "",
@@ -309,57 +484,45 @@ def _render_task_briefing(ctx: RunContextRow, role_content: str) -> str:
         "## Your Assignment",
         "",
         assignment,
-        "",
-        "---",
-        "",
-        "## Your Cognitive Identity (MCP Resources)",
-        "",
-        "Read these resources to fully internalize who you are before starting work.",
-        "Your reasoning style, heuristics, failure modes, and skill affinities all",
-        "live here — they are not summaries, they are the source of truth.",
-        "",
     ]
 
-    # Figure resources — the human whose reasoning style shapes this agent.
-    if figure_ids:
-        for fig in figure_ids:
-            parts.append(f"- `ac://arch/figures/{fig}` — your cognitive figure: full profile, heuristics, failure modes")
-    else:
-        parts.append("- `ac://arch/figures` — browse all available cognitive figures")
+    # ── Inline cognitive identity (figure) ────────────────────────────────────
+    parts += _render_figure_section(figure_ids)
 
-    # Skill domain resources — technical expertise areas.
-    if skill_ids:
-        for skill in skill_ids:
-            parts.append(f"- `ac://arch/skills/{skill}` — your skill domain: {skill}")
-    else:
-        parts.append("- `ac://arch/skills/<id>` — fetch any skill domain profile")
+    # ── Inline skill domain technical standards ────────────────────────────────
+    parts += _render_skill_sections(skill_ids)
 
-    parts += [
-        "- `ac://arch/archetypes` — browse archetypes (your figure's `extends` field names one)",
-        "- `ac://arch/atoms/<atom_id>` — individual reasoning dimension definitions",
-        "  (e.g. `ac://arch/atoms/epistemic_style`, `ac://arch/atoms/quality_bar`)",
-        "",
-        "---",
-        "",
-        "## Available Run Resources",
-        "",
-        f"- `ac://runs/{run_id}/context` — your full task context from the DB",
-        f"- `ac://runs/{run_id}/events` — prior activity log (resume after crash)",
-        f"- `ac://runs/{run_id}/children` — child runs you have spawned",
-        "- `ac://roles/list` — all available role slugs",
-        f"- `ac://roles/{role}` — your role definition (also appended below)",
-        "- `ac://system/config` — pipeline label names",
-        "",
-        "---",
-    ]
-
+    # ── Role definition ────────────────────────────────────────────────────────
+    parts += ["", "---", ""]
     if role_content:
         parts += [
-            "",
             "## Your Role Definition",
             "",
             role_content.strip(),
         ]
+
+    # ── Pre-submit checklist (figure suffix + skill review checklists) ─────────
+    parts += _render_submit_checklist(figure_ids, skill_ids)
+
+    # ── Reference resources (no reads required — all context is above) ─────────
+    parts += [
+        "",
+        "---",
+        "",
+        "## Run Resources",
+        "",
+        f"- `ac://runs/{run_id}/context` — full task context from the DB",
+        f"- `ac://runs/{run_id}/events` — prior activity log (resume after crash)",
+        f"- `ac://runs/{run_id}/children` — child runs you have spawned",
+        "- `ac://system/config` — pipeline label names",
+        f"- `ac://roles/{role}` — your role definition",
+    ]
+    if figure_ids:
+        for fig in figure_ids:
+            parts.append(f"- `ac://arch/figures/{fig}` — extended figure profile")
+    if skill_ids:
+        for skill in skill_ids:
+            parts.append(f"- `ac://arch/skills/{skill}` — extended skill profile")
 
     return "\n".join(parts)
 

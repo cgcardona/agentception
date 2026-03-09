@@ -56,13 +56,13 @@ def test_resolve_arch_fingerprint_flag_produces_fingerprint_table() -> None:
     """--fingerprint flag should include the fingerprint table in output."""
     result = subprocess.run(
         [sys.executable, str(RESOLVE_ARCH), "feynman:python",
-         "--fingerprint", "--role", "python-developer",
+         "--fingerprint", "--role", "developer",
          "--session", "test-session-1", "--batch", "test-batch"],
         capture_output=True,
         text=True,
     )
     assert result.returncode == 0
-    assert "python-developer" in result.stdout
+    assert "developer" in result.stdout
     assert "test-session-1" in result.stdout
 
 

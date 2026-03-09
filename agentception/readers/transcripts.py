@@ -33,7 +33,7 @@ _ROLE_KEYWORDS: list[tuple[str, str]] = [
     ("Engineering Coordinator", "engineering-coordinator"),
     ("QA Coordinator", "qa-coordinator"),
     ("database-architect", "database-architect"),
-    ("python-developer", "python-developer"),
+    ("developer", "developer"),
     ("pr-reviewer", "pr-reviewer"),
 ]
 
@@ -191,7 +191,7 @@ async def index_transcripts(
     - ``preview``       — first 160 chars of the first meaningful user message
     - ``linked_issues`` — list of issue numbers found across all user messages
     - ``pr_urls``       — list of unique GitHub PR URLs found in the transcript
-    - ``role``          — inferred role string ("python-developer", "cto", …)
+    - ``role``          — inferred role string ("developer", "cto", …)
     - ``status``        — inferred ``AgentStatus`` value ("done" or "unknown")
     - ``word_count``    — approximate total word count of all messages
     - ``has_subagents`` — ``True`` when at least one subagent is present

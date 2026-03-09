@@ -12,7 +12,7 @@ python3 scripts/gen_prompts/resolve_arch.py "feynman:python"
 python3 scripts/gen_prompts/resolve_arch.py "ritchie:devops" --mode implementer
 python3 scripts/gen_prompts/resolve_arch.py "knuth:python" --mode reviewer
 python3 scripts/gen_prompts/resolve_arch.py "dijkstra:postgresql:python" --fingerprint \
-  --role python-developer --session abc123 --batch batch-01
+  --role developer --session abc123 --batch batch-01
 ```
 
 Output is ready-to-read Markdown. Consumed by agent kickoff prompts.

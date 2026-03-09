@@ -66,7 +66,7 @@ def test_valid_roles_taxonomy_file_exists() -> None:
 def test_valid_roles_is_nonempty() -> None:
     """VALID_ROLES must contain at least the original leaf agent roles."""
     core_roles = {
-        "python-developer",
+        "developer",
         "database-architect",
         "pr-reviewer",
     }
@@ -87,13 +87,13 @@ def test_valid_roles_excludes_non_spawnable() -> None:
 def test_valid_roles_contains_new_taxonomy_roles() -> None:
     """VALID_ROLES must include roles added in the extended taxonomy (issue #822)."""
     new_roles = {
-        "rust-developer",
-        "go-developer",
-        "typescript-developer",
-        "ios-developer",
-        "android-developer",
-        "rails-developer",
-        "react-developer",
+        "developer",
+        "developer",
+        "developer",
+        "developer",
+        "developer",
+        "developer",
+        "developer",
         "site-reliability-engineer",
         "ml-researcher",
         "data-scientist",

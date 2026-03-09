@@ -42,7 +42,7 @@ def _make_repo(tmp_path: Path) -> Path:
     ac.mkdir(parents=True, exist_ok=True)
     roles = ac / "roles"
     roles.mkdir(parents=True, exist_ok=True)
-    (roles / "python-developer.md").write_text("# Python Developer", encoding="utf-8")
+    (roles / "developer.md").write_text("# Python Developer", encoding="utf-8")
     (ac / "agent-engineer.md").write_text("# Parallel", encoding="utf-8")
     (ac / "pipeline-config.json").write_text('{"coordinator_limits": {"engineering-coordinator": 1, "qa-coordinator": 1}, "pool_size": 4}', encoding="utf-8")
     (ac / "agent-command-policy.md").write_text("# Policy", encoding="utf-8")
@@ -94,7 +94,7 @@ def test_export_includes_all_managed_files(tmp_path: Path) -> None:
     with tarfile.open(fileobj=buf, mode="r:gz") as tar:
         names = tar.getnames()
 
-    assert ".agentception/roles/python-developer.md" in names
+    assert ".agentception/roles/developer.md" in names
     assert ".agentception/agent-engineer.md" in names
     assert ".agentception/pipeline-config.json" in names
     assert ".agentception/agent-command-policy.md" in names
@@ -163,7 +163,7 @@ def test_import_extracts_to_target(tmp_path: Path) -> None:
 
     assert len(result.extracted) > 0
     assert (target_repo / ".agentception" / "pipeline-config.json").is_file()
-    assert (target_repo / ".agentception" / "roles" / "python-developer.md").is_file()
+    assert (target_repo / ".agentception" / "roles" / "developer.md").is_file()
 
 
 def test_import_detects_conflicts(tmp_path: Path) -> None:

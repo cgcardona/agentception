@@ -61,7 +61,7 @@ class ACWave(Base):
     """Active phase label at spawn time (e.g. ``phase/0`` or ``team/engineering``)."""
 
     role: Mapped[str] = mapped_column(String(128), nullable=False)
-    """Agent role used for this wave (e.g. ``python-developer``)."""
+    """Agent role used for this wave (e.g. ``developer``)."""
 
     started_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False

@@ -72,7 +72,7 @@ def _merged_pr(pr_number: int, closes: int | None = None) -> ACPullRequest:
 def _agent_run(issue_number: int, pr_number: int) -> ACAgentRun:
     return ACAgentRun(
         id=f"run-issue-{issue_number}",
-        role="python-developer",
+        role="developer",
         status="done",
         issue_number=issue_number,
         pr_number=pr_number,

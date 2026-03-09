@@ -152,7 +152,7 @@ class DispatchRequest(BaseModel):
     issue_body: str = ""
     """Issue body text used to derive skill domains for the cognitive arch."""
     role: str
-    """Role slug from ``.agentception/roles/`` (e.g. ``python-developer``)."""
+    """Role slug from ``.agentception/roles/`` (e.g. ``developer``)."""
     repo: str
     """``owner/repo`` string (e.g. ``cgcardona/agentception``)."""
 
@@ -350,7 +350,7 @@ class LabelDispatchRequest(BaseModel):
 
     *role* is optional.  When omitted the server derives a sensible default
     (``cto`` for ``full_initiative``, ``engineering-coordinator`` for
-    ``phase``, and ``python-developer`` for ``issue``).
+    ``phase``, and ``developer`` for ``issue``).
     """
 
     label: str
@@ -422,7 +422,7 @@ def _role_and_tier_for_scope(
     role_override: str | None,
 ) -> tuple[str, Tier]:
     """Derive the effective role and behavioral tier from the launch scope."""
-    default_role = "python-developer" if scope == "issue" else (
+    default_role = "developer" if scope == "issue" else (
         "cto" if scope == "full_initiative" else "engineering-coordinator"
     )
     role = role_override.strip() if role_override and role_override.strip() else default_role

@@ -281,7 +281,7 @@ async def test_read_resource_active_runs() -> None:
         {
             "run_id": "issue-1",
             "status": "implementing",
-            "role": "python-developer",
+            "role": "developer",
             "issue_number": 1,
             "pr_number": None,
             "branch": None,
@@ -368,7 +368,7 @@ async def test_read_resource_run_returns_metadata() -> None:
     mock_row = {
         "run_id": "issue-42",
         "status": "implementing",
-        "role": "python-developer",
+        "role": "developer",
         "issue_number": 42,
         "pr_number": None,
         "branch": "ac/issue-42",
@@ -413,7 +413,7 @@ async def test_read_resource_children_returns_list() -> None:
         {
             "run_id": "issue-100",
             "status": "implementing",
-            "role": "python-developer",
+            "role": "developer",
             "issue_number": 100,
             "pr_number": None,
             "branch": None,
@@ -693,17 +693,17 @@ async def test_read_resource_plan_labels() -> None:
 async def test_read_resource_plan_figures_known_role() -> None:
     """ac://plan/figures/{role} returns figure catalogue for a known role."""
     mock_result = {
-        "role": "python-developer",
+        "role": "developer",
         "figures": [{"id": "fig-1", "display_name": "Flow State", "description": "Deep focus"}],
     }
     with patch(
         "agentception.mcp.resources.plan_get_cognitive_figures",
         return_value=mock_result,
     ):
-        result = await read_resource("ac://plan/figures/python-developer")
+        result = await read_resource("ac://plan/figures/developer")
 
     payload = _content(result)
-    assert payload["role"] == "python-developer"
+    assert payload["role"] == "developer"
     figures = payload["figures"]
     assert isinstance(figures, list)
     assert len(figures) == 1

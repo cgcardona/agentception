@@ -206,9 +206,9 @@ Place this file at `<your-repo>/.agentception/pipeline-config.json`:
   // A/B testing configuration for role variants
   "ab_mode": {
     "enabled": false,
-    "target_role": "python-developer",
-    "variant_a_file": ".agentception/roles/python-developer.md",
-    "variant_b_file": ".agentception/roles/python-developer-v2.md"
+    "target_role": "developer",
+    "variant_a_file": ".agentception/roles/developer.md",
+    "variant_b_file": ".agentception/roles/developer-v2.md"
   },
 
   // Multi-repo support: list projects and set the active one

@@ -40,7 +40,7 @@ async def query_pending_runs() -> dict[str, object]:
     Each item in ``pending`` contains:
       - ``run_id``             — worktree id (e.g. "issue-1234")
       - ``issue_number``       — GitHub issue number
-      - ``role``               — role slug (e.g. "cto", "python-developer")
+      - ``role``               — role slug (e.g. "cto", "developer")
       - ``branch``             — git branch to work on
       - ``host_worktree_path`` — full path on the HOST filesystem
       - ``batch_id``           — batch fingerprint

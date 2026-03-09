@@ -41,7 +41,7 @@ class AdhocRunRequest(BaseModel):
     role: str
     """Role slug — must exist in ``.agentception/roles/``.
 
-    Examples: ``"python-developer"``, ``"engineering-coordinator"``.
+    Examples: ``"developer"``, ``"engineering-coordinator"``.
     """
 
     task_description: str

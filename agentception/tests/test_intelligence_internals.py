@@ -169,8 +169,8 @@ def test_infer_role_alembic_in_body_returns_database_architect() -> None:
 
 
 def test_infer_role_clean_body_returns_python_developer() -> None:
-    """A body with no database signals must produce 'python-developer'."""
-    assert infer_role("Add a new API endpoint", ["agentception/routes/api/widget.py"]) == "python-developer"
+    """A body with no database signals must produce 'developer'."""
+    assert infer_role("Add a new API endpoint", ["agentception/routes/api/widget.py"]) == "developer"
 
 
 # ── infer_parallelism ─────────────────────────────────────────────────────────
@@ -251,7 +251,7 @@ def test_analyze_body_empty_returns_safe_defaults() -> None:
     assert result.parallelism == "safe"
     assert result.conflict_risk == "none"
     assert result.modifies_files == []
-    assert result.recommended_role == "python-developer"
+    assert result.recommended_role == "developer"
     assert result.recommended_merge_after is None
 
 

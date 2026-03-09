@@ -32,7 +32,7 @@ def _make_analysis(
     parallelism: str = "safe",
     conflict_risk: str = "none",
     modifies_files: list[str] | None = None,
-    recommended_role: str = "python-developer",
+    recommended_role: str = "developer",
     recommended_merge_after: int | None = None,
 ) -> IssueAnalysis:
     """Build a minimal IssueAnalysis for testing."""
@@ -134,7 +134,7 @@ def test_analysis_partial_shows_merge_after(client: TestClient) -> None:
 
 def test_analysis_partial_shows_role(client: TestClient) -> None:
     """Partial must render the recommended role as a role chip."""
-    analysis = _make_analysis(number=606, recommended_role="python-developer")
+    analysis = _make_analysis(number=606, recommended_role="developer")
     with patch(
         "agentception.routes.ui.overview.analyze_issue",
         new=AsyncMock(return_value=analysis),
@@ -142,7 +142,7 @@ def test_analysis_partial_shows_role(client: TestClient) -> None:
         response = client.post("/api/analyze/issue/606/partial")
     assert response.status_code == 200
     assert "role-chip" in response.text
-    assert "python-developer" in response.text
+    assert "developer" in response.text
 
 
 def test_analysis_partial_shows_database_architect_role(client: TestClient) -> None:
