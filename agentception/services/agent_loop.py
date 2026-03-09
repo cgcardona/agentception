@@ -100,11 +100,12 @@ _HISTORY_TAIL: int = 14
 
 # Minimum seconds between consecutive LLM calls.  A proactive fixed cadence
 # beats a reactive burst-then-sleep TPM guard.  At Tier 2 limits (450K input /
-# 90K output TPM, 1K RPM) a 2s floor is the practical safety net: agents rarely
-# emit more than 2K tokens/turn, so real throughput stays well under the output
-# ceiling, and the 2s guard prevents runaway error loops without slowing down
-# legitimate multi-turn work.
-_MIN_TURN_DELAY_SECS: float = 2.0
+# 90K output TPM, 1K RPM) a 5s floor keeps throughput at ~12 turns/min, giving
+# 7.5K average output tokens per turn of headroom — comfortably above any
+# realistic agent turn.  Input TPM is not the constraint: system-prompt cache
+# reads are excluded from the 450K limit, so uncached input per turn is only
+# new messages and tool results (~1–5K).
+_MIN_TURN_DELAY_SECS: float = 5.0
 _last_llm_call_at: float = 0.0
 
 
