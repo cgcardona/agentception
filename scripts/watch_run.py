@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S python3 -u
 """watch_run.py — pretty-print agentception agent logs for a specific run.
 
 Usage:
@@ -55,7 +55,7 @@ _RE_INSERT = re.compile(
     r"insert_after_in_file — (?P<path>\S+) \(inserted at byte"
 )
 _RE_WRITE = re.compile(
-    r"write_file — (?P<path>\S+)"
+    r"write_file — (?P<path>\S+?)(?:\s+\((?P<bytes>\d+) bytes\))?"
 )
 # shell commands (agent_loop.py run_command lines)
 _RE_SHELL_CMD = re.compile(
@@ -220,9 +220,15 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
     #   B) Tools with no result line (search_codebase, search_text, GitHub tools,
     #      log_run_step, git_commit_and_push)
     #      → render at dispatch time immediately.
+    # Tools whose result line comes from agentception.tools.file_tools —
+    # suppress the dispatch line, render only when the result line arrives.
     _RESULT_LINE_TOOLS = frozenset({
-        "read_file_lines", "replace_in_file", "insert_after_in_file",
-        "write_file", "list_directory",
+        "read_file_lines", "replace_in_file", "insert_after_in_file", "write_file",
+    })
+    # Tools whose result line comes from a different module or doesn't exist —
+    # render at dispatch time only.
+    _DISPATCH_ONLY_TOOLS = frozenset({
+        "read_file", "list_directory", "create_directory",
     })
     dtm = _RE_DISPATCH_TOOL.search(msg)
     if dtm:
@@ -232,19 +238,16 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
         _state.current_run_id = rid
         tool_name = dtm.group("tool")
         if tool_name in _RESULT_LINE_TOOLS:
-            # Result line will come from agentception.tools.file_tools — suppress here.
-            return None
-        if tool_name == "search_codebase":
-            return f"{ts}  {BLUE}🔍 search_codebase{RESET}"
-        if tool_name == "search_text":
-            return f"{ts}  {BLUE}🔍 search_text{RESET}"
-        if tool_name == "log_run_step":
-            return None  # rendered via _RE_RUN_STEP
-        if tool_name == "git_commit_and_push":
-            return None  # rendered via _RE_GIT_COMMIT
-        if tool_name == "run_command":
-            return None  # rendered via _RE_SHELL_CMD
-        # Unknown tool — show it
+            return None  # wait for the file_tools result line
+        if tool_name in _DISPATCH_ONLY_TOOLS:
+            return f"{ts}  {BLUE}{_tool_icon('read_file_lines')} {tool_name}{RESET}"
+        if tool_name in ("search_codebase", "search_text"):
+            return f"{ts}  {BLUE}🔍 {tool_name}{RESET}"
+        if tool_name in ("log_run_step", "git_commit_and_push", "run_command"):
+            return None  # rendered via dedicated patterns below
+        # GitHub MCP tools and anything else — show immediately
+        if any(gh in tool_name for gh in ("pull_request", "issue_", "create_branch", "list_branch", "get_me", "search_")):
+            return f"{ts}  {CYAN}🐙 {tool_name}{RESET}"
         return f"{ts}  {BLUE}{_tool_icon(tool_name)} {tool_name}{RESET}"
 
     # ── file_tools result lines (rendered independently of dispatch) ───────────
@@ -278,9 +281,10 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
     wfm = _RE_WRITE.search(msg)
     if wfm and "file_tools" in module:
         path = _shorten_path(wfm.group("path"))
+        byte_tag = f"  {GREY}({wfm.group('bytes')} bytes){RESET}" if wfm.group("bytes") else ""
         return (
             f"{ts}  {GREEN}{_tool_icon('write_file')} wrote{RESET}  "
-            f"{WHITE}{path}{RESET}"
+            f"{WHITE}{path}{RESET}{byte_tag}"
         )
 
     # ── shell command ──────────────────────────────────────────────────────────
@@ -407,7 +411,7 @@ def main() -> None:
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
-        bufsize=1,
+        bufsize=1,  # line-buffered reads from docker
     )
 
     try:
@@ -416,9 +420,9 @@ def main() -> None:
             line = raw_line.rstrip()
             out = process_line(line, run_id_filter)
             if out is not None:
-                print(out)
+                print(out, flush=True)
     except KeyboardInterrupt:
-        print(f"\n{GREY}stopped.{RESET}")
+        print(f"\n{GREY}stopped.{RESET}", flush=True)
     finally:
         proc.terminate()
 
