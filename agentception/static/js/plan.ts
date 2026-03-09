@@ -3,7 +3,7 @@
  *
  * State machine:
  *   write      — textarea, user composes their plan
- *   generating — POST /api/plan/preview → OpenRouter → Claude streaming (SSE)
+ *   generating — POST /api/plan/preview → Anthropic → Claude streaming (SSE)
  *   review     — CodeMirror 6 YAML editor, editable, validate-on-change
  *   launching  — streaming POST /api/plan/file-issues, progress shown
  *   done       — GitHub issues created, summary shown
@@ -386,7 +386,7 @@ export function planForm(props: { ghRepo?: string } = {}): PlanFormComponent {
       this.errorMsg = '';
     },
 
-    // ── Phase 1A: POST /api/plan/preview — direct OpenRouter → Claude stream ──
+    // ── Phase 1A: POST /api/plan/preview — direct Anthropic → Claude stream ──
 
     async submit(): Promise<void> {
       const trimmed = this.text.trim();

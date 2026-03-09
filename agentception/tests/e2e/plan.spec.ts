@@ -8,14 +8,14 @@
  *   docker compose up -d
  *   npm run test:e2e
  *
- * External dependencies (OpenRouter LLM, GitHub gh CLI) are fully intercepted
+ * External dependencies (Anthropic LLM, GitHub) are fully intercepted
  * via page.route() so no real API keys or network access are required.  The
  * tests exercise the real FastAPI server, real Jinja2 templates, real Alpine.js
  * component, and real HTMX — only the slow/external SSE endpoints are stubbed.
  *
  * Network mocking strategy
  * ------------------------
- * - POST /api/plan/preview  → fake SSE stream (avoids OpenRouter call)
+ * - POST /api/plan/preview  → fake SSE stream (avoids Anthropic call)
  * - POST /api/plan/file-issues → fake SSE stream (avoids gh CLI)
  * - POST /api/plan/validate → hits the REAL backend (pure YAML computation)
  * - GET  /plan, /plan/recent-runs → hits the REAL backend
