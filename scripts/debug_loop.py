@@ -21,18 +21,67 @@ sys.path.insert(0, str(Path(__file__).parent / "gen_prompts"))
 sys.path.insert(0, "/app")
 
 
-TASK_DESCRIPTION = (
-    "Add a single markdown row to docs/guides/setup.md. "
-    "In the env-var table (around line 44), after the WORKTREES_DIR row, insert:\n"
-    "| `HOST_REPO_DIR` | Optional | Absolute path to the repo on the host. "
-    "Persisted to the DB context row so agents can resolve role files. "
-    "Override in .env when the repo is outside the default Docker mount. "
-    "| Default: unset |\n"
-    "Then create a branch docs/add-host-repo-dir, commit, push, open PR against dev. "
-    "Do NOT run mypy or pytest."
-)
+TASK_DESCRIPTION = """
+Fix agentception/db/queries.py — issue #274.
 
-MAX_TURNS = 20
+## Context
+
+`get_conductor_history` in `agentception/db/queries.py` (around line 1149)
+derives each conductor wave's status by calling `worktree.exists()` — a
+filesystem check. This must be replaced with a DB status query so the
+function has zero filesystem access.
+
+## Current problem code (around line 1188)
+
+```python
+status="active" if worktree.exists() else "completed",
+```
+
+## What to do
+
+1. Read `agentception/db/queries.py` around `get_conductor_history` to
+   understand the full function. Also read the `ACAgentRun` model in
+   `agentception/db/models.py` to confirm the `status` and `wave_id` fields.
+
+2. Restructure the DB query to also fetch the latest `ACAgentRun.status`
+   for each wave in the same session. The cleanest approach is a single
+   query that LEFT JOINs or uses a subquery to get the most recent
+   `ac_agent_runs.status` per `wave_id`. Keep the session open for the
+   entire operation.
+
+3. Map DB statuses to the display value:
+   - `status IN ('implementing', 'review')` → `"active"`
+   - anything else (completed, failed, cancelled, None) → `"completed"`
+   Add a comment above the mapping:
+   `# Replaced filesystem worktree check — status is the authoritative signal.`
+
+4. Do NOT remove the `worktree` and `host_worktree` path fields from
+   `ConductorHistoryRow` — those path strings are still used by the UI.
+   Only the `.exists()` call goes away.
+
+5. Remove any `import os` or standalone `from pathlib import Path` lines
+   that become unused after the change. `Path` may still be needed for
+   constructing path strings — check before removing.
+
+6. Run `mypy agentception/db/queries.py` — must pass with zero errors.
+
+7. Update `agentception/tests/test_agentception_run_conductor.py`:
+   - Rename the existing test
+     `test_get_conductor_history_status_resolved_from_worktree_dir` to
+     `test_get_conductor_history_status_resolved_from_db`.
+   - Replace worktree directory setup/teardown with a mock DB row
+     whose `status` is `"implementing"` — assert result is `"active"`.
+   - Add a regression test
+     `test_get_conductor_history_no_fs_access` that asserts
+     `Path.exists` is never called (patch it and assert no-call).
+
+8. Create branch `fix/274-conductor-history-no-fs`, commit all changes,
+   push, open a PR against `dev` referencing issue #274 in the body.
+   Do NOT run pytest (CI is not required here).
+"""
+
+MAX_TURNS = 30
+TURN_DELAY_SECS = 10  # fixed pause between turns — keeps cadence readable and under rate limit
 
 
 def _hr(label: str) -> None:
@@ -61,7 +110,7 @@ async def main() -> None:
         _load_task,
         _load_role_prompt,
         _fetch_task_briefing,
-        _tpm_record_and_get_sleep,
+        _truncate_tool_results,
     )
     from agentception.services.github_mcp_client import GitHubMCPClient
     from agentception.services.llm import call_anthropic_with_tools
@@ -162,13 +211,13 @@ async def main() -> None:
         print(f"  input tokens  = {input_tokens}{cache_note}")
         print(f"  tool_calls    = {len(response['tool_calls'])}")
 
-        # TPM throttle — same guard as the real agent loop.
-        # Records this turn's tokens in the shared rolling 60-second window
-        # and sleeps if we're approaching the 30k tokens/minute ceiling.
-        sleep_secs = _tpm_record_and_get_sleep(input_tokens if isinstance(input_tokens, int) else 0)
-        if sleep_secs > 0:
-            print(f"\n  ⏳ TPM throttle — sleeping {sleep_secs:.1f}s to stay under rate limit …", flush=True)
-            await asyncio.sleep(sleep_secs)
+        # Fixed inter-turn delay — keeps cadence steady and observable.
+        # After Turn 1 writes the system prompt to cache, subsequent turns
+        # only send ~1-2k uncached tokens, so 10s between calls puts us at
+        # ~12k tokens/min — well under the 30k/min ceiling with no bursting.
+        if response["stop_reason"] != "stop":
+            print(f"\n  ⏳ waiting {TURN_DELAY_SECS}s before next turn …", flush=True)
+            await asyncio.sleep(TURN_DELAY_SECS)
 
         if response["content"]:
             _dump("Model text", response["content"])
@@ -214,6 +263,7 @@ async def main() -> None:
             _dump(f"  Result [{i}]", display)
 
         messages.extend(tool_results)
+        messages = _truncate_tool_results(messages)
 
     else:
         _hr(f"⚠️  Hit {MAX_TURNS}-turn ceiling without stop")
