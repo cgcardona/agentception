@@ -38,6 +38,7 @@ GREY = "\033[90m"
 _RE_RUN_STEP = re.compile(
     r"log_run_step: issue=(?P<issue>\S+) step='(?P<step>.+?)'"
 )
+_RE_ITERATION = re.compile(r"Iteration\s+(?P<n>\d+)/(?P<total>\d+)")
 _RE_DISPATCH_TOOL = re.compile(
     r"dispatch_tool — run_id=(?P<run_id>\S+) tool=(?P<tool>\S+)"
 )
@@ -68,12 +69,16 @@ _RE_TEARDOWN = re.compile(r"teardown\[(?P<run_id>[^\]]+)\]: (?P<msg>.+)")
 _RE_WORKTREE_CREATED = re.compile(r"worktree.*created.*run_id=(?P<run_id>\S+)")
 
 # State carried across lines (mutable, thread-unsafe — single stream only)
-_state: dict[str, object] = {
-    "current_run_id": None,  # last seen run_id on dispatch_tool lines
-    "turn": 0,
-    "pending_tool": None,  # tool name waiting for its command detail
-    "pending_cmd": None,  # command string waiting for its result
-}
+class _State:
+    current_run_id: str | None = None
+    iteration: int = 0       # agent iteration number (from log_run_step "Iteration N/M")
+    total: int = 50          # max iterations (from log_run_step)
+    history_len: int = 0     # LLM history depth (turns= in API call — bounded by prune window)
+    pending_tool: str | None = None
+    pending_cmd: str | None = None
+
+
+_state = _State()
 
 
 def _ts() -> str:
@@ -113,6 +118,11 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
     sm = _RE_RUN_STEP.search(msg)
     if sm:
         step = sm.group("step")
+        # Track the iteration number so TURN headers show it correctly.
+        im = _RE_ITERATION.search(step)
+        if im:
+            _state.iteration = int(im.group("n"))
+            _state.total = int(im.group("total"))
         return f"{ts}  {CYAN}{BOLD}📋 {step}{RESET}"
 
     # ── dispatch_tool — what tool was called ───────────────────────────────────
@@ -121,17 +131,17 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
         rid = dm.group("run_id")
         if run_id_filter and rid != run_id_filter:
             return None
-        _state["current_run_id"] = rid
-        _state["pending_tool"] = dm.group("tool")
+        _state.current_run_id = rid
+        _state.pending_tool = dm.group("tool")
         return None  # wait for the detail line
 
     # ── run_command — the actual shell command ─────────────────────────────────
     scm = _RE_SHELL_CMD.search(msg)
     if scm:
-        tool = _state.get("pending_tool") or "run_command"
+        tool = _state.pending_tool or "run_command"
         cmd = _shorten_cmd(scm.group("cmd"))
-        _state["pending_cmd"] = scm.group("cmd")
-        _state["pending_tool"] = None
+        _state.pending_cmd = scm.group("cmd")
+        _state.pending_tool = None
         return f"{ts}  {BLUE}🔧 {tool}{RESET}  {WHITE}{cmd}{RESET}"
 
     # ── run_command done — exit code ───────────────────────────────────────────
@@ -147,10 +157,14 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
     # ── LLM turn start ─────────────────────────────────────────────────────────
     lm = _RE_LLM_CALL.search(msg)
     if lm:
-        _state["turn"] = int(lm.group("turns"))
-        turn = lm.group("turns")
+        # turns= is the bounded history depth (stabilises at the prune window),
+        # NOT the agent's iteration counter.  Show the iteration instead.
+        _state.history_len = int(lm.group("turns"))
+        iteration = _state.iteration
+        total = _state.total
+        iter_tag = f"{iteration}/{total}" if iteration else "?"
         return (
-            f"\n{ts}  {MAGENTA}{BOLD}╔══ TURN {turn} ══════════════════════════════{RESET}"
+            f"\n{ts}  {MAGENTA}{BOLD}╔══ ITER {iter_tag} ══════════════════════════════{RESET}"
         )
 
     # ── LLM usage ─────────────────────────────────────────────────────────────
@@ -159,8 +173,10 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
         inp = _fmt_number(um.group("input"))
         cw = _fmt_number(um.group("cw"))
         cr = _fmt_number(um.group("cr"))
+        hist = _state.history_len
         return (
-            f"{ts}  {GREY}    tokens  in={inp}  cache_write={cw}  cache_read={cr}{RESET}"
+            f"{ts}  {GREY}    tokens  in={inp}  cache_write={cw}  cache_read={cr}"
+            f"  history={hist}msgs{RESET}"
         )
 
     # ── LLM done ──────────────────────────────────────────────────────────────
@@ -197,11 +213,11 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
     # ── teardown ───────────────────────────────────────────────────────────────
     tdm = _RE_TEARDOWN.search(msg)
     if tdm:
-        rid = tdm.group("run_id")
-        if run_id_filter and rid != run_id_filter:
+        teardown_rid = tdm.group("run_id")
+        if run_id_filter and teardown_rid != run_id_filter:
             return None
         tmsg = tdm.group("msg")
-        return f"{ts}  {GREY}🧹 teardown[{rid}]: {tmsg}{RESET}"
+        return f"{ts}  {GREY}🧹 teardown[{teardown_rid}]: {tmsg}{RESET}"
 
     # Suppress everything else
     return None
