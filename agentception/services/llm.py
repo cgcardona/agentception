@@ -34,7 +34,7 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncGenerator
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 import httpx
 
@@ -93,11 +93,17 @@ class ToolCall(TypedDict):
 
 
 class ToolResponse(TypedDict):
-    """Return value from ``call_openrouter_with_tools``."""
+    """Return value from ``call_openrouter_with_tools``.
+
+    ``input_tokens`` is populated from the Anthropic ``usage.input_tokens``
+    field (sum of regular + cached tokens) and is used by the agent loop's
+    token-rate guard to stay within the 30K input tokens/minute Tier 1 limit.
+    """
 
     stop_reason: str  # "stop" | "tool_calls" | "length"
     content: str  # text output (empty when stop_reason is "tool_calls")
     tool_calls: list[ToolCall]  # empty when stop_reason is "stop"
+    input_tokens: NotRequired[int]  # total input tokens consumed this turn
 
 
 # ---------------------------------------------------------------------------
@@ -578,17 +584,20 @@ async def call_openrouter_with_tools(
                 )
             )
 
-    # Log cache usage when present — useful for verifying savings.
+    # Extract token counts — used for rate-limit accounting in the agent loop.
     usage: object = data.get("usage", {})
+    input_tokens: int = 0
     if isinstance(usage, dict):
+        raw_input = usage.get("input_tokens", 0)
+        input_tokens = int(raw_input) if isinstance(raw_input, int) else 0
         cache_write = usage.get("cache_creation_input_tokens", 0)
         cache_read = usage.get("cache_read_input_tokens", 0)
-        if cache_write or cache_read:
-            logger.info(
-                "✅ LLM cache — written=%d read=%d",
-                cache_write,
-                cache_read,
-            )
+        logger.info(
+            "✅ LLM usage — input=%d cache_written=%d cache_read=%d",
+            input_tokens,
+            cache_write,
+            cache_read,
+        )
 
     content = "".join(text_parts)
     logger.info(
@@ -597,4 +606,9 @@ async def call_openrouter_with_tools(
         len(content),
         len(tool_calls),
     )
-    return ToolResponse(stop_reason=stop_reason, content=content, tool_calls=tool_calls)
+    return ToolResponse(
+        stop_reason=stop_reason,
+        content=content,
+        tool_calls=tool_calls,
+        input_tokens=input_tokens,
+    )
