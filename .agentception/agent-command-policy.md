@@ -51,7 +51,7 @@ they trip a restriction. Red-tier commands that reach the sandbox will prompt.
 `.cursor/sandbox.json` grants the sandbox:
 - Docker socket access (`/var/run/docker.sock`) — all `docker compose exec` commands
 - Worktrees directory (`~/.agentception/worktrees`) — parallel agent workflows
-- Full outbound network — GitHub CLI, Docker Hub, OpenRouter, pypi
+- Full outbound network — GitHub CLI, Docker Hub, Anthropic API, pypi
 
 ### Command Allowlist — paste this into the Cursor UI text field
 

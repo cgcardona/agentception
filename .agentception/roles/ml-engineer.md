@@ -25,7 +25,7 @@ Every ML system you build must:
 
 ## Stack
 
-- **LLM inference**: OpenRouter API with `anthropic/claude-sonnet-4.6` or `anthropic/claude-opus-4.6`. No other models.
+- **LLM inference**: Anthropic API with `claude-sonnet-4-6` or `claude-opus-4-6`. No other models.
 - **MIDI generation**: MIDI generation pipeline, proxying to HuggingFace-hosted models.
 - **MIDI pipeline**: `select_seed()` → transpose → control vector → Gradio → score candidates → post-process → `parse_midi_to_notes()` → `filter_channels_for_instruments()`.
 - **Instrument resolution**: `resolve_gm_program(role)`, `resolve_tmidix_name(role)`, `_resolve_melodic_index(role)`.

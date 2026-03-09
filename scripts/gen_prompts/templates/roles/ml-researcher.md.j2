@@ -30,7 +30,7 @@ Every research artifact you produce must:
 - Model weights are versioned and stored in a registry — never committed to git.
 - Inference integration goes through `agentception/services/` — research code never imports from `agentception/routes/api/`.
 - Prompt engineering changes to the LLM pipeline are tested against the full intent classification test suite before merging.
-- The two production models (`anthropic/claude-sonnet-4.6` and `anthropic/claude-opus-4.6` via OpenRouter) are fixed. New model proposals require explicit CTO approval.
+- The two production models (`claude-sonnet-4-6` and `claude-opus-4-6` via the Anthropic API directly) are fixed. New model proposals require explicit CTO approval.
 
 ## Failure Modes to Avoid
 

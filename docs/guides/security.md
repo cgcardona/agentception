@@ -8,7 +8,7 @@ AgentCeption is an orchestration engine that calls external APIs, executes shell
 
 | Layer | Status | What protects it |
 |-------|--------|-----------------|
-| LLM calls (AgentCeption → OpenRouter/Anthropic) | **Secure by default** | HTTPS; TLS enforced by httpx |
+| LLM calls (AgentCeption → Anthropic) | **Secure by default** | HTTPS; TLS enforced by httpx |
 | AgentCeption HTTP service | **Localhost-only by default** | Docker binds to `127.0.0.1`; no public port |
 | `/api/*` routes | **Auth opt-in** | `AC_API_KEY` middleware; disabled when key is empty |
 | MCP stdio transport | **Secure by default** | No network socket; communicates over Docker exec pipe |
@@ -18,17 +18,17 @@ AgentCeption is an orchestration engine that calls external APIs, executes shell
 
 ---
 
-## LLM Communication (OpenRouter / Anthropic)
+## LLM Communication (Anthropic)
 
 All LLM calls are made by `agentception/services/llm.py` using `httpx` to:
 
 ```
-https://openrouter.ai/api/v1/chat/completions
+https://api.anthropic.com/v1/messages
 ```
 
 `httpx` enforces TLS by default. There is no HTTP fallback. Your API key travels inside the `Authorization: Bearer <key>` header over the encrypted channel. No LLM traffic ever leaves HTTPS.
 
-**What you must do:** Set `OPENROUTER_API_KEY` in `docker-compose.override.yml`. The key is never logged.
+**What you must do:** Set `ANTHROPIC_API_KEY` in `docker-compose.override.yml`. The key is never logged.
 
 ---
 
@@ -193,7 +193,7 @@ services:
 
 | Secret | Env var | Where to set |
 |--------|---------|-------------|
-| OpenRouter API key | `OPENROUTER_API_KEY` | `docker-compose.override.yml` |
+| Anthropic API key | `ANTHROPIC_API_KEY` | `docker-compose.override.yml` |
 | GitHub PAT (optional) | `GITHUB_TOKEN` | `docker-compose.override.yml` |
 | AgentCeption API key | `AC_API_KEY` | `docker-compose.override.yml` |
 | Qdrant API key (optional) | `QDRANT_API_KEY` | `docker-compose.override.yml` |
@@ -205,7 +205,7 @@ services:
 services:
   agentception:
     environment:
-      OPENROUTER_API_KEY: "sk-or-..."
+      ANTHROPIC_API_KEY: "sk-ant-..."
       GITHUB_TOKEN: "ghp_..."
       AC_API_KEY: "your-generated-key"
 ```

@@ -271,7 +271,7 @@ for entry in "${SELECTED_ISSUES[@]}"; do
     SKILLS="devops"
   elif echo "$ISSUE_BODY" | grep -qiE "midi"; then
     SKILLS="midi:python"
-  elif echo "$ISSUE_BODY" | grep -qiE "llm|embedding|rag|openrouter|claude"; then
+  elif echo "$ISSUE_BODY" | grep -qiE "llm|embedding|rag|anthropic|claude"; then
     SKILLS="llm:python"
   elif echo "$ISSUE_BODY" | grep -qiE "APIRouter|FastAPI|Depends|response_model"; then
     SKILLS="fastapi:python"

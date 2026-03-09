@@ -494,7 +494,7 @@ Search the indexed codebase with a natural-language query.
 ```json
 {
   "ok": true,
-  "query": "openrouter api key",
+  "query": "anthropic api key",
   "n_results": 3,
   "matches": [
     {
@@ -502,7 +502,7 @@ Search the indexed codebase with a natural-language query.
       "score": 0.733,
       "start_line": 101,
       "end_line": 110,
-      "chunk": "    openrouter_api_key: str = \"\"\n    ..."
+      "chunk": "    anthropic_api_key: str = \"\"\n    ..."
     }
   ]
 }

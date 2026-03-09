@@ -664,11 +664,11 @@ All query functions return plain `TypedDict` instances. No SQLAlchemy ORM object
 
 **Path:** `agentception/services/llm.py`
 
-TypedDicts for the OpenRouter/Anthropic wire protocol. These are the **internal** types — they do not correspond to the full OpenAI streaming protocol (we use a simplified non-streaming shape for tool use).
+TypedDicts for the Anthropic wire protocol. These are the **internal** types — they do not correspond to the full OpenAI streaming protocol (we use a simplified non-streaming shape for tool use).
 
 #### `LLMChunk`
 
-`TypedDict` — One event yielded by `call_openrouter_stream()`.
+`TypedDict` — One event yielded by `call_anthropic_stream()`.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -688,7 +688,7 @@ TypedDicts for the OpenRouter/Anthropic wire protocol. These are the **internal*
 |-----------|--------|-------------|
 | `ToolCallFunction` | `name: str`, `arguments: str` | Function call detail — `arguments` is JSON-encoded |
 | `ToolCall` | `id: str`, `type: Literal["function"]`, `function: ToolCallFunction` | One tool invocation returned by the model |
-| `ToolResponse` | `stop_reason: str`, `content: str`, `tool_calls: list[ToolCall]` | Return value from `call_openrouter_with_tools()` |
+| `ToolResponse` | `stop_reason: str`, `content: str`, `tool_calls: list[ToolCall]` | Return value from `call_anthropic_with_tools()` |
 
 **`ToolResponse.stop_reason` values:** `"stop"` (model finished), `"tool_calls"` (model wants to call tools), `"length"` (max tokens hit).
 
@@ -696,9 +696,9 @@ TypedDicts for the OpenRouter/Anthropic wire protocol. These are the **internal*
 
 | Function | Returns | Use |
 |----------|---------|-----|
-| `call_openrouter(user_prompt, ...)` | `str` | Single non-streaming call for MCP tools |
-| `call_openrouter_stream(user_prompt, ...)` | `AsyncGenerator[LLMChunk, None]` | Streaming with extended reasoning for Phase 1A |
-| `call_openrouter_with_tools(messages, ...)` | `ToolResponse` | Multi-turn tool-use for agent loop |
+| `call_anthropic(user_prompt, ...)` | `str` | Single non-streaming call for MCP tools |
+| `call_anthropic_stream(user_prompt, ...)` | `AsyncGenerator[LLMChunk, None]` | Streaming with extended reasoning for Phase 1A |
+| `call_anthropic_with_tools(messages, ...)` | `ToolResponse` | Multi-turn tool-use for agent loop |
 
 ---
 
@@ -1050,7 +1050,7 @@ AgentCeption
 │   ├── LLMChunk                     — streaming event {type, text}
 │   ├── ToolFunction, ToolDefinition — OpenAI tool schema shapes
 │   ├── ToolCallFunction, ToolCall   — tool call response shapes
-│   └── ToolResponse                 — call_openrouter_with_tools() return value
+│   └── ToolResponse                 — call_anthropic_with_tools() return value
 │
 ├── Code Indexer (agentception/services/code_indexer.py)
 │   ├── IndexStats                   — index_codebase() result
@@ -1321,7 +1321,7 @@ classDiagram
 
 ### Diagram 4 — LLM Wire Types (Tool Use)
 
-The simplified OpenAI-compatible type surface for `call_openrouter_with_tools`. The caller maintains the message history; the types below describe what the model sends back.
+The simplified OpenAI-compatible type surface for `call_anthropic_with_tools`. The caller maintains the message history; the types below describe what the model sends back.
 
 ```mermaid
 classDiagram

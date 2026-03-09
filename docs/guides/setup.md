@@ -10,7 +10,7 @@ Every step was executed against a freshly cloned copy of the repo with no prior 
 | Docker Desktop (or Docker Engine + Compose v2) | ≥ 24 | `docker compose version` to check |
 | `git` | any | |
 | A GitHub Personal Access Token | — | `repo` + `issues` scope — [create one here](https://github.com/settings/tokens) |
-| An [OpenRouter](https://openrouter.ai/keys) API key | — | Required for Phase 1A planning |
+| An [Anthropic](https://console.anthropic.com/) API key | — | Required for Phase 1A planning and agent execution |
 
 ---
 
@@ -36,7 +36,7 @@ Open `.env` and fill in the required values:
 | `DB_PASSWORD` | **Yes** | Postgres password. No default — the compose file requires it explicitly. | Generate with `openssl rand -hex 16` |
 | `GH_REPO` | **Yes** | The `owner/repo` this AgentCeption instance orchestrates. | Your GitHub repo |
 | `GITHUB_TOKEN` | Optional | GitHub PAT with `repo` + `issues` scope. If you have `~/.config/gh` configured (via `gh auth login`), the container volume-mounts it and you can leave this blank. | [github.com/settings/tokens](https://github.com/settings/tokens) |
-| `OPENROUTER_API_KEY` | Optional | OpenRouter API key. Required for Phase 1A LLM planning and the Cursor-free agent loop. Without it the service starts, but planning and agent execution are unavailable. | [openrouter.ai/keys](https://openrouter.ai/keys) |
+| `ANTHROPIC_API_KEY` | Optional | Anthropic API key. Required for Phase 1A LLM planning and the agent loop. Without it the service starts, but planning and agent execution are unavailable. | [console.anthropic.com](https://console.anthropic.com/) |
 | `AC_API_KEY` | Optional | Shared secret for authenticating all `/api/*` requests. Leave empty for local-only deployments. Required when exposing the service on a shared server or the public internet. | Generate with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `QDRANT_URL` | Optional | Internal Qdrant REST endpoint. | Default: `http://agentception-qdrant:6333` |
 | `QDRANT_COLLECTION` | Optional | Qdrant collection for code vectors. | Default: `code` |
@@ -153,8 +153,8 @@ docker compose logs -f agentception | grep code_indexer
 Verify the index is populated:
 
 ```bash
-curl "http://localhost:10003/api/system/search?q=openrouter+api+key&n=3"
-# → {"ok": true, "query": "openrouter api key", "n_results": 3, "matches": [...]}
+curl "http://localhost:10003/api/system/search?q=anthropic+api+key&n=3"
+# → {"ok": true, "query": "anthropic api key", "n_results": 3, "matches": [...]}
 ```
 
 Re-index after significant code changes (e.g. after merging a large PR).

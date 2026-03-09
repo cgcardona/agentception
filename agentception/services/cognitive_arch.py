@@ -140,7 +140,7 @@ def _derive_skills_from_body(body: str) -> str:
         return "devops"
     if any(k in b for k in ("midi", "variation", "beat")):
         return "midi:python"
-    if any(k in b for k in ("llm", "embedding", "rag", "openrouter", "claude")):
+    if any(k in b for k in ("llm", "embedding", "rag", "anthropic", "claude")):
         return "llm:python"
     if any(k in b for k in ("apirouter", "fastapi", "depends", "response_model")):
         return "fastapi:python"

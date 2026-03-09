@@ -11,7 +11,7 @@ Public entry point:
 
 Architecture note
 -----------------
-MCP is NOT involved in this module.  The browser -> AgentCeption -> OpenRouter
+MCP is NOT involved in this module.  The browser -> AgentCeption -> Anthropic
 loop is entirely self-contained.  MCP enters only after the user approves the
 YAML and a coordinator worktree is spawned -- the coordinator agent (in Cursor)
 calls ``plan_get_labels()`` and similar tools as it files GitHub issues.
@@ -498,7 +498,7 @@ def _strip_fences(raw: str) -> str:
 async def generate_plan_yaml(dump: str, label_prefix: str = "") -> str:
     """Step 1.A -- convert a brain dump into a validated PlanSpec YAML string.
 
-    Calls Claude Sonnet via OpenRouter with the full PlanSpec YAML prompt.
+    Calls Claude Sonnet via the Anthropic API with the full PlanSpec YAML prompt.
     Validates the returned YAML against :class:`~agentception.models.PlanSpec`
     so the CodeMirror 6 editor always shows a structurally correct document.
 
@@ -515,7 +515,7 @@ async def generate_plan_yaml(dump: str, label_prefix: str = "") -> str:
     Raises:
         ValueError: Empty dump, invalid YAML from LLM, or schema mismatch.
         RuntimeError: Missing ANTHROPIC_API_KEY.
-        httpx.HTTPStatusError: Non-2xx from OpenRouter.
+        httpx.HTTPStatusError: Non-2xx from Anthropic.
     """
     dump = dump.strip()
     if not dump:

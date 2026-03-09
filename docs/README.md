@@ -12,7 +12,7 @@ Step-by-step instructions for humans.
 |-------|---------|
 | [Setup](guides/setup.md) | First-run walkthrough — Docker, environment variables, database migrations, Qdrant indexing |
 | [MCP Integration](guides/mcp.md) | Connect Cursor / Claude to AgentCeption via the MCP server (stdio and HTTP transports) |
-| [Cursor-Free Agent Loop](guides/agent-loop.md) | Run agents without Cursor — OpenRouter → Anthropic, Qdrant semantic search, local tool execution |
+| [Cursor-Free Agent Loop](guides/agent-loop.md) | Run agents without Cursor — direct Anthropic API, Qdrant semantic search, local tool execution |
 | [Security](guides/security.md) | API key auth, TLS configuration, shell denylist, secrets management, threat model |
 | [Developer Workflow](guides/developer-workflow.md) | Bind-mount loop, mypy → tests → docs verification order, JS/CSS build pipeline |
 | [Contributing](guides/contributing.md) | Branch naming, commit conventions, PR checklist, code review expectations |
@@ -72,7 +72,7 @@ User input (brain dump)
 │  Cursor-Free Agent Loop             │
 │  agent_loop.py                      │
 │  → Reads .agent-task + role + arch  │
-│  → Calls OpenRouter → Anthropic     │
+│  → Calls Anthropic API               │
 │  → Dispatches file/shell/MCP tools  │
 │  → Uses Qdrant for code search      │
 │  Reports via POST /api/runs/{id}/*  │
@@ -104,7 +104,7 @@ agentception/
     issue_creator.py      → Phase 1B: PlanSpec → GitHub issues + DB rows
     worktrees.py          → Agent dispatch: git worktree + .agent-task + DB row
   services/
-    llm.py           → call_openrouter() and call_openrouter_with_tools()
+    llm.py           → call_anthropic() and call_anthropic_with_tools()
     agent_loop.py    → Cursor-free agent execution loop (multi-turn + tool dispatch)
     code_indexer.py  → Qdrant codebase indexing + semantic search (FastEmbed)
   tools/

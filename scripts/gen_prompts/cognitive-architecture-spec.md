@@ -165,7 +165,7 @@ Current atomic domains:
 | `monaco` | In-browser code editor CDN integration |
 | `devops` | Docker, Compose, Nginx, CI/CD |
 | `midi` | MIDI pipeline, GM programs, music generation |
-| `llm` | LLM calls, embeddings, RAG, OpenRouter |
+| `llm` | LLM calls, embeddings, RAG, Anthropic API |
 
 
 ---

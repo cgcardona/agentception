@@ -16,7 +16,7 @@ PlanSpec is the structured YAML document that bridges a user's free-form plan de
 User brain dump (free text)
         │
         ▼  POST /api/plan/preview
-   Claude (via OpenRouter)
+   Claude (via Anthropic API directly)
         │  returns PlanSpec YAML
         ▼
   CodeMirror editor  ←── user reviews and edits
@@ -28,7 +28,7 @@ User brain dump (free text)
   GitHub Issues tagged by phase label
 ```
 
-MCP is **not** involved in plan generation. Claude is called directly from AgentCeption's backend (OpenRouter). MCP only enters after the user clicks Launch, when a coordinator agent reads the `ac://plan/labels` resource and uses mutation tools to file issues.
+MCP is **not** involved in plan generation. Claude is called directly from AgentCeption's backend via the Anthropic API. MCP only enters after the user clicks Launch, when a coordinator agent reads the `ac://plan/labels` resource and uses mutation tools to file issues.
 
 ---
 

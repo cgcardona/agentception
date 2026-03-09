@@ -10,10 +10,10 @@ AgentCeption can run agents entirely on its own infrastructure — no Cursor IDE
 |---------------------|-------------------------------|
 | Local MCP client (tool dispatch) | `agent_loop.py` dispatches tools internally |
 | `@Codebase` semantic search | Qdrant + FastEmbed (`code_indexer.py`) |
-| LLM API connectivity | OpenRouter → Anthropic (HTTPS via `llm.py`) |
+| LLM API connectivity | Anthropic (HTTPS via `llm.py`) |
 | Cognitive architecture injection | Role files + `resolve_arch.py` |
 
-The result: a full agent execution loop that runs inside the Docker container, calls Anthropic's Claude via OpenRouter, uses your local codebase as context, and executes file and shell operations in isolated git worktrees.
+The result: a full agent execution loop that runs inside the Docker container, calls Anthropic's Claude via the Anthropic API, uses your local codebase as context, and executes file and shell operations in isolated git worktrees.
 
 ---
 
@@ -33,7 +33,7 @@ POST /api/runs/{run_id}/execute
   SEARCH_CODEBASE_TOOL_DEF (semantic vector search)
   MCP tools       (GitHub, pipeline state — forwarded via call_tool_async)
         ↓ conversation loop
-  call_openrouter_with_tools()  →  OpenRouter  →  Anthropic Claude
+  call_anthropic_with_tools()  →  Anthropic API  →  Anthropic Claude
         ↓ tool dispatch
   Local tools   → agentception/tools/
   MCP tools     → agentception/mcp/server.py → GitHub / DB
@@ -53,12 +53,12 @@ The main coroutine `run_agent_loop(run_id, max_iterations=50)` orchestrates the 
 2. **Load role** — reads the role markdown from `.agentception/roles/{role}.md`
 3. **Build system prompt** — combines role content, cognitive architecture, and a runtime environment note
 4. **Build tool catalogue** — merges local tools, semantic search, and MCP tools
-5. **Conversation loop** — calls OpenRouter with full message history and tool definitions; dispatches tool calls; appends results; repeats until `end_turn` or max iterations
+5. **Conversation loop** — calls Anthropic with full message history and tool definitions; dispatches tool calls; appends results; repeats until `end_turn` or max iterations
 6. **Completion** — calls `build_complete_run` or `build_cancel_run`
 
-### `agentception/services/llm.py` — `call_openrouter_with_tools()`
+### `agentception/services/llm.py` — `call_anthropic_with_tools()`
 
-Multi-turn conversation API over OpenRouter. Sends a `messages` list and `tools` list; returns a `ToolResponse` with `stop_reason`, `content`, and any `tool_calls`. Uses `temperature=0.0` for determinism and `max_tokens=8192`.
+Multi-turn conversation API over Anthropic API. Sends a `messages` list and `tools` list; returns a `ToolResponse` with `stop_reason`, `content`, and any `tool_calls`. Uses `temperature=0.0` for determinism and `max_tokens=8192`.
 
 ### `agentception/tools/`
 
@@ -94,7 +94,7 @@ All settings live in `agentception/config.py` and are set via environment variab
 
 | Env var | Default | Description |
 |---------|---------|-------------|
-| `OPENROUTER_API_KEY` | *(required)* | Key for OpenRouter → Anthropic Claude |
+| `ANTHROPIC_API_KEY` | *(required)* | Key for Anthropic Claude |
 | `QDRANT_URL` | `http://agentception-qdrant:6333` | Qdrant REST endpoint (internal Docker URL) |
 | `QDRANT_COLLECTION` | `code` | Qdrant collection name for code vectors |
 | `EMBED_MODEL` | `BAAI/bge-small-en-v1.5` | FastEmbed model (384-dim, ONNX) |
@@ -143,7 +143,7 @@ Directories skipped entirely: `.git` `__pycache__` `node_modules` `.venv` `venv`
 ### Search the index directly
 
 ```bash
-curl "http://localhost:10003/api/system/search?q=openrouter+api+key&n=5"
+curl "http://localhost:10003/api/system/search?q=anthropic+api+key&n=5"
 ```
 
 Returns:
@@ -151,7 +151,7 @@ Returns:
 ```json
 {
   "ok": true,
-  "query": "openrouter api key",
+  "query": "anthropic api key",
   "n_results": 3,
   "matches": [
     {
@@ -159,7 +159,7 @@ Returns:
       "score": 0.733,
       "start_line": 101,
       "end_line": 110,
-      "chunk": "    openrouter_api_key: str = \"\"\n    ..."
+      "chunk": "    anthropic_api_key: str = \"\"\n    ..."
     }
   ]
 }
@@ -250,7 +250,7 @@ curl http://localhost:10003/api/runs/{run_id}/step
 
 ## End-to-End Smoke Test
 
-The smoke test script at `scripts/smoke_test_agent_loop.py` validates all four stages — service health, Qdrant connectivity, indexing, and semantic search — without requiring a real OpenRouter key or GitHub issue:
+The smoke test script at `scripts/smoke_test_agent_loop.py` validates all four stages — service health, Qdrant connectivity, indexing, and semantic search — without requiring a real Anthropic API key or GitHub issue:
 
 ```bash
 python3 scripts/smoke_test_agent_loop.py
@@ -270,7 +270,7 @@ Expected output:
 ─── Step 3: Trigger codebase indexing ───
   OK — 202 Accepted
 ─── Step 4: Semantic search verification ───
-  OK — 'openrouter api key configuration' → 3 results
+  OK — 'anthropic api key configuration' → 3 results
        top hit: agentception/config.py (score=0.733)
   ✅ ALL STEPS PASSED
 ```

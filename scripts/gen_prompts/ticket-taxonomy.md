@@ -126,7 +126,7 @@ elif echo "$ISSUE_BODY" | grep -qiE "dockerfile|docker compose|FROM python|conta
   SKILLS="devops"
 elif echo "$ISSUE_BODY" | grep -qiE "midi|audio|music"; then
   SKILLS="midi:python"
-elif echo "$ISSUE_BODY" | grep -qiE "llm|embedding|rag|openrouter|claude.*model"; then
+elif echo "$ISSUE_BODY" | grep -qiE "llm|embedding|rag|anthropic|claude.*model"; then
   SKILLS="llm:python"
 elif echo "$ISSUE_BODY" | grep -qiE "APIRouter|FastAPI|Depends|response_model"; then
   SKILLS="fastapi:python"
