@@ -21,6 +21,11 @@ from agentception.services.cognitive_arch import ROLE_DEFAULT_FIGURE, _resolve_c
 
 logger = logging.getLogger(__name__)
 
+# Qdrant collection name used for per-run worktree indexes.
+# Follows the pattern "worktree-<run_id>" so stale collections are easy to
+# identify and the main "code" collection is never polluted.
+_WORKTREE_COLLECTION_PREFIX = "worktree-"
+
 
 class RunCreationError(Exception):
     """Raised when worktree creation or DB insertion fails."""
@@ -90,6 +95,13 @@ async def create_and_launch_run(
         org_domain=org_domain,
     )
 
+    # Index the worktree in the background so agents can search it with
+    # search_codebase.  The worktree starts from origin/dev so its content is
+    # identical to the main repo at spawn time — the worktree-specific index
+    # becomes more valuable as the agent writes new or modified files.
+    # Non-blocking: indexing failure never prevents the run from launching.
+    asyncio.create_task(_index_worktree(worktree_path, run_id))
+
     if launch:
         # Import here to avoid a circular import at module load time.
         from agentception.services.agent_loop import run_agent_loop  # noqa: PLC0415
@@ -140,6 +152,37 @@ async def _create_worktree(
 
     await _configure_worktree_auth(worktree_path, run_id)
     logger.info("✅ worktree created — %s", worktree_path)
+
+
+async def _index_worktree(worktree_path: Path, run_id: str) -> None:
+    """Index the worktree into a per-run Qdrant collection — non-blocking.
+
+    The collection is named ``worktree-<run_id>`` so each run gets its own
+    semantic search scope.  The agent can pass this collection name to
+    ``search_codebase`` to search only the files it is working with.
+
+    Errors are logged and swallowed — indexing failure never prevents the run
+    from starting.  The main ``code`` collection (the full repo index) is
+    always available as a fallback.
+    """
+    from agentception.services.code_indexer import index_codebase  # noqa: PLC0415
+
+    collection = f"{_WORKTREE_COLLECTION_PREFIX}{run_id}"
+    try:
+        stats = await index_codebase(repo_path=worktree_path, collection=collection)
+        logger.info(
+            "✅ run_factory: worktree indexed — run_id=%s collection=%s files=%s chunks=%s",
+            run_id,
+            collection,
+            stats.get("files_indexed", "?"),
+            stats.get("chunks_indexed", "?"),
+        )
+    except Exception as exc:
+        logger.warning(
+            "⚠️ run_factory: worktree indexing failed — run_id=%s: %s",
+            run_id,
+            exc,
+        )
 
 
 async def _configure_worktree_auth(worktree_path: Path, run_id: str) -> None:

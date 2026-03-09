@@ -16,6 +16,7 @@ from pathlib import Path
 
 from agentception.config import settings
 from agentception.db.queries import get_agent_run_teardown
+from agentception.services.run_factory import _WORKTREE_COLLECTION_PREFIX
 
 logger = logging.getLogger(__name__)
 
@@ -98,4 +99,38 @@ async def teardown_agent_worktree(run_id: str) -> None:
                 branch_stderr.decode().strip(),
             )
 
+    # Best-effort: delete the per-run Qdrant worktree collection to reclaim space.
+    await _prune_worktree_collection(run_id)
+
     logger.info("✅ teardown[%s]: complete", run_id)
+
+
+async def _prune_worktree_collection(run_id: str) -> None:
+    """Delete the ``worktree-<run_id>`` Qdrant collection created at spawn time.
+
+    Non-blocking and error-swallowing — a failed prune leaves a stale
+    collection that can be cleaned up manually; it never breaks teardown.
+    """
+    collection = f"{_WORKTREE_COLLECTION_PREFIX}{run_id}"
+    try:
+        from qdrant_client import AsyncQdrantClient  # noqa: PLC0415
+
+        client = AsyncQdrantClient(url=settings.qdrant_url)
+        collections = await client.get_collections()
+        existing = {c.name for c in collections.collections}
+        if collection not in existing:
+            logger.info(
+                "ℹ️  teardown[%s]: worktree collection %r not found — nothing to prune",
+                run_id,
+                collection,
+            )
+            return
+        await client.delete_collection(collection)
+        logger.info("✅ teardown[%s]: pruned worktree collection %r", run_id, collection)
+    except Exception as exc:
+        logger.warning(
+            "⚠️  teardown[%s]: could not prune worktree collection %r: %s",
+            run_id,
+            collection,
+            exc,
+        )

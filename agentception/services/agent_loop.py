@@ -671,24 +671,37 @@ async def _dispatch_tool_calls(
     Returns:
         A list of ``{"role": "tool", "tool_call_id": str, "content": str}``
         messages ready to extend the conversation history.
+
+    When the model batches multiple tool calls in one response they are
+    dispatched concurrently via :func:`asyncio.gather` so the wall-clock
+    time equals the slowest single call rather than the sum of all calls.
     """
-    results: list[dict[str, object]] = []
-    for tc in tool_calls:
-        result = await _dispatch_single_tool(
-            tc,
-            worktree_path,
-            run_id,
-            github_client=github_client,
-            github_tool_names=github_tool_names,
-        )
-        results.append(
-            {
-                "role": "tool",
-                "tool_call_id": tc["id"],
-                "content": json.dumps(result),
-            }
-        )
-    return results
+    async def _run_one(tc: ToolCall) -> dict[str, object]:
+        try:
+            result = await _dispatch_single_tool(
+                tc,
+                worktree_path,
+                run_id,
+                github_client=github_client,
+                github_tool_names=github_tool_names,
+            )
+        except Exception as exc:
+            logger.warning(
+                "⚠️ _dispatch_tool_calls: tool=%s raised %s — returning error",
+                tc.get("function", {}).get("name", "?"),
+                exc,
+            )
+            result = {"ok": False, "error": str(exc)}
+        return {
+            "role": "tool",
+            "tool_call_id": tc["id"],
+            "content": json.dumps(result),
+        }
+
+    results: list[dict[str, object]] = await asyncio.gather(
+        *(_run_one(tc) for tc in tool_calls)
+    )
+    return list(results)
 
 
 def _mcp_result_to_dict(result: ACToolResult) -> dict[str, object]:
@@ -870,7 +883,9 @@ async def _dispatch_local_tool(
             return {"ok": False, "error": "search_codebase: 'query' must be a string"}
         n_raw = args.get("n_results", 5)
         n_results = int(n_raw) if isinstance(n_raw, int) else 5
-        matches = await search_codebase(query_raw, n_results)
+        collection_raw = args.get("collection")
+        collection_arg: str | None = collection_raw if isinstance(collection_raw, str) else None
+        matches = await search_codebase(query_raw, n_results, collection=collection_arg)
         return {"ok": True, "matches": matches}
 
     return {"ok": False, "error": f"Unknown local tool: {name!r}"}

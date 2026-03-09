@@ -325,12 +325,17 @@ SEARCH_CODEBASE_TOOL_DEF: ToolDefinition = ToolDefinition(
     function=ToolFunction(
         name="search_codebase",
         description=(
-            "Semantically search the codebase using natural language. "
-            "More powerful than pattern matching — use it to find code by concept: "
-            "'where is authentication handled?', 'find the GitHub API client', "
-            "'show me the error handling for LLM calls'. "
-            "Requires the codebase to have been indexed via POST /api/system/index-codebase. "
-            "Returns the most relevant code chunks with their file paths and line numbers."
+            "YOUR FIRST TOOL CALL FOR ANY CODE DISCOVERY. "
+            "One semantic search replaces 5–10 sequential grep/cat/read calls. "
+            "The index covers every .py, .md, .j2, .yaml, .toml, .json file in the repo. "
+            "Call this BEFORE any grep, rg, cat, or read_file_lines when you need to "
+            "locate a class, function, pattern, or concept. "
+            "The results include exact file paths and line numbers — use read_file_lines "
+            "to fetch only that specific range, never the whole file. "
+            "Examples of what to search: 'where is AgentStatus defined', "
+            "'how does the poller detect stalled agents', 'pattern for adding a persist helper', "
+            "'alembic migration that adds a column'. "
+            "Returns the most relevant code chunks ordered by cosine similarity."
         ),
         parameters={
             "type": "object",
@@ -345,6 +350,17 @@ SEARCH_CODEBASE_TOOL_DEF: ToolDefinition = ToolDefinition(
                     "default": 5,
                     "minimum": 1,
                     "maximum": 20,
+                },
+                "collection": {
+                    "type": "string",
+                    "description": (
+                        "Qdrant collection to search. "
+                        "Omit (or leave null) to search the main 'code' collection "
+                        "which indexes the full repository. "
+                        "Pass 'worktree-<your-run-id>' to search only the files "
+                        "in your worktree (available after the background indexing "
+                        "completes, usually within 30s of run start)."
+                    ),
                 },
             },
             "required": ["query"],

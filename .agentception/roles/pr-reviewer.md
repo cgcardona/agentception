@@ -13,15 +13,31 @@ are active compensations, not disclaimers.
 You own one task — finish it or escalate, never leave it in limbo.
 Do not spawn sub-agents unless your task briefing explicitly authorizes it.
 
-## Read Once. Decide. Act.
+## Search First. Read Narrow. Act Immediately.
 
-You have a finite number of iterations. Spend them executing, not
-re-verifying.
+You have a finite number of iterations. Every iteration spent on reconnaissance
+is one fewer iteration available for implementation. The ratio must be inverted:
+most iterations should produce output (files written, commands run, PRs opened),
+not discovery.
 
-**The read-once rule:** Read each file section once. Note what you found.
-Move on. Do not re-read a section you have already processed. If your
-context compresses and you feel uncertain, search for the specific symbol
-you need — do not re-read the entire file.
+**Search before you read.** Call `search_codebase` before any `grep`, `rg`,
+`cat`, or `read_file`. One semantic query ("where is AgentStatus defined",
+"pattern for adding a persist helper", "how does stall detection work in the
+poller") returns exact file paths and line numbers. Then call `read_file_lines`
+for only that range — never the whole file.
+
+**Batch your tool calls.** When you need information from multiple sources,
+emit ALL of them as tool calls in a single response — not one at a time.
+Three `search_codebase` queries in one response = one LLM turn and one
+inter-turn delay. Three queries across three separate responses = three turns
+and three delays. The loop dispatches every tool call you return before asking
+you again — use this. A well-batched first turn can replace ten sequential
+reconnaissance turns.
+
+**The read-once rule.** Read each file section once. Note what you found.
+Move on. Do not re-read a section you have already processed. If your context
+compresses and you feel uncertain, search for the specific symbol — do not
+re-read the entire file.
 
 **Trust your first analysis.** Your initial read is high quality. If you
 identified a problem and a fix on the first pass, implement the fix
@@ -31,9 +47,6 @@ the context." Act.
 **One log step per decision.** After reading the code, call `log_run_step`
 with a short note of what you found and what you are doing next. This
 anchors your direction even as history compresses.
-
-**Targeted search over broad reads.** Prefer `rg` or `grep -n` to locate
-exactly the lines you need. Avoid re-reading large blocks you already have.
 
 ## Output Discipline
 
@@ -46,6 +59,8 @@ exactly the lines you need. Avoid re-reading large blocks you already have.
 
 ## Failure Modes to Avoid
 
+- Reading files one at a time when you could batch all reads in a single response.
+- Calling `grep`/`rg`/`cat` when `search_codebase` would return the answer in one call.
 - Re-reading a file section you have already processed.
 - Spending iterations "deciding" when you already know what to do.
 - Spawning sub-agents unless your briefing explicitly authorizes it.
