@@ -544,6 +544,31 @@ class TestEnforceTurnDelay:
         await _enforce_turn_delay()
         assert time.monotonic() - t0 < 1.0
 
+    def test_record_llm_call_updates_timestamp(self) -> None:
+        """_record_llm_call stamps _last_llm_call_at so the next delay is measured correctly."""
+        import time
+        import agentception.services.agent_loop as al
+        from agentception.services.agent_loop import _record_llm_call
+        al._last_llm_call_at = 0.0
+        before = time.monotonic()
+        _record_llm_call()
+        assert al._last_llm_call_at >= before
+
+    @pytest.mark.anyio
+    async def test_retry_backoff_does_not_eat_next_window(self) -> None:
+        """Delay is measured from after the LLM call, not before — retries don't collapse the gap."""
+        import time
+        import agentception.services.agent_loop as al
+        from agentception.services.agent_loop import _enforce_turn_delay, _record_llm_call
+
+        # Simulate: _record_llm_call() called just now (LLM call just completed)
+        _record_llm_call()
+        t0 = time.monotonic()
+        await _enforce_turn_delay()
+        # Should wait close to _MIN_TURN_DELAY_SECS, not skip due to stale timestamp
+        elapsed = time.monotonic() - t0
+        assert elapsed >= 6.0  # within 1s tolerance of the 7s target
+
 
 class TestLLMSSLRetry:
     """Regression tests: ssl.SSLError is retried, not propagated (bug: run killed by transient TLS error)."""
