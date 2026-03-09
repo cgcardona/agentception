@@ -27,8 +27,3 @@ if [ -z "$CLAIM_FINGERPRINT" ]; then
 
 </details>"
 fi
-
-gh issue comment "$ISSUE_NUMBER" --repo "$GH_REPO" \
-  --body "🔖 **Claimed by agent**
-
-$CLAIM_FINGERPRINT" 2>/dev/null || true

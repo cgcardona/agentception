@@ -90,11 +90,11 @@ async def build_spawn_child_run(
     """Create a child agent node in the tree and return its worktree path.
 
     Any coordinator agent calls this tool to atomically spawn a child.
-    The tool creates the worktree, writes the ``.agent-task`` file (with
-    TIER, ORG_DOMAIN if provided, COGNITIVE_ARCH, SCOPE_TYPE,
-    SCOPE_VALUE, PARENT_RUN_ID, and all required fields), registers the DB
-    record, and auto-acknowledges the run so the caller can immediately fire
-    a Task call.
+    The tool creates the worktree, persists all task context to the DB row
+    (role, cognitive_arch, tier, scope, parent lineage, and all required fields),
+    and auto-acknowledges the run so the caller can immediately fire a Task call.
+    No ``.agent-task`` file is written — the child reads its full context via
+    ``ac://runs/{run_id}/context`` and the ``task/briefing`` MCP prompt.
 
     Was: ``build_spawn_child``.
 

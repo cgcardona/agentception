@@ -152,7 +152,6 @@ interface DispatchResponse {
   label: string;
   worktree: string;
   host_worktree: string;
-  agent_task_path: string;
   status: string;
 }
 
