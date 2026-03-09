@@ -1,7 +1,12 @@
-"""Shell-execution tool exposed to the agent loop.
+"""Shell-execution tools exposed to the agent loop.
 
-``run_command`` runs a shell command inside the AgentCeption container and
-returns its stdout, stderr, and exit code as a structured dict.
+``run_command`` runs an arbitrary shell command inside the AgentCeption
+container and returns stdout, stderr, and exit code as a structured dict.
+
+``git_commit_and_push`` is a higher-level helper that consolidates the
+four-step git workflow (checkout branch, add, commit, push) into one atomic
+tool call, reducing the turn cost of the standard commit-and-PR pattern from
+four turns to one.
 
 Safety is enforced via a denylist of obviously destructive patterns rather
 than an allowlist — the model needs broad access (git, pytest, mypy, rg, gh,
@@ -140,3 +145,101 @@ async def run_command(
         "stdout_truncated": out_truncated,
         "stderr_truncated": err_truncated,
     }
+
+
+async def _git(args: list[str], cwd: Path) -> tuple[int, str, str]:
+    """Run a git sub-command and return *(exit_code, stdout, stderr)*."""
+    proc = await asyncio.create_subprocess_exec(
+        "git",
+        *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=cwd,
+    )
+    raw_out, raw_err = await asyncio.wait_for(proc.communicate(), timeout=120.0)
+    code: int = proc.returncode if proc.returncode is not None else -1
+    return code, raw_out.decode("utf-8", errors="replace"), raw_err.decode("utf-8", errors="replace")
+
+
+async def git_commit_and_push(
+    branch: str,
+    commit_message: str,
+    paths: list[str],
+    worktree_path: Path,
+    *,
+    base: str = "origin/dev",
+) -> dict[str, object]:
+    """Create a branch, stage files, commit, and push in one atomic call.
+
+    Replaces the four-turn run_command pattern::
+
+        git checkout -b <branch> <base>
+        git add <paths>
+        git commit -m <message>
+        git push -u origin <branch>
+
+    If the worktree is already on *branch*, the checkout step is skipped so
+    the tool is idempotent when called twice.
+
+    Args:
+        branch: Name of the feature branch to create (e.g. ``fix/typo``).
+        commit_message: Commit message string.
+        paths: List of paths to stage (passed to ``git add``).
+        worktree_path: Absolute path to the git worktree root.
+        base: Ref to branch from (default ``origin/dev``).
+
+    Returns:
+        ``{"ok": True, "branch": str, "sha": str, "stdout": str}`` on
+        success, or ``{"ok": False, "error": str, "stderr": str}`` on any
+        git failure.
+    """
+    if not paths:
+        return {"ok": False, "error": "git_commit_and_push: 'paths' must be a non-empty list"}
+
+    logger.info(
+        "✅ git_commit_and_push — branch=%s paths=%s cwd=%s",
+        branch,
+        paths,
+        worktree_path,
+    )
+
+    # Determine current branch.
+    code, current, err = await _git(["rev-parse", "--abbrev-ref", "HEAD"], worktree_path)
+    if code != 0:
+        return {"ok": False, "error": "git_commit_and_push: could not determine current branch", "stderr": err}
+    current = current.strip()
+
+    if current != branch:
+        # Try to create the branch from base; if it already exists, just switch.
+        code, out, err = await _git(["checkout", "-b", branch, base], worktree_path)
+        if code != 0:
+            # Branch might already exist locally — try plain checkout.
+            code2, out2, err2 = await _git(["checkout", branch], worktree_path)
+            if code2 != 0:
+                return {
+                    "ok": False,
+                    "error": f"git_commit_and_push: checkout failed",
+                    "stderr": err + "\n" + err2,
+                }
+
+    # Stage the requested paths.
+    code, out, err = await _git(["add", "--", *paths], worktree_path)
+    if code != 0:
+        return {"ok": False, "error": "git_commit_and_push: git add failed", "stderr": err}
+
+    # Commit.
+    code, out, err = await _git(["commit", "-m", commit_message], worktree_path)
+    if code != 0:
+        return {"ok": False, "error": "git_commit_and_push: git commit failed", "stderr": err}
+
+    # Push and set upstream.
+    code, push_out, push_err = await _git(["push", "-u", "origin", branch], worktree_path)
+    if code != 0:
+        return {"ok": False, "error": "git_commit_and_push: git push failed", "stderr": push_err}
+
+    # Retrieve the new commit SHA.
+    code, sha, _ = await _git(["rev-parse", "HEAD"], worktree_path)
+    sha = sha.strip() if code == 0 else "(unknown)"
+
+    logger.info("✅ git_commit_and_push — pushed %s → origin/%s", sha[:12], branch)
+    return {"ok": True, "branch": branch, "sha": sha, "stdout": push_out}

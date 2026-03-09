@@ -13,7 +13,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agentception.tools.file_tools import list_directory, read_file, replace_in_file, search_text, write_file
+from agentception.tools.file_tools import (
+    insert_after_in_file,
+    list_directory,
+    read_file,
+    read_file_lines,
+    replace_in_file,
+    search_text,
+    write_file,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -283,3 +291,102 @@ class TestSearchText:
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=proc):
             result = await search_text("pattern", tmp_path)
         assert result["ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# read_file_lines
+# ---------------------------------------------------------------------------
+
+
+class TestReadFileLines:
+    def test_reads_exact_range(self, tmp_path: Path) -> None:
+        p = tmp_path / "f.txt"
+        p.write_text("line1\nline2\nline3\nline4\n", encoding="utf-8")
+        result = read_file_lines(p, 2, 3)
+        assert result["ok"] is True
+        assert result["content"] == "line2\nline3\n"
+        assert result["start_line"] == 2
+        assert result["end_line"] == 3
+        assert result["total_lines"] == 4
+
+    def test_clamps_end_beyond_file(self, tmp_path: Path) -> None:
+        p = tmp_path / "f.txt"
+        p.write_text("a\nb\nc\n", encoding="utf-8")
+        result = read_file_lines(p, 2, 999)
+        assert result["ok"] is True
+        assert result["end_line"] == 3
+        assert "b\n" in str(result["content"])
+
+    def test_clamps_start_below_one(self, tmp_path: Path) -> None:
+        p = tmp_path / "f.txt"
+        p.write_text("a\nb\n", encoding="utf-8")
+        result = read_file_lines(p, -5, 1)
+        assert result["ok"] is True
+        assert result["start_line"] == 1
+
+    def test_single_line(self, tmp_path: Path) -> None:
+        p = tmp_path / "f.txt"
+        p.write_text("only\n", encoding="utf-8")
+        result = read_file_lines(p, 1, 1)
+        assert result["ok"] is True
+        assert result["content"] == "only\n"
+
+    def test_missing_file_returns_error(self, tmp_path: Path) -> None:
+        result = read_file_lines(tmp_path / "missing.txt", 1, 5)
+        assert result["ok"] is False
+        assert "not found" in str(result["error"]).lower()
+
+    def test_start_beyond_end_after_clamp_returns_error(self, tmp_path: Path) -> None:
+        p = tmp_path / "f.txt"
+        p.write_text("one\n", encoding="utf-8")
+        result = read_file_lines(p, 5, 3)
+        assert result["ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# insert_after_in_file
+# ---------------------------------------------------------------------------
+
+
+class TestInsertAfterInFile:
+    def test_inserts_after_anchor(self, tmp_path: Path) -> None:
+        p = tmp_path / "f.py"
+        p.write_text("import os\nimport sys\n", encoding="utf-8")
+        result = insert_after_in_file(p, "import os\n", "import re\n")
+        assert result["ok"] is True
+        assert p.read_text(encoding="utf-8") == "import os\nimport re\nimport sys\n"
+
+    def test_anchor_not_found_returns_error(self, tmp_path: Path) -> None:
+        p = tmp_path / "f.txt"
+        p.write_text("hello world\n", encoding="utf-8")
+        result = insert_after_in_file(p, "MISSING", "new line\n")
+        assert result["ok"] is False
+        assert "not found" in str(result["error"])
+
+    def test_ambiguous_anchor_returns_error(self, tmp_path: Path) -> None:
+        p = tmp_path / "f.txt"
+        p.write_text("foo\nfoo\n", encoding="utf-8")
+        result = insert_after_in_file(p, "foo", "bar")
+        assert result["ok"] is False
+        assert "2 times" in str(result["error"])
+
+    def test_inserts_at_end_of_file(self, tmp_path: Path) -> None:
+        p = tmp_path / "f.txt"
+        p.write_text("the end", encoding="utf-8")
+        result = insert_after_in_file(p, "the end", "\nextra")
+        assert result["ok"] is True
+        assert p.read_text(encoding="utf-8") == "the end\nextra"
+
+    def test_missing_file_returns_error(self, tmp_path: Path) -> None:
+        result = insert_after_in_file(tmp_path / "nope.txt", "anchor", "content")
+        assert result["ok"] is False
+        assert "not found" in str(result["error"]).lower()
+
+    def test_multiline_anchor(self, tmp_path: Path) -> None:
+        p = tmp_path / "f.py"
+        p.write_text("def foo():\n    pass\n\ndef bar():\n    pass\n", encoding="utf-8")
+        result = insert_after_in_file(p, "def foo():\n    pass\n", "\ndef baz():\n    pass\n")
+        assert result["ok"] is True
+        text = p.read_text(encoding="utf-8")
+        assert "def baz" in text
+        assert text.index("def baz") < text.index("def bar")

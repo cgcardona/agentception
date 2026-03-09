@@ -52,15 +52,22 @@ from agentception.services.llm import (
 )
 from agentception.services.code_indexer import search_codebase
 from agentception.services.github_mcp_client import GitHubMCPClient
-from agentception.tools.definitions import FILE_TOOL_DEFS, SEARCH_CODEBASE_TOOL_DEF, SHELL_TOOL_DEF
+from agentception.tools.definitions import (
+    FILE_TOOL_DEFS,
+    GIT_COMMIT_AND_PUSH_TOOL_DEF,
+    SEARCH_CODEBASE_TOOL_DEF,
+    SHELL_TOOL_DEF,
+)
 from agentception.tools.file_tools import (
+    insert_after_in_file,
     list_directory,
     read_file,
+    read_file_lines,
     replace_in_file,
     search_text,
     write_file,
 )
-from agentception.tools.shell_tools import run_command
+from agentception.tools.shell_tools import git_commit_and_push, run_command
 
 logger = logging.getLogger(__name__)
 
@@ -125,11 +132,14 @@ def _tpm_record_and_get_sleep(input_tokens: int) -> float:
 _LOCAL_TOOL_NAMES: frozenset[str] = frozenset(
     {
         "read_file",
+        "read_file_lines",
         "replace_in_file",
+        "insert_after_in_file",
         "write_file",
         "list_directory",
         "search_text",
         "run_command",
+        "git_commit_and_push",
         "search_codebase",
     }
 )
@@ -538,6 +548,7 @@ def _build_tool_definitions(
     """
     tool_defs: list[ToolDefinition] = list(FILE_TOOL_DEFS)
     tool_defs.append(SHELL_TOOL_DEF)
+    tool_defs.append(GIT_COMMIT_AND_PUSH_TOOL_DEF)
     tool_defs.append(SEARCH_CODEBASE_TOOL_DEF)
 
     seen: set[str] = {t["function"]["name"] for t in tool_defs}
@@ -748,6 +759,18 @@ async def _dispatch_local_tool(
         path = _resolve(args.get("path"), worktree_path)
         return read_file(path)
 
+    if name == "read_file_lines":
+        path_raw = args.get("path")
+        if not isinstance(path_raw, str):
+            return {"ok": False, "error": "read_file_lines: 'path' must be a string"}
+        start_raw = args.get("start_line")
+        end_raw = args.get("end_line")
+        if not isinstance(start_raw, int):
+            return {"ok": False, "error": "read_file_lines: 'start_line' must be an integer"}
+        if not isinstance(end_raw, int):
+            return {"ok": False, "error": "read_file_lines: 'end_line' must be an integer"}
+        return read_file_lines(_resolve(path_raw, worktree_path), start_raw, end_raw)
+
     if name == "replace_in_file":
         path_raw = args.get("path")
         old_raw = args.get("old_string")
@@ -765,6 +788,22 @@ async def _dispatch_local_tool(
             old_raw,
             new_raw,
             allow_multiple=allow,
+        )
+
+    if name == "insert_after_in_file":
+        path_raw = args.get("path")
+        anchor_raw = args.get("anchor")
+        new_content_raw = args.get("new_content")
+        if not isinstance(path_raw, str):
+            return {"ok": False, "error": "insert_after_in_file: 'path' must be a string"}
+        if not isinstance(anchor_raw, str):
+            return {"ok": False, "error": "insert_after_in_file: 'anchor' must be a string"}
+        if not isinstance(new_content_raw, str):
+            return {"ok": False, "error": "insert_after_in_file: 'new_content' must be a string"}
+        return insert_after_in_file(
+            _resolve(path_raw, worktree_path),
+            anchor_raw,
+            new_content_raw,
         )
 
     if name == "write_file":
@@ -796,6 +835,29 @@ async def _dispatch_local_tool(
         cwd_raw = args.get("cwd")
         cwd = _resolve(cwd_raw, worktree_path) if cwd_raw is not None else worktree_path
         return await run_command(command_raw, cwd)
+
+    if name == "git_commit_and_push":
+        branch_raw = args.get("branch")
+        msg_raw = args.get("commit_message")
+        paths_raw = args.get("paths")
+        base_raw = args.get("base", "origin/dev")
+        if not isinstance(branch_raw, str):
+            return {"ok": False, "error": "git_commit_and_push: 'branch' must be a string"}
+        if not isinstance(msg_raw, str):
+            return {"ok": False, "error": "git_commit_and_push: 'commit_message' must be a string"}
+        if not isinstance(paths_raw, list) or not paths_raw:
+            return {"ok": False, "error": "git_commit_and_push: 'paths' must be a non-empty array"}
+        str_paths = [p for p in paths_raw if isinstance(p, str)]
+        if len(str_paths) != len(paths_raw):
+            return {"ok": False, "error": "git_commit_and_push: all entries in 'paths' must be strings"}
+        base = base_raw if isinstance(base_raw, str) else "origin/dev"
+        return await git_commit_and_push(
+            branch_raw,
+            msg_raw,
+            str_paths,
+            worktree_path,
+            base=base,
+        )
 
     if name == "search_codebase":
         query_raw = args.get("query")

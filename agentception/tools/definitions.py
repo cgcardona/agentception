@@ -14,6 +14,43 @@ FILE_TOOL_DEFS: list[ToolDefinition] = [
     ToolDefinition(
         type="function",
         function=ToolFunction(
+            name="read_file_lines",
+            description=(
+                "Read a specific line range from a file (1-indexed, inclusive). "
+                "PREFER this over read_file when you only need a section of a large file — "
+                "it returns only the requested lines, keeping the context window small. "
+                "Use search_text first to locate the relevant line numbers, then call "
+                "read_file_lines to fetch just that region. "
+                "Bounds are clamped to the actual file length; total_lines is always returned "
+                "so you can plan follow-up reads. "
+                "Relative paths are resolved from the worktree root."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the file to read (relative or absolute).",
+                    },
+                    "start_line": {
+                        "type": "integer",
+                        "description": "First line to return (1-indexed).",
+                        "minimum": 1,
+                    },
+                    "end_line": {
+                        "type": "integer",
+                        "description": "Last line to return (1-indexed, inclusive).",
+                        "minimum": 1,
+                    },
+                },
+                "required": ["path", "start_line", "end_line"],
+                "additionalProperties": False,
+            },
+        ),
+    ),
+    ToolDefinition(
+        type="function",
+        function=ToolFunction(
             name="read_file",
             description=(
                 "Read the text content of a file. "
@@ -71,6 +108,44 @@ FILE_TOOL_DEFS: list[ToolDefinition] = [
                     },
                 },
                 "required": ["path", "old_string", "new_string"],
+                "additionalProperties": False,
+            },
+        ),
+    ),
+    ToolDefinition(
+        type="function",
+        function=ToolFunction(
+            name="insert_after_in_file",
+            description=(
+                "Insert new content immediately after an anchor string in a file. "
+                "Use this when you want to ADD new lines after a specific point without "
+                "changing the anchor itself — for example, adding a new function after an "
+                "import block, or inserting a new route after an existing one. "
+                "The anchor must appear exactly once; use a longer anchor if it matches "
+                "multiple times. "
+                "Relative paths are resolved from the worktree root."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the file to edit (relative or absolute).",
+                    },
+                    "anchor": {
+                        "type": "string",
+                        "description": (
+                            "Exact text that marks the insertion point. "
+                            "New content is inserted immediately after this text. "
+                            "Must appear exactly once in the file."
+                        ),
+                    },
+                    "new_content": {
+                        "type": "string",
+                        "description": "Text to insert after the anchor.",
+                    },
+                },
+                "required": ["path", "anchor", "new_content"],
                 "additionalProperties": False,
             },
         ),
@@ -189,6 +264,52 @@ SHELL_TOOL_DEF: ToolDefinition = ToolDefinition(
                 },
             },
             "required": ["command"],
+            "additionalProperties": False,
+        },
+    ),
+)
+
+GIT_COMMIT_AND_PUSH_TOOL_DEF: ToolDefinition = ToolDefinition(
+    type="function",
+    function=ToolFunction(
+        name="git_commit_and_push",
+        description=(
+            "Create a git branch, stage files, commit, and push to origin in one call. "
+            "USE THIS instead of four separate run_command calls for the standard "
+            "end-of-task git workflow. "
+            "If the worktree is already on the target branch, the checkout step is skipped. "
+            "After this call succeeds, open a pull request against dev using the GitHub MCP "
+            "create_pull_request tool."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "branch": {
+                    "type": "string",
+                    "description": (
+                        "Feature branch name to create, e.g. 'fix/issue-42' or 'feat/my-feature'."
+                    ),
+                },
+                "commit_message": {
+                    "type": "string",
+                    "description": "Commit message string.",
+                },
+                "paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "List of file paths to stage (passed to git add). "
+                        "Use ['.'] to stage all changes in the worktree."
+                    ),
+                    "minItems": 1,
+                },
+                "base": {
+                    "type": "string",
+                    "description": "Ref to branch from. Defaults to 'origin/dev'.",
+                    "default": "origin/dev",
+                },
+            },
+            "required": ["branch", "commit_message", "paths"],
             "additionalProperties": False,
         },
     ),
