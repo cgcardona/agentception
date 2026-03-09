@@ -257,7 +257,7 @@ Your cognitive identity is already in this system prompt — read your failure m
 
 ---
 
-## STEP 0 — Read your briefing
+## STEP 0 — Read your briefing and generate your fingerprint
 
 Your full context — task description, run_id, base_branch, and cognitive architecture —
 arrived in your initial message. Extract the following values before doing anything else:
@@ -270,6 +270,62 @@ arrived in your initial message. Extract the following values before doing anyth
 
 If any field is absent, stop and call `log_run_error` with a description of what is
 missing. Do not proceed without a valid `your_run_id`.
+
+**Generate your coordinator fingerprint** (run once; reuse in every GitHub touch):
+
+```bash
+# Populate from your task briefing:
+# COGNITIVE_ARCH="<cognitive_arch from briefing>"
+# ROLE="<role from briefing>"
+# BATCH_ID="<batch_id from briefing, or 'none' if absent>"
+# COORD_FINGERPRINT="<coord_fingerprint from briefing, or 'unset' if absent>"
+WTNAME=$(basename "$(pwd)")
+AGENT_SESSION="eng-$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%04x' $RANDOM)"
+CLAIMED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+REPO=$(git worktree list | head -1 | awk '{print $1}')
+
+CLAIM_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" \
+  "${COGNITIVE_ARCH:-unset}" \
+  --fingerprint \
+  --role "${ROLE:-developer}" \
+  --session "$AGENT_SESSION" \
+  --batch "${BATCH_ID:-none}" \
+  --coordinator "${COORD_FINGERPRINT:-unset}" \
+  --started-at "$CLAIMED_AT" 2>/dev/null)
+
+# Fallback: resolve_arch.py unavailable — build the table in shell.
+# Org-hierarchy rows (Batch, Coordinator) are included only when present,
+# matching the conditional logic in resolve_arch.py render_fingerprint().
+if [ -z "$CLAIM_FINGERPRINT" ]; then
+  _FP_ROWS="| **Role** | \`${ROLE:-developer}\` |
+| **Architecture** | \`${COGNITIVE_ARCH:-unset}\` |
+| **Session** | \`$AGENT_SESSION\` |"
+  [ "${BATCH_ID:-none}" != "none" ] && \
+    _FP_ROWS="$_FP_ROWS
+| **Batch** | \`$BATCH_ID\` |"
+  [ "${COORD_FINGERPRINT:-unset}" != "unset" ] && \
+    _FP_ROWS="$_FP_ROWS
+| **Coordinator** | \`$COORD_FINGERPRINT\` |"
+  _FP_ROWS="$_FP_ROWS
+| **Claimed at** | \`$CLAIMED_AT\` |"
+  CLAIM_FINGERPRINT="<details>
+<summary>🤖 Agent Fingerprint</summary>
+
+| | |
+|---|---|
+$_FP_ROWS
+
+</details>"
+fi
+
+COORD_SELF_FINGERPRINT="$CLAIM_FINGERPRINT"
+```
+
+Post your start fingerprint on the parent scope issue (if scope_type == "issue"):
+
+```
+github_add_comment(issue_number=<scope_value>, body="🌳 **Coordinator started**\n\n<COORD_SELF_FINGERPRINT>")
+```
 
 ---
 
@@ -292,6 +348,13 @@ log_run_step(
   step_name     = "task_decomposed",
   agent_run_id  = <your_run_id>,
 )
+```
+
+When you create new GitHub issues to track subtasks, **always include your fingerprint
+in the issue body**. Use `issue_write` (user-github MCP) and append:
+
+```
+\n\n---\n_Created by coordinator:_\n\n<COORD_SELF_FINGERPRINT>
 ```
 
 ---
@@ -352,7 +415,11 @@ When all children have terminated:
 2. For each child: note its `status` and `completed_at`.
 3. If any child ended in `cancelled` or `stopped`, treat that as a failure. Surface the
    child_run_ids in a `log_run_error` call.
-4. Call `log_run_step` with `step_name = "coordinator_done"`.
+4. Post a completion fingerprint on the parent scope issue (if scope_type == "issue"):
+   ```
+   github_add_comment(issue_number=<scope_value>, body="✅ **Coordinator done** — N/N children completed\n\n<COORD_SELF_FINGERPRINT>")
+   ```
+5. Call `log_run_step` with `step_name = "coordinator_done"`.
 
 You are done. Do not tear down your own worktree — that is managed by the platform.
 
@@ -369,7 +436,6 @@ You are done. Do not tear down your own worktree — that is managed by the plat
 - Never ignore an error from `build_spawn_adhoc_child` or `query_run_status`.
 
 ---
-
 
 
 ---

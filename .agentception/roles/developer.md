@@ -119,19 +119,27 @@ CLAIM_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" \
   --coordinator "${COORD_FINGERPRINT:-unset}" \
   --started-at "$CLAIMED_AT" 2>/dev/null)
 
-# Fallback: if resolve_arch.py is unavailable or returned nothing, build inline.
+# Fallback: resolve_arch.py unavailable — build the table in shell.
+# Org-hierarchy rows (Batch, Coordinator) are included only when present,
+# matching the conditional logic in resolve_arch.py render_fingerprint().
 if [ -z "$CLAIM_FINGERPRINT" ]; then
+  _FP_ROWS="| **Role** | \`${ROLE:-developer}\` |
+| **Architecture** | \`${COGNITIVE_ARCH:-unset}\` |
+| **Session** | \`$AGENT_SESSION\` |"
+  [ "${BATCH_ID:-none}" != "none" ] && \
+    _FP_ROWS="$_FP_ROWS
+| **Batch** | \`$BATCH_ID\` |"
+  [ "${COORD_FINGERPRINT:-unset}" != "unset" ] && \
+    _FP_ROWS="$_FP_ROWS
+| **Coordinator** | \`$COORD_FINGERPRINT\` |"
+  _FP_ROWS="$_FP_ROWS
+| **Claimed at** | \`$CLAIMED_AT\` |"
   CLAIM_FINGERPRINT="<details>
 <summary>🤖 Agent Fingerprint</summary>
 
 | | |
 |---|---|
-| **Role** | \`${ROLE:-developer}\` |
-| **Architecture** | \`${COGNITIVE_ARCH:-unset}\` |
-| **Session** | \`$AGENT_SESSION\` |
-| **Batch** | \`${BATCH_ID:-none}\` |
-| **Coordinator** | \`${COORD_FINGERPRINT:-unset}\` |
-| **Claimed at** | \`$CLAIMED_AT\` |
+$_FP_ROWS
 
 </details>"
 fi
