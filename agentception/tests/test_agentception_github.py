@@ -23,6 +23,7 @@ from agentception.readers.github import (
     _cache,
     _cache_invalidate,
     add_wip_label,
+    approve_pr,
     clear_wip_label,
     close_pr,
     get_active_label,
@@ -32,6 +33,7 @@ from agentception.readers.github import (
     get_open_prs,
     get_wip_issues,
     gh_json,
+    merge_pr,
 )
 
 
@@ -421,3 +423,121 @@ async def test_add_wip_label_raises_on_failure() -> None:
     ):
         with pytest.raises(RuntimeError, match="gh issue edit"):
             await add_wip_label(42)
+
+
+# ---------------------------------------------------------------------------
+# approve_pr
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_approve_pr_passes_review_approve() -> None:
+    """approve_pr() must call gh pr review --approve."""
+    with patch(
+        "agentception.readers.github.asyncio.create_subprocess_exec",
+        return_value=_make_process(b""),
+    ) as mock_exec:
+        await approve_pr(99)
+
+    call_args = mock_exec.call_args[0]
+    assert "pr" in call_args
+    assert "review" in call_args
+    assert "--approve" in call_args
+    assert "99" in call_args
+
+
+@pytest.mark.anyio
+async def test_approve_pr_invalidates_cache() -> None:
+    """approve_pr() must empty the cache on success."""
+    _cache["some_key"] = ("value", time.monotonic() + 60)
+
+    with patch(
+        "agentception.readers.github.asyncio.create_subprocess_exec",
+        return_value=_make_process(b""),
+    ):
+        await approve_pr(99)
+
+    assert len(_cache) == 0
+
+
+@pytest.mark.anyio
+async def test_approve_pr_raises_on_failure() -> None:
+    """approve_pr() must raise RuntimeError when gh exits non-zero."""
+    with patch(
+        "agentception.readers.github.asyncio.create_subprocess_exec",
+        return_value=_make_process(b"", returncode=1, stderr=b"already approved"),
+    ):
+        with pytest.raises(RuntimeError, match="gh pr review --approve failed"):
+            await approve_pr(99)
+
+
+# ---------------------------------------------------------------------------
+# merge_pr
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_merge_pr_passes_squash_flag() -> None:
+    """merge_pr() must call gh pr merge --squash."""
+    with patch(
+        "agentception.readers.github.asyncio.create_subprocess_exec",
+        return_value=_make_process(b""),
+    ) as mock_exec:
+        await merge_pr(99)
+
+    call_args = mock_exec.call_args[0]
+    assert "pr" in call_args
+    assert "merge" in call_args
+    assert "--squash" in call_args
+    assert "99" in call_args
+
+
+@pytest.mark.anyio
+async def test_merge_pr_delete_branch_flag() -> None:
+    """merge_pr() passes --delete-branch when delete_branch=True (default)."""
+    with patch(
+        "agentception.readers.github.asyncio.create_subprocess_exec",
+        return_value=_make_process(b""),
+    ) as mock_exec:
+        await merge_pr(99, delete_branch=True)
+
+    call_args = mock_exec.call_args[0]
+    assert "--delete-branch" in call_args
+
+
+@pytest.mark.anyio
+async def test_merge_pr_no_delete_branch_flag() -> None:
+    """merge_pr() omits --delete-branch when delete_branch=False."""
+    with patch(
+        "agentception.readers.github.asyncio.create_subprocess_exec",
+        return_value=_make_process(b""),
+    ) as mock_exec:
+        await merge_pr(99, delete_branch=False)
+
+    call_args = mock_exec.call_args[0]
+    assert "--delete-branch" not in call_args
+
+
+@pytest.mark.anyio
+async def test_merge_pr_invalidates_cache() -> None:
+    """merge_pr() must empty the cache on success."""
+    _cache["some_key"] = ("value", time.monotonic() + 60)
+
+    with patch(
+        "agentception.readers.github.asyncio.create_subprocess_exec",
+        return_value=_make_process(b""),
+    ):
+        await merge_pr(99)
+
+    assert len(_cache) == 0
+
+
+@pytest.mark.anyio
+async def test_merge_pr_raises_on_failure() -> None:
+    """merge_pr() must raise RuntimeError when gh exits non-zero."""
+    with patch(
+        "agentception.readers.github.asyncio.create_subprocess_exec",
+        return_value=_make_process(b"", returncode=1, stderr=b"merge conflict"),
+    ):
+        with pytest.raises(RuntimeError, match="gh pr merge failed"):
+            await merge_pr(99)

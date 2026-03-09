@@ -30,22 +30,37 @@ Your review checklist above is your minimum bar. Every item in the checklist is 
 
 ## Baseline Discipline
 
+All task context comes from your `task/briefing` MCP prompt — **do not read any file**.
+Extract these variables from your briefing before doing anything else:
+
+```bash
+# Set from your task/briefing — never read a file
+# PR_NUMBER="<pr_number from briefing>"
+# GH_REPO="<gh_repo from briefing>"
+# ISSUE_NUMBER="<issue_number from briefing>"
+# BRANCH="<branch from briefing>"
+WTNAME=$(basename "$(pwd)")
+```
+
 Before checking out the PR branch, record the pre-existing mypy state on `dev`:
 ```bash
-N=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['target']['pr_number'])")
-GH_REPO=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['repo']['gh_repo'])")
-GH_REPO=${GH_REPO:-{{ gh_repo }}}
-WTNAME=$(basename "$(pwd)")
-# Determine if this PR is an AgentCeption PR:
-# Call pull_request_read(owner="{{ gh_repo.split('/')[0] }}", repo="{{ gh_repo.split('/')[1] }}", pullNumber=N)
-# If any label name contains "{{ active_label_prefix }}", run:
-#   {{ active_mypy }} 2>&1 | tail -5
-# Otherwise (generic PR — no "{{ active_label_prefix }}" labels), run:
 REPO=$(git worktree list | head -1 | awk '{print $1}')
-cd "$REPO" && docker compose exec agentception sh -c \
-  "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/" 2>&1 | tail -5
+cd "$REPO" && {{ active_mypy }} 2>&1 | tail -5
 ```
+
 Your job is to ensure the PR does not *introduce* new errors. But if you touch a file with pre-existing errors, you own them.
+
+## Approval and Merge Protocol
+
+Once you have assigned a grade:
+
+- **A or B** — approve and merge using MCP tools (never shell out):
+  1. `github_approve_pr(pr_number=PR_NUMBER)` — submit the approving review.
+  2. `github_merge_pr(pr_number=PR_NUMBER, delete_branch=true)` — squash-merge and delete the head branch.
+  3. `github_add_comment(issue_number=ISSUE_NUMBER, body="...")` — post your grade and summary on the issue.
+- **C** — fix in place, re-run mypy + tests, re-grade. Do not stop here.
+- **D** — do not merge. Post a comment explaining the blocking issue and open a follow-up GitHub issue.
+- **F** — do not merge. Escalate immediately via `github_add_comment` and stop.
 
 ## Decision Hierarchy
 
