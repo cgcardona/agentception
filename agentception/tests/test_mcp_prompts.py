@@ -93,11 +93,11 @@ class TestGetPrompt:
         assert msg["content"]["type"] == "text"
         assert msg["content"]["text"] == fake_content
 
-    def test_agent_dispatcher_returns_content(self) -> None:
-        fake_content = "# Dispatcher\n\nYou dispatch agents.\n"
+    def test_agent_command_policy_returns_content(self) -> None:
+        fake_content = "# Command Policy\n\nRules for safe shell usage.\n"
         with patch.object(Path, "exists", return_value=True), \
              patch.object(Path, "read_text", return_value=fake_content):
-            result = get_static_prompt("agent/dispatcher")
+            result = get_static_prompt("agent/command-policy")
         assert result is not None
         assert result["messages"][0]["content"]["text"] == fake_content
 
