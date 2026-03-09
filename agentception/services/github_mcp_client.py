@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 _GH_MCP_BINARY = "github-mcp-server"
 _MCP_PROTOCOL_VERSION = "2024-11-05"
 _READ_TIMEOUT_SECS = 30.0
+# GitHub MCP tools/list response can exceed asyncio's default 64 KB readline
+# buffer.  Set a generous limit (16 MB) to accommodate it.
+_STREAM_LIMIT = 16 * 1024 * 1024
 
 # GitHub MCP tools we never expose to the agent — either dangerous (delete/fork)
 # or irrelevant to AgentCeption's workflow.
@@ -88,6 +91,7 @@ class GitHubMCPClient:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
                 env=env,
+                limit=_STREAM_LIMIT,
             )
         except FileNotFoundError as exc:
             raise RuntimeError(
