@@ -37,9 +37,8 @@ Never skip type checking. A passing test with an underlying type error is a defe
 
 ## Audit Trail — Required at Every Touch Point
 
-You must post fingerprint comments to GitHub at each lifecycle event.
-These are the only audibility signal visible to the human operator.
-All values come from your task briefing — do NOT read any file to obtain them.
+Post a fingerprint comment at each lifecycle event. All values come from your
+task briefing — do NOT read any file to obtain them.
 
 ```bash
 # Populate from your task briefing before running anything below:
@@ -51,18 +50,43 @@ All values come from your task briefing — do NOT read any file to obtain them.
 # ISSUE_NUMBER="<issue_number from briefing>"
 # BRANCH="<branch from briefing>"
 WTNAME=$(basename "$(pwd)")
+```
 
-# ── 1. CLAIM — post immediately after adding {{ claim_label }} label ─────────
+### Event 1 — Claim (immediately after adding `{{ claim_label }}` label)
+
+Generate the fingerprint:
+
+```bash
 {% include 'snippets/fingerprint-claim.md.j2' %}
-# ── 2. PR CREATED — embed fingerprint in PR body ─────────────────────────────
-# When calling create_pull_request (via MCP user-github), include
-# $CLAIM_FINGERPRINT at the end of the PR body:
-#
-#   body = "## Summary\n...\n\nCloses #$ISSUE_NUMBER\n\n$CLAIM_FINGERPRINT"
+```
 
-# ── 3. DONE — post implementation complete comment on the issue ───────────────
-gh issue comment "$ISSUE_NUMBER" --repo "$GH_REPO" \
-  --body "🤖 **Implemented by agent** — PR #$PR_NUMBER
+Post the claim comment — **always prefer MCP**:
 
-$CLAIM_FINGERPRINT" 2>/dev/null || true
+```
+# Preferred (MCP — logged and auditable):
+github_add_comment(issue_number=<ISSUE_NUMBER>, body="🔖 **Claimed by agent**\n\n<CLAIM_FINGERPRINT>")
+
+# Fallback (only if MCP unavailable):
+# gh issue comment "$ISSUE_NUMBER" --repo "$GH_REPO" \
+#   --body "🔖 **Claimed by agent**\n\n$CLAIM_FINGERPRINT" 2>/dev/null || true
+```
+
+### Event 2 — PR Created
+
+Include `$CLAIM_FINGERPRINT` verbatim at the end of the PR body when calling
+`create_pull_request` (via `user-github` MCP):
+
+```
+body = "## Summary\n...\n\nCloses #<ISSUE_NUMBER>\n\n<CLAIM_FINGERPRINT>"
+```
+
+### Event 3 — Done (after PR is merged or work is complete)
+
+```
+# Preferred (MCP):
+github_add_comment(issue_number=<ISSUE_NUMBER>, body="🤖 **Implemented by agent** — PR #<PR_NUMBER>\n\n<CLAIM_FINGERPRINT>")
+
+# Fallback:
+# gh issue comment "$ISSUE_NUMBER" --repo "$GH_REPO" \
+#   --body "🤖 **Implemented by agent** — PR #$PR_NUMBER\n\n$CLAIM_FINGERPRINT" 2>/dev/null || true
 ```

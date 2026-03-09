@@ -210,21 +210,21 @@ async def spawn_child(
 ) -> SpawnChildResult:
     """Atomically create a child agent node in the agent tree.
 
-    Creates the worktree, writes ``.agent-task``, registers the DB record,
-    and auto-acknowledges (``pending_launch`` → ``implementing``) so the
-    caller can immediately fire a Task tool call.
+    Creates the worktree, persists all task context to the DB row, and
+    auto-acknowledges (``pending_launch`` → ``implementing``) so the caller
+    can immediately fire a Task tool call.  No ``.agent-task`` file is written.
+    The child receives its full task context via the DB-backed MCP surface:
+    ``ac://runs/{run_id}/context`` and the ``task/briefing`` MCP prompt.
 
     Args:
         parent_run_id:      ``run_id`` of the calling agent (lineage tracking).
         role:               Child's role slug (e.g. ``"engineering-coordinator"``).
         tier:               Behavioral execution tier for this child —
-                            ``"coordinator"`` or ``"worker"``.
-                            Written as ``TIER=`` in the
-                            ``.agent-task`` file.  The caller always knows which
-                            tier it is spawning — this is never inferred.
+                            ``"coordinator"`` or ``"worker"``.  The caller always
+                            knows which tier it is spawning — this is never inferred.
         org_domain:         Organisational slot for UI hierarchy visualisation —
                             ``"c-suite"``, ``"engineering"``, or ``"qa"``.  Optional;
-                            written as ``ORG_DOMAIN=`` when provided.  A
+                            written to the DB row when provided.  A
                             chain-spawned PR reviewer should pass ``"qa"`` so the
                             dashboard places it in the QA column even though its
                             physical ``parent_run_id`` points to an engineering leaf.
@@ -233,13 +233,12 @@ async def spawn_child(
         gh_repo:            ``"owner/repo"`` string.
         issue_body:         Issue body text (used for COGNITIVE_ARCH skill extraction
                             when ``cognitive_arch`` is not provided).
-        issue_title:        Issue title (written to ISSUE_TITLE field).
+        issue_title:        Issue title (written to the DB row).
         skills_hint:        Explicit skill list override for COGNITIVE_ARCH
                             (used when ``cognitive_arch`` is not provided).
-        coord_fingerprint:  The spawning coordinator's fingerprint string.  Written
-                            as ``COORD_FINGERPRINT=`` in the child's ``.agent-task``
-                            so leaf agents can include it in their GitHub fingerprint
-                            comments without having to re-derive it.
+        coord_fingerprint:  The spawning coordinator's fingerprint string.
+                            Persisted to the DB row so leaf agents can include it
+                            in their GitHub fingerprint comments without re-deriving.
         cognitive_arch:     When provided, forward this exact arch string to the child
                             without re-resolving.  Coordinators must pass their own
                             ``cognitive_arch`` here so the field propagates unchanged
