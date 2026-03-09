@@ -33,6 +33,7 @@ The key is read from ``settings.anthropic_api_key`` (env var
 import asyncio
 import json
 import logging
+import ssl
 from collections.abc import AsyncGenerator
 from typing import Literal, NotRequired, TypedDict
 
@@ -303,7 +304,7 @@ async def call_anthropic(
             if exc.response.status_code in (429, 500, 502, 503, 504):
                 continue
             raise
-        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        except (httpx.TimeoutException, httpx.NetworkError, ssl.SSLError) as exc:
             last_error = exc
             continue
     else:
@@ -456,7 +457,7 @@ async def call_anthropic_with_tools(
     tools: list[ToolDefinition],
     model: str = _MODEL,
     temperature: float = 0.0,
-    max_tokens: int = 8192,
+    max_tokens: int = 16384,
 ) -> ToolResponse:
     """Call Claude via the Anthropic API with tool-use support.
 
@@ -533,7 +534,7 @@ async def call_anthropic_with_tools(
             if exc.response.status_code in (429, 500, 502, 503, 504):
                 continue
             raise
-        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        except (httpx.TimeoutException, httpx.NetworkError, ssl.SSLError) as exc:
             last_error = exc
             continue
     else:

@@ -13,6 +13,7 @@ All external I/O is mocked:
 from __future__ import annotations
 
 import json
+import ssl
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -20,7 +21,13 @@ import pytest
 
 from agentception.mcp.types import ACToolContent, ACToolResult
 from agentception.models import AgentTaskSpec
-from agentception.services.llm import ToolCall, ToolCallFunction, ToolResponse
+from agentception.services.llm import (
+    ToolCall,
+    ToolCallFunction,
+    ToolDefinition,
+    ToolFunction,
+    ToolResponse,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -516,23 +523,109 @@ class TestEnforceTurnDelay:
 
     @pytest.mark.anyio
     async def test_recent_call_waits_remainder(self) -> None:
-        """A call made 13s ago should wait ~2s (15s target - 13s elapsed)."""
+        """A call made 1s ago should wait ~1s (2s target - 1s elapsed)."""
         import time
         import agentception.services.agent_loop as al
-        al._last_llm_call_at = time.monotonic() - 13.0
+        al._last_llm_call_at = time.monotonic() - 1.0
         t0 = time.monotonic()
         from agentception.services.agent_loop import _enforce_turn_delay
         await _enforce_turn_delay()
         elapsed = time.monotonic() - t0
-        assert 1.5 < elapsed < 3.5  # ~2s wait, with tolerance
+        assert 0.5 < elapsed < 2.0  # ~1s wait, with tolerance
 
     @pytest.mark.anyio
     async def test_old_call_skips_wait(self) -> None:
-        """A call made 20s ago (> 15s target) incurs no extra wait."""
+        """A call made 5s ago (> 2s target) incurs no extra wait."""
         import time
         import agentception.services.agent_loop as al
-        al._last_llm_call_at = time.monotonic() - 20.0
+        al._last_llm_call_at = time.monotonic() - 5.0
         t0 = time.monotonic()
         from agentception.services.agent_loop import _enforce_turn_delay
         await _enforce_turn_delay()
         assert time.monotonic() - t0 < 1.0
+
+
+class TestLLMSSLRetry:
+    """Regression tests: ssl.SSLError is retried, not propagated (bug: run killed by transient TLS error)."""
+
+    _TOOLS: list[ToolDefinition] = [
+        ToolDefinition(
+            type="function",
+            function=ToolFunction(
+                name="noop",
+                description="no-op",
+                parameters={"type": "object", "properties": {}},
+            ),
+        )
+    ]
+    _MESSAGES: list[dict[str, object]] = [{"role": "user", "content": "hello"}]
+
+    @pytest.mark.anyio
+    async def test_ssl_error_is_retried_call_anthropic_with_tools(self) -> None:
+        """call_anthropic_with_tools retries on ssl.SSLError instead of crashing."""
+        import httpx
+
+        from agentception.services.llm import call_anthropic_with_tools
+
+        call_count = 0
+
+        async def _flaky_post(
+            url: str, *, json: object, headers: dict[str, str]
+        ) -> httpx.Response:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise ssl.SSLError("SSLV3_ALERT_BAD_RECORD_MAC")
+            resp_data = {
+                "content": [{"type": "text", "text": "done"}],
+                "stop_reason": "end_turn",
+                "usage": {
+                    "input_tokens": 10,
+                    "output_tokens": 5,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                },
+            }
+            resp = httpx.Response(200, json=resp_data)
+            resp.request = httpx.Request("POST", url)
+            return resp
+
+        mock_client = MagicMock()
+        mock_client.post = _flaky_post
+
+        with patch(
+            "agentception.services.llm._get_client", return_value=mock_client
+        ), patch("agentception.services.llm.asyncio.sleep", new_callable=AsyncMock):
+            result = await call_anthropic_with_tools(
+                messages=self._MESSAGES,
+                system="sys",
+                tools=self._TOOLS,
+            )
+
+        assert result["content"] == "done"
+        assert call_count == 2
+
+    @pytest.mark.anyio
+    async def test_ssl_error_exhausts_retries_and_raises(self) -> None:
+        """call_anthropic_with_tools raises after all retries are exhausted on persistent ssl.SSLError."""
+        import httpx
+
+        from agentception.services.llm import call_anthropic_with_tools
+
+        async def _always_fails(
+            url: str, *, json: object, headers: dict[str, str]
+        ) -> httpx.Response:
+            raise ssl.SSLError("SSLV3_ALERT_BAD_RECORD_MAC")
+
+        mock_client = MagicMock()
+        mock_client.post = _always_fails
+
+        with patch(
+            "agentception.services.llm._get_client", return_value=mock_client
+        ), patch("agentception.services.llm.asyncio.sleep", new_callable=AsyncMock):
+            with pytest.raises(ssl.SSLError):
+                await call_anthropic_with_tools(
+                    messages=self._MESSAGES,
+                    system="sys",
+                    tools=self._TOOLS,
+                )
