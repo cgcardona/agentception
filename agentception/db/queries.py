@@ -1153,11 +1153,12 @@ async def get_conductor_history(
 ) -> list[ConductorHistoryRow]:
     """Return the last *limit* conductor spawns with current active/completed status.
 
-    Status is ``"active"`` when the worktree directory still exists on disk and
-    ``"completed"`` once it has been removed.  Falls back to ``[]`` on any DB
-    error so the UI degrades gracefully without surfacing the error to the user.
+    Status is derived from the latest agent run in each wave: ``"active"`` when
+    the run status is ``implementing`` or ``reviewing``, ``"completed"`` otherwise.
+    Falls back to ``[]`` on any DB error so the UI degrades gracefully without
+    surfacing the error to the user.
     """
-    from sqlalchemy import desc
+    from sqlalchemy import desc, func
 
     from agentception.config import settings
 
@@ -1166,26 +1167,51 @@ async def get_conductor_history(
 
     try:
         async with get_session() as session:
+            # Subquery: pick the most-recent agent run per wave (by spawned_at).
+            latest_run_subq = (
+                select(
+                    ACAgentRun.wave_id,
+                    ACAgentRun.status,
+                    func.row_number()
+                    .over(
+                        partition_by=ACAgentRun.wave_id,
+                        order_by=desc(ACAgentRun.spawned_at),
+                    )
+                    .label("rn"),
+                )
+                .where(ACAgentRun.wave_id.isnot(None))
+                .subquery()
+            )
+
             stmt = (
-                select(ACWave)
+                select(ACWave, latest_run_subq.c.status)
+                .outerjoin(
+                    latest_run_subq,
+                    (ACWave.id == latest_run_subq.c.wave_id)
+                    & (latest_run_subq.c.rn == 1),
+                )
                 .where(ACWave.role == "conductor")
                 .order_by(desc(ACWave.started_at))
                 .limit(limit)
             )
             result = await session.execute(stmt)
-            waves = result.scalars().all()
+            rows = result.all()
 
         entries: list[ConductorHistoryRow] = []
-        for wave in waves:
+        for wave, run_status in rows:
             worktree = Path(wt_dir) / wave.id
             host_worktree = Path(host_wt_dir) / wave.id
+            # Replaced filesystem worktree check — status is the authoritative signal.
+            display_status = (
+                "active" if run_status in ("implementing", "reviewing") else "completed"
+            )
             entries.append(
                 ConductorHistoryRow(
                     wave_id=wave.id,
                     worktree=str(worktree),
                     host_worktree=str(host_worktree),
                     started_at=wave.started_at.strftime("%Y-%m-%d %H:%M UTC"),
-                    status="active" if worktree.exists() else "completed",
+                    status=display_status,
                 )
             )
         return entries
