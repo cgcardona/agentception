@@ -9,7 +9,7 @@ import { defineConfig, devices } from '@playwright/test';
  * Run all E2E tests:      npm run test:e2e
  * Run with UI explorer:   npm run test:e2e:ui
  *
- * All external dependencies (OpenRouter, GitHub) are intercepted via
+ * All external dependencies (Anthropic API, GitHub) are intercepted via
  * page.route() in each test — no real API keys are required.
  */
 export default defineConfig({

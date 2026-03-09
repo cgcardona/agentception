@@ -50,7 +50,7 @@ When `AC_API_KEY` is configured, Cursor's HTTP MCP client must include the key:
 }
 ```
 
-LLM calls from AgentCeption to OpenRouter/Anthropic always use HTTPS — there is no plaintext LLM traffic.
+LLM calls from AgentCeption to Anthropic always use HTTPS — there is no plaintext LLM traffic.
 
 ## stdio configuration (`~/.cursor/mcp.json`)
 
