@@ -110,17 +110,23 @@ _last_llm_call_at: float = 0.0
 
 
 async def _enforce_turn_delay() -> None:
-    """Sleep only as long as needed to maintain the minimum inter-turn interval.
+    """Sleep until _MIN_TURN_DELAY_SECS has elapsed since the last LLM call completed.
 
-    If the previous turn's tool calls already took longer than
-    ``_MIN_TURN_DELAY_SECS``, this returns immediately — no extra wait.
+    The timestamp is updated by the caller *after* call_anthropic_with_tools
+    returns, so retry backoff inside the LLM call does not eat into the next
+    window.  If the previous turn's tool dispatch already consumed the full
+    window this returns immediately.
     """
-    global _last_llm_call_at
     elapsed = time.monotonic() - _last_llm_call_at
     wait = _MIN_TURN_DELAY_SECS - elapsed
     if wait > 0.0:
         logger.info("⏳ agent_loop: inter-turn delay — sleeping %.1fs", wait)
         await asyncio.sleep(wait)
+
+
+def _record_llm_call() -> None:
+    """Stamp the completion time of the most recent LLM call."""
+    global _last_llm_call_at
     _last_llm_call_at = time.monotonic()
 
 
@@ -206,10 +212,10 @@ async def run_agent_loop(
             run_id,
         )
 
-        # Proactive inter-turn pacing: ensure at least _MIN_TURN_DELAY_SECS
-        # between LLM calls.  Turn 1 is always instant (no prior call).
-        # If tool calls on the previous turn already consumed the window,
-        # _enforce_turn_delay returns immediately with no extra wait.
+        # Proactive inter-turn pacing.  _last_llm_call_at is stamped *after*
+        # call_anthropic_with_tools returns (including any retry backoff), so
+        # the full _MIN_TURN_DELAY_SECS gap is always preserved between the end
+        # of one LLM interaction and the start of the next.
         await _enforce_turn_delay()
 
         try:
@@ -220,11 +226,14 @@ async def run_agent_loop(
                 tools=tool_defs,
             )
         except Exception as exc:
+            _record_llm_call()  # stamp even on error so next delay is measured correctly
             logger.exception("❌ agent_loop LLM error on iteration %d", iteration)
             await github_client.close()
             await log_run_error(issue_number, f"LLM error: {exc}", run_id)
             await build_cancel_run(run_id)
             return
+
+        _record_llm_call()  # stamp after successful response — this is the reference point for the next delay
 
         # Append assistant message to history.
         assistant_msg: dict[str, object] = {"role": "assistant", "content": response["content"]}
