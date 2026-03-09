@@ -9,7 +9,7 @@ Any coordinator agent calls ``spawn_child()`` to atomically:
   3. Register a ``pending_launch`` DB record (with parent_run_id lineage).
   4. Auto-acknowledge the run (transition to ``implementing``).
 
-No ``.agent-task`` file is written.  The child agent receives its full
+The child agent receives its full
 task context via the DB-backed MCP surface:
 
 - ``ac://runs/{run_id}/context`` resource — full RunContextRow with role,
@@ -212,7 +212,7 @@ async def spawn_child(
 
     Creates the worktree, persists all task context to the DB row, and
     auto-acknowledges (``pending_launch`` → ``implementing``) so the caller
-    can immediately fire a Task tool call.  No ``.agent-task`` file is written.
+    can immediately fire a Task tool call.
     The child receives its full task context via the DB-backed MCP surface:
     ``ac://runs/{run_id}/context`` and the ``task/briefing`` MCP prompt.
 
@@ -324,7 +324,7 @@ async def spawn_child(
 
     logger.info("✅ spawn_child: worktree created at %s", worktree_path)
 
-    # Persist DB record — all task context goes to the DB row; no .agent-task
+    # Persist DB record — all task context goes to the DB row.
     # file is written.  Agents read their full briefing from the DB via the
     # ac://runs/{run_id}/context MCP resource and the task/briefing prompt.
     db_issue_number = issue_number if issue_number is not None else (pr_number or 0)

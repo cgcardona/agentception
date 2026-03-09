@@ -13,7 +13,7 @@
  * Features
  * ────────
  * • Context-aware child filtering — parent role constrains available children
- * • Full org tree serialised into .agent-task at launch time
+ * • Full org tree serialised into the DB context row at dispatch time
  * • localStorage persistence — tree survives page refreshes
  * • Initiative scope per coordinator node (full / specific phase)
  * • Launch feedback — root card turns green with run_id after dispatch

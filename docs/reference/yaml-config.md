@@ -133,7 +133,7 @@ labels:
 
 **Source:** `scripts/gen_prompts/team.yaml`
 
-Defines which cognitive architecture is assigned to each role. The `cognitive_arch` field from each role flows directly into `.agent-task` files and the LLM context.
+Defines which cognitive architecture is assigned to each role. The `cognitive_arch` field from each role flows directly into `DB context rows and the LLM context.
 
 ### Structure
 
@@ -254,7 +254,7 @@ levels:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `slug` | string | Unique identifier — used in `.agent-task` files and API calls |
+| `slug` | string | Unique identifier — used in `DB context rows and API calls |
 | `label` | string | Human display name |
 | `title` | string | Full job title |
 | `category` | string | `executive`, `coordinator`, or `leaf` |

@@ -277,7 +277,7 @@ async def run_agent_loop(
 async def _load_task(run_id: str, worktree_path: Path) -> AgentTaskSpec | None:
     """Load task context for *run_id* from the ``ACAgentRun`` DB row.
 
-    All task context lives in the DB — no ``.agent-task`` file is read.
+    All task context lives in the DB.
     Returns ``None`` when no row exists, logging the error.
     """
     return await _load_task_from_db(run_id)

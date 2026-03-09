@@ -72,7 +72,7 @@ SEED:
        c. Call ``build_spawn_child`` MCP tool to create the reviewer node atomically:
           ```
           build_spawn_child(
-            parent_run_id = <your RUN_ID from .agent-task>,
+            parent_run_id = <your RUN_ID from the task briefing>,
             role          = "pr-reviewer",
             tier          = "reviewer",
             org_domain    = "qa",
@@ -84,20 +84,20 @@ SEED:
           )
           ```
           The tool resolves COGNITIVE_ARCH from the PR body automatically,
-          creates the worktree, writes the .agent-task with all fields, registers
-          the DB record, and auto-acknowledges. You do NOT write .agent-task manually.
+          creates the worktree, persists all fields to the DB record,
+          and auto-acknowledges. You do NOT manage worktrees or DB records manually.
 
   6. Launch all spawned reviewers simultaneously — one Task call per PR,
      all in a single message:
        ```
        Task(
          subagent_type = "generalPurpose",
-         prompt = "Read your .agent-task at {host_worktree_path}/.agent-task
-                   and follow the instructions for your role.
+         prompt = "Your run_id is {run_id}. Read your task briefing from
+                   ac://runs/{run_id}/context and follow the instructions for your role.
                    GH_REPO=cgcardona/agentception  Repo: <repo-root>"
        )
        ```
-     The reviewer reads its own .agent-task for full context — no embedded
+     The reviewer reads its full context from ac://runs/{run_id}/context — no embedded
      role content is needed in the Task prompt.
 
   7. Wait for all spawned reviewers to complete.
@@ -110,9 +110,9 @@ SEED:
 
 Worktrees live at: `$HOME/.agentception/worktrees/agentception/pr-{N}/`
 
-The `build_spawn_child` MCP tool writes `.agent-task` files automatically with all
-required fields including COGNITIVE_ARCH, BATCH_ID, lineage fields, and scope.
-You do NOT need to write `.agent-task` files manually.
+The `build_spawn_child` MCP tool creates the worktree, persists all required fields
+(COGNITIVE_ARCH, BATCH_ID, lineage, scope) to the DB record, and auto-acknowledges.
+You do NOT manage worktrees or DB records manually.
 
 If a worktree is missing for a new PR:
   `# MCP: pull_request_read (user-github)(pr_number=N) → .headRefName`

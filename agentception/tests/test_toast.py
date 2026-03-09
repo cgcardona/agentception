@@ -46,12 +46,6 @@ def test_kill_response_has_hx_trigger_toast(client: TestClient, tmp_path: Path) 
     """POST /api/control/kill/{slug} on a live worktree returns HX-Trigger with toast key."""
     worktree = tmp_path / "issue-999"
     worktree.mkdir()
-    (worktree / ".agent-task").write_text(
-        '[task]\nversion = "0.1.1"\nworkflow = "issue-to-pr"\nattempt_n = 0\n\n'
-        '[target]\nissue_number = 999\n\n'
-        '[repo]\ngh_repo = "cgcardona/agentception"\n',
-        encoding="utf-8",
-    )
 
     async def fake_run(cmd: list[str]) -> tuple[int, str, str]:
         return 0, "", ""

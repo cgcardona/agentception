@@ -221,7 +221,7 @@ phases:
 When the user clicks **Launch**, AgentCeption:
 
 1. Validates the edited YAML one final time against PlanSpec.
-2. Writes a coordinator `.agent-task` file containing the full PlanSpec.
+2. Writes a coordinator `DB context row containing the full PlanSpec.
 3. Creates an isolated git worktree for the coordinator agent.
 
 The **coordinator agent** (running in Cursor via MCP) then:

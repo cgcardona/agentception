@@ -93,7 +93,7 @@ async def build_spawn_child_run(
     The tool creates the worktree, persists all task context to the DB row
     (role, cognitive_arch, tier, scope, parent lineage, and all required fields),
     and auto-acknowledges the run so the caller can immediately fire a Task call.
-    No ``.agent-task`` file is written — the child reads its full context via
+    The child reads its full context via
     ``ac://runs/{run_id}/context`` and the ``task/briefing`` MCP prompt.
 
     Was: ``build_spawn_child``.

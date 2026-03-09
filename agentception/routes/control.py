@@ -31,7 +31,7 @@ async def _resolve_issue_number(slug: str) -> int | None:
     """Return the issue number for the worktree *slug* via a DB lookup.
 
     Queries ``ac_agent_runs`` by ``worktree_path`` to find the associated
-    issue number without reading a ``.agent-task`` file.  Returns ``None``
+    issue number from the DB row.  Returns ``None``
     when the run is not found or the DB is unavailable.
     """
     from agentception.db.queries import get_run_by_worktree_path

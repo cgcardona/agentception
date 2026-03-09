@@ -120,7 +120,7 @@ exit / exit 0 / exit 1        ← script exit; used in merge-gate escalation and
 mapfile -t <ARRAY> < <(...)   ← bash builtin for reading command output into an array
 read                          ← bash builtin; used in IFS-split and while-read loops
 IFS=',' read -ra <ARRAY> <<< ← bash IFS-split; used to iterate LABELS_TO_APPLY and similar CSV fields
-source <file>                 ← load env vars from /tmp/ files (e.g. qa_batch_env, agent-task exports)
+source <file>                 ← load env vars from /tmp/ files (e.g. qa_batch_env)
 check_issue_deps              ← coordinator helper; checks issue dependency gates before merging
 check_deps                    ← agentception helper; checks dependency gates before claiming an issue
 declare -a ISSUES=(...)       ← indexed array declaration in coordinator setup scripts
@@ -140,16 +140,15 @@ GH_REPO=cgcardona/agentception     ← hardcoded repo slug — NEVER derive from
 export GH_REPO=cgcardona/agentception
 ```
 
-### Shell — Variable assignments from command substitution (task-file parsing)
-These patterns appear in every agent kickoff when parsing `.agent-task` KEY=value fields.
-Cursor treats each `VAR=$(cmd)` prefix as a command token — all must be on the allowlist.
+### Shell — Variable assignments from command substitution
+These patterns appear in agent kickoffs. Cursor treats each `VAR=$(cmd)` prefix as a command token — all must be on the allowlist.
 ```
-N=$(grep                      ← parse PR_NUMBER / ISSUE_NUMBER from .agent-task
+N=$(grep                      ← parse PR_NUMBER / ISSUE_NUMBER from context or MCP
 N=$(printf                    ← zero-pad batch number: N=$(printf "%02d" $i)
-BRANCH=$(grep                 ← parse PR_BRANCH from .agent-task
-MERGE_AFTER=$(grep            ← parse MERGE_AFTER gate from .agent-task
-LABELS_TO_APPLY=$(grep        ← parse comma-separated label list from .agent-task
-CLOSES_ISSUES=$(grep          ← parse linked issue numbers from .agent-task
+BRANCH=$(grep                 ← parse PR_BRANCH from context or MCP
+MERGE_AFTER=$(grep            ← parse MERGE_AFTER gate from context or MCP
+LABELS_TO_APPLY=$(grep        ← parse comma-separated label list from context or MCP
+CLOSES_ISSUES=$(grep          ← parse linked issue numbers from context or MCP
 STATE=       ← capture live PR/issue state via MCP: pull_request_read(pullNumber=N)
 PR_BRANCH=   ← fetch PR branch name via MCP: pull_request_read(pullNumber=N) → headRefName
 PR_FILES=    ← fetch PR file list via MCP: pull_request_read(method="get_files", pullNumber=N)
@@ -400,7 +399,7 @@ python3 -m json.tool           ← pretty-printing JSON output from curl or gh c
 python3 -m <stdlib-module>     ← stdlib modules only (json, base64, hashlib, etc.)
 open                           ← (1) macOS shell command — opens files/URLs in the default GUI app
                                ← (2) Python builtin — appears as a standalone token when Cursor
-                               ←     parses a Python heredoc: open('.agent-task', 'rb')
+                               ←     parses a Python expression or MCP resource JSON
                                ← Both are safe; neither writes to disk or makes network calls
 pip3 install                   ← agentception host-side dependency installs ONLY
                                ← All other package installs must use docker compose exec

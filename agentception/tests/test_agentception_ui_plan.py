@@ -22,7 +22,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agentception.app import app
-from agentception.config import AgentCeptionSettings
 from agentception.routes.ui.plan_ui import (
     _YamlNode,
     _normalize_plan_dict,
@@ -185,28 +184,14 @@ def test_plan_recent_runs_shows_cards(client: TestClient) -> None:
     assert "Re-run" in resp.text
 
 
-def test_plan_run_text_returns_plan(client: TestClient, tmp_path: Path) -> None:
-    """GET /api/plan/{run_id}/plan-text returns the PLAN_DUMP section as JSON."""
-    run_id = "plan-20260303-164033"
-    run_dir = tmp_path / run_id
-    run_dir.mkdir()
-    task_file = run_dir / ".agent-task"
-    task_file.write_text(
-        '[task]\nversion = "0.1.1"\nworkflow = "bugs-to-issues"\n\n'
-        '[pipeline]\nbatch_id = "plan-20260303-164033"\n\n'
-        '[plan_draft]\ndump = "- Fix login\\n- Add dark mode"\n',
-        encoding="utf-8",
-    )
+def test_plan_run_text_returns_410_for_historical_runs(client: TestClient) -> None:
+    """GET /api/plan/{run_id}/plan-text returns 410 Gone for valid plan- run IDs.
 
-    fake_settings = AgentCeptionSettings.model_construct(worktrees_dir=tmp_path)
-    with patch("agentception.config.settings", fake_settings):
-        resp = client.get(f"/api/plan/{run_id}/plan-text")
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "plan_text" in data
-    assert "Fix login" in data["plan_text"]
-    assert "Add dark mode" in data["plan_text"]
+    Plan text is no longer stored on disk — the endpoint instructs callers to
+    paste plan text directly instead of loading from a historical run.
+    """
+    resp = client.get("/api/plan/plan-20260303-164033/plan-text")
+    assert resp.status_code == 410
 
 
 def test_plan_run_text_invalid_run_id(client: TestClient) -> None:
@@ -221,12 +206,10 @@ def test_plan_run_text_wrong_prefix(client: TestClient) -> None:
     assert resp.status_code == 400
 
 
-def test_plan_run_text_not_found(client: TestClient, tmp_path: Path) -> None:
-    """GET /api/plan/{run_id}/plan-text returns 404 when the worktree doesn't exist."""
-    fake_settings = AgentCeptionSettings.model_construct(worktrees_dir=tmp_path)
-    with patch("agentception.config.settings", fake_settings):
-        resp = client.get("/api/plan/plan-99991231-999999/plan-text")
-    assert resp.status_code == 404
+def test_plan_run_text_not_found_returns_410(client: TestClient) -> None:
+    """GET /api/plan/{run_id}/plan-text returns 410 for any valid-prefix run."""
+    resp = client.get("/api/plan/plan-99991231-999999/plan-text")
+    assert resp.status_code == 410
 
 
 def test_plan_page_done_state_has_batch_pill_and_track_agents(client: TestClient) -> None:

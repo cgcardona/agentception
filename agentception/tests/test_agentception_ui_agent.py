@@ -165,7 +165,7 @@ def test_agent_detail_no_transcript_path(client: TestClient) -> None:
 def test_agent_detail_contains_task_table(
     client: TestClient, pipeline_with_agent: PipelineState
 ) -> None:
-    """GET /agents/<id> HTML must include the .agent-task key/value table."""
+    """GET /agents/<id> HTML must include the task-table section."""
     with (
         patch("agentception.routes.ui.agents.get_state", return_value=pipeline_with_agent),
         patch(

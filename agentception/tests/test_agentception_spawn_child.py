@@ -6,7 +6,7 @@ Covers:
   - tier parameter contract (coordinator / worker).
   - _build_child_task() field presence and correctness for each scope type.
   - spawn_child() happy path (mocked git + DB) for coordinator and leaf.
-  - spawn_child() produces tier = (not node_type =) in .agent-task.
+  - spawn_child() produces tier = (not node_type =) in the DB row.
   - spawn_child() worktree failure cleanup.
   - POST /api/runs/{parent_run_id}/children HTTP endpoint (valid, invalid, and propagated errors).
   - build_spawn_child MCP tool (happy path + error cases).

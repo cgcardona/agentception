@@ -66,7 +66,7 @@ def build_system_prompt(
 
     Args:
         cognitive_arch: The cognitive architecture string from the agent's
-            ``.agent-task`` file (``[agent].cognitive_arch`` field), e.g.
+            DB row (``cognitive_arch`` field), e.g.
             ``"guido_van_rossum:postgresql:python"``.  Pass ``None`` when the
             field is absent — a warning will be logged.
         role_instructions: Role-specific instructions text (coordinator survey

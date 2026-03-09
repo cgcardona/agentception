@@ -70,7 +70,7 @@ PRs → merged → next phase unlocks
 POST /api/runs/{run_id}/execute
       ↓
 agent_loop.py
-  ├─ load .agent-task TOML
+  ├─ load DB context
   ├─ load role markdown + resolve_arch.py (cognitive arch)
   ├─ build tool catalogue (file + shell + search_codebase + MCP)
   └─ conversation loop ─→ Anthropic Claude

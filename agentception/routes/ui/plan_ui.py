@@ -655,36 +655,17 @@ async def plan_run_text(run_id: str) -> JSONResponse:
     HTTP 400
         When ``run_id`` contains illegal characters or does not start with
         ``plan-``.
-    HTTP 404
-        When the worktree directory or ``.agent-task`` file does not exist, or
-        the file contains no ``PLAN_DUMP:`` section.
+    HTTP 410
+        Plan text is no longer stored on disk.  Re-run is not supported for
+        historical plan runs created before the DB-backed context migration.
     """
-    from agentception.config import settings as _cfg
-
     if not run_id.startswith("plan-") or "/" in run_id or ".." in run_id:
         raise HTTPException(status_code=400, detail="Invalid run_id format.")
 
-    task_file = _cfg.worktrees_dir / run_id / ".agent-task"
-    if not task_file.exists():
-        raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found.")
-
-    try:
-        content = task_file.read_text(encoding="utf-8")
-    except OSError as exc:
-        logger.warning("⚠️ Could not read .agent-task for run %s: %s", run_id, exc)
-        raise HTTPException(status_code=404, detail="Could not read task file.") from exc
-
-    import tomllib
-
-    try:
-        data = tomllib.loads(content)
-    except Exception as exc:
-        logger.warning("⚠️ Could not parse .agent-task for run %s: %s", run_id, exc)
-        raise HTTPException(status_code=404, detail="Could not parse task file.") from exc
-
-    plan_draft = data.get("plan_draft", {})
-    plan_text = plan_draft.get("dump", "") if isinstance(plan_draft, dict) else ""
-    if not plan_text:
-        raise HTTPException(status_code=404, detail="No plan_draft.dump in task file.")
-
-    return JSONResponse({"plan_text": plan_text})
+    raise HTTPException(
+        status_code=410,
+        detail=(
+            "Re-run is not available for this plan run.  "
+            "Plan text is no longer stored on disk — paste your plan text directly."
+        ),
+    )

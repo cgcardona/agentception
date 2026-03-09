@@ -1022,7 +1022,7 @@ async def get_all_prs(
 async def get_waves_from_db(limit: int = 100) -> list[WaveRow]:
     """Return agent runs grouped by batch_id as wave-shaped dicts.
 
-    Used by ``telemetry.aggregate_waves()`` when no ``.agent-task`` files exist
+    Used by ``telemetry.aggregate_waves()`` when no worktrees exist
     on the filesystem (i.e. all worktrees have been cleaned up).  Groups rows
     in ``agent_runs`` by ``batch_id``, then shapes them into the same
     structure expected by ``WaveSummary`` so D3 charts work without changes.
@@ -2682,7 +2682,7 @@ class RunContextRow(TypedDict):
 
     Used by ``ac://runs/{run_id}/context`` and the ``task/briefing`` MCP prompt.
     All fields an agent needs to understand its assignment are present here;
-    no ``.agent-task`` file read is necessary.
+    context is read exclusively from the DB.
     """
 
     run_id: str
@@ -2875,7 +2875,7 @@ async def get_run_by_worktree_path(worktree_path: str) -> RunSummaryRow | None:
     """Return lightweight run metadata for the run whose worktree lives at *worktree_path*.
 
     Used by the kill endpoint to resolve the issue number for ``agent/wip``
-    label cleanup without reading a ``.agent-task`` file.  Returns ``None``
+    label cleanup from the DB row.  Returns ``None``
     when no run matches the path or on DB error.
 
     Args:

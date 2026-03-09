@@ -10,8 +10,8 @@ Covers:
   - POST /api/dispatch/label with scope=phase spawns a coordinator for the sub-label.
   - POST /api/dispatch/label with scope=issue spawns a worker for the given issue number.
   - POST /api/dispatch/label respects an explicit role override in the request.
-  - .agent-task file contains scope_type=issue and scope_value=<number> for issue scope.
-  - .agent-task file contains initiative_label for phase and issue scopes.
+  - DB context row contains scope_type=issue and scope_value=<number> for issue scope.
+  - DB context row contains initiative_label for phase and issue scopes.
   - cascade_enabled defaults to True and propagates correctly when set to False.
 
 Run targeted:
@@ -64,7 +64,7 @@ def _make_worktree_exec() -> MagicMock:
     """Return a mock for asyncio.create_subprocess_exec that creates the worktree dir.
 
     When ``git worktree add <path> -b <branch>`` is called the mock creates the
-    directory so that the subsequent .agent-task write succeeds.
+    directory for the agent worktree.
     """
     async def _side_effect(*args: str, **_kwargs: object) -> AsyncMock:
         if len(args) >= 4 and args[1] == "worktree" and args[2] == "add":
@@ -75,7 +75,7 @@ def _make_worktree_exec() -> MagicMock:
 
 
 def _make_agent_task_capture() -> tuple[list[str], Callable[..., int]]:
-    """Return (written_text, capture_fn) for intercepting .agent-task writes.
+    """Return (written_text, capture_fn) for intercepting dispatch writes.
 
     Patch ``Path.write_text`` with the returned capture_fn inside a ``with``
     block, then inspect ``written_text[0]`` after the block exits.

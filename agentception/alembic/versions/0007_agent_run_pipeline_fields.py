@@ -3,9 +3,9 @@ from __future__ import annotations
 """Add gh_repo, is_resumed, coord_fingerprint to agent_runs.
 
 These three columns eliminate the last remaining data that was only
-available inside the `.agent-task` TOML file.  With this migration every
+previously carried in external files.  With this migration every
 field an agent or the poller needs is readable directly from the DB row,
-making the `.agent-task` file fully redundant.
+making any external task file fully redundant.
 
 - ``gh_repo``          — GitHub repository slug (e.g. ``cgcardona/agentception``).
 - ``is_resumed``       — True when this is a retry of a cancelled/stale run.

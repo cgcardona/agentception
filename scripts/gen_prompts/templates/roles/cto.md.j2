@@ -42,13 +42,10 @@ starts. The pool stays at 4 concurrent workers continuously until the queue drai
 
 ```
 # Your team scope — the team/* labels whose issues you are responsible for.
-# Passed by the CEO as TEAM_LABELS in the dispatch prefix, or read from .agent-task.
+# Read from your task briefing (task/briefing MCP prompt) or ac://runs/{run_id}/context.
 # Example: TEAM_LABELS="team/engineering team/qa team/infrastructure"
-TEAM_LABELS=$(python3 -c "
-import tomllib
-d = tomllib.loads(open('.agent-task').read())
-print(d.get('target', {}).get('team_labels', 'team/engineering'))
-" 2>/dev/null || echo "team/engineering")
+# The value is in RunContextRow.task_description or passed by the CEO in the dispatch message.
+TEAM_LABELS="team/engineering"   # override from your briefing if present
 echo "CTO scope: TEAM_LABELS=$TEAM_LABELS"
 ```
 
@@ -211,7 +208,7 @@ further file reads are needed anywhere in the pipeline.
 
 ## Gating
 
-MERGE_AFTER dependencies are encoded in `.agent-task` files — leaf agents read them.
+MERGE_AFTER dependencies are encoded in each leaf agent's DB context — leaf agents read them from `ac://runs/{run_id}/context`.
 CTO and coordinators do not track dependencies. The canonical prompts handle it.
 
 ## Label scoping rules (critical)
@@ -228,7 +225,7 @@ CTO and coordinators do not track dependencies. The canonical prompts handle it.
 
 - Never implement a feature or review a PR yourself
 - Never run mypy, pytest, or git commands
-- Never create worktrees or write .agent-task files
+- Never create worktrees manually — always use `build_spawn_child` MCP tool
 - Never hardcode issue or PR numbers — always query GitHub live
 - Never stop after one wave — loop until the pipeline is empty
 - Never dispatch a fixed ratio — always re-calculate from live counts each wave

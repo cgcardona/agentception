@@ -24,7 +24,7 @@ POST /api/runs/{run_id}/execute
         ↓
   agent_loop.py
         ↓ load
-  .agent-task TOML (worktree root)
+  DB context (worktree root)
   .agentception/roles/{role}.md
   resolve_arch.py → cognitive architecture markdown
         ↓ build tool catalogue
@@ -49,7 +49,7 @@ POST /api/runs/{run_id}/execute
 
 The main coroutine `run_agent_loop(run_id, max_iterations=50)` orchestrates the entire agent lifecycle:
 
-1. **Load task** — reads the `.agent-task` TOML from the worktree root
+1. **Load task** — reads the `ac://runs/{run_id}/context` TOML from the worktree root
 2. **Load role** — reads the role markdown from `.agentception/roles/{role}.md`
 3. **Build system prompt** — combines role content, cognitive architecture, and a runtime environment note
 4. **Build tool catalogue** — merges local tools, semantic search, and MCP tools
@@ -174,7 +174,7 @@ The `POST /api/runs/{run_id}/execute` endpoint dispatches an agent run using the
 ### Prerequisites
 
 1. A run row must exist in the DB with `status = "pending_launch"` or `"implementing"`
-2. The run's worktree must exist on disk with a valid `.agent-task` file
+2. The run's worktree must exist on disk with a valid `DB context row
 3. The codebase should be indexed (optional but recommended — agents without the index fall back to `rg`-based `search_text`)
 
 ### HTTP request
@@ -202,7 +202,7 @@ curl -X POST http://localhost:10003/api/runs/{run_id}/execute \
 
 ---
 
-## The `.agent-task` File
+## The `ac://runs/{run_id}/context` File
 
 Every agent run reads its configuration from a TOML file at the worktree root:
 

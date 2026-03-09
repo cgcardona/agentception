@@ -55,7 +55,7 @@ class ACWave(Base):
     __tablename__ = "waves"
 
     id: Mapped[str] = mapped_column(String(128), primary_key=True)
-    """BATCH_ID from the .agent-task file (e.g. ``eng-20260302T084507Z-16da``)."""
+    """BATCH_ID for this run (e.g. ``eng-20260302T084507Z-16da``)."""
 
     phase_label: Mapped[str] = mapped_column(String(256), nullable=False)
     """Active phase label at spawn time (e.g. ``phase/0`` or ``team/engineering``)."""

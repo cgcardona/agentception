@@ -38,7 +38,7 @@ def tmp_worktree(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def tmp_worktree_no_task(tmp_path: Path) -> Path:
-    """Return a temporary worktree directory WITHOUT an .agent-task file."""
+    """Return a temporary worktree directory for a no-DB-record agent run."""
     worktree = tmp_path / "pr-888"
     worktree.mkdir()
     return worktree
@@ -125,7 +125,7 @@ def test_kill_endpoint_requires_existing_slug(
 # ── No DB run found — label cleanup skipped ───────────────────────────────────
 
 
-def test_kill_worktree_without_agent_task_still_succeeds(
+def test_kill_worktree_without_db_record_still_succeeds(
     client: TestClient,
     tmp_worktree_no_task: Path,
 ) -> None:

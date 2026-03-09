@@ -155,29 +155,29 @@ def test_migration_chain_is_contiguous() -> None:
 
 
 # ---------------------------------------------------------------------------
-# .agent-task writer — dispatch-label writes TIER= and ORG_DOMAIN=
+# Dispatch — persists TIER and ORG_DOMAIN to the DB row
 # ---------------------------------------------------------------------------
 
 
-def test_dispatch_label_agent_task_contains_tier() -> None:
-    """The .agent-task file written by dispatch-label includes agent.tier in TOML."""
+def test_dispatch_persists_tier() -> None:
+    """dispatch.py persists the agent tier to the DB row."""
     source_path = (
         Path(__file__).parent.parent / "routes" / "api" / "dispatch.py"
     )
     source = source_path.read_text()
     assert '"tier"' in source or "'tier'" in source or "tier" in source, (
-        "dispatch_label_agent should write agent.tier to the TOML .agent-task file"
+        "dispatch should persist agent tier to the DB row"
     )
 
 
-def test_dispatch_label_agent_task_contains_org_domain() -> None:
-    """dispatch-label writes agent.org_domain to the TOML .agent-task file."""
+def test_dispatch_persists_org_domain() -> None:
+    """dispatch.py persists org_domain to the DB row for org hierarchy."""
     source_path = (
         Path(__file__).parent.parent / "routes" / "api" / "dispatch.py"
     )
     source = source_path.read_text()
     assert "org_domain" in source, (
-        "dispatch_label_agent should write agent.org_domain for org hierarchy"
+        "dispatch should persist org_domain to the DB row for org hierarchy"
     )
 
 

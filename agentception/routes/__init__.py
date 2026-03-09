@@ -13,7 +13,7 @@ Split into two sub-packages, each further decomposed into domain modules:
 ``api/``  — JSON endpoints consumed by HTMX and future clients.
   Modules: pipeline, control, config, intelligence, telemetry,
            worktrees, issues.
-  Shared: _shared.py (_SENTINEL, _build_agent_task, helpers).
+  Shared: _shared.py (_SENTINEL, helpers).
 
 Both routers are registered in ``app.py`` via ``app.include_router()``.
 Additional standalone routers (control, intelligence, roles, templates_api)

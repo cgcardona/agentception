@@ -8,7 +8,7 @@
 > **Your job — the full list, nothing more:**
 > 1. Query GitHub for the current batch label to get your canonical issue set — **never use a hardcoded list**.
 > 2. Pull `dev` to confirm it is up to date.
-> 3. Run the Setup script below to create one worktree per issue and write a `.agent-task` file into each.
+> 3. Call the `build_spawn_child` MCP tool once per issue to create the worktree, persist context to the DB, and auto-acknowledge the run.
 > 4. Launch one sub-agent per worktree using the **Task tool** (preferred — allows unlimited parallel agents) or a Cursor composer window rooted in that worktree.
 > 5. Report back once all sub-agents have been launched.
 >
@@ -24,27 +24,24 @@
 
 ---
 
-## Why `.agent-task` files unlock more than 4 parallel agents
+## How the DB-backed system enables unlimited parallel agents
 
 The Task tool can launch multiple agents from a single coordinator message.
-Each agent reads its own `.agent-task` file, so the coordinator does not
-need to pass any content as prompt text — just the worktree path and the
-kickoff prompt. This means you can launch 10, 20, or 50 agents in one message:
+`build_spawn_child` creates the worktree and persists all task context to the DB,
+so the coordinator does not need to embed any content in the prompt — just the
+`run_id` so each agent can call `ac://runs/{run_id}/context` to read its briefing.
+This means you can launch 10, 20, or 50 agents in one message:
 
 ```python
 # All launched simultaneously — no 4-agent limit
-Task(worktree="/path/to/issue-402", prompt=KICKOFF_PROMPT)
-Task(worktree="/path/to/issue-403", prompt=KICKOFF_PROMPT)
-Task(worktree="/path/to/issue-407", prompt=KICKOFF_PROMPT)
-Task(worktree="/path/to/issue-411", prompt=KICKOFF_PROMPT)
-Task(worktree="/path/to/issue-405", prompt=KICKOFF_PROMPT)
-# ... as many as you have worktrees
+Task(run_id="eng-20260302T084507Z-abc1", prompt=KICKOFF_PROMPT)
+Task(run_id="eng-20260302T084507Z-abc2", prompt=KICKOFF_PROMPT)
+# ... one per build_spawn_child result
 ```
 
-**Nested orchestration:** An agent whose `.agent-task` contains
-`[spawn] sub_agents = true` acts as a sub-coordinator: it creates its own
-sub-worktrees with sub-task files and launches leaf agents. This creates
-a tree of unlimited depth and width.
+**Nested orchestration:** A coordinator that dispatches sub-coordinators via
+`build_spawn_child` creates a tree of unlimited depth and width. Each level
+reads its own DB context — no files are written or read.
 
 ---
 
@@ -63,11 +60,11 @@ Kickoff (coordinator)
   └─ for each issue:
        DEV_SHA=$(git rev-parse dev)
        git worktree add --detach .../issue-<N> "$DEV_SHA"  ← detached HEAD at dev tip
-       write .agent-task into it                            ← task assignment, no guessing
+       build_spawn_child(run_id=..., ...)                   ← persists context to DB; no files written
        launch agent in that directory
 
 Agent (per worktree)
-  └─ cat .agent-task                        ← knows exactly what to do
+  └─ read_resource("ac://runs/{run_id}/context")  ← reads full context from DB
   └─ search_pull_requests(q="closes #<N> repo:cgcardona/agentception")  ← CHECK FIRST: existing PR or branch?
      if merged PR found → close issue + self-destruct
      if open PR found   → stop + self-destruct
@@ -243,103 +240,26 @@ for entry in "${SELECTED_ISSUES[@]}"; do
     AGENT_ROLE="database-architect"
   fi
 
-  # Write rich .agent-task — agent reads ALL context from this file
-  # Extract DEPENDS_ON from issue body (looks for "Depends on #NNN" patterns)
-  # (ISSUE_BODY already set from MCP issue_read above)
-  DEPENDS_ON=$(echo "$ISSUE_BODY" | grep -oE 'Depends on[^.]+' | grep -oE '[0-9]+' | tr '\n' ',' | sed 's/,$//')
+  # Dispatch agent via build_spawn_child MCP tool.
+  # The tool creates the worktree, resolves COGNITIVE_ARCH, persists all fields
+  # to the DB record, and auto-acknowledges — no TOML file is written.
+  # Call it for each issue in your batch:
+  #
+  #   build_spawn_child(
+  #     parent_run_id   = "<your own run_id from task briefing>",
+  #     role            = "$AGENT_ROLE",
+  #     tier            = "engineer",
+  #     org_domain      = "engineering",
+  #     scope_type      = "issue",
+  #     scope_value     = "$NUM",
+  #     gh_repo         = "$GH_REPO",
+  #     issue_title     = "$TITLE",
+  #     issue_body      = "$ISSUE_BODY",
+  #   )
+  #
+  # The returned run_id is what you pass to the Task tool below.
 
-  # FILE_OWNERSHIP: coordinator should fill this in manually from the taxonomy
-  # to prevent agents from stepping on each other. Format: comma-separated paths.
-  # Leave as "tbd" if unknown — agent will document its actual files in the PR body.
-  FILE_OWNERSHIP_VALUE="${FILE_OWNERSHIP:-tbd}"
-
-  # Resolve COGNITIVE_ARCH for this issue's tech stack
-  # (ISSUE_BODY already set from MCP issue_read above)
-  if echo "$ISSUE_BODY" | grep -qiE "d3\.js|force-directed|d3\.force|d3\.select"; then
-    SKILLS="d3:javascript"
-  elif echo "$ISSUE_BODY" | grep -qiE "monaco|vs/loader|editor.*cdn"; then
-    SKILLS="monaco"
-  elif echo "$ISSUE_BODY" | grep -qiE "htmx|hx-|sse-connect|hx-ext"; then
-    SKILLS="htmx"
-    echo "$ISSUE_BODY" | grep -qiE "jinja2|\.html|TemplateResponse|extends.*html" && SKILLS="${SKILLS}:jinja2"
-    echo "$ISSUE_BODY" | grep -qiE "alpine|x-data|x-show" && SKILLS="${SKILLS}:alpine"
-  elif echo "$ISSUE_BODY" | grep -qiE "jinja2|TemplateResponse|extends.*html"; then
-    SKILLS="jinja2"
-  elif echo "$ISSUE_BODY" | grep -qiE "postgres|alembic|migration|sqlalchemy"; then
-    SKILLS="postgresql:python"
-  elif echo "$ISSUE_BODY" | grep -qiE "dockerfile|FROM python|compose.*service"; then
-    SKILLS="devops"
-  elif echo "$ISSUE_BODY" | grep -qiE "midi"; then
-    SKILLS="midi:python"
-  elif echo "$ISSUE_BODY" | grep -qiE "llm|embedding|rag|anthropic|claude"; then
-    SKILLS="llm:python"
-  elif echo "$ISSUE_BODY" | grep -qiE "APIRouter|FastAPI|Depends|response_model"; then
-    SKILLS="fastapi:python"
-  else
-    SKILLS="python"
-  fi
-  if echo "$ISSUE_BODY" | grep -qiE "migration|alembic|schema|db.model|postgres"; then
-    FIGURE="dijkstra"
-  elif echo "$ISSUE_BODY" | grep -qiE "SSE|broadcast|async|asyncio|fanout"; then
-    FIGURE="shannon"
-  elif echo "$ISSUE_BODY" | grep -qiE "overview|dashboard|pipeline|tree"; then
-    FIGURE="lovelace"
-  elif echo "$ISSUE_BODY" | grep -qiE "api|endpoint|route|contract"; then
-    FIGURE="turing"
-  else
-    FIGURE="hopper"
-  fi
-  COGNITIVE_ARCH_VAL="${FIGURE}:${SKILLS}"
-  ROLE_FILE_VAL="$REPO/.agentception/roles/${AGENT_ROLE}.md"
-
-  cat > "$WT/.agent-task" <<TASKEOF
-[task]
-version = "0.1.1"
-workflow = "issue-to-pr"
-id = "$(uuidgen | tr '[:upper:]' '[:lower:]')"
-created_at = "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-attempt_n = 0
-required_output = "pr_url"
-on_block = "stop"
-
-[agent]
-role = "$AGENT_ROLE"
-tier = "engineer"
-cognitive_arch = "$COGNITIVE_ARCH_VAL"
-
-[repo]
-gh_repo = "$GH_REPO"
-base = "dev"
-
-[pipeline]
-batch_id = "${BATCH_ID:-none}"
-wave = "${CTO_WAVE:-unset}"
-coord_fingerprint = "${COORD_FINGERPRINT:-unset}"
-
-[spawn]
-mode = "chain"
-sub_agents = false
-
-[target]
-issue_number = $NUM
-issue_title = "$TITLE"
-issue_url = "https://github.com/$GH_REPO/issues/$NUM"
-phase_label = "$PHASE"
-batch_label = "$BATCH"
-all_issue_labels = "$LABELS"
-depends_on = [$DEPENDS_ON]
-file_ownership = "$FILE_OWNERSHIP_VALUE"
-closes = [$NUM]
-
-[worktree]
-path = "$WT"
-linked_pr = 0
-
-[files]
-role_file = "$ROLE_FILE_VAL"
-TASKEOF
-
-  echo "✅ worktree issue-$NUM ready (.agent-task written)"
+  echo "✅ run $RUN_ID ready (context persisted to DB)"
 done
 
 git worktree list
@@ -392,7 +312,7 @@ export GH_REPO=cgcardona/agentception
 
 | Item | Value |
 |------|-------|
-| Your worktree root | current directory (contains `.agent-task`) |
+| Your worktree root | current directory (run_id in your briefing) |
 | Main repo (local path) | first entry of `git worktree list` |
 | GitHub repo slug | `cgcardona/agentception` — always hardcoded, never derived |
 | Docker compose location | main repo |
@@ -482,7 +402,9 @@ Green-tier commands run without confirmation. Yellow = check scope first.
 Red = never, ask the user instead.
 
 STEP 0 — READ YOUR TASK FILE:
-  cat .agent-task
+  # Read your full context from the DB via MCP resource:
+  #   read_resource("ac://runs/{run_id}/context")
+  # All fields below are available in the returned RunContextRow JSON.
 
   Parse all KEY=value fields from the header:
     GH_REPO          → GitHub repo slug (export immediately)
@@ -495,11 +417,11 @@ STEP 0 — READ YOUR TASK FILE:
                        from sub-task sections in this file, then self-destruct)
 
   Export for all subsequent commands:
-    export GH_REPO=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['repo']['gh_repo'])")
+    export GH_REPO="<from RunContextRow.gh_repo>"
     export GH_REPO=${GH_REPO:-cgcardona/agentception}
-    N=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['target']['issue_number'])")
-    ATTEMPT_N=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['task']['attempt_n'])")
-    BATCH_ID=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['pipeline']['batch_id'])")
+    N="<from RunContextRow.issue_number>"
+    ATTEMPT_N="<from RunContextRow.attempt_n>"
+    BATCH_ID="<from RunContextRow.batch_id>"
 
   Generate your unique agent session ID (identifies THIS specific agent run):
     AGENT_SESSION="eng-$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%04x' $RANDOM)"
@@ -519,10 +441,10 @@ STEP 0 — READ YOUR TASK FILE:
     unrelated work. When in doubt: commit, then fix forward.
 
 STEP 0.5 — LOAD YOUR ROLE AND COGNITIVE ARCHITECTURE:
-  ROLE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['role'])")
+  ROLE="<from RunContextRow.role>"
   echo "✅ Operating as role: $ROLE"
   # Your role definition is embedded at the bottom of this prompt under
-  # ## Embedded Role Definitions — no file read needed. ROLE_FILE in .agent-task
+  # ## Embedded Role Definitions — your role is baked into your system prompt via task/briefing.
   # is metadata only; do NOT read it from disk.
   # Locate the ### <your-role> section and apply those instructions now.
 
@@ -654,11 +576,11 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
   Steps: baseline → branch → implement → mypy → tests → commit → docs → PR.
 
   # ── STEP 3.0 — DEPENDENCY GATE ────────────────────────────────────────────
-  # Read DEPENDS_ON from .agent-task. If set, verify those PRs/issues are merged
+  # Read DEPENDS_ON from ac://runs/{run_id}/context. If set, verify those PRs/issues are merged
   # before implementing — your code may import from them at runtime.
   #
   # ⚠️  DEPENDS_ON is a comma-separated list (e.g. "614,615"). Iterate each number separately.
-  DEPENDS_ON_RAW=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(','.join(str(x) for x in d.get('target',{}).get('depends_on',[])))")
+  DEPENDS_ON_RAW="<from RunContextRow.task_description → depends_on field>"
   if [ -n "$DEPENDS_ON_RAW" ] && [ "$DEPENDS_ON_RAW" != "none" ]; then
     echo "ℹ️  DEPENDS_ON: $DEPENDS_ON_RAW"
     echo "   Checking whether dependencies are already on dev..."
@@ -708,7 +630,7 @@ STEP 3 — IMPLEMENT (only if STEP 2 found nothing):
   echo "=== PRE-EXISTING TEST BASELINE (targeted files) ==="
   # Run targeted tests BEFORE branching to capture baseline failures.
   # Any test that fails before your change is pre-existing — you own fixing it.
-  FILE_OWNERSHIP=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(','.join(d.get('target',{}).get('file_ownership',[])))")
+  FILE_OWNERSHIP="<from RunContextRow.task_description → file_ownership field>"
   # (Run targeted tests for the module you're about to modify)
 
   # ── STEP 3.2 — CREATE BRANCH ──────────────────────────────────────────────
@@ -1000,12 +922,11 @@ STEP 5 — PUSH & CREATE PR:
   #    merged by the reviewer agent and stalls the entire pipeline.
   # → returns {number: MY_PR_NUM, url: PR_URL, ...}
 
-  # Write the new PR number back to .agent-task so the chain can use it for MERGE_AFTER.
+  # Report the new PR number back to the coordinator so it can track MERGE_AFTER.
   MY_BRANCH=$(git -C "$WORKTREE" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
   MY_PR_NUM=<pr number from create_pull_request result>
   if [ -n "$MY_PR_NUM" ]; then
-    sed -i '' "s/^LINKED_PR=.*/LINKED_PR=$MY_PR_NUM/" .agent-task 2>/dev/null || true
-    echo "✅ LINKED_PR=$MY_PR_NUM written back to .agent-task"
+    # MCP: update_pull_request or add_issue_comment to record the linked PR number.
     # ⚠️  Do NOT add agent/wip to the PR here. agent/wip on a PR means
     # "a reviewer is actively working on this." The reviewer claims it in STEP 3
     # of agent-reviewer.md after its idempotency gate passes. The idempotency
@@ -1072,7 +993,7 @@ STEP 6 — SPAWN A QA REVIEWER FOR YOUR OWN PR (run this before self-destructing
     # after passing the idempotency gate. Adding it here causes stale labels when the
     # reviewer is never launched or crashes before claiming.
 
-    # Write the reviewer's .agent-task.
+    # Spawn a reviewer via build_spawn_child MCP tool — no manual file writing.
     # SPAWN_MODE=chain tells the reviewer to spawn the next ENGINEER (not reviewer) when done.
     # Reviewer inherits the same COGNITIVE_ARCH as the implementer (same issue domain).
     # resolve_arch.py will switch to --mode reviewer to load the checklist instead of
@@ -1086,53 +1007,26 @@ STEP 6 — SPAWN A QA REVIEWER FOR YOUR OWN PR (run this before self-destructing
     CLOSES_VAL=<parse "Closes #NNN" from pull_request_read (user-github)(MY_PR).body, join with commas>
     HAS_MIG=$(echo "$PR_FILES_VAL" | grep -c "alembic/versions/" || echo 0)
     [ "$HAS_MIG" -gt 0 ] && HAS_MIG_VAL=true || HAS_MIG_VAL=false
-    cat > "$REVIEW_WORKTREE/.agent-task" <<TASK
-[task]
-version = "0.1.1"
-workflow = "pr-review"
-id = "$(uuidgen | tr '[:upper:]' '[:lower:]')"
-created_at = "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-attempt_n = 0
-required_output = "grade,merge_status,pr_url"
-on_block = "stop"
-
-[agent]
-role = "pr-reviewer"
-tier = "engineer"
-cognitive_arch = "${REVIEWER_ARCH}"
-
-[repo]
-gh_repo = "cgcardona/agentception"
-base = "dev"
-
-[pipeline]
-batch_id = "${BATCH_ID:-none}"
-wave = "${WAVE:-unset}"
-
-[spawn]
-mode = "chain"
-sub_agents = false
-
-[target]
-pr_number = $MY_PR
-pr_title = "$PR_TITLE_VAL"
-pr_url = "https://github.com/cgcardona/agentception/pull/$MY_PR"
-pr_branch = "$MY_BRANCH"
-closes = [$CLOSES_VAL]
-files_changed = "$PR_FILES_VAL"
-merge_after = 0
-has_migration = $HAS_MIG_VAL
-
-[worktree]
-path = "$REVIEW_WORKTREE"
-linked_pr = $MY_PR
-TASK
+    # Use build_spawn_child MCP tool — no manual file writing needed.
+    # build_spawn_child(
+    #   parent_run_id   = "<your own run_id from task briefing>",
+    #   role            = "pr-reviewer",
+    #   tier            = "engineer",
+    #   org_domain      = "engineering",
+    #   scope_type      = "pr",
+    #   scope_value     = "$MY_PR",
+    #   gh_repo         = "$GH_REPO",
+    #   issue_title     = "$PR_TITLE_VAL",
+    #   spawn_mode      = "chain",
+    #   cognitive_arch  = "$REVIEWER_ARCH",
+    # )
+    # The returned run_id is what you pass to the Task tool below.
 
     echo "✅ Spawning QA reviewer for PR #$MY_PR (chain mode — reviewer will spawn next engineer)"
     # AGENT INSTRUCTION: call Task(prompt=REVIEWER_PROMPT, worktree="$REVIEW_WORKTREE")
     # REVIEWER_PROMPT is self-contained — do NOT reference any file on disk for its contents.
     # Build it from three parts in order:
-    #   1. Prefix:  "Read the .agent-task file in your worktree first.
+    #   1. Prefix:  "Read your task briefing from ac://runs/{run_id}/context.
     #               GH_REPO=cgcardona/agentception  Repo: <repo-root>"
     #   2. Body:    paste the entire ## Pass-Along: Reviewer Kickoff section verbatim
     #               (your Engineering Coordinator embedded it when it dispatched you)
@@ -1365,7 +1259,7 @@ PRs from this batch are immediately available for the **agent-reviewer.md** work
 ## Embedded Role Definitions
 
 Role content is embedded here so leaf agents need no runtime file reads, enabling
-concurrent pipeline isolation. Read the section matching your ROLE field from .agent-task.
+concurrent pipeline isolation. Your ROLE is in your task briefing (ac://runs/{run_id}/context).
 
 ### developer
 
@@ -1571,7 +1465,7 @@ $CLAIM_FINGERPRINT" 2>/dev/null || true
 
 You are a database architect on the AgentCeption project — a PostgreSQL + SQLAlchemy + Alembic system. Your core conviction: the schema is a public API. Every migration you write is a contract that future developers, agents, and agents-of-agents will depend on. Changing it later is expensive. Make it right the first time.
 
-Your cognitive architecture is defined by `[agent].cognitive_arch` in your `.agent-task` file.
+Your cognitive architecture is in your DB context: read it from `ac://runs/{run_id}/context` → `cognitive_arch` field.
 Load it as the very first thing you do — see STEP 0 below.
 
 ## STEP 0 — LOAD COGNITIVE ARCHITECTURE AND SELF-INTRODUCE (do this before anything else)

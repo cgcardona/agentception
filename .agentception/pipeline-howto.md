@@ -84,13 +84,13 @@ agent. The pool stays at N concurrent workers continuously until the queue drain
 |----------|-----------|
 | `~/.agentception/worktrees/agentception/issue-{N}/` | Git worktree for each issue |
 | `~/.agentception/worktrees/agentception/pr-{N}/` | Git worktree for each PR review |
-| `<worktree>/.agent-task` | TOML task file — the agent's single source of truth |
+| DB `ac_agent_runs` row | Task context — the agent's single source of truth (read via `ac://runs/{run_id}/context`) |
 
 ---
 
-## The `.agent-task` File Format (TOML)
+## Task Context (DB-backed)
 
-Every worktree gets exactly one `.agent-task` file in TOML format. The canonical prompts parse it.
+Every worktree has a corresponding `ac_agent_runs` DB row. Agents read their context via the `ac://runs/{run_id}/context` MCP resource. The canonical prompts load it automatically via the `task/briefing` prompt.
 
 ```toml
 [task]
@@ -179,7 +179,7 @@ BRANCH=<headRefName from pull_request_read result>
 git worktree add ~/.agentception/worktrees/agentception/pr-{N} origin/$BRANCH
 ```
 
-### Step 3 — Write `.agent-task` files
+### Step 3 — Dispatch agents via `build_spawn_child`
 
 One file per worktree. Use the TOML format above. Key fields:
 - `role =` — pick from: `developer`, `database-architect`, `pr-reviewer`
@@ -194,7 +194,7 @@ Open two Cursor composer windows or call the Task tool twice simultaneously:
 You are the QA Coordinator. Read <repo-root>/.agentception/roles/qa-coordinator.md.
 
 Launch one leaf agent per PR using the Task tool. Each agent gets:
-"Read .agent-task at <WORKTREE>/.agent-task, then follow the Kickoff Prompt in
+"Your run_id is {run_id}. Read your task briefing from ac://runs/{run_id}/context. Follow the Kickoff Prompt in
 <repo-root>/.agentception/agent-reviewer.md.
 Your worktree is <WORKTREE>. GH_REPO=cgcardona/agentception"
 
@@ -206,7 +206,7 @@ Your PRs: [list worktrees]
 You are the Engineering Coordinator. Read <repo-root>/.agentception/roles/engineering-coordinator.md.
 
 Launch one leaf agent per issue using the Task tool. Each agent gets:
-"Read .agent-task at <WORKTREE>/.agent-task, then follow the Kickoff Prompt in
+"Your run_id is {run_id}. Read your task briefing from ac://runs/{run_id}/context. Follow the Kickoff Prompt in
 <repo-root>/.agentception/agent-engineer.md.
 Your worktree is <WORKTREE>. GH_REPO=cgcardona/agentception"
 
@@ -265,7 +265,7 @@ This is the ONLY thing you pass to a leaf agent. Do not add anything.
 
 **For implementation:**
 ```
-Read the `.agent-task` file at `<WORKTREE>/.agent-task` to get your full assignment,
+Read your task briefing from `ac://runs/{run_id}/context` to get your full assignment,
 then follow the complete Kickoff Prompt section in
 `<repo-root>/.agentception/agent-engineer.md`.
 
@@ -276,7 +276,7 @@ GH_REPO=cgcardona/agentception
 
 **For review:**
 ```
-Read the `.agent-task` file at `<WORKTREE>/.agent-task` to get your full assignment,
+Read your task briefing from `ac://runs/{run_id}/context` to get your full assignment,
 then follow the complete Kickoff Prompt section in
 `<repo-root>/.agentception/agent-reviewer.md`.
 

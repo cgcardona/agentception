@@ -233,7 +233,7 @@ class PipelineState(BaseModel):
 
 
 class IssueSub(BaseModel):
-    """One entry from ``[[issue_queue]]`` in a TOML .agent-task file.
+    """One issue in a coordinator's dispatch queue.
 
     Coordinator agents receive a list of these; each becomes one worktree and
     one leaf agent. All fields except ``branch`` and ``file_ownership`` are
@@ -250,7 +250,7 @@ class IssueSub(BaseModel):
 
 
 class PRSub(BaseModel):
-    """One entry from ``[[pr_queue]]`` in a TOML .agent-task file.
+    """One PR in a QA coordinator's review queue.
 
     QA coordinator agents receive a list of these; each is one PR to review
     with merge order and grade threshold. All fields except ``closes_issues``
@@ -270,9 +270,8 @@ class PRSub(BaseModel):
 class AgentTaskSpec(BaseModel):
     """In-memory representation of all task context for one agent run.
 
-    Populated exclusively from the ``ACAgentRun`` DB row — no ``.agent-task``
-    TOML file is read.  All fields are optional; the DB row is the single
-    source of truth.  The name reflects the spec, not a file.
+    Populated exclusively from the ``ACAgentRun`` DB row.  All fields are
+    optional; the DB row is the single source of truth.
     """
 
     # Core identity
@@ -306,14 +305,14 @@ class AgentTaskSpec(BaseModel):
     # Ad-hoc runs
     task_description: str | None = None
     """Inline task description for ad-hoc runs (POST /api/runs/adhoc)."""
-    # Planning pipeline — only populated when parsed from plan-draft .agent-task files
+    # Planning pipeline — coordinator/conductor extended fields
     draft_id: str | None = None
     output_path: str | None = None
     output_format: str | None = None
     domain: str | None = None
     issue_queue: list[IssueSub] = []
     pr_queue: list[PRSub] = []
-    # Extended tracking (file-parsed only — not in DB)
+    # Extended tracking (coordinator-dispatch fields, not persisted to DB)
     depends_on: list[int] = []
     spawn_sub_agents: bool = False
     wave: str | None = None
@@ -329,8 +328,6 @@ class AgentTaskSpec(BaseModel):
     linked_pr: int | None = None
 
 
-# Backward-compat alias — remove once all callers use AgentTaskSpec directly.
-TaskFile = AgentTaskSpec
 
 
 class AbModeConfig(BaseModel):

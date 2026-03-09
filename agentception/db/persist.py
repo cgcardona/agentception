@@ -824,7 +824,7 @@ async def _upsert_agent_runs(
                 existing.status = agent.status.value
             # Only advance pr_number — never regress it to None.
             # persist_agent_event(done) writes pr_number from the agent's
-            # build_report_done call; the .agent-task file never contains a
+            # build_report_done call; the DB row never contains a
             # PR number (it was written before the PR existed).  Without this
             # guard the worktree-derived None would overwrite the saved value
             # on every subsequent tick, collapsing the Kanban card back to
@@ -970,7 +970,7 @@ async def persist_agent_run_dispatch(
     """Insert an ``ACAgentRun`` row with status ``pending_launch`` at dispatch time.
 
     Called by dispatch routes and ``spawn_child`` immediately after the worktree
-    is created.  All task context is stored here — no ``.agent-task`` file is
+    is created.  All task context is stored here —
     written.  Agents read their briefing from ``ac://runs/{run_id}/context`` and
     the ``task/briefing`` MCP prompt, both of which are DB-backed.
 

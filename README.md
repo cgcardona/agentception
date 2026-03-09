@@ -90,7 +90,7 @@ See [docs/guides/mcp.md](docs/guides/mcp.md) for the full tool reference.
 | Reference | What it covers |
 |-----------|----------------|
 | [API Routes](docs/reference/api.md) | Every HTTP endpoint — semantic URL taxonomy |
-| [Agent Task Spec](docs/reference/agent-task.md) | `.agent-task` TOML format — all sections and fields |
+| [Task Context Spec](.agentception/agent-task-spec.md) | DB-backed RunContextRow — all fields and access patterns |
 | [Type Contracts](docs/reference/type-contracts.md) | Pydantic models, TypedDicts, layer contracts |
 | [Cognitive Architecture](docs/reference/cognitive-arch.md) | Figures, archetypes, skill domains, atoms |
 | [YAML Configuration](docs/reference/yaml-config.md) | `config.yaml`, `team.yaml`, `role-taxonomy.yaml` |

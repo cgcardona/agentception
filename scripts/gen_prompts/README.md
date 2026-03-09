@@ -192,17 +192,13 @@ Each value carries a `prompt_fragment` — actual text that gets injected into t
 **Figures** extend archetypes and override specific atoms, carrying a narrative
 `prompt_injection` written in the figure's voice.
 
-### Usage in `.agent-task`
+### Usage in DB context (RunContextRow)
 
-The engineering coordinator writes `COGNITIVE_ARCH` to `.agent-task` at spawn time:
+The dispatch layer persists `COGNITIVE_ARCH` to the DB context row at spawn time:
 
-```bash
-ISSUE=671
-WORKTREE="$HOME/.agentception/worktrees/agentception/issue-671"
-ROLE_FILE="$HOME/.agentception/roles/developer.md"
-ISSUE_LABEL="agentception/2-telemetry"
-SPAWN_MODE=direct
-COGNITIVE_ARCH=dijkstra+python        # figure + skill domain
+```
+RunContextRow.cognitive_arch = "dijkstra:python"   # figure + skill domain
+# accessible via ac://runs/{run_id}/context
 ```
 
 ### Selection Examples
@@ -233,7 +229,7 @@ When blending, conflicting atoms are resolved left-to-right (first listed wins).
 1. Create `cognitive_archetypes/figures/<id>.yaml` extending any archetype.
 2. Specify only the atoms that differ from the archetype in `overrides:`.
 3. Write the `prompt_injection.prefix` in the figure's authentic voice.
-4. Reference the figure by ID in `COGNITIVE_ARCH` in any `.agent-task`.
+4. Reference the figure by ID in `COGNITIVE_ARCH` in the DB context.
 
 No generator run needed — figures are read at agent spawn time by `resolve_arch.py`
 (the companion resolver script, to be implemented as a follow-on).
