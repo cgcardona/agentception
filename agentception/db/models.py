@@ -30,6 +30,7 @@ ACPipelineSnapshot
 import datetime
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     ForeignKey,
     Index,
@@ -116,16 +117,14 @@ class ACAgentRun(Base):
     task_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     """Inline task description for ad-hoc runs (POST /api/runs/adhoc).
 
-    When present, the agent loop uses this as the initial message instead of
-    directing the agent to read a ``.agent-task`` file.  Null for all runs
-    created via the standard GitHub-issue dispatch pipeline.
+    When present, the agent loop uses this as the initial message.
+    Null for all runs created via the standard GitHub-issue dispatch pipeline.
     """
 
     tier: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     """Behavioral execution tier for this agent run.
 
     Values: ``coordinator`` | ``worker``.
-    Written from the ``TIER=`` field in the ``.agent-task`` file.
     Null for rows spawned before migration 0012.
     """
 
@@ -133,7 +132,6 @@ class ACAgentRun(Base):
     """Organisational slot for UI hierarchy visualisation.
 
     Values: ``c-suite`` | ``engineering`` | ``qa``.
-    Written from the ``ORG_DOMAIN=`` field in the ``.agent-task`` file.
     Allows the UI to place a chain-spawned PR reviewer under the QA column
     even though its physical ``parent_run_id`` points to an engineering leaf.
     Null for rows spawned before migration 0012.
@@ -143,6 +141,28 @@ class ACAgentRun(Base):
     """Run ID of the agent that physically spawned this one (spawn-lineage tracking).
 
     Null for top-level dispatches and legacy rows.
+    """
+
+    gh_repo: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    """GitHub repository slug (e.g. ``cgcardona/agentception``).
+
+    Present on all pipeline-spawned runs.  Null for ad-hoc runs that do not
+    target a specific repository, and for rows created before migration 0018.
+    """
+
+    is_resumed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+    """True when this run is a retry of a previously cancelled/stale run.
+
+    Surfaced in the task briefing so the agent knows not to redo completed work.
+    """
+
+    coord_fingerprint: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    """Fingerprint (run_id) of the coordinator that spawned this run.
+
+    Lets the agent identify its parent coordinator for status reporting.
+    Null for top-level dispatches and ad-hoc runs.
     """
 
     spawned_at: Mapped[datetime.datetime] = mapped_column(

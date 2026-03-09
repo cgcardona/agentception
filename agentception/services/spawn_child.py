@@ -49,7 +49,6 @@ from typing import Literal
 from agentception.config import settings
 from agentception.db.persist import acknowledge_agent_run, persist_agent_run_dispatch
 from agentception.services.cognitive_arch import _resolve_cognitive_arch
-from agentception.services.toml_task import TomlValue, render_toml_str
 
 logger = logging.getLogger(__name__)
 
@@ -86,13 +85,11 @@ class SpawnChildResult:
         run_id:              Unique run identifier (e.g. ``coord-abc123``).
         host_worktree_path:  Absolute path on the HOST filesystem.
         worktree_path:       Absolute path inside the container.
-        tier:                Behavioral tier written to the ``.agent-task`` —
-                             one of ``coordinator | worker``.
+        tier:                Behavioral tier: ``coordinator | worker``.
         org_domain:          Organisational slot for UI hierarchy (``c-suite``,
                              ``engineering``, or ``qa``).  ``None`` when not specified.
         role:                Role slug (e.g. ``"engineering-coordinator"``).
-        cognitive_arch:      Resolved COGNITIVE_ARCH string.
-        agent_task_path:     Path to the written ``.agent-task`` file.
+        cognitive_arch:      Resolved cognitive architecture string.
         scope_type:          ``"label"``, ``"issue"``, or ``"pr"``.
         scope_value:         Label string or issue/PR number.
     """
@@ -105,7 +102,6 @@ class SpawnChildResult:
         "org_domain",
         "role",
         "cognitive_arch",
-        "agent_task_path",
         "scope_type",
         "scope_value",
     )
@@ -120,7 +116,6 @@ class SpawnChildResult:
         org_domain: str | None,
         role: str,
         cognitive_arch: str,
-        agent_task_path: str,
         scope_type: str,
         scope_value: str,
     ) -> None:
@@ -131,7 +126,6 @@ class SpawnChildResult:
         self.org_domain = org_domain
         self.role = role
         self.cognitive_arch = cognitive_arch
-        self.agent_task_path = agent_task_path
         self.scope_type = scope_type
         self.scope_value = scope_value
 
@@ -144,7 +138,6 @@ class SpawnChildResult:
             "org_domain": self.org_domain,
             "role": self.role,
             "cognitive_arch": self.cognitive_arch,
-            "agent_task_path": self.agent_task_path,
             "scope_type": self.scope_type,
             "scope_value": self.scope_value,
         }
@@ -184,164 +177,6 @@ def _make_batch_id(scope_type: ScopeType, scope_value: str) -> str:
     return f"{prefix}-{slug}-{stamp}-{hex4}"
 
 
-# ---------------------------------------------------------------------------
-# .agent-task builder (universal — all scope types and node types)
-# ---------------------------------------------------------------------------
-
-def _workflow_for_scope(scope_type: ScopeType) -> str:
-    """Derive the task.workflow value from the scope type."""
-    if scope_type == "issue":
-        return "issue-to-pr"
-    if scope_type == "pr":
-        return "pr-review"
-    return "coordinator"
-
-
-def _required_output_for_scope(scope_type: ScopeType) -> str:
-    """Derive the task.required_output value from the scope type."""
-    if scope_type == "issue":
-        return "pr_url"
-    if scope_type == "pr":
-        return "review_decision"
-    return "none"
-
-
-def _build_child_task(
-    *,
-    run_id: str,
-    role: str,
-    tier: Tier,
-    org_domain: str | None,
-    scope_type: ScopeType,
-    scope_value: str,
-    gh_repo: str,
-    branch: str,
-    worktree_path: str,
-    host_worktree_path: str,
-    batch_id: str,
-    parent_run_id: str,
-    cognitive_arch: str,
-    coord_fingerprint: str | None = None,
-    issue_title: str = "",
-    issue_number: int | None = None,
-    pr_number: int | None = None,
-    is_resumed: bool = False,
-) -> str:
-    """Build the TOML content of a ``.agent-task`` file for any tree node.
-
-    Emits a fully-structured TOML document consumed by both
-    ``parse_agent_task()`` (dashboard poller) and Cursor LLM agents.
-    All fields must be valid TOML — no KEY=VALUE lines.
-
-    ``tier`` is the behavioral execution tier:
-    ``coordinator | worker``.
-    """
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    # Container-side and host-side role file paths — written to [meta] so
-    # agents can locate their role file without re-deriving it.
-    role_file = str(
-        Path(settings.repo_dir) / ".agentception" / "roles" / f"{role}.md"
-    )
-    host_role_file = str(
-        Path(settings.host_repo_dir) / ".agentception" / "roles" / f"{role}.md"
-    )
-
-    sections: dict[str, dict[str, TomlValue]] = {
-        "task": {
-            "version": "2.0",
-            "workflow": _workflow_for_scope(scope_type),
-            "id": run_id,
-            "created_at": now,
-            "attempt_n": 0,
-            "is_resumed": is_resumed,
-            "required_output": _required_output_for_scope(scope_type),
-            "on_block": "stop",
-        },
-        "agent": {
-            "role": role,
-            "tier": tier,
-            "org_domain": org_domain or "",
-            "cognitive_arch": cognitive_arch,
-        },
-        "repo": {
-            "gh_repo": gh_repo,
-            "base": "dev",
-            # mcp_server: agents communicate exclusively via the user-agentception
-            # MCP server — no HTTP calls.  This comment is documentation only.
-            "mcp_server": "user-agentception",
-        },
-        "pipeline": {
-            "batch_id": batch_id,
-            "parent_run_id": parent_run_id,
-            "coord_fingerprint": coord_fingerprint or "",
-        },
-        "spawn": {
-            "mode": "chain",
-            "sub_agents": False,
-        },
-    }
-
-    # Scope-specific [target] section — drives issue_number / pr_number in
-    # TaskFile, which is what the poller uses for swim-lane placement.
-    if scope_type == "issue" and issue_number is not None:
-        sections["target"] = {
-            "issue_number": issue_number,
-            "issue_title": issue_title,
-            "issue_url": f"https://github.com/{gh_repo}/issues/{issue_number}",
-            "scope_value": scope_value,
-            "closes": [issue_number],
-            "depends_on": [],
-        }
-    elif scope_type == "pr" and pr_number is not None:
-        sections["target"] = {
-            "pr_number": pr_number,
-            "pr_url": f"https://github.com/{gh_repo}/pull/{pr_number}",
-            "scope_value": scope_value,
-        }
-    else:
-        sections["target"] = {
-            "scope_type": scope_type,
-            "scope_value": scope_value,
-        }
-
-    sections["worktree"] = {
-        "path": host_worktree_path,
-        "branch": branch,
-        "linked_pr": 0,
-    }
-
-    # [meta] carries human/agent convenience fields that are not parsed by
-    # _build_task_file_from_toml — they are read as raw TOML text by the agent.
-    sections["meta"] = {
-        "role_file": role_file,
-        "host_role_file": host_role_file,
-        "worktree_path": worktree_path,
-    }
-
-    # Inline MCP query hints as a comment block appended after the TOML.
-    toml_body = render_toml_str(sections)
-    hints = _mcp_hints(scope_type, scope_value, tier)
-    return toml_body + hints
-
-
-def _mcp_hints(scope_type: ScopeType, scope_value: str, tier: Tier) -> str:
-    """Return a TOML comment block with inline MCP query hints."""
-    node_type = _tier_to_node_type(tier)
-    lines: list[str] = [
-        f"# GitHub queries for this node (tier={tier}, scope_type={scope_type}):",
-    ]
-    if node_type == "coordinator" and scope_type == "label":
-        lines += [
-            f"# MCP: github_list_issues(label='{scope_value}', state='open')",
-            "# MCP: github_list_prs(state='open')",
-            "# NOTE: exclude issues labelled 'agent/wip' (claimed) or 'pipeline/gated' (phase-gated)",
-        ]
-    elif node_type == "leaf" and scope_type == "issue":
-        lines.append(f"# MCP: github_get_issue(number={scope_value})")
-    elif node_type == "leaf" and scope_type == "pr":
-        lines.append(f"# MCP: github_get_pr(number={scope_value})")
-    return "\n".join(lines) + "\n"
 
 
 # ---------------------------------------------------------------------------
@@ -485,46 +320,9 @@ async def spawn_child(
 
     logger.info("✅ spawn_child: worktree created at %s", worktree_path)
 
-    # Write .agent-task
-    task_content = _build_child_task(
-        run_id=run_id,
-        role=role,
-        tier=tier,
-        org_domain=org_domain,
-        scope_type=scope_type,
-        scope_value=scope_value,
-        gh_repo=gh_repo,
-        branch=branch,
-        worktree_path=worktree_path,
-        host_worktree_path=host_worktree_path,
-        batch_id=batch_id,
-        parent_run_id=parent_run_id,
-        cognitive_arch=resolved_arch,
-        coord_fingerprint=coord_fingerprint,
-        issue_title=issue_title,
-        issue_number=issue_number,
-        pr_number=pr_number,
-        is_resumed=is_resumed,
-    )
-
-    agent_task_path = str(Path(worktree_path) / ".agent-task")
-    try:
-        Path(agent_task_path).write_text(task_content, encoding="utf-8")
-    except Exception as exc:
-        # Clean up worktree on write failure
-        cleanup = await asyncio.create_subprocess_exec(
-            "git", "worktree", "remove", "--force", worktree_path,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(settings.repo_dir),
-        )
-        await cleanup.communicate()
-        logger.error("❌ spawn_child: .agent-task write failed, worktree removed — %s", exc)
-        raise SpawnChildError(f".agent-task write failed: {exc}") from exc
-
-    logger.info("✅ spawn_child: .agent-task written to %s", agent_task_path)
-
-    # Persist DB record
+    # Persist DB record — all task context goes to the DB row; no .agent-task
+    # file is written.  Agents read their full briefing from the DB via the
+    # ac://runs/{run_id}/context MCP resource and the task/briefing prompt.
     db_issue_number = issue_number if issue_number is not None else (pr_number or 0)
     await persist_agent_run_dispatch(
         run_id=run_id,
@@ -538,6 +336,9 @@ async def spawn_child(
         tier=tier,
         org_domain=org_domain,
         parent_run_id=parent_run_id,
+        gh_repo=gh_repo,
+        is_resumed=is_resumed,
+        coord_fingerprint=coord_fingerprint,
     )
 
     # Auto-acknowledge: pending_launch → implementing
@@ -552,7 +353,6 @@ async def spawn_child(
         org_domain=org_domain,
         role=role,
         cognitive_arch=resolved_arch,
-        agent_task_path=agent_task_path,
         scope_type=scope_type,
         scope_value=scope_value,
     )

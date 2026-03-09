@@ -6,8 +6,8 @@ Three endpoints drive the Ship page launch modal:
 
 1. ``GET /api/dispatch/context`` — return phases and open issues for a
    label so the modal can populate its pickers.
-2. ``POST /api/dispatch/issue`` — create a worktree + ``.agent-task`` +
-   ``pending_launch`` record for a single issue-scoped leaf agent.
+2. ``POST /api/dispatch/issue`` — create a worktree + ``pending_launch``
+   DB record for a single issue-scoped leaf agent.
 3. ``POST /api/dispatch/label`` — same but scoped to an initiative label or
    phase sub-label (spawns a coordinator or leaf depending on *scope*).
 4. ``GET /api/dispatch/prompt`` — serve the Dispatcher prompt so the UI
@@ -32,9 +32,9 @@ from typing import Literal
 class OrgNodeSpec(BaseModel):
     """One node in a user-designed agent org tree.
 
-    Serialized to JSON and written into the ``[pipeline]`` section of
-    ``.agent-task`` so the launched agent knows the exact hierarchy it was
-    designed to spawn rather than inferring structure from the ticket list.
+    Persisted to the DB and included in the agent's run context so the
+    launched agent knows the exact hierarchy it was designed to spawn rather
+    than inferring structure from the ticket list.
 
     Self-referential via ``children`` — ``model_rebuild()`` is required after
     the class definition.
@@ -53,15 +53,13 @@ OrgNodeSpec.model_rebuild()
 from agentception.config import settings
 from agentception.db.persist import persist_agent_run_dispatch
 from agentception.db.queries import get_label_context
-from agentception.routes.api._shared import _build_agent_task, _resolve_cognitive_arch
+from agentception.routes.api._shared import _resolve_cognitive_arch
 from agentception.services.spawn_child import (
     SpawnChildError,
     ScopeType,
     Tier,
-    _tier_to_node_type,
     spawn_child,
 )
-from agentception.services.toml_task import TomlValue, render_toml_str
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +164,6 @@ class DispatchResponse(BaseModel):
     worktree: str
     host_worktree: str
     branch: str
-    agent_task_path: str
     batch_id: str
     status: str = "pending_launch"
 
@@ -180,13 +177,12 @@ def _make_batch_id(issue_number: int) -> str:
 
 @router.post("/issue", response_model=DispatchResponse)
 async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
-    """Create a worktree, ``.agent-task``, and a ``pending_launch`` DB record.
+    """Create a worktree and a ``pending_launch`` DB record.
 
     The worktree is the isolated git checkout the agent will work in.
-    The ``.agent-task`` file is the agent's full briefing — role, scope,
-    repo, callbacks.  The ``pending_launch`` DB record is what the
-    AgentCeption Dispatcher reads via ``build_get_pending_launches`` to know
-    what to spawn next.
+    All task context is persisted to the DB row — no ``.agent-task`` file is
+    written.  The ``pending_launch`` DB record is what the AgentCeption
+    Dispatcher reads via ``build_get_pending_launches`` to know what to spawn.
 
     Agents are NOT launched here.  The Dispatcher polls the pending queue
     and spawns the right role — which may be a leaf worker, a VP, or a CTO
@@ -194,7 +190,7 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
 
     Raises:
         HTTPException 409: Worktree already exists.
-        HTTPException 500: git worktree add or .agent-task write failed.
+        HTTPException 500: git worktree add failed.
     """
     run_id = f"issue-{req.issue_number}"
     slug = f"issue-{req.issue_number}"
@@ -229,42 +225,11 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
 
     logger.info("✅ dispatch: worktree created at %s", worktree_path)
 
-    role_file = str(Path(settings.repo_dir) / ".agentception" / "roles" / f"{req.role}.md")
     cognitive_arch = _resolve_cognitive_arch(req.issue_body, req.role)
-    agent_task = _build_agent_task(
-        issue_number=req.issue_number,
-        title=req.issue_title,
-        role=req.role,
-        worktree=Path(worktree_path),
-        host_worktree=Path(host_worktree_path),
-        branch=branch,
-        cognitive_arch=cognitive_arch,
-        wave_id=batch_id,
-    ) + render_toml_str({
-        "meta": {
-            "run_id": run_id,
-            "role_file": role_file,
-            "mcp_server": "user-agentception",
-            "spawn_mode": "dispatcher",
-        },
-    })
 
-    agent_task_path = str(Path(worktree_path) / ".agent-task")
-    try:
-        Path(agent_task_path).write_text(agent_task, encoding="utf-8")
-    except Exception as exc:
-        cleanup = await asyncio.create_subprocess_exec(
-            "git", "worktree", "remove", "--force", worktree_path,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(settings.repo_dir),
-        )
-        await cleanup.communicate()
-        logger.error("❌ dispatch: .agent-task write failed, worktree cleaned up — %s", exc)
-        raise HTTPException(status_code=500, detail=f".agent-task write failed: {exc}") from exc
-
-    logger.info("✅ dispatch: .agent-task written to %s", agent_task_path)
-
+    # Persist all task context to DB — no .agent-task file is written.
+    # Agents read their briefing from ac://runs/{run_id}/context and the
+    # task/briefing MCP prompt, both of which are DB-backed.
     await persist_agent_run_dispatch(
         run_id=run_id,
         issue_number=req.issue_number,
@@ -274,6 +239,7 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
         batch_id=batch_id,
         host_worktree_path=host_worktree_path,
         cognitive_arch=cognitive_arch,
+        gh_repo=settings.gh_repo,
     )
 
     return DispatchResponse(
@@ -281,7 +247,6 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
         worktree=worktree_path,
         host_worktree=host_worktree_path,
         branch=branch,
-        agent_task_path=agent_task_path,
         batch_id=batch_id,
         status="pending_launch",
     )
@@ -436,7 +401,6 @@ class LabelDispatchResponse(BaseModel):
     label: str
     worktree: str
     host_worktree: str
-    agent_task_path: str
     batch_id: str
     status: str = "pending_launch"
 
@@ -476,10 +440,11 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
     - ``"issue"`` → leaf, works on a single ticket.
 
     A worktree is always created so the agent runs in an isolated checkout.
+    All task context is persisted to the DB row — no ``.agent-task`` file is written.
 
     Raises:
         HTTPException 409: Worktree already exists.
-        HTTPException 500: git worktree or .agent-task write failed.
+        HTTPException 500: git worktree add failed.
     """
     role, tier = _role_and_tier_for_scope(req.scope, req.role)
     org_domain = _org_domain_for_role(role)
@@ -536,81 +501,19 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
 
     logger.info("✅ dispatch-label: worktree %s for label %r tier=%s", worktree_path, req.label, tier)
 
-    role_file = str(Path(settings.repo_dir) / ".agentception" / "roles" / f"{role}.md")
-    host_role_file = str(Path(settings.host_repo_dir) / ".agentception" / "roles" / f"{role}.md")
     label_cognitive_arch = _resolve_cognitive_arch(
         "", role, figure_override=req.cognitive_arch_override
     )
-    node_type = _tier_to_node_type(tier)
 
-    agent_sections: dict[str, dict[str, TomlValue]] = {
-        "task": {
-            "version": "2.0",
-            "workflow": "label-dispatch",
-            "attempt_n": 0,
-        },
-        "agent": {
-            "role": role,
-            "tier": tier,
-            "cognitive_arch": label_cognitive_arch,
-            "role_file": role_file,
-            "host_role_file": host_role_file,
-        },
-        "repo": {
-            "gh_repo": req.repo,
-            "base": "dev",
-        },
-        "pipeline": {
-            "batch_id": batch_id,
-            "parent_run_id": req.parent_run_id or "",
-        },
-        "target": {
-            "scope_type": scope_type,
-            "scope_value": scope_value,
-            "initiative_label": req.label,
-        },
-        "worktree": {
-            "path": host_worktree_path,
-            "branch": branch,
-        },
-        "spawn": {
-            "cascade_enabled": req.cascade_enabled,
-        },
-        "meta": {
-            "run_id": run_id,
-            "mcp_server": "user-agentception",
-        },
-    }
-    if org_domain:
-        agent_sections["agent"]["org_domain"] = org_domain
-    if req.org_tree:
-        # Compact JSON — the agent reads this via toml and parses it.
-        agent_sections["pipeline"]["org_tree_json"] = req.org_tree.model_dump_json()
-    agent_task = render_toml_str(agent_sections)
-
-    agent_task_path = str(Path(worktree_path) / ".agent-task")
-    try:
-        Path(agent_task_path).write_text(agent_task, encoding="utf-8")
-    except Exception as exc:
-        cleanup = await asyncio.create_subprocess_exec(
-            "git", "worktree", "remove", "--force", worktree_path,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(settings.repo_dir),
-        )
-        await cleanup.communicate()
-        logger.error("❌ dispatch-label: .agent-task write failed — %s", exc)
-        raise HTTPException(status_code=500, detail=f".agent-task write failed: {exc}") from exc
-
-    logger.warning("✅ dispatch-label: .agent-task written to %s", agent_task_path)
-
+    # Persist all task context to DB — no .agent-task file is written.
     logger.warning(
         "🚀 dispatch-label: calling persist_agent_run_dispatch run_id=%r host_worktree_path=%r",
         run_id, host_worktree_path,
     )
+    issue_number = req.scope_issue_number if (req.scope == "issue" and req.scope_issue_number is not None) else 0
     await persist_agent_run_dispatch(
         run_id=run_id,
-        issue_number=req.scope_issue_number if (req.scope == "issue" and req.scope_issue_number is not None) else 0,
+        issue_number=issue_number,
         role=role,
         branch=branch,
         worktree_path=worktree_path,
@@ -620,6 +523,7 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
         tier=tier,
         org_domain=org_domain,
         parent_run_id=req.parent_run_id,
+        gh_repo=req.repo,
     )
     logger.warning("✅ dispatch-label: persist complete — run_id=%r is now pending_launch", run_id)
 
@@ -630,7 +534,6 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
         label=req.label,
         worktree=worktree_path,
         host_worktree=host_worktree_path,
-        agent_task_path=agent_task_path,
         batch_id=batch_id,
         status="pending_launch",
     )

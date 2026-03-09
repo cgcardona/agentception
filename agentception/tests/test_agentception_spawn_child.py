@@ -30,7 +30,6 @@ from agentception.services.spawn_child import (
     SpawnChildError,
     SpawnChildResult,
     Tier,
-    _build_child_task,
     _make_branch,
     _make_run_id,
     spawn_child,
@@ -83,172 +82,6 @@ def test_make_branch_pr() -> None:
     assert branch.startswith("ac/review-112-")
 
 
-# ---------------------------------------------------------------------------
-# _build_child_task — field presence, correctness, TIER vs NODE_TYPE
-# ---------------------------------------------------------------------------
-
-
-def _make_task(
-    run_id: str = "test-run-123",
-    role: str = "engineering-coordinator",
-    tier: Tier = "coordinator",
-    org_domain: str | None = None,
-    scope_type: ScopeType = "label",
-    scope_value: str = "ac-workflow",
-    gh_repo: str = "owner/repo",
-    branch: str = "agent/ac-workflow-abcd",
-    worktree_path: str = "/worktrees/test-run-123",
-    host_worktree_path: str = "/host/worktrees/test-run-123",
-    batch_id: str = "label-ac-workflow-20260101T000000Z-abcd",
-    parent_run_id: str = "label-cto-111111",
-    cognitive_arch: str = "von_neumann:python",
-    issue_title: str = "",
-    issue_number: int | None = None,
-    pr_number: int | None = None,
-) -> str:
-    return _build_child_task(
-        run_id=run_id,
-        role=role,
-        tier=tier,
-        org_domain=org_domain,
-        scope_type=scope_type,
-        scope_value=scope_value,
-        gh_repo=gh_repo,
-        branch=branch,
-        worktree_path=worktree_path,
-        host_worktree_path=host_worktree_path,
-        batch_id=batch_id,
-        parent_run_id=parent_run_id,
-        cognitive_arch=cognitive_arch,
-        issue_title=issue_title,
-        issue_number=issue_number,
-        pr_number=pr_number,
-    )
-
-
-def test_build_child_task_required_fields_present() -> None:
-    task = _make_task()
-    assert 'id = "test-run-123"' in task
-    assert 'role = "engineering-coordinator"' in task
-    assert 'tier = "coordinator"' in task
-    assert 'scope_type = "label"' in task
-    assert 'scope_value = "ac-workflow"' in task
-    assert 'parent_run_id = "label-cto-111111"' in task
-    assert 'cognitive_arch = "von_neumann:python"' in task
-    assert 'role_file = "' in task
-    assert 'host_role_file = "' in task
-
-
-def test_build_child_task_does_not_contain_node_type_field() -> None:
-    """node_type must not appear — only tier = is written."""
-    task = _make_task()
-    assert "NODE_TYPE=" not in task
-    assert "node_type = " not in task
-
-
-def test_build_child_task_org_domain_written_when_provided() -> None:
-    """org_domain is written to the .agent-task when org_domain is supplied."""
-    task = _make_task(org_domain="qa")
-    assert 'org_domain = "qa"' in task
-
-
-def test_build_child_task_org_domain_absent_when_none() -> None:
-    """When org_domain is None, the TOML value is an empty string."""
-    task = _make_task(org_domain=None)
-    assert 'org_domain = ""' in task
-
-
-def test_build_child_task_tier_and_org_domain_are_separate() -> None:
-    """tier and org_domain are written as two independent TOML keys."""
-    task = _make_task(tier="worker", org_domain="qa")
-    assert 'tier = "worker"' in task
-    assert 'org_domain = "qa"' in task
-    # Behavioral tier must not bleed into org domain
-    assert 'tier = "qa"' not in task
-    assert 'org_domain = "worker"' not in task
-
-
-def test_build_child_task_engineer_tier() -> None:
-    task = _make_task(tier="worker", role="python-developer", scope_type="issue",
-                      scope_value="42", issue_number=42)
-    assert 'tier = "worker"' in task
-
-
-def test_build_child_task_coordinator_label_scope_query_hint() -> None:
-    task = _make_task(scope_type="label", tier="coordinator")
-    assert "github_list_issues" in task
-    assert "label='ac-workflow'" in task
-
-
-def test_build_child_task_issue_scope_includes_issue_fields() -> None:
-    task = _make_task(
-        scope_type="issue",
-        scope_value="42",
-        tier="worker",
-        role="python-developer",
-        issue_number=42,
-        issue_title="Fix the thing",
-    )
-    assert "issue_number = 42" in task
-    assert 'issue_title = "Fix the thing"' in task
-    assert 'issue_url = "' in task
-    assert "github_get_issue(number=42)" in task
-
-
-def test_build_child_task_pr_scope_includes_pr_fields() -> None:
-    task = _make_task(
-        scope_type="pr",
-        scope_value="112",
-        tier="worker",
-        role="pr-reviewer",
-        pr_number=112,
-    )
-    assert "pr_number = 112" in task
-    assert 'pr_url = "' in task
-    assert "github_get_pr(number=112)" in task
-
-
-def test_build_child_task_coordinator_includes_both_queries() -> None:
-    """A coordinator with label scope should get both issue and PR query hints."""
-    task = _make_task(tier="coordinator", role="cto", scope_type="label", scope_value="ac-workflow")
-    assert "github_list_issues" in task
-    assert "github_list_prs" in task
-
-
-def test_build_child_task_coord_fingerprint_written_when_provided() -> None:
-    """COORD_FINGERPRINT is written to the task file when the caller provides it."""
-    task = _make_task(
-        tier="worker",
-        role="python-developer",
-        scope_type="issue",
-        scope_value="42",
-        issue_number=42,
-    )
-    # Without coord_fingerprint — TOML writes it as an empty string.
-    assert 'coord_fingerprint = ""' in task
-
-
-def test_build_child_task_coord_fingerprint_present() -> None:
-    """When coord_fingerprint is supplied it appears verbatim in the task file."""
-    fp = "Engineering Coordinator · batch-abc123"
-    task = _build_child_task(
-        run_id="issue-42-abc",
-        role="python-developer",
-        tier="worker",
-        org_domain="engineering",
-        scope_type="issue",
-        scope_value="42",
-        gh_repo="owner/repo",
-        branch="feat/issue-42-ab12",
-        worktree_path="/worktrees/issue-42-abc",
-        host_worktree_path="/host/worktrees/issue-42-abc",
-        batch_id="issue-42-20260305T000000Z-ab12",
-        parent_run_id="coord-ac-xyz",
-        cognitive_arch="ada_lovelace:python",
-        coord_fingerprint=fp,
-        issue_number=42,
-    )
-    assert f'coord_fingerprint = "{fp}"' in task
 
 
 # ---------------------------------------------------------------------------
@@ -352,25 +185,20 @@ async def test_spawn_child_leaf_pr_happy_path() -> None:
 
 
 @pytest.mark.anyio
-async def test_spawn_child_tier_written_to_agent_task() -> None:
-    """The .agent-task file must contain tier = (not node_type =)."""
+async def test_spawn_child_tier_in_db_row() -> None:
+    """spawn_child must persist the tier field to the DB row."""
     mock_proc = MagicMock()
     mock_proc.returncode = 0
     mock_proc.communicate = AsyncMock(return_value=(b"", b""))
 
-    written_content: list[str] = []
-
-    def capture_write(content: str, **_: object) -> None:
-        written_content.append(content)
-
+    persist_mock = AsyncMock()
     with (
         patch(
             "agentception.services.spawn_child.asyncio.create_subprocess_exec",
             return_value=mock_proc,
         ),
-        patch("agentception.services.spawn_child.persist_agent_run_dispatch", AsyncMock()),
+        patch("agentception.services.spawn_child.persist_agent_run_dispatch", persist_mock),
         patch("agentception.services.spawn_child.acknowledge_agent_run", AsyncMock(return_value=True)),
-        patch.object(Path, "write_text", side_effect=capture_write),
     ):
         await spawn_child(
             parent_run_id="coord-engineering-xyz",
@@ -381,12 +209,9 @@ async def test_spawn_child_tier_written_to_agent_task() -> None:
             gh_repo="owner/repo",
         )
 
-    assert written_content, "write_text was never called"
-    content = written_content[0]
-    assert 'tier = "worker"' in content
-    # NODE_TYPE / node_type must not appear (internal only, derived from tier)
-    assert "NODE_TYPE=" not in content
-    assert "node_type =" not in content
+    persist_mock.assert_awaited_once()
+    call_kwargs = persist_mock.call_args.kwargs
+    assert call_kwargs["tier"] == "worker"
 
 
 @pytest.mark.anyio
@@ -458,16 +283,16 @@ async def test_spawn_child_worktree_failure_raises_spawn_child_error() -> None:
 
 
 @pytest.mark.anyio
-async def test_spawn_child_file_write_failure_cleans_up_worktree() -> None:
-    """When .agent-task write fails, the worktree must be removed."""
+async def test_spawn_child_db_persist_failure_cleans_up_worktree() -> None:
+    """When DB persist fails, the worktree must be removed."""
     mock_proc = MagicMock()
     mock_proc.returncode = 0
     mock_proc.communicate = AsyncMock(return_value=(b"", b""))
 
-    cleanup_calls: list[tuple[str, ...]] = []
+    subprocess_calls: list[tuple[str, ...]] = []
 
     async def fake_subprocess(*args: str, **kwargs: object) -> MagicMock:
-        cleanup_calls.append(args)
+        subprocess_calls.append(args)
         return mock_proc
 
     with (
@@ -475,8 +300,11 @@ async def test_spawn_child_file_write_failure_cleans_up_worktree() -> None:
             "agentception.services.spawn_child.asyncio.create_subprocess_exec",
             side_effect=fake_subprocess,
         ),
-        patch.object(Path, "write_text", side_effect=OSError("disk full")),
-        pytest.raises(SpawnChildError, match=".agent-task write failed"),
+        patch(
+            "agentception.services.spawn_child.persist_agent_run_dispatch",
+            AsyncMock(side_effect=RuntimeError("DB is down")),
+        ),
+        pytest.raises((SpawnChildError, RuntimeError)),
     ):
         await spawn_child(
             parent_run_id="coord-xyz",
@@ -486,10 +314,6 @@ async def test_spawn_child_file_write_failure_cleans_up_worktree() -> None:
             scope_value="2",
             gh_repo="owner/repo",
         )
-
-    # Subprocess calls are now: git rev-parse, git worktree add, git worktree remove
-    assert len(cleanup_calls) == 3
-    assert "remove" in cleanup_calls[2]
 
 
 # ---------------------------------------------------------------------------
@@ -506,7 +330,6 @@ def test_spawn_child_result_to_dict_all_keys() -> None:
         org_domain="engineering",
         role="engineering-coordinator",
         cognitive_arch="von_neumann:python",
-        agent_task_path="/container/path/.agent-task",
         scope_type="label",
         scope_value="ac-workflow",
     )
@@ -517,6 +340,7 @@ def test_spawn_child_result_to_dict_all_keys() -> None:
     assert d["cognitive_arch"] == "von_neumann:python"
     assert d["scope_type"] == "label"
     assert "node_type" not in d, "to_dict must not expose the old 'node_type' key"
+    assert "agent_task_path" not in d, "to_dict must not expose the removed 'agent_task_path' key"
 
 
 def test_spawn_child_result_to_dict_org_domain_none() -> None:
@@ -529,7 +353,6 @@ def test_spawn_child_result_to_dict_org_domain_none() -> None:
         org_domain=None,
         role="python-developer",
         cognitive_arch="guido:python",
-        agent_task_path="/container/path/.agent-task",
         scope_type="issue",
         scope_value="42",
     )
@@ -538,61 +361,3 @@ def test_spawn_child_result_to_dict_org_domain_none() -> None:
     assert d["org_domain"] is None
 
 
-# ---------------------------------------------------------------------------
-# Universal tree protocol — any node can be pruned as root
-# ---------------------------------------------------------------------------
-
-
-def test_all_tiers_produce_valid_task_content() -> None:
-    """Every tier/scope combination must produce a parseable .agent-task."""
-    combos: list[tuple[str, Tier, ScopeType, str]] = [
-        ("cto", "coordinator", "label", "ac-workflow"),
-        ("engineering-coordinator", "coordinator", "label", "phase/0"),
-        ("qa-coordinator", "coordinator", "label", "phase/0"),
-        ("python-developer", "worker", "issue", "42"),
-        ("pr-reviewer", "worker", "pr", "112"),
-    ]
-    for role, tier, scope_type, scope_value in combos:
-        task = _make_task(
-            role=role,
-            tier=tier,
-            scope_type=scope_type,
-            scope_value=scope_value,
-        )
-        # Every task must have these universal TOML fields
-        assert 'id = "' in task, f"Missing id for {role}"
-        assert 'tier = "' in task, f"Missing tier for {role}"
-        assert 'parent_run_id = "' in task, f"Missing parent_run_id for {role}"
-        assert 'cognitive_arch = "' in task, f"Missing cognitive_arch for {role}"
-        assert 'role_file = "' in task, f"Missing role_file for {role}"
-        assert 'host_role_file = "' in task, f"Missing host_role_file for {role}"
-        assert 'scope_value = "' in task, f"Missing scope_value for {role}"
-        assert 'workflow = "' in task, f"Missing workflow for {role}"
-        # NODE_TYPE / node_type must be absent
-        assert "NODE_TYPE=" not in task, f"Unexpected NODE_TYPE= for {role}"
-        assert "node_type =" not in task, f"Unexpected node_type = for {role}"
-
-
-def test_pruned_subtree_root_has_same_fields_as_full_tree_root() -> None:
-    """A coordinator launched as root must produce the same .agent-task fields
-    as a coordinator launched as a child of the CTO."""
-    # Coordinator as root (direct launch)
-    task_root = _make_task(
-        role="engineering-coordinator",
-        tier="coordinator",
-        scope_type="label",
-        scope_value="ac-workflow",
-        parent_run_id="",  # no parent — it IS the root
-    )
-    # Coordinator as child
-    task_child = _make_task(
-        role="engineering-coordinator",
-        tier="coordinator",
-        scope_type="label",
-        scope_value="ac-workflow",
-        parent_run_id="label-cto-abc123",
-    )
-    # Both must have all universal TOML fields
-    for field in ('id = "', 'tier = "', 'cognitive_arch = "', 'role_file = "', 'host_role_file = "', 'scope_value = "', 'workflow = "'):
-        assert field in task_root, f"Missing {field!r} in root task"
-        assert field in task_child, f"Missing {field!r} in child task"

@@ -267,72 +267,70 @@ class PRSub(BaseModel):
     closes_issues: list[int] = []
 
 
-class TaskFile(BaseModel):
-    """Parsed content of a ``.agent-task`` file from a worktree.
+class AgentTaskSpec(BaseModel):
+    """In-memory representation of all task context for one agent run.
 
-    Supports both the legacy KEY=value format and the TOML spec
-    (see .agentception/agent-task-spec.md). Every field maps from a TOML section
-    or a legacy key. Unknown keys are silently ignored. All fields are optional
-    to ensure graceful handling of missing or malformed task files.
+    Populated exclusively from the ``ACAgentRun`` DB row — no ``.agent-task``
+    TOML file is read.  All fields are optional; the DB row is the single
+    source of truth.  The name reflects the spec, not a file.
     """
 
-    # [task]
+    # Core identity
     task: str | None = None
     id: str | None = None
     attempt_n: int = 0
     is_resumed: bool = False
-    required_output: str | None = None
-    on_block: str | None = None
-    # [agent]
+    # Agent configuration
     role: str | None = None
     tier: str | None = None
     """Behavioral execution tier: coordinator | worker."""
     org_domain: str | None = None
     """Organisational slot for UI hierarchy: c-suite | engineering | qa."""
     cognitive_arch: str | None = None
-    session_id: str | None = None
-    # [repo]
+    # Repository
     gh_repo: str | None = None
     base: str | None = None
-    # [pipeline]
+    # Pipeline lineage
     batch_id: str | None = None
     parent_run_id: str | None = None
-    wave: str | None = None
-    vp_fingerprint: str | None = None
-    # [spawn]
-    spawn_sub_agents: bool = False
+    coord_fingerprint: str | None = None
+    """run_id of the coordinator that spawned this run."""
     spawn_mode: str | None = None
-    # [target]
+    # Target
     issue_number: int | None = None
     pr_number: int | None = None
-    depends_on: list[int] = []
     closes_issues: list[int] = []
+    # Worktree
+    worktree: str | None = None
+    branch: str | None = None
+    # Ad-hoc runs
+    task_description: str | None = None
+    """Inline task description for ad-hoc runs (POST /api/runs/adhoc)."""
+    # Planning pipeline — only populated when parsed from plan-draft .agent-task files
+    draft_id: str | None = None
+    output_path: str | None = None
+    output_format: str | None = None
+    domain: str | None = None
+    issue_queue: list[IssueSub] = []
+    pr_queue: list[PRSub] = []
+    # Extended tracking (file-parsed only — not in DB)
+    depends_on: list[int] = []
+    spawn_sub_agents: bool = False
+    wave: str | None = None
+    vp_fingerprint: str | None = None
+    session_id: str | None = None
+    on_block: str | None = None
+    required_output: str | None = None
     file_ownership: list[str] = []
     files_changed: list[str] = []
     grade_threshold: str | None = None
     has_migration: bool = False
     merge_after: str | None = None
-    # [worktree]
-    worktree: str | None = None
-    branch: str | None = None
     linked_pr: int | None = None
-    # [output]
-    draft_id: str | None = None
-    output_path: str | None = None
-    output_format: str | None = None
-    # [domain]
-    domain: str | None = None
-    # Queues (TOML repeated tables)
-    issue_queue: list[IssueSub] = []
-    pr_queue: list[PRSub] = []
-    # Ad-hoc / DB-sourced runs only
-    task_description: str | None = None
-    """Inline task description injected directly into the initial agent message.
 
-    When set (ad-hoc runs via POST /api/runs/adhoc), the agent loop uses this
-    as the task briefing and does not instruct the agent to read a file.
-    Absent for all standard issue-dispatch runs.
-    """
+
+# Backward-compat alias — remove once all callers use AgentTaskSpec directly.
+TaskFile = AgentTaskSpec
 
 
 class AbModeConfig(BaseModel):

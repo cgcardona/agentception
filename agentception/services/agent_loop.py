@@ -1,13 +1,13 @@
 """Cursor-free agent execution loop.
 
 Replaces Cursor as the agent runtime.  An LLM on Anthropic's infrastructure
-(reached via OpenRouter) does the reasoning; file operations, shell commands,
-and MCP tool calls execute locally inside this container.
+does the reasoning; file operations, shell commands, and MCP tool calls execute
+locally inside this container.
 
 Pipeline
 --------
 1. Resolve the worktree path from ``settings.worktrees_dir / run_id``.
-2. Parse ``.agent-task`` via :func:`~agentception.readers.worktrees.parse_agent_task`.
+2. Load task context from the ``ACAgentRun`` DB row via ``_load_task``.
 3. Load the role file from ``settings.repo_dir / ".agentception/roles/{role}.md"``.
 4. Assemble the system prompt: role content + cognitive architecture context +
    runtime environment note (Python commands run directly, not via docker exec).
@@ -39,8 +39,7 @@ from agentception.mcp.log_tools import log_run_error, log_run_step
 from agentception.mcp.prompts import get_prompt
 from agentception.mcp.server import TOOLS, call_tool_async
 from agentception.mcp.types import ACToolResult
-from agentception.models import TaskFile
-from agentception.readers.worktrees import parse_agent_task
+from agentception.models import AgentTaskSpec
 from agentception.services.llm import (
     ToolCall,
     ToolDefinition,
@@ -205,79 +204,20 @@ async def run_agent_loop(
 # ---------------------------------------------------------------------------
 
 
-async def _load_task(run_id: str, worktree_path: Path) -> TaskFile | None:
-    """Load task context for *run_id*, preferring the DB row over the file.
+async def _load_task(run_id: str, worktree_path: Path) -> AgentTaskSpec | None:
+    """Load task context for *run_id* from the ``ACAgentRun`` DB row.
 
-    Resolution order:
-    1. ``ACAgentRun`` DB row — always tried first.  When the row carries a
-       ``task_description`` the agent loop can run without any ``.agent-task``
-       file present in the worktree.
-    2. ``.agent-task`` TOML file — parsed as a supplement when present.  Its
-       fields fill in any gaps left by the DB row (e.g. issue queue, spawn
-       mode), but DB fields take precedence where both exist.
-
-    Returns ``None`` only when neither source yields a usable ``TaskFile``.
+    All task context lives in the DB — no ``.agent-task`` file is read.
+    Returns ``None`` when no row exists, logging the error.
     """
-    db_task: TaskFile | None = await _load_task_from_db(run_id)
-    file_task: TaskFile | None = await _load_task_from_file(worktree_path)
-
-    if db_task is None and file_task is None:
-        logger.error("❌ _load_task — no context for run_id=%s", run_id)
-        return None
-
-    if db_task is None:
-        return file_task
-    if file_task is None:
-        return db_task
-
-    # Merge: DB takes precedence for scalar fields; file supplies queue lists.
-    return TaskFile(
-        task=db_task.task or file_task.task,
-        id=db_task.id or file_task.id,
-        attempt_n=db_task.attempt_n or file_task.attempt_n,
-        is_resumed=db_task.is_resumed or file_task.is_resumed,
-        required_output=db_task.required_output or file_task.required_output,
-        on_block=file_task.on_block,
-        role=db_task.role or file_task.role,
-        tier=db_task.tier or file_task.tier,
-        org_domain=db_task.org_domain or file_task.org_domain,
-        cognitive_arch=db_task.cognitive_arch or file_task.cognitive_arch,
-        session_id=file_task.session_id,
-        gh_repo=file_task.gh_repo,
-        base=file_task.base,
-        batch_id=db_task.batch_id or file_task.batch_id,
-        parent_run_id=db_task.parent_run_id or file_task.parent_run_id,
-        wave=file_task.wave,
-        vp_fingerprint=file_task.vp_fingerprint,
-        spawn_sub_agents=file_task.spawn_sub_agents,
-        spawn_mode=db_task.spawn_mode or file_task.spawn_mode,
-        issue_number=db_task.issue_number or file_task.issue_number,
-        pr_number=db_task.pr_number or file_task.pr_number,
-        depends_on=file_task.depends_on,
-        closes_issues=file_task.closes_issues,
-        file_ownership=file_task.file_ownership,
-        files_changed=file_task.files_changed,
-        grade_threshold=file_task.grade_threshold,
-        has_migration=file_task.has_migration,
-        merge_after=file_task.merge_after,
-        worktree=db_task.worktree or file_task.worktree,
-        branch=db_task.branch or file_task.branch,
-        linked_pr=file_task.linked_pr,
-        draft_id=file_task.draft_id,
-        output_path=file_task.output_path,
-        output_format=file_task.output_format,
-        domain=file_task.domain,
-        issue_queue=file_task.issue_queue,
-        pr_queue=file_task.pr_queue,
-        task_description=db_task.task_description or file_task.task_description,
-    )
+    return await _load_task_from_db(run_id)
 
 
-async def _load_task_from_db(run_id: str) -> TaskFile | None:
-    """Build a ``TaskFile`` from the ``ACAgentRun`` DB row for *run_id*.
+async def _load_task_from_db(run_id: str) -> AgentTaskSpec | None:
+    """Build an ``AgentTaskSpec`` from the ``ACAgentRun`` DB row for *run_id*.
 
     Returns ``None`` when no row is found.  Never raises — errors are logged
-    and ``None`` is returned so the caller can fall back to the file.
+    so the loop can surface a clean cancellation instead of crashing.
     """
     try:
         async with get_session() as session:
@@ -285,8 +225,9 @@ async def _load_task_from_db(run_id: str) -> TaskFile | None:
                 select(ACAgentRun).where(ACAgentRun.id == run_id)
             )
         if run is None:
+            logger.error("❌ _load_task_from_db — no DB row for run_id=%s", run_id)
             return None
-        return TaskFile(
+        return AgentTaskSpec(
             id=run.id,
             role=run.role,
             cognitive_arch=run.cognitive_arch,
@@ -300,21 +241,12 @@ async def _load_task_from_db(run_id: str) -> TaskFile | None:
             org_domain=run.org_domain,
             spawn_mode=run.spawn_mode,
             task_description=run.task_description,
+            gh_repo=run.gh_repo,
+            is_resumed=run.is_resumed,
+            coord_fingerprint=run.coord_fingerprint,
         )
     except Exception as exc:
         logger.error("❌ _load_task_from_db error for run_id=%s: %s", run_id, exc)
-        return None
-
-
-async def _load_task_from_file(worktree_path: Path) -> TaskFile | None:
-    """Parse the ``.agent-task`` TOML file in *worktree_path*.
-
-    Returns ``None`` when the file is absent or malformed.
-    """
-    try:
-        return await parse_agent_task(worktree_path)
-    except Exception as exc:
-        logger.error("❌ _load_task_from_file error: %s", exc)
         return None
 
 
@@ -354,8 +286,7 @@ You are running **inside the AgentCeption Docker container**, not on the host ma
   - ✅ `python3 -m mypy agentception/`
   - ❌ `docker compose exec agentception python3 -m pytest` (wrong — you are already inside)
 - The repository is mounted at `/app`.  Your worktree path is provided in your
-  initial message.  If a `.agent-task` file exists in your worktree, it contains
-  additional pipeline configuration you may reference.
+  initial message.  Read `ac://runs/{run_id}/context` for your full task context.
 - Git operations run in the worktree directory.
 - Use `run_command` for shell execution.  Use `read_file` / `write_file` for files.
 """
@@ -446,7 +377,7 @@ def _build_system_prompt(role_prompt: str, cognitive_arch: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def _fetch_task_briefing(run_id: str, task: TaskFile, worktree_path: Path) -> str:
+async def _fetch_task_briefing(run_id: str, task: AgentTaskSpec, worktree_path: Path) -> str:
     """Fetch the initial agent message via the ``task/briefing`` MCP prompt.
 
     Calls ``get_prompt("task/briefing", {"run_id": run_id})`` so the briefing

@@ -963,29 +963,19 @@ async def persist_agent_run_dispatch(
     tier: str | None = None,
     org_domain: str | None = None,
     parent_run_id: str | None = None,
+    gh_repo: str | None = None,
+    is_resumed: bool = False,
+    coord_fingerprint: str | None = None,
 ) -> None:
-    """Insert an ACAgentRun row with status ``pending_launch`` at dispatch time.
+    """Insert an ``ACAgentRun`` row with status ``pending_launch`` at dispatch time.
 
-    Called by ``POST /api/build/dispatch`` immediately after the worktree and
-    ``.agent-task`` file are created.  The coordinator agent reads these rows
-    via ``build_get_pending_launches`` and transitions them to ``implementing``
-    when it claims the work.
+    Called by dispatch routes and ``spawn_child`` immediately after the worktree
+    is created.  All task context is stored here — no ``.agent-task`` file is
+    written.  Agents read their briefing from ``ac://runs/{run_id}/context`` and
+    the ``task/briefing`` MCP prompt, both of which are DB-backed.
 
     ``host_worktree_path`` is stored in the ``spawn_mode`` field as a JSON
-    blob because ACAgentRun has no dedicated host-path column.
-
-    ``cognitive_arch`` is written to the DB column added in migration 0005.
-
-    ``tier`` is the behavioral execution tier: ``coordinator | worker``.
-    Added in migration 0012.
-
-    ``org_domain`` is the organisational slot for UI hierarchy visualisation:
-    ``c-suite | engineering | qa``.  A chain-spawned PR reviewer should pass
-    ``"qa"`` so the dashboard places it under the QA column.  Added in
-    migration 0012.
-
-    ``parent_run_id`` records the run_id of the agent that spawned this one,
-    enabling spawn-lineage tracing in the org chart.  Added in migration 0006.
+    blob (backward compat — no dedicated column yet).
 
     Best-effort — swallows exceptions so a DB outage never blocks dispatch.
     """
@@ -994,10 +984,10 @@ async def persist_agent_run_dispatch(
     spawn_mode_json = _json.dumps({"host_worktree": host_worktree_path})
     logger.warning(
         "💾 persist_agent_run_dispatch: run_id=%r role=%r worktree_path=%r "
-        "host_worktree_path=%r spawn_mode=%r cognitive_arch=%r "
-        "tier=%r org_domain=%r parent_run_id=%r",
-        run_id, role, worktree_path, host_worktree_path, spawn_mode_json,
-        cognitive_arch, tier, org_domain, parent_run_id,
+        "host_worktree_path=%r cognitive_arch=%r tier=%r org_domain=%r "
+        "parent_run_id=%r gh_repo=%r is_resumed=%r coord_fingerprint=%r",
+        run_id, role, worktree_path, host_worktree_path, cognitive_arch,
+        tier, org_domain, parent_run_id, gh_repo, is_resumed, coord_fingerprint,
     )
     try:
         async with get_session() as session:
@@ -1010,7 +1000,6 @@ async def persist_agent_run_dispatch(
                     "💾 persist_agent_run_dispatch: run_id=%r already exists (status=%r) — re-arming to pending_launch",
                     run_id, existing.status,
                 )
-                # Already exists (re-dispatch or orphan sweep reset). Re-arm.
                 existing.status = "pending_launch"
                 existing.spawn_mode = spawn_mode_json
                 existing.last_activity_at = _now()
@@ -1022,6 +1011,11 @@ async def persist_agent_run_dispatch(
                     existing.org_domain = org_domain
                 if parent_run_id is not None:
                     existing.parent_run_id = parent_run_id
+                if gh_repo is not None:
+                    existing.gh_repo = gh_repo
+                existing.is_resumed = is_resumed
+                if coord_fingerprint is not None:
+                    existing.coord_fingerprint = coord_fingerprint
             else:
                 logger.warning(
                     "💾 persist_agent_run_dispatch: run_id=%r is new — inserting with status=pending_launch",
@@ -1044,6 +1038,9 @@ async def persist_agent_run_dispatch(
                         tier=tier,
                         org_domain=org_domain,
                         parent_run_id=parent_run_id,
+                        gh_repo=gh_repo,
+                        is_resumed=is_resumed,
+                        coord_fingerprint=coord_fingerprint,
                         spawned_at=_now(),
                         last_activity_at=_now(),
                     )
