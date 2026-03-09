@@ -711,3 +711,73 @@ class TestLLMSSLRetry:
         # The 429 sleep must be >= _RATE_LIMIT_BACKOFF_SECS (not the 2s used for SSL/timeout)
         assert len(sleep_calls) == 1
         assert sleep_calls[0] >= _RATE_LIMIT_BACKOFF_SECS
+
+
+# ---------------------------------------------------------------------------
+# Regression: loop exits when run is already in a terminal state
+# ---------------------------------------------------------------------------
+
+
+class TestTerminalStateGuard:
+    """Regression: agent_loop must exit when the DB run status is terminal.
+
+    An agent can call build_cancel_run (or build_complete_run) as an MCP
+    tool during its turn.  This transitions the DB status to a terminal state
+    but the loop itself has no other signal to stop.  Without this guard the
+    loop continues executing in a worktree that the reaper may tear down at
+    any moment.
+    """
+
+    @pytest.mark.anyio
+    async def test_loop_exits_when_run_is_terminal(self, tmp_path: Path) -> None:
+        """Loop exits immediately at the status check if the run is terminal."""
+        worktree = tmp_path / "test-run-cancel"
+        worktree.mkdir()
+        task_spec = _make_task_spec(worktree, issue_number=99)
+
+        # Simulate a run that is already cancelled in the DB (e.g. the agent
+        # called build_cancel_run as a tool in the previous turn).
+        terminal_row: dict[str, object] = {"status": "cancelled"}
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.get_run_by_id",
+                new_callable=AsyncMock,
+                return_value=terminal_row,
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic_with_tools",
+                new_callable=AsyncMock,
+                return_value=_stop_response("should not be called"),
+            ) as mock_llm,
+            patch(
+                "agentception.services.agent_loop.build_cancel_run",
+                new_callable=AsyncMock,
+            ) as mock_cancel,
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+
+            from agentception.services.agent_loop import run_agent_loop
+
+            await run_agent_loop("test-run-cancel", max_iterations=10)
+
+        # The LLM must NOT have been called — loop should exit before that.
+        mock_llm.assert_not_called()
+        # The loop exits gracefully without re-cancelling.
+        mock_cancel.assert_not_called()
