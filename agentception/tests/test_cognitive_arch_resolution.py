@@ -201,7 +201,7 @@ def test_extract_skills_used_in_resolve() -> None:
     ("add sse async broadcast fanout endpoint", "python"),
     ("update dockerfile FROM python compose service", "devops"),
     ("refactor midi variation generator", "midi:python"),
-    ("integrate llm openrouter claude embedding", "llm:python"),
+    ("integrate llm anthropic claude embedding", "llm:python"),
     ("add fastapi route with response_model", "fastapi:python"),
     ("fix undefined typescript tsx type", "typescript:javascript"),
     ("no special keywords here", "python"),

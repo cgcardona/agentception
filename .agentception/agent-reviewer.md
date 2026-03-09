@@ -170,7 +170,7 @@ for entry in "${PRS[@]}"; do
     R_SKILLS="postgresql:python"
   elif echo "$PR_CONTENT" | grep -qiE "APIRouter|FastAPI|Depends"; then
     R_SKILLS="fastapi:python"
-  elif echo "$PR_CONTENT" | grep -qiE "llm|embedding|rag|openrouter"; then
+  elif echo "$PR_CONTENT" | grep -qiE "llm|embedding|rag|anthropic"; then
     R_SKILLS="llm:python"
   else
     R_SKILLS="python"

@@ -56,7 +56,7 @@ scripts/gen_prompts/
       python.yaml                  #   FastAPI, Pydantic v2, async, mypy strict
       midi.yaml              #   MIDI pipeline, GM, music generation
       devops.yaml                  #   Docker Compose, containers, service reliability
-      llm.yaml                     #   LLM APIs, RAG, embedding, OpenRouter
+      llm.yaml                     #   LLM APIs, RAG, embedding, Anthropic API
     archetypes/                    ← Layer 2: named bundles of atoms (inheritable)
       the_architect.yaml           #   deductive + deep_focus + systems + craftsman
       the_guardian.yaml            #   deductive + fail_loud + perfectionist + minimal

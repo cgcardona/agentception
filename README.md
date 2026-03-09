@@ -51,7 +51,7 @@ open http://localhost:10003
 | `DATABASE_URL` | PostgreSQL connection string (see `docker-compose.yml` for defaults) |
 | `GITHUB_TOKEN` | GitHub PAT with `repo` + `issues` scope |
 | `GH_REPO` | Repo this instance manages — `owner/repo` |
-| `OPENROUTER_API_KEY` | OpenRouter API key for Phase 1A planning |
+| `ANTHROPIC_API_KEY` | Anthropic API key for Phase 1A planning and agent execution |
 | `HOST_WORKTREES_DIR` | Host path where agent worktrees are created |
 
 See [docs/guides/setup.md](docs/guides/setup.md) for the full first-run walkthrough.
@@ -101,7 +101,7 @@ See [docs/guides/mcp.md](docs/guides/mcp.md) for the full tool reference.
 
 Python 3.11 · FastAPI · Jinja2 · HTMX · Alpine.js · SCSS · Pydantic v2 · SQLAlchemy (async) · Alembic · PostgreSQL · Qdrant
 
-Models: `anthropic/claude-sonnet-4.6` and `anthropic/claude-opus-4.6` via OpenRouter.
+Models: `claude-sonnet-4-6` and `claude-opus-4-6` via the Anthropic API directly.
 
 ---
 

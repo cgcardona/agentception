@@ -13,7 +13,7 @@ Pipeline
    runtime environment note (Python commands run directly, not via docker exec).
 5. Build the combined tool catalogue: local file/shell tools + all MCP tools.
 6. Run the multi-turn conversation loop via
-   :func:`~agentception.services.llm.call_openrouter_with_tools`, dispatching
+   :func:`~agentception.services.llm.call_anthropic_with_tools`, dispatching
    tool calls until the model returns ``stop_reason == "stop"`` or the
    iteration ceiling is hit.
 7. On completion: call :func:`~agentception.mcp.build_commands.build_complete_run`.

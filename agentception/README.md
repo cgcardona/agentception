@@ -39,7 +39,7 @@ AgentCeption has exactly two external interfaces:
 | MCP server | JSON-RPC 2.0 | Cursor — the only inference engine |
 
 **What AgentCeption is NOT:**
-- Not an LLM client — it never calls OpenRouter, Anthropic, or any model API directly.
+- Not an LLM client in the MCP sense — the MCP server itself does not call Anthropic; the agent loop in `services/agent_loop.py` does.
 - Not a Cursor fork — it is a standalone Python service that Cursor talks to.
 - Fully self-contained — `agentception/` has zero imports from external packages.
 

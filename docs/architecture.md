@@ -18,8 +18,8 @@ agentception/
 
   middleware/      → Starlette middleware (auth.py — API key validation)
   readers/         → LLM planner, GitHub client, worktree manager, transcript reader
-  services/        → LLM calls (OpenRouter), agent loop, code indexer
-    llm.py         → call_openrouter(), call_openrouter_with_tools()
+  services/        → LLM calls (Anthropic API), agent loop, code indexer
+    llm.py         → call_anthropic(), call_anthropic_with_tools()
     agent_loop.py  → Cursor-free agent execution loop
     code_indexer.py → Qdrant codebase indexing + semantic search
   tools/           → Local agent tools (file I/O, shell, semantic search definitions)
@@ -53,7 +53,7 @@ FastAPI routes (thin HTTP handlers)
       ↓
 readers/ (LLM planner, GitHub, worktree)
       ↓
-services/llm.py (OpenRouter → Anthropic HTTPS)
+services/llm.py (Anthropic API, HTTPS)
       ↓
 GitHub API → Issues, PRs, Worktrees
       ↓
@@ -73,7 +73,7 @@ agent_loop.py
   ├─ load .agent-task TOML
   ├─ load role markdown + resolve_arch.py (cognitive arch)
   ├─ build tool catalogue (file + shell + search_codebase + MCP)
-  └─ conversation loop ─→ OpenRouter ─→ Anthropic Claude
+  └─ conversation loop ─→ Anthropic Claude
          ↓ tool calls
    ┌─────────────────────────────────────────┐
    │  read_file / write_file / list_dir      │ ← tools/file_tools.py
