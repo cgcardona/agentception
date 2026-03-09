@@ -85,6 +85,7 @@ _RE_LLM_USAGE = re.compile(
 _RE_LLM_DONE = re.compile(
     r"LLM tool-use done — stop_reason=(?P<reason>\S+) content_chars=(?P<chars>\d+) tool_calls=(?P<calls>\d+)"
 )
+_RE_LLM_REPLY = re.compile(r"LLM reply — chars=(?P<chars>\d+) text=(?P<text>.+)")
 _RE_DELAY = re.compile(r"inter-turn delay — sleeping (?P<secs>[\d.]+)s")
 
 # run start / teardown / indexing
@@ -345,12 +346,20 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
             f"{cr_col}cache_read={cr}{RESET}  {GREY}history={hist}msgs{RESET}"
         )
 
+    # ── agent text reply (before tool calls or at end_turn) ────────────────────
+    rlm = _RE_LLM_REPLY.search(msg)
+    if rlm:
+        chars = int(rlm.group("chars"))
+        text = rlm.group("text").strip()
+        # Truncate long replies for display — full text is in the raw log.
+        display = text[:200] + ("…" if len(text) > 200 else "")
+        return f"{ts}  {GREY}💬 ({chars:,}ch) {display}{RESET}"
+
     # ── LLM done / stop reason ─────────────────────────────────────────────────
     ldm = _RE_LLM_DONE.search(msg)
     if ldm:
         reason = ldm.group("reason")
         calls = ldm.group("calls")
-        chars = int(ldm.group("chars"))
         if reason == "end_turn":
             tag = f"{GREEN}end_turn{RESET}"
         elif reason.startswith("tool_calls"):
@@ -358,8 +367,7 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
             tag = f"{CYAN}→ {n} tool call{'s' if n != 1 else ''}{RESET}"
         else:
             tag = f"{YELLOW}{reason}{RESET}"
-        thought = f"  {GREY}({chars:,}ch thinking){RESET}" if chars > 0 else ""
-        return f"{ts}  {MAGENTA}╚══ {tag}{thought}{RESET}"
+        return f"{ts}  {MAGENTA}╚══ {tag}{RESET}"
 
     # ── inter-turn pacing ─────────────────────────────────────────────────────
     dlm = _RE_DELAY.search(msg)
