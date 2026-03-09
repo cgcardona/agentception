@@ -571,7 +571,7 @@ class TestEnforceTurnDelay:
 
 
 class TestLLMSSLRetry:
-    """Regression tests: ssl.SSLError is retried, not propagated (bug: run killed by transient TLS error)."""
+    """Regression tests: transient LLM errors are retried correctly."""
 
     _TOOLS: list[ToolDefinition] = [
         ToolDefinition(
@@ -654,3 +654,60 @@ class TestLLMSSLRetry:
                     system="sys",
                     tools=self._TOOLS,
                 )
+
+    @pytest.mark.anyio
+    async def test_429_uses_long_backoff_not_short(self) -> None:
+        """429 responses sleep at least _RATE_LIMIT_BACKOFF_SECS, not the 2s used for transient errors."""
+        import httpx
+
+        from agentception.services.llm import (
+            _RATE_LIMIT_BACKOFF_SECS,
+            call_anthropic_with_tools,
+        )
+
+        call_count = 0
+
+        async def _flaky_post(
+            url: str, *, json: object, headers: dict[str, str]
+        ) -> httpx.Response:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                resp = httpx.Response(429, json={"error": "rate_limited"})
+                resp.request = httpx.Request("POST", url)
+                return resp
+            resp_data = {
+                "content": [{"type": "text", "text": "ok"}],
+                "stop_reason": "end_turn",
+                "usage": {
+                    "input_tokens": 10,
+                    "output_tokens": 5,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                },
+            }
+            resp = httpx.Response(200, json=resp_data)
+            resp.request = httpx.Request("POST", url)
+            return resp
+
+        mock_client = MagicMock()
+        mock_client.post = _flaky_post
+        sleep_calls: list[float] = []
+
+        async def _capture_sleep(secs: float) -> None:
+            sleep_calls.append(secs)
+
+        with patch(
+            "agentception.services.llm._get_client", return_value=mock_client
+        ), patch("agentception.services.llm.asyncio.sleep", side_effect=_capture_sleep):
+            result = await call_anthropic_with_tools(
+                messages=self._MESSAGES,
+                system="sys",
+                tools=self._TOOLS,
+            )
+
+        assert result["content"] == "ok"
+        assert call_count == 2
+        # The 429 sleep must be >= _RATE_LIMIT_BACKOFF_SECS (not the 2s used for SSL/timeout)
+        assert len(sleep_calls) == 1
+        assert sleep_calls[0] >= _RATE_LIMIT_BACKOFF_SECS
