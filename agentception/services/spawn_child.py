@@ -312,7 +312,7 @@ async def spawn_child(
 
     # Create git worktree anchored to the resolved SHA
     proc = await asyncio.create_subprocess_exec(
-        "git", "worktree", "add", worktree_path, "-b", branch, dev_sha,
+        "git", "worktree", "add", "-b", branch, worktree_path, dev_sha,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         cwd=str(settings.repo_dir),

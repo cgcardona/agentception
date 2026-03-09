@@ -82,7 +82,7 @@ if str(_RESOLVE_ARCH_DIR) not in sys.path:
     sys.path.insert(0, str(_RESOLVE_ARCH_DIR))
 
 # Hard cap on conversation turns.  Each iteration is one LLM call.
-_DEFAULT_MAX_ITERATIONS = 50
+_DEFAULT_MAX_ITERATIONS = 100
 
 # Tool results longer than this are truncated before being stored in history.
 # read_file / run_command can easily dump 50k+ chars; keeping them unbounded
@@ -107,7 +107,7 @@ _HISTORY_TAIL: int = 14
 # realistic agent turn.  Input TPM is not the constraint: system-prompt cache
 # reads are excluded from the 450K limit, so uncached input per turn is only
 # new messages and tool results (~1–5K).
-_MIN_TURN_DELAY_SECS: float = 5.0
+_MIN_TURN_DELAY_SECS: float = 4.0
 _last_llm_call_at: float = 0.0
 
 

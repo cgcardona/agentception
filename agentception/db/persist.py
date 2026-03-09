@@ -972,6 +972,7 @@ async def persist_agent_run_dispatch(
     gh_repo: str | None = None,
     is_resumed: bool = False,
     coord_fingerprint: str | None = None,
+    task_description: str | None = None,
 ) -> None:
     """Insert an ``ACAgentRun`` row with status ``pending_launch`` at dispatch time.
 
@@ -1022,6 +1023,8 @@ async def persist_agent_run_dispatch(
                 existing.is_resumed = is_resumed
                 if coord_fingerprint is not None:
                     existing.coord_fingerprint = coord_fingerprint
+                if task_description is not None:
+                    existing.task_description = task_description
             else:
                 logger.warning(
                     "💾 persist_agent_run_dispatch: run_id=%r is new — inserting with status=pending_launch",
@@ -1047,6 +1050,7 @@ async def persist_agent_run_dispatch(
                         gh_repo=gh_repo,
                         is_resumed=is_resumed,
                         coord_fingerprint=coord_fingerprint,
+                        task_description=task_description,
                         spawned_at=_now(),
                         last_activity_at=_now(),
                     )

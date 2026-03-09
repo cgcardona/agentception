@@ -226,6 +226,17 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
 
     cognitive_arch = _resolve_cognitive_arch(req.issue_body, req.role)
 
+    # Build task_description from the issue title + body so the agent briefing
+    # includes the full issue text and never needs to call issue_read for context.
+    task_description: str | None = None
+    if req.issue_title or req.issue_body:
+        parts = []
+        if req.issue_title:
+            parts.append(f"# {req.issue_title}")
+        if req.issue_body:
+            parts.append(req.issue_body.strip())
+        task_description = "\n\n".join(parts)
+
     # Persist all task context to DB; agents read via ac://runs/{run_id}/context.
     await persist_agent_run_dispatch(
         run_id=run_id,
@@ -237,6 +248,7 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
         host_worktree_path=host_worktree_path,
         cognitive_arch=cognitive_arch,
         gh_repo=settings.gh_repo,
+        task_description=task_description,
     )
 
     return DispatchResponse(
