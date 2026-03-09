@@ -16,10 +16,9 @@ Parameterized prompts (require arguments, DB-backed)
         (role, cognitive_arch, task_description or issue reference, worktree
         path, branch) with the agent's full role definition.
 
-        This is what replaces the ``.agent-task`` file read in the agent loop.
         The loop calls ``get_prompt("task/briefing", {"run_id": run_id})`` to
-        get the initial user message — no file indirection, no inline text
-        pasted into the conversation, just MCP protocol from start to finish.
+        get the initial user message — task context is sourced entirely from
+        the ``ACAgentRun`` DB row, no file reads or inline text pasting.
 
 Prompt naming convention
     ``role/<slug>``     role definition files
@@ -62,7 +61,7 @@ _AGENT_PROMPTS: list[tuple[str, str]] = [
     ("agent/conductor", "Agent conductor — coordinate multi-step agent workflows"),
     ("agent/command-policy", "Agent command policy — rules for safe shell and git usage"),
     ("agent/pipeline-howto", "Pipeline how-to — phase-gate, dependency, and label conventions"),
-    ("agent/task-spec", "Agent task file specification — formal TOML schema for .agent-task files"),
+    ("agent/task-spec", "Agent task context specification — DB-backed RunContextRow field reference"),
     ("agent/cognitive-arch-enrichment-spec", "Cognitive architecture enrichment specification"),
     ("agent/conflict-rules", "Conflict resolution rules for concurrent agent operations"),
 ]
@@ -90,9 +89,8 @@ _PARAMETERIZED_PROMPTS: list[ACPromptDef] = [
         name="task/briefing",
         description=(
             "Full task briefing for a run — role definition, cognitive architecture, "
-            "and task assignment resolved live from the DB. "
-            "Pass run_id to receive the complete initial message for the agent loop. "
-            "Replaces reading a .agent-task file."
+            "and task assignment resolved live from the ACAgentRun DB row. "
+            "Pass run_id to receive the complete initial message for the agent loop."
         ),
         arguments=[
             ACPromptArgument(

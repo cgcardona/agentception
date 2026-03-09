@@ -7,7 +7,7 @@ locally inside this container.
 Pipeline
 --------
 1. Resolve the worktree path from ``settings.worktrees_dir / run_id``.
-2. Load task context from the ``ACAgentRun`` DB row via ``_load_task``.
+2. Load task context from the ``ACAgentRun`` DB row via ``_load_task`` (DB-only).
 3. Load the role file from ``settings.repo_dir / ".agentception/roles/{role}.md"``.
 4. Assemble the system prompt: role content + cognitive architecture context +
    runtime environment note (Python commands run directly, not via docker exec).
