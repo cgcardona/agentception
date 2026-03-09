@@ -21,7 +21,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 import agentception.poller as poller_module
-from agentception.models import AgentStatus, PipelineState, TaskFile
+from agentception.db.queries import RunContextRow
+from agentception.models import AgentStatus, PipelineState
 from agentception.poller import (
     GitHubBoard,
     broadcast,
@@ -51,13 +52,27 @@ def _empty_board(active_label: str | None = None) -> GitHubBoard:
     )
 
 
-def _make_worktree(issue_number: int | None = None, branch: str | None = None) -> TaskFile:
-    return TaskFile(
-        task="issue-to-pr",
-        issue_number=issue_number,
-        branch=branch,
+def _make_worktree(issue_number: int | None = None, branch: str | None = None) -> RunContextRow:
+    return RunContextRow(
+        run_id=f"issue-{issue_number}" if issue_number else "unknown",
+        status="implementing",
         role="python-developer",
-        worktree=f"/tmp/fake-worktree-{issue_number}",
+        cognitive_arch=None,
+        task_description=None,
+        issue_number=issue_number,
+        pr_number=None,
+        branch=branch,
+        worktree_path=f"/tmp/fake-worktree-{issue_number}",
+        batch_id=None,
+        tier="worker",
+        org_domain=None,
+        parent_run_id=None,
+        gh_repo=None,
+        is_resumed=False,
+        coord_fingerprint=None,
+        spawned_at="2024-01-01T00:00:00",
+        last_activity_at=None,
+        completed_at=None,
     )
 
 
@@ -72,7 +87,7 @@ async def test_tick_returns_pipeline_state() -> None:
     board = _empty_board(active_label="agentception/1-readers")
 
     with (
-        patch("agentception.poller.list_active_worktrees", new_callable=AsyncMock, return_value=[]),
+        patch("agentception.poller.list_active_runs", new_callable=AsyncMock, return_value=[]),
         patch("agentception.poller.build_github_board", new_callable=AsyncMock, return_value=board),
         patch("agentception.poller.detect_out_of_order_prs", new_callable=AsyncMock, return_value=[]),
     ):
@@ -95,7 +110,7 @@ async def test_tick_updates_global_state() -> None:
     board = _empty_board()
 
     with (
-        patch("agentception.poller.list_active_worktrees", new_callable=AsyncMock, return_value=[]),
+        patch("agentception.poller.list_active_runs", new_callable=AsyncMock, return_value=[]),
         patch("agentception.poller.build_github_board", new_callable=AsyncMock, return_value=board),
         patch("agentception.poller.detect_out_of_order_prs", new_callable=AsyncMock, return_value=[]),
     ):
@@ -270,12 +285,26 @@ async def test_stuck_agent_alert_detected(tmp_path: Path) -> None:
     old_timestamp = time.time() - (31 * 60)  # 31 minutes ago
 
     worktrees = [
-        TaskFile(
-            task="issue-to-pr",
-            issue_number=55,
-            branch="feat/issue-55",
+        RunContextRow(
+            run_id="issue-55",
+            status="implementing",
             role="python-developer",
-            worktree=str(tmp_path),
+            cognitive_arch=None,
+            task_description=None,
+            issue_number=55,
+            pr_number=None,
+            branch="feat/issue-55",
+            worktree_path=str(tmp_path),
+            batch_id=None,
+            tier="worker",
+            org_domain=None,
+            parent_run_id=None,
+            gh_repo=None,
+            is_resumed=False,
+            coord_fingerprint=None,
+            spawned_at="2024-01-01T00:00:00",
+            last_activity_at=None,
+            completed_at=None,
         )
     ]
     board = _empty_board()
@@ -355,9 +384,8 @@ async def test_merge_agents_implementing_when_issue_number_present() -> None:
 @pytest.mark.anyio
 async def test_merge_agents_unknown_status() -> None:
     """A worktree with no issue_number AND no PR AND no task name is UNKNOWN."""
-    # A TaskFile with no issue_number, no PR, and a generic task name — truly unknown.
+    # A run with no issue_number, no PR, and worker tier — truly unknown.
     wt = _make_worktree(issue_number=None, branch="feat/unknown-thing")
-    wt.task = None  # no task type to infer from
     agents = await merge_agents([wt], _empty_board())
 
     assert len(agents) == 1
@@ -366,9 +394,28 @@ async def test_merge_agents_unknown_status() -> None:
 
 @pytest.mark.anyio
 async def test_merge_agents_passes_pr_number_from_task_file() -> None:
-    """pr_number from .agent-task (TaskFile) is passed through to AgentNode so poller upsert sets run.pr_number."""
-    worktree = _make_worktree(issue_number=20, branch="feat/issue-20")
-    worktree.pr_number = 99
+    """pr_number from DB row is passed through to AgentNode so poller upsert sets run.pr_number."""
+    worktree = RunContextRow(
+        run_id="issue-20",
+        status="implementing",
+        role="python-developer",
+        cognitive_arch=None,
+        task_description=None,
+        issue_number=20,
+        pr_number=99,
+        branch="feat/issue-20",
+        worktree_path="/tmp/fake-worktree-20",
+        batch_id=None,
+        tier="worker",
+        org_domain=None,
+        parent_run_id=None,
+        gh_repo=None,
+        is_resumed=False,
+        coord_fingerprint=None,
+        spawned_at="2024-01-01T00:00:00",
+        last_activity_at=None,
+        completed_at=None,
+    )
     board = GitHubBoard(
         active_label=None,
         open_issues=[],

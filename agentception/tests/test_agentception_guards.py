@@ -24,7 +24,8 @@ from httpx import ASGITransport, AsyncClient
 
 from agentception.app import app
 from agentception.intelligence.guards import PRViolation, detect_out_of_order_prs, detect_stale_claims
-from agentception.models import StaleClaim, TaskFile
+from agentception.db.queries import RunContextRow
+from agentception.models import StaleClaim
 from agentception.poller import GitHubBoard, detect_alerts
 
 
@@ -262,7 +263,7 @@ async def test_stale_claim_shows_in_alerts(tmp_path: Path) -> None:
         wip_issues=[{"number": 42, "title": "Stale issue"}],
     )
     # No worktrees — issue 42 has no live worktree → stale claim expected.
-    worktrees: list[TaskFile] = []
+    worktrees: list[RunContextRow] = []
 
     with (
         patch("agentception.poller.settings") as poller_mock,

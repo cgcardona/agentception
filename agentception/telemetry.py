@@ -22,8 +22,8 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from agentception.config import settings
-from agentception.models import AgentNode, AgentStatus, TaskFile
-from agentception.readers.worktrees import list_active_worktrees
+from agentception.db.queries import RunContextRow, list_active_runs
+from agentception.models import AgentNode, AgentStatus
 
 logger = logging.getLogger(__name__)
 
@@ -90,8 +90,8 @@ async def aggregate_waves() -> list[WaveSummary]:
 
     Returns a list sorted by ``started_at`` descending (most recent wave first).
     """
-    task_files = await list_active_worktrees()
-    fs_summaries = _build_wave_summaries(task_files, settings.worktrees_dir)
+    active_runs = await list_active_runs()
+    fs_summaries = _build_wave_summaries(active_runs)
     if fs_summaries:
         return fs_summaries
 
@@ -137,108 +137,80 @@ async def aggregate_waves() -> list[WaveSummary]:
         return []
 
 
-async def compute_wave_timing(worktrees: list[TaskFile]) -> tuple[float, float | None]:
-    """Return ``(started_at, ended_at)`` from ``.agent-task`` file mtimes.
+async def compute_wave_timing(runs: list[RunContextRow]) -> tuple[float, float | None]:
+    """Return ``(started_at, ended_at)`` from DB ``spawned_at`` timestamps.
 
-    ``started_at`` is the mtime of the *earliest* task file in the group.
-    ``ended_at`` is the mtime of the *latest* task file, or ``None`` if any
-    worktree path in the group still exists on disk (agent still active).
+    ``started_at`` is the earliest ``spawned_at`` in the group (UNIX timestamp).
+    ``ended_at`` is ``None`` if any worktree path still exists (agent active),
+    otherwise the latest ``spawned_at`` as a proxy for when the wave ended.
 
-    Both values are UNIX timestamps (seconds since epoch).  Returns ``(0.0,
-    None)`` when the list is empty.
+    Returns ``(0.0, None)`` when the list is empty.
     """
-    if not worktrees:
+    import datetime as _dt
+
+    if not runs:
         return 0.0, None
 
-    mtimes: list[float] = []
+    timestamps: list[float] = []
     any_still_active = False
 
-    for tf in worktrees:
-        worktree_path = Path(tf.worktree) if tf.worktree else None
-        if worktree_path is None:
-            continue
-
-        task_file = worktree_path / ".agent-task"
+    for run in runs:
         try:
-            mtime = await _get_mtime(task_file)
-            mtimes.append(mtime)
-        except OSError:
-            logger.debug("⚠️  Cannot stat %s — skipping", task_file)
-
-        # If the worktree directory itself still exists, the agent is active.
-        if worktree_path.exists():
+            ts = _dt.datetime.fromisoformat(run["spawned_at"]).timestamp()
+            timestamps.append(ts)
+        except (ValueError, KeyError):
+            pass
+        worktree = run["worktree_path"]
+        if worktree and Path(worktree).exists():
             any_still_active = True
 
-    if not mtimes:
+    if not timestamps:
         return 0.0, None
 
-    started_at = min(mtimes)
-    ended_at = None if any_still_active else max(mtimes)
+    started_at = min(timestamps)
+    ended_at = None if any_still_active else max(timestamps)
     return started_at, ended_at
 
 
 # ── Private helpers ────────────────────────────────────────────────────────────
 
 
-def _build_wave_summaries(
-    task_files: list[TaskFile],
-    worktrees_dir: Path,
-) -> list[WaveSummary]:
-    """Group TaskFile objects by BATCH_ID and produce WaveSummary objects.
+def _build_wave_summaries(active_runs: list[RunContextRow]) -> list[WaveSummary]:
+    """Group DB run rows by batch_id and produce WaveSummary objects."""
+    import datetime as _dt
 
-    Uses file mtimes synchronously (via ``os.stat``) because this is called
-    from the non-async poller path.  For async callers, prefer
-    ``compute_wave_timing``.
-    """
-    # Group by BATCH_ID — skip task files with no batch_id.
-    groups: dict[str, list[TaskFile]] = {}
-    for tf in task_files:
-        bid = tf.batch_id
+    groups: dict[str, list[RunContextRow]] = {}
+    for run in active_runs:
+        bid = run["batch_id"]
         if not bid:
             continue
-        groups.setdefault(bid, []).append(tf)
+        groups.setdefault(bid, []).append(run)
 
     summaries: list[WaveSummary] = []
     for batch_id, members in groups.items():
-        mtimes: list[float] = []
+        timestamps: list[float] = []
         any_still_active = False
         issues_worked: list[int] = []
         prs_opened = 0
 
-        for tf in members:
-            worktree_path = Path(tf.worktree) if tf.worktree else None
-
-            # Collect issue numbers worked in this wave.
-            for iss in tf.closes_issues:
-                if iss not in issues_worked:
-                    issues_worked.append(iss)
-
-            # Count PRs opened by checking pr_number field.
-            if tf.pr_number is not None:
+        for run in members:
+            issue_num = run["issue_number"]
+            if issue_num is not None and issue_num not in issues_worked:
+                issues_worked.append(issue_num)
+            if run["pr_number"] is not None:
                 prs_opened += 1
-
-            if worktree_path is None:
-                continue
-
-            # File mtime as proxy timestamp.
-            task_file = worktree_path / ".agent-task"
-            mtime = _stat_mtime(task_file)
-            if mtime is not None:
-                mtimes.append(mtime)
-
-            # Active = worktree directory still present.
-            if worktree_path.exists():
+            try:
+                ts = _dt.datetime.fromisoformat(run["spawned_at"]).timestamp()
+                timestamps.append(ts)
+            except (ValueError, KeyError):
+                pass
+            worktree = run["worktree_path"]
+            if worktree and Path(worktree).exists():
                 any_still_active = True
 
-        started_at = min(mtimes) if mtimes else 0.0
-        ended_at = None if any_still_active else (max(mtimes) if mtimes else None)
-
-        # Build minimal AgentNode stubs from TaskFile data.
-        agents = [_task_file_to_agent_node(tf) for tf in members]
-
-        # Derive cost from total message count across all agents in this wave.
-        # message_count defaults to 0 until the poller enriches agents from
-        # transcript data; the estimate grows as transcripts are read.
+        started_at = min(timestamps) if timestamps else 0.0
+        ended_at = None if any_still_active else (max(timestamps) if timestamps else None)
+        agents = [_run_to_agent_node(run) for run in members]
         total_message_count = sum(a.message_count for a in agents)
         estimated_tokens, estimated_cost_usd = estimate_cost(total_message_count)
 
@@ -249,14 +221,13 @@ def _build_wave_summaries(
                 ended_at=ended_at,
                 issues_worked=sorted(issues_worked),
                 prs_opened=prs_opened,
-                prs_merged=0,  # Requires GitHub API — deferred to a follow-up.
+                prs_merged=0,
                 estimated_tokens=estimated_tokens,
                 estimated_cost_usd=round(estimated_cost_usd, 4),
                 agents=agents,
             )
         )
 
-    # Most recent wave first.
     summaries.sort(key=lambda s: s.started_at, reverse=True)
     return summaries
 
@@ -276,25 +247,19 @@ async def _get_mtime(path: Path) -> float:
     return stat_result.st_mtime
 
 
-def _task_file_to_agent_node(tf: TaskFile) -> AgentNode:
-    """Convert a TaskFile to a minimal AgentNode for the WaveSummary agents list.
-
-    Only the fields available from a task file are populated.  Fields that
-    require live GitHub state (e.g. actual PR status) are left at their
-    defaults and can be enriched by the poller in a future iteration.
-    """
-    agent_id = tf.worktree or f"agent-{tf.issue_number or 'unknown'}"
-    worktree_path = Path(tf.worktree) if tf.worktree else None
-    is_active = worktree_path.exists() if worktree_path else False
-
+def _run_to_agent_node(run: RunContextRow) -> AgentNode:
+    """Convert a DB ``RunContextRow`` to a minimal ``AgentNode`` for wave summaries."""
+    worktree = run["worktree_path"]
+    agent_id = worktree or f"agent-{run['issue_number'] or 'unknown'}"
+    is_active = Path(worktree).exists() if worktree else False
     return AgentNode(
         id=agent_id,
-        role=tf.role or "unknown",
+        role=run["role"] or "unknown",
         status=AgentStatus.IMPLEMENTING if is_active else AgentStatus.COMPLETED,
-        issue_number=tf.issue_number,
-        pr_number=tf.pr_number,
-        branch=tf.branch,
-        batch_id=tf.batch_id,
-        worktree_path=tf.worktree,
-        cognitive_arch=tf.cognitive_arch,
+        issue_number=run["issue_number"],
+        pr_number=run["pr_number"],
+        branch=run["branch"],
+        batch_id=run["batch_id"],
+        worktree_path=worktree,
+        cognitive_arch=run["cognitive_arch"],
     )

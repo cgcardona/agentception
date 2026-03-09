@@ -175,7 +175,6 @@ async def build_spawn_child_run(
         "org_domain": result.org_domain,
         "role": result.role,
         "cognitive_arch": result.cognitive_arch,
-        "agent_task_path": result.agent_task_path,
         "scope_type": result.scope_type,
         "scope_value": result.scope_value,
         "status": "implementing",

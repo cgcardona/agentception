@@ -29,7 +29,6 @@ from agentception.routes.api._shared import (
     _build_coordinator_task,
     _build_conductor_task,
 )
-from agentception.services.spawn_child import _build_child_task
 
 
 @pytest.fixture(scope="module")
@@ -687,98 +686,3 @@ def test_build_agent_task_file_ownership_defaults_to_empty_array(tmp_path: Path)
     )
     parsed = tomllib.loads(output)
     assert parsed["target"]["file_ownership"] == []
-
-
-# ---------------------------------------------------------------------------
-# _build_child_task — TOML output regression (swim lane fix)
-# ---------------------------------------------------------------------------
-
-
-def test_build_child_task_issue_scope_emits_valid_toml(tmp_path: Path) -> None:
-    """_build_child_task() must emit valid TOML for issue-scoped agents.
-
-    Regression: spawn_child previously emitted KEY=VALUE which parse_agent_task()
-    (now TOML-only) silently dropped, leaving no ACAgentRun row and cards stuck
-    in the Todo swim lane.
-    """
-    output = _build_child_task(
-        run_id="issue-48-abc123",
-        role="python-developer",
-        tier="worker",
-        org_domain="engineering",
-        scope_type="issue",
-        scope_value="48",
-        gh_repo="owner/repo",
-        branch="feat/issue-48-a1b2",
-        worktree_path="/worktrees/issue-48-abc123",
-        host_worktree_path="/host/worktrees/issue-48-abc123",
-        batch_id="issue-48-20260306T120000Z-1234",
-        parent_run_id="coord-xyz",
-        cognitive_arch="von_neumann:python",
-        coord_fingerprint="Engineering Coordinator · batch-001",
-        issue_title="Migrate parse_agent_task()",
-        issue_number=48,
-    )
-    # Must be parseable as TOML (not KEY=VALUE)
-    parsed = tomllib.loads(output)
-    assert parsed["task"]["workflow"] == "issue-to-pr"
-    assert parsed["agent"]["role"] == "python-developer"
-    assert parsed["agent"]["tier"] == "worker"
-    assert parsed["agent"]["org_domain"] == "engineering"
-    assert parsed["agent"]["cognitive_arch"] == "von_neumann:python"
-    assert parsed["repo"]["gh_repo"] == "owner/repo"
-    assert parsed["pipeline"]["batch_id"] == "issue-48-20260306T120000Z-1234"
-    assert parsed["pipeline"]["parent_run_id"] == "coord-xyz"
-    assert parsed["pipeline"]["coord_fingerprint"] == "Engineering Coordinator · batch-001"
-    assert parsed["target"]["issue_number"] == 48
-    assert parsed["worktree"]["branch"] == "feat/issue-48-a1b2"
-    assert parsed["meta"]["host_role_file"].endswith("python-developer.md")
-
-
-def test_build_child_task_pr_scope_emits_valid_toml() -> None:
-    """_build_child_task() must emit valid TOML for PR-scoped (reviewer) agents."""
-    output = _build_child_task(
-        run_id="pr-142-def456",
-        role="pr-reviewer",
-        tier="worker",
-        org_domain="qa",
-        scope_type="pr",
-        scope_value="142",
-        gh_repo="owner/repo",
-        branch="review/pr-142-c3d4",
-        worktree_path="/worktrees/pr-142-def456",
-        host_worktree_path="/host/worktrees/pr-142-def456",
-        batch_id="pr-142-20260306T120000Z-5678",
-        parent_run_id="coord-abc",
-        cognitive_arch="hopper:python",
-        pr_number=142,
-    )
-    parsed = tomllib.loads(output)
-    assert parsed["task"]["workflow"] == "pr-review"
-    assert parsed["agent"]["tier"] == "worker"
-    assert parsed["agent"]["org_domain"] == "qa"
-    assert parsed["target"]["pr_number"] == 142
-
-
-def test_build_child_task_label_scope_emits_valid_toml() -> None:
-    """_build_child_task() must emit valid TOML for label-scoped (coordinator) agents."""
-    output = _build_child_task(
-        run_id="coord-ac-workflow-ghi789",
-        role="engineering-coordinator",
-        tier="coordinator",
-        org_domain="engineering",
-        scope_type="label",
-        scope_value="ac-workflow/1-toml-migration",
-        gh_repo="owner/repo",
-        branch="agent/ac-workflow-e5f6",
-        worktree_path="/worktrees/coord-ac-workflow-ghi789",
-        host_worktree_path="/host/worktrees/coord-ac-workflow-ghi789",
-        batch_id="label-ac-workflow-20260306T120000Z-9abc",
-        parent_run_id="",
-        cognitive_arch="von_neumann:python",
-    )
-    parsed = tomllib.loads(output)
-    assert parsed["task"]["workflow"] == "coordinator"
-    assert parsed["agent"]["role"] == "engineering-coordinator"
-    assert parsed["target"]["scope_type"] == "label"
-    assert parsed["target"]["scope_value"] == "ac-workflow/1-toml-migration"

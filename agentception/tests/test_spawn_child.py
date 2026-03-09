@@ -29,7 +29,6 @@ def _make_mock_result(cognitive_arch: str) -> SpawnChildResult:
         org_domain="engineering",
         role="engineering-coordinator",
         cognitive_arch=cognitive_arch,
-        agent_task_path="/worktrees/test-run-id/.agent-task",
         scope_type="label",
         scope_value="my-label",
     )

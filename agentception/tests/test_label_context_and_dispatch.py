@@ -355,25 +355,24 @@ def test_dispatch_label_phase_scope_is_coordinator(
     assert data["label"] == "ac-workflow"
 
 
-def test_dispatch_label_phase_scope_agent_task_scope_value(
+def test_dispatch_label_phase_scope_persists_tier_to_db(
     client: TestClient,
     tmp_path: Path,
 ) -> None:
-    """The .agent-task [target] must use the phase sub-label as scope_value."""
-    written_text, capture = _make_agent_task_capture()
+    """dispatch-label for phase scope must persist tier=coordinator to the DB."""
+    persist_mock = AsyncMock()
 
     with (
         patch("agentception.routes.api.dispatch.settings") as mock_settings,
         patch("agentception.routes.api.dispatch.asyncio.create_subprocess_exec") as mock_exec,
-        patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
-        patch.object(Path, "write_text", capture),
+        patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", persist_mock),
     ):
         wt_dir = tmp_path / "worktrees4"
         wt_dir.mkdir(parents=True)
         _mock_dispatch_settings(mock_settings, tmp_path, subdir="worktrees4")
         mock_exec.return_value = _make_fake_proc()
 
-        client.post(
+        res = client.post(
             "/api/dispatch/label",
             json=_dispatch_label_body(
                 scope="phase",
@@ -381,11 +380,11 @@ def test_dispatch_label_phase_scope_agent_task_scope_value(
             ),
         )
 
-    assert written_text, "No .agent-task file was written"
-    task_data = tomllib.loads(written_text[0])
-    assert task_data["target"]["scope_value"] == "ac-workflow/5-plan-step-v2"
-    assert task_data["target"]["initiative_label"] == "ac-workflow"
-    assert task_data["agent"]["tier"] == "coordinator"
+    assert res.status_code == 200
+    persist_mock.assert_awaited_once()
+    kwargs = persist_mock.call_args.kwargs
+    assert kwargs["tier"] == "coordinator"
+    assert kwargs["gh_repo"] == "cgcardona/agentception"
 
 
 # ---------------------------------------------------------------------------
@@ -417,35 +416,33 @@ def test_dispatch_label_issue_scope_is_leaf(
     assert data["role"] == "python-developer"
 
 
-def test_dispatch_label_issue_scope_agent_task_fields(
+def test_dispatch_label_issue_scope_persists_issue_number_to_db(
     client: TestClient,
     tmp_path: Path,
 ) -> None:
-    """The .agent-task [target] must use scope_type=issue and the issue number as scope_value."""
-    written_text, capture = _make_agent_task_capture()
+    """dispatch-label for issue scope must persist issue_number and tier=worker to DB."""
+    persist_mock = AsyncMock()
 
     with (
         patch("agentception.routes.api.dispatch.settings") as mock_settings,
         patch("agentception.routes.api.dispatch.asyncio.create_subprocess_exec") as mock_exec,
-        patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
-        patch.object(Path, "write_text", capture),
+        patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", persist_mock),
     ):
         wt_dir = tmp_path / "worktrees6"
         wt_dir.mkdir(parents=True)
         _mock_dispatch_settings(mock_settings, tmp_path, subdir="worktrees6")
         mock_exec.return_value = _make_fake_proc()
 
-        client.post(
+        res = client.post(
             "/api/dispatch/label",
             json=_dispatch_label_body(scope="issue", scope_issue_number=42),
         )
 
-    assert written_text, "No .agent-task file was written"
-    task_data = tomllib.loads(written_text[0])
-    assert task_data["target"]["scope_type"] == "issue"
-    assert task_data["target"]["scope_value"] == "42"
-    assert task_data["target"]["initiative_label"] == "ac-workflow"
-    assert task_data["agent"]["tier"] == "worker"
+    assert res.status_code == 200
+    persist_mock.assert_awaited_once()
+    kwargs = persist_mock.call_args.kwargs
+    assert kwargs["issue_number"] == 42
+    assert kwargs["tier"] == "worker"
 
 
 # ---------------------------------------------------------------------------
@@ -453,42 +450,41 @@ def test_dispatch_label_issue_scope_agent_task_fields(
 # ---------------------------------------------------------------------------
 
 
-def test_cascade_enabled_defaults_to_true_in_agent_task(
+def test_dispatch_label_full_initiative_scope_persists_to_db(
     client: TestClient,
     tmp_path: Path,
 ) -> None:
-    """cascade_enabled must be True in [spawn] when not specified in request."""
-    written_text, capture = _make_agent_task_capture()
+    """dispatch-label for full_initiative scope must persist coordinator tier to DB."""
+    persist_mock = AsyncMock()
 
     with (
         patch("agentception.routes.api.dispatch.settings") as mock_settings,
         patch("agentception.routes.api.dispatch.asyncio.create_subprocess_exec", new=_make_worktree_exec()),
-        patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
-        patch.object(Path, "write_text", capture),
+        patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", persist_mock),
     ):
         _mock_dispatch_settings(mock_settings, tmp_path, subdir="worktrees7")
-        client.post(
+        res = client.post(
             "/api/dispatch/label",
             json=_dispatch_label_body(scope="full_initiative"),
         )
 
-    assert written_text, "No .agent-task file was written"
-    task_data = tomllib.loads(written_text[0])
-    assert task_data["spawn"]["cascade_enabled"] is True
+    assert res.status_code == 200
+    persist_mock.assert_awaited_once()
+    kwargs = persist_mock.call_args.kwargs
+    assert kwargs["tier"] == "coordinator"
 
 
-def test_cascade_enabled_false_written_to_agent_task(
+def test_dispatch_label_returns_200_with_cascade_disabled(
     client: TestClient,
     tmp_path: Path,
 ) -> None:
-    """cascade_enabled=False must propagate into [spawn].cascade_enabled in .agent-task."""
-    written_text, capture = _make_agent_task_capture()
+    """dispatch-label with cascade_enabled=False must still return 200 and persist to DB."""
+    persist_mock = AsyncMock()
 
     with (
         patch("agentception.routes.api.dispatch.settings") as mock_settings,
         patch("agentception.routes.api.dispatch.asyncio.create_subprocess_exec", new=_make_worktree_exec()),
-        patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
-        patch.object(Path, "write_text", capture),
+        patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", persist_mock),
     ):
         _mock_dispatch_settings(mock_settings, tmp_path, subdir="worktrees8")
         res = client.post(
@@ -497,6 +493,4 @@ def test_cascade_enabled_false_written_to_agent_task(
         )
 
     assert res.status_code == 200
-    assert written_text, "No .agent-task file was written"
-    task_data = tomllib.loads(written_text[0])
-    assert task_data["spawn"]["cascade_enabled"] is False
+    persist_mock.assert_awaited_once()

@@ -256,7 +256,7 @@ async def test_poller_tick_returns_pipeline_state() -> None:
 
     with (
         patch(
-            "agentception.poller.list_active_worktrees",
+            "agentception.poller.list_active_runs",
             new_callable=AsyncMock,
             return_value=[],
         ),

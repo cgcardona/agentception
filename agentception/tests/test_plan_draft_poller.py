@@ -319,7 +319,7 @@ async def test_poller_tick_broadcasts_plan_draft_ready_to_sse_subscriber(
     try:
         board = _empty_board()
         with (
-            patch("agentception.poller.list_active_worktrees", new_callable=AsyncMock, return_value=[]),
+            patch("agentception.poller.list_active_runs", new_callable=AsyncMock, return_value=[]),
             patch("agentception.poller.build_github_board", new_callable=AsyncMock, return_value=board),
             patch("agentception.poller.detect_out_of_order_prs", new_callable=AsyncMock, return_value=[]),
             patch("agentception.poller.settings") as mock_settings,

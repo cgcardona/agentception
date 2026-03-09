@@ -23,7 +23,8 @@ from pathlib import Path
 
 from agentception.config import settings
 from agentception.intelligence.guards import detect_out_of_order_prs, detect_stale_claims
-from agentception.models import AgentNode, AgentStatus, BoardIssue, PipelineState, PlanDraftEvent, StaleClaim, TaskFile
+from agentception.db.queries import RunContextRow, list_active_runs
+from agentception.models import AgentNode, AgentStatus, BoardIssue, PipelineState, PlanDraftEvent, StaleClaim
 from agentception.readers.github import (
     get_active_label,
     get_closed_issues,
@@ -32,7 +33,7 @@ from agentception.readers.github import (
     get_open_prs,
     get_wip_issues,
 )
-from agentception.readers.worktrees import list_active_worktrees, parse_agent_task, worktree_last_commit_time
+from agentception.readers.worktrees import parse_agent_task, worktree_last_commit_time
 
 logger = logging.getLogger(__name__)
 
@@ -121,20 +122,17 @@ async def build_github_board() -> GitHubBoard:
 
 
 async def merge_agents(
-    worktrees: list[TaskFile],
+    active_runs: list[RunContextRow],
     github: GitHubBoard,
 ) -> list[AgentNode]:
-    """Build an ``AgentNode`` list by correlating worktree task files with GitHub.
+    """Build an ``AgentNode`` list by correlating DB run rows with GitHub.
 
     Status derivation rules (applied in priority order):
-    1. Worktree branch matches an open PR ``headRefName`` → REVIEWING
-    2. Worktree issue number appears in ``agent/wip`` issues → IMPLEMENTING
-    3. ``WORKFLOW=bugs-to-issues`` (coordinator/brain-dump) → IMPLEMENTING
-       These agents have no issue number or PR; they are actively planning.
+    1. Run branch matches an open PR ``headRefName`` → REVIEWING
+    2. Run has an issue_number → IMPLEMENTING
+    3. Run is a coordinator (tier == coordinator, no issue/PR) → IMPLEMENTING
     4. Otherwise → UNKNOWN
     """
-    # Index open PRs by branch name for O(1) lookup.
-    # Maps headRefName → PR number so we can propagate pr_number to AgentNode.
     pr_branch_to_number: dict[str, int] = {}
     for pr in github.open_prs:
         head = pr.get("headRefName")
@@ -142,58 +140,39 @@ async def merge_agents(
         if isinstance(head, str) and isinstance(number, int):
             pr_branch_to_number[head] = number
 
-    # Index WIP issue numbers for O(1) lookup.
-    wip_issue_numbers: set[int] = set()
-    for issue in github.wip_issues:
-        num = issue.get("number")
-        if isinstance(num, int):
-            wip_issue_numbers.add(num)
-
     nodes: list[AgentNode] = []
-    for tf in worktrees:
-        branch = tf.branch or ""
+    for run in active_runs:
+        branch = run["branch"] or ""
         gh_pr_number: int | None = pr_branch_to_number.get(branch) if branch else None
         if branch and gh_pr_number is not None:
             status = AgentStatus.REVIEWING
-        elif tf.issue_number is not None:
-            # Any worktree with a valid issue number is implementing. We do not
-            # require the agent/wip GitHub label here — the worktree's existence
-            # is the authoritative signal. The label is useful for stale-claim
-            # detection (a label without a worktree) but should not gate board
-            # visibility, because leaf agents may not have claimed the issue yet
-            # when the first poller tick fires.
+        elif run["issue_number"] is not None:
             status = AgentStatus.IMPLEMENTING
-        elif tf.task == "bugs-to-issues":
-            # Coordinator (brain-dump) agents have no GitHub issue or PR until
-            # sub-agents start filing them.  Treat them as IMPLEMENTING so they
-            # show as active rather than confusingly UNKNOWN.
+        elif run["tier"] == "coordinator":
+            # Coordinator agents may have no issue/PR during planning.
             status = AgentStatus.IMPLEMENTING
         else:
             status = AgentStatus.FAILED
 
-        # Agent ID is the worktree basename (e.g. "issue-732"). This is the
-        # canonical identifier used in URLs, DB PKs, and API responses.
+        worktree = run["worktree_path"]
         node_id = (
-            Path(tf.worktree).name if tf.worktree else None
-        ) or (f"issue-{tf.issue_number}" if tf.issue_number else None) or "unknown"
-        # Prefer PR number derived from live GitHub branch match over the
-        # static value in the .agent-task file (which may be 0 or missing
-        # until the agent explicitly updates linked_pr).
-        resolved_pr_number = gh_pr_number if gh_pr_number is not None else tf.pr_number
+            Path(worktree).name if worktree else None
+        ) or (f"issue-{run['issue_number']}" if run["issue_number"] else None) or run["run_id"]
+        resolved_pr_number = gh_pr_number if gh_pr_number is not None else run["pr_number"]
         nodes.append(
             AgentNode(
                 id=node_id,
-                role=tf.role or "unknown",
+                role=run["role"] or "unknown",
                 status=status,
-                issue_number=tf.issue_number,
+                issue_number=run["issue_number"],
                 pr_number=resolved_pr_number,
-                branch=tf.branch,
-                batch_id=tf.batch_id,
-                worktree_path=tf.worktree,
-                cognitive_arch=tf.cognitive_arch,
-                tier=tf.tier,
-                org_domain=tf.org_domain,
-                parent_run_id=tf.parent_run_id,
+                branch=run["branch"],
+                batch_id=run["batch_id"],
+                worktree_path=worktree,
+                cognitive_arch=run["cognitive_arch"],
+                tier=run["tier"],
+                org_domain=run["org_domain"],
+                parent_run_id=run["parent_run_id"],
             )
         )
 
@@ -206,7 +185,7 @@ async def merge_agents(
 
 
 async def detect_alerts(
-    worktrees: list[TaskFile],
+    active_runs: list[RunContextRow],
     github: GitHubBoard,
 ) -> tuple[list[str], list[StaleClaim]]:
     """Detect pipeline problems and return human-readable alert strings plus structured stale claims.
@@ -263,29 +242,32 @@ async def detect_alerts(
                 break  # one alert per PR is enough
 
     # ── Alert 3: worktree last commit > 30 min ago (async path) ────────────
-    # Skip coordinator (brain-dump) worktrees — they have no commits of their
-    # own; all work happens in sub-agent worktrees they spawn.  Applying the
-    # stuck check to them would always fire immediately.
+    # Skip coordinator runs — they have no commits of their own; all work
+    # happens in sub-agent worktrees they spawn.
     #
-    # Also skip worktrees whose .agent-task file is newer than the threshold —
-    # a freshly spawned worktree has no agent activity yet and is not stuck.
-    for tf in worktrees:
-        if tf.worktree is None:
+    # Skip freshly spawned runs (spawned_at within threshold) — a brand-new
+    # worktree has no agent activity yet and is not stuck.
+    import datetime as _dt
+    for run in active_runs:
+        worktree = run["worktree_path"]
+        if worktree is None:
             continue
-        if tf.task == "bugs-to-issues":
+        if run["tier"] == "coordinator":
             continue
-        path = Path(tf.worktree)
+        path = Path(worktree)
         if not path.exists():
             continue
-        # Skip if the worktree was created (task file written) within the threshold.
-        task_file = path / ".agent-task"
-        if task_file.exists():
-            task_mtime = task_file.stat().st_mtime
-            if (now - task_mtime) < _STUCK_THRESHOLD_SECONDS:
+        # Skip if spawned within the threshold window.
+        spawned_at_str = run["spawned_at"]
+        try:
+            spawned_ts = _dt.datetime.fromisoformat(spawned_at_str).timestamp()
+            if (now - spawned_ts) < _STUCK_THRESHOLD_SECONDS:
                 continue
+        except (ValueError, OSError):
+            pass
         last_commit = await worktree_last_commit_time(path)
         if last_commit > 0.0 and (now - last_commit) > _STUCK_THRESHOLD_SECONDS:
-            label = f"issue #{tf.issue_number}" if tf.issue_number else path.name
+            label = f"issue #{run['issue_number']}" if run["issue_number"] else path.name
             alerts.append(f"Possible stuck agent on {label}")
 
     # ── Alert 4: structured out-of-order PR violations (linked-issue check) ─
@@ -678,10 +660,10 @@ async def tick() -> PipelineState:
     # via the GUI takes effect within one polling interval — no restart needed.
     settings.reload()
 
-    worktrees = await list_active_worktrees()
+    active_runs = await list_active_runs()
     github = await build_github_board()
-    agents = await merge_agents(worktrees, github)
-    alerts, stale_claims = await detect_alerts(worktrees, github)
+    agents = await merge_agents(active_runs, github)
+    alerts, stale_claims = await detect_alerts(active_runs, github)
     plan_draft_events = await scan_plan_draft_worktrees()
 
     # ── Persist raw tick data to Postgres ────────────────────────────────────

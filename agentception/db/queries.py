@@ -2680,9 +2680,9 @@ async def get_run_by_id(run_id: str) -> RunSummaryRow | None:
 class RunContextRow(TypedDict):
     """Full task context for an agent run — the authoritative DB-sourced record.
 
-    Extends :class:`RunSummaryRow` with the fields needed to brief an agent:
-    ``cognitive_arch`` and ``task_description``.  Used by
-    ``ac://runs/{run_id}/context`` and the ``task/briefing`` MCP prompt.
+    Used by ``ac://runs/{run_id}/context`` and the ``task/briefing`` MCP prompt.
+    All fields an agent needs to understand its assignment are present here;
+    no ``.agent-task`` file read is necessary.
     """
 
     run_id: str
@@ -2698,6 +2698,9 @@ class RunContextRow(TypedDict):
     tier: str | None
     org_domain: str | None
     parent_run_id: str | None
+    gh_repo: str | None
+    is_resumed: bool
+    coord_fingerprint: str | None
     spawned_at: str
     last_activity_at: str | None
     completed_at: str | None
@@ -2734,6 +2737,9 @@ async def get_run_context(run_id: str) -> RunContextRow | None:
             tier=row.tier,
             org_domain=row.org_domain,
             parent_run_id=row.parent_run_id,
+            gh_repo=row.gh_repo,
+            is_resumed=row.is_resumed,
+            coord_fingerprint=row.coord_fingerprint,
             spawned_at=row.spawned_at.isoformat(),
             last_activity_at=(row.last_activity_at.isoformat() if row.last_activity_at else None),
             completed_at=(row.completed_at.isoformat() if row.completed_at else None),
@@ -2741,6 +2747,49 @@ async def get_run_context(run_id: str) -> RunContextRow | None:
     except Exception as exc:
         logger.warning("⚠️  get_run_context DB query failed (non-fatal): %s", exc)
         return None
+
+
+async def list_active_runs() -> list[RunContextRow]:
+    """Return all agent runs currently in an active state (DB-only replacement for worktree scan).
+
+    Returns rows with status in ``{implementing, pending_launch, reviewing}``.
+    Used by the poller to build the board and detect alerts — replaces the
+    old ``list_active_worktrees()`` filesystem scan.  Returns ``[]`` on error.
+    """
+    _ACTIVE_STATUSES = {"implementing", "pending_launch", "reviewing"}
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun).where(ACAgentRun.status.in_(_ACTIVE_STATUSES))
+            )
+            rows = result.scalars().all()
+        return [
+            RunContextRow(
+                run_id=row.id,
+                status=row.status,
+                role=row.role,
+                cognitive_arch=row.cognitive_arch,
+                task_description=row.task_description,
+                issue_number=row.issue_number,
+                pr_number=row.pr_number,
+                branch=row.branch,
+                worktree_path=row.worktree_path,
+                batch_id=row.batch_id,
+                tier=row.tier,
+                org_domain=row.org_domain,
+                parent_run_id=row.parent_run_id,
+                gh_repo=row.gh_repo,
+                is_resumed=row.is_resumed,
+                coord_fingerprint=row.coord_fingerprint,
+                spawned_at=row.spawned_at.isoformat(),
+                last_activity_at=(row.last_activity_at.isoformat() if row.last_activity_at else None),
+                completed_at=(row.completed_at.isoformat() if row.completed_at else None),
+            )
+            for row in rows
+        ]
+    except Exception as exc:
+        logger.warning("⚠️  list_active_runs DB query failed (non-fatal): %s", exc)
+        return []
 
 
 async def get_children_by_parent_id(parent_run_id: str) -> list[RunSummaryRow]:

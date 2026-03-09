@@ -4,7 +4,7 @@ All external I/O is mocked:
   - call_openrouter_with_tools  → controlled ToolResponse stubs
   - build_complete_run / build_cancel_run / log_run_step / log_run_error → AsyncMock
   - call_tool_async             → AsyncMock returning valid ACToolResult
-  - parse_agent_task            → bypassed via real .agent-task in tmp_path
+  - _load_task                  → AsyncMock returning a minimal AgentTaskSpec (DB-backed)
   - settings.worktrees_dir      → redirected to tmp_path
   - settings.repo_dir           → redirected to tmp_path
 """
@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from agentception.mcp.types import ACToolContent, ACToolResult
+from agentception.models import AgentTaskSpec
 from agentception.services.llm import ToolCall, ToolCallFunction, ToolResponse
 
 
@@ -25,48 +26,17 @@ from agentception.services.llm import ToolCall, ToolCallFunction, ToolResponse
 # Helpers
 # ---------------------------------------------------------------------------
 
-_MINIMAL_TASK_TOML = """\
-[task]
-id = "test-run-1"
-workflow = "issue-to-pr"
-attempt_n = 0
 
-[agent]
-role = "python-developer"
-tier = "worker"
-cognitive_arch = "Think step by step."
-
-[target]
-scope_type = "issue"
-scope_value = "42"
-
-[worktree]
-path = "{worktree}"
-"""
-
-
-def _write_task(worktree: Path, issue_number: int = 42) -> None:
-    """Write a minimal .agent-task TOML to the worktree root."""
-    toml = (
-        "[task]\n"
-        'id = "test-run-1"\n'
-        'workflow = "issue-to-pr"\n'
-        "attempt_n = 0\n"
-        "\n"
-        "[agent]\n"
-        'role = "python-developer"\n'
-        'tier = "worker"\n'
-        'cognitive_arch = "Think step by step."\n'
-        "\n"
-        "[target]\n"
-        'scope_type = "issue"\n'
-        f'scope_value = "{issue_number}"\n'
-        f"issue_number = {issue_number}\n"
-        "\n"
-        "[worktree]\n"
-        f'path = "{worktree}"\n'
+def _make_task_spec(worktree: Path, issue_number: int = 42) -> AgentTaskSpec:
+    """Return a minimal AgentTaskSpec that mirrors what _load_task_from_db returns."""
+    return AgentTaskSpec(
+        id="test-run-1",
+        role="python-developer",
+        tier="worker",
+        cognitive_arch="Think step by step.",
+        issue_number=issue_number,
+        worktree=str(worktree),
     )
-    (worktree / ".agent-task").write_text(toml, encoding="utf-8")
 
 
 def _mcp_ok_result(text: str = "ok") -> ACToolResult:
@@ -101,10 +71,15 @@ class TestRunAgentLoop:
         """Agent loop completes in one turn when the model returns stop."""
         worktree = tmp_path / "test-run-1"
         worktree.mkdir()
-        _write_task(worktree)
+        task_spec = _make_task_spec(worktree)
 
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
             patch(
                 "agentception.services.agent_loop.call_openrouter_with_tools",
                 new_callable=AsyncMock,
@@ -138,16 +113,21 @@ class TestRunAgentLoop:
         """Agent loop dispatches a tool call and continues to stop."""
         worktree = tmp_path / "test-run-1"
         worktree.mkdir()
-        _write_task(worktree)
+        task_spec = _make_task_spec(worktree)
 
         tool_result = {"ok": True, "content": "file content here", "truncated": False}
         responses = [
-            _tool_response("read_file", {"path": ".agent-task"}),
+            _tool_response("read_file", {"path": "README.md"}),
             _stop_response("Done after reading file."),
         ]
 
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
             patch(
                 "agentception.services.agent_loop.call_openrouter_with_tools",
                 new_callable=AsyncMock,
@@ -163,17 +143,12 @@ class TestRunAgentLoop:
                 new_callable=AsyncMock,
                 return_value={"ok": True},
             ),
-            patch(
-                "agentception.tools.file_tools.read_file",
-                return_value=tool_result,
-            ),
         ):
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
 
             from agentception.services import agent_loop as al
 
-            # Patch the imported names in agent_loop
             with patch.object(al, "read_file", return_value=tool_result):
                 await al.run_agent_loop("test-run-1")
 
@@ -184,7 +159,7 @@ class TestRunAgentLoop:
         """Non-local tool names are forwarded to call_tool_async."""
         worktree = tmp_path / "test-run-1"
         worktree.mkdir()
-        _write_task(worktree)
+        task_spec = _make_task_spec(worktree)
 
         responses = [
             _tool_response("log_run_step", {"issue_number": 42, "step_name": "Starting"}),
@@ -193,6 +168,11 @@ class TestRunAgentLoop:
 
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
             patch(
                 "agentception.services.agent_loop.call_openrouter_with_tools",
                 new_callable=AsyncMock,
@@ -228,10 +208,15 @@ class TestRunAgentLoop:
         """Exceeding max_iterations triggers log_run_error + build_cancel_run."""
         worktree = tmp_path / "test-run-1"
         worktree.mkdir()
-        _write_task(worktree)
+        task_spec = _make_task_spec(worktree)
 
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
             patch(
                 "agentception.services.agent_loop.call_openrouter_with_tools",
                 new_callable=AsyncMock,
@@ -269,14 +254,15 @@ class TestRunAgentLoop:
         mock_error.assert_called_once()
 
     @pytest.mark.anyio
-    async def test_missing_agent_task_cancels_run(self, tmp_path: Path) -> None:
-        """run_agent_loop cancels cleanly when .agent-task is missing."""
-        worktree = tmp_path / "no-task-run"
-        worktree.mkdir()
-        # No .agent-task written
-
+    async def test_missing_task_in_db_cancels_run(self, tmp_path: Path) -> None:
+        """run_agent_loop cancels cleanly when the DB row is missing."""
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
             patch(
                 "agentception.services.agent_loop.build_cancel_run",
                 new_callable=AsyncMock,
@@ -297,10 +283,15 @@ class TestRunAgentLoop:
         """LLM exception triggers log_run_error + build_cancel_run."""
         worktree = tmp_path / "test-run-1"
         worktree.mkdir()
-        _write_task(worktree)
+        task_spec = _make_task_spec(worktree)
 
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
             patch(
                 "agentception.services.agent_loop.call_openrouter_with_tools",
                 new_callable=AsyncMock,

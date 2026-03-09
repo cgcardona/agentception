@@ -154,8 +154,8 @@ TOOLS: list[ACToolDef] = [
     ACToolDef(
         name="plan_spawn_coordinator",
         description=(
-            "Validate a manifest and create a coordinator git worktree with a .agent-task file. "
-            "Returns {worktree, branch, agent_task_path, batch_id}."
+            "Validate a manifest and create a coordinator git worktree. "
+            "Returns {worktree, branch, batch_id, run_id}."
         ),
         inputSchema={
             "type": "object",
