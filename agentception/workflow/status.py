@@ -12,10 +12,14 @@ Run lifecycle state machine
     pending_launch → implementing : build_claim_run
     pending_launch → cancelled    : build_cancel_run
     implementing   → blocked      : build_block_run
+    implementing   → stalled      : poller watchdog (no commit progress)
     implementing   → completed    : build_complete_run
     implementing   → cancelled    : build_cancel_run
     implementing   → stopped      : build_stop_run
     blocked        → implementing : build_resume_run
+    stalled        → recovering   : auto-heal / re-dispatch
+    stalled        → failed       : max_attempts exceeded
+    recovering     → implementing : re-dispatch succeeded
     stopped        → implementing : build_resume_run
     completed/cancelled/stopped/failed → terminal
 
@@ -40,6 +44,8 @@ class AgentStatus(str, enum.Enum):
     IMPLEMENTING = "implementing"
     BLOCKED = "blocked"
     REVIEWING = "reviewing"
+    STALLED = "stalled"       # set by poller watchdog when no commit progress
+    RECOVERING = "recovering"  # set on auto-heal / re-dispatch attempts
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     STOPPED = "stopped"
@@ -50,10 +56,15 @@ class AgentStatus(str, enum.Enum):
 #: Used by the orphan sweep in ``persist.py``.  ``pending_launch`` is excluded
 #: because pending runs exist only in the DB queue — including them would
 #: immediately orphan them before the Dispatcher claims them.
+#: ``STALLED`` and ``RECOVERING`` are included because the worktree still
+#: exists for stalled runs — the poller watchdog set the status but did not
+#: tear down the worktree.
 ACTIVE_STATUSES: frozenset[str] = frozenset({
     AgentStatus.IMPLEMENTING.value,
     AgentStatus.BLOCKED.value,
     AgentStatus.REVIEWING.value,
+    AgentStatus.STALLED.value,
+    AgentStatus.RECOVERING.value,
 })
 
 #: States considered "live" for UI hierarchy and staleness checks.
@@ -62,6 +73,8 @@ LIVE_STATUSES: frozenset[str] = frozenset({
     AgentStatus.PENDING_LAUNCH.value,
     AgentStatus.BLOCKED.value,
     AgentStatus.REVIEWING.value,
+    AgentStatus.STALLED.value,
+    AgentStatus.RECOVERING.value,
 })
 
 #: States reset to ``failed`` during a full build reset.
@@ -70,6 +83,8 @@ RESET_STATUSES: frozenset[str] = frozenset({
     AgentStatus.IMPLEMENTING.value,
     AgentStatus.BLOCKED.value,
     AgentStatus.REVIEWING.value,
+    AgentStatus.STALLED.value,
+    AgentStatus.RECOVERING.value,
 })
 
 #: States that place an issue card in the ``active`` swim lane (when no PR exists).
@@ -78,6 +93,8 @@ LANE_ACTIVE_STATUSES: frozenset[str] = frozenset({
     AgentStatus.PENDING_LAUNCH.value,
     AgentStatus.BLOCKED.value,
     AgentStatus.REVIEWING.value,
+    AgentStatus.STALLED.value,
+    AgentStatus.RECOVERING.value,
 })
 
 #: Terminal states — no further transitions are possible.
