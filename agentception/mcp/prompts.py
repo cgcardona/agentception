@@ -362,8 +362,6 @@ def _render_figure_section(figure_ids: list[str]) -> list[str]:
     parts: list[str] = []
     for fig_id in figure_ids:
         data = _load_figure(fig_id)
-        display = data.get("display_name") or fig_id
-        parts += ["", f"## Cognitive Identity — {display}", ""]
         prefix = (data.get("prompt_injection") or {}).get("prefix", "")
         if prefix:
             parts.append(prefix.strip())
@@ -400,7 +398,7 @@ def _render_submit_checklist(figure_ids: list[str], skill_ids: list[str]) -> lis
     Placed at the end of the briefing so the agent reads it immediately before
     opening a PR — the moment the checklist is most actionable.
     """
-    parts: list[str] = ["", "---", "", "## Before Submitting", ""]
+    parts: list[str] = ["", "---", ""]
     has_content = False
 
     for fig_id in figure_ids:

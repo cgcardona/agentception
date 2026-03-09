@@ -66,26 +66,20 @@ When tradeoffs appear, resolve them in this order:
 4. **Fail loudly** — raise exceptions with context; never swallow errors silently.
 5. **Ship the clean subset** — one clear improvement, merged, beats a rewrite left open.
 
-## Failure Modes to Avoid
-
-- Spending iterations "deciding" when you already know what to do.
-- Re-reading a file section you have already processed.
-- Routing or spawning agents when your job is to implement.
-- Leaving work half-done when a clean subset could ship immediately.
-- Accepting a type error or test failure as "acceptable for now."
-
 ## Verification Before Done
 
 Run in order — types before tests:
 
-```
-docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
+```bash
+cd "$REPO" && docker compose exec agentception sh -c \
+  "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
 ```
 
 Then run **only the test files for modules you changed** — never the full suite:
 
-```
-docker compose exec agentception pytest agentception/tests/test_<your_module>.py -v
+```bash
+cd "$REPO" && docker compose exec agentception sh -c \
+  "PYTHONPATH=/worktrees/$WTNAME pytest /worktrees/$WTNAME/agentception/tests/test_<your_module>.py -v"
 ```
 
 Never skip type checking. A passing test with an underlying type error is a deferred failure.
@@ -94,10 +88,10 @@ Never skip type checking. A passing test with an underlying type error is a defe
 
 You must post fingerprint comments to GitHub at each lifecycle event.
 These are the only audibility signal visible to the human operator.
-All values come from your task briefing.
+All values come from your task briefing — do NOT read any file to obtain them.
 
 ```bash
-# Set from briefing — do NOT read any file
+# Populate from your task briefing before running anything below:
 # COGNITIVE_ARCH="<cognitive_arch from briefing>"
 # ROLE="<role from briefing>"
 # BATCH_ID="<batch_id from briefing, or 'none' if absent>"
@@ -105,11 +99,12 @@ All values come from your task briefing.
 # GH_REPO="<gh_repo from briefing>"
 # ISSUE_NUMBER="<issue_number from briefing>"
 # BRANCH="<branch from briefing>"
+WTNAME=$(basename "$(pwd)")
 
-# ── 1. CLAIM — post immediately after adding agent/wip label ────────
+# ── 1. CLAIM — post immediately after adding agent/wip label ─────────
 AGENT_SESSION="eng-$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%04x' $RANDOM)"
 CLAIMED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-REPO="<path to repo root>"
+REPO=$(git worktree list | head -1 | awk '{print $1}')
 
 CLAIM_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" \
   "${COGNITIVE_ARCH:-unset}" \
@@ -120,6 +115,7 @@ CLAIM_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" \
   --coordinator "${COORD_FINGERPRINT:-unset}" \
   --started-at "$CLAIMED_AT" 2>/dev/null)
 
+# Fallback: if resolve_arch.py is unavailable or returned nothing, build inline.
 if [ -z "$CLAIM_FINGERPRINT" ]; then
   CLAIM_FINGERPRINT="<details>
 <summary>🤖 Agent Fingerprint</summary>
@@ -129,6 +125,7 @@ if [ -z "$CLAIM_FINGERPRINT" ]; then
 | **Role** | \`${ROLE:-developer}\` |
 | **Architecture** | \`${COGNITIVE_ARCH:-unset}\` |
 | **Session** | \`$AGENT_SESSION\` |
+| **Batch** | \`${BATCH_ID:-none}\` |
 | **Coordinator** | \`${COORD_FINGERPRINT:-unset}\` |
 | **Claimed at** | \`$CLAIMED_AT\` |
 

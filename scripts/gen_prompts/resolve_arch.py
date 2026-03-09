@@ -396,7 +396,6 @@ def render_fingerprint(
     role: str,
     session: str,
     batch: str,
-    wave: str,
     coordinator: str,
     started_at: str = "",
 ) -> str:
@@ -407,10 +406,9 @@ def render_fingerprint(
 
     Every fingerprint shows the full lineage chain:
       Role + Architecture (who the agent is)
-      CTO Wave (which wave the CTO dispatched)
-      Coordinator Batch (which batch the coordinator assembled)
+      Batch (coordinator batch ID — "none" for root agents)
       Coordinator (which coordinator identity spawned this agent)
-      Timestamp (when this fingerprint was written — always present)
+      Claimed at (timestamp — always present)
 
     Pass started_at (ISO-8601 string) to use a specific timestamp; otherwise
     the current UTC time is used so every fingerprint always carries a timestamp.
@@ -424,10 +422,9 @@ def render_fingerprint(
         f"| **Role** | `{role}` |",
         f"| **Architecture** | `{arch_display}` |",
         f"| **Session** | `{session}` |",
-        f"| **CTO Wave** | `{wave}` |",
-        f"| **Coordinator Batch** | `{batch}` |",
+        f"| **Batch** | `{batch}` |",
         f"| **Coordinator** | `{coordinator}` |",
-        f"| **Timestamp** | `{timestamp}` |",
+        f"| **Claimed at** | `{timestamp}` |",
     ]
 
     lines = [
@@ -467,7 +464,6 @@ def main() -> None:
     parser.add_argument("--role", default="unset", help="Agent role for fingerprint.")
     parser.add_argument("--session", default="unset", help="Agent session ID for fingerprint.")
     parser.add_argument("--batch", default="none", help="Coordinator batch ID for fingerprint.")
-    parser.add_argument("--wave", default="unset", help="CTO wave ID for fingerprint.")
     parser.add_argument("--coordinator", default="unset", help="Coordinator fingerprint string.")
     parser.add_argument("--started-at", default="", help="ISO-8601 start timestamp (reviewer context).")
     args = parser.parse_args()
@@ -478,7 +474,6 @@ def main() -> None:
             role=args.role,
             session=args.session,
             batch=args.batch,
-            wave=args.wave,
             coordinator=args.coordinator,
             started_at=args.started_at,
         ))

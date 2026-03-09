@@ -29,7 +29,7 @@
   │     Keep either side, remove markers. Done.                                │
   │                                                                              │
   │   RULE 2 ─ KNOWN ADDITIVE FILE → apply the file-specific rule in STEP B:  │
-  │     cli/app.py  •  docs/architecture/<module>.md  •  type-contracts.md    │
+  │     docs/reference/<module>.md  •  type-contracts.md                      │
   │                                                                              │
   │   RULE 3 ─ ALL OTHER FILES (judgment conflict):                             │
   │     Preserve dev's version PLUS {{ conflict_additions_phrase }}.           │
@@ -37,22 +37,9 @@
   │                                                                              │
   │ STEP B — For each conflicted file NOT resolved by STEP A.5 (Rules 0–1):   │
   │                                                                              │
-  │ ┌─ agentception/cli/app.py (or any CLI registration file) ──────────────┐  │
-  │ │ Each parallel agent adds exactly one registration line.               │  │
-  │ │ Pattern:                                                               │  │
-  │ │   <<<<<<< HEAD                                                         │  │
-  │ │   app.add_typer(foo_app, name="foo", ...)                              │  │
-  │ │   =======                                                              │  │
-  │ │   app.add_typer(bar_app, name="bar", ...)                              │  │
-  │ │   >>>>>>> origin/dev                                                   │  │
-  │ │ Rule: KEEP BOTH LINES. Remove markers. Never drop a line.             │  │
-  │ │ Verify: grep -c "add_typer" agentception/cli/app.py                   │  │
-  │ │   count must equal the total number of registered sub-apps            │  │
-  │ └───────────────────────────────────────────────────────────────────────┘  │
-  │                                                                              │
-  │ ┌─ docs/architecture/<module>.md (any additive architecture doc) ───────┐  │
+  │ ┌─ docs/reference/<module>.md (any additive architecture doc) ─────────┐  │
   │ │ Count markers first:                                                   │  │
-  │ │   grep -c "^<<<<<" docs/architecture/<module>.md                      │  │
+  │ │   grep -c "^<<<<<" docs/reference/<module>.md                      │  │
   │ │ That is how many conflict blocks you must resolve.                     │  │
   │ │                                                                        │  │
   │ │ Pattern A — both sides have a real ## section:                        │  │
@@ -76,7 +63,7 @@
   │ │   If genuinely unclear, keep both and note in the commit message.     │  │
   │ │                                                                        │  │
   │ │ Final check (must return empty):                                       │  │
-  │ │   grep -n "<<<<<<\|=======\|>>>>>>>" docs/architecture/<module>.md   │  │
+  │ │   grep -n "<<<<<<\|=======\|>>>>>>>" docs/reference/<module>.md   │  │
   │ └───────────────────────────────────────────────────────────────────────┘  │
   │                                                                              │
   │ ┌─ docs/reference/type-contracts.md ────────────────────────────────────┐  │
