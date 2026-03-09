@@ -36,8 +36,10 @@ from sqlalchemy import select
 from agentception.config import settings
 from agentception.db.engine import get_session
 from agentception.db.models import ACAgentRun
+from agentception.db.queries import get_run_by_id
 from agentception.mcp.build_commands import build_cancel_run, build_complete_run
 from agentception.mcp.log_tools import log_run_error, log_run_step
+from agentception.workflow.status import is_terminal
 from agentception.mcp.prompts import get_prompt
 from agentception.mcp.server import TOOLS, call_tool_async
 from agentception.mcp.types import ACToolResult
@@ -211,6 +213,20 @@ async def run_agent_loop(
             f"Iteration {iteration}/{max_iterations}",
             run_id,
         )
+
+        # Guard: if an MCP tool (e.g. build_cancel_run called by the agent
+        # itself) has already transitioned this run to a terminal state, stop
+        # the loop before the next LLM call.  Without this check the reaper
+        # would eventually kill the worktree while the loop is still running.
+        _run_row = await get_run_by_id(run_id)
+        if _run_row is not None and is_terminal(_run_row["status"]):
+            logger.info(
+                "✅ agent_loop: run %s is already in terminal state %r — stopping loop",
+                run_id,
+                _run_row["status"],
+            )
+            await github_client.close()
+            return
 
         # Proactive inter-turn pacing.  _last_llm_call_at is stamped *after*
         # call_anthropic_with_tools returns (including any retry backoff), so
