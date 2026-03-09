@@ -5,6 +5,7 @@ Two categories of prompts:
 Static prompts (no arguments)
     ``role/<slug>``  — role definition Markdown from ``.agentception/roles/<slug>.md``
     ``agent/<name>`` — compiled agent prompts from ``.agentception/<name>.md``
+                       (engineer, reviewer, conductor, command-policy, etc.)
 
     Named after their filesystem source.  Returned as a single ``user`` message
     whose ``text`` is the raw Markdown file content.
@@ -55,7 +56,6 @@ _AGENTCEPTION_DIR = _APP_ROOT / ".agentception"
 
 #: Agent-level prompts under .agentception/*.md (excluding derived artifacts).
 _AGENT_PROMPTS: list[tuple[str, str]] = [
-    ("agent/dispatcher", "AgentCeption Dispatcher — drain the pending launch queue and spawn the correct agents"),
     ("agent/engineer", "Engineering worker — implement a single GitHub issue end-to-end"),
     ("agent/reviewer", "Code review worker — review and merge a single pull request"),
     ("agent/conductor", "Agent conductor — coordinate multi-step agent workflows"),
@@ -68,7 +68,6 @@ _AGENT_PROMPTS: list[tuple[str, str]] = [
 
 #: Maps agent prompt name → relative .agentception/ filename (no extension).
 _AGENT_FILENAME_MAP: dict[str, str] = {
-    "agent/dispatcher": "dispatcher",
     "agent/engineer": "agent-engineer",
     "agent/reviewer": "agent-reviewer",
     "agent/conductor": "agent-conductor",

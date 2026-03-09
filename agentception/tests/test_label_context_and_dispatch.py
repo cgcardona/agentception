@@ -247,37 +247,6 @@ def test_label_context_returns_phases_and_issues(client: TestClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# GET /api/dispatch/prompt
-# ---------------------------------------------------------------------------
-
-
-def test_get_dispatcher_prompt_returns_content(
-    client: TestClient,
-    tmp_path: Path,
-) -> None:
-    """GET /api/dispatch/prompt returns the prompt text and canonical path."""
-    (tmp_path / "dispatcher.md").write_text("# Dispatcher prompt", encoding="utf-8")
-    with patch("agentception.routes.api.dispatch.settings") as mock_settings:
-        mock_settings.ac_dir = tmp_path
-        res = client.get("/api/dispatch/prompt")
-    assert res.status_code == 200
-    data = res.json()
-    assert data["content"] == "# Dispatcher prompt"
-    assert data["path"] == ".agentception/dispatcher.md"
-
-
-def test_get_dispatcher_prompt_404_when_missing(
-    client: TestClient,
-    tmp_path: Path,
-) -> None:
-    """GET /api/dispatch/prompt returns 404 when dispatcher.md is absent."""
-    with patch("agentception.routes.api.dispatch.settings") as mock_settings:
-        mock_settings.ac_dir = tmp_path
-        res = client.get("/api/dispatch/prompt")
-    assert res.status_code == 404
-
-
-# ---------------------------------------------------------------------------
 # POST /api/dispatch/label — scope=full_initiative
 # ---------------------------------------------------------------------------
 

@@ -337,7 +337,9 @@ class TestGithubApprovePr:
             resp = await _dispatch("github_approve_pr", {"pr_number": 99})
         payload = _result_payload(resp)
         assert payload["ok"] is False
-        assert "already approved" in payload["error"]
+        err = payload["error"]
+        assert isinstance(err, str)
+        assert "already approved" in err
 
     @pytest.mark.anyio
     async def test_missing_pr_number_returns_error(self) -> None:
@@ -406,7 +408,9 @@ class TestGithubMergePr:
             resp = await _dispatch("github_merge_pr", {"pr_number": 88})
         payload = _result_payload(resp)
         assert payload["ok"] is False
-        assert "merge conflict" in payload["error"]
+        err = payload["error"]
+        assert isinstance(err, str)
+        assert "merge conflict" in err
 
     @pytest.mark.anyio
     async def test_missing_pr_number_returns_error(self) -> None:
