@@ -99,10 +99,12 @@ _HISTORY_TAIL: int = 14
 # ---------------------------------------------------------------------------
 
 # Minimum seconds between consecutive LLM calls.  A proactive fixed cadence
-# beats a reactive burst-then-sleep TPM guard: at ~6k tokens/turn the steady
-# 15 s pace yields ~24k tokens/min — well under the 30k/min Tier-1 ceiling —
-# without ever accumulating a debt that forces a 40-second stall.
-_MIN_TURN_DELAY_SECS: float = 15.0
+# beats a reactive burst-then-sleep TPM guard.  At Tier 2 limits (450K input /
+# 90K output TPM, 1K RPM) a 2s floor is the practical safety net: agents rarely
+# emit more than 2K tokens/turn, so real throughput stays well under the output
+# ceiling, and the 2s guard prevents runaway error loops without slowing down
+# legitimate multi-turn work.
+_MIN_TURN_DELAY_SECS: float = 2.0
 _last_llm_call_at: float = 0.0
 
 
