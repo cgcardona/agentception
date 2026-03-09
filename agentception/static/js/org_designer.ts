@@ -732,7 +732,6 @@ interface OrgDesignerComponent {
   launchError: string | null;
   launchSuccess: boolean;
   launchResult: DispatchResponse | null;
-  promptCopied: boolean;
 
   // ── Internal (D3 / mutable tree — not Alpine-reactive)
   _root: OrgNode | null;
@@ -814,7 +813,6 @@ export function orgDesigner(): OrgDesignerComponent {
     launchError:  null,
     launchSuccess:false,
     launchResult: null,
-    promptCopied: false,
 
     // ── Internal ──────────────────────────────────────────────────────────────
     _root:      null,
@@ -897,7 +895,6 @@ export function orgDesigner(): OrgDesignerComponent {
       this.launchSuccess  = false;
       this.launchResult   = null;
       this.launching      = false;
-      this.promptCopied   = false;
       this.selectedNodeId = null;
       this.saveAsMode     = false;
       this.saveAsName     = '';
@@ -1158,7 +1155,6 @@ export function orgDesigner(): OrgDesignerComponent {
       this.launchSuccess  = false;
       this.launchResult   = null;
       this.launchError    = null;
-      this.promptCopied   = false;
       this.saveAsMode     = false;
       this.saveAsName     = '';
       this.presetsOpen    = true;
@@ -1219,16 +1215,6 @@ export function orgDesigner(): OrgDesignerComponent {
           this._root.launched = true;
           this._root.runId    = dispatched.run_id;
           this._render();
-          // Copy the dispatcher prompt to clipboard so the user can paste it
-          // straight into a new Cursor session to kick off the agent.
-          void fetch('/api/dispatch/prompt')
-            .then(async r => {
-              if (!r.ok) return;
-              const body = await r.json() as { content: string };
-              await navigator.clipboard.writeText(body.content);
-              this.promptCopied = true;
-            })
-            .catch(() => { /* non-critical — user can copy manually */ });
         }
       } catch (err) {
         this.launchError = `Network error: ${err instanceof Error ? err.message : String(err)}`;
