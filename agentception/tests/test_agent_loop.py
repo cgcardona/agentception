@@ -523,10 +523,10 @@ class TestEnforceTurnDelay:
 
     @pytest.mark.anyio
     async def test_recent_call_waits_remainder(self) -> None:
-        """A call made 5s ago should wait ~2s (7s target - 5s elapsed)."""
+        """A call made 3s ago should wait ~2s (5s target - 3s elapsed)."""
         import time
         import agentception.services.agent_loop as al
-        al._last_llm_call_at = time.monotonic() - 5.0
+        al._last_llm_call_at = time.monotonic() - 3.0
         t0 = time.monotonic()
         from agentception.services.agent_loop import _enforce_turn_delay
         await _enforce_turn_delay()
@@ -535,7 +535,7 @@ class TestEnforceTurnDelay:
 
     @pytest.mark.anyio
     async def test_old_call_skips_wait(self) -> None:
-        """A call made 15s ago (> 7s target) incurs no extra wait."""
+        """A call made 15s ago (> 5s target) incurs no extra wait."""
         import time
         import agentception.services.agent_loop as al
         al._last_llm_call_at = time.monotonic() - 15.0
@@ -567,7 +567,7 @@ class TestEnforceTurnDelay:
         await _enforce_turn_delay()
         # Should wait close to _MIN_TURN_DELAY_SECS, not skip due to stale timestamp
         elapsed = time.monotonic() - t0
-        assert elapsed >= 6.0  # within 1s tolerance of the 7s target
+        assert elapsed >= 4.0  # within 1s tolerance of the 5s target
 
 
 class TestLLMSSLRetry:

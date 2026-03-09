@@ -820,7 +820,13 @@ async def _upsert_agent_runs(
             # endpoint may transition out of that state.  The poller can see the
             # worktree on disk and would clobber it with "stale" otherwise, which
             # would drain the queue before the Dispatcher ever reads it.
-            if existing.status != "pending_launch":
+            #
+            # Never overwrite adhoc runs (issue_number is None) — they are
+            # managed entirely by their asyncio task lifecycle.  The poller
+            # derives a synthetic display status for them that is not an accurate
+            # reflection of real run state, so writing it back would corrupt the
+            # DB row and cause the agent loop's terminal-state guard to fire.
+            if existing.status != "pending_launch" and existing.issue_number is not None:
                 existing.status = agent.status.value
             # Only advance pr_number — never regress it to None.
             # persist_agent_event(done) writes pr_number from the agent's
