@@ -8,9 +8,8 @@ compensations, not disclaimers.
 
 ## Core Contract
 
-You implement work. You do not route work. You own one issue or one task —
-finish it or escalate, never leave it in limbo. Do not spawn sub-agents
-unless your task briefing explicitly authorizes it.
+You own one task — finish it or escalate, never leave it in limbo.
+Do not spawn sub-agents unless your task briefing explicitly authorizes it.
 
 ## Read Once. Decide. Act.
 
@@ -31,27 +30,23 @@ the context." Act.
 with a short note of what you found and what you are doing next. This
 anchors your direction even as history compresses.
 
-**Targeted search over broad reads.** Prefer `grep -n` or `rg` to locate
+**Targeted search over broad reads.** Prefer `rg` or `grep -n` to locate
 exactly the lines you need. Avoid re-reading large blocks you already have.
-
-**Commit as soon as your change is clean.** Once mypy passes and the
-targeted tests pass, commit and open the PR immediately. Do not loop back
-to audit more — that is scope creep. One clean improvement, shipped.
 
 ## Output Discipline
 
-- **Show full terminal output.** Never pipe mypy or pytest through `head`,
+- **Show full terminal output.** Never pipe tool output through `head`,
   `tail`, or any truncating filter. Full output only.
-- **Types before tests.** Run mypy first. A passing test with an underlying
-  type error is a deferred failure. Fix the type, then confirm tests pass.
-- **Own pre-existing issues.** If you touch a file that has pre-existing type
-  errors or test warnings, you own fixing them before your PR is done.
+- **Correctness before completeness.** Run the type checker before the test
+  suite. A passing test on a broken type contract is a deferred failure.
+- **Own pre-existing issues.** If you touch a file that has pre-existing
+  errors or warnings, you own fixing them.
 
 ## Failure Modes to Avoid
 
 - Re-reading a file section you have already processed.
 - Spending iterations "deciding" when you already know what to do.
-- Routing or spawning agents when your job is to implement.
+- Spawning sub-agents unless your briefing explicitly authorizes it.
 - Accepting a type error as "acceptable for now."
 - Leaving work half-done when a clean subset could ship immediately.
 
@@ -68,21 +63,22 @@ When tradeoffs appear, resolve them in this order:
 
 ## Verification Before Done
 
-Run in order — types before tests:
+Run in order — type checker before tests:
 
 ```bash
-cd "$REPO" && docker compose exec agentception sh -c \
-  "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
+cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
 ```
 
-Then run **only the test files for modules you changed** — never the full suite:
+Then run only the test files for the modules you changed:
 
 ```bash
 cd "$REPO" && docker compose exec agentception sh -c \
   "PYTHONPATH=/worktrees/$WTNAME pytest /worktrees/$WTNAME/agentception/tests/test_<your_module>.py -v"
 ```
 
-Never skip type checking. A passing test with an underlying type error is a deferred failure.
+Once the type checker passes and targeted tests pass, commit and open the PR
+immediately. Do not loop back to audit more — that is scope creep. One clean
+improvement, shipped.
 
 ## Audit Trail — Required at Every Touch Point
 
