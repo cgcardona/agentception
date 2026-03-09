@@ -42,6 +42,7 @@ Open `.env` and fill in the required values:
 | `QDRANT_COLLECTION` | Optional | Qdrant collection for code vectors. | Default: `code` |
 | `HOST_WORKTREES_DIR` | Optional | Host path where agent git worktrees are created. Use an absolute path (no `~` — compose doesn't expand it). | Default: `~/.agentception/worktrees` |
 | `WORKTREES_DIR` | Optional | Container-internal path that maps to `HOST_WORKTREES_DIR`. Add a matching volume in `docker-compose.override.yml` if you change this. | Default: `/worktrees` |
+| `HOST_REPO_DIR` | Optional | Absolute path to the repo on the host. Persisted to the DB context row so agents can resolve role files. Override in .env when the repo is outside the default Docker mount. | Default: unset |
 | `REPO_DIR` | Optional | Absolute path to the cloned agentception repo on the host. Used for git operations inside the container. | Default: `/app` (the container working directory) |
 | `PORT` | Optional | Port the FastAPI app listens on. | Default: `10003` |
 | `LOG_LEVEL` | Optional | Log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`. | Default: `INFO` |
