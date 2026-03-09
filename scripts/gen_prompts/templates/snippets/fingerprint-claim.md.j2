@@ -1,0 +1,34 @@
+AGENT_SESSION="eng-$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%04x' $RANDOM)"
+CLAIMED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+REPO=$(git worktree list | head -1 | awk '{print $1}')
+
+CLAIM_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" \
+  "${COGNITIVE_ARCH:-unset}" \
+  --fingerprint \
+  --role "${ROLE:-developer}" \
+  --session "$AGENT_SESSION" \
+  --batch "${BATCH_ID:-none}" \
+  --coordinator "${COORD_FINGERPRINT:-unset}" \
+  --started-at "$CLAIMED_AT" 2>/dev/null)
+
+# Fallback: if resolve_arch.py is unavailable or returned nothing, build inline.
+if [ -z "$CLAIM_FINGERPRINT" ]; then
+  CLAIM_FINGERPRINT="<details>
+<summary>🤖 Agent Fingerprint</summary>
+
+| | |
+|---|---|
+| **Role** | \`${ROLE:-developer}\` |
+| **Architecture** | \`${COGNITIVE_ARCH:-unset}\` |
+| **Session** | \`$AGENT_SESSION\` |
+| **Batch** | \`${BATCH_ID:-none}\` |
+| **Coordinator** | \`${COORD_FINGERPRINT:-unset}\` |
+| **Claimed at** | \`$CLAIMED_AT\` |
+
+</details>"
+fi
+
+gh issue comment "$ISSUE_NUMBER" --repo "$GH_REPO" \
+  --body "🔖 **Claimed by agent**
+
+$CLAIM_FINGERPRINT" 2>/dev/null || true
