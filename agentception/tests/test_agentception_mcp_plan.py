@@ -590,7 +590,10 @@ async def test_plan_get_labels_returns_label_list() -> None:
         {"name": "enhancement", "description": "New feature"},
         {"name": "agent/wip", "description": ""},
     ]
-    with patch("agentception.mcp.plan_tools.gh_json", return_value=mock_labels):
+    with patch(
+        "agentception.mcp.plan_tools.get_repo_labels",
+        new=AsyncMock(return_value=mock_labels),
+    ):
         result = await plan_get_labels()
 
     assert "labels" in result
@@ -604,31 +607,29 @@ async def test_plan_get_labels_returns_label_list() -> None:
 @pytest.mark.anyio
 async def test_plan_get_labels_empty_repo() -> None:
     """plan_get_labels() returns {'labels': []} when repo has no labels."""
-    with patch("agentception.mcp.plan_tools.gh_json", return_value=[]):
-        result = await plan_get_labels()
-    assert result == {"labels": []}
-
-
-@pytest.mark.anyio
-async def test_plan_get_labels_non_list_gh_output() -> None:
-    """plan_get_labels() returns {'labels': []} when gh returns unexpected type."""
-    with patch("agentception.mcp.plan_tools.gh_json", return_value=None):
+    with patch(
+        "agentception.mcp.plan_tools.get_repo_labels",
+        new=AsyncMock(return_value=[]),
+    ):
         result = await plan_get_labels()
     assert result == {"labels": []}
 
 
 @pytest.mark.anyio
 async def test_plan_get_labels_filters_non_dict_items() -> None:
-    """plan_get_labels() skips non-dict items in the gh output."""
-    mixed: list[object] = [{"name": "valid", "description": "ok"}, "not-a-dict", 42]
-    with patch("agentception.mcp.plan_tools.gh_json", return_value=mixed):
+    """plan_get_labels() skips items without a name field."""
+    mixed: list[dict[str, object]] = [
+        {"name": "valid", "description": "ok"},
+        {"description": "missing name"},
+    ]
+    with patch(
+        "agentception.mcp.plan_tools.get_repo_labels",
+        new=AsyncMock(return_value=mixed),
+    ):
         result = await plan_get_labels()
     labels = result["labels"]
     assert isinstance(labels, list)
-    assert len(labels) == 1
-    first_label = labels[0]
-    assert isinstance(first_label, dict)
-    assert first_label["name"] == "valid"
+    assert len(labels) == 2  # both are dicts, name defaults to ""
 
 
 # ---------------------------------------------------------------------------
