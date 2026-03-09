@@ -339,8 +339,8 @@ writes — they add caching, structured output, and logging.
 | `pull_request_read (user-github)(pr_number)` | `gh pr view N --json ...` |
 | `github_add_label(issue_number, label)` | `gh issue edit N --add-label X` |
 | `github_remove_label(issue_number, label)` | `gh issue edit N --remove-label X` |
-| `github_claim_issue(issue_number)` | `gh issue edit N --add-label "agent:wip"` |
-| `github_unclaim_issue(issue_number)` | `gh issue edit N --remove-label "agent:wip"` |
+| `github_claim_issue(issue_number)` | `gh issue edit N --add-label "agent/wip"` |
+| `github_unclaim_issue(issue_number)` | `gh issue edit N --remove-label "agent/wip"` |
 
 **GitHub MCP server** (`user-github-*` — direct GitHub API):
 

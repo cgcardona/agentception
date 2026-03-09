@@ -133,7 +133,7 @@ Set them as shell variables from the context your briefing provided:
 # ISSUE_NUMBER="<issue_number from briefing>"
 # BRANCH="<branch from briefing>"
 
-# ── 1. CLAIM — post immediately after adding agent:wip label ────────────────
+# ── 1. CLAIM — post immediately after adding agent/wip label ────────
 AGENT_SESSION="eng-$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%04x' $RANDOM)"
 CLAIMED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 REPO="<path to repo root>"  # e.g. /Users/gabriel/dev/tellurstori/agentception

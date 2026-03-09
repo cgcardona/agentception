@@ -443,8 +443,8 @@ writes — they add caching, structured output, and logging.
 | `pull_request_read (user-github)(pr_number)` | `gh pr view N --json ...` |
 | `github_add_label(issue_number, label)` | `gh issue edit N --add-label X` |
 | `github_remove_label(issue_number, label)` | `gh issue edit N --remove-label X` |
-| `github_claim_issue(issue_number)` | `gh issue edit N --add-label "agent:wip"` |
-| `github_unclaim_issue(issue_number)` | `gh issue edit N --remove-label "agent:wip"` |
+| `github_claim_issue(issue_number)` | `gh issue edit N --add-label "agent/wip"` |
+| `github_unclaim_issue(issue_number)` | `gh issue edit N --remove-label "agent/wip"` |
 
 **GitHub MCP server** (`user-github-*` — direct GitHub API):
 
@@ -1513,7 +1513,7 @@ Set them as shell variables from the context your briefing provided:
 # ISSUE_NUMBER="<issue_number from briefing>"
 # BRANCH="<branch from briefing>"
 
-# ── 1. CLAIM — post immediately after adding agent:wip label ────────────────
+# ── 1. CLAIM — post immediately after adding agent/wip label ────────────────
 AGENT_SESSION="eng-$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%04x' $RANDOM)"
 CLAIMED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 REPO="<path to repo root>"  # e.g. /Users/gabriel/dev/tellurstori/agentception
