@@ -140,7 +140,7 @@ async def test_spawn_child_leaf_issue_happy_path() -> None:
     ):
         result = await spawn_child(
             parent_run_id="coord-engineering-xyz",
-            role="python-developer",
+            role="developer",
             tier="worker",
             scope_type="issue",
             scope_value="42",
@@ -202,7 +202,7 @@ async def test_spawn_child_tier_in_db_row() -> None:
     ):
         await spawn_child(
             parent_run_id="coord-engineering-xyz",
-            role="python-developer",
+            role="developer",
             tier="worker",
             scope_type="issue",
             scope_value="5",
@@ -231,7 +231,7 @@ async def test_spawn_child_skills_hint_overrides_body_extraction() -> None:
     ):
         result = await spawn_child(
             parent_run_id="coord-xyz",
-            role="frontend-developer",
+            role="developer",
             tier="worker",
             scope_type="issue",
             scope_value="99",
@@ -274,7 +274,7 @@ async def test_spawn_child_worktree_failure_raises_spawn_child_error() -> None:
     ):
         await spawn_child(
             parent_run_id="coord-xyz",
-            role="python-developer",
+            role="developer",
             tier="worker",
             scope_type="issue",
             scope_value="1",
@@ -308,7 +308,7 @@ async def test_spawn_child_db_persist_failure_cleans_up_worktree() -> None:
     ):
         await spawn_child(
             parent_run_id="coord-xyz",
-            role="python-developer",
+            role="developer",
             tier="worker",
             scope_type="issue",
             scope_value="2",
@@ -351,7 +351,7 @@ def test_spawn_child_result_to_dict_org_domain_none() -> None:
         worktree_path="/container/path",
         tier="worker",
         org_domain=None,
-        role="python-developer",
+        role="developer",
         cognitive_arch="guido:python",
         scope_type="issue",
         scope_value="42",

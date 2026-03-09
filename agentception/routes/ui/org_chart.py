@@ -153,14 +153,10 @@ ROLE_TAXONOMY: dict[str, list[str]] = {
         "security-coordinator", "coordinator",
     ],
     "worker": [
-        "python-developer", "api-developer", "database-architect",
-        "frontend-developer", "typescript-developer", "react-developer",
-        "ios-developer", "android-developer", "mobile-developer",
-        "full-stack-developer", "go-developer", "rails-developer",
-        "rust-developer", "test-engineer", "pr-reviewer", "devops-engineer",
-        "security-engineer", "site-reliability-engineer", "ml-engineer",
-        "ml-researcher", "data-engineer", "data-scientist",
-        "systems-programmer", "technical-writer", "architect",
+        "developer", "database-architect", "test-engineer", "pr-reviewer",
+        "devops-engineer", "security-engineer", "site-reliability-engineer",
+        "ml-engineer", "ml-researcher", "data-engineer", "data-scientist",
+        "technical-writer", "architect",
     ],
 }
 
@@ -581,7 +577,7 @@ async def roles_taxonomy() -> JSONResponse:
           "tiers": {
             "c_suite":  {"label": "C-Suite",         "roles": ["cto", ...]},
             "coordinator": {"label": "Coordinator", "roles": ["engineering-coordinator", ...]},
-            "worker":   {"label": "Worker",           "roles": ["python-developer", ...]}
+            "worker":   {"label": "Worker",           "roles": ["developer", ...]}
           }
         }
     """

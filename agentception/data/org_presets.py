@@ -101,8 +101,8 @@ _CATALOG: list[OrgPresetDetail] = [
         "⬡", "violet", "engineering",
         _t("cto",
            _t("engineering-coordinator",
-              _t("python-developer"),
-              _t("typescript-developer")),
+              _t("developer"),
+              _t("developer")),
            _t("qa-coordinator",
               _t("pr-reviewer"))),
     ),
@@ -113,8 +113,8 @@ _CATALOG: list[OrgPresetDetail] = [
         "Fast and focused.",
         "⚡", "blue", "engineering",
         _t("engineering-coordinator",
-           _t("python-developer"),
-           _t("typescript-developer"),
+           _t("developer"),
+           _t("developer"),
            _t("pr-reviewer")),
     ),
 
@@ -132,57 +132,56 @@ _CATALOG: list[OrgPresetDetail] = [
         "One engineer, one reviewer. The smallest possible team — ideal for a single focused ticket.",
         "⚑", "cyan", "engineering",
         _t("engineering-coordinator",
-           _t("python-developer")),
+           _t("developer")),
     ),
 
     _mk(
-        "builtin-api-focus", "API Focus",
-        "Engineering Manager drives a backend API sprint — Python, Go, and an API specialist "
-        "ship together.",
+        "builtin-api-focus", "API Sprint",
+        "Engineering Manager drives a focused API sprint — developers work in parallel "
+        "with language and stack set by cognitive architecture at dispatch.",
         "⟨⟩", "blue", "engineering",
         _t("engineering-coordinator",
-           _t("python-developer"),
-           _t("go-developer"),
-           _t("api-developer"),
+           _t("developer"),
+           _t("developer"),
+           _t("developer"),
            _t("pr-reviewer")),
     ),
 
     _mk(
-        "builtin-full-stack-sprint", "Full-Stack Sprint",
-        "Eng Manager coordinates a complete web stack: full-stack, React, and frontend "
-        "developers working in parallel.",
+        "builtin-full-stack-sprint", "Parallel Dev Sprint",
+        "Eng Manager coordinates multiple developers working in parallel — cognitive "
+        "architecture assigns each agent its language and framework specialisation.",
         "◈", "violet", "engineering",
         _t("engineering-coordinator",
-           _t("full-stack-developer"),
-           _t("react-developer"),
-           _t("frontend-developer"),
+           _t("developer"),
+           _t("developer"),
+           _t("developer"),
            _t("pr-reviewer")),
     ),
 
     _mk(
         "builtin-platform-reliability", "Platform Reliability",
-        "CTO delegates infra and platform concerns — DevOps, SRE, and systems programmers "
-        "keep the lights on.",
+        "CTO delegates infra and platform concerns — DevOps and SRE keep the lights on.",
         "⊞", "teal", "engineering",
         _t("cto",
            _t("platform-coordinator",
               _t("devops-engineer"),
               _t("site-reliability-engineer")),
            _t("infrastructure-coordinator",
-              _t("systems-programmer"),
+              _t("developer"),
               _t("devops-engineer"))),
     ),
 
     _mk(
-        "builtin-multi-lang", "Multi-Language Sprint",
-        "Eng Manager fields a polyglot crew — Python, Go, Rust, and TypeScript all shipping "
-        "in the same phase.",
+        "builtin-multi-lang", "Polyglot Sprint",
+        "Eng Manager fields multiple developers in parallel — each agent's language "
+        "and framework is set by cognitive architecture at dispatch time.",
         "⬙", "blue", "engineering",
         _t("engineering-coordinator",
-           _t("python-developer"),
-           _t("go-developer"),
-           _t("rust-developer"),
-           _t("typescript-developer"),
+           _t("developer"),
+           _t("developer"),
+           _t("developer"),
+           _t("developer"),
            _t("pr-reviewer")),
     ),
 
@@ -249,28 +248,28 @@ _CATALOG: list[OrgPresetDetail] = [
 
     _mk(
         "builtin-ceo-full", "CEO + Full Org",
-        "A CEO delegates to a CTO who then assembles the full engineering and QA hierarchy "
-        "beneath them.",
+        "CEO delegates to a CTO who assembles the full engineering and QA hierarchy "
+        "beneath them — developers are specialised via cognitive architecture at dispatch.",
         "◇", "rose", "executive",
         _t("ceo",
            _t("cto",
               _t("engineering-coordinator",
-                 _t("python-developer"),
-                 _t("typescript-developer")),
+                 _t("developer"),
+                 _t("developer")),
               _t("qa-coordinator",
                  _t("pr-reviewer")))),
     ),
 
     _mk(
         "builtin-engineering-security", "Engineering + Security",
-        "CEO splits authority between CTO (build) and CISO (secure) — both assemble "
-        "independent sub-teams.",
+        "CEO splits authority between CTO (build) and CISO (secure) — engineering and "
+        "security sub-teams work in parallel.",
         "⊕", "amber", "executive",
         _t("ceo",
            _t("cto",
               _t("engineering-coordinator",
-                 _t("python-developer"),
-                 _t("go-developer"))),
+                 _t("developer"),
+                 _t("developer"))),
            _t("ciso",
               _t("security-coordinator",
                  _t("security-engineer"),
@@ -279,19 +278,18 @@ _CATALOG: list[OrgPresetDetail] = [
 
     _mk(
         "builtin-product-engineering", "Product + Engineering",
-        "CEO pairs CTO with CPO — engineering ships features while product and design define "
-        "the experience.",
+        "CEO pairs CTO with CPO — engineering ships features while product and design define the experience.",
         "⊛", "blue", "executive",
         _t("ceo",
            _t("cto",
               _t("engineering-coordinator",
-                 _t("full-stack-developer"),
-                 _t("typescript-developer")),
+                 _t("developer"),
+                 _t("developer")),
               _t("qa-coordinator",
                  _t("pr-reviewer"))),
            _t("cpo",
               _t("design-coordinator",
-                 _t("react-developer"),
+                 _t("developer"),
                  _t("technical-writer")))),
     ),
 
@@ -303,8 +301,8 @@ _CATALOG: list[OrgPresetDetail] = [
         _t("ceo",
            _t("cto",
               _t("engineering-coordinator",
-                 _t("python-developer"),
-                 _t("typescript-developer"))),
+                 _t("developer"),
+                 _t("developer"))),
            _t("cdo",
               _t("ml-coordinator",
                  _t("ml-engineer"),
@@ -315,7 +313,7 @@ _CATALOG: list[OrgPresetDetail] = [
 
     _mk(
         "builtin-product-launch", "Product Launch",
-        "CPO coordinates product managers, UX designers, and frontend engineers for a "
+        "CPO coordinates product managers, UX designers, and developers for a "
         "polished feature launch.",
         "◉", "emerald", "product",
         _t("cpo",
@@ -323,30 +321,29 @@ _CATALOG: list[OrgPresetDetail] = [
               _t("technical-writer"),
               _t("content-writer")),
            _t("design-coordinator",
-              _t("react-developer"),
-              _t("frontend-developer"))),
+              _t("developer"),
+              _t("developer"))),
     ),
 
     _mk(
         "builtin-mobile-launch", "Mobile Launch",
-        "CPO deploys a mobile-first team — iOS, Android, and a mobile generalist ship "
-        "cross-platform simultaneously.",
+        "CPO deploys a mobile-first team — developers ship cross-platform with mobile "
+        "cognitive architecture assigned at dispatch.",
         "⬡", "blue", "product",
         _t("cpo",
            _t("mobile-coordinator",
-              _t("ios-developer"),
-              _t("android-developer"),
-              _t("mobile-developer"))),
+              _t("developer"),
+              _t("developer"),
+              _t("developer"))),
     ),
 
     _mk(
         "builtin-design-sprint", "Design Sprint",
-        "Design Lead drives a rapid UX iteration — React and frontend developers ship "
-        "alongside a technical writer.",
+        "Design Lead drives a rapid UX iteration — developers ship alongside a technical writer.",
         "⬙", "violet", "product",
         _t("design-coordinator",
-           _t("react-developer"),
-           _t("frontend-developer"),
+           _t("developer"),
+           _t("developer"),
            _t("technical-writer")),
     ),
 
@@ -354,13 +351,12 @@ _CATALOG: list[OrgPresetDetail] = [
 
     _mk(
         "builtin-cmo-content", "Content Team",
-        "CMO drives a content and design blitz — writers, frontend developers, and a "
-        "technical writer ship assets.",
+        "CMO drives a content and design blitz — writers, developers, and a technical writer ship assets.",
         "✎", "amber", "marketing",
         _t("cmo",
            _t("design-coordinator",
               _t("content-writer"),
-              _t("frontend-developer"),
+              _t("developer"),
               _t("technical-writer"))),
     ),
 

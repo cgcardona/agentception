@@ -343,7 +343,7 @@ class AbModeConfig(BaseModel):
     can be compared with everything else held constant.
 
     ``variant_a_file`` and ``variant_b_file`` are paths relative to the
-    repository root (e.g. ``.agentception/roles/python-developer.md``).
+    repository root (e.g. ``.agentception/roles/developer.md``).
     """
 
     enabled: bool = False

@@ -196,7 +196,7 @@ async def test_pr_number_advanced_when_agent_task_has_one() -> None:
 
     agent = AgentNode(
         id=existing.id,
-        role="python-developer",
+        role="developer",
         status=AgentStatus.REVIEWING,
         pr_number=99,  # set e.g. by a future .agent-task update
     )

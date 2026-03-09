@@ -66,14 +66,12 @@ _AC_COGNITIVE_ARCH_RE = re.compile(r"<!--\s*ac:cognitive_arch:\s*([^-\n]+?)\s*--
 # Each role slug maps to the single figure that best represents the epistemic
 # mindset for that role.  Figure selection is role-driven (who is this agent?)
 # while skill selection remains issue-body-driven (what domain is this ticket?).
-# This covers all 45 role files in .agentception/roles/ plus the fallback.
+# This covers all role files in .agentception/roles/ plus the fallback.
 ROLE_DEFAULT_FIGURE: dict[str, str] = {
-    # Engineering leaf roles
-    "python-developer":          "guido_van_rossum",
-    "frontend-developer":        "don_norman",
-    "full-stack-developer":      "lovelace",
-    "typescript-developer":      "anders_hejlsberg",
-    "api-developer":             "turing",
+    # Engineering leaf roles — language/framework specifics come from skill injection,
+    # not from the role slug.  All developers share the same default figure; the
+    # cognitive_arch assigned at dispatch time provides the actual figure override.
+    "developer":                 "guido_van_rossum",
     "database-architect":        "dijkstra",
     "data-engineer":             "shannon",
     "devops-engineer":           "linus_torvalds",
@@ -84,14 +82,6 @@ ROLE_DEFAULT_FIGURE: dict[str, str] = {
     "ml-engineer":               "andrej_karpathy",
     "ml-researcher":             "yann_lecun",
     "data-scientist":            "fei_fei_li",
-    "systems-programmer":        "ritchie",
-    "rust-developer":            "graydon_hoare",
-    "go-developer":              "rob_pike",
-    "react-developer":           "ryan_dahl",
-    "ios-developer":             "scott_forstall",
-    "android-developer":         "james_gosling",
-    "mobile-developer":          "scott_forstall",
-    "rails-developer":           "dhh",
     "technical-writer":          "feynman",
     # Coordinator / manager roles
     "engineering-coordinator":   "von_neumann",

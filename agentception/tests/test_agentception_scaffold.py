@@ -62,7 +62,7 @@ def test_agent_node_serializes_roundtrip() -> None:
     """AgentNode must survive a JSON serialise → deserialise roundtrip without data loss."""
     node = AgentNode(
         id="eng-20260301T000000Z-abcd",
-        role="python-developer",
+        role="developer",
         status=AgentStatus.IMPLEMENTING,
         issue_number=609,
         branch="feat/issue-609",
@@ -115,7 +115,7 @@ def test_task_file_model_parses_known_fields() -> None:
         gh_repo="cgcardona/agentception",
         issue_number=609,
         branch="feat/issue-609",
-        role="python-developer",
+        role="developer",
         batch_id="eng-20260301T211956Z-741f",
         spawn_sub_agents=False,
         attempt_n=0,

@@ -128,10 +128,10 @@ def test_analyze_alembic_keyword_in_body_recommends_database_role() -> None:
 
 
 def test_analyze_new_module_recommends_python_developer() -> None:
-    """Pure Python modules with no migration signals → python-developer."""
+    """Pure Python modules with no migration signals → developer."""
     files = ["agentception/intelligence/analyzer.py"]
     role = infer_role("Add a new endpoint to parse tickets.", files)
-    assert role == "python-developer"
+    assert role == "developer"
 
 
 # ---------------------------------------------------------------------------
@@ -212,7 +212,7 @@ def test_analyze_no_body_returns_safe_defaults() -> None:
     assert result.parallelism == "safe"
     assert result.conflict_risk == "none"
     assert result.modifies_files == []
-    assert result.recommended_role == "python-developer"
+    assert result.recommended_role == "developer"
     assert result.recommended_merge_after is None
 
 
@@ -232,7 +232,7 @@ def test_analyze_full_issue_body() -> None:
     assert result.number == 632
     assert result.dependencies == [616]
     assert result.recommended_merge_after == 616
-    assert result.recommended_role == "python-developer"
+    assert result.recommended_role == "developer"
     # api.py is not in the high-conflict or shared-config sets
     assert result.parallelism == "safe"
     assert result.conflict_risk == "none"

@@ -190,7 +190,7 @@ _ANALYSIS = IssueAnalysis(
     parallelism="safe",
     conflict_risk="none",
     modifies_files=[],
-    recommended_role="python-developer",
+    recommended_role="developer",
     recommended_merge_after=None,
 )
 
@@ -217,7 +217,7 @@ def test_analyze_issue_api_returns_issue_analysis_shape(client: TestClient) -> N
     assert body["number"] == 42
     assert body["parallelism"] == "safe"
     assert body["conflict_risk"] == "none"
-    assert body["recommended_role"] == "python-developer"
+    assert body["recommended_role"] == "developer"
     assert body["recommended_merge_after"] is None
 
 

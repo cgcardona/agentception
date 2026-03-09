@@ -405,7 +405,7 @@ class TestResolveCognitiveArchPriority:
         """Embedded ac:cognitive_arch comment takes priority over skills_hint."""
         body = "Content.\n<!-- ac:cognitive_arch: ken_thompson:python -->"
         result = _resolve_cognitive_arch(
-            body, "python-developer", skills_hint=["fastapi"]
+            body, "developer", skills_hint=["fastapi"]
         )
         assert result == "ken_thompson:python"
 
@@ -414,25 +414,25 @@ class TestResolveCognitiveArchPriority:
             "Content.\n<!-- ac:skills: fastapi, python -->"
             "\n<!-- ac:cognitive_arch: barbara_liskov:fastapi:python -->"
         )
-        result = _resolve_cognitive_arch(body, "python-developer")
+        result = _resolve_cognitive_arch(body, "developer")
         assert result == "barbara_liskov:fastapi:python"
 
     def test_priority2_skills_hint_used_when_no_embedded_arch(self) -> None:
         body = "Content without arch comment."
         result = _resolve_cognitive_arch(
-            body, "python-developer", skills_hint=["fastapi", "python"]
+            body, "developer", skills_hint=["fastapi", "python"]
         )
-        # Figure comes from ROLE_DEFAULT_FIGURE["python-developer"], skills from hint.
+        # Figure comes from ROLE_DEFAULT_FIGURE["developer"], skills from hint.
         assert result.endswith(":fastapi:python")
 
     def test_priority3_ac_skills_comment_used_when_no_arch_or_hint(self) -> None:
         body = "Content.\n<!-- ac:skills: htmx, jinja2 -->"
-        result = _resolve_cognitive_arch(body, "python-developer")
+        result = _resolve_cognitive_arch(body, "developer")
         assert result.endswith(":htmx:jinja2")
 
     def test_priority4_keyword_fallback_when_nothing_else(self) -> None:
         body = "Implements a FastAPI router with Depends."
-        result = _resolve_cognitive_arch(body, "python-developer")
+        result = _resolve_cognitive_arch(body, "developer")
         # Keyword scan picks up "fastapi" → "fastapi:python"
         assert "fastapi" in result
 

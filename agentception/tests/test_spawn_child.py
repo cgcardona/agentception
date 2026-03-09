@@ -114,7 +114,7 @@ async def test_spawn_child_resolves_arch_when_not_provided() -> None:
 
         result = await spawn_child(
             parent_run_id="coord-root-abc",
-            role="python-developer",
+            role="developer",
             tier="worker",
             scope_type="issue",
             scope_value="42",
@@ -212,7 +212,7 @@ async def test_cognitive_arch_propagates_to_leaf() -> None:
 
         leaf_result = await spawn_child(
             parent_run_id=sub_coord_result.run_id,
-            role="python-developer",
+            role="developer",
             tier="worker",
             scope_type="issue",
             scope_value="99",

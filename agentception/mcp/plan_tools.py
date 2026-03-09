@@ -122,7 +122,7 @@ def plan_get_cognitive_figures(role: str) -> dict[str, object]:
     Args:
         role: A role slug from ``role-taxonomy.yaml`` — e.g. ``"cto"``,
               ``"engineering-coordinator"``, ``"qa-coordinator"``,
-              ``"python-developer"``.
+              ``"developer"``.
 
     Returns:
         On success:

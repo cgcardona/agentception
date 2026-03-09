@@ -300,7 +300,7 @@ TOOLS: list[ACToolDef] = [
                 },
                 "role": {
                     "type": "string",
-                    "description": "Role slug for the child agent (e.g. 'python-developer').",
+                    "description": "Role slug for the child agent (e.g. 'developer').",
                 },
                 "task_description": {
                     "type": "string",

@@ -377,7 +377,7 @@ at spawn time. Leaf agents read it at startup.
 # .agent-task (written by engineering coordinator)
 ISSUE=671
 WORKTREE="/path/to/worktree"
-ROLE_FILE="<repo-root>/.agentception/roles/python-developer.md"
+ROLE_FILE="<repo-root>/.agentception/roles/developer.md"
 ISSUE_LABEL="agentception/2-telemetry"
 SPAWN_MODE=direct
 COGNITIVE_ARCH=lovelace:htmx:jinja2:alpine   # ← new multi-skill format

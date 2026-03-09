@@ -66,7 +66,7 @@ def sample_presets() -> list[dict[str, object]]:
             "description": "Minimal setup.",
             "tiers": {
                 "leadership": ["cto"],
-                "workers": ["python-developer", "pr-reviewer"],
+                "workers": ["developer", "pr-reviewer"],
             },
         },
         {
@@ -75,7 +75,7 @@ def sample_presets() -> list[dict[str, object]]:
             "description": "A focused squad.",
             "tiers": {
                 "leadership": ["cto", "vp-engineering"],
-                "workers": ["python-developer", "frontend-developer", "test-engineer"],
+                "workers": ["developer", "developer", "test-engineer"],
             },
         },
         {
@@ -84,7 +84,7 @@ def sample_presets() -> list[dict[str, object]]:
             "description": "Complete ten-slot org.",
             "tiers": {
                 "leadership": ["cto", "vp-engineering", "vp-qa"],
-                "workers": ["python-developer", "frontend-developer", "typescript-developer"],
+                "workers": ["developer", "developer", "developer"],
             },
         },
     ]
@@ -259,14 +259,14 @@ class TestRolesTaxonomy:
             assert isinstance(tier_data["roles"], list)
 
     def test_taxonomy_contains_known_roles(self, client: TestClient) -> None:
-        """Known roles like 'cto' and 'python-developer' must appear in the taxonomy."""
+        """Known roles like 'cto' and 'developer' must appear in the taxonomy."""
         resp = client.get("/api/org/taxonomy")
         tiers = resp.json()["tiers"]
         all_roles: list[str] = []
         for tier_data in tiers.values():
             all_roles.extend(tier_data["roles"])
         assert "cto" in all_roles
-        assert "python-developer" in all_roles
+        assert "developer" in all_roles
         assert "engineering-coordinator" in all_roles
 
 
@@ -279,7 +279,7 @@ class TestAddRole:
         tmp_pipeline_config: Path,
     ) -> None:
         """Adding a valid role should return HTTP 200 with an HTML role list."""
-        resp = client.post("/api/org/roles/add", data={"slug": "python-developer"})
+        resp = client.post("/api/org/roles/add", data={"slug": "developer"})
         assert resp.status_code == 200
         assert "text/html" in resp.headers["content-type"]
 
@@ -301,8 +301,8 @@ class TestAddRole:
         tmp_pipeline_config: Path,
     ) -> None:
         """The response HTML should contain the added role's slug."""
-        resp = client.post("/api/org/roles/add", data={"slug": "python-developer"})
-        assert "python-developer" in resp.text
+        resp = client.post("/api/org/roles/add", data={"slug": "developer"})
+        assert "developer" in resp.text
 
     def test_add_role_duplicate_is_idempotent(
         self,
@@ -345,12 +345,12 @@ class TestRemoveRole:
         tmp_pipeline_config: Path,
     ) -> None:
         """After removing a role, it must no longer appear in pipeline-config.json."""
-        client.post("/api/org/roles/add", data={"slug": "python-developer"})
-        client.delete("/api/org/roles/python-developer")
+        client.post("/api/org/roles/add", data={"slug": "developer"})
+        client.delete("/api/org/roles/developer")
         written = json.loads(tmp_pipeline_config.read_text(encoding="utf-8"))
         roles = written.get("active_org_roles", [])
         slugs = [r["slug"] for r in roles]
-        assert "python-developer" not in slugs
+        assert "developer" not in slugs
 
     def test_remove_role_nonexistent_is_idempotent(
         self,
@@ -584,7 +584,7 @@ class TestOrgTree:
                 return_value={
                     "cto": {"tier": "C-Suite", "label": "CTO", "title": "Chief Technology Officer", "compatible_figures": ["turing", "shannon"]},
                     "vp-engineering": {"tier": "VP", "label": "VP Engineering", "title": "VP of Engineering", "compatible_figures": ["dijkstra"]},
-                    "python-developer": {"tier": "Worker", "label": "Python Developer", "title": "Python Developer", "compatible_figures": []},
+                    "developer": {"tier": "Worker", "label": "Python Developer", "title": "Python Developer", "compatible_figures": []},
                 },
             ),
         ):
@@ -618,7 +618,7 @@ class TestOrgTree:
                 "agentception.routes.ui.org_chart._load_taxonomy_role_index",
                 return_value={
                     "cto": {"tier": "C-Suite", "label": "CTO", "title": "CTO", "compatible_figures": many_figures},
-                    "python-developer": {"tier": "Worker", "label": "Python Dev", "title": "Python Dev", "compatible_figures": []},
+                    "developer": {"tier": "Worker", "label": "Python Dev", "title": "Python Dev", "compatible_figures": []},
                     "pr-reviewer": {"tier": "Worker", "label": "PR Reviewer", "title": "PR Reviewer", "compatible_figures": []},
                 },
             ),

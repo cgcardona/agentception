@@ -31,7 +31,7 @@ def _make_task_spec(worktree: Path, issue_number: int = 42) -> AgentTaskSpec:
     """Return a minimal AgentTaskSpec that mirrors what _load_task_from_db returns."""
     return AgentTaskSpec(
         id="test-run-1",
-        role="python-developer",
+        role="developer",
         tier="worker",
         cognitive_arch="Think step by step.",
         issue_number=issue_number,

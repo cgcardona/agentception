@@ -42,7 +42,7 @@ def _make_run(
     return RunContextRow(
         run_id=f"issue-{issue_number}",
         status="implementing",
-        role="python-developer",
+        role="developer",
         cognitive_arch=None,
         task_description=None,
         issue_number=issue_number,

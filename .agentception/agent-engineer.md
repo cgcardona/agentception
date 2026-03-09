@@ -234,11 +234,11 @@ for entry in "${SELECTED_ISSUES[@]}"; do
   git worktree add --detach "$WT" "$DEV_SHA"
   # Assign ROLE based on issue labels:
   #   phase-1/db-schema, alembic, migration labels → database-architect
-  #   all others → python-developer
+  #   all others → developer
   # MCP: issue_read(owner="cgcardona", repo="agentception", issue_number=NUM)
   # ISSUE_LABELS = result.labels[].name joined with ","
   # ISSUE_BODY = result.body
-  AGENT_ROLE="python-developer"
+  AGENT_ROLE="developer"
   if echo "$ISSUE_LABELS" | grep -qE "db-schema|alembic|migration"; then
     AGENT_ROLE="database-architect"
   fi
@@ -531,7 +531,7 @@ via the AgentCeption `task/briefing` MCP prompt. You do not need to read any fil
 
 Your context includes:
 - **`cognitive_arch`** — your archetype (e.g. `guido_van_rossum:python`)
-- **`role`** — your role slug (e.g. `python-developer`)
+- **`role`** — your role slug (e.g. `developer`)
 - **`is_resumed`** — whether this is a resumed run (check your briefing header)
 
 ⚠️ MANDATORY SELF-INTRODUCTION — skip only if your briefing indicates `is_resumed = True`:
@@ -571,7 +571,7 @@ STEP 2 — CHECK CANONICAL STATE BEFORE DOING ANY WORK:
   CLAIMED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
   CLAIM_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" "${COGNITIVE_ARCH:-unset}" \
     --fingerprint \
-    --role "${ROLE:-python-developer}" \
+    --role "${ROLE:-developer}" \
     --session "$AGENT_SESSION" \
     --batch "${BATCH_ID:-none}" \
     --wave "${WAVE:-unset}" \
@@ -585,7 +585,7 @@ STEP 2 — CHECK CANONICAL STATE BEFORE DOING ANY WORK:
 
 | | |
 |---|---|
-| **Role** | \`${ROLE:-python-developer}\` |
+| **Role** | \`${ROLE:-developer}\` |
 | **Architecture** | \`${COGNITIVE_ARCH:-unset}\` |
 | **Session** | \`${AGENT_SESSION:-unset}\` |
 | **CTO Wave** | \`${WAVE:-unset}\` |
@@ -967,7 +967,7 @@ STEP 5 — PUSH & CREATE PR:
   PR_CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
   PR_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" "${COGNITIVE_ARCH:-unset}" \
     --fingerprint \
-    --role "${ROLE:-python-developer}" \
+    --role "${ROLE:-developer}" \
     --session "$AGENT_SESSION" \
     --batch "${BATCH_ID:-none}" \
     --wave "${WAVE:-unset}" \
@@ -981,7 +981,7 @@ STEP 5 — PUSH & CREATE PR:
 
 | | |
 |---|---|
-| **Role** | \`${ROLE:-python-developer}\` |
+| **Role** | \`${ROLE:-developer}\` |
 | **Architecture** | \`${COGNITIVE_ARCH:-unset}\` |
 | **Session** | \`${AGENT_SESSION:-unset}\` |
 | **CTO Wave** | \`${WAVE:-unset}\` |
@@ -1018,7 +1018,7 @@ STEP 5 — PUSH & CREATE PR:
   # Reuse $PR_CREATED_AT so "Implemented" timestamp matches the PR creation moment.
   IMPL_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" "${COGNITIVE_ARCH:-unset}" \
     --fingerprint \
-    --role "${ROLE:-python-developer}" \
+    --role "${ROLE:-developer}" \
     --session "$AGENT_SESSION" \
     --batch "${BATCH_ID:-none}" \
     --wave "${WAVE:-unset}" \
@@ -1032,7 +1032,7 @@ STEP 5 — PUSH & CREATE PR:
 
 | | |
 |---|---|
-| **Role** | \`${ROLE:-python-developer}\` |
+| **Role** | \`${ROLE:-developer}\` |
 | **Architecture** | \`${COGNITIVE_ARCH:-unset}\` |
 | **Session** | \`${AGENT_SESSION:-unset}\` |
 | **CTO Wave** | \`${WAVE:-unset}\` |
@@ -1367,7 +1367,7 @@ PRs from this batch are immediately available for the **agent-reviewer.md** work
 Role content is embedded here so leaf agents need no runtime file reads, enabling
 concurrent pipeline isolation. Read the section matching your ROLE field from .agent-task.
 
-### python-developer
+### developer
 
 # Role: Python Developer
 
@@ -1382,7 +1382,7 @@ via the AgentCeption `task/briefing` MCP prompt. You do not need to read any fil
 
 Your context includes:
 - **`cognitive_arch`** — your archetype (e.g. `guido_van_rossum:python`)
-- **`role`** — your role slug (e.g. `python-developer`)
+- **`role`** — your role slug (e.g. `developer`)
 - **`is_resumed`** — whether this is a resumed run (check your briefing header)
 
 ⚠️ MANDATORY SELF-INTRODUCTION — skip only if your briefing indicates `is_resumed = True`:
@@ -1521,7 +1521,7 @@ REPO="<path to repo root>"  # e.g. /Users/gabriel/dev/tellurstori/agentception
 CLAIM_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" \
   "${COGNITIVE_ARCH:-unset}" \
   --fingerprint \
-  --role "${ROLE:-python-developer}" \
+  --role "${ROLE:-developer}" \
   --session "$AGENT_SESSION" \
   --batch "${BATCH_ID:-none}" \
   --coordinator "${COORD_FINGERPRINT:-unset}" \
@@ -1534,7 +1534,7 @@ if [ -z "$CLAIM_FINGERPRINT" ]; then
 
 | | |
 |---|---|
-| **Role** | \`${ROLE:-python-developer}\` |
+| **Role** | \`${ROLE:-developer}\` |
 | **Architecture** | \`${COGNITIVE_ARCH:-unset}\` |
 | **Session** | \`$AGENT_SESSION\` |
 | **Coordinator** | \`${COORD_FINGERPRINT:-unset}\` |
@@ -1581,7 +1581,7 @@ via the AgentCeption `task/briefing` MCP prompt. You do not need to read any fil
 
 Your context includes:
 - **`cognitive_arch`** — your archetype (e.g. `guido_van_rossum:python`)
-- **`role`** — your role slug (e.g. `python-developer`)
+- **`role`** — your role slug (e.g. `developer`)
 - **`is_resumed`** — whether this is a resumed run (check your briefing header)
 
 ⚠️ MANDATORY SELF-INTRODUCTION — skip only if your briefing indicates `is_resumed = True`:

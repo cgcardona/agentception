@@ -54,7 +54,7 @@ def _make_worktree(issue_number: int | None = None, branch: str | None = None) -
     return RunContextRow(
         run_id=f"issue-{issue_number}" if issue_number else "unknown",
         status="implementing",
-        role="python-developer",
+        role="developer",
         cognitive_arch=None,
         task_description=None,
         issue_number=issue_number,
@@ -286,7 +286,7 @@ async def test_stuck_agent_alert_detected(tmp_path: Path) -> None:
         RunContextRow(
             run_id="issue-55",
             status="implementing",
-            role="python-developer",
+            role="developer",
             cognitive_arch=None,
             task_description=None,
             issue_number=55,
@@ -396,7 +396,7 @@ async def test_merge_agents_passes_pr_number_from_task_file() -> None:
     worktree = RunContextRow(
         run_id="issue-20",
         status="implementing",
-        role="python-developer",
+        role="developer",
         cognitive_arch=None,
         task_description=None,
         issue_number=20,

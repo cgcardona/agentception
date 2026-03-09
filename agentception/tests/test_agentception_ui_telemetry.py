@@ -43,7 +43,7 @@ def populated_waves() -> list[WaveSummary]:
     now = time.time()
     agent = AgentNode(
         id="issue-615",
-        role="python-developer",
+        role="developer",
         status=AgentStatus.COMPLETED,
         issue_number=615,
         batch_id="eng-batch-A",

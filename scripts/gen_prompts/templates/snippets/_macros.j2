@@ -1,13 +1,13 @@
 {## Jinja2 macro library — imported by parallel templates with `with context`.
    Usage:
      {% from 'snippets/_macros.j2' import fingerprint_block with context %}
-     {{ fingerprint_block("CLAIM_FINGERPRINT", "python-developer", "$CLAIMED_AT") }}
+     {{ fingerprint_block("CLAIM_FINGERPRINT", "developer", "$CLAIMED_AT") }}
 ##}
 
 {#- fingerprint_block: generates the resolve_arch.py call + shell fallback table.
     Parameters:
       var_name        — shell variable to assign, e.g. "CLAIM_FINGERPRINT"
-      role_default    — fallback role string, e.g. "python-developer"
+      role_default    — fallback role string, e.g. "developer"
       timestamp_var   — shell expression for the timestamp, e.g. "$CLAIMED_AT"
       coordinator_ref — coordinator field value (default: "${COORD_FINGERPRINT:-unset}");
                         pass "none" for top-level orchestrators that have no coordinator

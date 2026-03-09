@@ -27,11 +27,11 @@ from agentception.services.cognitive_arch import (
 # ---------------------------------------------------------------------------
 
 _ALL_ROLE_SLUGS = {
-    "python-developer",
-    "frontend-developer",
-    "full-stack-developer",
-    "typescript-developer",
-    "api-developer",
+    "developer",
+    "developer",
+    "developer",
+    "developer",
+    "developer",
     "database-architect",
     "data-engineer",
     "devops-engineer",
@@ -42,14 +42,14 @@ _ALL_ROLE_SLUGS = {
     "ml-engineer",
     "ml-researcher",
     "data-scientist",
-    "systems-programmer",
-    "rust-developer",
-    "go-developer",
-    "react-developer",
-    "ios-developer",
-    "android-developer",
-    "mobile-developer",
-    "rails-developer",
+    "developer",
+    "developer",
+    "developer",
+    "developer",
+    "developer",
+    "developer",
+    "developer",
+    "developer",
     "technical-writer",
     "engineering-coordinator",
     "qa-coordinator",
@@ -125,19 +125,20 @@ def test_unknown_role_falls_back_to_hopper() -> None:
 def test_resolve_skills_hint_overrides_keyword_extraction() -> None:
     """Explicit skills_hint must win over keyword extraction from the body."""
     body = "Fix the postgres migration and alembic schema"
-    result = _resolve_cognitive_arch(body, "python-developer", skills_hint=["htmx", "jinja2"])
+    result = _resolve_cognitive_arch(body, "developer", skills_hint=["htmx", "jinja2"])
     assert result == "guido_van_rossum:htmx:jinja2"
 
 
 def test_resolve_skills_hint_single_skill() -> None:
-    result = _resolve_cognitive_arch("anything", "frontend-developer", skills_hint=["alpine"])
-    assert result == "don_norman:alpine"
+    # Figure always comes from ROLE_DEFAULT_FIGURE["developer"], not from skill.
+    result = _resolve_cognitive_arch("anything", "developer", skills_hint=["alpine"])
+    assert result == "guido_van_rossum:alpine"
 
 
 def test_resolve_figure_always_from_role_not_body() -> None:
     """Figure must come from ROLE_DEFAULT_FIGURE, not from issue body keywords."""
     body = "overview dashboard pipeline tree"  # would have triggered lovelace in old code
-    result = _resolve_cognitive_arch(body, "python-developer")
+    result = _resolve_cognitive_arch(body, "developer")
     figure, _skills = result.split(":", 1)
     assert figure == "guido_van_rossum", (
         f"Figure should come from role map (guido_van_rossum), got {figure!r}"
@@ -180,10 +181,13 @@ def test_extract_skills_missing_comment_returns_none() -> None:
 
 
 def test_extract_skills_used_in_resolve() -> None:
-    """_resolve_cognitive_arch auto-extracts embedded skills when no hint given."""
+    """_resolve_cognitive_arch auto-extracts embedded skills when no hint given.
+
+    Figure always comes from ROLE_DEFAULT_FIGURE, not from skill keywords.
+    """
     body = "Body\n\n<!-- ac:skills: htmx, jinja2, alpine -->"
-    result = _resolve_cognitive_arch(body, "frontend-developer")
-    assert result == "don_norman:htmx:jinja2:alpine"
+    result = _resolve_cognitive_arch(body, "developer")
+    assert result == "guido_van_rossum:htmx:jinja2:alpine"
 
 
 # ---------------------------------------------------------------------------

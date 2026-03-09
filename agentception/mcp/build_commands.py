@@ -393,7 +393,7 @@ async def build_spawn_adhoc_child(
     Args:
         parent_run_id: ``run_id`` of the calling coordinator — used to link
             the child in the DB for hierarchy tracking.
-        role: Role slug for the child agent (e.g. ``"python-developer"``).
+        role: Role slug for the child agent (e.g. ``"developer"``).
         task_description: Plain-language description of the child's task.
             Be specific: files to touch, expected output, constraints.
         figure: Cognitive figure slug override (e.g. ``"guido_van_rossum"``).
