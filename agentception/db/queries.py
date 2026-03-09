@@ -2869,3 +2869,33 @@ async def check_db_reachable() -> bool:
         return True
     except Exception:
         return False
+
+
+async def get_run_by_worktree_path(worktree_path: str) -> RunSummaryRow | None:
+    """Return lightweight run metadata for the run whose worktree lives at *worktree_path*.
+
+    Used by the kill endpoint to resolve the issue number for ``agent/wip``
+    label cleanup without reading a ``.agent-task`` file.  Returns ``None``
+    when no run matches the path or on DB error.
+
+    Args:
+        worktree_path: Absolute container-side path of the worktree directory
+                       (e.g. ``/worktrees/issue-553``).
+
+    Returns:
+        :class:`RunSummaryRow` on success, ``None`` otherwise.
+    """
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun).where(ACAgentRun.worktree_path == worktree_path)
+            )
+            row = result.scalar_one_or_none()
+        if row is None:
+            return None
+        return _run_to_summary(row)
+    except Exception as exc:
+        logger.warning(
+            "⚠️  get_run_by_worktree_path DB query failed (non-fatal): %s", exc
+        )
+        return None

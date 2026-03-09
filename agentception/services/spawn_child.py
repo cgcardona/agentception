@@ -6,13 +6,19 @@ Any coordinator agent calls ``spawn_child()`` to atomically:
 
   1. Create a git worktree for the child.
   2. Resolve COGNITIVE_ARCH for the child's role and scope.
-  3. Write a fully-populated ``.agent-task`` file into the worktree.
-  4. Register a ``pending_launch`` DB record (with parent_run_id lineage).
-  5. Auto-acknowledge the run (transition to ``implementing``).
+  3. Register a ``pending_launch`` DB record (with parent_run_id lineage).
+  4. Auto-acknowledge the run (transition to ``implementing``).
+
+No ``.agent-task`` file is written.  The child agent receives its full
+task context via the DB-backed MCP surface:
+
+- ``ac://runs/{run_id}/context`` resource — full RunContextRow with role,
+  cognitive_arch, scope, issue/PR number, and all lineage fields.
+- ``task/briefing`` MCP prompt — rendered task description incorporating
+  context from the RunContextRow.
 
 The caller receives ``SpawnChildResult`` and immediately has everything
-needed to fire a Task tool call:  ``host_worktree_path`` as the worktree
-and a short prompt directing the child to read its ``.agent-task``.
+needed to fire a Task tool call: ``host_worktree_path`` as the worktree.
 
 Protocol guarantee
 ------------------
@@ -20,9 +26,8 @@ Every node in the agent tree — regardless of node type, scope type, or which
 parent spawned it — gets:
 
 - A unique ``run_id`` and git worktree.
-- A ``.agent-task`` file containing ``NODE_TYPE``, ``COGNITIVE_ARCH``,
-  ``SCOPE_TYPE``, ``SCOPE_VALUE``, ``ROLE``, ``ROLE_FILE``,
-  ``PARENT_RUN_ID``, and ``AC_URL``.
+- A DB row with ``role``, ``cognitive_arch``, ``scope_type``, ``scope_value``,
+  ``parent_run_id``, ``tier``, ``org_domain``, ``gh_repo``, and ``batch_id``.
 - A DB row visible on the Build board with full lineage back to its root.
 
 Node types
@@ -31,7 +36,7 @@ Node types
     Surveys its GitHub scope and spawns child nodes (coordinators or leaves).
     Any coordinator can be the tree root — there is no special "executive" tier.
 
-``leaf``
+``worker``
     Works on a single GitHub issue or PR.  Does not spawn children.
 
 Any subtree rooted at any coordinator behaves identically to the full tree —

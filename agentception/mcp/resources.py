@@ -27,7 +27,7 @@ Templated resources (RFC 6570)
     ac://runs/{run_id}/children         — child runs spawned by this run
     ac://runs/{run_id}/events           — full structured event log
     ac://runs/{run_id}/events?after_id={n} — paginated event log (n > 0)
-    ac://runs/{run_id}/task             — raw .agent-task TOML (plan-draft runs only)
+
     ac://batches/{batch_id}/tree        — all runs in a batch, flat list
     ac://plan/figures/{role}            — cognitive-arch figures for a role
     ac://roles/{slug}                   — role definition Markdown for a slug
@@ -48,7 +48,6 @@ from agentception.mcp.plan_tools import (
 )
 from agentception.mcp.query_tools import (
     query_active_runs,
-    query_agent_task,
     query_children,
     query_dispatcher_state,
     query_pending_runs,
@@ -238,17 +237,7 @@ RESOURCE_TEMPLATES: list[ACResourceTemplate] = [
         ),
         mimeType=_MIME,
     ),
-    ACResourceTemplate(
-        uriTemplate="ac://runs/{run_id}/task",
-        name="Agent task file",
-        description=(
-            "Raw text content of the .agent-task TOML file for plan-draft runs "
-            "(planning-pipeline only). Not present for standard dispatch runs — "
-            "use ac://runs/{run_id}/context for DB-sourced task context. "
-            "Returns ok=false if the worktree has been torn down or no file exists."
-        ),
-        mimeType=_MIME,
-    ),
+
     ACResourceTemplate(
         uriTemplate="ac://batches/{batch_id}/tree",
         name="Batch run tree",
@@ -542,9 +531,6 @@ async def _dispatch(
 
             if sub == "context" and len(path_parts) == 2:
                 return _content(uri, await query_run_context(run_id))
-
-            if sub == "task" and len(path_parts) == 2:
-                return _content(uri, await query_agent_task(run_id))
 
             if sub == "events" and len(path_parts) == 2:
                 after_id_vals = query.get("after_id", [])

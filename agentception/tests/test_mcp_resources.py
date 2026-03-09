@@ -15,7 +15,6 @@ Resources tested:
   ac://runs/{run_id}
   ac://runs/{run_id}/children
   ac://runs/{run_id}/events (and ?after_id= pagination)
-  ac://runs/{run_id}/task
   ac://batches/{batch_id}/tree
   ac://system/dispatcher
   ac://system/health
@@ -109,7 +108,6 @@ def test_resource_templates_catalogue_has_expected_templates() -> None:
     assert "ac://runs/{run_id}" in templates
     assert "ac://runs/{run_id}/children" in templates
     assert "ac://runs/{run_id}/events" in templates
-    assert "ac://runs/{run_id}/task" in templates
     assert "ac://batches/{batch_id}/tree" in templates
     assert "ac://plan/figures/{role}" in templates
 
@@ -153,7 +151,6 @@ async def test_call_tool_async_returns_redirect_error_for_retired_tools() -> Non
         "query_run": "ac://runs/{run_id}",
         "query_children": "ac://runs/{run_id}/children",
         "query_run_events": "ac://runs/{run_id}/events",
-        "query_agent_task": "ac://runs/{run_id}/task",
         "query_active_runs": "ac://runs/active",
         "query_run_tree": "ac://batches/{batch_id}/tree",
         "query_dispatcher_state": "ac://system/dispatcher",
@@ -178,7 +175,6 @@ def test_retired_query_tools_not_in_tools_list() -> None:
         "query_run",
         "query_children",
         "query_run_events",
-        "query_agent_task",
         "query_active_runs",
         "query_run_tree",
         "query_dispatcher_state",
@@ -511,57 +507,6 @@ async def test_read_resource_events_default_after_id_is_zero() -> None:
         await read_resource("ac://runs/issue-42/events")
 
     mock_fn.assert_awaited_once_with("issue-42", after_id=0)
-
-
-# ---------------------------------------------------------------------------
-# ac://runs/{run_id}/task
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.anyio
-async def test_read_resource_task_returns_content(tmp_path: Path) -> None:
-    """ac://runs/{run_id}/task returns the .agent-task TOML content."""
-    task_file = tmp_path / ".agent-task"
-    task_file.write_text("[agent]\nrun_id = 42\n")
-
-    mock_teardown = {"worktree_path": str(tmp_path), "branch": "ac/issue-42"}
-    with patch(
-        "agentception.mcp.query_tools.get_agent_run_teardown",
-        new_callable=AsyncMock,
-        return_value=mock_teardown,
-    ):
-        result = await read_resource("ac://runs/issue-42/task")
-
-    payload = _content(result)
-    assert payload["ok"] is True
-    assert "run_id = 42" in str(payload["content"])
-
-
-@pytest.mark.anyio
-async def test_read_resource_task_returns_error_when_run_not_found() -> None:
-    """ac://runs/{run_id}/task returns error payload when run does not exist."""
-    with patch(
-        "agentception.mcp.query_tools.get_agent_run_teardown",
-        new_callable=AsyncMock,
-        return_value=None,
-    ):
-        result = await read_resource("ac://runs/issue-999/task")
-
-    assert _content(result)["ok"] is False
-
-
-@pytest.mark.anyio
-async def test_read_resource_task_returns_error_when_file_missing(tmp_path: Path) -> None:
-    """ac://runs/{run_id}/task returns error payload when .agent-task file is absent."""
-    mock_teardown = {"worktree_path": str(tmp_path), "branch": "ac/issue-42"}
-    with patch(
-        "agentception.mcp.query_tools.get_agent_run_teardown",
-        new_callable=AsyncMock,
-        return_value=mock_teardown,
-    ):
-        result = await read_resource("ac://runs/issue-42/task")
-
-    assert _content(result)["ok"] is False
 
 
 # ---------------------------------------------------------------------------

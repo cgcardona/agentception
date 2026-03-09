@@ -9,8 +9,6 @@ Verifies that:
 - Resumed agents (``is_resumed=True``) do NOT receive the instruction.
 - The instruction contains the required format: "My name is {name}. My cognitive
   architecture is: {description}."
-- ``is_resumed`` is correctly written to ``.agent-task`` by all builders.
-- ``is_resumed`` is correctly parsed from ``.agent-task`` by ``parse_agent_task``.
 - The ``_build_intro_instruction`` helper returns ``""`` for resumed or arch-less agents.
 
 Run targeted:
@@ -23,13 +21,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agentception.models import TaskFile
 from agentception.services.prompt_assembly import _build_intro_instruction, build_system_prompt
-from agentception.services.task_builders import (
-    _build_agent_task,
-    _build_conductor_task,
-    _build_coordinator_task,
-)
 
 
 # ---------------------------------------------------------------------------
@@ -215,129 +207,3 @@ def test_all_tiers_self_introduce(tmp_path: Path) -> None:
         )
 
 
-# ---------------------------------------------------------------------------
-# is_resumed written to .agent-task by task builders
-# ---------------------------------------------------------------------------
-
-
-def test_build_agent_task_writes_is_resumed_false(tmp_path: Path) -> None:
-    """_build_agent_task writes is_resumed = false by default."""
-    import tomllib
-
-    fake_settings = MagicMock()
-    fake_settings.gh_repo = "cgcardona/agentception"
-    with patch("agentception.services.task_builders.settings", fake_settings):
-        content = _build_agent_task(
-            issue_number=177,
-            title="Test issue",
-            role="python-developer",
-            worktree=tmp_path / "wt",
-            host_worktree=tmp_path / "host-wt",
-            branch="ac/issue-177",
-        )
-    parsed = tomllib.loads(content)
-    assert parsed["task"]["is_resumed"] is False
-
-
-def test_build_agent_task_writes_is_resumed_true(tmp_path: Path) -> None:
-    """_build_agent_task writes is_resumed = true when explicitly set."""
-    import tomllib
-
-    fake_settings = MagicMock()
-    fake_settings.gh_repo = "cgcardona/agentception"
-    with patch("agentception.services.task_builders.settings", fake_settings):
-        content = _build_agent_task(
-            issue_number=177,
-            title="Test issue",
-            role="python-developer",
-            worktree=tmp_path / "wt",
-            host_worktree=tmp_path / "host-wt",
-            branch="ac/issue-177",
-            is_resumed=True,
-        )
-    parsed = tomllib.loads(content)
-    assert parsed["task"]["is_resumed"] is True
-
-
-def test_build_coordinator_task_writes_is_resumed_false(tmp_path: Path) -> None:
-    """_build_coordinator_task writes is_resumed = false by default."""
-    import tomllib
-
-    fake_settings = MagicMock()
-    fake_settings.gh_repo = "cgcardona/agentception"
-    with patch("agentception.services.task_builders.settings", fake_settings):
-        content = _build_coordinator_task(
-            slug="test-slug",
-            plan_text="plan",
-            label_prefix="phase-1",
-            worktree=tmp_path / "wt",
-            host_worktree=tmp_path / "host-wt",
-            branch="ac/coord-test",
-        )
-    parsed = tomllib.loads(content)
-    assert parsed["task"]["is_resumed"] is False
-
-
-def test_build_conductor_task_writes_is_resumed_false(tmp_path: Path) -> None:
-    """_build_conductor_task writes is_resumed = false by default."""
-    import tomllib
-
-    fake_settings = MagicMock()
-    fake_settings.gh_repo = "cgcardona/agentception"
-    with patch("agentception.services.task_builders.settings", fake_settings):
-        content = _build_conductor_task(
-            wave_id="wave-001",
-            phases=["phase-1"],
-            org=None,
-            worktree=tmp_path / "wt",
-            host_worktree=tmp_path / "host-wt",
-            branch="ac/conductor-001",
-        )
-    parsed = tomllib.loads(content)
-    assert parsed["task"]["is_resumed"] is False
-
-
-# ---------------------------------------------------------------------------
-# is_resumed parsed from .agent-task by parse_agent_task
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.anyio
-async def test_parse_agent_task_reads_is_resumed_false(tmp_path: Path) -> None:
-    """parse_agent_task sets is_resumed=False when the field is absent."""
-    from agentception.readers.worktrees import parse_agent_task
-
-    task_content = (
-        "[task]\n"
-        'workflow = "issue-to-pr"\n'
-        "attempt_n = 0\n"
-        "\n"
-        "[agent]\n"
-        'role = "python-developer"\n'
-        "\n"
-    )
-    (tmp_path / ".agent-task").write_text(task_content, encoding="utf-8")
-    result = await parse_agent_task(tmp_path)
-    assert isinstance(result, TaskFile)
-    assert result.is_resumed is False
-
-
-@pytest.mark.anyio
-async def test_parse_agent_task_reads_is_resumed_true(tmp_path: Path) -> None:
-    """parse_agent_task sets is_resumed=True when the field is present and true."""
-    from agentception.readers.worktrees import parse_agent_task
-
-    task_content = (
-        "[task]\n"
-        'workflow = "issue-to-pr"\n'
-        "attempt_n = 0\n"
-        "is_resumed = true\n"
-        "\n"
-        "[agent]\n"
-        'role = "python-developer"\n'
-        "\n"
-    )
-    (tmp_path / ".agent-task").write_text(task_content, encoding="utf-8")
-    result = await parse_agent_task(tmp_path)
-    assert isinstance(result, TaskFile)
-    assert result.is_resumed is True

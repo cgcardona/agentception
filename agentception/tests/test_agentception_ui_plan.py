@@ -6,8 +6,6 @@ Covers:
 - GET /plan page renders correctly
 - GET /plan/recent-runs HTMX partial
 - GET /api/plan/{run_id}/plan-text endpoint
-- _parse_task_fields helper
-- _count_plan_items helper
 - _normalize_plan_dict helper (all shape variations)
 - Done step shows batch_id, worktree, Track Agents →, View Issues → (issue #42)
 - Review section has inline error display for 422 from POST /api/plan/launch
@@ -16,7 +14,6 @@ Run targeted:
     pytest agentception/tests/test_agentception_ui_plan.py -v
 """
 
-import textwrap
 from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import patch
@@ -28,9 +25,7 @@ from agentception.app import app
 from agentception.config import AgentCeptionSettings
 from agentception.routes.ui.plan_ui import (
     _YamlNode,
-    _count_plan_items,
     _normalize_plan_dict,
-    _parse_task_fields,
 )
 
 
@@ -39,56 +34,6 @@ def client() -> Generator[TestClient, None, None]:
     """Synchronous test client."""
     with TestClient(app) as c:
         yield c
-
-
-# ---------------------------------------------------------------------------
-# Unit tests — pure helpers
-# ---------------------------------------------------------------------------
-
-
-def test_parse_task_fields_extracts_toml_fields() -> None:
-    """_parse_task_fields must parse TOML .agent-task content correctly."""
-    content = textwrap.dedent("""\
-        [task]
-        version = "0.1.1"
-        workflow = "bugs-to-issues"
-
-        [pipeline]
-        batch_id = "plan-20260303-164033"
-
-        [plan_draft]
-        label_prefix = "q2-rewrite"
-        dump = "- Some item"
-    """)
-    fields = _parse_task_fields(content)
-    assert fields["WORKFLOW"] == "bugs-to-issues"
-    assert fields["BATCH_ID"] == "plan-20260303-164033"
-    assert fields["LABEL_PREFIX"] == "q2-rewrite"
-
-
-def test_parse_task_fields_returns_empty_on_invalid_toml() -> None:
-    """_parse_task_fields returns an empty dict when the content is not valid TOML."""
-    fields = _parse_task_fields("not valid toml !!!")
-    assert fields == {}
-    assert "FAKE_KEY" not in fields
-
-
-def test_parse_task_fields_empty_content() -> None:
-    """_parse_task_fields must return an empty dict for empty or invalid content."""
-    assert _parse_task_fields("") == {}
-    assert _parse_task_fields("A=1\nB=2\n") == {}
-
-
-def test_count_plan_items_counts_non_empty_lines() -> None:
-    """_count_plan_items must count only lines that have non-whitespace content."""
-    text = "- Fix login\n- Add dark mode\n\n- Rate limiter\n"
-    assert _count_plan_items(text) == 3
-
-
-def test_count_plan_items_empty_returns_zero() -> None:
-    """_count_plan_items must return 0 for blank/empty input."""
-    assert _count_plan_items("") == 0
-    assert _count_plan_items("   \n\n  ") == 0
 
 
 # ---------------------------------------------------------------------------

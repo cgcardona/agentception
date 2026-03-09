@@ -12,13 +12,11 @@ Covers every layer introduced in the feat/cognitive-arch-in-plan-spec branch:
 4. Issue creator — _embed_cognitive_arch, _create_one embedding.
 5. Cognitive arch service — _extract_cognitive_arch_from_body,
                             _resolve_cognitive_arch priority order.
-6. Task builder — _build_coordinator_task coordinator_arch parameter.
 """
 
 import json
-import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -34,8 +32,6 @@ from agentception.services.cognitive_arch import (
     _extract_cognitive_arch_from_body,
     _resolve_cognitive_arch,
 )
-from agentception.services.task_builders import _build_coordinator_task
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -448,63 +444,3 @@ class TestResolveCognitiveArchPriority:
         assert ":" in result  # figure:skills format
 
 
-# ---------------------------------------------------------------------------
-# 6. Task builder — coordinator_arch parameter
-# ---------------------------------------------------------------------------
-
-
-class TestBuildCoordinatorTaskCoordinatorArch:
-    def _call(self, coordinator_arch: dict[str, str] | None = None) -> str:
-        with (
-            patch("agentception.services.task_builders.settings") as mock_settings,
-            patch("agentception.services.task_builders.uuid") as mock_uuid,
-        ):
-            mock_settings.gh_repo = "owner/repo"
-            mock_uuid.uuid4.return_value = "test-uuid-1234"
-            return _build_coordinator_task(
-                slug="coordinator-20260101-120000",
-                plan_text='{"initiative": "test"}',
-                label_prefix="",
-                worktree=Path("/tmp/worktrees/test"),
-                host_worktree=Path("/tmp/worktrees/test"),
-                branch="coordinator/20260101-120000",
-                coordinator_arch=coordinator_arch,
-            )
-
-    def test_uses_coordinator_arch_when_provided(self) -> None:
-        content = self._call(
-            coordinator_arch={
-                "coordinator": "jeff_dean:llm:python",
-                "engineering-coordinator": "hamming:python",
-            }
-        )
-        assert "jeff_dean:llm:python" in content
-
-    def test_prefers_coordinator_key_over_engineering_coordinator(self) -> None:
-        content = self._call(
-            coordinator_arch={
-                "coordinator": "jeff_dean:python",
-                "engineering-coordinator": "hamming:python",
-            }
-        )
-        # "coordinator" key should win over "engineering-coordinator"
-        assert "jeff_dean:python" in content
-        assert "hamming:python" not in content
-
-    def test_falls_back_to_engineering_coordinator_when_no_coordinator_key(
-        self,
-    ) -> None:
-        content = self._call(
-            coordinator_arch={"engineering-coordinator": "hamming:fastapi:python"}
-        )
-        assert "hamming:fastapi:python" in content
-
-    def test_falls_back_to_role_default_when_no_arch_provided(self) -> None:
-        content = self._call(coordinator_arch=None)
-        # Should use ROLE_DEFAULT_FIGURE["engineering-coordinator"] + ":python"
-        assert "cognitive_arch" in content
-        assert "von_neumann:python" in content or "hamming:python" in content
-
-    def test_falls_back_to_role_default_when_arch_dict_empty(self) -> None:
-        content = self._call(coordinator_arch={})
-        assert "cognitive_arch" in content

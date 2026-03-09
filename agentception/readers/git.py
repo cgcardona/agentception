@@ -72,10 +72,9 @@ async def list_git_worktrees() -> list[dict[str, object]]:
     - ``head_sha``        — full SHA of HEAD commit
     - ``head_message``    — subject line of HEAD commit
     - ``is_main``         — True for the primary (repo-root) worktree
-    - ``is_agent_branch`` — True when branch matches ``feat/issue-N`` or ``feat/brain-dump-*``
+    - ``is_agent_branch`` — True when branch matches agent/* or ac/* patterns
     - ``issue_number``    — int when branch is ``feat/issue-N``, else None
     - ``locked``          — True when git has locked the worktree from auto-prune
-    - ``task_mtime_str``  — relative age of ``.agent-task`` file, or empty string
     """
     raw = await _git(["worktree", "list", "--porcelain"])
     worktrees: list[dict[str, object]] = []
@@ -93,7 +92,6 @@ async def list_git_worktrees() -> list[dict[str, object]]:
                 "is_agent_branch": False,
                 "issue_number": None,
                 "locked": False,
-                "task_mtime_str": "",
             }
         elif line.startswith("HEAD "):
             current["head_sha"] = line[len("HEAD "):]
@@ -115,17 +113,11 @@ async def list_git_worktrees() -> list[dict[str, object]]:
     if worktrees:
         worktrees[0]["is_main"] = True
 
-    # Fetch HEAD commit message and task file mtime for each worktree.
+    # Fetch HEAD commit message for each worktree.
     for wt in worktrees:
         sha = str(wt.get("head_sha", ""))
         if sha:
             wt["head_message"] = await _git(["log", "-1", "--format=%s", sha])
-        # Report how long ago the agent last updated its task file.
-        task_file = Path(str(wt["path"])) / ".agent-task"
-        try:
-            wt["task_mtime_str"] = _relative_time(task_file.stat().st_mtime)
-        except OSError:
-            wt["task_mtime_str"] = ""
 
     return worktrees
 
@@ -134,16 +126,15 @@ async def get_worktree_detail(slug: str) -> dict[str, object]:
     """Fetch on-demand detail for a single worktree.
 
     Returns a dict with:
-    - ``commits``      — list of ``{sha, message}`` for commits on branch not in origin/dev
-    - ``diff_stat``    — output of ``git diff --stat origin/dev...{branch}``
-    - ``task_content`` — raw text of the ``.agent-task`` file, or empty string
-    - ``branch``       — branch name for this worktree
-    - ``found``        — False when no worktree with that slug exists
+    - ``commits``   — list of ``{sha, message}`` for commits on branch not in origin/dev
+    - ``diff_stat`` — output of ``git diff --stat origin/dev...{branch}``
+    - ``branch``    — branch name for this worktree
+    - ``found``     — False when no worktree with that slug exists
     """
     worktrees = await list_git_worktrees()
     wt = next((w for w in worktrees if str(w.get("slug", "")) == slug), None)
     if wt is None:
-        return {"found": False, "commits": [], "diff_stat": "", "task_content": "", "branch": ""}
+        return {"found": False, "commits": [], "diff_stat": "", "branch": ""}
 
     branch = str(wt.get("branch", ""))
 
@@ -160,20 +151,11 @@ async def get_worktree_detail(slug: str) -> dict[str, object]:
     # Diff stat vs the merge-base with origin/dev (triple-dot = symmetric difference).
     diff_stat = await _git(["diff", "--stat", f"origin/dev...{branch}"])
 
-    # Task file — the agent's instructions.
-    task_content = ""
-    task_file = Path(str(wt["path"])) / ".agent-task"
-    try:
-        task_content = task_file.read_text(encoding="utf-8")
-    except OSError:
-        pass
-
     return {
         "found": True,
         "branch": branch,
         "commits": commits,
         "diff_stat": diff_stat,
-        "task_content": task_content,
     }
 
 
@@ -220,6 +202,33 @@ async def list_git_branches() -> list[dict[str, object]]:
         })
 
     return branches
+
+
+async def worktree_last_commit_time(worktree_path: Path) -> float:
+    """Return the UNIX timestamp of the most recent commit in the worktree.
+
+    Used for stuck-agent detection: if this value has not advanced in a
+    configurable number of minutes, the agent is likely hung and should be
+    flagged in the dashboard. Returns 0.0 when the worktree has no commits
+    or git is unavailable.
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "log",
+            "-1",
+            "--format=%ct",
+            cwd=str(worktree_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        if proc.returncode != 0 or not stdout.strip():
+            return 0.0
+        return float(stdout.strip())
+    except (OSError, ValueError) as exc:
+        logger.debug("⚠️  worktree_last_commit_time(%s) error: %s", worktree_path, exc)
+        return 0.0
 
 
 async def list_git_stash() -> list[dict[str, object]]:
