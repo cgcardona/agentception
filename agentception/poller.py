@@ -144,7 +144,11 @@ async def merge_agents(
             # Coordinator agents may have no issue/PR during planning.
             status = AgentStatus.IMPLEMENTING
         else:
-            status = AgentStatus.FAILED
+            # Ad-hoc runs (issue_number is None, not a coordinator) are
+            # managed by their asyncio task lifecycle, not by GitHub signals.
+            # Treat them as IMPLEMENTING so the poller never stamps FAILED
+            # onto a live adhoc run that simply has no associated issue.
+            status = AgentStatus.IMPLEMENTING
 
         worktree = run["worktree_path"]
         node_id = (
