@@ -25,7 +25,6 @@ Pipeline
 from __future__ import annotations
 
 import asyncio
-import collections
 import json
 import logging
 import sys
@@ -99,33 +98,27 @@ _HISTORY_TAIL: int = 14
 # (30 000 tokens/minute).  We target 27 000 to leave a safety margin.
 # ---------------------------------------------------------------------------
 
-# Target: 90 % of the 30 000 input-token/minute Tier-1 limit.
-_INPUT_TPM_TARGET: int = 27_000
-_TPM_WINDOW_SECS: float = 60.0
+# Minimum seconds between consecutive LLM calls.  A proactive fixed cadence
+# beats a reactive burst-then-sleep TPM guard: at ~6k tokens/turn the steady
+# 15 s pace yields ~24k tokens/min — well under the 30k/min Tier-1 ceiling —
+# without ever accumulating a debt that forces a 40-second stall.
+_MIN_TURN_DELAY_SECS: float = 15.0
+_last_llm_call_at: float = 0.0
 
-# Rolling window of (monotonic_timestamp, input_tokens) pairs.
-# Module-level; acceptable for single-agent-per-process deployments.
-_tpm_window: collections.deque[tuple[float, int]] = collections.deque()
 
+async def _enforce_turn_delay() -> None:
+    """Sleep only as long as needed to maintain the minimum inter-turn interval.
 
-def _tpm_record_and_get_sleep(input_tokens: int) -> float:
-    """Record *input_tokens* in the rolling 60-second window.
-
-    Returns the number of seconds the caller should sleep before making
-    the next API call.  Returns ``0.0`` when no throttling is needed.
-
-    Uses ``time.monotonic`` so the window is immune to clock adjustments.
+    If the previous turn's tool calls already took longer than
+    ``_MIN_TURN_DELAY_SECS``, this returns immediately — no extra wait.
     """
-    now = time.monotonic()
-    while _tpm_window and now - _tpm_window[0][0] >= _TPM_WINDOW_SECS:
-        _tpm_window.popleft()
-    _tpm_window.append((now, input_tokens))
-    total = sum(t for _, t in _tpm_window)
-    if total >= _INPUT_TPM_TARGET and _tpm_window:
-        oldest_ts = _tpm_window[0][0]
-        sleep_secs = _TPM_WINDOW_SECS - (now - oldest_ts) + 1.0
-        return max(0.0, sleep_secs)
-    return 0.0
+    global _last_llm_call_at
+    elapsed = time.monotonic() - _last_llm_call_at
+    wait = _MIN_TURN_DELAY_SECS - elapsed
+    if wait > 0.0:
+        logger.info("⏳ agent_loop: inter-turn delay — sleeping %.1fs", wait)
+        await asyncio.sleep(wait)
+    _last_llm_call_at = time.monotonic()
 
 
 # Local tool names — dispatched to file/shell functions rather than MCP.
@@ -210,6 +203,12 @@ async def run_agent_loop(
             run_id,
         )
 
+        # Proactive inter-turn pacing: ensure at least _MIN_TURN_DELAY_SECS
+        # between LLM calls.  Turn 1 is always instant (no prior call).
+        # If tool calls on the previous turn already consumed the window,
+        # _enforce_turn_delay returns immediately with no extra wait.
+        await _enforce_turn_delay()
+
         try:
             bounded = _prune_history(_truncate_tool_results(messages))
             response: ToolResponse = await call_anthropic_with_tools(
@@ -223,16 +222,6 @@ async def run_agent_loop(
             await log_run_error(issue_number, f"LLM error: {exc}", run_id)
             await build_cancel_run(run_id)
             return
-
-        # Token-rate guard — self-throttle before the next iteration if we are
-        # approaching the 30 000 input-tokens/minute Tier-1 limit.
-        sleep_secs = _tpm_record_and_get_sleep(response.get("input_tokens", 0))
-        if sleep_secs > 0.0:
-            logger.warning(
-                "⚠️ agent_loop: TPM guard — sleeping %.1fs to stay under rate limit",
-                sleep_secs,
-            )
-            await asyncio.sleep(sleep_secs)
 
         # Append assistant message to history.
         assistant_msg: dict[str, object] = {"role": "assistant", "content": response["content"]}

@@ -495,33 +495,44 @@ class TestDispatchToolCalls:
         assert "json" in str(result["error"]).lower()
 
 
-class TestTpmRateGuard:
-    """Unit tests for _tpm_record_and_get_sleep."""
+class TestEnforceTurnDelay:
+    """Unit tests for _enforce_turn_delay (proactive inter-turn pacing)."""
 
     def setup_method(self) -> None:
-        """Clear the module-level window before each test."""
+        """Reset the last-call timestamp so tests start clean."""
         import agentception.services.agent_loop as al
-        al._tpm_window.clear()
+        al._last_llm_call_at = 0.0
 
-    def test_under_limit_returns_zero(self) -> None:
-        """Below the token limit → no sleep required."""
-        from agentception.services.agent_loop import _tpm_record_and_get_sleep
+    @pytest.mark.anyio
+    async def test_first_call_is_instant(self) -> None:
+        """With no prior call the delay is effectively zero."""
+        import time
+        import agentception.services.agent_loop as al
+        al._last_llm_call_at = 0.0  # simulate never called
+        t0 = time.monotonic()
+        from agentception.services.agent_loop import _enforce_turn_delay
+        await _enforce_turn_delay()
+        assert time.monotonic() - t0 < 1.0
 
-        sleep = _tpm_record_and_get_sleep(5_000)
-        assert sleep == 0.0
+    @pytest.mark.anyio
+    async def test_recent_call_waits_remainder(self) -> None:
+        """A call made 13s ago should wait ~2s (15s target - 13s elapsed)."""
+        import time
+        import agentception.services.agent_loop as al
+        al._last_llm_call_at = time.monotonic() - 13.0
+        t0 = time.monotonic()
+        from agentception.services.agent_loop import _enforce_turn_delay
+        await _enforce_turn_delay()
+        elapsed = time.monotonic() - t0
+        assert 1.5 < elapsed < 3.5  # ~2s wait, with tolerance
 
-    def test_over_limit_returns_positive_sleep(self) -> None:
-        """Exceeding the 27K target → a positive sleep duration is returned."""
-        from agentception.services.agent_loop import _tpm_record_and_get_sleep
-
-        sleep = _tpm_record_and_get_sleep(28_000)
-        assert sleep > 0.0
-
-    def test_multiple_calls_accumulate(self) -> None:
-        """Multiple calls within the window accumulate token counts."""
-        from agentception.services.agent_loop import _tpm_record_and_get_sleep
-
-        _tpm_record_and_get_sleep(10_000)
-        _tpm_record_and_get_sleep(10_000)
-        sleep = _tpm_record_and_get_sleep(10_000)
-        assert sleep > 0.0
+    @pytest.mark.anyio
+    async def test_old_call_skips_wait(self) -> None:
+        """A call made 20s ago (> 15s target) incurs no extra wait."""
+        import time
+        import agentception.services.agent_loop as al
+        al._last_llm_call_at = time.monotonic() - 20.0
+        t0 = time.monotonic()
+        from agentception.services.agent_loop import _enforce_turn_delay
+        await _enforce_turn_delay()
+        assert time.monotonic() - t0 < 1.0
