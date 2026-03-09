@@ -23,7 +23,7 @@ from pathlib import Path
 import yaml as _yaml
 
 from agentception.models import PlanSpec
-from agentception.services.llm import call_openrouter
+from agentception.services.llm import call_anthropic
 
 # Paths to the cognitive architecture assets (resolved relative to this file).
 _FIGURES_DIR: Path = (
@@ -521,7 +521,7 @@ async def generate_plan_yaml(dump: str, label_prefix: str = "") -> str:
     if not dump:
         raise ValueError("Plan text must not be empty.")
 
-    raw = await call_openrouter(
+    raw = await call_anthropic(
         dump,
         system_prompt=_build_yaml_system_prompt(),
         temperature=0.2,

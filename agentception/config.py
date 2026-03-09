@@ -134,6 +134,14 @@ class AgentCeptionSettings(BaseSettings):
     falls back to the keyword-based heuristic classifier — no LLM is required
     for the service to start.
     """
+    github_token: str = ""
+    """GitHub Personal Access Token for GitHub API calls and the GitHub MCP server.
+
+    Set via ``GITHUB_TOKEN`` env var.  Used by the ``gh`` CLI, the
+    ``readers.github`` HTTP client, and the GitHub MCP server subprocess
+    (mapped to ``GITHUB_PERSONAL_ACCESS_TOKEN``).  When absent, GitHub MCP
+    tools are unavailable in the agent loop.
+    """
     ac_task_runner: TaskRunnerChoice = TaskRunnerChoice.anthropic
     """Task runner backend for agent execution.
     

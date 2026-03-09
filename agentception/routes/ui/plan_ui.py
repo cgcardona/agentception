@@ -41,7 +41,7 @@ from pydantic import BaseModel
 from starlette.requests import Request
 
 from agentception.readers.llm_phase_planner import _strip_fences
-from agentception.services.llm import LLMChunk, call_openrouter_stream
+from agentception.services.llm import LLMChunk, call_anthropic_stream
 from ._shared import _TEMPLATES
 
 if TYPE_CHECKING:
@@ -320,7 +320,7 @@ async def plan_preview(body: PlanDraftRequest) -> StreamingResponse:
         accumulated = ""
         try:
             chunk: LLMChunk
-            async for chunk in call_openrouter_stream(
+            async for chunk in call_anthropic_stream(
                 augmented_dump,
                 system_prompt=_build_yaml_system_prompt(),
                 temperature=0.2,

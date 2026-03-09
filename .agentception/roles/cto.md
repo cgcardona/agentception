@@ -324,7 +324,8 @@ COORD_SELF_FINGERPRINT="$CLAIM_FINGERPRINT"
 Post your start fingerprint on the parent scope issue (if scope_type == "issue"):
 
 ```
-github_add_comment(issue_number=<scope_value>, body="🌳 **Coordinator started**\n\n<COORD_SELF_FINGERPRINT>")
+add_issue_comment(owner=<OWNER>, repo=<REPO>, issue_number=<scope_value>,
+                  body="🌳 **Coordinator started**\n\n<COORD_SELF_FINGERPRINT>")
 ```
 
 ---
@@ -351,7 +352,7 @@ log_run_step(
 ```
 
 When you create new GitHub issues to track subtasks, **always include your fingerprint
-in the issue body**. Use `issue_write` (user-github MCP) and append:
+in the issue body**. Use `create_issue` (GitHub MCP) and append:
 
 ```
 \n\n---\n_Created by coordinator:_\n\n<COORD_SELF_FINGERPRINT>
@@ -417,7 +418,8 @@ When all children have terminated:
    child_run_ids in a `log_run_error` call.
 4. Post a completion fingerprint on the parent scope issue (if scope_type == "issue"):
    ```
-   github_add_comment(issue_number=<scope_value>, body="✅ **Coordinator done** — N/N children completed\n\n<COORD_SELF_FINGERPRINT>")
+   add_issue_comment(owner=<OWNER>, repo=<REPO>, issue_number=<scope_value>,
+                     body="✅ **Coordinator done** — N/N children completed\n\n<COORD_SELF_FINGERPRINT>")
    ```
 5. Call `log_run_step` with `step_name = "coordinator_done"`.
 

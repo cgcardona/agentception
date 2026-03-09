@@ -48,9 +48,10 @@ from agentception.services.llm import (
     ToolDefinition,
     ToolFunction,
     ToolResponse,
-    call_openrouter_with_tools,
+    call_anthropic_with_tools,
 )
 from agentception.services.code_indexer import search_codebase
+from agentception.services.github_mcp_client import GitHubMCPClient
 from agentception.tools.definitions import FILE_TOOL_DEFS, SEARCH_CODEBASE_TOOL_DEF, SHELL_TOOL_DEF
 from agentception.tools.file_tools import (
     list_directory,
@@ -157,16 +158,30 @@ async def run_agent_loop(
 
     role_prompt = _load_role_prompt(task.role)
     system_prompt = _build_system_prompt(role_prompt, task.cognitive_arch or "")
-    tool_defs = _build_tool_definitions()
+
+    # Initialise the GitHub MCP client and fetch its tool definitions.
+    # Failures here are non-fatal — the agent runs without GitHub MCP tools
+    # and falls back to the AgentCeption MCP tools for GitHub mutations.
+    github_client = GitHubMCPClient()
+    github_tool_names: frozenset[str] = frozenset()
+    try:
+        github_tools = await github_client.list_tools()
+        github_tool_names = frozenset(t["function"]["name"] for t in github_tools)
+    except RuntimeError as exc:
+        logger.warning("⚠️ GitHub MCP server unavailable — %s. GitHub reads will use gh CLI.", exc)
+        github_tools = []
+
+    tool_defs = _build_tool_definitions(extra_tools=github_tools)
     initial_message = await _fetch_task_briefing(run_id, task, worktree_path)
 
     messages: list[dict[str, object]] = [{"role": "user", "content": initial_message}]
 
     logger.info(
-        "✅ agent_loop start — run_id=%s issue=%d tools=%d",
+        "✅ agent_loop start — run_id=%s issue=%d tools=%d (github_mcp=%d)",
         run_id,
         issue_number,
         len(tool_defs),
+        len(github_tool_names),
     )
 
     for iteration in range(1, max_iterations + 1):
@@ -178,13 +193,14 @@ async def run_agent_loop(
 
         try:
             bounded = _prune_history(_truncate_tool_results(messages))
-            response: ToolResponse = await call_openrouter_with_tools(
+            response: ToolResponse = await call_anthropic_with_tools(
                 bounded,
                 system=system_prompt,
                 tools=tool_defs,
             )
         except Exception as exc:
             logger.exception("❌ agent_loop LLM error on iteration %d", iteration)
+            await github_client.close()
             await log_run_error(issue_number, f"LLM error: {exc}", run_id)
             await build_cancel_run(run_id)
             return
@@ -207,6 +223,7 @@ async def run_agent_loop(
 
         if response["stop_reason"] == "stop":
             logger.info("✅ agent_loop complete — run_id=%s iterations=%d", run_id, iteration)
+            await github_client.close()
             await build_complete_run(
                 issue_number=issue_number,
                 pr_url="",
@@ -217,7 +234,11 @@ async def run_agent_loop(
 
         if response["stop_reason"] == "tool_calls":
             tool_results = await _dispatch_tool_calls(
-                response["tool_calls"], worktree_path, run_id
+                response["tool_calls"],
+                worktree_path,
+                run_id,
+                github_client=github_client,
+                github_tool_names=github_tool_names,
             )
             messages.extend(tool_results)
             continue
@@ -228,6 +249,7 @@ async def run_agent_loop(
             response["stop_reason"],
             iteration,
         )
+        await github_client.close()
         await log_run_error(
             issue_number,
             f"Unexpected stop_reason={response['stop_reason']!r} on iteration {iteration}",
@@ -238,6 +260,7 @@ async def run_agent_loop(
 
     # Reached iteration ceiling.
     logger.error("❌ agent_loop iteration limit reached — run_id=%s", run_id)
+    await github_client.close()
     await log_run_error(
         issue_number,
         f"Agent loop exceeded {max_iterations} iterations without completing.",
@@ -336,6 +359,17 @@ You are running **inside the AgentCeption Docker container**, not on the host ma
   initial message.  Read `ac://runs/{run_id}/context` for your full task context.
 - Git operations run in the worktree directory.
 - Use `run_command` for shell execution.  Use `read_file` / `write_file` for files.
+- Use GitHub MCP tools (`get_issue`, `list_issues`, `add_issue_comment`,
+  `create_pull_request`, `merge_pull_request`, etc.) for all GitHub operations.
+  Do NOT shell out to `gh` CLI for anything the MCP tools can do.
+
+## Memory Discipline
+
+Your conversation history is your memory.  Before calling `read_file`,
+`list_directory`, or `run_command`, check whether you already have that
+information in the conversation.  **Do not re-read a file or re-run a command
+you have already executed** — the output is already in your context.
+Re-reading wastes tokens and burns iteration budget.  Use what you know.
 """
 
 
@@ -485,28 +519,36 @@ def _mcp_tool_to_openai(tool_name: str, description: str, input_schema: dict[str
     )
 
 
-def _build_tool_definitions() -> list[ToolDefinition]:
-    """Build the combined tool list: local tools + MCP tools.
+def _build_tool_definitions(
+    extra_tools: list[ToolDefinition] | None = None,
+) -> list[ToolDefinition]:
+    """Build the combined tool list: local tools + AgentCeption MCP tools + GitHub MCP tools.
 
-    Local tools (file/shell) are listed first so the model encounters them
-    before the more specialised MCP tools.
-
-    MCP tools that share a name with local tools are excluded (local tools
-    take precedence for file operations).
+    Order: local file/shell tools → AgentCeption MCP tools → GitHub MCP tools.
+    Local tools take precedence; names already present are not duplicated.
     """
     tool_defs: list[ToolDefinition] = list(FILE_TOOL_DEFS)
     tool_defs.append(SHELL_TOOL_DEF)
     tool_defs.append(SEARCH_CODEBASE_TOOL_DEF)
 
+    seen: set[str] = {t["function"]["name"] for t in tool_defs}
+
     for mcp_tool in TOOLS:
         name: object = mcp_tool.get("name")
-        if not isinstance(name, str) or name in _LOCAL_TOOL_NAMES:
+        if not isinstance(name, str) or name in seen:
             continue
         description: object = mcp_tool.get("description", "")
         input_schema: object = mcp_tool.get("inputSchema", {})
         if not isinstance(description, str) or not isinstance(input_schema, dict):
             continue
         tool_defs.append(_mcp_tool_to_openai(name, description, input_schema))
+        seen.add(name)
+
+    for gh_tool in extra_tools or []:
+        gh_name = gh_tool["function"]["name"]
+        if gh_name not in seen:
+            tool_defs.append(gh_tool)
+            seen.add(gh_name)
 
     return tool_defs
 
@@ -586,17 +628,24 @@ async def _dispatch_tool_calls(
     tool_calls: list[ToolCall],
     worktree_path: Path,
     run_id: str,
+    *,
+    github_client: GitHubMCPClient | None = None,
+    github_tool_names: frozenset[str] = frozenset(),
 ) -> list[dict[str, object]]:
     """Execute each tool call and return a list of tool-result messages.
 
-    Local file/shell tools are dispatched directly.  All other tool names are
-    forwarded to :func:`~agentception.mcp.server.call_tool_async`.
+    Routing priority:
+    1. Local file/shell tools → dispatched directly.
+    2. GitHub MCP tool names  → forwarded to :class:`GitHubMCPClient`.
+    3. Everything else         → forwarded to :func:`~agentception.mcp.server.call_tool_async`.
 
     Args:
         tool_calls: Tool calls returned by the model.
         worktree_path: Worktree root used as the default cwd for shell calls
             and the base for resolving relative file paths.
         run_id: Used for logging only.
+        github_client: Initialised GitHub MCP client (optional).
+        github_tool_names: Set of tool names routed to the GitHub MCP server.
 
     Returns:
         A list of ``{"role": "tool", "tool_call_id": str, "content": str}``
@@ -604,7 +653,13 @@ async def _dispatch_tool_calls(
     """
     results: list[dict[str, object]] = []
     for tc in tool_calls:
-        result = await _dispatch_single_tool(tc, worktree_path, run_id)
+        result = await _dispatch_single_tool(
+            tc,
+            worktree_path,
+            run_id,
+            github_client=github_client,
+            github_tool_names=github_tool_names,
+        )
         results.append(
             {
                 "role": "tool",
@@ -633,6 +688,9 @@ async def _dispatch_single_tool(
     tool_call: ToolCall,
     worktree_path: Path,
     run_id: str,
+    *,
+    github_client: GitHubMCPClient | None = None,
+    github_tool_names: frozenset[str] = frozenset(),
 ) -> dict[str, object]:
     """Dispatch a single tool call and return its result dict.
 
@@ -649,10 +707,18 @@ async def _dispatch_single_tool(
     except json.JSONDecodeError as exc:
         return {"ok": False, "error": f"Invalid tool arguments (JSON parse error): {exc}"}
 
-    if name not in _LOCAL_TOOL_NAMES:
-        return _mcp_result_to_dict(await call_tool_async(name, args))
+    if name in _LOCAL_TOOL_NAMES:
+        return await _dispatch_local_tool(name, args, worktree_path)
 
-    return await _dispatch_local_tool(name, args, worktree_path)
+    if name in github_tool_names and github_client is not None:
+        try:
+            text = await github_client.call_tool(name, args)
+            return {"ok": True, "result": text}
+        except RuntimeError as exc:
+            logger.error("❌ github_mcp tool %s failed: %s", name, exc)
+            return {"ok": False, "error": str(exc)}
+
+    return _mcp_result_to_dict(await call_tool_async(name, args))
 
 
 async def _dispatch_local_tool(

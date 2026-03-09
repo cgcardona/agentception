@@ -13,6 +13,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get update && apt-get install -y gh \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Install the GitHub MCP server binary — provides the agent loop with typed
+# GitHub tools (get_issue, list_issues, add_issue_comment, create_pull_request,
+# merge_pull_request, etc.) via the MCP stdio protocol.
+ARG GH_MCP_VERSION=0.32.0
+RUN ARCH=$(dpkg --print-architecture) \
+    && case "$ARCH" in \
+         amd64) GH_MCP_ARCH="x86_64" ;; \
+         arm64) GH_MCP_ARCH="arm64" ;; \
+         *) echo "Unsupported arch: $ARCH" && exit 1 ;; \
+       esac \
+    && curl -fsSL \
+       "https://github.com/github/github-mcp-server/releases/download/v${GH_MCP_VERSION}/github-mcp-server_Linux_${GH_MCP_ARCH}.tar.gz" \
+       | tar xz -C /usr/local/bin github-mcp-server \
+    && chmod +x /usr/local/bin/github-mcp-server \
+    && github-mcp-server --version
+
 # Install Dart Sass — compiles SCSS at build time (no Node.js required).
 ARG DART_SASS_VERSION=1.85.0
 RUN ARCH=$(dpkg --print-architecture) \

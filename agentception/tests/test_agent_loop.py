@@ -1,10 +1,11 @@
 """Unit tests for agentception.services.agent_loop.
 
 All external I/O is mocked:
-  - call_openrouter_with_tools  → controlled ToolResponse stubs
+  - call_anthropic_with_tools   → controlled ToolResponse stubs
   - build_complete_run / build_cancel_run / log_run_step / log_run_error → AsyncMock
   - call_tool_async             → AsyncMock returning valid ACToolResult
   - _load_task                  → AsyncMock returning a minimal AgentTaskSpec (DB-backed)
+  - GitHubMCPClient             → MagicMock returning empty tool list
   - settings.worktrees_dir      → redirected to tmp_path
   - settings.repo_dir           → redirected to tmp_path
 """
@@ -61,6 +62,20 @@ def _tool_response(name: str, args: dict[str, object]) -> ToolResponse:
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _mock_github_client() -> MagicMock:
+    """Return a MagicMock GitHubMCPClient with an empty tool list."""
+    client = MagicMock()
+    client.list_tools = AsyncMock(return_value=[])
+    client.call_tool = AsyncMock(return_value="")
+    client.close = AsyncMock()
+    return client
+
+
+# ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
 
@@ -81,7 +96,7 @@ class TestRunAgentLoop:
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_openrouter_with_tools",
+                "agentception.services.agent_loop.call_anthropic_with_tools",
                 new_callable=AsyncMock,
                 return_value=_stop_response("All done."),
             ),
@@ -94,6 +109,10 @@ class TestRunAgentLoop:
                 "agentception.services.agent_loop.log_run_step",
                 new_callable=AsyncMock,
                 return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
             ),
         ):
             mock_settings.worktrees_dir = tmp_path
@@ -129,7 +148,7 @@ class TestRunAgentLoop:
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_openrouter_with_tools",
+                "agentception.services.agent_loop.call_anthropic_with_tools",
                 new_callable=AsyncMock,
                 side_effect=responses,
             ),
@@ -142,6 +161,10 @@ class TestRunAgentLoop:
                 "agentception.services.agent_loop.log_run_step",
                 new_callable=AsyncMock,
                 return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
             ),
         ):
             mock_settings.worktrees_dir = tmp_path
@@ -174,7 +197,7 @@ class TestRunAgentLoop:
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_openrouter_with_tools",
+                "agentception.services.agent_loop.call_anthropic_with_tools",
                 new_callable=AsyncMock,
                 side_effect=responses,
             ),
@@ -193,6 +216,10 @@ class TestRunAgentLoop:
                 new_callable=AsyncMock,
                 return_value=_mcp_ok_result("step recorded"),
             ) as mock_mcp,
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
         ):
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
@@ -218,7 +245,7 @@ class TestRunAgentLoop:
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_openrouter_with_tools",
+                "agentception.services.agent_loop.call_anthropic_with_tools",
                 new_callable=AsyncMock,
                 return_value=_tool_response("log_run_step", {"issue_number": 42, "step_name": "x"}),
             ),
@@ -241,6 +268,10 @@ class TestRunAgentLoop:
                 "agentception.services.agent_loop.call_tool_async",
                 new_callable=AsyncMock,
                 return_value=_mcp_ok_result("step"),
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
             ),
         ):
             mock_settings.worktrees_dir = tmp_path
@@ -293,9 +324,9 @@ class TestRunAgentLoop:
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_openrouter_with_tools",
+                "agentception.services.agent_loop.call_anthropic_with_tools",
                 new_callable=AsyncMock,
-                side_effect=RuntimeError("OpenRouter is down"),
+                side_effect=RuntimeError("Anthropic API is down"),
             ),
             patch(
                 "agentception.services.agent_loop.build_cancel_run",
@@ -312,6 +343,10 @@ class TestRunAgentLoop:
                 new_callable=AsyncMock,
                 return_value={"ok": True},
             ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
         ):
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
@@ -323,7 +358,7 @@ class TestRunAgentLoop:
         mock_cancel.assert_called_once_with("test-run-1")
         mock_error.assert_called_once()
         error_msg = str(mock_error.call_args)
-        assert "OpenRouter" in error_msg
+        assert "Anthropic" in error_msg
 
 
 class TestBuildSystemPrompt:

@@ -9,17 +9,17 @@ giving ~90% input-token discount on turns 2-N of every agent run.
 
 Three public entry points:
 
-``call_openrouter(user_prompt, ...)``
+``call_anthropic(user_prompt, ...)``
     Waits for the full completion and returns the text.  Used by the Phase
     Planner and MCP tools where a single-turn, non-streaming response suffices.
 
-``call_openrouter_stream(user_prompt, ...)``
+``call_anthropic_stream(user_prompt, ...)``
     AsyncGenerator that yields :class:`LLMChunk` dicts as SSE-ready events:
       {"type": "thinking", "text": "..."}  -- extended-thinking token
       {"type": "content",  "text": "..."}  -- output token (the actual YAML)
     Callers map these to their own SSE event format.
 
-``call_openrouter_with_tools(messages, ...)``
+``call_anthropic_with_tools(messages, ...)``
     Multi-turn tool-use call.  Accepts an OpenAI-format message history and
     a list of OpenAI-format tool definitions; converts both to Anthropic wire
     format internally so the caller (agent_loop) does not need to change.
@@ -51,7 +51,7 @@ _MAX_RETRIES = 2
 
 
 class LLMChunk(TypedDict):
-    """A single event yielded by ``call_openrouter_stream``."""
+    """A single event yielded by ``call_anthropic_stream``."""
 
     type: Literal["thinking", "content"]
     text: str
@@ -93,11 +93,11 @@ class ToolCall(TypedDict):
 
 
 class ToolResponse(TypedDict):
-    """Return value from ``call_openrouter_with_tools``.
+    """Return value from ``call_anthropic_with_tools``.
 
     ``input_tokens`` is populated from the Anthropic ``usage.input_tokens``
     field (sum of regular + cached tokens) and is used by the agent loop's
-    token-rate guard to stay within the 30K input tokens/minute Tier 1 limit.
+    token-rate guard to stay within the Anthropic rate limit.
     """
 
     stop_reason: str  # "stop" | "tool_calls" | "length"
@@ -248,7 +248,7 @@ def _messages_to_anthropic(
 # ---------------------------------------------------------------------------
 
 
-async def call_openrouter(
+async def call_anthropic(
     user_prompt: str,
     *,
     system_prompt: str | None = None,
@@ -330,7 +330,7 @@ async def call_openrouter(
 # ---------------------------------------------------------------------------
 
 
-async def call_openrouter_stream(
+async def call_anthropic_stream(
     user_prompt: str,
     *,
     system_prompt: str | None = None,
@@ -445,7 +445,7 @@ async def call_openrouter_stream(
 # ---------------------------------------------------------------------------
 
 
-async def call_openrouter_with_tools(
+async def call_anthropic_with_tools(
     messages: list[dict[str, object]],
     *,
     system: str,

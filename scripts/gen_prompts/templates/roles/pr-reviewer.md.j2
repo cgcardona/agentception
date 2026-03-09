@@ -64,30 +64,33 @@ REVIEW_FINGERPRINT="$CLAIM_FINGERPRINT"
 ### Event 1 — Review Started (immediately when you begin)
 
 ```
-github_add_comment(issue_number=<ISSUE_NUMBER>, body="🔍 **Review started**\n\n<REVIEW_FINGERPRINT>")
+add_issue_comment(owner=<OWNER>, repo=<REPO>, issue_number=<ISSUE_NUMBER>,
+                  body="🔍 **Review started**\n\n<REVIEW_FINGERPRINT>")
 ```
 
 ### Event 2 — Grade Assigned (A or B → merge)
 
-Include `$REVIEW_FINGERPRINT` in the merge comment posted after `github_merge_pr`:
+Include `$REVIEW_FINGERPRINT` in the merge comment posted after `merge_pull_request`:
 
 ```
-github_add_comment(issue_number=<ISSUE_NUMBER>, body="✅ **Grade: A/B — Merged**\n\n<grade summary>\n\n<REVIEW_FINGERPRINT>")
+add_issue_comment(owner=<OWNER>, repo=<REPO>, issue_number=<ISSUE_NUMBER>,
+                  body="✅ **Grade: A/B — Merged**\n\n<grade summary>\n\n<REVIEW_FINGERPRINT>")
 ```
 
 ### Event 3 — Blocked (D or F → do not merge)
 
 ```
-github_add_comment(issue_number=<ISSUE_NUMBER>, body="🚫 **Grade: D/F — Blocked**\n\n<blocking reason>\n\n<REVIEW_FINGERPRINT>")
+add_issue_comment(owner=<OWNER>, repo=<REPO>, issue_number=<ISSUE_NUMBER>,
+                  body="🚫 **Grade: D/F — Blocked**\n\n<blocking reason>\n\n<REVIEW_FINGERPRINT>")
 ```
 
 ## Approval and Merge Protocol
 
 Once you have assigned a grade:
 
-- **A or B** — approve and merge using MCP tools (never shell out):
-  1. `github_approve_pr(pr_number=PR_NUMBER)` — submit the approving review.
-  2. `github_merge_pr(pr_number=PR_NUMBER, delete_branch=true)` — squash-merge and delete the head branch.
+- **A or B** — approve and merge using GitHub MCP tools (never shell out):
+  1. `pull_request_review_write(...)` — submit the approving review.
+  2. `merge_pull_request(owner=<OWNER>, repo=<REPO>, pull_number=PR_NUMBER, merge_method="squash")` — squash-merge.
   3. Post Event 2 comment with `$REVIEW_FINGERPRINT` (see Audit Trail above).
 - **C** — fix in place, re-run mypy + tests, re-grade. Do not stop here.
 - **D** — do not merge. Post Event 3 comment with `$REVIEW_FINGERPRINT` and open a follow-up issue.
