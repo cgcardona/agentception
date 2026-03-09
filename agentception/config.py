@@ -19,6 +19,7 @@ within one polling interval — no service restart required.
 
 from __future__ import annotations
 
+import enum
 import json
 import logging
 from pathlib import Path
@@ -27,6 +28,17 @@ from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
+
+
+class TaskRunnerChoice(str, enum.Enum):
+    """Task runner backend for agent execution.
+    
+    Determines which system executes agent tasks:
+    - ``cursor``: Cursor IDE with Composer agent
+    - ``anthropic``: Direct Anthropic API calls (default)
+    """
+    cursor = "cursor"
+    anthropic = "anthropic"
 
 
 def _resolve_project(raw: dict[str, object], target: AgentCeptionSettings) -> None:
@@ -122,7 +134,14 @@ class AgentCeptionSettings(BaseSettings):
     falls back to the keyword-based heuristic classifier — no LLM is required
     for the service to start.
     """
-    # ── Qdrant / code search ──────────────────────────────────────────────────
+    ac_task_runner: TaskRunnerChoice = TaskRunnerChoice.anthropic
+    """Task runner backend for agent execution.
+    
+    Set via ``AC_TASK_RUNNER`` env var.  Valid values: ``cursor``, ``anthropic``.
+    Defaults to ``anthropic`` when unset.  Determines which system executes
+    agent tasks — Cursor IDE with Composer agent or direct Anthropic API calls.
+    """
+    # ── Qdrant / code search ────────────────────────────────────────────────
     qdrant_url: str = "http://agentception-qdrant:6333"
     """Internal URL of the Qdrant vector store.
 
