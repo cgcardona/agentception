@@ -212,105 +212,40 @@ def _normalize_plan_dict(raw: _YamlNode) -> _YamlNode:
     return {"initiative": initiative_slug, "phases": phases}
 
 
-def _parse_task_fields(content: str) -> dict[str, str]:
-    """Parse an ``.agent-task`` TOML file and return a flat string dict.
-
-    Extracts the fields most useful for the plan UI:
-    - ``BATCH_ID`` ← ``pipeline.batch_id``
-    - ``LABEL_PREFIX`` ← ``plan_draft.label_prefix``
-    - ``WORKFLOW`` ← ``task.workflow``
-
-    Returns an empty dict when the content cannot be parsed.
-    """
-    import tomllib
-
-    try:
-        data = tomllib.loads(content)
-    except Exception:
-        return {}
-
-    fields: dict[str, str] = {}
-    pipeline = data.get("pipeline", {})
-    if isinstance(pipeline, dict):
-        batch_id = pipeline.get("batch_id")
-        if isinstance(batch_id, str):
-            fields["BATCH_ID"] = batch_id
-    plan_draft = data.get("plan_draft", {})
-    if isinstance(plan_draft, dict):
-        label_prefix = plan_draft.get("label_prefix")
-        if isinstance(label_prefix, str):
-            fields["LABEL_PREFIX"] = label_prefix
-    task_sec = data.get("task", {})
-    if isinstance(task_sec, dict):
-        workflow = task_sec.get("workflow")
-        if isinstance(workflow, str):
-            fields["WORKFLOW"] = workflow
-    return fields
-
-
-def _count_plan_items(plan_text: str) -> int:
-    """Count non-empty lines in a PLAN_DUMP block as a proxy for item count."""
-    return sum(1 for ln in plan_text.splitlines() if ln.strip())
-
-
 async def _build_recent_plans() -> list[_RecentPlanEntry]:
-    """Scan the worktrees directory and return metadata for the 6 most recent plan runs.
+    """Return metadata for the 6 most recent coordinator plan runs from the DB.
 
+    Queries ``ac_agent_runs`` for coordinator-tier runs ordered by spawn time.
     Each entry contains: slug, label_prefix, preview, ts, batch_id, item_count.
-    ``item_count`` is a line-count heuristic over the PLAN_DUMP block (not a live
-    GitHub issue count) so no network call is needed on the hot render path.
+    Returns an empty list when the DB is unavailable — the plan page degrades
+    gracefully to showing no recent runs.
     """
-    from agentception.config import settings as _cfg
+    from agentception.db.queries import get_agent_run_history
 
     recent_plans: list[_RecentPlanEntry] = []
-    worktrees_dir = _cfg.worktrees_dir
     try:
-        if worktrees_dir.exists():
-            candidates = sorted(
-                (d for d in worktrees_dir.iterdir() if d.is_dir() and d.name.startswith("plan-")),
-                key=lambda p: p.stat().st_mtime,
-                reverse=True,
-            )
-            for d in candidates[:6]:
-                label_prefix = ""
-                preview = ""
-                batch_id = d.name
-                item_count = "—"
-                task_file = d / ".agent-task"
-                if task_file.exists():
-                    try:
-                        import tomllib
-                        content = task_file.read_text(encoding="utf-8")
-                        fields = _parse_task_fields(content)
-                        label_prefix = fields.get("LABEL_PREFIX", "")
-                        batch_id = fields.get("BATCH_ID", d.name)
-                        try:
-                            data = tomllib.loads(content)
-                            plan_draft = data.get("plan_draft", {})
-                            plan_part = plan_draft.get("dump", "") if isinstance(plan_draft, dict) else ""
-                        except Exception:
-                            plan_part = ""
-                        if plan_part:
-                            first = next((ln.strip() for ln in plan_part.splitlines() if ln.strip()), "")
-                            preview = first[:90]
-                            count = _count_plan_items(plan_part)
-                            item_count = str(count) if count else "—"
-                    except OSError:
-                        pass
-                ts_raw = d.name[len("plan-"):]
-                try:
-                    ts_fmt = f"{ts_raw[:4]}-{ts_raw[4:6]}-{ts_raw[6:8]} {ts_raw[9:11]}:{ts_raw[11:13]}"
-                except Exception:
-                    ts_fmt = ts_raw
-                recent_plans.append(_RecentPlanEntry(
-                    slug=d.name,
-                    label_prefix=label_prefix,
-                    preview=preview,
-                    ts=ts_fmt,
-                    batch_id=batch_id,
-                    item_count=item_count,
-                ))
-    except OSError:
+        rows = await get_agent_run_history(limit=6, status=None)
+        coordinator_rows = [r for r in rows if r.get("tier") == "coordinator"][:6]
+        for row in coordinator_rows:
+            run_id = str(row.get("id", ""))
+            batch_id = str(row.get("batch_id") or run_id)
+            # Derive label_prefix from the batch_id (format: label-<slug>-<stamp>-<hex>).
+            label_prefix = ""
+            if batch_id.startswith("label-"):
+                parts = batch_id.split("-", 2)
+                if len(parts) >= 2:
+                    label_prefix = parts[1]
+            spawned_at = str(row.get("spawned_at", ""))
+            ts_fmt = spawned_at[:16].replace("T", " ") if spawned_at else ""
+            recent_plans.append(_RecentPlanEntry(
+                slug=run_id,
+                label_prefix=label_prefix,
+                preview="",
+                ts=ts_fmt,
+                batch_id=batch_id,
+                item_count="—",
+            ))
+    except Exception:
         pass
     return recent_plans
 

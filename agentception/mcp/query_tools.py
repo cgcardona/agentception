@@ -16,13 +16,11 @@ Rules
 """
 
 import logging
-from pathlib import Path
 
 from agentception.db.queries import (
     check_db_reachable,
     get_active_runs,
     get_agent_events_tail,
-    get_agent_run_teardown,
     get_children_by_parent_id,
     get_latest_active_batch_id,
     get_pending_launches,
@@ -146,43 +144,6 @@ async def query_run_events(run_id: str, after_id: int = 0) -> dict[str, object]:
     logger.info("✅ query_run_events: run_id=%r after_id=%d → %d event(s)", run_id, after_id, len(events))
     return {"ok": True, "events": [dict(e) for e in events], "count": len(events)}
 
-
-async def query_agent_task(run_id: str) -> dict[str, object]:
-    """Return the raw ``.agent-task`` TOML text for *run_id* (planning pipeline only).
-
-    Standard dispatch runs do not write ``.agent-task`` files — use
-    ``ac://runs/{run_id}/context`` for their task context.  This function
-    exists for plan-draft runs created by the planning pipeline, which still
-    write a TOML file at ``{worktree_path}/.agent-task``.
-
-    Returns ``{"ok": False, "error": "..."}`` when the worktree is missing,
-    the run has no worktree path, or the file does not exist.
-
-    Args:
-        run_id: The run to read the agent task for.
-
-    Returns:
-        ``{"ok": True, "path": "...", "content": "..."}`` on success, or
-        ``{"ok": False, "error": "..."}`` when the file cannot be read.
-    """
-    teardown = await get_agent_run_teardown(run_id)
-    if teardown is None:
-        return {"ok": False, "error": f"Run {run_id!r} not found"}
-    worktree = teardown.get("worktree_path")
-    if not worktree:
-        return {"ok": False, "error": f"Run {run_id!r} has no worktree_path"}
-    task_path = Path(worktree) / ".agent-task"
-    if not task_path.exists():
-        return {
-            "ok": False,
-            "error": f".agent-task not found at {task_path}",
-        }
-    try:
-        content = task_path.read_text()
-    except OSError as exc:
-        return {"ok": False, "error": f"Could not read .agent-task: {exc}"}
-    logger.info("✅ query_agent_task: run_id=%r read %d bytes", run_id, len(content))
-    return {"ok": True, "path": str(task_path), "content": content}
 
 
 async def query_active_runs() -> dict[str, object]:

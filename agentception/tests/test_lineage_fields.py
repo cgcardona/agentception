@@ -3,135 +3,16 @@ from __future__ import annotations
 """Tests for the tier / org_domain / parent_run_id lineage fields.
 
 Covers:
-  - TaskFile parser reads tier, org_domain, parent_run_id from TOML sections.
-  - A chain-spawned PR reviewer can have tier=worker AND org_domain=qa
-    simultaneously.
   - AgentNode carries all three lineage fields.
   - PendingLaunchRow and AgentRunRow TypedDicts include tier and org_domain.
-  - Migration 0012 replaces node_type + logical_tier with tier + org_domain.
-  - dispatch-label .agent-task writer includes TIER= and ORG_DOMAIN=.
-  - engineering-coordinator reviewer heredoc sets TIER=worker ORG_DOMAIN=qa.
+  - Consolidated migration has the correct lineage columns.
+  - dispatch.py includes TIER and ORG_DOMAIN fields.
 """
 
 import re
 from pathlib import Path
 
-import pytest
-
-from agentception.models import AgentNode, AgentStatus, TaskFile
-from agentception.readers.worktrees import parse_agent_task
-
-
-# ---------------------------------------------------------------------------
-# TaskFile — TOML .agent-task parser
-# ---------------------------------------------------------------------------
-
-
-def _toml_task(
-    *,
-    role: str | None = None,
-    tier: str | None = None,
-    org_domain: str | None = None,
-    parent_run_id: str | None = None,
-    workflow: str = "issue-to-pr",
-) -> str:
-    """Render a minimal TOML .agent-task string with only the given lineage fields."""
-    lines: list[str] = [f'[task]\nworkflow = "{workflow}"\n']
-    agent_fields: list[str] = []
-    if role:
-        agent_fields.append(f'role = "{role}"')
-    if tier:
-        agent_fields.append(f'tier = "{tier}"')
-    if org_domain:
-        agent_fields.append(f'org_domain = "{org_domain}"')
-    if agent_fields:
-        lines.append("[agent]\n" + "\n".join(agent_fields))
-    pipeline_fields: list[str] = []
-    if parent_run_id is not None:
-        pipeline_fields.append(f'parent_run_id = "{parent_run_id}"')
-    if pipeline_fields:
-        lines.append("[pipeline]\n" + "\n".join(pipeline_fields))
-    return "\n\n".join(lines) + "\n"
-
-
-@pytest.mark.anyio
-async def test_task_file_parses_tier(tmp_path: Path) -> None:
-    """[agent].tier is read into TaskFile.tier (behavioral execution tier)."""
-    (tmp_path / ".agent-task").write_text(
-        _toml_task(workflow="pr-review", role="pr-reviewer", tier="worker", parent_run_id="issue-42")
-    )
-    tf = await parse_agent_task(tmp_path)
-    assert tf is not None
-    assert tf.tier == "worker"
-    assert tf.parent_run_id == "issue-42"
-
-
-@pytest.mark.anyio
-async def test_task_file_parses_org_domain(tmp_path: Path) -> None:
-    """[agent].org_domain is read into TaskFile.org_domain (UI hierarchy slot)."""
-    (tmp_path / ".agent-task").write_text(
-        _toml_task(workflow="pr-review", role="pr-reviewer", org_domain="qa", parent_run_id="issue-42")
-    )
-    tf = await parse_agent_task(tmp_path)
-    assert tf is not None
-    assert tf.org_domain == "qa"
-    assert tf.parent_run_id == "issue-42"
-
-
-@pytest.mark.anyio
-async def test_task_file_parses_both_fields_independently(tmp_path: Path) -> None:
-    """tier and org_domain are parsed as separate fields — the core invariant.
-
-    A chain-spawned PR reviewer has tier=worker (behavioral) and
-    org_domain=qa (org slot) at the same time.
-    """
-    (tmp_path / ".agent-task").write_text(
-        _toml_task(role="pr-reviewer", tier="worker", org_domain="qa", parent_run_id="issue-42")
-    )
-    tf = await parse_agent_task(tmp_path)
-    assert tf is not None
-    assert tf.tier == "worker"
-    assert tf.org_domain == "qa"
-    assert tf.parent_run_id == "issue-42"
-
-
-@pytest.mark.anyio
-async def test_task_file_tier_does_not_bleed_into_org_domain(tmp_path: Path) -> None:
-    """TIER value must not appear in org_domain and vice versa."""
-    (tmp_path / ".agent-task").write_text(
-        _toml_task(role="pr-reviewer", tier="worker", org_domain="engineering")
-    )
-    tf = await parse_agent_task(tmp_path)
-    assert tf is not None
-    assert tf.tier == "worker"
-    assert tf.org_domain == "engineering"
-    assert tf.tier != "engineering"
-    assert tf.org_domain != "worker"
-
-
-@pytest.mark.anyio
-async def test_task_file_defaults_both_to_none(tmp_path: Path) -> None:
-    """Both tier and org_domain default to None when absent."""
-    (tmp_path / ".agent-task").write_text(
-        _toml_task(workflow="issue-to-pr", role="python-developer")
-    )
-    tf = await parse_agent_task(tmp_path)
-    assert tf is not None
-    assert tf.tier is None
-    assert tf.org_domain is None
-    assert tf.parent_run_id is None
-
-
-@pytest.mark.anyio
-async def test_task_file_coordinator_tier(tmp_path: Path) -> None:
-    """[agent].tier = "coordinator" is parsed correctly."""
-    (tmp_path / ".agent-task").write_text(
-        _toml_task(role="engineering-coordinator", tier="coordinator")
-    )
-    tf = await parse_agent_task(tmp_path)
-    assert tf is not None
-    assert tf.tier == "coordinator"
-    assert tf.org_domain is None
+from agentception.models import AgentNode, AgentStatus
 
 
 # ---------------------------------------------------------------------------

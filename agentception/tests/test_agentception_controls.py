@@ -9,11 +9,7 @@ Covers every endpoint in ``agentception/routes/api/control.py``:
   GET  /api/control/active-label     → returns label / pinned / pin
   PUT  /api/control/active-label     → pin a label; 400 for invalid label
   DELETE /api/control/active-label   → clear pin
-  POST /api/control/spawn-wave       → 422 for unknown role
   POST /api/control/sweep            → dry-run and live paths
-  POST /api/control/spawn-coordinator → 422 for empty text; success path
-  GET  /api/control/conductor-history → returns entries
-  POST /api/control/spawn-conductor  → 422 for empty phases; success path
 
 All tests are synchronous and use temporary directories / mock patches so
 they never touch the real repository filesystem or any live GitHub API.
@@ -301,16 +297,6 @@ def test_active_label_unpin_returns_auto_resolved(client: TestClient) -> None:
     mock_clear.assert_called_once()
 
 
-# ── POST /api/control/spawn-wave ─────────────────────────────────────────────
-
-
-def test_spawn_wave_invalid_role_returns_422(client: TestClient) -> None:
-    """POST /api/control/spawn-wave with an unknown role must return 422."""
-    response = client.post("/api/control/spawn-wave?role=time-traveller")
-    assert response.status_code == 422
-    assert "time-traveller" in response.json()["detail"]
-
-
 # ── POST /api/control/sweep ───────────────────────────────────────────────────
 
 
@@ -486,151 +472,3 @@ def test_sweep_clears_stale_wip_labels(
     mock_clear.assert_called_once_with(99)
 
 
-# ── POST /api/control/spawn-coordinator ──────────────────────────────────────
-
-
-def test_spawn_coordinator_empty_plan_text_returns_422(client: TestClient) -> None:
-    """POST /api/control/spawn-coordinator with blank plan_text must return 422."""
-    response = client.post(
-        "/api/control/spawn-coordinator",
-        json={"plan_text": "   ", "label_prefix": ""},
-    )
-    assert response.status_code == 422
-    assert "plan_text" in response.json()["detail"].lower()
-
-
-def test_spawn_coordinator_success(client: TestClient, tmp_path: Path) -> None:
-    """POST /api/control/spawn-coordinator must return slug, worktree, and branch on success."""
-    wt_root = tmp_path / "worktrees"
-    wt_root.mkdir()
-
-    async def _git_worktree_add(*args: str, **_: object) -> AsyncMock:
-        """Simulate git worktree add by creating the target directory."""
-        args_list = list(args)
-        if "add" in args_list:
-            add_idx = args_list.index("add")
-            # git -C repo worktree add -b branch <path> origin/dev → path at add_idx+3
-            if add_idx + 3 < len(args_list):
-                Path(args_list[add_idx + 3]).mkdir(parents=True, exist_ok=True)
-        proc = AsyncMock()
-        proc.returncode = 0
-        proc.communicate.return_value = (b"", b"")
-        return proc
-
-    with (
-        patch("agentception.routes.api.control.settings") as mock_settings,
-        patch(
-            "agentception.routes.api.control.asyncio.create_subprocess_exec",
-            MagicMock(side_effect=_git_worktree_add),
-        ),
-    ):
-        mock_settings.worktrees_dir = wt_root
-        mock_settings.host_worktrees_dir = wt_root
-        mock_settings.repo_dir = tmp_path
-        response = client.post(
-            "/api/control/spawn-coordinator",
-            json={"plan_text": "Build an amazing feature", "label_prefix": "test"},
-        )
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["slug"].startswith("plan-")
-    assert data["branch"].startswith("feat/plan-")
-    assert "agent_task" in data
-    assert "worktree" in data
-
-
-# ── GET /api/control/conductor-history ───────────────────────────────────────
-
-
-def test_conductor_history_returns_empty_list_when_no_history(client: TestClient) -> None:
-    """GET /api/control/conductor-history must return [] when the DB has no conductor rows."""
-    with patch(
-        "agentception.db.queries.get_conductor_history",
-        new_callable=AsyncMock,
-        return_value=[],
-    ):
-        response = client.get("/api/control/conductor-history")
-    assert response.status_code == 200
-    assert response.json() == []
-
-
-def test_conductor_history_returns_entries(client: TestClient) -> None:
-    """GET /api/control/conductor-history must return deserialized ConductorHistoryEntry rows."""
-    rows = [
-        {
-            "wave_id": "conductor-20260303-120000",
-            "worktree": "/worktrees/conductor-20260303-120000",
-            "host_worktree": "~/.agentception/worktrees/conductor-20260303-120000",
-            "started_at": "2026-03-03 12:00:00+00:00",
-            "status": "completed",
-        }
-    ]
-    with patch(
-        "agentception.db.queries.get_conductor_history",
-        new_callable=AsyncMock,
-        return_value=rows,
-    ):
-        response = client.get("/api/control/conductor-history")
-    assert response.status_code == 200
-    data = response.json()
-    assert len(data) == 1
-    assert data[0]["wave_id"] == "conductor-20260303-120000"
-    assert data[0]["status"] == "completed"
-
-
-# ── POST /api/control/spawn-conductor ────────────────────────────────────────
-
-
-def test_spawn_conductor_empty_phases_returns_422(client: TestClient) -> None:
-    """POST /api/control/spawn-conductor with an empty phases list must return 422."""
-    response = client.post(
-        "/api/control/spawn-conductor",
-        json={"phases": []},
-    )
-    assert response.status_code == 422
-    assert "phases" in response.json()["detail"].lower()
-
-
-def test_spawn_conductor_success(client: TestClient, tmp_path: Path) -> None:
-    """POST /api/control/spawn-conductor must return wave_id, worktree, and branch on success."""
-    wt_root = tmp_path / "worktrees"
-    wt_root.mkdir()
-
-    async def _git_worktree_add(*args: str, **_: object) -> AsyncMock:
-        args_list = list(args)
-        if "add" in args_list:
-            add_idx = args_list.index("add")
-            if add_idx + 3 < len(args_list):
-                Path(args_list[add_idx + 3]).mkdir(parents=True, exist_ok=True)
-        proc = AsyncMock()
-        proc.returncode = 0
-        proc.communicate.return_value = (b"", b"")
-        return proc
-
-    with (
-        patch("agentception.routes.api.control.settings") as mock_settings,
-        patch(
-            "agentception.routes.api.control.asyncio.create_subprocess_exec",
-            MagicMock(side_effect=_git_worktree_add),
-        ),
-        patch(
-            "agentception.db.persist.persist_wave_start",
-            new_callable=AsyncMock,
-            return_value=None,
-        ),
-    ):
-        mock_settings.worktrees_dir = wt_root
-        mock_settings.host_worktrees_dir = wt_root
-        mock_settings.repo_dir = tmp_path
-        response = client.post(
-            "/api/control/spawn-conductor",
-            json={"phases": ["ac/5-plan", "ac/3-implement"], "org": None},
-        )
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["wave_id"].startswith("conductor-")
-    assert data["branch"].startswith("feat/conductor-")
-    assert "agent_task" in data
-    assert "worktree" in data

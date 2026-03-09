@@ -5,7 +5,7 @@ from __future__ import annotations
 Tests cover:
 - 404 returned for an unknown worktree slug.
 - Successful kill: worktree removal, agent/wip label cleared, prune called.
-- Slug with no .agent-task file (no issue number) — still succeeds.
+- Slug with no DB run found — kill still succeeds, label cleanup skipped.
 
 Run targeted:
     pytest agentception/tests/test_agentception_control.py -v
@@ -30,15 +30,9 @@ def client() -> Generator[TestClient, None, None]:
 
 @pytest.fixture()
 def tmp_worktree(tmp_path: Path) -> Path:
-    """Return a temporary worktree directory with a populated .agent-task file."""
+    """Return a temporary worktree directory (DB lookup provides the issue number)."""
     worktree = tmp_path / "issue-999"
     worktree.mkdir()
-    (worktree / ".agent-task").write_text(
-        '[task]\nversion = "0.1.1"\nworkflow = "issue-to-pr"\nattempt_n = 0\n\n'
-        '[target]\nissue_number = 999\n\n'
-        '[repo]\ngh_repo = "cgcardona/agentception"\n',
-        encoding="utf-8",
-    )
     return worktree
 
 
@@ -86,6 +80,10 @@ def test_kill_removes_worktree_and_clears_label(
     with (
         patch("agentception.routes.control.settings") as mock_settings,
         patch("agentception.routes.control._run", side_effect=fake_run) as mock_run,
+        patch(
+            "agentception.routes.control._resolve_issue_number",
+            new=AsyncMock(return_value=999),
+        ),
     ):
         mock_settings.worktrees_dir = parent
         mock_settings.repo_dir = Path("/repo")
@@ -124,14 +122,14 @@ def test_kill_endpoint_requires_existing_slug(
     assert response.status_code == 404
 
 
-# ── No .agent-task (no issue number) ─────────────────────────────────────────
+# ── No DB run found — label cleanup skipped ───────────────────────────────────
 
 
 def test_kill_worktree_without_agent_task_still_succeeds(
     client: TestClient,
     tmp_worktree_no_task: Path,
 ) -> None:
-    """Kill must succeed even when .agent-task is absent (no issue number to clear)."""
+    """Kill must succeed even when no DB run is found (no issue number to clear)."""
     slug = tmp_worktree_no_task.name
     parent = tmp_worktree_no_task.parent
 

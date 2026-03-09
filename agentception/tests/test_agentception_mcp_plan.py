@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 """Tests for the AgentCeption MCP layer — plan schema, validation, label context,
-manifest validation, and coordinator spawn (AC-870 + AC-871).
+and manifest validation (AC-870 + AC-871).
 
 Covers:
 - agentception.mcp.types: ACToolDef, ACToolResult, ACResourceDef, ACResourceResult shapes
 - agentception.mcp.plan_tools: plan_get_schema(), plan_validate_spec()
-- agentception.mcp.plan_tools: plan_get_labels(), plan_validate_manifest(),
-  plan_spawn_coordinator() (AC-871)
+- agentception.mcp.plan_tools: plan_get_labels(), plan_validate_manifest()
 - agentception.mcp.server: list_tools(), list_resources(), call_tool(), handle_request()
 - Resources: plan_get_schema and plan_get_labels are now ac:// Resources, not Tools
 
@@ -15,8 +14,6 @@ Boundary: zero imports from external packages.
 """
 
 import json
-import os
-import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -25,7 +22,6 @@ import pytest
 from agentception.mcp.plan_tools import (
     plan_get_labels,
     plan_get_schema,
-    plan_spawn_coordinator,
     plan_validate_manifest,
     plan_validate_spec,
 )
@@ -368,11 +364,6 @@ def test_list_tools_contains_plan_validate_manifest() -> None:
     assert "plan_validate_manifest" in names
 
 
-def test_list_tools_contains_plan_spawn_coordinator() -> None:
-    """list_tools() includes plan_spawn_coordinator (AC-871)."""
-    names = {t["name"] for t in list_tools()}
-    assert "plan_spawn_coordinator" in names
-
 
 def test_list_tools_all_have_required_keys() -> None:
     """Every tool in list_tools() has name, description, inputSchema."""
@@ -398,15 +389,6 @@ def test_tools_module_constant_matches_list_tools() -> None:
 # ---------------------------------------------------------------------------
 # call_tool
 # ---------------------------------------------------------------------------
-
-
-def test_call_tool_plan_get_schema_returns_redirect_error() -> None:
-    """call_tool plan_get_schema returns isError=True with redirect message (now a Resource)."""
-    result = call_tool("plan_get_schema", {})
-    assert result["isError"] is True
-    payload = json.loads(result["content"][0]["text"])
-    assert "ac://plan/schema" in payload["error"]
-    assert "resources/read" in payload["error"]
 
 
 def test_call_tool_plan_validate_spec_valid_returns_no_error() -> None:
@@ -729,127 +711,6 @@ def test_plan_validate_manifest_errors_is_list_of_strings() -> None:
     errors = result.get("errors")
     assert isinstance(errors, list)
     assert all(isinstance(e, str) for e in errors)
-
-
-# ---------------------------------------------------------------------------
-# AC-871: plan_spawn_coordinator tests
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.anyio
-async def test_plan_spawn_coordinator_invalid_manifest_returns_error() -> None:
-    """plan_spawn_coordinator returns {'error': ...} for an invalid manifest."""
-    result = await plan_spawn_coordinator("{invalid json")
-    assert "error" in result
-    assert "Invalid manifest" in str(result["error"])
-
-
-@pytest.mark.anyio
-async def test_plan_spawn_coordinator_git_failure_raises_runtime_error() -> None:
-    """plan_spawn_coordinator raises RuntimeError when git worktree add fails."""
-    with patch(
-        "agentception.mcp.plan_tools.asyncio.create_subprocess_exec",
-        return_value=_make_process(b"", returncode=128, stderr=b"fatal: already exists"),
-    ):
-        with pytest.raises(RuntimeError, match="git worktree add failed"):
-            await plan_spawn_coordinator(_minimal_manifest_json())
-
-
-@pytest.mark.anyio
-async def test_plan_spawn_coordinator_writes_agent_task_content() -> None:
-    """plan_spawn_coordinator writes WORKFLOW and ENRICHED_MANIFEST to .agent-task."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        worktree_path = os.path.join(tmpdir, "coordinator-20260303-120000")
-
-        async def _fake_git(*args: object, **kwargs: object) -> MagicMock:
-            os.makedirs(worktree_path, exist_ok=True)
-            return _make_process(b"", returncode=0)
-
-        with patch(
-            "agentception.mcp.plan_tools.asyncio.create_subprocess_exec",
-            side_effect=_fake_git,
-        ), patch("agentception.mcp.plan_tools.datetime") as mock_dt:
-            mock_dt.now = MagicMock(
-                return_value=MagicMock(strftime=lambda fmt: "20260303-120000")
-            )
-            mock_dt.timezone = __import__("datetime").timezone
-
-            # Override the worktree path by patching the f-string path
-            with patch(
-                "agentception.mcp.plan_tools.Path",
-                side_effect=lambda p: Path(
-                    p.replace("/tmp/worktrees/coordinator-20260303-120000", worktree_path)
-                ),
-            ):
-                result = await plan_spawn_coordinator(_minimal_manifest_json())
-
-        # Core assertions: returned shape is correct
-        assert "error" not in result or result.get("worktree") is not None
-
-
-@pytest.mark.anyio
-async def test_plan_spawn_coordinator_result_shape() -> None:
-    """plan_spawn_coordinator returns expected keys on success."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        # Use a fixed stamp to predict path
-        stamp = "20260303-140000"
-        worktree_path = os.path.join(tmpdir, f"coordinator-{stamp}")
-
-        async def _fake_git(*args: object, **kwargs: object) -> MagicMock:
-            os.makedirs(worktree_path, exist_ok=True)
-            return _make_process(b"", returncode=0)
-
-        with patch(
-            "agentception.mcp.plan_tools.asyncio.create_subprocess_exec",
-            side_effect=_fake_git,
-        ), patch("agentception.mcp.plan_tools.datetime") as mock_dt:
-            mock_dt.now = MagicMock(
-                return_value=MagicMock(strftime=lambda fmt: stamp)
-            )
-            mock_dt.timezone = __import__("datetime").timezone
-
-            with patch(
-                "agentception.mcp.plan_tools.Path",
-                side_effect=lambda p: Path(
-                    p.replace(f"/tmp/worktrees/coordinator-{stamp}", worktree_path)
-                ),
-            ):
-                result = await plan_spawn_coordinator(_minimal_manifest_json())
-
-        # The result should have the expected keys (or an error if Path redirect failed)
-        # We check at least that valid=True was determined before worktree creation
-        assert isinstance(result, dict)
-        # Either success keys or error from git path issues
-        assert "batch_id" in result or "error" in result
-
-
-@pytest.mark.anyio
-async def test_plan_spawn_coordinator_agent_task_write_failure_removes_worktree() -> None:
-    """plan_spawn_coordinator removes the worktree when .agent-task write fails.
-
-    Regression test: before this fix the worktree was orphaned on write failure.
-    """
-    git_calls: list[tuple[object, ...]] = []
-
-    async def _fake_git(*args: object, **kwargs: object) -> MagicMock:
-        git_calls.append(args)
-        return _make_process(b"", returncode=0)
-
-    def _write_text_raises(*args: object, **kwargs: object) -> None:
-        raise OSError("disk full")
-
-    with patch(
-        "agentception.mcp.plan_tools.asyncio.create_subprocess_exec",
-        side_effect=_fake_git,
-    ), patch.object(Path, "write_text", _write_text_raises):
-        with pytest.raises(OSError, match="disk full"):
-            await plan_spawn_coordinator(_minimal_manifest_json())
-
-    # Two git calls expected: worktree add, then worktree remove --force (cleanup)
-    assert len(git_calls) == 2, f"Expected 2 git calls (add + cleanup), got {git_calls}"
-    remove_call = git_calls[1]
-    assert "remove" in remove_call, f"Expected 'remove' in cleanup call: {remove_call}"
-    assert "--force" in remove_call, f"Expected '--force' in cleanup call: {remove_call}"
 
 
 # ---------------------------------------------------------------------------

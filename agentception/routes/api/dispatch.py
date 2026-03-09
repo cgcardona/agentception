@@ -53,7 +53,7 @@ OrgNodeSpec.model_rebuild()
 from agentception.config import settings
 from agentception.db.persist import persist_agent_run_dispatch
 from agentception.db.queries import get_label_context
-from agentception.routes.api._shared import _resolve_cognitive_arch
+from agentception.services.cognitive_arch import _resolve_cognitive_arch
 from agentception.services.spawn_child import (
     SpawnChildError,
     ScopeType,

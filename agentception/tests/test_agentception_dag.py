@@ -363,7 +363,7 @@ def test_dag_page_includes_edge_legend(
 
 
 def test_dag_api_returns_nodes_and_edges(client: TestClient) -> None:
-    """GET /api/dag must return JSON with 'nodes' and 'edges' keys."""
+    """GET /api/intelligence/dag must return JSON with 'nodes' and 'edges' keys."""
     fake_issue = {
         "number": 42,
         "title": "A test issue",
@@ -376,7 +376,7 @@ def test_dag_api_returns_nodes_and_edges(client: TestClient) -> None:
         new_callable=AsyncMock,
         return_value=[fake_issue],
     ):
-        response = client.get("/api/dag")
+        response = client.get("/api/intelligence/dag")
     assert response.status_code == 200
     data = response.json()
     assert "nodes" in data

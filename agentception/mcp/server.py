@@ -66,7 +66,6 @@ from agentception.mcp.plan_advance_phase import plan_advance_phase
 from agentception.mcp.plan_tools import (
     plan_get_cognitive_figures,
     plan_get_labels,
-    plan_get_schema,
     plan_validate_manifest,
     plan_validate_spec,
 )
@@ -110,7 +109,7 @@ _SERVER_INFO: dict[str, object] = {"name": "agentception", "version": "0.1.1"}
 #: Read-only state inspection is exposed as MCP Resources (see :data:`RESOURCES`
 #: and :data:`RESOURCE_TEMPLATES`), not as Tools.  Tools are for actions
 #: that mutate state (build_*, log_*, github_*) or that require validation
-#: input (plan_validate_*, plan_spawn_coordinator, plan_advance_phase).
+#: input (plan_validate_*, plan_advance_phase).
 TOOLS: list[ACToolDef] = [
     # ── Plan tools — validation and mutations only (reads are Resources) ──────
     ACToolDef(
@@ -148,24 +147,6 @@ TOOLS: list[ACToolDef] = [
                 }
             },
             "required": ["json_text"],
-            "additionalProperties": False,
-        },
-    ),
-    ACToolDef(
-        name="plan_spawn_coordinator",
-        description=(
-            "Validate a manifest and create a coordinator git worktree. "
-            "Returns {worktree, branch, batch_id, run_id}."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "manifest_json": {
-                    "type": "string",
-                    "description": "A JSON-encoded EnrichedManifest for the coordinator.",
-                }
-            },
-            "required": ["manifest_json"],
             "additionalProperties": False,
         },
     ),
@@ -698,8 +679,7 @@ def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
     mutations) cannot be invoked here directly — they return an error directing
     the caller to use the async path.  Use :func:`call_tool_async` instead.
 
-    Read-only state inspection has moved to MCP Resources; calling a retired
-    ``query_*`` or ``plan_get_*`` tool name returns a descriptive error.
+    Read-only state inspection is exposed as MCP Resources (``ac://`` scheme).
 
     Args:
         name:      The tool name as it appears in the ``tools/list`` response.
@@ -712,33 +692,6 @@ def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
 
     Never raises — all errors are returned as ``isError=True`` results.
     """
-    # Helpful error for callers still using retired query_* / plan_get_* tools.
-    _RESOURCE_REDIRECTS: dict[str, str] = {
-        "query_pending_runs": "ac://runs/pending",
-        "query_run": "ac://runs/{run_id}",
-        "query_children": "ac://runs/{run_id}/children",
-        "query_run_events": "ac://runs/{run_id}/events",
-        "query_agent_task": "ac://runs/{run_id}/task",
-        "query_active_runs": "ac://runs/active",
-        "query_run_tree": "ac://batches/{batch_id}/tree",
-        "query_dispatcher_state": "ac://system/dispatcher",
-        "query_system_health": "ac://system/health",
-        "plan_get_schema": "ac://plan/schema",
-        "plan_get_labels": "ac://plan/labels",
-        "plan_get_cognitive_figures": "ac://plan/figures/{role}",
-    }
-    if name in _RESOURCE_REDIRECTS:
-        uri = _RESOURCE_REDIRECTS[name]
-        err_text = _tool_result_to_text(
-            {
-                "error": (
-                    f"'{name}' has been promoted to a MCP Resource. "
-                    f"Use resources/read with URI: {uri!r}"
-                )
-            }
-        )
-        return ACToolResult(content=[ACToolContent(type="text", text=err_text)], isError=True)
-
     if name == "plan_validate_spec":
         spec_json = arguments.get("spec_json")
         if not isinstance(spec_json, str):
@@ -775,9 +728,33 @@ def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
             isError=is_error,
         )
 
+    # ── Retired tool redirects — point callers at the resource URI ───────────
+    # These tools have been superseded by ac:// resources.  Return an isError
+    # result that tells the agent exactly which resource/read call to use.
+    _RETIRED_TOOL_URIS: dict[str, str] = {
+        "query_pending_runs": "ac://runs/pending",
+        "query_run": "ac://runs/{run_id}",
+        "query_children": "ac://runs/{run_id}/children",
+        "query_run_events": "ac://runs/{run_id}/events",
+        "query_active_runs": "ac://runs/active",
+        "query_run_tree": "ac://batches/{batch_id}/tree",
+        "query_dispatcher_state": "ac://system/dispatcher",
+        "query_system_health": "ac://system/health",
+        "plan_get_schema": "ac://plan/schema",
+        "plan_get_labels": "ac://plan/labels",
+        "plan_get_cognitive_figures": "ac://plan/figures/{role}",
+    }
+    if name in _RETIRED_TOOL_URIS:
+        uri = _RETIRED_TOOL_URIS[name]
+        err_text = _tool_result_to_text(
+            {"error": f"Tool '{name}' is now a Resource. Use resources/read with URI: {uri}"}
+        )
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=err_text)],
+            isError=True,
+        )
+
     if name in (
-        "plan_get_labels",
-        "plan_spawn_coordinator",
         "plan_advance_phase",
         # Build commands
         "build_claim_run",
@@ -1342,7 +1319,7 @@ async def handle_request_async(
 ) -> dict[str, object] | None:
     """Async variant of :func:`handle_request` — routes ``tools/call`` through
     :func:`call_tool_async` so that async tools (all build tools and
-    ``plan_get_labels`` / ``plan_spawn_coordinator``) are awaited correctly.
+    ``plan_get_labels`` / ``plan_advance_phase``) are awaited correctly.
 
     The stdio transport must use this function instead of
     :func:`handle_request`; the sync version hard-returns an error for every

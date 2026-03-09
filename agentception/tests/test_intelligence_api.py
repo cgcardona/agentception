@@ -1,4 +1,4 @@
-"""Tests for GET /dag, GET /intelligence/pr-violations,
+"""Tests for GET /api/intelligence/dag, GET /intelligence/pr-violations,
 POST /intelligence/pr-violations/{pr_number}/close, and
 POST /analyze/issue/{number} routes.
 
@@ -29,7 +29,7 @@ def client() -> Generator[TestClient, None, None]:
         yield c
 
 
-# ── GET /api/dag ──────────────────────────────────────────────────────────────
+# ── GET /api/intelligence/dag ─────────────────────────────────────────────────
 
 _EMPTY_DAG = DependencyDAG(nodes=[], edges=[])
 
@@ -45,36 +45,36 @@ _DAG_WITH_DEPS = DependencyDAG(nodes=[_NODE], edges=[(42, 10)])
 
 
 def test_dag_api_returns_200(client: TestClient) -> None:
-    """GET /api/dag must return HTTP 200."""
+    """GET /api/intelligence/dag must return HTTP 200."""
     with patch(
-        "agentception.routes.api.intelligence.build_dag",
+        "agentception.routes.intelligence.build_dag",
         new_callable=AsyncMock,
         return_value=_EMPTY_DAG,
     ):
-        response = client.get("/api/dag")
+        response = client.get("/api/intelligence/dag")
     assert response.status_code == 200
 
 
 def test_dag_api_returns_nodes_and_edges_keys(client: TestClient) -> None:
-    """GET /api/dag response body must have 'nodes' and 'edges' keys."""
+    """GET /api/intelligence/dag response body must have 'nodes' and 'edges' keys."""
     with patch(
-        "agentception.routes.api.intelligence.build_dag",
+        "agentception.routes.intelligence.build_dag",
         new_callable=AsyncMock,
         return_value=_EMPTY_DAG,
     ):
-        body = client.get("/api/dag").json()
+        body = client.get("/api/intelligence/dag").json()
     assert "nodes" in body
     assert "edges" in body
 
 
 def test_dag_api_returns_correct_node_shape(client: TestClient) -> None:
-    """GET /api/dag nodes must include number, title, state, labels, has_wip, deps."""
+    """GET /api/intelligence/dag nodes must include number, title, state, labels, has_wip, deps."""
     with patch(
-        "agentception.routes.api.intelligence.build_dag",
+        "agentception.routes.intelligence.build_dag",
         new_callable=AsyncMock,
         return_value=_DAG_WITH_DEPS,
     ):
-        body = client.get("/api/dag").json()
+        body = client.get("/api/intelligence/dag").json()
     assert len(body["nodes"]) == 1
     node = body["nodes"][0]
     assert node["number"] == 42
@@ -84,13 +84,13 @@ def test_dag_api_returns_correct_node_shape(client: TestClient) -> None:
 
 
 def test_dag_api_returns_correct_edges(client: TestClient) -> None:
-    """GET /api/dag edges must reflect dependency pairs as [from, to] tuples."""
+    """GET /api/intelligence/dag edges must reflect dependency pairs as [from, to] tuples."""
     with patch(
-        "agentception.routes.api.intelligence.build_dag",
+        "agentception.routes.intelligence.build_dag",
         new_callable=AsyncMock,
         return_value=_DAG_WITH_DEPS,
     ):
-        body = client.get("/api/dag").json()
+        body = client.get("/api/intelligence/dag").json()
     assert body["edges"] == [[42, 10]]
 
 

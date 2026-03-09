@@ -29,7 +29,7 @@ async def dag_page(request: Request) -> HTMLResponse:
     - ``blocking_count``: how many other issues depend on this one (fan-in).
     - ``depth``: topological level (0 = no dependencies, N = deepest blocker).
 
-    Callers who need the raw DAG data should use ``GET /api/dag`` instead.
+    Callers who need the raw DAG data should use ``GET /api/intelligence/dag`` instead.
     """
     dag: DependencyDAG = await build_dag()
     phase_labels: list[str] = []

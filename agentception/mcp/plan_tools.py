@@ -1,6 +1,6 @@
-"""AgentCeption MCP plan tools — schema inspection, validation, and coordinator spawn.
+"""AgentCeption MCP plan tools — schema inspection and validation.
 
-Provides five MCP-exposed functions:
+Provides four MCP-exposed functions:
 
 ``plan_get_schema()``
     Returns the JSON Schema for :class:`~agentception.models.PlanSpec`.
@@ -23,18 +23,12 @@ Provides five MCP-exposed functions:
     ``total_issues`` and ``estimated_waves`` invariants alongside the validated
     manifest dict.
 
-``plan_spawn_coordinator(manifest_json)``
-    Async.  Validates the manifest, creates a git worktree, and writes a
-    ``.agent-task`` file for the coordinator agent.
-
 Boundary constraint: zero imports from external packages.
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import TypedDict
 
@@ -44,7 +38,6 @@ from pydantic import ValidationError
 
 from agentception.models import EnrichedManifest, PlanSpec
 from agentception.readers.github import gh_json
-from agentception.services.task_builders import _build_coordinator_task
 
 # Path to the cognitive archetypes directory (repo root / scripts / gen_prompts / ...)
 _ARCHETYPES_DIR: Path = (
@@ -334,94 +327,3 @@ def plan_validate_manifest(json_text: str) -> dict[str, object]:
     }
 
 
-async def plan_spawn_coordinator(manifest_json: str) -> dict[str, object]:
-    """Validate a manifest and spawn a coordinator git worktree.
-
-    Steps:
-    1. Validate ``manifest_json`` via :func:`plan_validate_manifest`.
-    2. Generate a timestamped slug (e.g. ``coordinator-20260303-142201``).
-    3. Run ``git worktree add /tmp/worktrees/<slug> -b coordinator/<stamp>``
-       via ``asyncio.create_subprocess_exec``.
-    4. Write a ``.agent-task`` file with ``WORKFLOW=bugs-to-issues`` and
-       the ``ENRICHED_MANIFEST:`` JSON block.
-    5. Return ``{"worktree": str, "branch": str, "agent_task_path": str,
-       "batch_id": str}``.
-
-    Args:
-        manifest_json: JSON-encoded ``EnrichedManifest`` string.
-
-    Returns:
-        On success: ``{"worktree", "branch", "agent_task_path", "batch_id"}``
-        On invalid manifest: ``{"error": str}``
-
-    Raises:
-        RuntimeError: When ``git worktree add`` exits with a non-zero status.
-    """
-    validation = plan_validate_manifest(manifest_json)
-    if not validation.get("valid"):
-        errors = validation.get("errors", ["unknown validation error"])
-        logger.warning("⚠️ plan_spawn_coordinator: manifest validation failed — %s", errors)
-        return {"error": f"Invalid manifest: {errors}"}
-
-    manifest_dict = validation.get("manifest", {})
-
-    stamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d-%H%M%S")
-    slug = f"coordinator-{stamp}"
-    branch = f"coordinator/{stamp}"
-    worktree_path = f"/tmp/worktrees/{slug}"
-
-    proc = await asyncio.create_subprocess_exec(
-        "git", "worktree", "add", worktree_path, "-b", branch,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await proc.communicate()
-
-    if proc.returncode != 0:
-        err_msg = stderr.decode().strip()
-        logger.error(
-            "❌ plan_spawn_coordinator: git worktree add failed — %s", err_msg
-        )
-        raise RuntimeError(
-            f"git worktree add failed (exit {proc.returncode}): {err_msg!r}"
-        )
-
-    logger.info("✅ plan_spawn_coordinator: worktree created at %s", worktree_path)
-
-    plan_text = json.dumps(manifest_dict, indent=2)
-    label_prefix_str = str(manifest_dict.get("label_prefix", "")) if isinstance(manifest_dict, dict) else ""
-    agent_task_content = _build_coordinator_task(
-        slug=slug,
-        plan_text=plan_text,
-        label_prefix=label_prefix_str,
-        worktree=Path(worktree_path),
-        host_worktree=Path(worktree_path),
-        branch=branch,
-    )
-
-    agent_task_path = str(Path(worktree_path) / ".agent-task")
-    try:
-        Path(agent_task_path).write_text(agent_task_content, encoding="utf-8")
-    except Exception as exc:
-        # Worktree was created; clean it up to avoid orphaned state.
-        cleanup = await asyncio.create_subprocess_exec(
-            "git", "worktree", "remove", "--force", worktree_path,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        await cleanup.communicate()
-        logger.error(
-            "❌ plan_spawn_coordinator: .agent-task write failed, worktree removed — %s", exc
-        )
-        raise
-
-    logger.info(
-        "✅ plan_spawn_coordinator: .agent-task written to %s", agent_task_path
-    )
-
-    return {
-        "worktree": worktree_path,
-        "branch": branch,
-        "agent_task_path": agent_task_path,
-        "batch_id": slug,
-    }
