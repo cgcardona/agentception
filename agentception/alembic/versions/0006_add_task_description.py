@@ -5,7 +5,7 @@ from __future__ import annotations
 Stores the inline task description for ad-hoc agent runs that are spawned
 directly via POST /api/runs/adhoc rather than through a GitHub issue.  When
 present, the agent loop uses this field as the initial message instead of
-directing the agent to read its ``.agent-task`` file, eliminating the file
+directing the agent via the DB row, eliminating any file
 as a mandatory indirection layer.
 
 Revision ID: 0006

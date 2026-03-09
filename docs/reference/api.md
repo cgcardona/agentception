@@ -111,7 +111,7 @@ These drive Phase 1A (brain dump → draft) and Phase 1B (review → file issues
 
 #### `POST /api/plan/draft` (Plan step 1.A)
 
-Accept plan text (brain dump), create a git worktree, and write an `.agent-task` file so a Cursor agent can produce the PlanSpec YAML. Returns immediately; completion is signalled asynchronously via **GET /events** (see below).
+Accept plan text (brain dump), create a git worktree, and write an `DB context row so a Cursor agent can produce the PlanSpec YAML. Returns immediately; completion is signalled asynchronously via **GET /events** (see below).
 
 **Body:** `application/json`
 ```json
@@ -124,7 +124,7 @@ Accept plan text (brain dump), create a git worktree, and write an `.agent-task`
 ```json
 {
   "draft_id": "uuid",
-  "task_file": "/path/to/worktree/.agent-task",
+  "task_file": "/path/to/worktree",
   "output_path": "/path/to/worktree/.plan-output.yaml",
   "status": "pending"
 }
@@ -213,7 +213,7 @@ Fetch label context: the list of issues for a label, grouped by phase, plus the 
 
 #### `POST /api/dispatch/issue`
 
-Dispatch an agent for a single issue. Creates a git worktree, writes `.agent-task`, and inserts an `ACAgentRun` row.
+Dispatch an agent for a single issue. Creates a git worktree, writes `ac://runs/{run_id}/context`, and inserts an `ACAgentRun` row.
 
 **Body:** `DispatchRequest`
 ```json
@@ -302,7 +302,7 @@ Atomically claim a pending run. Sets `status = implementing`. Returns `{"ok": fa
 
 #### `POST /api/runs/{parent_run_id}/children`
 
-Spawn a child agent run under a parent (coordinator spawning an engineer). Creates worktree, writes `.agent-task`, inserts DB row.
+Spawn a child agent run under a parent (coordinator spawning an engineer). Creates worktree, writes `ac://runs/{run_id}/context`, inserts DB row.
 
 **Body:** `SpawnChildRequest`
 ```json

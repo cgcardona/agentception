@@ -99,12 +99,11 @@ the exhaustive one. Your cognitive identity is already in this system prompt —
 ## STEP 0 — CHECK CASCADE MODE
 
 ```bash
-CASCADE_ENABLED=$(python3 -c "
-import tomllib
-d = tomllib.loads(open('.agent-task').read())
-print(str(d.get('spawn', {}).get('cascade_enabled', True)).lower())
-" 2>/dev/null || echo "true")
-RUN_ID=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('meta', {}).get('run_id', ''))" 2>/dev/null || echo "")
+# Read run_id and cascade_enabled from your task briefing (task/briefing MCP prompt).
+# Both fields are in RunContextRow — accessible via ac://runs/{run_id}/context.
+# cascade_enabled is passed in your initial briefing message; default is true.
+CASCADE_ENABLED="true"   # override from briefing if cascade_enabled=false
+RUN_ID="<your run_id from the task briefing>"
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 ```
 

@@ -75,7 +75,7 @@ The `x-cloak` attribute prevents a flash of the bar before Alpine initialises. T
 
 ## Agent-task format for plan coordinator spawning
 
-When `POST /api/plan/launch` spawns a coordinator agent via `plan_spawn_coordinator()`, it writes an `.agent-task` file to the coordinator's git worktree. That file uses **TOML format** (spec version `0.1.1`) with a special `[enriched]` section containing the JSON manifest payload.
+When `POST /api/plan/launch` spawns a coordinator agent via `build_spawn_child()`, it writes an `DB context row to the coordinator's git worktree. That file uses **TOML format** (spec version `0.1.1`) with a special `[enriched]` section containing the JSON manifest payload.
 
 ### File format
 
@@ -160,7 +160,7 @@ The file is parsed by `tomllib.loads()`. The `[enriched]` section carries the fu
 
 ### Invariants guaranteed by `/api/plan/launch`
 
-- **No dependency cycles** — the `depends_on` graph is a DAG. The API validates this before writing the `.agent-task` file.
+- **No dependency cycles** — the `depends_on` graph is a DAG. The API validates this before writing the `DB context row.
 - **No intra-group dependencies** — no title in a `parallel_groups` entry may appear in the `depends_on` list of any other title in the same group.
 - **`total_issues` and `estimated_waves` are computed** — they are derived by `EnrichedManifest` model validators and are always consistent with the actual data.
 
@@ -168,13 +168,14 @@ Coordinator agents reading this block must **execute** — not re-validate or re
 
 ### Producing the enriched coordinator task file
 
-Use the `plan_spawn_coordinator` MCP tool:
+Use the `build_spawn_child` MCP tool:
 
 ```python
-result = await plan_spawn_coordinator(manifest_json)
+result = await build_spawn_child(manifest_json)
 # Returns: {"worktree": str, "branch": str, "agent_task_path": str, "batch_id": str}
+# Note: agent_task_path now holds the worktree path only (DB context row is the canonical record)
 ```
 
-Or call `POST /api/plan/launch` from the Build dashboard — it invokes `plan_spawn_coordinator` internally and returns the same shape.
+Or call `POST /api/plan/launch` from the Build dashboard — it invokes `build_spawn_child` internally and returns the same shape.
 
-Do not write `.agent-task` files with `[enriched]` sections by hand. Always go through `plan_spawn_coordinator` so the manifest is validated before it reaches the coordinator.
+Do not write `DB context rows with `[enriched]` sections by hand. Always go through `build_spawn_child` so the manifest is validated before it reaches the coordinator.

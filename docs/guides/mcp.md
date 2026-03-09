@@ -145,7 +145,7 @@ AgentCeption exposes all three MCP endpoint types:
 | `ac://runs/{run_id}` | Metadata for one run |
 | `ac://runs/{run_id}/children` | Child runs spawned by this run |
 | `ac://runs/{run_id}/events` | Structured event log; append `?after_id=N` to paginate |
-| `ac://runs/{run_id}/task` | Raw `.agent-task` TOML text |
+| `ac://runs/{run_id}/task` | Raw `ac://runs/{run_id}/context` TOML text |
 | `ac://batches/{batch_id}/tree` | All runs in a batch |
 | `ac://system/dispatcher` | Dispatcher counters and active batch_id |
 | `ac://system/health` | DB reachability and per-status counts |
@@ -199,12 +199,12 @@ starting agents, advancing phase gates) always require an explicit human confirm
 | **Auto — tools** | `log_run_step`, `log_run_blocker`, `log_run_decision`, `log_run_message`, `log_run_error` | Append-only DB writes — no external effects. |
 | **Prompt** | `build_claim_run`, `build_complete_run`, `build_cancel_run`, `build_stop_run`, `build_block_run`, `build_resume_run` | Pipeline state transitions in the DB — recoverable but worth confirming. |
 | **Prompt** | `github_add_label`, `github_remove_label`, `github_claim_issue`, `github_unclaim_issue`, `github_add_comment` | External GitHub API mutations. |
-| **Always prompt** | `plan_spawn_coordinator`, `plan_advance_phase`, `build_spawn_child_run`, `build_teardown_worktree` | Create real GitHub issues, git worktrees, and live agents — irreversible side effects. |
+| **Always prompt** | `build_spawn_child`, `plan_advance_phase`, `build_spawn_child_run`, `build_teardown_worktree` | Create real GitHub issues, git worktrees, and live agents — irreversible side effects. |
 
 **What this means for you:**
 
 - Resource reads (`FetchMcpResource`), prompt fetches, and observability tool calls happen without interruption.
-- `plan_spawn_coordinator` and `plan_advance_phase` always show a Cursor confirmation dialog — a mis-fire creates real GitHub issues and running agent processes that are hard to undo.
+- `build_spawn_child` and `plan_advance_phase` always show a Cursor confirmation dialog — a mis-fire creates real GitHub issues and running agent processes that are hard to undo.
 - The HTTP endpoint is available at `http://localhost:10003/api/mcp` once containers are running.
 
 ## Available tools, resources, and prompts

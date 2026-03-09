@@ -55,7 +55,7 @@ chain-spawned reviewers and find no additional PRs to cover.
 
 ## Tiers
 
-Tiers are the runtime execution label written into every `.agent-task` file.
+Tiers are the runtime execution label written into every `DB context row.
 They map exactly onto the two agent types: both carry either `coordinator`
 or `worker`. The `scope_type` field and the agent's `role` distinguish what
 kind of work a worker performs — the tier does not.
@@ -103,7 +103,7 @@ producing duplicate review runs.
 
 Applies to any worker (`scope_type` = `issue` or `pr`). Workers do not survey
 a queue — they are dispatched with exactly one unit of work already assigned
-in the `.agent-task` file. The "loop" is a single pass followed by an
+in the `DB context row. The "loop" is a single pass followed by an
 optional chain-spawn.
 
 ```
@@ -131,9 +131,9 @@ PR on its next loop iteration.
 
 ---
 
-## `.agent-task` file format
+## `DB context row format
 
-Every dispatched agent receives an `.agent-task` file in its working
+Every dispatched agent receives an `DB context row in its working
 directory. This is the agent's complete briefing — no other file is
 strictly required to start.
 
@@ -215,7 +215,7 @@ HOST_ROLE_FILE = "<host-repo-root>/.agentception/roles/pr-reviewer.md"
 > `<repo-root>` is the absolute path to the cloned repository on the host
 > machine — the value of `REPO_DIR` (defaults to `/app` inside the
 > container). AgentCeption writes the real absolute path when it creates each
-> `.agent-task` file. Never derive this from `pwd` or `basename`.
+> `DB context row. Never derive this from `pwd` or `basename`.
 
 ---
 

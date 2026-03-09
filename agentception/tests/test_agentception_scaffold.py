@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 
 from agentception.app import app
 from agentception.config import AgentCeptionSettings
-from agentception.models import AgentNode, AgentStatus, PipelineState, TaskFile
+from agentception.models import AgentNode, AgentStatus, AgentTaskSpec, PipelineState
 
 
 @pytest.fixture(scope="module")
@@ -105,12 +105,12 @@ def test_index_returns_html_with_agentception(client: TestClient) -> None:
     assert "Agentception" in response.text
 
 
-# ── TaskFile ──────────────────────────────────────────────────────────────────
+# ── AgentTaskSpec ─────────────────────────────────────────────────────────────
 
 
-def test_task_file_model_parses_known_fields() -> None:
-    """TaskFile must parse a representative .agent-task payload correctly."""
-    tf = TaskFile(
+def test_agent_task_spec_parses_known_fields() -> None:
+    """AgentTaskSpec must parse a representative DB-backed payload correctly."""
+    spec = AgentTaskSpec(
         task="issue-to-pr",
         gh_repo="cgcardona/agentception",
         issue_number=609,
@@ -120,6 +120,6 @@ def test_task_file_model_parses_known_fields() -> None:
         spawn_sub_agents=False,
         attempt_n=0,
     )
-    assert tf.issue_number == 609
-    assert tf.spawn_sub_agents is False
-    assert tf.attempt_n == 0
+    assert spec.issue_number == 609
+    assert spec.spawn_sub_agents is False
+    assert spec.attempt_n == 0

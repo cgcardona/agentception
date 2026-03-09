@@ -7,7 +7,7 @@
 >
 > **Your job — the full list, nothing more:**
 > 1. Pull `dev` to confirm it is up to date.
-> 2. Run the Setup script below to create one worktree per PR and write a `.agent-task` file into each.
+> 2. Call `build_spawn_child` MCP tool once per PR to create the worktree, persist context to the DB, and auto-acknowledge the run.
 > 3. Launch one sub-agent per worktree using the **Task tool** (preferred — no limit on simultaneous agents) or a Cursor composer window rooted in that worktree.
 > 4. Report back once all sub-agents have been launched.
 >
@@ -22,30 +22,30 @@
 
 ---
 
-## Why `.agent-task` files unlock more than 4 parallel agents
+## Why the DB-backed approach enables more than 4 parallel agents
 
 The Task tool can launch multiple review agents simultaneously from a single
-coordinator message. Each agent reads its own `.agent-task` file, which carries
-the PR number, branch, expected grade threshold, and file-overlap context.
-The coordinator needs only the worktree path and the kickoff prompt — no
-per-PR content to embed in the call:
+coordinator message. Each agent reads its context from the DB via
+`ac://runs/{run_id}/context`, which carries the PR number, branch, expected
+grade threshold, and file-overlap context. The coordinator needs only the
+`run_id` and the kickoff prompt — no per-PR content to embed in the call:
 
 ```python
 # All launched simultaneously — no 4-agent limit
-Task(worktree="/path/to/pr-315", prompt=KICKOFF_PROMPT)
-Task(worktree="/path/to/pr-316", prompt=KICKOFF_PROMPT)
-Task(worktree="/path/to/pr-317", prompt=KICKOFF_PROMPT)
-Task(worktree="/path/to/pr-318", prompt=KICKOFF_PROMPT)
-Task(worktree="/path/to/pr-319", prompt=KICKOFF_PROMPT)
+Task(run_id="qa-20260302T084507Z-abc1", prompt=KICKOFF_PROMPT)
+Task(run_id="qa-20260302T084507Z-abc2", prompt=KICKOFF_PROMPT)
+Task(run_id="qa-20260302T084507Z-abc3", prompt=KICKOFF_PROMPT)
+Task(run_id="qa-20260302T084507Z-abc4", prompt=KICKOFF_PROMPT)
+Task(run_id="qa-20260302T084507Z-abc5", prompt=KICKOFF_PROMPT)
 ```
 
-**Nested orchestration:** A review agent whose `.agent-task` contains
-`[spawn] sub_agents = true` acts as a sub-coordinator — useful when a large PR
+**Nested orchestration:** A review agent whose DB context contains
+`spawn.sub_agents = true` acts as a sub-coordinator — useful when a large PR
 needs multiple independent reviewers (e.g. one for types, one for tests, one
-for docs). Each sub-reviewer writes its grade and findings into its own
-worktree; the sub-coordinator collects them and emits a composite grade.
+for docs). Each sub-reviewer reads its own DB context; the sub-coordinator
+collects their results and emits a composite grade.
 
-See `agent-engineer.md` for the full `.agent-task` field reference.
+See `.agentception/agent-task-spec.md` for the full `RunContextRow` field reference.
 
 ---
 
@@ -63,11 +63,11 @@ Kickoff (coordinator)
   └─ for each PR:
        DEV_SHA=$(git rev-parse dev)
        git worktree add --detach .../pr-<N> "$DEV_SHA"  ← detached HEAD at dev tip
-       write .agent-task into it                         ← task assignment, no guessing
+       build_spawn_child(run_id=..., ...)                ← persists context to DB; no files written
        launch agent in that directory
 
 Agent (per worktree)
-  └─ cat .agent-task                        ← knows exactly what to do
+  └─ read_resource("ac://runs/{run_id}/context")  ← reads full context from DB
   └─ MCP: pull_request_read(N)              ← CHECK FIRST: merged/closed/approved?
                                                if so → stop + self-destruct
   └─ git fetch + checkout PR branch         ← checks out the PR branch (only if open)
@@ -192,50 +192,22 @@ for entry in "${PRS[@]}"; do
   R_BATCH_ID="qa-$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%04x' $RANDOM)"
   COORD_FINGERPRINT="QA-COORD-${R_BATCH_ID}"
 
-  cat > "$WT/.agent-task" <<TASKEOF
-[task]
-version = "0.1.1"
-workflow = "pr-review"
-id = "$(uuidgen | tr '[:upper:]' '[:lower:]')"
-created_at = "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-attempt_n = 0
-required_output = "grade,merge_status,pr_url"
-on_block = "stop"
+  # Use build_spawn_child MCP tool — no manual file writing needed.
+  # build_spawn_child(
+  #   parent_run_id   = "<your own run_id from task briefing>",
+  #   role            = "$REVIEW_ROLE",
+  #   tier            = "engineer",
+  #   org_domain      = "engineering",
+  #   scope_type      = "pr",
+  #   scope_value     = "$NUM",
+  #   gh_repo         = "$GH_REPO",
+  #   issue_title     = "$TITLE",
+  #   spawn_mode      = "pool",
+  #   cognitive_arch  = "$R_COGNITIVE_ARCH",
+  # )
+  # The returned run_id is what you pass to the Task tool below.
 
-[agent]
-role = "$REVIEW_ROLE"
-tier = "engineer"
-cognitive_arch = "$R_COGNITIVE_ARCH"
-
-[repo]
-gh_repo = "$GH_REPO"
-base = "dev"
-
-[pipeline]
-batch_id = "$R_BATCH_ID"
-wave = "${CTO_WAVE:-unset}"
-coord_fingerprint = "$COORD_FINGERPRINT"
-
-[spawn]
-mode = "pool"
-sub_agents = false
-
-[target]
-pr_number = $NUM
-pr_title = "$TITLE"
-pr_url = "https://github.com/$GH_REPO/pull/$NUM"
-pr_branch = "$PR_BRANCH"
-closes = [$CLOSES_ISSUE]
-files_changed = "$PR_FILES"
-merge_after = "$MERGE_AFTER_VAL"
-has_migration = $HAS_MIGRATION_VAL
-
-[worktree]
-path = "$WT"
-linked_pr = 0
-TASKEOF
-
-  echo "✅ worktree pr-$NUM ready (role: $REVIEW_ROLE)"
+  echo "✅ run $RUN_ID ready (context persisted to DB, role: $REVIEW_ROLE)"
 done
 
 git worktree list
@@ -288,7 +260,7 @@ export GH_REPO=cgcardona/agentception
 
 | Item | Value |
 |------|-------|
-| Your worktree root | current directory (contains `.agent-task`) |
+| Your worktree root | current directory (run_id in your briefing) |
 | Main repo (local path) | first entry of `git worktree list` |
 | GitHub repo slug | `cgcardona/agentception` — always hardcoded, never derived |
 | Docker compose location | main repo |
@@ -381,8 +353,8 @@ Read .agentception/agent-command-policy.md before issuing any shell commands.
 Green-tier commands run without confirmation. Yellow = check scope first.
 Red = never, ask the user instead.
 
-STEP 0 — READ YOUR TASK FILE:
-  cat .agent-task
+STEP 0 — READ YOUR TASK BRIEFING:
+  # Read context from ac://runs/{run_id}/context
 
   Parse all KEY=value fields from the header:
     GH_REPO          → GitHub repo slug (export immediately)
@@ -398,24 +370,24 @@ STEP 0 — READ YOUR TASK FILE:
                        for types/tests/docs and emit a composite grade)
 
   Export for all subsequent commands:
-    export GH_REPO=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['repo']['gh_repo'])")
+    export GH_REPO="<from RunContextRow.gh_repo>"
     export GH_REPO=${GH_REPO:-cgcardona/agentception}
-    N=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['target']['pr_number'])")
-    BRANCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['target']['pr_branch'])")
-    MERGE_AFTER=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('target',{}).get('merge_after','none'))")
-    HAS_MIGRATION=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(str(d.get('target',{}).get('has_migration',False)).lower())")
-    ATTEMPT_N=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['task']['attempt_n'])")
-    BATCH_ID=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['pipeline']['batch_id'])")
+    N="<from RunContextRow.issue_number>  # scope_value = PR number for reviewer runs"
+    BRANCH="<from RunContextRow.branch>"
+    MERGE_AFTER="<from RunContextRow.task_description → merge_after field>"
+    HAS_MIGRATION="<from RunContextRow.task_description → has_migration field>"
+    ATTEMPT_N="<from RunContextRow.attempt_n>"
+    BATCH_ID="<from RunContextRow.batch_id>"
 
   Generate your unique reviewer session ID (identifies THIS specific reviewer run):
     AGENT_SESSION="qa-$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%04x' $RANDOM)"
-    COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
-    WAVE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('pipeline',{}).get('wave',''))")
+    COGNITIVE_ARCH="<from RunContextRow.cognitive_arch>"
+    WAVE="<from RunContextRow.batch_id → wave prefix>"
     echo "🤖 Reviewer session: $AGENT_SESSION  Batch: ${BATCH_ID:-unset}  Arch: ${COGNITIVE_ARCH:-unset}"
 
   Post an identity comment on the PR immediately so the audit trail is visible from the start:
     REPO=$(git worktree list | head -1 | awk '{print $1}')
-    COORD_FINGERPRINT=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('pipeline',{}).get('coord_fingerprint',''))")
+    COORD_FINGERPRINT="<from RunContextRow.parent_run_id>"
     REVIEW_START=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
   REVIEW_FINGERPRINT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" "${COGNITIVE_ARCH:-unset}" \
     --fingerprint \
@@ -459,10 +431,10 @@ STEP 0 — READ YOUR TASK FILE:
       before grading. A broken migration chain is an automatic C → mandatory fix.
 
 STEP 0.5 — LOAD YOUR ROLE AND COGNITIVE ARCHITECTURE:
-  ROLE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['role'])")
+  ROLE="<from RunContextRow.role>"
   echo "✅ Operating as role: $ROLE"
   # Your role definition is embedded at the bottom of this prompt under
-  # ## Embedded Role Definitions — no file read needed. ROLE_FILE in .agent-task
+  # ## Embedded Role Definitions — baked into your system prompt via task/briefing.
   # is metadata only; do NOT read it from disk.
   # Find the ### pr-reviewer section and let its decision hierarchy, quality bar,
   # and failure modes govern all your choices from this point forward.
@@ -926,8 +898,8 @@ STEP 5 — REVIEW:
   #   body="## 🤖 Code Review\n\n**Grade: <A/B/C/D/F>**\n\n### Summary\n<one-paragraph assessment>\n\n### Checklist\n- [ ] Types: <pass/fail + detail>\n- [ ] Tests: <pass/fail + detail>\n- [ ] Docs: <pass/fail + detail>\n- [ ] mypy: <clean / N errors>\n\n### Findings\n<bullet-point list of all findings, including fixes applied>\n\n### Verdict\n<Approved for merge — merging now | Not approved — reason>")
 
 STEP 5.5 — MERGE ORDER GATE (sequential chain safety):
-  Read the MERGE_AFTER field from .agent-task:
-    MERGE_AFTER=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('target',{}).get('merge_after','none'))")
+  Read the MERGE_AFTER field from ac://runs/{run_id}/context:
+    MERGE_AFTER="<from RunContextRow.task_description → merge_after field>"
 
   If MERGE_AFTER is empty or "none" → skip this step, go directly to STEP 6.
 
@@ -1078,8 +1050,8 @@ STEP 6 — PRE-MERGE SYNC (only if grade is A or B):
   # SELF-DESTRUCT (final step) AFTER the worktree is removed.
 
   # 9. Close every referenced issue — only the reviewer who merges the PR does this.
-  #    CLOSES_ISSUES is pre-populated from .agent-task (the coordinator extracted
-  #    it at setup time). Use it directly to avoid re-parsing the PR body.
+  #    CLOSES_ISSUES is pre-populated from ac://runs/{run_id}/context (persisted at
+  #    spawn time by build_spawn_child). Use it directly to avoid re-parsing the PR body.
   #    ⚠️  Do NOT use `grep -o '#[0-9]*'` — it matches any #N (commit hashes,
   #    mentions, literal numbers) and silently closes the wrong issue.
   #    ⚠️  Do NOT use `while read` — the `read` builtin triggers a sandbox prompt.
@@ -1111,7 +1083,8 @@ STEP 6 — PRE-MERGE SYNC (only if grade is A or B):
   fi
        CLOSE_COMMENT="✅ Closed by PR #$N (merged).\n\n$CLOSE_FINGERPRINT"
 
-       CLOSES_ISSUES=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(','.join(str(x) for x in d.get('target',{}).get('closes',[])))")
+       # Field from ac://runs/{run_id}/context → closes
+       CLOSES_ISSUES="<from RunContextRow.task_description → closes field>"
        if [ -n "$CLOSES_ISSUES" ]; then
          # For each issue number in CLOSES_ISSUES (comma-separated):
          # MCP: issue_write(owner="cgcardona", repo="agentception",
@@ -1128,7 +1101,8 @@ STEP 6 — PRE-MERGE SYNC (only if grade is A or B):
        fi
 
   # 10. Mark linked issues as merged (conductor reads this as "done").
-  CLOSES_ISSUES_FOR_LABEL=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(','.join(str(x) for x in d.get('target',{}).get('closes',[])))")
+  # Field from ac://runs/{run_id}/context → closes
+  CLOSES_ISSUES_FOR_LABEL="<from RunContextRow.task_description → closes field>"
   if [ -n "$CLOSES_ISSUES_FOR_LABEL" ]; then
     # For each issue in CLOSES_ISSUES_FOR_LABEL:
     echo "Issues closed automatically via PR merge (Closes #N in PR body)"
@@ -1245,11 +1219,12 @@ STEP 7 — REGRESSION FEEDBACK LOOP (only if merge succeeded — skip if D/F gra
 
 STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
 
-  # Read SPAWN_MODE from .agent-task to determine what to spawn next.
+  # Read SPAWN_MODE from ac://runs/{run_id}/context to determine what to spawn next.
   # SPAWN_MODE=chain  → spawned by an engineer; spawn the next ENGINEER for the next issue
-  # SPAWN_MODE=pool   → spawned by a QA Coordinator; spawn the next REVIEWER for the next PR (legacy pool behavior)
+  # SPAWN_MODE=pool   → spawned by a QA Coordinator; spawn the next REVIEWER for the next PR
   # (absent/empty)    → default to pool behavior
-  SPAWN_MODE=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('spawn',{}).get('mode','single'))" 2>/dev/null)
+  # Field from ac://runs/{run_id}/context → spawn_mode
+  SPAWN_MODE="<from RunContextRow.task_description → spawn_mode field>"
 
   if [ "$SPAWN_MODE" = "chain" ]; then
     # ── CHAIN MODE: merge happened → spawn next engineer for next unclaimed issue ──
@@ -1271,7 +1246,8 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
     # Fallback: if no agentception/* label has open issues, try the batch label from the task file.
     # This supports non-agentception chain workflows (e.g. batch-01, batch-02).
     if [ -z "$ACTIVE_LABEL" ]; then
-      TASK_BATCH_ID=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('pipeline',{}).get('batch_id',''))" 2>/dev/null || echo "")
+      # Field from ac://runs/{run_id}/context → batch_id
+      TASK_BATCH_ID="<from RunContextRow.batch_id>"
       BATCH_LABEL_PREFIX=$(echo "$TASK_BATCH_ID" | grep -oE 'batch-[0-9]+' | head -1)
       if [ -n "$BATCH_LABEL_PREFIX" ]; then
         # MCP: list_issues (user-github)(label="$BATCH_LABEL_PREFIX", state="open") → .count
@@ -1336,50 +1312,26 @@ STEP 8 — SPAWN YOUR SUCCESSOR (run this before self-destructing):
       # Pick the first label starting with "team/"
       NEXT_ISSUE_LABEL=<label from MCP response>
 
-      cat > "$NEXT_WORKTREE/.agent-task" <<TASK
-[task]
-version = "0.1.1"
-workflow = "issue-to-pr"
-id = "$(uuidgen | tr '[:upper:]' '[:lower:]')"
-created_at = "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-attempt_n = 0
-required_output = "pr_url"
-on_block = "stop"
-
-[agent]
-role = "developer"
-tier = "engineer"
-cognitive_arch = "${COGNITIVE_ARCH:-hopper:python}"
-
-[repo]
-gh_repo = "cgcardona/agentception"
-base = "dev"
-
-[pipeline]
-batch_id = "${BATCH_ID:-none}"
-wave = "${WAVE:-unset}"
-coord_fingerprint = "${COORD_FINGERPRINT:-unset}"
-
-[spawn]
-mode = "chain"
-sub_agents = false
-
-[target]
-issue_number = $NEXT_ISSUE
-issue_label = "$NEXT_ISSUE_LABEL"
-closes = [$NEXT_ISSUE]
-
-[worktree]
-path = "$NEXT_WORKTREE"
-branch = "feat/issue-$NEXT_ISSUE"
-linked_pr = 0
-TASK
+      # Use build_spawn_child MCP tool — no manual file writing needed.
+      # build_spawn_child(
+      #   parent_run_id   = "<your own run_id from task briefing>",
+      #   role            = "developer",
+      #   tier            = "engineer",
+      #   org_domain      = "engineering",
+      #   scope_type      = "issue",
+      #   scope_value     = "$NEXT_ISSUE",
+      #   gh_repo         = "$GH_REPO",
+      #   issue_title     = "<from issue_read result .title>",
+      #   spawn_mode      = "chain",
+      #   cognitive_arch  = "${COGNITIVE_ARCH:-hopper:python}",
+      # )
+      # The returned run_id is what you pass to the Task tool below.
 
       echo "✅ Chain: spawning engineer for issue #$NEXT_ISSUE (will spawn its own reviewer when done)"
-      # AGENT INSTRUCTION: call Task(prompt=IMPLEMENTER_PROMPT, worktree="$NEXT_WORKTREE")
+      # AGENT INSTRUCTION: call Task(run_id="<returned run_id>", prompt=IMPLEMENTER_PROMPT)
       # IMPLEMENTER_PROMPT is self-contained — do NOT reference PARALLEL_ISSUE_TO_PR.md on disk.
       # Construct it from your context:
-      #   1. Prefix:  "Read the .agent-task file in your worktree first.
+      #   1. Prefix:  "Read your task briefing from ac://runs/{run_id}/context.
       #               GH_REPO=cgcardona/agentception  Repo: <repo-root>"
       #   2. Body:    paste the entire ## Pass-Along: Implementer Kickoff section verbatim
       #               (your parent embedded it when it dispatched you)
@@ -1415,54 +1367,26 @@ TASK
       [ -z "$NEXT_MERGE_AFTER" ] && NEXT_MERGE_AFTER=none
       NEXT_HAS_MIG=$(echo "$NEXT_FILES" | grep -c "alembic/versions/" || echo 0)
       [ "$NEXT_HAS_MIG" -gt 0 ] && NEXT_HAS_MIG_VAL=true || NEXT_HAS_MIG_VAL=false
-      cat > "$NEXT_WORKTREE/.agent-task" <<TASK
-[task]
-version = "0.1.1"
-workflow = "pr-review"
-id = "$(uuidgen | tr '[:upper:]' '[:lower:]')"
-created_at = "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-attempt_n = 0
-required_output = "grade,merge_status,pr_url"
-on_block = "stop"
-
-[agent]
-role = "pr-reviewer"
-tier = "engineer"
-cognitive_arch = "${COGNITIVE_ARCH:-knuth:python}"
-
-[repo]
-gh_repo = "cgcardona/agentception"
-base = "dev"
-
-[pipeline]
-batch_id = "${BATCH_ID:-none}"
-wave = "${WAVE:-unset}"
-coord_fingerprint = "${COORD_FINGERPRINT:-unset}"
-
-[spawn]
-mode = "pool"
-sub_agents = false
-
-[target]
-pr_number = $NEXT_PR
-pr_title = "$NEXT_PR_TITLE"
-pr_url = "https://github.com/cgcardona/agentception/pull/$NEXT_PR"
-pr_branch = "$NEXT_BRANCH"
-closes = [$NEXT_CLOSES]
-files_changed = "$NEXT_FILES"
-merge_after = "$NEXT_MERGE_AFTER"
-has_migration = $NEXT_HAS_MIG_VAL
-
-[worktree]
-path = "$NEXT_WORKTREE"
-linked_pr = $NEXT_PR
-TASK
+      # Use build_spawn_child MCP tool — no manual file writing needed.
+      # build_spawn_child(
+      #   parent_run_id   = "<your own run_id from task briefing>",
+      #   role            = "pr-reviewer",
+      #   tier            = "engineer",
+      #   org_domain      = "engineering",
+      #   scope_type      = "pr",
+      #   scope_value     = "$NEXT_PR",
+      #   gh_repo         = "$GH_REPO",
+      #   issue_title     = "$NEXT_PR_TITLE",
+      #   spawn_mode      = "pool",
+      #   cognitive_arch  = "${COGNITIVE_ARCH:-knuth:python}",
+      # )
+      # The returned run_id is what you pass to the Task tool below.
 
       echo "✅ Pool: spawning replacement reviewer for PR #$NEXT_PR"
-      # AGENT INSTRUCTION: call Task(prompt=REVIEWER_PROMPT, worktree="$NEXT_WORKTREE")
+      # AGENT INSTRUCTION: call Task(run_id="<returned run_id>", prompt=REVIEWER_PROMPT)
       # REVIEWER_PROMPT is self-contained — do NOT reference PARALLEL_PR_REVIEW.md on disk.
       # Construct it from your context:
-      #   1. Prefix:  "Read the .agent-task file in your worktree first.
+      #   1. Prefix:  "Read your task briefing from ac://runs/{run_id}/context.
       #               GH_REPO=cgcardona/agentception  Repo: <repo-root>"
       #   2. Body:    paste the entire ## Embedded Reviewer Kickoff section verbatim
       #               (your QA Coordinator embedded it when it seeded you — or your own prompt IS it)
@@ -1637,7 +1561,7 @@ git -C "$REPO" status
 ## Embedded Role Definitions
 
 Role content is embedded here so reviewer agents need no runtime file reads, enabling
-concurrent pipeline isolation. Read the section matching your ROLE field from .agent-task.
+concurrent pipeline isolation. Your ROLE is in your task briefing (ac://runs/{run_id}/context).
 
 ### pr-reviewer
 
@@ -1727,8 +1651,10 @@ Your review checklist above is your minimum bar. Every item in the checklist is 
 
 Before checking out the PR branch, record the pre-existing mypy state on `dev`:
 ```bash
-N=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['target']['pr_number'])")
-GH_REPO=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['repo']['gh_repo'])")
+# Field from ac://runs/{run_id}/context → scope_value (PR number)
+N="<from RunContextRow.scope_value>"
+# Field from ac://runs/{run_id}/context → gh_repo
+GH_REPO="<from RunContextRow.gh_repo>"
 GH_REPO=${GH_REPO:-cgcardona/agentception}
 WTNAME=$(basename "$(pwd)")
 # Determine if this PR is an AgentCeption PR:

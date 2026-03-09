@@ -100,12 +100,11 @@ the exhaustive one. Your cognitive identity is already in this system prompt —
 ## STEP 0 — CHECK CASCADE MODE
 
 ```bash
-CASCADE_ENABLED=$(python3 -c "
-import tomllib
-d = tomllib.loads(open('.agent-task').read())
-print(str(d.get('spawn', {}).get('cascade_enabled', True)).lower())
-" 2>/dev/null || echo "true")
-RUN_ID=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('meta', {}).get('run_id', ''))" 2>/dev/null || echo "")
+# Read run_id and cascade_enabled from your task briefing (task/briefing MCP prompt).
+# Both fields are in RunContextRow — accessible via ac://runs/{run_id}/context.
+# cascade_enabled is passed in your initial briefing message; default is true.
+CASCADE_ENABLED="true"   # override from briefing if cascade_enabled=false
+RUN_ID="<your run_id from the task briefing>"
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 ```
 
@@ -301,13 +300,10 @@ starts. The pool stays at 4 concurrent workers continuously until the queue drai
 
 ```
 # Your team scope — the team/* labels whose issues you are responsible for.
-# Passed by the CEO as TEAM_LABELS in the dispatch prefix, or read from .agent-task.
+# Read from your task briefing (task/briefing MCP prompt) or ac://runs/{run_id}/context.
 # Example: TEAM_LABELS="team/engineering team/qa team/infrastructure"
-TEAM_LABELS=$(python3 -c "
-import tomllib
-d = tomllib.loads(open('.agent-task').read())
-print(d.get('target', {}).get('team_labels', 'team/engineering'))
-" 2>/dev/null || echo "team/engineering")
+# The value is in RunContextRow.task_description or passed by the CEO in the dispatch message.
+TEAM_LABELS="team/engineering"   # override from your briefing if present
 echo "CTO scope: TEAM_LABELS=$TEAM_LABELS"
 ```
 
@@ -470,7 +466,7 @@ further file reads are needed anywhere in the pipeline.
 
 ## Gating
 
-MERGE_AFTER dependencies are encoded in `.agent-task` files — leaf agents read them.
+MERGE_AFTER dependencies are encoded in each leaf agent's DB context — leaf agents read them from `ac://runs/{run_id}/context`.
 CTO and coordinators do not track dependencies. The canonical prompts handle it.
 
 ## Label scoping rules (critical)
@@ -487,7 +483,7 @@ CTO and coordinators do not track dependencies. The canonical prompts handle it.
 
 - Never implement a feature or review a PR yourself
 - Never run mypy, pytest, or git commands
-- Never create worktrees or write .agent-task files
+- Never create worktrees manually — always use `build_spawn_child` MCP tool
 - Never hardcode issue or PR numbers — always query GitHub live
 - Never stop after one wave — loop until the pipeline is empty
 - Never dispatch a fixed ratio — always re-calculate from live counts each wave
@@ -780,7 +776,7 @@ SEED:
        c. Call ``build_spawn_child`` MCP tool to create the reviewer node atomically:
           ```
           build_spawn_child(
-            parent_run_id = <your RUN_ID from .agent-task>,
+            parent_run_id = <your RUN_ID from the task briefing>,
             role          = "pr-reviewer",
             tier          = "reviewer",
             org_domain    = "qa",
@@ -792,20 +788,20 @@ SEED:
           )
           ```
           The tool resolves COGNITIVE_ARCH from the PR body automatically,
-          creates the worktree, writes the .agent-task with all fields, registers
-          the DB record, and auto-acknowledges. You do NOT write .agent-task manually.
+          creates the worktree, persists all fields to the DB record,
+          and auto-acknowledges. You do NOT manage worktrees or DB records manually.
 
   6. Launch all spawned reviewers simultaneously — one Task call per PR,
      all in a single message:
        ```
        Task(
          subagent_type = "generalPurpose",
-         prompt = "Read your .agent-task at {host_worktree_path}/.agent-task
-                   and follow the instructions for your role.
+         prompt = "Your run_id is {run_id}. Read your task briefing from
+                   ac://runs/{run_id}/context and follow the instructions for your role.
                    GH_REPO=cgcardona/agentception  Repo: <repo-root>"
        )
        ```
-     The reviewer reads its own .agent-task for full context — no embedded
+     The reviewer reads its full context from ac://runs/{run_id}/context — no embedded
      role content is needed in the Task prompt.
 
   7. Wait for all spawned reviewers to complete.
@@ -818,9 +814,9 @@ SEED:
 
 Worktrees live at: `$HOME/.agentception/worktrees/agentception/pr-{N}/`
 
-The `build_spawn_child` MCP tool writes `.agent-task` files automatically with all
-required fields including COGNITIVE_ARCH, BATCH_ID, lineage fields, and scope.
-You do NOT need to write `.agent-task` files manually.
+The `build_spawn_child` MCP tool creates the worktree, persists all required fields
+(COGNITIVE_ARCH, BATCH_ID, lineage, scope) to the DB record, and auto-acknowledges.
+You do NOT manage worktrees or DB records manually.
 
 If a worktree is missing for a new PR:
   `# MCP: pull_request_read (user-github)(pr_number=N) → .headRefName`

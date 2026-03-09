@@ -17,27 +17,6 @@ python3 scripts/gen_prompts/resolve_arch.py "dijkstra:postgresql:python" --finge
 
 Output is ready-to-read Markdown. Consumed by agent kickoff prompts.
 
-## gen_cognitive_arch_tasks.py
-
-Generates `.agent-task` files from a list of figure batches for cognitive
-architecture enrichment work.
-
-```bash
-# Generate task files (default output: /tmp/cog-arch-tasks/)
-python3 scripts/gen_cognitive_arch_tasks.py generate
-
-# Specify repo path and output directory
-python3 scripts/gen_cognitive_arch_tasks.py generate \
-  --repo /path/to/agentception --out-dir ~/.agentception/tasks
-
-# Clean up completed task files and record to DB (requires DATABASE_URL)
-DATABASE_URL=postgresql://... python3 scripts/gen_cognitive_arch_tasks.py cleanup \
-  --tasks-dir ~/.agentception/tasks --repo /path/to/agentception
-```
-
-Requires `DATABASE_URL` env var when recording task completions to the
-AgentCeption Postgres instance.
-
 ## gen_prompts/generate.py
 
 Regenerates all `.agentception/roles/*.md` and `.agentception/agent-*.md` files from

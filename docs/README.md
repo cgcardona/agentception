@@ -27,7 +27,7 @@ Precise specifications for every system component.
 | Reference | Summary |
 |-----------|---------|
 | [API Routes](reference/api.md) | Complete HTTP endpoint inventory — semantic URL taxonomy, request/response shapes |
-| [Agent Task Spec](reference/agent-task.md) | `.agent-task` TOML format — every section, every field, with examples |
+| [Agent Task Spec](reference/agent-task.md) | `ac://runs/{run_id}/context` TOML format — every section, every field, with examples |
 | [Type Contracts](reference/type-contracts.md) | Pydantic models, TypedDicts, and the typed layer contracts between DB → service → route |
 | [Cognitive Architecture](reference/cognitive-arch.md) | Figures, archetypes, skill domains, atoms — how agents get their identities |
 | [YAML Configuration](reference/yaml-config.md) | `config.yaml`, `team.yaml`, `role-taxonomy.yaml` — full field reference |
@@ -63,7 +63,7 @@ User input (brain dump)
 │  Dispatch                           │
 │  POST /api/dispatch/label           │
 │  worktrees.py                       │
-│  → git worktree + .agent-task file  │
+│  → git worktree + DB context row     │
 │  → ACAgentRun row in DB             │
 └─────────────────────────────────────┘
         │
@@ -71,7 +71,7 @@ User input (brain dump)
 ┌─────────────────────────────────────┐
 │  Cursor-Free Agent Loop             │
 │  agent_loop.py                      │
-│  → Reads .agent-task + role + arch  │
+│  → Reads DB context + role + arch   │
 │  → Calls Anthropic API               │
 │  → Dispatches file/shell/MCP tools  │
 │  → Uses Qdrant for code search      │
@@ -102,7 +102,7 @@ agentception/
   readers/
     llm_phase_planner.py  → Phase 1A: LLM → PlanSpec YAML
     issue_creator.py      → Phase 1B: PlanSpec → GitHub issues + DB rows
-    worktrees.py          → Agent dispatch: git worktree + .agent-task + DB row
+    worktrees.py          → Agent dispatch: git worktree + DB context row
   services/
     llm.py           → call_anthropic() and call_anthropic_with_tools()
     agent_loop.py    → Cursor-free agent execution loop (multi-turn + tool dispatch)
@@ -149,7 +149,7 @@ scripts/
       snippets/      → Shared fragments (included, not rendered directly)
 
 .agentception/
-  agent-task-spec.md → Formal .agent-task TOML specification
+  agent-task-spec.md → Formal DB context specification
   roles/             → Generated agent role markdown files
   prompts/           → Generated prompt templates
   pipeline-config.json → Runtime pipeline configuration

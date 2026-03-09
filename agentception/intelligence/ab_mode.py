@@ -85,7 +85,7 @@ async def select_role_file(batch_id: str, default_role_file: str) -> str:
     Parameters
     ----------
     batch_id:
-        The BATCH_ID string from ``.agent-task`` (e.g. ``eng-20260302T054843Z-54b3``).
+        The BATCH_ID string for this run (e.g. ``eng-20260302T054843Z-54b3``).
     default_role_file:
         The role file path to use when A/B mode is inactive or cannot be applied.
 

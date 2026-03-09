@@ -278,7 +278,7 @@ You only need to do this once per tool, per machine. The tools that will appear 
 - `build_report_blocker`
 - `build_report_decision`
 - `build_report_done`
-- `plan_spawn_coordinator`
+- `build_spawn_child`
 - `plan_advance_phase`
 
 After the first dispatcher run, all subsequent runs should be fully automatic.

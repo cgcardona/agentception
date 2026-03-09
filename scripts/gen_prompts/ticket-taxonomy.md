@@ -39,7 +39,7 @@ files that can each be loaded independently for mixed-stack tickets.
 | #648 | Docker runtime — Dockerfile, compose service | DevOps | docker, dockerfile, compose, HOME-relative | `ritchie:devops` | Minimal tools that compose cleanly. Ritchie's Unix philosophy maps directly to Docker service design. |
 | #614 | poller.py — asyncio background task, SSE broadcast | Python | asyncio, SSE, broadcast, PipelineState, subscribe | `shannon:python` | Shannon thinks in information flows and channels. A poller that merges sources and broadcasts is exactly a Shannon problem: latency, throughput, subscriber fanout. |
 | #615 | Pipeline overview UI — live tree, status badges, GitHub board | HTMX+Jinja2 | htmx, sse-swap, hx-ext, template, overview.html | `lovelace:htmx:jinja2:alpine` | Lovelace sees the machine behind the machine. The overview page IS the meta-view of the agent pipeline — she would design it to reveal the system's structure, not just display data. |
-| #616 | Agent inspector UI — transcript viewer, .agent-task display | HTMX+Jinja2 | agents/{id}, transcript, agent.html, detail page | `feynman:htmx:jinja2` | Feynman's job is to make the invisible visible. An agent inspector that surfaces what agents are actually doing is a Feynman problem: expose the internals clearly. |
+| #616 | Agent inspector UI — transcript viewer, DB context display | HTMX+Jinja2 | agents/{id}, transcript, agent.html, detail page | `feynman:htmx:jinja2` | Feynman's job is to make the invisible visible. An agent inspector that surfaces what agents are actually doing is a Feynman problem: expose the internals clearly. |
 
 ### Phase 1 — Controls
 

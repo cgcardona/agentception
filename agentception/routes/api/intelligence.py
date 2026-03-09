@@ -67,7 +67,7 @@ async def analyze_issue_api(number: int) -> IssueAnalysis:
     recommended engineer role.  No model calls are made — results are
     deterministic for a given issue body.
 
-    This endpoint feeds into the Eng VP ``.agent-task`` generation pipeline:
+    This endpoint feeds into the Eng VP dispatch pipeline:
     the caller can use ``recommended_role``, ``parallelism``, and
     ``recommended_merge_after`` to decide whether and how to schedule an agent.
 

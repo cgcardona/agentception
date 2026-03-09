@@ -21,7 +21,7 @@ class TelemetryCostSummary(BaseModel):
 async def waves_api() -> list[WaveSummary]:
     """Return a list of WaveSummary objects, one per unique BATCH_ID.
 
-    Scans all active ``.agent-task`` files in the worktrees directory, groups
+    Scans all active worktrees, groups
     them by their ``BATCH_ID`` field, and computes timing from file mtimes.
     Returns an empty list when no worktrees are present or none carry a
     ``BATCH_ID``.  Results are sorted most-recent-first by ``started_at``.

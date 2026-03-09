@@ -4,7 +4,7 @@ All external I/O is mocked:
   - call_anthropic_with_tools   → controlled ToolResponse stubs
   - build_complete_run / build_cancel_run / log_run_step / log_run_error → AsyncMock
   - call_tool_async             → AsyncMock returning valid ACToolResult
-  - _load_task                  → AsyncMock returning a minimal AgentTaskSpec (DB-backed)
+  - _load_task                  → AsyncMock returning a minimal AgentTaskSpec from DB
   - GitHubMCPClient             → MagicMock returning empty tool list
   - settings.worktrees_dir      → redirected to tmp_path
   - settings.repo_dir           → redirected to tmp_path

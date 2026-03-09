@@ -167,16 +167,16 @@ async def test_new_run_inserted_when_not_in_db() -> None:
 async def test_pr_number_not_regressed_to_none_by_poller() -> None:
     """Kanban regression: engineer opens PR, pr_number is saved by build_report_done.
 
-    On the very next tick the poller reads the .agent-task file (which was written
-    before the PR existed, so pr_number is None) and must NOT overwrite the
-    saved pr_number.  Without the guard the Kanban card collapses back to "todo"
+    On the very next tick the poller scans the DB (before the PR existed,
+    so pr_number is None) and must NOT overwrite the saved pr_number.
+    Without the guard the Kanban card collapses back to "todo"
     immediately after the engineer completes.
     """
     existing = _make_run(status="reviewing")
     existing.pr_number = 42  # set by persist_agent_event(done) earlier
     session = _make_session(existing)
 
-    # Poller derives AgentNode from .agent-task — pr_number is always None there.
+    # Poller-synthesised AgentNode before the PR is created — pr_number is None.
     agent = _make_agent(status=AgentStatus.REVIEWING)
     assert agent.pr_number is None  # precondition
 
@@ -188,8 +188,8 @@ async def test_pr_number_not_regressed_to_none_by_poller() -> None:
 
 
 @pytest.mark.anyio
-async def test_pr_number_advanced_when_agent_task_has_one() -> None:
-    """pr_number from .agent-task (non-None) must still be written to the DB."""
+async def test_pr_number_advanced_when_poller_sees_one() -> None:
+    """pr_number observed by the poller (non-None) must still be written to the DB."""
     existing = _make_run(status="implementing")
     existing.pr_number = None
     session = _make_session(existing)
@@ -198,7 +198,7 @@ async def test_pr_number_advanced_when_agent_task_has_one() -> None:
         id=existing.id,
         role="developer",
         status=AgentStatus.REVIEWING,
-        pr_number=99,  # set e.g. by a future .agent-task update
+        pr_number=99,  # set e.g. by a build_report_done event
     )
 
     await _persist._upsert_agent_runs(session, [agent])

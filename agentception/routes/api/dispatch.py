@@ -180,8 +180,7 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
     """Create a worktree and a ``pending_launch`` DB record.
 
     The worktree is the isolated git checkout the agent will work in.
-    All task context is persisted to the DB row — no ``.agent-task`` file is
-    written.  The ``pending_launch`` DB record is what the AgentCeption
+    All task context is persisted to the DB row.  The ``pending_launch`` DB record is what the AgentCeption
     Dispatcher reads via ``build_get_pending_launches`` to know what to spawn.
 
     Agents are NOT launched here.  The Dispatcher polls the pending queue
@@ -227,9 +226,7 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
 
     cognitive_arch = _resolve_cognitive_arch(req.issue_body, req.role)
 
-    # Persist all task context to DB — no .agent-task file is written.
-    # Agents read their briefing from ac://runs/{run_id}/context and the
-    # task/briefing MCP prompt, both of which are DB-backed.
+    # Persist all task context to DB; agents read via ac://runs/{run_id}/context.
     await persist_agent_run_dispatch(
         run_id=run_id,
         issue_number=req.issue_number,
@@ -356,7 +353,7 @@ class LabelDispatchRequest(BaseModel):
     label: str
     """Initiative label string, e.g. ``ac-workflow``."""
     scope: Literal["full_initiative", "phase", "issue"] = "full_initiative"
-    """Determines the tier and SCOPE_VALUE written to .agent-task."""
+    """Determines the tier and scope for this dispatch."""
     scope_label: str | None = None
     """Phase sub-label when *scope* is ``"phase"``."""
     scope_issue_number: int | None = None
@@ -377,7 +374,7 @@ class LabelDispatchRequest(BaseModel):
     org_tree: OrgNodeSpec | None = None
     """Full org tree designed in the Org Designer.
 
-    Written to ``.agent-task`` as ``org_tree_json`` (compact JSON string) so
+    Persisted to the DB row as ``org_tree_json`` (compact JSON string) so
     the launched agent knows the exact hierarchy it is expected to spawn.
     When absent the agent infers its own team structure from the ticket list.
     """
@@ -386,7 +383,7 @@ class LabelDispatchRequest(BaseModel):
 
     Used for incremental smoke-testing: prove one tier works before wiring it
     to the next.  The agent reads this flag from ``[spawn].cascade_enabled``
-    in its ``.agent-task`` and, if False, outputs its self-introduction,
+    via its context, and, if False, outputs its self-introduction,
     calls ``log_run_step`` + ``build_complete_run`` via MCP, and exits without
     querying GitHub or dispatching children.
     """
@@ -440,7 +437,7 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
     - ``"issue"`` → leaf, works on a single ticket.
 
     A worktree is always created so the agent runs in an isolated checkout.
-    All task context is persisted to the DB row — no ``.agent-task`` file is written.
+    All task context is persisted to the DB row.
 
     Raises:
         HTTPException 409: Worktree already exists.
@@ -505,7 +502,7 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
         "", role, figure_override=req.cognitive_arch_override
     )
 
-    # Persist all task context to DB — no .agent-task file is written.
+    # Persist all task context to DB.
     logger.warning(
         "🚀 dispatch-label: calling persist_agent_run_dispatch run_id=%r host_worktree_path=%r",
         run_id, host_worktree_path,

@@ -26,7 +26,6 @@ Resource URIs follow the ``ac://`` scheme with REST-like path segments:
     ac://runs/{run_id}/context        — full task context (DB-sourced RunContextRow)
     ac://runs/{run_id}/events         — structured event log
     ac://runs/{run_id}/events?after_id={n} — paginated event log
-    ac://runs/{run_id}/task           — raw .agent-task TOML (planning-pipeline plan-draft runs only)
     ac://batches/{batch_id}/tree      — full batch run tree
     ac://plan/figures/{role}          — cognitive-arch figures for a role
 """

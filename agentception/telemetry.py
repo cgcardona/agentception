@@ -2,12 +2,12 @@ from __future__ import annotations
 
 """Wave aggregation layer for the AgentCeption telemetry pipeline.
 
-Groups all ``.agent-task`` files by their ``BATCH_ID`` prefix and builds
+Groups all active worktrees by their ``BATCH_ID`` prefix and builds
 ``WaveSummary`` objects from filesystem signals.  File mtimes serve as proxy
 timestamps because agents write the task file at worktree creation time and
 update it on state changes — no separate log file is required.
 
-When no ``.agent-task`` files exist (all worktrees cleaned up), falls back
+When no active worktrees exist, falls back
 to ``ac_agent_runs`` rows from Postgres so the telemetry charts always have
 data to display.
 
@@ -63,7 +63,7 @@ class WaveSummary(BaseModel):
 
     A *wave* is the set of all agents that share the same ``BATCH_ID`` prefix
     (e.g. ``eng-20260301T203044Z-4161``).  ``started_at`` / ``ended_at`` are
-    UNIX timestamps derived from ``.agent-task`` file mtimes — they are
+    UNIX timestamps derived from worktree directory mtimes — they are
     approximations, not wall-clock measurements.
 
     ``ended_at`` is ``None`` when at least one worktree in the batch is still
@@ -84,7 +84,7 @@ class WaveSummary(BaseModel):
 async def aggregate_waves() -> list[WaveSummary]:
     """Return WaveSummary objects, preferring filesystem data, falling back to DB.
 
-    Primary source: ``.agent-task`` files in live worktrees (filesystem state).
+    Primary source: worktree directories (filesystem state).
     Fallback: ``ac_agent_runs`` rows from Postgres, used when all worktrees have
     been pruned so that the telemetry charts always show historical data.
 

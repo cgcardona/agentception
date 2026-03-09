@@ -1,8 +1,7 @@
 """Ad-hoc agent run endpoint.
 
 Provides a single endpoint that creates a fully self-contained agent run
-without requiring a GitHub issue, a wave, or a pre-written ``.agent-task``
-file.  The caller supplies a role, an optional cognitive figure, and a plain-
+without requiring a GitHub issue or a wave.  The caller supplies a role, an optional cognitive figure, and a plain-
 language task description.  The endpoint:
 
 1. Delegates to :func:`~agentception.services.run_factory.create_and_launch_run`.

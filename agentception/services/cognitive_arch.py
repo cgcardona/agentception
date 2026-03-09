@@ -3,7 +3,7 @@ from __future__ import annotations
 """Cognitive architecture resolution — service-layer module.
 
 Derives the COGNITIVE_ARCH string (``figure:skill1[:skill2]``) that is
-written into every ``.agent-task`` file at spawn time.
+written into the DB row at dispatch time.
 
 Resolution priority (highest to lowest):
 1. ``<!-- ac:cognitive_arch: figure:skills -->`` HTML comment embedded in the

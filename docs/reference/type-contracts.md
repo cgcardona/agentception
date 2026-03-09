@@ -175,7 +175,7 @@ All Pydantic `BaseModel` subclasses. Wire format is snake_case throughout.
 
 #### `IssueSub`
 
-`BaseModel` — One entry from `[[issue_queue]]` in a TOML `.agent-task` file.
+`BaseModel` — One entry from `[[issue_queue]]` in a TOML `DB context row.
 
 | Field | Type | Default |
 |-------|------|---------|
@@ -189,7 +189,7 @@ All Pydantic `BaseModel` subclasses. Wire format is snake_case throughout.
 
 #### `PRSub`
 
-`BaseModel` — One entry from `[[pr_queue]]` in a TOML `.agent-task` file.
+`BaseModel` — One entry from `[[pr_queue]]` in a TOML `DB context row.
 
 | Field | Type | Default |
 |-------|------|---------|
@@ -204,7 +204,7 @@ All Pydantic `BaseModel` subclasses. Wire format is snake_case throughout.
 
 #### `TaskFile`
 
-`BaseModel` — Parsed content of a `.agent-task` TOML file. All fields optional for lenient parsing.
+`BaseModel` — Parsed content of a `ac://runs/{run_id}/context` TOML file. All fields optional for lenient parsing.
 
 | Section | Field | Type | Default | Description |
 |---------|-------|------|---------|-------------|
@@ -286,7 +286,7 @@ All Pydantic `BaseModel` subclasses. Wire format is snake_case throughout.
 | | `worktree` | `str` | Container-side worktree path |
 | | `host_worktree` | `str` | Host-side path for Cursor |
 | | `branch` | `str` | Git branch name |
-| | `agent_task` | `str` | Raw `.agent-task` file content |
+| | `agent_task` | `str` | Raw `DB context row content |
 | | `spawned_at` | `str` | ISO-8601 UTC timestamp |
 
 #### `SpawnConductorRequest` / `SpawnConductorResult`
@@ -299,7 +299,7 @@ All Pydantic `BaseModel` subclasses. Wire format is snake_case throughout.
 | | `worktree` | `str` | Container-side path |
 | | `host_worktree` | `str` | Host-side path |
 | | `branch` | `str` | Git branch |
-| | `agent_task` | `str` | Task file content |
+| | `agent_task` | `str` | DB context row content |
 
 #### `SpawnCoordinatorRequest` / `SpawnCoordinatorResult`
 
@@ -311,7 +311,7 @@ All Pydantic `BaseModel` subclasses. Wire format is snake_case throughout.
 | | `worktree` | `str` | Container-side path |
 | | `host_worktree` | `str` | Host-side path |
 | | `branch` | `str` | Git branch |
-| | `agent_task` | `str` | Task file content |
+| | `agent_task` | `str` | DB context row content |
 
 ### Role Studio API
 
@@ -785,7 +785,7 @@ Named `TypedDict` for every shape in the MCP JSON-RPC 2.0 wire protocol. No `dic
 | `ac://runs/{run_id}` | Single run metadata |
 | `ac://runs/{run_id}/children` | Child runs |
 | `ac://runs/{run_id}/events` | Structured event log (append `?after_id=N` to paginate) |
-| `ac://runs/{run_id}/task` | Raw `.agent-task` TOML |
+| `ac://runs/{run_id}/task` | Raw `ac://runs/{run_id}/context` TOML |
 | `ac://batches/{batch_id}/tree` | Full batch run tree |
 | `ac://system/dispatcher` | Dispatcher counters |
 | `ac://system/health` | DB reachability + status counts |
@@ -979,9 +979,9 @@ AgentCeption
 │   │   └── PipelineState            — BaseModel: full pipeline snapshot (SSE broadcast)
 │   │
 │   ├── Task File
-│   │   ├── IssueSub                 — BaseModel: [[issue_queue]] entry in .agent-task
-│   │   ├── PRSub                    — BaseModel: [[pr_queue]] entry in .agent-task
-│   │   └── TaskFile                 — BaseModel: full parsed .agent-task TOML
+│   │   ├── IssueSub                 — BaseModel: issue queue entry in coordinator dispatch
+│   │   ├── PRSub                    — BaseModel: PR review queue entry in coordinator dispatch
+│   │   └── TaskFile                 — BaseModel: full parsed DB context
 │   │
 │   ├── Pipeline Configuration
 │   │   ├── AbModeConfig             — BaseModel: A/B role experimentation

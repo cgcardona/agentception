@@ -94,7 +94,7 @@ class AgentCeptionSettings(BaseSettings):
     Inside Docker, ``worktrees_dir`` is the container path (``/worktrees``).
     ``host_worktrees_dir`` is the corresponding path on the developer's machine
     (e.g. ``~/.agentception/worktrees``), used to generate paths that the
-    user can open directly in Cursor and that the agent-task file embeds.
+    user can open directly in Cursor.
     Set via ``HOST_WORKTREES_DIR`` in docker-compose.override.yml.
     """
     repo_dir: Path = Path.cwd()

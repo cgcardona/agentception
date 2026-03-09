@@ -1,7 +1,7 @@
 """Ticket analyzer for AgentCeption.
 
 Parses an issue body and returns structured recommendations used by the
-Eng VP seed loop when generating ``.agent-task`` files.  All heuristics are
+Eng VP seed loop.  All heuristics are
 intentionally simple and rule-based so that results are deterministic and
 testable without a live model call.
 

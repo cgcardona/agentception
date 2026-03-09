@@ -104,35 +104,11 @@ if [ -d "$WT" ]; then
 fi
 git worktree add --detach "$WT" "$DEV_SHA"
 
-# Write the conductor task file.
-# PHASE_FILTER: leave empty to run the full pipeline, or set to a single phase
-# label (e.g. phase/2) to limit scope to one phase.
-cat > "$WT/.agent-task" <<TASKEOF
-[task]
-version = "0.1.1"
-workflow = "conductor"
-id = "$(uuidgen | tr '[:upper:]' '[:lower:]')"
-created_at = "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-attempt_n = 0
-required_output = "pipeline_status_report"
-on_block = "escalate"
-
-[agent]
-role = "conductor"
-tier = "coordinator"
-
-[repo]
-gh_repo = "$GH_REPO"
-base = "dev"
-
-[target]
-phase_filter = ""
-max_issues_per_dispatch = 12
-max_prs_per_dispatch = 12
-
-[worktree]
-path = "$WT"
-TASKEOF
+# Use the build_spawn_child MCP tool to create the conductor worktree and persist
+# context to the DB. No .agent-task file is written — context lives in ac_agent_runs.
+# build_spawn_child will create the worktree branch and record all fields below
+# (workflow, role, gh_repo, phase_filter, max_issues_per_dispatch, etc.) as the
+# run context row, accessible via ac://runs/{run_id}/context.
 
 echo "✅ conductor worktree ready: $WT"
 git worktree list
@@ -151,21 +127,25 @@ Read .agentception/agent-command-policy.md before issuing any shell commands.
 Green-tier commands run without confirmation. Yellow = check scope first.
 Red = never, ask the user instead.
 
-STEP 0 — READ YOUR TASK FILE AND COGNITIVE ARCHITECTURE:
-  cat .agent-task
+STEP 0 — READ YOUR TASK BRIEFING AND COGNITIVE ARCHITECTURE:
+  # Read context from ac://runs/{run_id}/context
+  # All fields below come from the DB-backed run context row, delivered via
+  # the task/briefing MCP prompt. No file reading required.
 
-  Parse all KEY=value fields:
+  Parse all fields from your briefing:
     GH_REPO                → GitHub repo slug (always cgcardona/agentception)
     PHASE_FILTER           → restrict to one phase, or empty for all
     MAX_ISSUES_PER_DISPATCH → cap on parallel ISSUE_TO_PR agents (safety valve)
     MAX_PRS_PER_DISPATCH   → cap on parallel PR_REVIEW agents (safety valve)
     ATTEMPT_N              → how many times conductor has run without progress
 
-  Export:
-    export GH_REPO=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['repo']['gh_repo'])")
+  Export (values come from your briefing context, not from a file):
+    # Read from ac://runs/{run_id}/context → repo.gh_repo
     export GH_REPO=${GH_REPO:-cgcardona/agentception}
-    PHASE_FILTER=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('task',{}).get('phase_filter',''))")
-    ATTEMPT_N=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['task']['attempt_n'])")
+    # Read from ac://runs/{run_id}/context → task.phase_filter
+    PHASE_FILTER=""
+    # Read from ac://runs/{run_id}/context → task.attempt_n
+    ATTEMPT_N=0
     REPO=$(git worktree list | head -1 | awk '{print $1}')
 
 Your cognitive architecture and full task context were delivered in your initial message
@@ -377,7 +357,8 @@ STEP 5 — DISPATCH COORDINATORS:
     echo "  MCP: list_issues(owner='cgcardona', repo='agentception', labels=[<active_phase>], state='open')"
     echo "Match these issue numbers to confirm the set before creating worktrees."
     echo ""
-    echo "Coordinator constraint: MAX_ISSUES_PER_DISPATCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('task',{}).get('max_issues_per_dispatch','4'))")"
+    # Read from ac://runs/{run_id}/context → task.max_issues_per_dispatch
+    echo "Coordinator constraint: MAX_ISSUES_PER_DISPATCH=${MAX_ISSUES_PER_DISPATCH:-4}"
     echo "If more issues exist than the limit, prioritize by batch label (lowest batch-NN first)."
     # LAUNCH: use the Task tool to spawn the coordinator agent.
     # The coordinator reads PARALLEL_ISSUE_TO_PR.md and follows its coordinator role.
@@ -392,7 +373,8 @@ STEP 5 — DISPATCH COORDINATORS:
     echo "Target PRs:"
     for i in "${READY_PRS[@]}"; do echo "  #${i%%|*}: ${i##*|}"; done
     echo ""
-    echo "Coordinator constraint: MAX_PRS_PER_DISPATCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d.get('task',{}).get('max_prs_per_dispatch','4'))")"
+    # Read from ac://runs/{run_id}/context → task.max_prs_per_dispatch
+    echo "Coordinator constraint: MAX_PRS_PER_DISPATCH=${MAX_PRS_PER_DISPATCH:-4}"
     echo "If more PRs exist than the limit, prioritize by batch label (lowest batch-NN first)."
     # LAUNCH: use the Task tool to spawn the coordinator agent.
     # The coordinator reads PARALLEL_PR_REVIEW.md and follows its coordinator role.
@@ -575,9 +557,9 @@ These are patterns from real multi-agent systems. The conductor addresses each:
 | Orphaned subagent (child spins, parent unaware) | STEP 1: orphan worktree cleanup before every run |
 | Recursive thinking loop (plan, never execute) | STEP 0: ATTEMPT_N > 3 → abort and escalate |
 | Spec drift (parent updates, child continues old spec) | Conductor reads canonical prompts by file path — always current |
-| Semantic telephone (intent mutates across hops) | `.agent-task` is the spec; coordinators read it directly — no retelling |
+| Semantic telephone (intent mutates across hops) | DB-backed run context (`ac://runs/{run_id}/context`) is the spec; coordinators read it directly — no retelling |
 | False completion ("Done" with no artifact) | STEP 6: coordinator reports must include PR URLs or merge status |
-| Context drift after summarization | Conductor re-reads `.agent-task` at each STEP (no state in memory) |
+| Context drift after summarization | Conductor re-reads run context from `ac://runs/{run_id}/context` at each STEP (no state in memory) |
 | Watchdog chain paradox (who watches the watchdog?) | Conductor reminder issue is the external signal; human is the top watchdog |
 | Cross-agent race conditions | Phase ordering + FILE_OWNERSHIP in task files — same as before |
 | Gated dependency deadlock | STEP 4: human approval gate surfaces gated items explicitly |

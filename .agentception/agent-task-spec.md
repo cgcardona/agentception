@@ -1,6 +1,6 @@
 # Agent Task Context — DB-Backed Specification
 
-> **Version:** 3.0  
+> **Version:** 0.1.1 
 > **Source:** `ACAgentRun` DB row  
 > **Access:** `ac://runs/{run_id}/context` MCP resource · `task/briefing` MCP prompt  
 > **Parsed by:** `agentception/db/queries.py` → `RunContextRow` TypedDict
@@ -125,8 +125,6 @@ Both sources are authoritative — they read the same DB row.
 
 ## Planning pipeline (coordinator/conductor)
 
-Coordinator and conductor agents write `.agent-task` TOML files for **plan-draft**
-workflows only (brain-dump → YAML generation via the plan UI).  These files are read
-by `agentception/readers/worktrees.py` and are not part of the standard dispatch
-pipeline.  Plan-draft files are accessible via `ac://runs/{run_id}/task` but are
-unrelated to `RunContextRow`.
+Coordinator and conductor agents receive their full context exclusively via
+`task/briefing` and `ac://runs/{run_id}/context` — the same as all other agents.
+No external files are written or read during dispatch.

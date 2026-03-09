@@ -286,7 +286,7 @@ TOOLS: list[ACToolDef] = [
             "This is the MCP-native way for a coordinator to dispatch engineer agents. "
             "It creates a git worktree, a DB row with parent_run_id linking it to this "
             "coordinator, and fires the agent loop immediately as an asyncio task. "
-            "No .agent-task file is written — the child receives its context entirely "
+            "The child receives its context entirely "
             "via the task/briefing MCP prompt and ac://runs/{run_id}/context resource. "
             "Returns {ok, child_run_id, worktree_path, cognitive_arch}. "
             "After calling this tool, use query_run_status to poll for completion."

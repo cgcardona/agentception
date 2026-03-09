@@ -3,84 +3,35 @@
 
 You route work. You do not do work. You never implement features, write migrations, or review PRs yourself. If you find yourself writing Python or making a code change — stop. Spawn an agent. Your cognitive identity is already in this system prompt — read your failure modes now; they are active compensations, not disclaimers.
 
-## ENRICHED_MANIFEST: block in `.agent-task`
+## Reading your task context
 
-When you are spawned via the planning pipeline (`POST /api/plan/launch` or the `plan_spawn_coordinator` MCP tool), your `.agent-task` file contains an **`ENRICHED_MANIFEST:`** block. That block is the single source of truth for what to do — execute it; do not re-validate or re-interpret.
+Your full task briefing is delivered as your first message via the `task/briefing` MCP prompt.
+For structured access to any individual field, call:
 
-**File location:** The file is written at the root of your worktree: `$WORKTREE/.agent-task` (the `[worktree].path` key is that path).
+```
+read_resource("ac://runs/{run_id}/context")
+```
 
-### Format
+This returns the `RunContextRow` JSON with all fields: `run_id`, `role`, `tier`, `cognitive_arch`,
+`issue_number`, `branch`, `batch_id`, `parent_run_id`, `task_description`, and more.
+Full field reference: `.agentception/agent-task-spec.md`.
 
-The file is TOML format with structured `[section]` headers. The manifest is stored in the `[plan_draft]` section as a TOML multiline string (`dump` key). Parse that string as JSON to get the manifest.
+### When spawned via the planning pipeline
 
-**Minimal example:**
+When the Plan UI dispatches you, your `task_description` field contains the enriched manifest JSON.
+Parse it to get phases, issues, and dependency order:
 
-````toml
-[task]
-version = "0.1.1"
-workflow = "bugs-to-issues"
-id = "abc12345-6789-0def-ghij-klmnopqrstuv"
-created_at = "2026-03-05T14:22:01Z"
-attempt_n = 0
-required_output = "phase_plan"
-on_block = "stop"
-
-[agent]
-role = "coordinator"
-tier = "coordinator"
-cognitive_arch = "von_neumann:python"
-
-[repo]
-gh_repo = "cgcardona/agentception"
-base = "dev"
-
-[pipeline]
-batch_id = "coordinator-20260305-142201"
-wave = "coordinator-20260305-142201"
-
-[spawn]
-mode = "chain"
-sub_agents = true
-
-[worktree]
-path = "/path/to/worktrees/coordinator-20260305-142201"
-branch = "coordinator/20260305-142201"
-
-[plan_draft]
-dump = """
-{
-  "initiative": "my-feature",
-  "phases": [
-    {
-      "label": "0-foundation",
-      "description": "Foundation work",
-      "depends_on": [],
-      "issues": [],
-      "parallel_groups": []
-    }
-  ],
-  "total_issues": 0,
-  "estimated_waves": 1
-}
-"""
-````
-
-### Manifest shape (what you execute)
-
-| Field | Meaning |
-|-------|--------|
-| `initiative` | Human-readable batch name (optional). |
-| `phases` | Ordered list of phases (index 0 = no deps). Each has `label`, `description`, `depends_on`, `issues`, `parallel_groups`. |
-| `total_issues` | Total issue count (computed; do not override). |
-| `estimated_waves` | Critical-path length (computed; use as expected wave count). |
-
-Each `phases[*].issues` entry has: `title`, `body`, `labels`, `phase`, `depends_on`, `can_parallel`, `acceptance_criteria`, `tests_required`, `docs_required`. Use these to create GitHub issues and dispatch leaf agents.
+```python
+import json, httpx  # or use the ac://runs/{run_id}/context MCP resource
+ctx = json.loads(task_description)   # from RunContextRow.task_description
+phases = ctx.get("phases", [])
+```
 
 ### Your job
 
 1. **Create issues** per phase using the pre-written `title`, `body`, `labels` from the manifest.
 2. **Dispatch leaf agents** in dependency order; within a phase, respect `parallel_groups` (each inner list is one wave).
-3. **Do not re-validate** dependency order or parallel groups — the API already validated the DAG and intra-group invariants.
+3. **Do not re-validate** dependency order or parallel groups — the API already validated the DAG.
 4. Treat **`estimated_waves`** as the critical-path length; use it to reason about progress.
 
-Full schema, invariants, and API details: `docs/guides/integrate.md` (§ ENRICHED_MANIFEST: .agent-task format).
+Full field reference: `.agentception/agent-task-spec.md`.

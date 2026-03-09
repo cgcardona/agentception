@@ -9,9 +9,9 @@
 
 ## Summary
 
-Cognitive architecture (`cognitive_arch`) is resolved and written to every `.agent-task` file at spawn time — without exception — across all five spawn paths identified in this audit.  The breakdown occurs one step later: **whether the agent actually reads and announces its architecture** depends entirely on whether its role file contains the `MANDATORY FIRST RESPONSE` self-introduction block.  Only three role files include this block (`cto.md`, `engineering-coordinator.md`, `qa-coordinator.md`).  Every leaf role file — 44 files — is silent.
+Cognitive architecture (`cognitive_arch`) is resolved and written to every `DB context row at spawn time — without exception — across all five spawn paths identified in this audit.  The breakdown occurs one step later: **whether the agent actually reads and announces its architecture** depends entirely on whether its role file contains the `MANDATORY FIRST RESPONSE` self-introduction block.  Only three role files include this block (`cto.md`, `engineering-coordinator.md`, `qa-coordinator.md`).  Every leaf role file — 44 files — is silent.
 
-A second, independent bug exists at the root: **`cto.md` hardcodes `COGNITIVE_ARCH="von_neumann"`** instead of reading the field from its own `.agent-task`.  This means the CTO always loads the `von_neumann` persona regardless of what `_resolve_cognitive_arch()` resolved at spawn time.
+A second, independent bug exists at the root: **`cto.md` hardcodes `COGNITIVE_ARCH="von_neumann"`** instead of reading the field from its own `ac://runs/{run_id}/context`.  This means the CTO always loads the `von_neumann` persona regardless of what `_resolve_cognitive_arch()` resolved at spawn time.
 
 ---
 
@@ -24,18 +24,18 @@ A second, independent bug exists at the root: **`cto.md` hardcodes `COGNITIVE_AR
 | 3 | `POST /api/dispatch/label` (scope=phase) | `agentception/routes/api/dispatch.py:499` | coordinator | **Y** | **Y** (via build_spawn_child) | **Y** |
 | 4 | `POST /api/dispatch/label` (scope=issue) | `agentception/routes/api/dispatch.py:499` | leaf / engineer | **Y** | N/A (leaf) | **N** |
 | 5 | `build_spawn_child` MCP tool → `spawn_child()` service | `agentception/mcp/build_tools.py:210`, `agentception/services/spawn_child.py:352` | any (coordinator or leaf) | **Y** | **Y** (all children) | **Conditional** *(Y for coordinator roles, N for leaf roles)* |
-| 6 | `plan_spawn_coordinator` MCP tool → `_build_coordinator_task()` | `agentception/mcp/plan_tools.py:220`, `agentception/routes/api/_shared.py:116` | coordinator (bugs-to-issues workflow) | **Y** | **Y** (hardcoded from `ROLE_DEFAULT_FIGURE`) | **Y** |
+| 6 | `build_spawn_child` MCP tool → `_build_coordinator_task()` | `agentception/mcp/plan_tools.py:220`, `agentception/routes/api/_shared.py:116` | coordinator (bugs-to-issues workflow) | **Y** | **Y** (hardcoded from `ROLE_DEFAULT_FIGURE`) | **Y** |
 | 7 | `_build_conductor_task()` | `agentception/routes/api/_shared.py:180` | coordinator / conductor | **Y** | **Y** (hardcoded from `ROLE_DEFAULT_FIGURE`) | **Y** |
 | 8 | Engineering Coordinator → `build_spawn_child` (per-issue) | `.agentception/roles/engineering-coordinator.md:158` | leaf / engineer | **Y** | N/A (leaf) | **N** |
 | 9 | QA Coordinator → `build_spawn_child` (per-PR) | `.agentception/roles/qa-coordinator.md` | leaf / pr-reviewer | **Y** | N/A (leaf) | **N** |
 | 10 | CTO sub-spawn (engineering-coordinator child) | `.agentception/roles/cto.md:~290` | coordinator | **Y** | **Y** | **Y** |
 | 11 | CTO sub-spawn (qa-coordinator child) | `.agentception/roles/cto.md:~3888` | coordinator | **Y** | **Y** | **Y** |
-| 12 | Dispatcher → Task call for coordinator | `.agentception/dispatcher.md:100` | coordinator | **Y** *(in .agent-task)* | **Y** | **Y** *(role file reads from .agent-task)* |
-| 13 | Dispatcher → Task call for leaf engineer/reviewer | `.agentception/dispatcher.md:154` | leaf | **Y** *(in .agent-task)* | N/A (leaf) | **N** |
+| 12 | Dispatcher → Task call for coordinator | `.agentception/dispatcher.md:100` | coordinator | **Y** *(in DB context)* | **Y** | **Y** *(role file reads from DB context)* |
+| 13 | Dispatcher → Task call for leaf engineer/reviewer | `.agentception/dispatcher.md:154` | leaf | **Y** *(in DB context)* | N/A (leaf) | **N** |
 
 **Column definitions:**
-- `arch_received` — Is `cognitive_arch` written into the agent's `.agent-task` file?
-- `arch_forwarded` — When the agent spawns children, is `cognitive_arch` resolved and written into each child's `.agent-task`?  (N/A for leaves that do not spawn children.)
+- `arch_received` — Is `cognitive_arch` written into the agent's `DB context row?
+- `arch_forwarded` — When the agent spawns children, is `cognitive_arch` resolved and written into each child's `ac://runs/{run_id}/context`?  (N/A for leaves that do not spawn children.)
 - `intro_triggered` — Does the agent produce the mandatory `🧠 Cognitive architecture correctly injected.` self-introduction as its first visible response?
 
 ---
@@ -47,10 +47,10 @@ A second, independent bug exists at the root: **`cto.md` hardcodes `COGNITIVE_AR
 **File:** `agentception/routes/api/dispatch.py`  
 **Lines:** 159–266
 
-This route creates a worktree and `.agent-task` for a single-issue leaf engineer.
+This route creates a worktree and `ac://runs/{run_id}/context` for a single-issue leaf engineer.
 
 ```python
-# dispatch.py:212
+# dispatch.py:212 (historical — _build_agent_task now persists to DB)
 cognitive_arch = _resolve_cognitive_arch(req.issue_body, req.role)
 agent_task = _build_agent_task(
     ...
@@ -59,9 +59,9 @@ agent_task = _build_agent_task(
 )
 ```
 
-`_resolve_cognitive_arch` is called with `req.issue_body` (may be empty) and `req.role`.  The resolved string is written to `[agent].cognitive_arch` in the TOML.
+`_resolve_cognitive_arch` is called with `req.issue_body` (may be empty) and `req.role`.  The resolved string is persisted to the DB context row as `cognitive_arch`.
 
-**Gap:** The leaf role file (e.g., `python-developer.md`) contains no `MANDATORY FIRST RESPONSE` block.  The agent reads `cognitive_arch` from its `.agent-task` only when generating the fingerprint comment — it never announces the architecture as a first-response signal.
+**Gap:** The leaf role file (e.g., `python-developer.md`) contains no `MANDATORY FIRST RESPONSE` block.  The agent reads `cognitive_arch` from its `ac://runs/{run_id}/context` only when generating the fingerprint comment — it never announces the architecture as a first-response signal.
 
 ---
 
@@ -81,7 +81,7 @@ The empty `issue_body` means the arch is determined by role alone (figure from `
 
 **Gap (scope=issue leaf):** Same as Path 1 — leaf role file has no self-introduction block.
 
-**Note (scope=full_initiative / CTO):** `cto.md` has the `MANDATORY FIRST RESPONSE` block but hardcodes `COGNITIVE_ARCH="von_neumann"` instead of reading from `.agent-task` (see Root Cause #1 below).
+**Note (scope=full_initiative / CTO):** `cto.md` has the `MANDATORY FIRST RESPONSE` block but hardcodes `COGNITIVE_ARCH="von_neumann"` instead of reading from `ac://runs/{run_id}/context` (see Root Cause #1 below).
 
 ---
 
@@ -107,7 +107,7 @@ cognitive_arch = _resolve_cognitive_arch(
 
 ---
 
-### Path 6 — `plan_spawn_coordinator` MCP tool
+### Path 6 — `build_spawn_child` MCP tool
 
 **File:** `agentception/mcp/plan_tools.py:220`  
 **Called by:** Phase 1B planning agent (human-initiated)
@@ -158,7 +158,7 @@ build_spawn_child(
 
 **QA Coordinator** spawns `pr-reviewer` leaves via the same MCP tool.
 
-In both cases, cognitive_arch IS resolved and written to the child's `.agent-task`.  But neither `python-developer.md` nor `pr-reviewer.md` contain a `MANDATORY FIRST RESPONSE` block.
+In both cases, cognitive_arch IS resolved and written to the child's `ac://runs/{run_id}/context`.  But neither `python-developer.md` nor `pr-reviewer.md` contain a `MANDATORY FIRST RESPONSE` block.
 
 ---
 
@@ -179,13 +179,13 @@ GH_REPO:     {gh_repo}
 AC_URL:      http://localhost:10003
 ```
 
-For leaf agents, the briefing is similarly arch-free.  The agent must read `COGNITIVE_ARCH` from its `.agent-task` on its own — which coordinator role files do (as part of STEP 0) but leaf role files do not (for the intro announcement).
+For leaf agents, the briefing is similarly arch-free.  The agent must read `COGNITIVE_ARCH` from its `ac://runs/{run_id}/context` on its own — which coordinator role files do (as part of STEP 0) but leaf role files do not (for the intro announcement).
 
 ---
 
 ## Role File Coverage Matrix
 
-| Role file | Has STEP 0 (reads arch from .agent-task) | Has MANDATORY FIRST RESPONSE | Intro triggered |
+| Role file | Has STEP 0 (reads arch from DB context) | Has MANDATORY FIRST RESPONSE | Intro triggered |
 |---|---|---|---|
 | `cto.md` | N — hardcodes `COGNITIVE_ARCH="von_neumann"` | **Y** | **Partial** (hardcoded arch announced, not the resolved one) |
 | `engineering-coordinator.md` | **Y** (line 17) | **Y** (line 29) | **Y** |
@@ -198,7 +198,7 @@ For leaf agents, the briefing is similarly arch-free.  The agent must read `COGN
 
 ## Root Cause Summary
 
-### Root Cause #1 — CTO hardcodes cognitive arch instead of reading from `.agent-task`
+### Root Cause #1 — CTO hardcodes cognitive arch instead of reading from `ac://runs/{run_id}/context`
 
 **File:** `.agentception/roles/cto.md`  
 **Line:** 52
@@ -207,7 +207,7 @@ For leaf agents, the briefing is similarly arch-free.  The agent must read `COGN
 COGNITIVE_ARCH="von_neumann"
 ```
 
-The CTO role file does not read `[agent].cognitive_arch` from the `.agent-task` file.  It hardcodes `"von_neumann"` — meaning:
+The CTO role file does not read `[agent].cognitive_arch` from the `DB context row.  It hardcodes `"von_neumann"` — meaning:
 
 1. The CTO always loads the `von_neumann` persona regardless of what `_resolve_cognitive_arch()` resolved.
 2. If the CTO was dispatched with a different role mapping (e.g., via a future config change to `ROLE_DEFAULT_FIGURE["cto"]`), the role file would silently ignore it.
@@ -215,10 +215,10 @@ The CTO role file does not read `[agent].cognitive_arch` from the `.agent-task` 
 **Contrast with `engineering-coordinator.md` line 17** (which correctly reads):
 
 ```bash
-COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task').read()); print(d['agent']['cognitive_arch'])")
+COGNITIVE_ARCH="<from RunContextRow.cognitive_arch via ac://runs/{run_id}/context>"
 ```
 
-**Fix:** Replace line 52 of `cto.md` with a TOML read identical to `engineering-coordinator.md:17`.
+**Fix:** Replace line 52 of `cto.md` with a DB context read identical to `engineering-coordinator.md:17`.
 
 ---
 
@@ -227,15 +227,15 @@ COGNITIVE_ARCH=$(python3 -c "import tomllib; d=tomllib.loads(open('.agent-task')
 **Files:** All role files except `cto.md`, `engineering-coordinator.md`, `qa-coordinator.md`  
 **Examples:** `python-developer.md`, `pr-reviewer.md`, `frontend-developer.md`, `architect.md`, (41 more)
 
-Leaf role files read `cognitive_arch` from `.agent-task` only to generate a fingerprint comment (`resolve_arch.py --fingerprint`, `python-developer.md:88`).  They do NOT call `resolve_arch.py --mode implementer` to load the full cognitive context block, and they contain no `MANDATORY FIRST RESPONSE` announcement.
+Leaf role files read `cognitive_arch` from `ac://runs/{run_id}/context` only to generate a fingerprint comment (`resolve_arch.py --fingerprint`, `python-developer.md:88`).  They do NOT call `resolve_arch.py --mode implementer` to load the full cognitive context block, and they contain no `MANDATORY FIRST RESPONSE` announcement.
 
 This means:
-- The `cognitive_arch` field is correctly written to the leaf's `.agent-task` at spawn time.
+- The `cognitive_arch` field is correctly written to the leaf's `ac://runs/{run_id}/context` at spawn time.
 - The leaf agent reads the field for fingerprinting.
 - But the agent never loads the full persona context (traits, reasoning style, epistemic stance).
 - And the agent never announces its architecture — the first-response signal is absent.
 
-**Fix:** Add a STEP 0 block identical in structure to `engineering-coordinator.md:13–45` to every leaf role file.  The block should (a) read `cognitive_arch` from `.agent-task`, (b) call `resolve_arch.py --mode implementer`, and (c) emit the `🧠 Cognitive architecture correctly injected.` mandatory first response.
+**Fix:** Add a STEP 0 block identical in structure to `engineering-coordinator.md:13–45` to every leaf role file.  The block should (a) read `cognitive_arch` from `ac://runs/{run_id}/context`, (b) call `resolve_arch.py --mode implementer`, and (c) emit the `🧠 Cognitive architecture correctly injected.` mandatory first response.
 
 ---
 
@@ -244,9 +244,9 @@ This means:
 **File:** `.agentception/dispatcher.md`  
 **Lines:** 100–149 (coordinator briefing), 154–186 (leaf briefing)
 
-Neither briefing template includes `COGNITIVE_ARCH` as an inline field.  Both coordinator and leaf agents must discover it by reading `.agent-task`.  Coordinator role files do this (STEP 0), so coordinators are unaffected.  Leaf role files do not perform a discovery step for announcement purposes, so the omission compounds Root Cause #2.
+Neither briefing template includes `COGNITIVE_ARCH` as an inline field.  Both coordinator and leaf agents must discover it by reading `ac://runs/{run_id}/context`.  Coordinator role files do this (STEP 0), so coordinators are unaffected.  Leaf role files do not perform a discovery step for announcement purposes, so the omission compounds Root Cause #2.
 
-**Fix (secondary):** Add `COGNITIVE_ARCH: {cognitive_arch}` to both briefing templates so the field is surfaced even before the agent reads `.agent-task`.  This is a defense-in-depth fix — the primary fix is Root Cause #2.
+**Fix (secondary):** Add `COGNITIVE_ARCH: {cognitive_arch}` to both briefing templates so the field is surfaced even before the agent reads `ac://runs/{run_id}/context`.  This is a defense-in-depth fix — the primary fix is Root Cause #2.
 
 ---
 
@@ -347,7 +347,7 @@ The enforcement is layered across two paths:
 
 All seven role templates (`scripts/gen_prompts/templates/roles/*.md.j2`) include an updated `STEP 0` block that:
 
-1. Reads `IS_RESUMED` from the `.agent-task` file.
+1. Reads `IS_RESUMED` from the `DB context row.
 2. When `IS_RESUMED=False`, requires the agent to output the self-introduction sentence as its first visible response before any other action.
 3. When `IS_RESUMED=True`, skips the announcement entirely.
 
@@ -355,11 +355,11 @@ The format is consistent across all tiers.
 
 ### `is_resumed` flag
 
-The `[task]` section of every `.agent-task` file now includes `is_resumed = false` (default). This flag is:
+The `[task]` section of every `DB context row now includes `is_resumed = false` (default). This flag is:
 
-- Written by all three task builders (`_build_agent_task`, `_build_coordinator_task`, `_build_conductor_task`) and by `_build_child_task` in `spawn_child.py`.
+- Persisted to DB by the dispatch layer (`_build_coordinator_task`, `_build_conductor_task`) and by `_build_child_task` in `spawn_child.py`. (`_build_agent_task` is the historical name for this operation.)
 - Parsed by `_build_task_file_from_toml()` in `readers/worktrees.py` into the `TaskFile.is_resumed` field.
-- Read by STEP 0 in every role template via a `python3 -c "import tomllib; ..."` one-liner.
+- Read by STEP 0 in every role template via `ac://runs/{run_id}/context`.
 
 When agent resumption is implemented (see #29), set `is_resumed=True` at the spawn-child call site and the self-introduction will be automatically suppressed.
 
@@ -374,7 +374,7 @@ When agent resumption is implemented (see #29), set `is_resumed=True` at the spa
 | | `test_build_system_prompt_includes_intro_before_role_for_fresh_agent` | Intro instruction is between persona and role in the assembled prompt |
 | | `test_build_system_prompt_omits_intro_for_resumed_agent` | Resumed agents get no intro instruction |
 | | `test_all_tiers_self_introduce` | **Integration:** coordinator, sub-coordinator, and leaf prompts all contain the self-introduction |
-| | `test_build_agent_task_writes_is_resumed_false` | `_build_agent_task` writes `is_resumed = false` by default |
-| | `test_build_agent_task_writes_is_resumed_true` | `_build_agent_task` writes `is_resumed = true` when set |
-| | `test_parse_agent_task_reads_is_resumed_false` | `parse_agent_task` maps absent `is_resumed` → `False` |
-| | `test_parse_agent_task_reads_is_resumed_true` | `parse_agent_task` maps `is_resumed = true` → `True` |
+| | `test_build_agent_task_writes_is_resumed_false` | dispatch layer persists `is_resumed = false` to the DB context row by default |
+| | `test_build_agent_task_writes_is_resumed_true` | dispatch layer persists `is_resumed = true` to the DB context row when set |
+| | `test_parse_agent_task_reads_is_resumed_false` | DB context row parser maps absent `is_resumed` → `False` |
+| | `test_parse_agent_task_reads_is_resumed_true` | DB context row parser maps `is_resumed = true` → `True` |

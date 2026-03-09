@@ -368,27 +368,17 @@ COGNITIVE_ARCH=dijkstra
 
 ## Integration with the Agent Pipeline
 
-### `.agent-task` file
+### Task context (DB-backed RunContextRow)
 
-The engineering coordinator or QA coordinator writes `COGNITIVE_ARCH` to `.agent-task`
-at spawn time. Leaf agents read it at startup.
-
-```bash
-# .agent-task (written by engineering coordinator)
-ISSUE=671
-WORKTREE="/path/to/worktree"
-ROLE_FILE="<repo-root>/.agentception/roles/developer.md"
-ISSUE_LABEL="agentception/2-telemetry"
-SPAWN_MODE=direct
-COGNITIVE_ARCH=lovelace:htmx:jinja2:alpine   # ← new multi-skill format
-```
+The dispatch layer persists `COGNITIVE_ARCH` to the DB context row (`RunContextRow.cognitive_arch`)
+at spawn time. Leaf agents read it from `ac://runs/{run_id}/context` at startup.
 
 ### Prompt injection flow
 
-At agent startup (STEP 0.5 of `PARALLEL_ISSUE_TO_PR.md`):
+At agent startup (STEP 0 of the role template):
 
 ```bash
-COGNITIVE_ARCH=$(grep '^COGNITIVE_ARCH=' .agent-task | cut -d= -f2)
+COGNITIVE_ARCH="<from RunContextRow.cognitive_arch via ac://runs/{run_id}/context>"
 ARCH_CONTEXT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" \
   "$COGNITIVE_ARCH" --mode implementer)
 echo "$ARCH_CONTEXT"
@@ -529,8 +519,7 @@ scripts/gen_prompts/
    generation at spawn time.
 
 5. **Observable.** The engineering coordinator logs which architecture it selected
-   and why. The `.agent-task` file is committed to the worktree for post-hoc
-   analysis.
+   and why. The DB context row is the canonical record for post-hoc analysis.
 
 6. **Escapable.** `COGNITIVE_ARCH=none` disables injection entirely, falling
    back to the raw role file. No agent is forced into a cognitive mode.
