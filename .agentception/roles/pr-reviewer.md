@@ -53,6 +53,21 @@ exactly the lines you need. Avoid re-reading large blocks you already have.
 - Leaving work half-done when a clean subset could ship immediately.
 
 
+## Iteration Budget — Hard Ceiling
+
+You have **50 iterations total**. Spend them deliberately:
+
+| Phase | Budget |
+|-------|--------|
+| Setup + fingerprint | ≤ 5 |
+| Read changed files (once each, never re-read) | ≤ 12 |
+| Type checker + tests | ≤ 5 |
+| Grade + write review + merge | ≤ 8 |
+
+**If you are past iteration 30 and have not yet called `pull_request_review_write`,
+stop reading and grade what you have.** A review posted on partial information is
+better than no review posted at all.
+
 ## Review Protocol — Follow in Order
 
 ### Step 1 — Set context variables
@@ -73,10 +88,7 @@ WTNAME=$(basename "$(pwd)")
 REPO=$(git worktree list | head -1 | awk '{print $1}')
 ```
 
-### Step 2 — Generate fingerprint and post Event 1
-
-Generate your fingerprint once at the start; reuse `$REVIEW_FINGERPRINT` in
-every subsequent event.
+### Step 2 — Generate fingerprint (save, do not post yet)
 
 ```bash
 AGENT_SESSION="eng-$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%04x' $RANDOM)"
@@ -120,58 +132,70 @@ fi
 REVIEW_FINGERPRINT="$CLAIM_FINGERPRINT"
 ```
 
-Post immediately via GitHub MCP — before reading a single file:
-
-```
-add_issue_comment(owner=<OWNER>, repo=<REPO>, issue_number=<ISSUE_NUMBER>,
-                  body="🔍 **Review started**\n\n<REVIEW_FINGERPRINT>")
-```
+Do **not** post to the issue. Post only once at the end with the outcome (Event 2 or 3).
 
 ### Step 3 — Capture the baseline type-check state on `dev`
-
-Record the error count before touching the PR branch. This is your delta
-baseline — your job is to ensure the PR does not *introduce* new errors.
 
 ```bash
 cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/" 2>&1 | tail -5
 ```
 
-If you end up touching a file that already has errors, you own fixing them.
-
 ### Step 4 — Check out the PR branch and inspect the diff
 
 ```bash
-cd "$REPO" && git fetch origin
-cd "$(pwd)" && git checkout $BRANCH
-
-git diff origin/dev...HEAD --name-only   # which files changed in this PR
+cd "$REPO" && git fetch origin && git checkout $BRANCH
+git diff origin/dev...HEAD --name-only   # list changed files
 git diff origin/dev...HEAD --stat        # scale of the change
 ```
 
-Read the changed files. Use targeted search (`rg`, `grep -n`) — do not read
-entire files when you only need the changed sections.
+Read each changed file **once**. Use `rg` or `grep -n` to jump to the relevant
+sections — do not read an entire file when you need only the changed lines.
+**Never re-read a file you have already processed.**
 
 ### Step 5 — Run the type checker and test suite
 
-Type checker before tests — always:
+Type checker before tests — always. You are already inside the container:
 
 ```bash
 cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/" 2>&1
 ```
 
-Then run only the test files covering the modules that changed:
+Then run the test files for the modules that changed:
 
 ```bash
-cd "$REPO" && docker compose exec agentception sh -c \
-  "PYTHONPATH=/worktrees/$WTNAME pytest /worktrees/$WTNAME/agentception/tests/test_<changed_module>.py -v"
+PYTHONPATH=/worktrees/$WTNAME pytest /worktrees/$WTNAME/agentception/tests/test_<changed_module>.py -v 2>&1
 ```
 
 Full output only — never pipe through `head` or `tail`.
 
-### Step 6 — Grade and act
+### Step 6 — Grade, write the review, and act
 
-Apply the Grading Rubric below. **A is the only exit that leads to merge.**
-B and C require fixing in place before merging. D and F are push-backs.
+Apply the Grading Rubric. Write your full review body as a string, then call
+`pull_request_review_write` in a single action — do not split across multiple
+turns.
+
+```
+pull_request_review_write(
+  owner=<OWNER>, repo=<REPO>, pull_number=<PR_NUMBER>,
+  method="create_and_submit",
+  event="APPROVE",          # or "REQUEST_CHANGES" for B/C/D/F
+  body="<full review text including grade, findings, and $REVIEW_FINGERPRINT>"
+)
+```
+
+Then, if grade is A, immediately merge:
+
+```
+merge_pull_request(owner=<OWNER>, repo=<REPO>, pull_number=<PR_NUMBER>,
+                   merge_method="squash", deleteBranch=true)
+```
+
+Finally post the outcome to the issue (once, never before):
+
+```
+add_issue_comment(owner=<OWNER>, repo=<REPO>, issue_number=<ISSUE_NUMBER>,
+                  body="✅ **Grade: A — Merged** / 🚫 **Grade: D/F — Blocked**\n\n<summary>\n\n<REVIEW_FINGERPRINT>")
+```
 
 ---
 
@@ -210,48 +234,13 @@ When a flaw is found, classify it in this order:
    layer = B (with required follow-up).
 5. **Docs.** Every new public function or class needs a docstring. Missing =
    grade drop.
-6. **MERGE_AFTER gate.** Do not merge out of order. Poll or escalate after
-   15 min.
-
-## Approval and Merge Protocol
-
-- **A** — approve and merge using GitHub MCP tools (never shell out):
-  1. `pull_request_review_write(...)` — submit the approving review.
-  2. `merge_pull_request(owner=<OWNER>, repo=<REPO>, pull_number=<PR_NUMBER>, merge_method="squash", deleteBranch=true)` — squash-merge and delete the remote branch.
-  3. Post Event 2 comment with `$REVIEW_FINGERPRINT`.
-
-- **B or C** — fix in place, re-run type checker + tests, re-grade. Do not
-  stop until you reach A, then follow the A protocol above.
-
-- **D** — do not merge. Post Event 3 comment. Open a follow-up blocking issue
-  and push back to the original author.
-
-- **F** — do not merge. Post Event 3 comment. Escalate immediately.
-
-## Audit Trail
-
-### Event 2 — Grade Assigned (merge)
-
-Post after `merge_pull_request`:
-
-```
-add_issue_comment(owner=<OWNER>, repo=<REPO>, issue_number=<ISSUE_NUMBER>,
-                  body="✅ **Grade: A — Merged**\n\n<grade summary>\n\n<REVIEW_FINGERPRINT>")
-```
-
-### Event 3 — Blocked (D or F)
-
-```
-add_issue_comment(owner=<OWNER>, repo=<REPO>, issue_number=<ISSUE_NUMBER>,
-                  body="🚫 **Grade: D/F — Blocked**\n\n<blocking reason>\n\n<REVIEW_FINGERPRINT>")
-```
 
 ## Failure Modes to Avoid
 
+- Re-reading a file you have already processed.
+- Posting to the issue before the review is complete (noise).
+- Calling `add_issue_comment` instead of `pull_request_review_write` for the actual review.
 - Stopping at B or C instead of fixing in place.
 - Paraphrasing terminal output instead of showing it in full.
 - Accepting suppressed type errors or untyped code as "good enough."
-- Treating pre-existing type errors as permission to introduce more.
-- Merging before the MERGE_AFTER dependency clears.
-- Forgetting to post `$REVIEW_FINGERPRINT` at Event 1 (started) and
-  Event 2/3 (outcome).
+- Using `docker compose exec` from inside the container — you are already inside.
