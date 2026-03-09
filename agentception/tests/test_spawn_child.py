@@ -49,6 +49,8 @@ async def test_spawn_child_forwards_cognitive_arch_without_resolving() -> None:
         patch("agentception.services.spawn_child.asyncio.create_subprocess_exec") as mock_exec,
         patch("agentception.services.spawn_child.persist_agent_run_dispatch", new_callable=AsyncMock),
         patch("agentception.services.spawn_child.acknowledge_agent_run", new_callable=AsyncMock),
+        patch("agentception.services.spawn_child._configure_worktree_auth", new_callable=AsyncMock),
+        patch("agentception.services.spawn_child._index_worktree", new_callable=AsyncMock),
         patch("agentception.services.spawn_child.settings") as mock_settings,
         patch("pathlib.Path.write_text"),
         patch("pathlib.Path.exists", return_value=True),
@@ -93,6 +95,8 @@ async def test_spawn_child_resolves_arch_when_not_provided() -> None:
         patch("agentception.services.spawn_child.asyncio.create_subprocess_exec") as mock_exec,
         patch("agentception.services.spawn_child.persist_agent_run_dispatch", new_callable=AsyncMock),
         patch("agentception.services.spawn_child.acknowledge_agent_run", new_callable=AsyncMock),
+        patch("agentception.services.spawn_child._configure_worktree_auth", new_callable=AsyncMock),
+        patch("agentception.services.spawn_child._index_worktree", new_callable=AsyncMock),
         patch("agentception.services.spawn_child.settings") as mock_settings,
         patch("pathlib.Path.write_text"),
         patch("pathlib.Path.exists", return_value=True),
@@ -150,6 +154,8 @@ async def test_cognitive_arch_propagates_to_leaf() -> None:
          patch("agentception.services.spawn_child.asyncio.create_subprocess_exec") as mock_exec_1, \
          patch("agentception.services.spawn_child.persist_agent_run_dispatch", new_callable=AsyncMock), \
          patch("agentception.services.spawn_child.acknowledge_agent_run", new_callable=AsyncMock), \
+         patch("agentception.services.spawn_child._configure_worktree_auth", new_callable=AsyncMock), \
+         patch("agentception.services.spawn_child._index_worktree", new_callable=AsyncMock), \
          patch("agentception.services.spawn_child.settings") as mock_settings_1, \
          patch("pathlib.Path.write_text"), \
          patch("pathlib.Path.exists", return_value=True):
@@ -191,6 +197,8 @@ async def test_cognitive_arch_propagates_to_leaf() -> None:
          patch("agentception.services.spawn_child.asyncio.create_subprocess_exec") as mock_exec_2, \
          patch("agentception.services.spawn_child.persist_agent_run_dispatch", new_callable=AsyncMock), \
          patch("agentception.services.spawn_child.acknowledge_agent_run", new_callable=AsyncMock), \
+         patch("agentception.services.spawn_child._configure_worktree_auth", new_callable=AsyncMock), \
+         patch("agentception.services.spawn_child._index_worktree", new_callable=AsyncMock), \
          patch("agentception.services.spawn_child.settings") as mock_settings_2, \
          patch("pathlib.Path.write_text"), \
          patch("pathlib.Path.exists", return_value=True):

@@ -1,9 +1,13 @@
-"""Shared factory for creating and launching ad-hoc agent runs.
+"""Factory for creating and launching ad-hoc agent runs from coordinator agents.
 
-Both the REST route (``POST /api/runs/adhoc``) and the MCP tool
-(``spawn_adhoc_child``) use this module so the creation logic lives in exactly
-one place.  The HTTP route raises ``HTTPException`` on failure; the MCP tool
-catches ``RunCreationError`` and returns a structured error dict instead.
+The ``build_spawn_adhoc_child`` MCP tool delegates here so coordinator agents
+can spawn child runs that are not tied to a specific GitHub issue.  The MCP
+tool catches ``RunCreationError`` and returns a structured error dict.
+
+This module also owns the shared worktree utilities (``_configure_worktree_auth``,
+``_index_worktree``, ``_WORKTREE_COLLECTION_PREFIX``) that are imported by
+``spawn_child.py`` so every worktree — whether spawned via coordinator MCP tool
+or via the official dispatch pipeline — gets auth and Qdrant indexing.
 """
 
 from __future__ import annotations
