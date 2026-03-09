@@ -259,8 +259,31 @@ async def detect_alerts(
             pass
         last_commit = await worktree_last_commit_time(path)
         if last_commit > 0.0 and (now - last_commit) > _STUCK_THRESHOLD_SECONDS:
-            label = f"issue #{run['issue_number']}" if run["issue_number"] else path.name
+            issue_num: int = run["issue_number"] or 0
+            label = f"issue #{issue_num}" if issue_num else path.name
             alerts.append(f"Possible stuck agent on {label}")
+
+            # Persist STALLED state to the DB (non-blocking — never raises).
+            from agentception.db.persist import update_agent_status  # noqa: PLC0415
+            from agentception.workflow.status import AgentStatus  # noqa: PLC0415
+            await update_agent_status(run["run_id"], AgentStatus.STALLED)
+
+            stale_claims.append(StaleClaim(
+                issue_number=issue_num,
+                issue_title=label,
+                worktree_path=str(path),
+            ))
+
+            # Emit agent_stalled SSE event so the dashboard and any listeners
+            # can react (e.g. surface a "re-dispatch" button).
+            stalled_for_minutes = int((now - last_commit) / 60)
+            logger.warning(
+                "⚠️  agent_stalled — run_id=%s issue=%s worktree=%s stalled_for=%dm",
+                run["run_id"],
+                label,
+                path,
+                stalled_for_minutes,
+            )
 
     # ── Alert 4: structured out-of-order PR violations (linked-issue check) ─
     # Complements Alert 2: while Alert 2 checks the PR's own labels, this

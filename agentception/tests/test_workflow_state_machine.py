@@ -438,7 +438,10 @@ class TestAgentStatusEnum:
         assert "reviewing" in LANE_ACTIVE_STATUSES
 
     def test_reset_statuses(self) -> None:
-        assert RESET_STATUSES == {"pending_launch", "implementing", "blocked", "reviewing"}
+        assert RESET_STATUSES == {
+            "pending_launch", "implementing", "blocked", "reviewing",
+            "stalled", "recovering",
+        }
 
     def test_is_active(self) -> None:
         assert is_active("implementing")

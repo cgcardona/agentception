@@ -1232,6 +1232,39 @@ async def stop_agent_run(run_id: str) -> bool:
         return False
 
 
+async def update_agent_status(run_id: str, status: str) -> bool:
+    """Set the status of an existing :class:`ACAgentRun` by *run_id*.
+
+    Accepts a plain status string (``AgentStatus.STALLED.value``) or the
+    ``AgentStatus`` enum value directly (both are ``str`` at runtime because
+    ``AgentStatus`` inherits from ``str``).
+
+    Guards against overwriting terminal states — if the run is already in a
+    terminal state (completed, cancelled, stopped, failed) the write is skipped
+    and ``False`` is returned.
+
+    Returns ``True`` on success, ``False`` if run not found or already terminal.
+    """
+    from agentception.workflow.status import TERMINAL_STATUSES as _TERMINAL  # noqa: PLC0415
+
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun).where(ACAgentRun.id == run_id)
+            )
+            run = result.scalar_one_or_none()
+            if run is None or run.status in _TERMINAL:
+                return False
+            run.status = str(status)
+            run.last_activity_at = _now()
+            await session.commit()
+        logger.info("✅ update_agent_status: %s → %s", run_id, status)
+        return True
+    except Exception as exc:
+        logger.warning("⚠️  update_agent_status failed: %s", exc)
+        return False
+
+
 async def reset_build_runs_to_failed() -> int:
     """Set all agent runs in active states to ``failed``.
 
