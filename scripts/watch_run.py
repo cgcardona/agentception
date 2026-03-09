@@ -30,27 +30,56 @@ MAGENTA = "\033[95m"
 CYAN = "\033[96m"
 WHITE = "\033[97m"
 GREY = "\033[90m"
+ORANGE = "\033[38;5;208m"
 
-# ── Patterns (order matters — first match wins) ────────────────────────────────
-# Each entry: (regex, handler_fn)
-# handler_fn(match, run_id_filter) -> str | None  (None = skip line)
+# ── Patterns ───────────────────────────────────────────────────────────────────
 
 _RE_RUN_STEP = re.compile(
     r"log_run_step: issue=(?P<issue>\S+) step='(?P<step>.+?)'"
 )
 _RE_ITERATION = re.compile(r"Iteration\s+(?P<n>\d+)/(?P<total>\d+)")
+
+# dispatch_tool — run_id tag (agent_loop.py)
 _RE_DISPATCH_TOOL = re.compile(
     r"dispatch_tool — run_id=(?P<run_id>\S+) tool=(?P<tool>\S+)"
 )
+
+# file_tools result lines (agentception.tools.file_tools)
+_RE_READ_FILE = re.compile(
+    r"read_file_lines — (?P<path>\S+) lines (?P<start>\d+)-(?P<end>\d+)/(?P<total>\d+)"
+)
+_RE_REPLACE = re.compile(
+    r"replace_in_file — (?P<path>\S+) \((?P<count>\d+) replacement"
+)
+_RE_INSERT = re.compile(
+    r"insert_after_in_file — (?P<path>\S+) \(inserted at byte"
+)
+_RE_WRITE = re.compile(
+    r"write_file — (?P<path>\S+)"
+)
+_RE_SEARCH_CODE = re.compile(
+    r"search_codebase — (?P<hits>\d+) result"
+)
+
+# shell commands (agent_loop.py run_command lines)
 _RE_SHELL_CMD = re.compile(
     r"run_command — '(?P<cmd>.+?)' \(cwd=(?P<cwd>[^)]+)\)"
 )
 _RE_SHELL_DONE = re.compile(
     r"run_command done — exit=(?P<exit>\d+) stdout=(?P<stdout>\d+) stderr=(?P<stderr>\d+)"
 )
+
+# git
 _RE_GIT_COMMIT = re.compile(
-    r"git_commit_and_push — run_id=(?P<run_id>\S+)"
+    r"git_commit_and_push — branch=(?P<branch>\S+)"
 )
+
+# GitHub MCP tool calls (github_client.py or mcp client)
+_RE_GITHUB_TOOL = re.compile(
+    r"github_mcp — tool=(?P<tool>\S+)"
+)
+
+# LLM lifecycle
 _RE_LLM_CALL = re.compile(
     r"LLM tool-use call — model=(?P<model>\S+) turns=(?P<turns>\d+) tools=(?P<tools>\d+)"
 )
@@ -60,22 +89,30 @@ _RE_LLM_USAGE = re.compile(
 _RE_LLM_DONE = re.compile(
     r"LLM tool-use done — stop_reason=(?P<reason>\S+) content_chars=(?P<chars>\d+) tool_calls=(?P<calls>\d+)"
 )
-_RE_DELAY = re.compile(
-    r"inter-turn delay — sleeping (?P<secs>[\d.]+)s"
+_RE_DELAY = re.compile(r"inter-turn delay — sleeping (?P<secs>[\d.]+)s")
+
+# run start / teardown / indexing
+_RE_RUN_START = re.compile(r"agent_loop start — run_id=(?P<run_id>\S+) issue=\S+ tools=(?P<tools>\d+)")
+_RE_WORKTREE_INDEXED = re.compile(
+    r"worktree indexed — run_id=(?P<run_id>\S+) collection=\S+ files=(?P<files>\d+) chunks=(?P<chunks>\d+)"
 )
+_RE_TEARDOWN = re.compile(r"teardown\[(?P<run_id>[^\]]+)\]: (?P<msg>.+)")
+_RE_DISPATCHED = re.compile(
+    r"adhoc run dispatched — run_id=(?P<run_id>\S+) role=(?P<role>\S+) arch=(?P<arch>\S+) context_files=(?P<ctx>\d+)"
+)
+
 _RE_ERROR = re.compile(r"❌\s+(?P<msg>.+)")
 _RE_WARN = re.compile(r"⚠️\s*(?P<msg>.+)")
-_RE_TEARDOWN = re.compile(r"teardown\[(?P<run_id>[^\]]+)\]: (?P<msg>.+)")
-_RE_WORKTREE_CREATED = re.compile(r"worktree.*created.*run_id=(?P<run_id>\S+)")
 
-# State carried across lines (mutable, thread-unsafe — single stream only)
+
+# ── Mutable state across log lines ────────────────────────────────────────────
+
 class _State:
     current_run_id: str | None = None
-    iteration: int = 0       # agent iteration number (from log_run_step "Iteration N/M")
-    total: int = 50          # max iterations (from log_run_step)
-    history_len: int = 0     # LLM history depth (turns= in API call — bounded by prune window)
-    pending_tool: str | None = None
-    pending_cmd: str | None = None
+    iteration: int = 0
+    total: int = 50
+    history_len: int = 0
+    pending_tool: str | None = None  # last seen dispatch_tool name, waiting for result
 
 
 _state = _State()
@@ -85,9 +122,14 @@ def _ts() -> str:
     return GREY + datetime.now().strftime("%H:%M:%S") + RESET
 
 
-def _shorten_cmd(cmd: str, max_len: int = 80) -> str:
+def _shorten_path(path: str) -> str:
+    """Strip /worktrees/<run_id>/ prefix for readability."""
+    path = re.sub(r"^/worktrees/[^/]+/", "", path)
+    return path
+
+
+def _shorten_cmd(cmd: str, max_len: int = 100) -> str:
     cmd = cmd.strip()
-    # Strip docker compose exec wrappers for readability
     cmd = re.sub(r"docker compose exec \S+ sh -c\s+", "", cmd)
     cmd = re.sub(r"docker compose exec \S+\s+", "", cmd)
     if len(cmd) > max_len:
@@ -99,9 +141,24 @@ def _fmt_number(n: str) -> str:
     return f"{int(n):,}"
 
 
+def _tool_icon(tool: str) -> str:
+    icons: dict[str, str] = {
+        "search_codebase": "🔍",
+        "read_file_lines": "📄",
+        "replace_in_file": "✏️ ",
+        "insert_after_in_file": "➕",
+        "write_file": "💾",
+        "run_command": "🖥️ ",
+        "git_commit_and_push": "📦",
+        "log_run_step": "📋",
+        "list_directory": "📁",
+        "create_directory": "📁",
+    }
+    return icons.get(tool, "🔧")
+
+
 def process_line(raw: str, run_id_filter: str | None) -> str | None:
     """Parse one log line and return a pretty string, or None to suppress it."""
-    # Docker log prefix: "agentception-app  | LEVEL  module.path  message"
     m = re.match(
         r"agentception-app\s+\|\s+(?P<level>\S+)\s+(?P<module>\S+)\s+(?P<msg>.+)",
         raw,
@@ -110,94 +167,209 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
         return None
 
     level = m.group("level")
+    module = m.group("module")
     msg = m.group("msg")
-
     ts = _ts()
 
-    # ── log_run_step — agent's self-reported progress ──────────────────────────
-    sm = _RE_RUN_STEP.search(msg)
-    if sm:
-        step = sm.group("step")
-        # Track the iteration number so TURN headers show it correctly.
-        im = _RE_ITERATION.search(step)
-        if im:
-            _state.iteration = int(im.group("n"))
-            _state.total = int(im.group("total"))
-        return f"{ts}  {CYAN}{BOLD}📋 {step}{RESET}"
-
-    # ── dispatch_tool — what tool was called ───────────────────────────────────
-    dm = _RE_DISPATCH_TOOL.search(msg)
+    # ── Run dispatched (startup banner) ────────────────────────────────────────
+    dm = _RE_DISPATCHED.search(msg)
     if dm:
         rid = dm.group("run_id")
         if run_id_filter and rid != run_id_filter:
             return None
+        role = dm.group("role")
+        arch = dm.group("arch")
+        ctx = dm.group("ctx")
+        return (
+            f"\n{ts}  {GREEN}{BOLD}🚀 LAUNCHED  {rid}{RESET}\n"
+            f"       {GREY}role={role}  arch={arch}  context_files={ctx}{RESET}"
+        )
+
+    # ── Agent loop start ───────────────────────────────────────────────────────
+    rsm = _RE_RUN_START.search(msg)
+    if rsm:
+        rid = rsm.group("run_id")
+        if run_id_filter and rid != run_id_filter:
+            return None
+        tools = rsm.group("tools")
+        return f"{ts}  {GREY}    loop ready — {tools} tools available{RESET}"
+
+    # ── Worktree index complete ────────────────────────────────────────────────
+    wim = _RE_WORKTREE_INDEXED.search(msg)
+    if wim:
+        rid = wim.group("run_id")
+        if run_id_filter and rid != run_id_filter:
+            return None
+        return (
+            f"{ts}  {GREY}    🗂  worktree index ready — "
+            f"{wim.group('files')} files / {wim.group('chunks')} chunks{RESET}"
+        )
+
+    # ── log_run_step — agent's self-reported progress ─────────────────────────
+    sm = _RE_RUN_STEP.search(msg)
+    if sm:
+        step = sm.group("step")
+        im = _RE_ITERATION.search(step)
+        if im:
+            _state.iteration = int(im.group("n"))
+            _state.total = int(im.group("total"))
+            # iteration markers are shown in the LLM header, suppress duplicates
+            return None
+        # Non-iteration step — agent wrote something meaningful
+        return f"{ts}  {CYAN}{BOLD}📋 {step}{RESET}"
+
+    # ── dispatch_tool — record what tool is in-flight ─────────────────────────
+    dtm = _RE_DISPATCH_TOOL.search(msg)
+    if dtm:
+        rid = dtm.group("run_id")
+        if run_id_filter and rid != run_id_filter:
+            return None
         _state.current_run_id = rid
-        _state.pending_tool = dm.group("tool")
-        return None  # wait for the detail line
+        _state.pending_tool = dtm.group("tool")
+        return None  # rendered when the result line arrives
 
-    # ── run_command — the actual shell command ─────────────────────────────────
-    scm = _RE_SHELL_CMD.search(msg)
-    if scm:
-        tool = _state.pending_tool or "run_command"
-        cmd = _shorten_cmd(scm.group("cmd"))
-        _state.pending_cmd = scm.group("cmd")
+    # ── file_tools result lines ────────────────────────────────────────────────
+    tool = _state.pending_tool or "?"
+
+    rfm = _RE_READ_FILE.search(msg)
+    if rfm and "file_tools" in module:
+        path = _shorten_path(rfm.group("path"))
+        start, end, total = rfm.group("start"), rfm.group("end"), rfm.group("total")
         _state.pending_tool = None
-        return f"{ts}  {BLUE}🔧 {tool}{RESET}  {WHITE}{cmd}{RESET}"
+        return (
+            f"{ts}  {BLUE}{_tool_icon('read_file_lines')} read{RESET}  "
+            f"{WHITE}{path}{RESET}  {GREY}lines {start}–{end} / {total}{RESET}"
+        )
 
-    # ── run_command done — exit code ───────────────────────────────────────────
+    rpm = _RE_REPLACE.search(msg)
+    if rpm and "file_tools" in module:
+        path = _shorten_path(rpm.group("path"))
+        count = rpm.group("count")
+        _state.pending_tool = None
+        return (
+            f"{ts}  {GREEN}{_tool_icon('replace_in_file')} replaced{RESET}  "
+            f"{WHITE}{path}{RESET}  {GREY}({count} replacement{'s' if count != '1' else ''}){RESET}"
+        )
+
+    inm = _RE_INSERT.search(msg)
+    if inm and "file_tools" in module:
+        path = _shorten_path(inm.group("path"))
+        _state.pending_tool = None
+        return (
+            f"{ts}  {GREEN}{_tool_icon('insert_after_in_file')} inserted{RESET}  "
+            f"{WHITE}{path}{RESET}"
+        )
+
+    wfm = _RE_WRITE.search(msg)
+    if wfm and "file_tools" in module:
+        path = _shorten_path(wfm.group("path"))
+        _state.pending_tool = None
+        return (
+            f"{ts}  {GREEN}{_tool_icon('write_file')} wrote{RESET}  "
+            f"{WHITE}{path}{RESET}"
+        )
+
+    # search_codebase result (logged by code_indexer or agent_loop)
+    scm = _RE_SEARCH_CODE.search(msg)
+    if scm:
+        hits = scm.group("hits")
+        _state.pending_tool = None
+        return (
+            f"{ts}  {BLUE}🔍 search{RESET}  {GREY}→ {hits} results{RESET}"
+        )
+
+    # ── dispatch_tool for tools that have no separate result line ─────────────
+    # Render search_codebase / GitHub / other tools at dispatch time
+    # (their results either appear separately or not at all)
+    if _state.pending_tool and "agent_loop" in module and "dispatch_tool" not in msg:
+        # Not a match for any result line — clear pending so we don't ghost
+        pass
+
+    # Show search_codebase dispatches when there's no result line yet
+    if "dispatch_tool" in msg and _state.pending_tool == "search_codebase":
+        # Already captured above; suppress duplicate
+        return None
+
+    # ── shell command ──────────────────────────────────────────────────────────
+    scmd = _RE_SHELL_CMD.search(msg)
+    if scmd:
+        cmd = _shorten_cmd(scmd.group("cmd"))
+        return f"{ts}  {ORANGE}{_tool_icon('run_command')} ${RESET}  {WHITE}{cmd}{RESET}"
+
     sdm = _RE_SHELL_DONE.search(msg)
     if sdm:
         exit_code = int(sdm.group("exit"))
         stdout_bytes = _fmt_number(sdm.group("stdout"))
         if exit_code == 0:
-            return f"{ts}  {GREEN}   ✅ exit=0{RESET}  {GREY}({stdout_bytes} bytes){RESET}"
+            return f"{ts}  {GREEN}   ✅ exit=0{RESET}  {GREY}({stdout_bytes} bytes out){RESET}"
         else:
-            return f"{ts}  {RED}   ❌ exit={exit_code}{RESET}  {GREY}({stdout_bytes} bytes){RESET}"
+            return f"{ts}  {RED}   ❌ exit={exit_code}{RESET}  {GREY}({stdout_bytes} bytes out){RESET}"
 
-    # ── LLM turn start ─────────────────────────────────────────────────────────
+    # ── git commit/push ────────────────────────────────────────────────────────
+    gcm = _RE_GIT_COMMIT.search(msg)
+    if gcm:
+        branch = gcm.group("branch")
+        return f"{ts}  {GREEN}{BOLD}📦 git push → {branch}{RESET}"
+
+    # ── GitHub MCP tool ────────────────────────────────────────────────────────
+    ghm = _RE_GITHUB_TOOL.search(msg)
+    if ghm:
+        return f"{ts}  {CYAN}🐙 github/{ghm.group('tool')}{RESET}"
+
+    # catch-all: any GitHub MCP call visible in logs
+    if "github_mcp" in msg or "create_pull_request" in msg or "merge_pull_request" in msg:
+        short = msg[:120] + "…" if len(msg) > 120 else msg
+        return f"{ts}  {CYAN}🐙 {short}{RESET}"
+
+    # ── LLM turn header ────────────────────────────────────────────────────────
     lm = _RE_LLM_CALL.search(msg)
     if lm:
-        # turns= is the bounded history depth (stabilises at the prune window),
-        # NOT the agent's iteration counter.  Show the iteration instead.
         _state.history_len = int(lm.group("turns"))
         iteration = _state.iteration
         total = _state.total
         iter_tag = f"{iteration}/{total}" if iteration else "?"
+        model = lm.group("model").split("-")[0] + "…"  # truncate long model names
         return (
-            f"\n{ts}  {MAGENTA}{BOLD}╔══ ITER {iter_tag} ══════════════════════════════{RESET}"
+            f"\n{ts}  {MAGENTA}{BOLD}╔══ ITER {iter_tag}  [{model}]{RESET}"
         )
 
-    # ── LLM usage ─────────────────────────────────────────────────────────────
+    # ── LLM token usage ───────────────────────────────────────────────────────
     um = _RE_LLM_USAGE.search(msg)
     if um:
         inp = _fmt_number(um.group("input"))
         cw = _fmt_number(um.group("cw"))
         cr = _fmt_number(um.group("cr"))
         hist = _state.history_len
+        cr_int = int(um.group("cr"))
+        # Colour cache_read green when it's high (good caching), yellow when low
+        cr_col = GREEN if cr_int > 10_000 else YELLOW if cr_int > 0 else GREY
         return (
-            f"{ts}  {GREY}    tokens  in={inp}  cache_write={cw}  cache_read={cr}"
-            f"  history={hist}msgs{RESET}"
+            f"{ts}  {GREY}    in={inp}  cache_write={cw}  "
+            f"{cr_col}cache_read={cr}{RESET}  {GREY}history={hist}msgs{RESET}"
         )
 
-    # ── LLM done ──────────────────────────────────────────────────────────────
+    # ── LLM done / stop reason ─────────────────────────────────────────────────
     ldm = _RE_LLM_DONE.search(msg)
     if ldm:
         reason = ldm.group("reason")
         calls = ldm.group("calls")
-        chars = _fmt_number(ldm.group("chars"))
+        chars = int(ldm.group("chars"))
         if reason == "end_turn":
             tag = f"{GREEN}end_turn{RESET}"
-        elif reason == "tool_calls":
-            tag = f"{CYAN}tool_calls×{calls}{RESET}"
+        elif reason.startswith("tool_calls"):
+            n = int(calls)
+            tag = f"{CYAN}→ {n} tool call{'s' if n != 1 else ''}{RESET}"
         else:
             tag = f"{YELLOW}{reason}{RESET}"
-        return f"{ts}  {MAGENTA}╚══ stop={tag}  output={chars}ch{RESET}"
+        thought = f"  {GREY}({chars:,}ch thinking){RESET}" if chars > 0 else ""
+        return f"{ts}  {MAGENTA}╚══ {tag}{thought}{RESET}"
 
-    # ── inter-turn delay ───────────────────────────────────────────────────────
+    # ── inter-turn pacing ─────────────────────────────────────────────────────
     dlm = _RE_DELAY.search(msg)
     if dlm:
-        secs = dlm.group("secs")
-        return f"{ts}  {GREY}⏳ pacing {secs}s{RESET}"
+        secs = float(dlm.group("secs"))
+        bar = "▓" * int(secs) + "░" * max(0, 7 - int(secs))
+        return f"{ts}  {GREY}⏳ {bar} {secs:.1f}s{RESET}"
 
     # ── errors ────────────────────────────────────────────────────────────────
     if level == "ERROR":
@@ -207,7 +379,7 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
 
     # ── warnings that matter ───────────────────────────────────────────────────
     wm = _RE_WARN.search(msg)
-    if wm and ("429" in msg or "stale" in msg.lower() or "reaper" in msg.lower()):
+    if wm and any(kw in msg for kw in ("429", "stale", "reaper", "SSL", "retry", "circuit")):
         return f"{ts}  {YELLOW}⚠️  {wm.group('msg')}{RESET}"
 
     # ── teardown ───────────────────────────────────────────────────────────────
@@ -219,7 +391,6 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
         tmsg = tdm.group("msg")
         return f"{ts}  {GREY}🧹 teardown[{teardown_rid}]: {tmsg}{RESET}"
 
-    # Suppress everything else
     return None
 
 
@@ -250,9 +421,6 @@ def main() -> None:
         assert proc.stdout is not None
         for raw_line in proc.stdout:
             line = raw_line.rstrip()
-            # docker compose logs emits lines like:
-            #   "agentception-app  | INFO  module  message"
-            # Pass them straight through.
             out = process_line(line, run_id_filter)
             if out is not None:
                 print(out)
