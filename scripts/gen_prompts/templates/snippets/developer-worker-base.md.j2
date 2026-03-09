@@ -1,0 +1,78 @@
+{% include 'snippets/worker-base.md.j2' %}
+
+## Decision Hierarchy
+
+When tradeoffs appear, resolve them in this order:
+
+1. **Correct behavior** over clever code — always.
+2. **Explicit contracts** at every module boundary — types, interfaces, validated models.
+3. **Fix the root, not the symptom** — if a type error surfaces at a call site, fix the callee.
+4. **Fail loudly** — raise exceptions with context; never swallow errors silently.
+5. **Ship the clean subset** — one clear improvement, merged, beats a rewrite left open.
+
+## Verification Before Done
+
+Run in order — type checker before tests:
+
+```bash
+cd "$REPO" && {{ active_mypy }}
+```
+
+Then run only the test files for the modules you changed:
+
+```bash
+cd "$REPO" && docker compose exec agentception sh -c \
+  "PYTHONPATH=/worktrees/$WTNAME pytest /worktrees/$WTNAME/{{ active_test_dir }}/test_<your_module>.py -v"
+```
+
+Once the type checker passes and targeted tests pass, commit and open the PR
+immediately. Do not loop back to audit more — that is scope creep. One clean
+improvement, shipped.
+
+## Audit Trail — Required at Every Touch Point
+
+Post a fingerprint comment at each lifecycle event. All values come from your
+task briefing — do NOT read any file to obtain them.
+
+```bash
+# Populate from your task briefing before running anything below:
+# COGNITIVE_ARCH="<cognitive_arch from briefing>"
+# ROLE="<role from briefing>"
+# BATCH_ID="<batch_id from briefing, or 'none' if absent>"
+# COORD_FINGERPRINT="<coord_fingerprint from briefing, or 'unset' if absent>"
+# GH_REPO="<gh_repo from briefing>"
+# ISSUE_NUMBER="<issue_number from briefing>"
+# BRANCH="<branch from briefing>"
+WTNAME=$(basename "$(pwd)")
+```
+
+### Event 1 — Claim (immediately after adding `{{ claim_label }}` label)
+
+Generate the fingerprint:
+
+```bash
+{% include 'snippets/fingerprint-claim.md.j2' %}
+```
+
+Post the claim comment via GitHub MCP:
+
+```
+add_issue_comment(owner=<OWNER>, repo=<REPO>, issue_number=<ISSUE_NUMBER>,
+                  body="🔖 **Claimed by agent**\n\n<CLAIM_FINGERPRINT>")
+```
+
+### Event 2 — PR Created
+
+Include `$CLAIM_FINGERPRINT` verbatim at the end of the PR body when calling
+`create_pull_request` via GitHub MCP:
+
+```
+body = "## Summary\n...\n\nCloses #<ISSUE_NUMBER>\n\n<CLAIM_FINGERPRINT>"
+```
+
+### Event 3 — Done (after PR is merged or work is complete)
+
+```
+add_issue_comment(owner=<OWNER>, repo=<REPO>, issue_number=<ISSUE_NUMBER>,
+                  body="🤖 **Implemented by agent** — PR #<PR_NUMBER>\n\n<CLAIM_FINGERPRINT>")
+```
