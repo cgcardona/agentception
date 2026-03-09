@@ -107,7 +107,7 @@ _HISTORY_TAIL: int = 14
 # realistic agent turn.  Input TPM is not the constraint: system-prompt cache
 # reads are excluded from the 450K limit, so uncached input per turn is only
 # new messages and tool results (~1–5K).
-_MIN_TURN_DELAY_SECS: float = 7.0
+_MIN_TURN_DELAY_SECS: float = 5.0
 _last_llm_call_at: float = 0.0
 
 
