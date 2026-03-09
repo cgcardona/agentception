@@ -812,3 +812,90 @@ async def add_comment_to_issue(issue_number: int, body: str) -> str:
     comment_url = stdout.decode().strip()
     logger.info("✅ Added comment to issue #%d: %s", issue_number, comment_url)
     return comment_url
+
+
+async def approve_pr(pr_number: int) -> None:
+    """Submit an approving review on a pull request.
+
+    Calls ``gh pr review --approve`` so the reviewer agent can approve PRs
+    without shelling out manually.  Invalidates the cache on success.
+
+    Parameters
+    ----------
+    pr_number:
+        GitHub PR number to approve.
+
+    Raises
+    ------
+    RuntimeError
+        When ``gh`` exits with a non-zero status (e.g. the PR is already
+        approved, draft, or the caller lacks write access).
+    """
+    repo = settings.gh_repo
+
+    proc = await asyncio.create_subprocess_exec(
+        "gh", "pr", "review", str(pr_number),
+        "--repo", repo,
+        "--approve",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _stdout, stderr = await proc.communicate()
+
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"gh pr review --approve failed (exit {proc.returncode}): "
+            f"{stderr.decode().strip()!r}"
+        )
+
+    logger.info("✅ Approved PR #%d", pr_number)
+    _cache_invalidate()
+
+
+async def merge_pr(pr_number: int, delete_branch: bool = True) -> None:
+    """Squash-merge a pull request and optionally delete the head branch.
+
+    Calls ``gh pr merge --squash`` so the reviewer agent can land approved
+    PRs atomically through the same typed, logged interface used by the rest
+    of the pipeline.  Invalidates the cache on success.
+
+    Parameters
+    ----------
+    pr_number:
+        GitHub PR number to merge.
+    delete_branch:
+        When ``True`` (default), also passes ``--delete-branch`` to remove
+        the head branch after the merge.
+
+    Raises
+    ------
+    RuntimeError
+        When ``gh`` exits with a non-zero status (e.g. merge conflicts,
+        branch-protection rules, or missing approvals).
+    """
+    repo = settings.gh_repo
+
+    args = [
+        "gh", "pr", "merge", str(pr_number),
+        "--repo", repo,
+        "--squash",
+        "--auto",
+    ]
+    if delete_branch:
+        args.append("--delete-branch")
+
+    proc = await asyncio.create_subprocess_exec(
+        *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _stdout, stderr = await proc.communicate()
+
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"gh pr merge failed (exit {proc.returncode}): "
+            f"{stderr.decode().strip()!r}"
+        )
+
+    logger.info("✅ Merged PR #%d (delete_branch=%s)", pr_number, delete_branch)
+    _cache_invalidate()

@@ -57,7 +57,9 @@ from agentception.mcp.log_tools import (
 from agentception.mcp.github_tools import (
     github_add_comment,
     github_add_label,
+    github_approve_pr,
     github_claim_issue,
+    github_merge_pr,
     github_remove_label,
     github_unclaim_issue,
 )
@@ -606,6 +608,51 @@ TOOLS: list[ACToolDef] = [
             "additionalProperties": False,
         },
     ),
+    ACToolDef(
+        name="github_approve_pr",
+        description=(
+            "Submit an approving review on a GitHub pull request. "
+            "Use this after grading the PR A or B — do NOT shell out to 'gh pr review --approve'. "
+            "Routes the approval through the typed, logged interface so it is auditable. "
+            "Returns {ok, pr_number}."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "pr_number": {
+                    "type": "integer",
+                    "description": "GitHub PR number to approve.",
+                },
+            },
+            "required": ["pr_number"],
+            "additionalProperties": False,
+        },
+    ),
+    ACToolDef(
+        name="github_merge_pr",
+        description=(
+            "Squash-merge a GitHub pull request. "
+            "Call this only after github_approve_pr succeeds and the grade is A or B. "
+            "Do NOT call this for C/D/F grades — fix in place or escalate first. "
+            "Do NOT shell out to 'gh pr merge' directly. "
+            "Returns {ok, pr_number, delete_branch}."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "pr_number": {
+                    "type": "integer",
+                    "description": "GitHub PR number to merge.",
+                },
+                "delete_branch": {
+                    "type": "boolean",
+                    "description": "Delete the head branch after merge. Defaults to true.",
+                },
+            },
+            "required": ["pr_number"],
+            "additionalProperties": False,
+        },
+    ),
 ]
 
 # ---------------------------------------------------------------------------
@@ -779,6 +826,8 @@ def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
         "github_claim_issue",
         "github_unclaim_issue",
         "github_add_comment",
+        "github_approve_pr",
+        "github_merge_pr",
     ):
         err_text = _tool_result_to_text(
             {"error": f"Tool {name!r} is async — use the async call path"}
@@ -1140,6 +1189,35 @@ async def call_tool_async(
                 isError=True,
             )
         result = await github_add_comment(issue_num, body)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=not bool(result.get("ok", False)),
+        )
+
+    if name == "github_approve_pr":
+        pr_num = arguments.get("pr_number")
+        if not isinstance(pr_num, int):
+            return ACToolResult(
+                content=[ACToolContent(type="text", text='{"error":"pr_number (int) is required"}')],
+                isError=True,
+            )
+        result = await github_approve_pr(pr_num)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=not bool(result.get("ok", False)),
+        )
+
+    if name == "github_merge_pr":
+        pr_num = arguments.get("pr_number")
+        if not isinstance(pr_num, int):
+            return ACToolResult(
+                content=[ACToolContent(type="text", text='{"error":"pr_number (int) is required"}')],
+                isError=True,
+            )
+        delete_branch = arguments.get("delete_branch", True)
+        if not isinstance(delete_branch, bool):
+            delete_branch = True
+        result = await github_merge_pr(pr_num, delete_branch=delete_branch)
         return ACToolResult(
             content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
             isError=not bool(result.get("ok", False)),
