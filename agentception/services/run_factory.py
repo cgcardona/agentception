@@ -35,8 +35,9 @@ async def create_and_launch_run(
     parent_run_id: str | None = None,
     tier: str = "worker",
     org_domain: str = "engineering",
+    launch: bool = True,
 ) -> dict[str, str]:
-    """Create a worktree, insert a DB row, fire the agent loop, and return IDs.
+    """Create a worktree, insert a DB row, optionally fire the agent loop.
 
     This is the single authoritative implementation for launching an ad-hoc
     agent run.  Both the HTTP route and the ``spawn_adhoc_child`` MCP tool
@@ -54,6 +55,10 @@ async def create_and_launch_run(
         tier: DB tier label — ``"worker"`` for engineers,
             ``"coordinator"`` for coordinators.
         org_domain: DB org slot for the UI hierarchy.
+        launch: When ``True`` (default) the agent loop is started as a
+            background task.  Pass ``False`` to create the run and worktree
+            without starting the loop — useful for the debug script, which
+            drives the loop itself turn-by-turn.
 
     Returns:
         ``{"run_id": str, "worktree_path": str, "cognitive_arch": str}``
@@ -85,14 +90,21 @@ async def create_and_launch_run(
         org_domain=org_domain,
     )
 
-    # Import here to avoid a circular import at module load time.
-    from agentception.services.agent_loop import run_agent_loop  # noqa: PLC0415
+    if launch:
+        # Import here to avoid a circular import at module load time.
+        from agentception.services.agent_loop import run_agent_loop  # noqa: PLC0415
 
-    asyncio.create_task(run_agent_loop(run_id))
-    logger.info(
-        "✅ run_factory: launched run_id=%s role=%s arch=%s parent=%s",
-        run_id, role, cognitive_arch, parent_run_id or "none",
-    )
+        asyncio.create_task(run_agent_loop(run_id))
+        logger.info(
+            "✅ run_factory: launched run_id=%s role=%s arch=%s parent=%s",
+            run_id, role, cognitive_arch, parent_run_id or "none",
+        )
+    else:
+        logger.info(
+            "✅ run_factory: created (no-launch) run_id=%s role=%s arch=%s",
+            run_id, role, cognitive_arch,
+        )
+
     return {
         "run_id": run_id,
         "worktree_path": str(worktree_path),
