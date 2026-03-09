@@ -49,8 +49,6 @@ node_modules/
 package-lock.json
 
 # Agent ephemeral briefing files — never committed
-.agent-task
-
 # Runtime role-version ledger — written by the app server on every role commit.
 # This is runtime state, not source code. Tracking it causes dev to appear dirty
 # after every agent run. The DB is the canonical state store; this file is a

@@ -4,7 +4,7 @@
 # agent hierarchy. It is read by generate.py (for validation) and by
 # resolve_arch.py (at agent runtime) to assemble the live context block.
 #
-# COGNITIVE_ARCH string format (used in .agent-task and dispatch prompts):
+# COGNITIVE_ARCH string format (used in DB context rows and dispatch prompts):
 #   figures:skill1:skill2:...
 #
 #   - figures: comma-separated figure ids (for blends), colon-separates from skills
@@ -184,7 +184,7 @@ org:
   leaf:
     # Leaf agents are dynamically assigned by the Engineering Coordinator based on the
     # issue content. The coordinator selects one or more figures and up to max_skills
-    # skill domains, then writes the assembled COGNITIVE_ARCH to .agent-task.
+    # skill domains, then persists the assembled COGNITIVE_ARCH to the DB context row.
     selection: dynamic
 
     # Original historical figures
