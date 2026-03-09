@@ -121,6 +121,10 @@ FILE_TOOL_DEFS: list[ToolDefinition] = [
                 "Use this when you want to ADD new lines after a specific point without "
                 "changing the anchor itself — for example, adding a new function after an "
                 "import block, or inserting a new route after an existing one. "
+                "IMPORTANT: the anchor must be an exact substring of the file. "
+                "If you are unsure what text is near the insertion point, use "
+                "read_file_lines first to read the surrounding lines, then copy the exact "
+                "text as your anchor. "
                 "The anchor must appear exactly once; use a longer anchor if it matches "
                 "multiple times. "
                 "Relative paths are resolved from the worktree root."
@@ -298,8 +302,9 @@ GIT_COMMIT_AND_PUSH_TOOL_DEF: ToolDefinition = ToolDefinition(
                     "type": "array",
                     "items": {"type": "string"},
                     "description": (
-                        "List of file paths to stage (passed to git add). "
-                        "Use ['.'] to stage all changes in the worktree."
+                        "JSON array of file paths to stage (passed to git add). "
+                        "MUST be an array, not a string — e.g. [\".\"] not \".\". "
+                        "Use [\".\"] to stage all changes in the worktree."
                     ),
                     "minItems": 1,
                 },

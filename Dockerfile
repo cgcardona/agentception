@@ -2,10 +2,12 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install git, curl, and the GitHub CLI (gh) — needed for subprocess git/gh calls.
+# Install git, curl, ripgrep, and the GitHub CLI (gh).
+# ripgrep (rg) is used by the search_text agent tool for fast codebase search.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
+    ripgrep \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
        | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
