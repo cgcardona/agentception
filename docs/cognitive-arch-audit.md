@@ -50,13 +50,9 @@ A second, independent bug exists at the root: **`cto.md` hardcodes `COGNITIVE_AR
 This route creates a worktree and `ac://runs/{run_id}/context` for a single-issue leaf engineer.
 
 ```python
-# dispatch.py:212 (historical — _build_agent_task now persists to DB)
+# dispatch.py: cognitive_arch is resolved then persisted to the DB context row
 cognitive_arch = _resolve_cognitive_arch(req.issue_body, req.role)
-agent_task = _build_agent_task(
-    ...
-    cognitive_arch=cognitive_arch,
-    ...
-)
+# ... persisted via persist_run_context(run_id=..., cognitive_arch=cognitive_arch, ...)
 ```
 
 `_resolve_cognitive_arch` is called with `req.issue_body` (may be empty) and `req.role`.  The resolved string is persisted to the DB context row as `cognitive_arch`.
@@ -357,7 +353,7 @@ The format is consistent across all tiers.
 
 The `[task]` section of every `DB context row now includes `is_resumed = false` (default). This flag is:
 
-- Persisted to DB by the dispatch layer (`_build_coordinator_task`, `_build_conductor_task`) and by `_build_child_task` in `spawn_child.py`. (`_build_agent_task` is the historical name for this operation.)
+- Persisted to DB by the dispatch layer (`_build_coordinator_task`, `_build_conductor_task`) and by `_build_child_task` in `spawn_child.py`.
 - Parsed by `_build_task_file_from_toml()` in `readers/worktrees.py` into the `TaskFile.is_resumed` field.
 - Read by STEP 0 in every role template via `ac://runs/{run_id}/context`.
 

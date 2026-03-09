@@ -27,7 +27,7 @@ Precise specifications for every system component.
 | Reference | Summary |
 |-----------|---------|
 | [API Routes](reference/api.md) | Complete HTTP endpoint inventory — semantic URL taxonomy, request/response shapes |
-| [Agent Task Spec](reference/agent-task.md) | `ac://runs/{run_id}/context` TOML format — every section, every field, with examples |
+| [Task Context Spec](../.agentception/agent-task-spec.md) | `RunContextRow` DB schema — every field, access patterns, and examples |
 | [Type Contracts](reference/type-contracts.md) | Pydantic models, TypedDicts, and the typed layer contracts between DB → service → route |
 | [Cognitive Architecture](reference/cognitive-arch.md) | Figures, archetypes, skill domains, atoms — how agents get their identities |
 | [YAML Configuration](reference/yaml-config.md) | `config.yaml`, `team.yaml`, `role-taxonomy.yaml` — full field reference |
