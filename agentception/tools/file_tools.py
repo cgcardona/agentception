@@ -172,6 +172,130 @@ def replace_in_file(
     return {"ok": True, "replacements": replacements}
 
 
+def read_file_lines(
+    path: str | Path,
+    start_line: int,
+    end_line: int,
+) -> dict[str, object]:
+    """Return lines *start_line* through *end_line* (1-indexed, inclusive) from *path*.
+
+    Cheaper than ``read_file`` for large files when only a specific region is
+    needed.  Out-of-range bounds are clamped to the actual file length rather
+    than returning an error.
+
+    Args:
+        path: File to read.  Relative paths are resolved from the caller's cwd.
+        start_line: First line to return (1-indexed).
+        end_line: Last line to return (1-indexed, inclusive).
+
+    Returns:
+        ``{"ok": True, "content": str, "start_line": int, "end_line": int,
+        "total_lines": int}`` on success, or ``{"ok": False, "error": str}``
+        on any failure.
+    """
+    p = Path(path)
+    try:
+        text = p.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        logger.warning("⚠️ read_file_lines — not found: %s", p)
+        return {"ok": False, "error": f"File not found: {p}"}
+    except PermissionError:
+        logger.warning("⚠️ read_file_lines — permission denied: %s", p)
+        return {"ok": False, "error": f"Permission denied: {p}"}
+    except OSError as exc:
+        logger.warning("⚠️ read_file_lines — OS error: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+    lines = text.splitlines(keepends=True)
+    total = len(lines)
+
+    clamped_start = max(1, start_line)
+    clamped_end = min(total, end_line)
+
+    if clamped_start > clamped_end:
+        return {
+            "ok": False,
+            "error": (
+                f"read_file_lines: start_line {start_line} is beyond end_line "
+                f"{end_line} after clamping to file length {total}"
+            ),
+        }
+
+    content = "".join(lines[clamped_start - 1 : clamped_end])
+    logger.info(
+        "✅ read_file_lines — %s lines %d-%d/%d", p, clamped_start, clamped_end, total
+    )
+    return {
+        "ok": True,
+        "content": content,
+        "start_line": clamped_start,
+        "end_line": clamped_end,
+        "total_lines": total,
+    }
+
+
+def insert_after_in_file(
+    path: str | Path,
+    anchor: str,
+    new_content: str,
+) -> dict[str, object]:
+    """Insert *new_content* immediately after the first occurrence of *anchor* in *path*.
+
+    Complements ``replace_in_file`` for pure-insertion tasks where the anchor
+    text should be preserved.  Fails if the anchor is not found or appears more
+    than once, so the caller must use a unique anchor.
+
+    Args:
+        path: File to edit.
+        anchor: Exact text that marks the insertion point.  Must appear exactly
+            once in the file.
+        new_content: Text to insert immediately after *anchor*.
+
+    Returns:
+        ``{"ok": True, "inserted_at": int}`` — byte offset of the insertion
+        point — or ``{"ok": False, "error": str}`` on any failure.
+    """
+    p = Path(path)
+    try:
+        original = p.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        logger.warning("⚠️ insert_after_in_file — not found: %s", p)
+        return {"ok": False, "error": f"File not found: {p}"}
+    except PermissionError:
+        logger.warning("⚠️ insert_after_in_file — permission denied: %s", p)
+        return {"ok": False, "error": f"Permission denied: {p}"}
+    except OSError as exc:
+        logger.warning("⚠️ insert_after_in_file — OS error: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+    count = original.count(anchor)
+    if count == 0:
+        return {"ok": False, "error": "insert_after_in_file: anchor not found in file"}
+    if count > 1:
+        return {
+            "ok": False,
+            "error": (
+                f"insert_after_in_file: anchor matches {count} times — "
+                "use a longer anchor to make it unique"
+            ),
+        }
+
+    insert_pos = original.index(anchor) + len(anchor)
+    updated = original[:insert_pos] + new_content + original[insert_pos:]
+
+    try:
+        p.write_text(updated, encoding="utf-8")
+    except PermissionError:
+        logger.warning("⚠️ insert_after_in_file — permission denied writing: %s", p)
+        return {"ok": False, "error": f"Permission denied writing: {p}"}
+    except OSError as exc:
+        logger.warning("⚠️ insert_after_in_file — OS write error: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+    logger.info("✅ insert_after_in_file — %s (inserted at byte %d)", p, insert_pos)
+    return {"ok": True, "inserted_at": insert_pos}
+
+
 async def search_text(
     pattern: str,
     directory: str | Path,

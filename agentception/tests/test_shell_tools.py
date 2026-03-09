@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agentception.tools.shell_tools import _is_safe, run_command
+from agentception.tools.shell_tools import _is_safe, git_commit_and_push, run_command
 
 
 # ---------------------------------------------------------------------------
@@ -169,3 +169,100 @@ class TestRunCommand:
     async def test_string_cwd(self, tmp_path: Path) -> None:
         result = await run_command("echo ok", str(tmp_path))
         assert result["ok"] is True
+
+
+# ---------------------------------------------------------------------------
+# git_commit_and_push — mocked subprocess to avoid real git/network calls
+# ---------------------------------------------------------------------------
+
+
+def _make_git_proc(stdout: bytes, stderr: bytes, returncode: int) -> MagicMock:
+    proc = MagicMock()
+    proc.returncode = returncode
+    proc.communicate = AsyncMock(return_value=(stdout, stderr))
+    return proc
+
+
+class TestGitCommitAndPush:
+    @pytest.mark.anyio
+    async def test_full_happy_path(self, tmp_path: Path) -> None:
+        """All git sub-commands succeed — returns ok with branch and sha."""
+        sha = b"abc1234\n"
+        responses = [
+            # rev-parse --abbrev-ref HEAD → current branch is "main" (not target)
+            _make_git_proc(b"main\n", b"", 0),
+            # checkout -b feat/x origin/dev → success
+            _make_git_proc(b"", b"", 0),
+            # add -- .
+            _make_git_proc(b"", b"", 0),
+            # commit -m "msg"
+            _make_git_proc(b"[feat/x abc1234] msg\n", b"", 0),
+            # push -u origin feat/x
+            _make_git_proc(b"", b"", 0),
+            # rev-parse HEAD → sha
+            _make_git_proc(sha, b"", 0),
+        ]
+        call_iter = iter(responses)
+
+        async def fake_exec(*_args: object, **_kwargs: object) -> MagicMock:
+            return next(call_iter)
+
+        with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+            result = await git_commit_and_push(
+                "feat/x", "my commit", ["."], tmp_path
+            )
+
+        assert result["ok"] is True
+        assert result["branch"] == "feat/x"
+        assert "abc1234" in str(result["sha"])
+
+    @pytest.mark.anyio
+    async def test_already_on_branch_skips_checkout(self, tmp_path: Path) -> None:
+        """If already on the target branch, checkout is skipped."""
+        responses = [
+            _make_git_proc(b"feat/x\n", b"", 0),   # rev-parse → already on feat/x
+            _make_git_proc(b"", b"", 0),             # add
+            _make_git_proc(b"[feat/x abc]\n", b"", 0),  # commit
+            _make_git_proc(b"", b"", 0),             # push
+            _make_git_proc(b"abc\n", b"", 0),        # rev-parse HEAD
+        ]
+        call_iter = iter(responses)
+
+        async def fake_exec(*_args: object, **_kwargs: object) -> MagicMock:
+            return next(call_iter)
+
+        with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+            result = await git_commit_and_push(
+                "feat/x", "skip checkout", ["."], tmp_path
+            )
+
+        assert result["ok"] is True
+
+    @pytest.mark.anyio
+    async def test_push_failure_returns_error(self, tmp_path: Path) -> None:
+        responses = [
+            _make_git_proc(b"main\n", b"", 0),        # rev-parse
+            _make_git_proc(b"", b"", 0),               # checkout
+            _make_git_proc(b"", b"", 0),               # add
+            _make_git_proc(b"[feat/x abc]\n", b"", 0), # commit
+            _make_git_proc(b"", b"fatal: push failed\n", 1),  # push fails
+        ]
+        call_iter = iter(responses)
+
+        async def fake_exec(*_args: object, **_kwargs: object) -> MagicMock:
+            return next(call_iter)
+
+        with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+            result = await git_commit_and_push(
+                "feat/x", "will fail", ["."], tmp_path
+            )
+
+        assert result["ok"] is False
+        assert "push" in str(result["error"]).lower()
+
+    @pytest.mark.anyio
+    async def test_empty_paths_returns_error(self, tmp_path: Path) -> None:
+        # Validation fires before any git subprocess — no mock needed.
+        result = await git_commit_and_push("feat/x", "msg", [], tmp_path)
+        assert result["ok"] is False
+        assert "non-empty" in str(result["error"]).lower()
