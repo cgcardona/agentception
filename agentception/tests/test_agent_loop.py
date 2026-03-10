@@ -784,6 +784,281 @@ class TestTerminalStateGuard:
 
 
 # ---------------------------------------------------------------------------
+# Loop guard — runtime enforcement for write-first behaviour
+# ---------------------------------------------------------------------------
+
+
+class TestLoopGuard:
+    """Runtime loop guard injects an override when the agent writes no code.
+
+    The guard fires when iteration > _LOOP_GUARD_THRESHOLD AND
+    iterations_since_write >= _LOOP_GUARD_THRESHOLD.  A write tool call
+    (replace_in_file / write_file / insert_after_in_file / git_commit_and_push)
+    resets iterations_since_write to 0.
+    """
+
+    @pytest.mark.anyio
+    async def test_loop_guard_fires_after_consecutive_no_write_iterations(
+        self, tmp_path: Path
+    ) -> None:
+        """Loop guard injects LOOP GUARD text into extra_system_blocks after threshold."""
+        from agentception.services.agent_loop import _LOOP_GUARD_THRESHOLD, run_agent_loop
+
+        worktree = tmp_path / "test-run-guard"
+        worktree.mkdir()
+        task_spec = _make_task_spec(worktree)
+
+        # Enough read-only iterations to cross the guard threshold, then stop.
+        # The guard fires on iteration (THRESHOLD + 1) which is index THRESHOLD
+        # in the captured call list (0-indexed).
+        n_reads = _LOOP_GUARD_THRESHOLD + 1
+        read_responses = [
+            _tool_response("read_file", {"path": "agentception/models.py"})
+            for _ in range(n_reads)
+        ]
+        all_responses = read_responses + [_stop_response("Done.")]
+
+        captured_extra: list[list[dict[str, object]] | None] = []
+
+        async def fake_llm(
+            *args: object,
+            extra_system_blocks: list[dict[str, object]] | None = None,
+            **kwargs: object,
+        ) -> ToolResponse:
+            captured_extra.append(extra_system_blocks)
+            return all_responses[len(captured_extra) - 1]
+
+        file_result: dict[str, object] = {"ok": True, "content": "# stub", "truncated": False}
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.get_run_by_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic_with_tools",
+                side_effect=fake_llm,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+
+            from agentception.services import agent_loop as al
+
+            with patch.object(al, "read_file", return_value=file_result):
+                await run_agent_loop("test-run-guard")
+
+        # Guard fires on the (THRESHOLD+1)-th LLM call (index = THRESHOLD).
+        guard_call_blocks = captured_extra[_LOOP_GUARD_THRESHOLD]
+        assert guard_call_blocks is not None, (
+            "Loop guard must inject extra_system_blocks when threshold is reached"
+        )
+        all_text = " ".join(
+            b["text"] for b in guard_call_blocks if isinstance(b.get("text"), str)
+        )
+        assert "LOOP GUARD" in all_text, (
+            f"Expected 'LOOP GUARD' in injected blocks. Got: {all_text!r}"
+        )
+
+    @pytest.mark.anyio
+    async def test_write_tool_resets_loop_guard_counter(self, tmp_path: Path) -> None:
+        """A write tool call resets iterations_since_write; guard must NOT fire."""
+        from agentception.services.agent_loop import _LOOP_GUARD_THRESHOLD, run_agent_loop
+
+        worktree = tmp_path / "test-run-write-reset"
+        worktree.mkdir()
+        task_spec = _make_task_spec(worktree)
+
+        # Pattern: reads up to just below threshold, then a write, then stop.
+        # Guard must never fire because the write resets the counter.
+        n_reads = _LOOP_GUARD_THRESHOLD - 1
+        read_responses = [
+            _tool_response("read_file", {"path": "agentception/models.py"})
+            for _ in range(n_reads)
+        ]
+        all_responses = (
+            read_responses
+            + [_tool_response("write_file", {"path": "agentception/new.py", "content": "# x"})]
+            + [_stop_response("Done.")]
+        )
+
+        captured_extra: list[list[dict[str, object]] | None] = []
+
+        async def fake_llm(
+            *args: object,
+            extra_system_blocks: list[dict[str, object]] | None = None,
+            **kwargs: object,
+        ) -> ToolResponse:
+            captured_extra.append(extra_system_blocks)
+            return all_responses[len(captured_extra) - 1]
+
+        file_result: dict[str, object] = {"ok": True, "content": "# stub", "truncated": False}
+        write_result: dict[str, object] = {"ok": True}
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.get_run_by_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic_with_tools",
+                side_effect=fake_llm,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+
+            from agentception.services import agent_loop as al
+
+            with (
+                patch.object(al, "read_file", return_value=file_result),
+                patch.object(al, "write_file", return_value=write_result),
+            ):
+                await run_agent_loop("test-run-write-reset")
+
+        # No call should have the LOOP GUARD text — the write reset the counter.
+        for blocks in captured_extra:
+            if blocks is None:
+                continue
+            all_text = " ".join(
+                b["text"] for b in blocks if isinstance(b.get("text"), str)
+            )
+            assert "LOOP GUARD" not in all_text, (
+                "Loop guard must NOT fire when a write tool was called within the threshold"
+            )
+
+    @pytest.mark.anyio
+    async def test_symbol_absence_injects_override_on_repeated_search(
+        self, tmp_path: Path
+    ) -> None:
+        """Symbol-absence override fires once when the same search query repeats."""
+        from agentception.services.agent_loop import run_agent_loop
+
+        worktree = tmp_path / "test-run-sym"
+        worktree.mkdir()
+        task_spec = _make_task_spec(worktree)
+
+        repeated_query = "TaskFile model class"
+        all_responses = [
+            _tool_response("search_codebase", {"query": repeated_query}),
+            _tool_response("search_codebase", {"query": repeated_query}),
+            _stop_response("Done."),
+        ]
+
+        captured_extra: list[list[dict[str, object]] | None] = []
+
+        async def fake_llm(
+            *args: object,
+            extra_system_blocks: list[dict[str, object]] | None = None,
+            **kwargs: object,
+        ) -> ToolResponse:
+            captured_extra.append(extra_system_blocks)
+            return all_responses[len(captured_extra) - 1]
+
+        search_result: dict[str, object] = {"ok": True, "results": []}
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.get_run_by_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic_with_tools",
+                side_effect=fake_llm,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+
+            from agentception.services import agent_loop as al
+
+            with patch.object(al, "search_codebase", return_value=search_result):
+                await run_agent_loop("test-run-sym")
+
+        # After the second search (iteration 2), the third LLM call (index 2)
+        # should receive the symbol-absence override.
+        found_absence = False
+        for blocks in captured_extra:
+            if blocks is None:
+                continue
+            all_text = " ".join(
+                b["text"] for b in blocks if isinstance(b.get("text"), str)
+            )
+            if "SYMBOL ABSENCE" in all_text:
+                assert repeated_query in all_text, (
+                    "Symbol absence message must include the repeated query term"
+                )
+                found_absence = True
+                break
+        assert found_absence, (
+            "Symbol absence override must fire after the same query is searched twice"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Type-aware truncation — _build_tool_id_map + _truncate_tool_results
 # ---------------------------------------------------------------------------
 
