@@ -144,6 +144,7 @@ class AgentCeptionSettings(BaseSettings):
     tools are unavailable in the agent loop.
     """
     ac_task_runner: TaskRunnerChoice = TaskRunnerChoice.anthropic
+    planner_enabled: bool = True
     """Task runner backend for agent execution.
     
     Set via ``AC_TASK_RUNNER`` env var.  Valid values: ``cursor``, ``anthropic``.
