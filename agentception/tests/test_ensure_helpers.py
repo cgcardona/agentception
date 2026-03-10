@@ -414,3 +414,70 @@ async def test_dispatch_reviewer_deleted_branch_returns_422(tmp_path: Path) -> N
 
     assert exc_info.value.status_code == 422
     assert "already merged" in exc_info.value.detail or "pr_branch" in exc_info.value.detail
+
+
+@pytest.mark.anyio
+async def test_dispatch_resets_stale_working_memory_on_redispatch(tmp_path: Path) -> None:
+    """dispatch_agent overwrites memory.json so a re-dispatched run does not inherit
+    stale context from a prior run sharing the same run_id.
+
+    Regression test for: agent woke up with loop-guard memory when dispatched for
+    stall-detection work because the issue-33 worktree was reused and its old
+    memory.json was read on turn 1.
+    """
+    import json
+    from agentception.routes.api.dispatch import dispatch_agent, DispatchRequest
+    from agentception.services.working_memory import WorkingMemory, write_memory
+
+    # Simulate a worktree that already exists with stale memory from a prior run.
+    worktree_path = tmp_path / "worktrees" / "issue-99"
+    worktree_path.mkdir(parents=True)
+    stale = WorkingMemory(
+        plan="Implement loop guard detection (old task)",
+        findings={"agentception/poller.py": "loop guard is already implemented"},
+    )
+    write_memory(worktree_path, stale)
+
+    async def mock_ensure_worktree(path: Path, branch: str, base: str = "origin/dev") -> bool:
+        return True  # worktree "already exists" — no-op
+
+    with (
+        patch("agentception.readers.git.ensure_worktree", side_effect=mock_ensure_worktree),
+        patch("agentception.routes.api.dispatch._configure_worktree_auth", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch._resolve_cognitive_arch", return_value=None),
+        patch("agentception.routes.api.dispatch.search_codebase", new_callable=AsyncMock, return_value=[]),
+        patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.acknowledge_agent_run", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.run_agent_loop", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.asyncio.create_task", return_value=asyncio.Future()),
+        patch("agentception.routes.api.dispatch._index_worktree", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.settings") as mock_settings,
+    ):
+        mock_settings.worktrees_dir = str(tmp_path / "worktrees")
+        mock_settings.host_worktrees_dir = str(tmp_path / "host_worktrees")
+        mock_settings.repo_dir = str(tmp_path)
+        mock_settings.gh_repo = "cgcardona/agentception"
+
+        req = DispatchRequest(
+            issue_number=99,
+            issue_title="New task: stall detection",
+            issue_body="Implement two-signal stall detection.",
+            role="developer",
+            repo="agentception",
+        )
+        await dispatch_agent(req)
+
+    # The memory file must be rewritten with the new task's plan, not the old one.
+    memory_file = worktree_path / ".agentception" / "memory.json"
+    assert memory_file.exists(), "dispatch_agent must write memory.json into the worktree"
+    raw = json.loads(memory_file.read_text())
+    assert "loop guard" not in raw.get("plan", ""), (
+        "Stale loop-guard plan must not survive a re-dispatch"
+    )
+    assert "stall" in raw.get("plan", "").lower(), (
+        "New plan must be seeded from the new task_description"
+    )
+    # Stale findings from the old run must be gone.
+    assert raw.get("findings") in (None, {}), (
+        "Stale findings from prior run must be cleared on re-dispatch"
+    )

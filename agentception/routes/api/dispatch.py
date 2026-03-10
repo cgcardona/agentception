@@ -26,11 +26,14 @@ Three endpoints drive the Ship page launch modal:
    without a separate credential helper).
 3. Pre-inject semantically relevant code chunks into ``task_description``
    (Qdrant search at dispatch time — not agent-turn time).
-4. Persist DB row as ``pending_launch``.
-5. Acknowledge (``pending_launch`` → ``implementing``).
-6. Fire ``run_agent_loop`` as an asyncio background task.
-7. Fire worktree Qdrant indexing as a background task.
-8. Return immediately — the agent is now running.
+4. Reset ``memory.json`` in the worktree — clears any stale memory from a
+   prior run sharing the same ``run_id``, seeds ``plan`` from ``task_description``
+   so the agent has its briefing from turn 1 without calling ``issue_read``.
+5. Persist DB row as ``pending_launch``.
+6. Acknowledge (``pending_launch`` → ``implementing``).
+7. Fire ``run_agent_loop`` as an asyncio background task.
+8. Fire worktree Qdrant indexing as a background task.
+9. Return immediately — the agent is now running.
 
 See ``docs/agent-tree-protocol.md`` for the full tier spec.
 """
@@ -75,6 +78,7 @@ from agentception.services.agent_loop import run_agent_loop
 from agentception.services.code_indexer import search_codebase
 from agentception.services.cognitive_arch import _resolve_cognitive_arch
 from agentception.services.run_factory import _configure_worktree_auth, _index_worktree
+from agentception.services.working_memory import WorkingMemory, write_memory
 from agentception.services.spawn_child import (
     SpawnChildError,
     ScopeType,
@@ -348,6 +352,17 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
                     )
         except Exception as exc:  # noqa: BLE001
             logger.warning("⚠️ dispatch: context pre-injection failed — %s", exc)
+
+    # Reset working memory so re-dispatches always start with a clean slate.
+    # If the worktree was reused from a prior run (same issue_number, same run_id),
+    # a stale memory.json would be injected into the first turn and confuse the
+    # agent about its own task.  Seed plan from task_description so the agent has
+    # its briefing in memory without needing to call issue_read on turn 1.
+    write_memory(
+        Path(worktree_path),
+        WorkingMemory(plan=task_description or ""),
+    )
+    logger.info("✅ dispatch: working memory reset for run_id=%s", run_id)
 
     # Persist all task context to DB; agents read via ac://runs/{run_id}/context.
     await persist_agent_run_dispatch(
