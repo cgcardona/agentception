@@ -378,3 +378,24 @@ def test_ac_task_runner_invalid_value_raises_validation_error(
         _make_settings(tmp_path)
     # Pydantic v2 raises ValidationError with details about the invalid enum value
     assert "validation error" in str(exc_info.value).lower() or "ac_task_runner" in str(exc_info.value).lower()
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — agent_max_iterations field
+# ---------------------------------------------------------------------------
+
+
+def test_agent_max_iterations_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """agent_max_iterations defaults to 100 when AGENT_MAX_ITERATIONS is unset."""
+    monkeypatch.delenv("AGENT_MAX_ITERATIONS", raising=False)
+    s = _make_settings(tmp_path)
+    assert s.agent_max_iterations == 100
+
+
+def test_agent_max_iterations_env_var_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AGENT_MAX_ITERATIONS env var overrides the default value."""
+    monkeypatch.setenv("AGENT_MAX_ITERATIONS", "42")
+    s = _make_settings(tmp_path)
+    assert s.agent_max_iterations == 42

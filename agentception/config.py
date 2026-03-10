@@ -173,6 +173,14 @@ class AgentCeptionSettings(BaseSettings):
     Must match the model — ``BAAI/bge-small-en-v1.5`` produces 384-dimensional
     vectors.  Override when switching to a different model.
     """
+    agent_max_iterations: int = 100
+    """Maximum number of turns an agent may take before the reaper kills it.
+
+    Set via ``AGENT_MAX_ITERATIONS`` env var.  Defaults to 100, which is
+    generous enough for complex tasks while still bounding runaway agents.
+    Reduce this in test environments to keep runs short; increase it only
+    when a specific task class is known to require more turns.
+    """
     database_url: str | None = None
     """Async database URL for AgentCeption's own ac_* tables.
 
