@@ -24,7 +24,7 @@ from pathlib import Path
 from agentception.config import settings
 from agentception.intelligence.guards import detect_out_of_order_prs, detect_stale_claims
 from agentception.db.queries import RunContextRow, list_active_runs
-from agentception.models import AgentNode, AgentStatus, BoardIssue, PipelineState, PlanDraftEvent, StaleClaim
+from agentception.models import AgentNode, AgentStatus, BoardIssue, PipelineState, PlanDraftEvent, StaleClaim, StalledAgentEvent
 from agentception.readers.github import (
     get_active_label,
     get_closed_issues,
@@ -37,8 +37,9 @@ from agentception.readers.git import worktree_last_commit_time
 
 logger = logging.getLogger(__name__)
 
-# Agents whose most-recent commit is older than this threshold are flagged.
-_STUCK_THRESHOLD_SECONDS: int = 30 * 60  # 30 minutes
+# Default fallback used when PipelineConfig cannot be read.  The live value
+# comes from PipelineConfig.stall_threshold_minutes at tick time.
+_DEFAULT_STALL_THRESHOLD_SECONDS: int = 30 * 60
 
 # ---------------------------------------------------------------------------
 # Shared state — module-level singletons, mutated only by tick()
@@ -183,20 +184,26 @@ async def merge_agents(
 async def detect_alerts(
     active_runs: list[RunContextRow],
     github: GitHubBoard,
-) -> tuple[list[str], list[StaleClaim]]:
-    """Detect pipeline problems and return human-readable alert strings plus structured stale claims.
+    stall_threshold_seconds: int = _DEFAULT_STALL_THRESHOLD_SECONDS,
+) -> tuple[list[str], list[StaleClaim], list[StalledAgentEvent]]:
+    """Detect pipeline problems and return alerts, stale claims, and stalled-agent events.
 
     Three alert classes:
     1. **Stale claim** — an ``agent/wip`` issue has no live worktree.
     2. **Out-of-order PR** — an open PR's labels include an agentception phase
        that no longer matches the currently active phase.
-    3. **Stuck agent** — the most-recent commit in a worktree is > 30 min old.
+    3. **Stalled agent** — two-signal detection:
+       - *Primary (DB heartbeat):* ``last_activity_at`` is older than
+         ``stall_threshold_seconds``.  Promotes the run to ``AgentStatus.STALLED``
+         and emits a ``StalledAgentEvent``.
+       - *Secondary (git commit):* ``worktree_last_commit_time()`` is older than
+         the threshold while ``last_activity_at`` is still fresh.  Surfaces an
+         advisory warning only — no STALLED promotion.
 
-    Returns a tuple of (alert strings, stale_claims).  Alert strings include a
-    human-readable summary of each stale claim; ``stale_claims`` provides the
-    structured data used by the UI "Clear Label" action.
+    Returns ``(alerts, stale_claims, stalled_agents)``.
     """
     alerts: list[str] = []
+    stalled_agents: list[StalledAgentEvent] = []
     now = time.time()
 
     # ── Alert 1: agent/wip issue with no matching worktree ─────────────────
@@ -237,12 +244,9 @@ async def detect_alerts(
                     alerts.append(f"Out-of-order PR #{pr_num}")
                 break  # one alert per PR is enough
 
-    # ── Alert 3: worktree last commit > 30 min ago (async path) ────────────
-    # Skip coordinator runs — they have no commits of their own; all work
-    # happens in sub-agent worktrees they spawn.
-    #
-    # Skip freshly spawned runs (spawned_at within threshold) — a brand-new
-    # worktree has no agent activity yet and is not stuck.
+    # ── Alert 3: two-signal stall detection ────────────────────────────────
+    # Skip coordinator runs — they have no commits of their own.
+    # Skip freshly-spawned runs — a brand-new worktree has no activity yet.
     import datetime as _dt
     for run in active_runs:
         worktree = run["worktree_path"]
@@ -253,24 +257,56 @@ async def detect_alerts(
         path = Path(worktree)
         if not path.exists():
             continue
+
         # Skip if spawned within the threshold window.
         spawned_at_str = run["spawned_at"]
         try:
             spawned_ts = _dt.datetime.fromisoformat(spawned_at_str).timestamp()
-            if (now - spawned_ts) < _STUCK_THRESHOLD_SECONDS:
+            if (now - spawned_ts) < stall_threshold_seconds:
                 continue
         except (ValueError, OSError):
             pass
-        last_commit = await worktree_last_commit_time(path)
-        if last_commit > 0.0 and (now - last_commit) > _STUCK_THRESHOLD_SECONDS:
-            issue_num: int = run["issue_number"] or 0
-            label = f"issue #{issue_num}" if issue_num else path.name
+
+        issue_num: int = run["issue_number"] or 0
+        label = f"issue #{issue_num}" if issue_num else path.name
+        run_id = run["run_id"]
+
+        # ── Primary signal: DB heartbeat (last_activity_at) ────────────────
+        # Agents update last_activity_at on every LLM turn; silence here means
+        # the LLM loop itself has stalled — promote to STALLED immediately.
+        last_activity_raw = run.get("last_activity_at")
+        heartbeat_cold = False
+        last_activity_iso = ""
+        stalled_for_minutes = 0
+
+        if last_activity_raw is not None:
+            try:
+                last_activity_ts = _dt.datetime.fromisoformat(str(last_activity_raw)).timestamp()
+                silence_seconds = now - last_activity_ts
+                if silence_seconds > stall_threshold_seconds:
+                    heartbeat_cold = True
+                    stalled_for_minutes = int(silence_seconds / 60)
+                    last_activity_iso = str(last_activity_raw)
+            except (ValueError, OSError):
+                pass
+        else:
+            # No heartbeat recorded yet; agent has been running past threshold —
+            # treat as cold heartbeat (agent may have crashed before first turn).
+            heartbeat_cold = True
+            last_activity_iso = ""
+            # spawned_ts was already parsed above; reparse defensively.
+            try:
+                spawned_ts_fallback = _dt.datetime.fromisoformat(spawned_at_str).timestamp()
+                stalled_for_minutes = int((now - spawned_ts_fallback) / 60)
+            except (ValueError, OSError):
+                stalled_for_minutes = 0
+
+        if heartbeat_cold:
             alerts.append(f"Possible stuck agent on {label}")
 
-            # Persist STALLED state to the DB (non-blocking — never raises).
             from agentception.db.persist import update_agent_status  # noqa: PLC0415
             from agentception.workflow.status import AgentStatus  # noqa: PLC0415
-            await update_agent_status(run["run_id"], AgentStatus.STALLED)
+            await update_agent_status(run_id, AgentStatus.STALLED)
 
             stale_claims.append(StaleClaim(
                 issue_number=issue_num,
@@ -278,15 +314,33 @@ async def detect_alerts(
                 worktree_path=str(path),
             ))
 
-            # Emit agent_stalled SSE event so the dashboard and any listeners
-            # can react (e.g. surface a "re-dispatch" button).
-            stalled_for_minutes = int((now - last_commit) / 60)
+            stalled_agents.append(StalledAgentEvent(
+                run_id=run_id,
+                issue_number=issue_num,
+                worktree_path=str(path),
+                last_activity_at=last_activity_iso,
+                stalled_for_minutes=stalled_for_minutes,
+            ))
+
             logger.warning(
-                "⚠️  agent_stalled — run_id=%s issue=%s worktree=%s stalled_for=%dm",
-                run["run_id"],
+                "⚠️  agent_stalled — run_id=%s issue=%s stalled_for=%dm (DB heartbeat cold)",
+                run_id,
                 label,
-                path,
                 stalled_for_minutes,
+            )
+            continue  # Primary signal fired — skip secondary check for this run.
+
+        # ── Secondary signal: git commit age (advisory only) ───────────────
+        # Agent is turning (heartbeat warm) but hasn't committed in a while.
+        # Surface a soft warning; do NOT promote to STALLED.
+        last_commit = await worktree_last_commit_time(path)
+        if last_commit > 0.0 and (now - last_commit) > stall_threshold_seconds:
+            advisory_minutes = int((now - last_commit) / 60)
+            logger.warning(
+                "⚠️  agent_active_no_commit — run_id=%s issue=%s no_commit_for=%dm (heartbeat warm)",
+                run_id,
+                label,
+                advisory_minutes,
             )
 
     # ── Alert 4: structured out-of-order PR violations (linked-issue check) ─
@@ -303,7 +357,7 @@ async def detect_alerts(
     except Exception as exc:
         logger.warning("⚠️  detect_out_of_order_prs failed: %s", exc)
 
-    return alerts, stale_claims
+    return alerts, stale_claims, stalled_agents
 
 
 # ---------------------------------------------------------------------------
@@ -578,17 +632,16 @@ async def tick() -> PipelineState:
     active_runs = await list_active_runs()
     github = await build_github_board()
     agents = await merge_agents(active_runs, github)
-    alerts, stale_claims = await detect_alerts(active_runs, github)
     plan_draft_events: list[PlanDraftEvent] = []
 
-    # ── Loop guard detection ────────────────────────────────────────────────
-    # Check message_count against max_attempts from PipelineConfig.
-    # Agents exceeding the ceiling are flagged in loop_guard_triggered.
+    # ── Read PipelineConfig once — drives loop guard and stall thresholds ──
     loop_guard_triggered: list[str] = []
+    stall_threshold_seconds = _DEFAULT_STALL_THRESHOLD_SECONDS
     try:
         from agentception.readers.pipeline_config import read_pipeline_config
         config = await read_pipeline_config()
         max_attempts = config.max_attempts
+        stall_threshold_seconds = config.stall_threshold_minutes * 60
         for run in active_runs:
             msg_count_raw = run.get("message_count", 0)
             msg_count = int(msg_count_raw) if isinstance(msg_count_raw, (int, float)) else 0
@@ -605,7 +658,12 @@ async def tick() -> PipelineState:
                     max_attempts,
                 )
     except Exception as exc:
-        logger.warning("⚠️  Loop guard detection failed (non-fatal): %s", exc)
+        logger.warning("⚠️  Loop guard / config read failed (non-fatal): %s", exc)
+
+    # ── Detect stale claims / stalled agents / out-of-order PRs ────────────
+    alerts, stale_claims, stalled_agents = await detect_alerts(
+        active_runs, github, stall_threshold_seconds
+    )
 
     # ── Persist raw tick data to Postgres ────────────────────────────────────
     # Non-blocking: a DB outage cannot crash the poller or stall the SSE stream.
@@ -623,6 +681,7 @@ async def tick() -> PipelineState:
                 polled_at=time.time(),
                 plan_draft_events=plan_draft_events,
                 loop_guard_triggered=loop_guard_triggered,
+                stalled_agents=stalled_agents,
             ),
             open_issues=github.open_issues,
             open_prs=github.open_prs,
@@ -689,6 +748,7 @@ async def tick() -> PipelineState:
         stale_branches=stale_branches,
         plan_draft_events=plan_draft_events,
         loop_guard_triggered=loop_guard_triggered,
+        stalled_agents=stalled_agents,
     )
     _state = state
 
