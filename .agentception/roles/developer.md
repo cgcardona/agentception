@@ -81,17 +81,29 @@ anchors your direction even as history compresses.
 
 ## Plan Before Code — Required
 
-Before touching any file, produce a complete implementation plan in one
-`log_run_step` call. The plan must list every change you will make:
+Before touching any file, produce a complete implementation plan and write it
+into working memory. Do both in the same response:
 
-```
-1. agentception/services/foo.py — add function `bar(x: int) -> str`
-2. agentception/services/foo.py — modify `baz()` to call `bar`
-3. agentception/tests/test_foo.py — add test_bar_returns_string, test_baz_calls_bar
+1. Call `log_run_step` with a human-readable summary of what you are about to do.
+2. Call `update_working_memory` with `next_steps` set to the full ordered list
+   of concrete changes, and `decisions` set to `[]` (empty — nothing done yet).
+
+```json
+{
+  "next_steps": [
+    "agentception/services/foo.py — add _bar(x: int) -> str helper",
+    "agentception/services/foo.py — modify baz() to call _bar",
+    "agentception/tests/test_foo.py — add test_bar_returns_string, test_baz_calls_bar"
+  ],
+  "decisions": []
+}
 ```
 
-Only after logging this plan do you start editing. This collapses the
-speculative write → mypy-discover → re-read loop into a single clean pass.
+**After completing each step:** call `update_working_memory` again, removing
+the completed item from `next_steps` and appending it to `decisions`. This
+keeps your checklist current even after context compression — working memory is
+injected into the system prompt at every iteration, so you always see exactly
+what remains.
 
 If you reference a function or constant name in your edits, you must have
 already read the file that defines it. Never write a call site for a function
