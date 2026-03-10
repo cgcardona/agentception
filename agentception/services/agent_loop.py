@@ -253,31 +253,28 @@ _MAX_HISTORY_MESSAGES: int = 20
 _HISTORY_TAIL: int = 14
 
 # ---------------------------------------------------------------------------
-# Token-rate guard — keeps input token consumption under the Tier 1 limit
-# (30 000 tokens/minute).  We target 27 000 to leave a safety margin.
+# Token-rate guard — proactive pacing between consecutive LLM calls.
 # ---------------------------------------------------------------------------
 
-# Minimum seconds between consecutive LLM calls.  A proactive fixed cadence
-# beats a reactive burst-then-sleep TPM guard.  At Tier 2 limits (450K input /
-# 90K output TPM, 1K RPM) a 7s floor keeps throughput at ~8.5 turns/min, giving
-# ~10.5K average output tokens per turn of headroom — comfortably above any
-# realistic agent turn.  Input TPM is not the constraint: system-prompt cache
-# reads are excluded from the 450K limit, so uncached input per turn is only
-# new messages and tool results (~1–5K).
-_MIN_TURN_DELAY_SECS: float = 4.0
+# Minimum seconds between consecutive LLM calls.  A fixed cadence beats a
+# reactive burst-then-sleep TPM guard.  Calibrated for **Tier 3** (800K input /
+# 160K output TPM, 2K RPM): the default 1.5 s floor allows ~3 concurrent agents
+# at ~1 000 output tokens per turn before the output-TPM cap is reached.
+# Tunable via the ``AC_MIN_TURN_DELAY_SECS`` env var (see config.py).
 _last_llm_call_at: float = 0.0
 
 
 async def _enforce_turn_delay() -> None:
-    """Sleep until _MIN_TURN_DELAY_SECS has elapsed since the last LLM call completed.
+    """Sleep until settings.ac_min_turn_delay_secs has elapsed since the last LLM call.
 
     The timestamp is updated by the caller *after* call_anthropic_with_tools
     returns, so retry backoff inside the LLM call does not eat into the next
     window.  If the previous turn's tool dispatch already consumed the full
     window this returns immediately.
     """
+    min_delay = settings.ac_min_turn_delay_secs
     elapsed = time.monotonic() - _last_llm_call_at
-    wait = _MIN_TURN_DELAY_SECS - elapsed
+    wait = min_delay - elapsed
     if wait > 0.0:
         logger.info("⏳ agent_loop: inter-turn delay — sleeping %.1fs", wait)
         await asyncio.sleep(wait)

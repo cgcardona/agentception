@@ -390,3 +390,8 @@ def test_planner_enabled_default() -> None:
     s = AgentCeptionSettings()
     assert s.planner_enabled is True
 
+
+def test_ac_min_turn_delay_secs_default() -> None:
+    s = AgentCeptionSettings()
+    assert s.ac_min_turn_delay_secs == 1.5
+
