@@ -327,7 +327,7 @@ async def generate_execution_plan(
         raw = await call_anthropic(
             user_message,
             system_prompt=_PLANNER_SYSTEM_PROMPT,
-            max_tokens=4096,
+            max_tokens=8192,
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("⚠️ planner: LLM call failed — %s", exc)
