@@ -71,11 +71,13 @@ class OrgNodeSpec(BaseModel):
 
 OrgNodeSpec.model_rebuild()
 
+import ast as _ast
+
 from agentception.config import settings
 from agentception.db.persist import acknowledge_agent_run, persist_agent_run_dispatch
 from agentception.db.queries import get_label_context
 from agentception.services.agent_loop import run_agent_loop
-from agentception.services.code_indexer import search_codebase
+from agentception.services.code_indexer import SearchMatch, search_codebase
 from agentception.services.cognitive_arch import _resolve_cognitive_arch
 from agentception.services.run_factory import _configure_worktree_auth, _index_worktree
 from agentception.services.working_memory import WorkingMemory, write_memory
@@ -227,6 +229,133 @@ def _make_batch_id(issue_number: int) -> str:
     return f"issue-{issue_number}-{stamp}-{short}"
 
 
+# ---------------------------------------------------------------------------
+# Dispatch-time context extractors — run after ensure_worktree so the
+# worktree is on disk.  Both are off the hot path (run in a thread via
+# asyncio.to_thread) and fail silently so a broken file never blocks dispatch.
+# ---------------------------------------------------------------------------
+
+_SIG_MAX_CHARS = 160   # max chars per signature line kept in the summary
+_SIG_MAX_SYMBOLS = 30  # max symbols extracted per file
+
+
+def _ast_signatures_from_file(path: Path) -> str:
+    """Return a compact string of class/function signatures from *path*.
+
+    Uses Python ``ast`` so only the declaration lines are read — no function
+    bodies, no docstrings.  Each line is at most ``_SIG_MAX_CHARS`` chars.
+    Skips files that fail to parse (e.g. syntax errors, non-UTF-8).
+    """
+    try:
+        source = path.read_text(encoding="utf-8", errors="replace")
+        tree = _ast.parse(source, filename=str(path))
+    except (OSError, SyntaxError):
+        return ""
+
+    lines = source.splitlines()
+    sigs: list[str] = []
+
+    for node in _ast.walk(tree):
+        if not isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef, _ast.ClassDef)):
+            continue
+        if len(sigs) >= _SIG_MAX_SYMBOLS:
+            break
+        lineno = node.lineno - 1
+        if lineno < 0 or lineno >= len(lines):
+            continue
+        # Grab up to 3 lines to capture multi-line signatures.
+        raw = " ".join(
+            lines[lineno + i].strip()
+            for i in range(min(3, len(lines) - lineno))
+            if lines[lineno + i].strip()
+        )
+        sig = raw[:_SIG_MAX_CHARS] + ("…" if len(raw) > _SIG_MAX_CHARS else "")
+        sigs.append(sig)
+
+    return "\n".join(sigs)
+
+
+async def _extract_type_signatures(
+    worktree_path: Path,
+    relevant_files: list[str],
+) -> dict[str, str]:
+    """Extract class/function type signatures from *relevant_files* in the worktree.
+
+    Returns a ``dict[file_path, signature_summary]`` injected into
+    ``WorkingMemory.findings`` at dispatch time so the agent can write
+    correctly-typed code without reading each file first.
+
+    Runs ``_ast_signatures_from_file`` in a thread pool to avoid blocking the
+    event loop.  Returns an empty dict if nothing can be extracted.
+    """
+    result: dict[str, str] = {}
+    for rel_path in relevant_files:
+        abs_path = worktree_path / rel_path
+        if not abs_path.exists() or not rel_path.endswith(".py"):
+            continue
+        try:
+            sigs = await asyncio.to_thread(_ast_signatures_from_file, abs_path)
+        except Exception:  # noqa: BLE001
+            continue
+        if sigs:
+            result[rel_path] = f"[Type signatures]\n{sigs}"
+    return result
+
+
+def _test_names_from_file(path: Path) -> list[str]:
+    """Return all ``def test_*`` function names found in *path* via AST."""
+    try:
+        source = path.read_text(encoding="utf-8", errors="replace")
+        tree = _ast.parse(source, filename=str(path))
+    except (OSError, SyntaxError):
+        return []
+    return [
+        node.name
+        for node in _ast.walk(tree)
+        if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef))
+        and node.name.startswith("test_")
+    ]
+
+
+async def _extract_test_coverage(
+    worktree_path: Path,
+    relevant_files: list[str],
+) -> dict[str, str]:
+    """Map relevant test files to their existing ``test_*`` function names.
+
+    Derives candidate test filenames from *relevant_files*: for each source
+    module (e.g. ``agentception/poller.py``) it checks for common test file
+    naming patterns in ``agentception/tests/``.  The result is injected into
+    ``WorkingMemory.findings`` so the agent knows which scenarios are already
+    covered and writes only the missing tests.
+    """
+    tests_dir = worktree_path / "agentception" / "tests"
+    if not tests_dir.exists():
+        return {}
+
+    # Derive candidate test filenames for each source file.
+    candidates: set[str] = set()
+    for rel_path in relevant_files:
+        stem = Path(rel_path).stem  # e.g. "poller", "__init__" → "models"
+        if stem == "__init__":
+            stem = Path(rel_path).parent.name  # agentception/models → "models"
+        for prefix in ("test_agentception_", "test_", ""):
+            candidates.add(f"{prefix}{stem}.py")
+
+    result: dict[str, str] = {}
+    for test_file in sorted(tests_dir.iterdir()):
+        if test_file.name not in candidates:
+            continue
+        try:
+            names = await asyncio.to_thread(_test_names_from_file, test_file)
+        except Exception:  # noqa: BLE001
+            continue
+        if names:
+            rel = f"agentception/tests/{test_file.name}"
+            result[rel] = "[Existing tests — do not duplicate]\n" + "\n".join(names)
+    return result
+
+
 @router.post("/issue", response_model=DispatchResponse)
 async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
     """Create a worktree and immediately fire the agent loop via Anthropic.
@@ -324,6 +453,8 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
     # Searching at dispatch time (not agent-turn time) amortises the embedding
     # cost once and gives the agent oriented code context from turn 1.
     # Cap: top 3 chunks, 800 chars each, total ≤ 3 000 chars added.
+    # code_matches is also reused below for type-signature extraction.
+    code_matches: list[SearchMatch] = []
     if task_description:
         search_query = f"{req.issue_title} {req.issue_body}"[:800]
         try:
@@ -353,14 +484,41 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
         except Exception as exc:  # noqa: BLE001
             logger.warning("⚠️ dispatch: context pre-injection failed — %s", exc)
 
+    # Build dispatch-time findings: type signatures + existing test names.
+    # These are extracted from the worktree (which already exists on disk) and
+    # injected into WorkingMemory.findings so the agent can write correctly-typed
+    # code and non-duplicate tests from turn 1 — eliminating the mypy-fix loop
+    # and test-collision discovery turns that previously cost 5-8 turns each.
+    relevant_files = [m["file"] for m in code_matches]
+    dispatch_findings: dict[str, str] = {}
+    try:
+        type_findings = await _extract_type_signatures(Path(worktree_path), relevant_files)
+        dispatch_findings.update(type_findings)
+        logger.info(
+            "✅ dispatch: extracted type signatures from %d files for run_id=%s",
+            len(type_findings),
+            run_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("⚠️ dispatch: type signature extraction failed — %s", exc)
+    try:
+        test_findings = await _extract_test_coverage(Path(worktree_path), relevant_files)
+        dispatch_findings.update(test_findings)
+        logger.info(
+            "✅ dispatch: extracted test coverage from %d files for run_id=%s",
+            len(test_findings),
+            run_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("⚠️ dispatch: test coverage extraction failed — %s", exc)
+
     # Reset working memory so re-dispatches always start with a clean slate.
-    # If the worktree was reused from a prior run (same issue_number, same run_id),
-    # a stale memory.json would be injected into the first turn and confuse the
-    # agent about its own task.  Seed plan from task_description so the agent has
-    # its briefing in memory without needing to call issue_read on turn 1.
+    # Seed plan from task_description and findings from the dispatch-time
+    # extraction so the agent never needs to re-read files to understand types
+    # or discover which tests already exist.
     write_memory(
         Path(worktree_path),
-        WorkingMemory(plan=task_description or ""),
+        WorkingMemory(plan=task_description or "", findings=dispatch_findings),
     )
     logger.info("✅ dispatch: working memory reset for run_id=%s", run_id)
 

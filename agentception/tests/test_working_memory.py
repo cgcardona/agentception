@@ -184,3 +184,18 @@ def test_render_memory_findings_key_value() -> None:
     rendered = render_memory(WorkingMemory(findings={"agent_loop.py": "loop starts at line 157"}))
     assert "`agent_loop.py`" in rendered
     assert "loop starts at line 157" in rendered
+
+
+def test_render_memory_findings_appear_before_plan() -> None:
+    """Findings must render before plan so the agent reads type constraints first."""
+    rendered = render_memory(
+        WorkingMemory(
+            plan="Implement stall detection",
+            findings={"agentception/models/__init__.py": "[Type signatures]\nclass PipelineState(BaseModel):"},
+        )
+    )
+    findings_pos = rendered.index("Type signatures")
+    plan_pos = rendered.index("Implement stall detection")
+    assert findings_pos < plan_pos, (
+        "Findings must appear before plan in render_memory output"
+    )
