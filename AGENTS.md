@@ -86,7 +86,7 @@ Every task follows this complete lifecycle — no step is optional:
    ```bash
    docker compose exec agentception mypy agentception/ tests/                              # zero errors
    docker compose exec agentception python3 tools/typing_audit.py --dirs agentception/ tests/ --max-any 0  # passes
-   docker compose exec agentception pytest agentception/tests/ -v                          # all green
+   docker compose exec agentception pytest agentception/tests/test_foo.py -v              # only test files relevant to changes — see Test Scope below
    docker compose exec agentception python3 /app/scripts/gen_prompts/generate.py --check  # no drift
    npm run build   # only if .js or .scss files changed
    ```
@@ -346,6 +346,25 @@ Every change must be covered at the appropriate level. Omitting a level requires
 | **Regression** | Reproduces a specific bug before the fix | Every bug fix — named `test_<what_broke>_<fixed_behavior>` |
 | **E2E** | Full request/response or full pipeline run | Any user-facing flow (planning pipeline, issue creation, agent dispatch) |
 
+### Test scope — targeted runs, not full suite
+
+**For every feature or fix commit:** run only the test files that cover the changed source files.
+
+| Changed source | Run test file |
+|----------------|---------------|
+| `agentception/config.py` | `tests/test_config.py` |
+| `agentception/services/planner.py` | `tests/test_execution_plan.py` |
+| `agentception/routes/api/dispatch.py` | `tests/test_build.py` |
+| `agentception/readers/git.py` | `tests/test_ensure_helpers.py` |
+| `agentception/db/persist.py` | `tests/test_persist.py` |
+
+When a change touches multiple modules, pass all relevant test files to a single `pytest` call. The full suite (`agentception/tests/ -v`) is reserved for two situations only:
+
+1. **`dev → main` release merges** — full regression gate before tagging a version.
+2. **Periodic health audits** — run deliberately, not automatically on every commit.
+
+Never run the full suite as a reflex. It costs 3–4 minutes per run and signals nothing that targeted tests don't already catch during normal development.
+
 ### Agents own all broken tests — not just theirs
 
 If you run the test suite and see a failing test — regardless of whether your change caused it — you are responsible for fixing it before your PR merges. "This was already broken" is not an acceptable response. You have two options:
@@ -368,7 +387,7 @@ There is no third option. A codebase with known broken tests that everyone steps
 0. [ ] Confirm you are on a feature branch or inside a worktree — **never on `dev` or `main`**
 1. [ ] `docker compose exec agentception mypy agentception/ tests/` — clean, zero errors
 2. [ ] `docker compose exec agentception python3 tools/typing_audit.py --dirs agentception/ tests/ --max-any 0` — passes
-3. [ ] `docker compose exec agentception pytest agentception/tests/ -v` — all green (unit + integration + regression)
+3. [ ] `docker compose exec agentception pytest <test files relevant to changes> -v` — pass only the test files covering changed source. Full suite (`agentception/tests/ -v`) only before `dev → main` release merges or on periodic audits.
 4. [ ] Regression test added if this is a bug fix (named `test_<what_broke>_<fixed_behavior>`)
 5. [ ] `docker compose exec agentception python3 /app/scripts/gen_prompts/generate.py --check` — no drift (run without `--check` first if you edited `.j2` templates, then re-run with `--check`)
 6. [ ] Zero broken tests — fix any you find, not just yours

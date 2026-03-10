@@ -68,7 +68,7 @@ Only fall back to `gh` CLI when the MCP server does not cover the required opera
 4. **Verify locally before opening the PR** — in this exact order:
    - `docker compose exec agentception mypy agentception/ tests/` → must be zero errors
    - `docker compose exec agentception python3 tools/typing_audit.py --dirs agentception/ tests/ --max-any 0` → must pass
-   - `docker compose exec agentception pytest agentception/tests/ -v` → must be all green
+   - `docker compose exec agentception pytest agentception/tests/test_foo.py agentception/tests/test_bar.py -v` → run **only the test files relevant to changed source files** — not the full suite. Pass the full suite (`agentception/tests/ -v`) only before a `dev → main` release merge or on a periodic audit.
    - `docker compose exec agentception python3 /app/scripts/gen_prompts/generate.py --check` → must show no drift (run `generate.py` without `--check` first if you edited templates)
    - `npm run build` if any `.js` or `.scss` files changed
    CI does **not** run on feature → dev PRs. Local verification is the gate.
@@ -148,7 +148,8 @@ This codebase is operated by humans and agents. Strong types are the contract th
 - **Four levels, all required:** unit tests, integration tests, regression tests (one per bug fix), and E2E tests where behavior crosses a service boundary. Omitting a level requires a documented reason in the PR.
 - Naming: `test_<behavior>_<scenario>`. Shared fixtures in `tests/conftest.py`. `@pytest.mark.anyio` for async.
 - **Agents own all broken tests — not just theirs.** If you run the test suite and see a failing test, you are responsible for fixing it before merging your work. "This was broken before I got here" is not a valid reason to merge. Either fix it or open a blocking issue and get explicit sign-off. A PR that introduces or knowingly ignores a broken test will not be merged.
-- Coverage: `docker compose exec agentception sh -c "export COVERAGE_FILE=/tmp/.coverage && python -m coverage run -m pytest agentception/tests/ -v && python -m coverage report --fail-under=80 --show-missing"`
+- **Test scope:** run only the test files directly related to changed source files. The full suite (`agentception/tests/`) is reserved for `dev → main` release merges and periodic health audits — not for every feature commit.
+- Coverage: `docker compose exec agentception sh -c "export COVERAGE_FILE=/tmp/.coverage && python -m coverage run -m pytest agentception/tests/ -v && python -m coverage report --fail-under=80 --show-missing"` (full-suite pass only; not required per commit).
 
 ## TypeScript — zero-tolerance typing rules
 

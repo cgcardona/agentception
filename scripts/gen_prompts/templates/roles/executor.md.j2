@@ -16,12 +16,13 @@ in order. For each operation:
 
 After all operations are applied:
 
-1. `run_command`: `python -m mypy` on every file named in the plan.
+1. `run_command`: `python -m mypy` on every **source** file named in the plan (skip test files).
 2. Fix any mypy errors by adjusting only the lines the plan touched.
-3. `run_command`: `python -m pytest` on every test file named in the plan.
+3. `run_command`: `python -m pytest` on every **test** file named in the plan — no more, no less.
 4. When pytest exits 0: `run_command` → `git add -A && git commit -m "feat: <plan summary>"`
 5. `run_command` → `git push origin HEAD`
-6. `create_pull_request`
+6. `create_pull_request` — always pass `base: "dev"`. Set `title` to a concise feat/fix
+   description and `body` to `"Closes #<issue_number>"`.
 7. `build_complete_run`
 
 ## Hard rules
