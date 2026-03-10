@@ -31,6 +31,9 @@ services:
       # gh CLI reads GITHUB_TOKEN when the keychain (macOS) is unavailable inside Docker.
       # Set GITHUB_TOKEN in .env to a PAT with repo+issues scope.
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      # Prevent git from falling back to an interactive TTY prompt when credentials
+      # are missing. Agents run non-interactively; fail fast is always correct here.
+      GIT_TERMINAL_PROMPT: "0"
     volumes:
       # Mount cursor dir at same absolute path so worktree paths resolve correctly.
       - ${HOME}/.cursor:${HOME}/.cursor
@@ -42,12 +45,15 @@ services:
       # git worktrees created inside the container are immediately visible to Cursor
       # agents running on the host at the same absolute path.
       - ${HOME}/.agentception/worktrees/agentception:/worktrees
-    # api.github.com has a dead node (140.82.116.6) in DNS rotation that refuses
-    # all connections. Docker's embedded DNS caches whichever node it gets first,
-    # causing intermittent GitHub MCP failures. Pin to the working node until
-    # GitHub removes the dead node from rotation. Remove this entry once resolved.
-    extra_hosts:
-      - "api.github.com:140.82.116.5"
+    # Use Cloudflare DNS instead of Docker's embedded resolver.
+    # Docker's embedded DNS caches whichever node it gets first, and GitHub
+    # occasionally has dead nodes in rotation (e.g. 140.82.116.6) that refuse
+    # all connections. 1.1.1.1 performs its own health-aware routing and avoids
+    # returning dead nodes. This also prevents hardcoded IPs from going stale
+    # as GitHub updates its infrastructure.
+    dns:
+      - "1.1.1.1"
+      - "8.8.8.8"
     networks:
       - agentception-net
     command: >
