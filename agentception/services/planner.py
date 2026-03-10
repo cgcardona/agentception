@@ -109,22 +109,24 @@ def _build_planner_prompt(
 def _parse_plan_json(raw: str, run_id: str, issue_number: int) -> ExecutionPlan | None:
     """Parse the LLM response into an ExecutionPlan.
 
-    Strips markdown fences if present, then validates against the schema.
-    Returns None on any parse or validation error.
+    Strips markdown fences if present, then extracts the first valid JSON object
+    using ``JSONDecoder.raw_decode`` so trailing text (explanations, notes) never
+    causes a parse error.  Returns None on any parse or validation error.
     """
     text = raw.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        text = "\n".join(ln for ln in lines if not ln.startswith("```")).strip()
+
+    # Remove markdown code fences regardless of where they appear.
+    lines = text.splitlines()
+    text = "\n".join(ln for ln in lines if not ln.startswith("```")).strip()
 
     start = text.find("{")
-    end = text.rfind("}") + 1
-    if start == -1 or end <= start:
+    if start == -1:
         logger.warning("⚠️ planner: no JSON object found in response")
         return None
 
+    decoder = json.JSONDecoder()
     try:
-        data: object = json.loads(text[start:end])
+        data, _ = decoder.raw_decode(text, start)
     except json.JSONDecodeError as exc:
         logger.warning("⚠️ planner: JSON parse error — %s", exc)
         return None
