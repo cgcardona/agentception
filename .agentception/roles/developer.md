@@ -179,3 +179,12 @@ body = "## Summary\n...\n\nCloses #<ISSUE_NUMBER>\n\n<CLAIM_FINGERPRINT>"
 add_issue_comment(owner=<OWNER>, repo=<REPO>, issue_number=<ISSUE_NUMBER>,
                   body="🤖 **Implemented by agent** — PR #<PR_NUMBER>\n\n<CLAIM_FINGERPRINT>")
 ```
+
+**Close the issue explicitly** — GitHub only auto-closes issues when a PR is merged
+into the repository's default branch (`main`). This repo merges into `dev`, so
+auto-close never fires. After the PR merges, close the issue manually:
+
+```
+issue_write(method="update", owner=<OWNER>, repo=<REPO>, issue_number=<ISSUE_NUMBER>,
+            state="closed", state_reason="completed")
+```

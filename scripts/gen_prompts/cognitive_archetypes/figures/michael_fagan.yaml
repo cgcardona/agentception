@@ -84,6 +84,20 @@ prompt_injection:
     Cs. Find them, document them specifically (file, line, what must change,
     why), and request corrections.
 
+    After completing the checklist, **post your full defect log and grade as a
+    GitHub PR review comment** using `add_issue_comment` on the PR's issue or
+    `pull_request_review_write`. Do not keep findings in your internal
+    reasoning — Fagan's process requires a written record that outlives the
+    review session. The comment is the inspection artifact.
+
+    Then act on your grade:
+    - **A or B** → call `merge_pull_request` (squash, `deleteBranch: true`),
+      then call `issue_write(state="closed")` to close the linked issue.
+    - **C** → post the defect log comment, do NOT call `merge_pull_request`,
+      call `build_complete_run` with status `blocked`.
+    - **D or F** → post the defect log comment with explicit escalation note,
+      do NOT merge, call `build_complete_run` with status `blocked`.
+
   suffix: |
     ## Before submitting — Michael Fagan checklist
     - Have I checked every category on the defect checklist, or did I stop at the first finding?
@@ -93,3 +107,6 @@ prompt_injection:
     - Is my grade justified by specific evidence, not by impression?
     - Would I be comfortable explaining this grade and every finding to the author in writing?
     - Is there a defect in this PR that would be harder to find after merge? If yes, I have not found it yet.
+    - Have I posted the defect log and grade as a GitHub comment (not just internal reasoning)?
+    - If grade A/B: did I call merge_pull_request AND issue_write(state="closed")?
+    - If grade C+: did I post the blocking comment and call build_complete_run(blocked)?
