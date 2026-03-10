@@ -798,19 +798,28 @@ class TestLoopGuard:
     """
 
     @pytest.mark.anyio
-    async def test_loop_guard_fires_after_consecutive_no_write_iterations(
+    async def test_loop_guard_narrows_tool_list_after_threshold(
         self, tmp_path: Path
     ) -> None:
-        """Loop guard injects LOOP GUARD text into extra_system_blocks after threshold."""
-        from agentception.services.agent_loop import _LOOP_GUARD_THRESHOLD, run_agent_loop
+        """Loop guard removes read-only tools from the active tool palette.
+
+        When fired the model receives a narrowed tool list — read_file,
+        search_codebase, list_directory, etc. are absent.  The model cannot
+        call them even if it wants to; only write tools remain available.
+        This is the primary mechanical enforcement; the text injection is
+        secondary.
+        """
+        from agentception.services.agent_loop import (
+            _LOOP_GUARD_THRESHOLD,
+            _READ_ONLY_TOOL_NAMES,
+            run_agent_loop,
+        )
 
         worktree = tmp_path / "test-run-guard"
         worktree.mkdir()
         task_spec = _make_task_spec(worktree)
 
         # Enough read-only iterations to cross the guard threshold, then stop.
-        # The guard fires on iteration (THRESHOLD + 1) which is index THRESHOLD
-        # in the captured call list (0-indexed).
         n_reads = _LOOP_GUARD_THRESHOLD + 1
         read_responses = [
             _tool_response("read_file", {"path": "agentception/models.py"})
@@ -818,15 +827,19 @@ class TestLoopGuard:
         ]
         all_responses = read_responses + [_stop_response("Done.")]
 
+        # Capture both the tools offered to the model and any extra_system_blocks.
+        captured_tools: list[list[ToolDefinition]] = []
         captured_extra: list[list[dict[str, object]] | None] = []
 
         async def fake_llm(
             *args: object,
+            tools: list[ToolDefinition] | None = None,
             extra_system_blocks: list[dict[str, object]] | None = None,
             **kwargs: object,
         ) -> ToolResponse:
+            captured_tools.append(list(tools or []))
             captured_extra.append(extra_system_blocks)
-            return all_responses[len(captured_extra) - 1]
+            return all_responses[len(captured_tools) - 1]
 
         file_result: dict[str, object] = {"ok": True, "content": "# stub", "truncated": False}
 
@@ -870,15 +883,31 @@ class TestLoopGuard:
                 await run_agent_loop("test-run-guard")
 
         # Guard fires on the (THRESHOLD+1)-th LLM call (index = THRESHOLD).
-        guard_call_blocks = captured_extra[_LOOP_GUARD_THRESHOLD]
-        assert guard_call_blocks is not None, (
-            "Loop guard must inject extra_system_blocks when threshold is reached"
+        assert len(captured_tools) > _LOOP_GUARD_THRESHOLD, (
+            "Expected at least THRESHOLD+1 LLM calls"
         )
+        guard_call_tools = captured_tools[_LOOP_GUARD_THRESHOLD]
+        guard_tool_names = {t["function"]["name"] for t in guard_call_tools}
+
+        # No read-only tool may appear in the narrowed palette.
+        leaked = guard_tool_names & _READ_ONLY_TOOL_NAMES
+        assert not leaked, (
+            f"Loop guard must remove read-only tools; leaked: {leaked}"
+        )
+
+        # The extra_system_blocks must contain the LOOP GUARD explanation.
+        guard_extra = captured_extra[_LOOP_GUARD_THRESHOLD]
+        assert guard_extra is not None
         all_text = " ".join(
-            b["text"] for b in guard_call_blocks if isinstance(b.get("text"), str)
+            str(b["text"]) for b in guard_extra if isinstance(b.get("text"), str)
         )
-        assert "LOOP GUARD" in all_text, (
-            f"Expected 'LOOP GUARD' in injected blocks. Got: {all_text!r}"
+        assert "LOOP GUARD" in all_text
+
+        # Pre-guard iterations must have the full tool list (read tools present).
+        pre_guard_tools = captured_tools[0]
+        pre_guard_names = {t["function"]["name"] for t in pre_guard_tools}
+        assert "read_file" in pre_guard_names, (
+            "Read tools must be available before the guard fires"
         )
 
     @pytest.mark.anyio
@@ -963,7 +992,7 @@ class TestLoopGuard:
             if blocks is None:
                 continue
             all_text = " ".join(
-                b["text"] for b in blocks if isinstance(b.get("text"), str)
+                str(b["text"]) for b in blocks if isinstance(b.get("text"), str)
             )
             assert "LOOP GUARD" not in all_text, (
                 "Loop guard must NOT fire when a write tool was called within the threshold"
@@ -1045,7 +1074,7 @@ class TestLoopGuard:
             if blocks is None:
                 continue
             all_text = " ".join(
-                b["text"] for b in blocks if isinstance(b.get("text"), str)
+                str(b["text"]) for b in blocks if isinstance(b.get("text"), str)
             )
             if "SYMBOL ABSENCE" in all_text:
                 assert repeated_query in all_text, (

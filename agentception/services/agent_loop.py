@@ -120,31 +120,37 @@ _SEARCH_TOOL_NAMES: frozenset[str] = frozenset({
     "search_text",
 })
 
-# How many consecutive no-write iterations trigger the loop-guard injection.
+# How many consecutive no-write iterations trigger the loop-guard.
 _LOOP_GUARD_THRESHOLD: int = 3
 
-# Injected as an additional system block when the agent has not written code
-# for _LOOP_GUARD_THRESHOLD iterations.  Plain text — no Markdown headers so
-# it reads as an urgent runtime message, not a documentation section.
+# When the loop guard fires, read-only tools are removed from the tool list.
+# The model cannot call a tool it cannot see — this is mechanical enforcement,
+# not advisory text.  The agent can only exit guard mode by calling a write tool.
+_READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset({
+    "read_file",
+    "read_file_lines",
+    "read_symbol",
+    "read_window",
+    "find_call_sites",
+    "search_codebase",
+    "search_text",
+    "list_directory",
+})
+
+# System-block text still injected alongside tool narrowing so the model
+# understands WHY its tool palette shrank.
 _LOOP_GUARD_OVERRIDE = """\
 ⚠️  LOOP GUARD — {n} ITERATIONS WITHOUT WRITING CODE
 
-You are in a reconnaissance loop. The runtime has detected this.
+Read-only tools (read_file, search_codebase, list_directory, etc.) have been
+removed from your tool palette for this iteration. You can only call write tools.
 
-Your only valid next action is to write a file. Right now, in this response.
-
-Do not call read_file. Do not call search_codebase. Do not call log_run_step alone.
-Do not call update_working_memory alone. None of those advance the work.
-
-Action: open your next_steps. Take the first item. Write the minimal implementation
-using write_file or replace_in_file. If the symbol it references does not exist
-in the codebase, create it — that absence IS the task.
-
-Every response from this point forward must include at least one write tool call.
+Take the first item from your acceptance criteria. Write the minimal
+implementation using write_file or replace_in_file. If the symbol does not
+exist in the codebase, create it — absence is the task, not a blocker.
 """
 
 # Injected when the agent has searched for the same query twice.
-# Signals that the symbol does not exist and the agent must create it.
 _SYMBOL_ABSENCE_OVERRIDE = """\
 ⚠️  SYMBOL ABSENCE — "{query}" NOT FOUND AFTER REPEATED SEARCH
 
@@ -350,17 +356,34 @@ async def run_agent_loop(
         if memory:
             extra_blocks.append({"type": "text", "text": render_memory(memory)})
 
-        # Loop-guard injection — fires when the agent has not written any code
-        # for _LOOP_GUARD_THRESHOLD consecutive iterations.  The override is an
-        # additional system block (not a user message) so it does not break the
-        # user/assistant alternation invariant and is always visible regardless
-        # of history pruning.
-        if iteration > _LOOP_GUARD_THRESHOLD and iterations_since_write >= _LOOP_GUARD_THRESHOLD:
+        # Loop-guard enforcement — fires when the agent has not written any code
+        # for _LOOP_GUARD_THRESHOLD consecutive iterations.
+        #
+        # Two-layer enforcement:
+        # 1. Tool narrowing: remove all read-only tools from the active tool
+        #    palette so the model cannot physically call them.  The agent can
+        #    only exit guard mode by calling a write tool (which resets the
+        #    counter and restores the full tool list on the next iteration).
+        # 2. System-block text: explains WHY the tool palette shrank and what
+        #    the agent must do.  Kept because a model that understands the
+        #    constraint behaves better than one that is silently crippled.
+        guard_active = (
+            iteration > _LOOP_GUARD_THRESHOLD
+            and iterations_since_write >= _LOOP_GUARD_THRESHOLD
+        )
+        active_tool_defs: list[ToolDefinition] = (
+            [t for t in tool_defs if t["function"]["name"] not in _READ_ONLY_TOOL_NAMES]
+            if guard_active
+            else tool_defs
+        )
+        if guard_active:
             override_text = _LOOP_GUARD_OVERRIDE.format(n=iterations_since_write)
             extra_blocks.append({"type": "text", "text": override_text})
             logger.warning(
-                "⚠️ loop_guard fired — run_id=%s iteration=%d iterations_since_write=%d",
+                "⚠️ loop_guard fired — run_id=%s iteration=%d iterations_since_write=%d"
+                " active_tools=%d (of %d total)",
                 run_id, iteration, iterations_since_write,
+                len(active_tool_defs), len(tool_defs),
             )
 
         # Symbol-absence injection — fires once per repeated search query.
@@ -379,7 +402,7 @@ async def run_agent_loop(
             response: ToolResponse = await call_anthropic_with_tools(
                 bounded,
                 system=system_prompt,
-                tools=tool_defs,
+                tools=active_tool_defs,
                 extra_system_blocks=extra_blocks or None,
             )
         except Exception as exc:
