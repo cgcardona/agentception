@@ -590,3 +590,202 @@ async def test_extract_test_coverage_matches_source_to_test_file(tmp_path: Path)
     assert key in result
     assert "test_stall_detected" in result[key]
     assert "test_no_stall_when_recent" in result[key]
+
+
+# ---------------------------------------------------------------------------
+# _extract_ac_items
+# ---------------------------------------------------------------------------
+
+
+def test_extract_ac_items_returns_empty_when_no_ac_section() -> None:
+    """_extract_ac_items returns [] when the issue body has no AC section."""
+    from agentception.routes.api.dispatch import _extract_ac_items
+
+    body = "## Overview\n\nFix the bug.\n\n## Notes\n\n- [ ] Note item"
+    assert _extract_ac_items(body) == []
+
+
+def test_extract_ac_items_extracts_checkbox_bullets() -> None:
+    """_extract_ac_items returns each checkbox bullet prefixed with 'AC:'."""
+    from agentception.routes.api.dispatch import _extract_ac_items
+
+    body = (
+        "## Acceptance criteria\n\n"
+        "- [ ] Add `file_hash` field to `_ChunkSpec`\n"
+        "- [ ] Delete stale chunks on re-index\n"
+        "- [x] Already done item\n"
+    )
+    items = _extract_ac_items(body)
+    assert items == [
+        "AC: Add `file_hash` field to `_ChunkSpec`",
+        "AC: Delete stale chunks on re-index",
+        "AC: Already done item",
+    ]
+
+
+def test_extract_ac_items_stops_at_next_section() -> None:
+    """_extract_ac_items does not bleed past the next Markdown section header."""
+    from agentception.routes.api.dispatch import _extract_ac_items
+
+    body = (
+        "## Acceptance criteria\n\n"
+        "- [ ] Item A\n"
+        "- [ ] Item B\n"
+        "\n"
+        "## Out of scope\n\n"
+        "- [ ] Should NOT be included\n"
+    )
+    items = _extract_ac_items(body)
+    assert items == ["AC: Item A", "AC: Item B"]
+    assert "Should NOT be included" not in " ".join(items)
+
+
+def test_extract_ac_items_case_insensitive_header() -> None:
+    """_extract_ac_items matches 'Acceptance Criteria' regardless of capitalisation."""
+    from agentception.routes.api.dispatch import _extract_ac_items
+
+    body = "### Acceptance Criteria\n\n- [ ] Case-insensitive match\n"
+    items = _extract_ac_items(body)
+    assert items == ["AC: Case-insensitive match"]
+
+
+def test_extract_ac_items_returns_empty_for_empty_body() -> None:
+    """_extract_ac_items handles an empty string without error."""
+    from agentception.routes.api.dispatch import _extract_ac_items
+
+    assert _extract_ac_items("") == []
+
+
+# ---------------------------------------------------------------------------
+# dispatch_agent — AC injection into next_steps
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_dispatch_agent_seeds_next_steps_from_ac_items(tmp_path: Path) -> None:
+    """dispatch_agent pre-populates next_steps with verbatim AC bullets from the issue body.
+
+    Verifies the structural fix for the lossy-reading problem: the agent must
+    start iteration 1 with every AC item already in next_steps so it cannot
+    paraphrase, collapse, or drop any requirement.
+    """
+    import json
+    from agentception.routes.api.dispatch import dispatch_agent, DispatchRequest
+
+    worktree_path = tmp_path / "worktrees" / "issue-77"
+    worktree_path.mkdir(parents=True)
+
+    async def mock_ensure_worktree(path: Path, branch: str, base: str = "origin/dev") -> bool:
+        return True
+
+    issue_body = (
+        "## Summary\n\nAdd incremental indexing.\n\n"
+        "## Acceptance criteria\n\n"
+        "- [ ] Add `file_hash` to `_ChunkSpec`\n"
+        "- [ ] Skip unchanged files\n"
+        "- [ ] Delete chunks for removed files\n"
+        "\n"
+        "## Notes\n\n"
+        "- [ ] Not an AC item\n"
+    )
+
+    with (
+        patch("agentception.readers.git.ensure_worktree", side_effect=mock_ensure_worktree),
+        patch("agentception.routes.api.dispatch._configure_worktree_auth", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch._resolve_cognitive_arch", return_value=None),
+        patch("agentception.routes.api.dispatch.search_codebase", new_callable=AsyncMock, return_value=[]),
+        patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.acknowledge_agent_run", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.run_agent_loop", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.asyncio.create_task", return_value=asyncio.Future()),
+        patch("agentception.routes.api.dispatch._index_worktree", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.settings") as mock_settings,
+    ):
+        mock_settings.worktrees_dir = str(tmp_path / "worktrees")
+        mock_settings.host_worktrees_dir = str(tmp_path / "host_worktrees")
+        mock_settings.repo_dir = str(tmp_path)
+        mock_settings.gh_repo = "cgcardona/agentception"
+
+        req = DispatchRequest(
+            issue_number=77,
+            issue_title="Add incremental indexing",
+            issue_body=issue_body,
+            role="developer",
+            repo="agentception",
+        )
+        await dispatch_agent(req)
+
+    memory_file = worktree_path / ".agentception" / "memory.json"
+    assert memory_file.exists(), "dispatch_agent must write memory.json"
+    raw = json.loads(memory_file.read_text())
+    next_steps: list[str] = raw.get("next_steps", [])
+    assert next_steps == [
+        "AC: Add `file_hash` to `_ChunkSpec`",
+        "AC: Skip unchanged files",
+        "AC: Delete chunks for removed files",
+    ], f"Expected AC items in next_steps, got: {next_steps}"
+    assert "AC: Not an AC item" not in next_steps, (
+        "Items from non-AC sections must not leak into next_steps"
+    )
+
+
+@pytest.mark.anyio
+async def test_dispatch_agent_reviewer_does_not_seed_ac_items(tmp_path: Path) -> None:
+    """PR-reviewer dispatch must NOT pre-populate next_steps with AC items.
+
+    The reviewer's working memory is seeded with the review task description,
+    not implementation checkboxes.
+    """
+    import json
+    from agentception.routes.api.dispatch import dispatch_agent, DispatchRequest
+
+    worktree_path = tmp_path / "worktrees" / "issue-88"
+    worktree_path.mkdir(parents=True)
+
+    fetch_proc = MagicMock()
+    fetch_proc.returncode = 0
+    fetch_proc.communicate = AsyncMock(return_value=(b"", b""))
+
+    async def _fake_subprocess(*args: object, **kwargs: object) -> MagicMock:
+        return fetch_proc
+
+    issue_body = (
+        "## Acceptance criteria\n\n"
+        "- [ ] Item that belongs to the developer, not the reviewer\n"
+    )
+
+    with (
+        patch("agentception.routes.api.dispatch.asyncio.create_subprocess_exec", side_effect=_fake_subprocess),
+        patch("agentception.readers.git.ensure_worktree", new_callable=AsyncMock, return_value=True),
+        patch("agentception.routes.api.dispatch._configure_worktree_auth", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch._resolve_cognitive_arch", return_value=None),
+        patch("agentception.routes.api.dispatch.search_codebase", new_callable=AsyncMock, return_value=[]),
+        patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.acknowledge_agent_run", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.run_agent_loop", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.asyncio.create_task", return_value=asyncio.Future()),
+        patch("agentception.routes.api.dispatch._index_worktree", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.settings") as mock_settings,
+    ):
+        mock_settings.worktrees_dir = str(tmp_path / "worktrees")
+        mock_settings.host_worktrees_dir = str(tmp_path / "host_worktrees")
+        mock_settings.repo_dir = str(tmp_path)
+        mock_settings.gh_repo = "cgcardona/agentception"
+
+        req = DispatchRequest(
+            issue_number=88,
+            issue_title="My Feature",
+            issue_body=issue_body,
+            role="pr-reviewer",
+            repo="agentception",
+            pr_number=500,
+            pr_branch="feat/issue-88",
+        )
+        await dispatch_agent(req)
+
+    memory_file = worktree_path / ".agentception" / "memory.json"
+    assert memory_file.exists()
+    raw = json.loads(memory_file.read_text())
+    assert raw.get("next_steps", []) == [], (
+        "Reviewer dispatch must not seed AC items into next_steps"
+    )
