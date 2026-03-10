@@ -192,12 +192,18 @@ async def _index_worktree(worktree_path: Path, run_id: str) -> None:
 
 
 async def _configure_worktree_auth(worktree_path: Path, run_id: str) -> None:
-    """Embed GITHUB_TOKEN in the worktree remote URL so git push works natively.
+    """Configure git auth for the worktree using http.extraHeader.
 
-    Transforms ``https://github.com/owner/repo.git`` into
-    ``https://x-access-token:<token>@github.com/owner/repo.git`` and writes
-    it to the worktree's local git config only.  If ``GITHUB_TOKEN`` is not
-    set, logs a warning and leaves the remote unchanged.
+    Uses ``git config --worktree http.https://github.com/.extraHeader`` to
+    inject the GITHUB_TOKEN as a Bearer authorization header.  This writes
+    only to the worktree-specific config file
+    (``.git/worktrees/<name>/config.worktree``) and never touches
+    ``remote.origin.url`` or the shared ``.git/config``.
+
+    The old approach of embedding the token in the remote URL wrote to the
+    shared ``.git/config`` (git worktrees share one config), polluting the
+    main repo's remote URL and potentially triggering GitHub secret scanning
+    which auto-revokes exposed tokens.
     """
     import os  # noqa: PLC0415
 
@@ -206,43 +212,36 @@ async def _configure_worktree_auth(worktree_path: Path, run_id: str) -> None:
         logger.warning("⚠️ GITHUB_TOKEN not set — git push will require manual auth in worktrees")
         return
 
-    # Read the current remote URL.
-    url_proc = await asyncio.create_subprocess_exec(
-        "git", "remote", "get-url", "origin",
+    # Enable per-worktree config in the shared .git/config (idempotent).
+    # Required for --worktree flag to write to the worktree-specific file
+    # rather than the shared config.
+    ext_proc = await asyncio.create_subprocess_exec(
+        "git", "config", "--local", "extensions.worktreeConfig", "true",
         cwd=str(worktree_path),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    url_out, _ = await url_proc.communicate()
-    remote_url = url_out.decode().strip()
+    await ext_proc.communicate()
 
-    if not remote_url.startswith("https://"):
-        # SSH remotes already handle auth via ssh-agent — nothing to do.
-        return
-
-    # Inject token into URL, avoiding double-injection if already present.
-    if "@" not in remote_url.split("://", 1)[-1]:
-        authed_url = remote_url.replace(
-            "https://", f"https://x-access-token:{token}@", 1
-        )
-    else:
-        authed_url = remote_url
-
-    set_proc = await asyncio.create_subprocess_exec(
-        "git", "remote", "set-url", "origin", authed_url,
+    # Write the Authorization header into the worktree-specific config only.
+    # Scoped to github.com so it never leaks to other hosts.
+    hdr_proc = await asyncio.create_subprocess_exec(
+        "git", "config", "--worktree",
+        "http.https://github.com/.extraHeader",
+        f"Authorization: Bearer {token}",
         cwd=str(worktree_path),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    _, set_err = await set_proc.communicate()
-    if set_proc.returncode != 0:
+    _, hdr_err = await hdr_proc.communicate()
+    if hdr_proc.returncode != 0:
         logger.warning(
-            "⚠️ _configure_worktree_auth — could not set remote URL for run_id=%s: %s",
-            run_id, set_err.decode().strip(),
+            "⚠️ _configure_worktree_auth — could not set extraHeader for run_id=%s: %s",
+            run_id, hdr_err.decode().strip(),
         )
         return
 
-    logger.info("✅ worktree auth configured — run_id=%s", run_id)
+    logger.info("✅ worktree auth configured via extraHeader — run_id=%s", run_id)
 
 
 async def _insert_run(
