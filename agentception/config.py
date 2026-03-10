@@ -24,7 +24,7 @@ import json
 import logging
 from pathlib import Path
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -180,6 +180,26 @@ class AgentCeptionSettings(BaseSettings):
     Falls back to a local SQLite file when absent so the service starts
     without Postgres in pure-filesystem dev mode.
     """
+    agent_max_iterations: int = 100
+    """Maximum number of tool-call iterations an agent may execute before being killed.
+
+    Set via ``AGENT_MAX_ITERATIONS`` env var.  The reaper checks this limit at
+    the end of each iteration and terminates the agent run if it is reached,
+    preventing runaway agents from consuming unbounded resources.
+
+    Must be a positive integer.  The default of 100 is generous enough for
+    complex tasks while still providing a safety ceiling.
+    """
+
+    @field_validator("agent_max_iterations")
+    @classmethod
+    def _agent_max_iterations_must_be_positive(cls, v: int) -> int:
+        """Reject zero or negative values — an agent needs at least one iteration."""
+        if v < 1:
+            raise ValueError(
+                f"agent_max_iterations must be a positive integer, got {v!r}"
+            )
+        return v
 
     @property
     def ac_dir(self) -> Path:
