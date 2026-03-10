@@ -125,31 +125,51 @@ _SEARCH_TOOL_NAMES: frozenset[str] = frozenset({
 # legitimate reason to spend more than one iteration doing reads before writing.
 _LOOP_GUARD_THRESHOLD: int = 2
 
-# When the loop guard fires, the tool palette switches to an ALLOWLIST:
-# only write tools and a minimal set of essential non-read tools remain.
-# This is an allowlist (not a blocklist) so new tools default to blocked —
-# the agent cannot use run_command (cat/grep workarounds), read_file, or
-# search tools until it makes at least one code write that resets the counter.
-_GUARD_PERMITTED_TOOL_NAMES: frozenset[str] = frozenset({
-    # Code write tools — calling any of these exits guard mode.
+# ---------------------------------------------------------------------------
+# Developer agent — minimal tool surface
+# ---------------------------------------------------------------------------
+# Cursor completes developer tasks in 5–15 tool calls because it has only
+# read/write/run tools.  Our agents were exposed to 74 tools (logging,
+# GitHub MCP, semantic search, working-memory…) and spent 60-70% of their
+# budget calling non-coding tools.
+#
+# When the loaded task role is "developer", the tool list is filtered to this
+# allowlist before the main loop starts.  The agent cannot even see bookkeeping
+# tools, so it cannot call them.  Fewer choices = faster decisions = fewer
+# wasted iterations.
+_DEVELOPER_TOOL_ALLOWLIST: frozenset[str] = frozenset({
+    # Read tools — allowed in normal mode; stripped by loop guard after 2 reads.
+    "read_file",
+    "read_file_lines",
+    "search_text",
+    "list_directory",
+    # Write tools — always permitted; calling any resets the guard counter.
     "write_file",
     "replace_in_file",
     "insert_after_in_file",
-    "git_commit_and_push",
-    # update_working_memory is allowed so the agent can record progress.
-    # log_run_step is intentionally excluded: calling it alone is bookkeeping
-    # overhead, not work.  If the agent's only response is log_run_step, the
-    # guard should stay active until it writes something real.
-    "update_working_memory",
-    # Terminal actions — the agent may create the PR or cancel from guard mode.
+    # Execution — run mypy, tests, git commands.
+    "run_command",
+    # Completion — the only way to end the loop.
+    "build_complete_run",
+    "build_cancel_run",
+    # PR — open a pull request when done.
+    "create_pull_request",
+    "add_issue_comment",
+})
+
+# When the loop guard fires, the tool palette switches to an ALLOWLIST:
+# only write tools and a minimal set of essential non-read tools remain.
+_GUARD_PERMITTED_TOOL_NAMES: frozenset[str] = frozenset({
+    "write_file",
+    "replace_in_file",
+    "insert_after_in_file",
     "build_complete_run",
     "build_cancel_run",
     "create_pull_request",
     "add_issue_comment",
-    "github_claim_issue",
 })
 
-# Legacy alias used in interception logic — kept for clarity.
+# Legacy alias kept so existing references compile.
 _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset()
 
 # System-block text still injected alongside tool narrowing so the model
@@ -305,7 +325,24 @@ async def run_agent_loop(
         logger.warning("⚠️ GitHub MCP server unavailable — %s. GitHub reads will use gh CLI.", exc)
         github_tools = []
 
-    tool_defs = _build_tool_definitions(extra_tools=github_tools)
+    all_tool_defs = _build_tool_definitions(extra_tools=github_tools)
+
+    # Developer agents use a minimal tool surface — only coding tools.
+    # Bookkeeping tools (log_run_step, update_working_memory, github_claim_issue,
+    # search_codebase, etc.) are stripped entirely so the model cannot waste
+    # iterations on non-coding actions.
+    if task.role == "developer":
+        tool_defs = [
+            t for t in all_tool_defs
+            if t["function"]["name"] in _DEVELOPER_TOOL_ALLOWLIST
+        ]
+        logger.info(
+            "✅ agent_loop: developer tool surface — %d tools (of %d total stripped to allowlist)",
+            len(tool_defs), len(all_tool_defs),
+        )
+    else:
+        tool_defs = all_tool_defs
+
     initial_message = await _fetch_task_briefing(run_id, task, worktree_path)
 
     messages: list[dict[str, object]] = [{"role": "user", "content": initial_message}]
