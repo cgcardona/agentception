@@ -147,6 +147,114 @@ def test_chunk_file_missing_file_returns_empty(tmp_path: Path) -> None:
     assert _chunk_file(f, tmp_path) == []
 
 
+def test_chunk_file_ast_extracts_functions(tmp_path: Path) -> None:
+    """AST chunking extracts each top-level function as a separate chunk."""
+    f = tmp_path / "funcs.py"
+    f.write_text(
+        "def foo():\n"
+        "    '''Docstring for foo.'''\n"
+        "    return 1\n"
+        "\n"
+        "def bar():\n"
+        "    return 2\n"
+    )
+    chunks = _chunk_file(f, tmp_path)
+    assert len(chunks) == 2
+    assert "def foo():" in chunks[0]["text"]
+    assert "Docstring for foo" in chunks[0]["text"]
+    assert "def bar():" in chunks[1]["text"]
+
+
+def test_chunk_file_ast_extracts_classes(tmp_path: Path) -> None:
+    """AST chunking extracts each top-level class as a separate chunk."""
+    f = tmp_path / "classes.py"
+    f.write_text(
+        "class Alpha:\n"
+        "    '''Class docstring.'''\n"
+        "    def method(self):\n"
+        "        pass\n"
+        "\n"
+        "class Beta:\n"
+        "    pass\n"
+    )
+    chunks = _chunk_file(f, tmp_path)
+    assert len(chunks) == 2
+    assert "class Alpha:" in chunks[0]["text"]
+    assert "Class docstring" in chunks[0]["text"]
+    assert "def method" in chunks[0]["text"]
+    assert "class Beta:" in chunks[1]["text"]
+
+
+def test_chunk_file_ast_includes_decorators(tmp_path: Path) -> None:
+    """AST chunking includes decorators in the chunk."""
+    f = tmp_path / "decorated.py"
+    f.write_text(
+        "@decorator\n"
+        "@another_decorator(arg=1)\n"
+        "def decorated_func():\n"
+        "    pass\n"
+    )
+    chunks = _chunk_file(f, tmp_path)
+    assert len(chunks) == 1
+    assert "@decorator" in chunks[0]["text"]
+    assert "@another_decorator" in chunks[0]["text"]
+    assert chunks[0]["start_line"] == 1
+
+
+def test_chunk_file_ast_preserves_async_functions(tmp_path: Path) -> None:
+    """AST chunking handles async functions correctly."""
+    f = tmp_path / "async_code.py"
+    f.write_text(
+        "async def fetch_data():\n"
+        "    '''Async docstring.'''\n"
+        "    return await something()\n"
+    )
+    chunks = _chunk_file(f, tmp_path)
+    assert len(chunks) == 1
+    assert "async def fetch_data" in chunks[0]["text"]
+    assert "Async docstring" in chunks[0]["text"]
+
+
+def test_chunk_file_ast_falls_back_on_syntax_error(tmp_path: Path) -> None:
+    """AST chunking falls back to character chunking for malformed Python."""
+    f = tmp_path / "broken.py"
+    f.write_text("def incomplete(\n")  # Syntax error
+    chunks = _chunk_file(f, tmp_path)
+    # Should fall back to character chunking and produce at least one chunk.
+    assert len(chunks) >= 1
+    assert "def incomplete" in chunks[0]["text"]
+
+
+def test_chunk_file_ast_falls_back_when_no_symbols(tmp_path: Path) -> None:
+    """AST chunking falls back to character chunking when no top-level symbols exist."""
+    f = tmp_path / "only_imports.py"
+    f.write_text("import os\nimport sys\n\nx = 1\n")
+    chunks = _chunk_file(f, tmp_path)
+    # No top-level functions/classes, so should fall back to character chunking.
+    assert len(chunks) >= 1
+    assert "import os" in chunks[0]["text"]
+
+
+def test_chunk_file_ast_chunk_ids_use_symbol_names(tmp_path: Path) -> None:
+    """AST chunking generates deterministic IDs based on symbol names."""
+    f = tmp_path / "named.py"
+    f.write_text("def stable_name():\n    pass\n")
+    ids_first = [c["chunk_id"] for c in _chunk_file(f, tmp_path)]
+    ids_second = [c["chunk_id"] for c in _chunk_file(f, tmp_path)]
+    assert ids_first == ids_second
+    assert len(ids_first) == 1
+
+
+def test_chunk_file_non_python_uses_character_chunking(tmp_path: Path) -> None:
+    """Non-Python files always use character-based chunking."""
+    f = tmp_path / "readme.md"
+    f.write_text("# Title\n\nSome content.\n")
+    chunks = _chunk_file(f, tmp_path)
+    assert len(chunks) >= 1
+    assert "# Title" in chunks[0]["text"]
+
+
+
 # ── index_codebase tests ──────────────────────────────────────────────────────
 
 
