@@ -378,3 +378,10 @@ def test_ac_task_runner_invalid_value_raises_validation_error(
         _make_settings(tmp_path)
     # Pydantic v2 raises ValidationError with details about the invalid enum value
     assert "validation error" in str(exc_info.value).lower() or "ac_task_runner" in str(exc_info.value).lower()
+
+
+def test_agent_max_iterations_default() -> None:
+    """agent_max_iterations defaults to 100."""
+    s = AgentCeptionSettings()
+    assert s.agent_max_iterations == 100
+

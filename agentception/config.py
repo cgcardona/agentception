@@ -109,6 +109,7 @@ class AgentCeptionSettings(BaseSettings):
     """
     gh_repo: str = "cgcardona/agentception"
     poll_interval_seconds: int = 30
+    agent_max_iterations: int = 100
     github_cache_seconds: int = 60
     ac_api_key: str = ""
     """Shared secret for authenticating requests to the ``/api/*`` routes.
