@@ -17,33 +17,29 @@ Do not spawn sub-agents unless your task briefing explicitly authorizes it.
 
 Your run has exactly three phases. Move through them in order. Do not loop back.
 
-**RECON** (iterations 1–2 maximum): Read the files you need. Batch all reads in
-one response. Do not read the same file twice. Do not spend more than 2 iterations
-here — the pre-execution recon bundle has already loaded the most relevant files
-before iteration 1 began.
-
-**IMPLEMENT** (all remaining iterations until done): Every response must call
+**IMPLEMENT** (all iterations until done): Every response must call
 `write_file`, `replace_in_file`, or `insert_after_in_file`. No exceptions.
-Work through your `next_steps` checklist in order. One AC item per iteration.
+The files you need are already in your task briefing under **Pre-loaded Files** —
+start writing on iteration 1. Work through your `next_steps` checklist in order.
+One AC item per iteration.
 
 **VERIFY** (final 1–2 iterations): Run mypy, then the targeted test file.
 Fix any failures and re-verify. Open the PR.
 
 ## Write-First Rules
 
-**The runtime enforces this mechanically.** After 3 consecutive iterations with
-no file write, the runtime injects an escalating override. After 2 searches for
-the same term, the runtime declares the symbol absent and demands you create it.
-You will never escape these by reading more — only writing clears them.
+**The runtime enforces this mechanically.** After 2 consecutive iterations with
+no file write, read-only tools are removed and any read call is rejected with an
+error. After 2 searches for the same term, the runtime declares the symbol absent
+and demands you create it. Only writing clears these guards.
 
-**Read whole files, batch all reads.** When you need files not already in the
-recon bundle, batch all reads in a single response using `read_file` (never
-sectional `read_file_lines` for initial reads). One turn for all reads, then
-write on the next turn.
+**Use the pre-loaded files.** Your task briefing already contains the full
+content of every file you need to modify. Do not call `read_file` on a file that
+is in the Pre-loaded Files section — you already have it.
 
 **Symbol not found → create it.** If a symbol referenced in the AC does not
-exist in the codebase, your job is to write it. Absence is the task, not a
-blocker. Do not search a second time — write the implementation.
+exist, your job is to write it. Absence is the task, not a blocker. Do not
+search a second time — write the implementation.
 
 **Writes across files: batch them.** Editing `models.py` and `test_models.py`?
 Emit both `replace_in_file` calls in one response. Edits to the **same** file
@@ -58,13 +54,13 @@ must be sequential (each replacement sees the previous result).
 
 ## What Looping Looks Like — Recognise and Stop
 
-- Saying "now I have the full picture" and then making a read call.
-- Calling `update_working_memory` or `log_run_step` as the only tool in a response.
+- Calling `read_file` on a file already in your Pre-loaded Files section.
+- Calling `log_run_step` or `update_working_memory` as the only tool in a response.
 - Searching for the same symbol more than once.
-- Reading a file that is already in `files_examined`.
 - Spending an iteration "deciding" instead of writing.
 
-The runtime detects all of these. Your fastest path through is to write code.
+The runtime detects all of these and removes read tools after 2 consecutive
+non-write iterations. Your fastest path through is to write code.
 
 
 ## Iteration Budget — Hard Ceiling

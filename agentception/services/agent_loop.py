@@ -120,31 +120,72 @@ _SEARCH_TOOL_NAMES: frozenset[str] = frozenset({
     "search_text",
 })
 
-# How many consecutive no-write iterations trigger the loop-guard injection.
-_LOOP_GUARD_THRESHOLD: int = 3
+# How many consecutive no-write iterations trigger the loop-guard.
+# Set to 2: with files pre-loaded in the task briefing, the agent has no
+# legitimate reason to spend more than one iteration doing reads before writing.
+_LOOP_GUARD_THRESHOLD: int = 2
 
-# Injected as an additional system block when the agent has not written code
-# for _LOOP_GUARD_THRESHOLD iterations.  Plain text — no Markdown headers so
-# it reads as an urgent runtime message, not a documentation section.
+# ---------------------------------------------------------------------------
+# Developer agent — minimal tool surface
+# ---------------------------------------------------------------------------
+# Cursor completes developer tasks in 5–15 tool calls because it has only
+# read/write/run tools.  Our agents were exposed to 74 tools (logging,
+# GitHub MCP, semantic search, working-memory…) and spent 60-70% of their
+# budget calling non-coding tools.
+#
+# When the loaded task role is "developer", the tool list is filtered to this
+# allowlist before the main loop starts.  The agent cannot even see bookkeeping
+# tools, so it cannot call them.  Fewer choices = faster decisions = fewer
+# wasted iterations.
+_DEVELOPER_TOOL_ALLOWLIST: frozenset[str] = frozenset({
+    # Read tools — allowed in normal mode; stripped by loop guard after 2 reads.
+    "read_file",
+    "read_file_lines",
+    "search_text",
+    "list_directory",
+    # Write tools — always permitted; calling any resets the guard counter.
+    "write_file",
+    "replace_in_file",
+    "insert_after_in_file",
+    # Execution — run mypy, tests, git commands.
+    "run_command",
+    # Completion — the only way to end the loop.
+    "build_complete_run",
+    "build_cancel_run",
+    # PR — open a pull request when done.
+    "create_pull_request",
+    "add_issue_comment",
+})
+
+# When the loop guard fires, the tool palette switches to an ALLOWLIST:
+# only write tools and a minimal set of essential non-read tools remain.
+_GUARD_PERMITTED_TOOL_NAMES: frozenset[str] = frozenset({
+    "write_file",
+    "replace_in_file",
+    "insert_after_in_file",
+    "build_complete_run",
+    "build_cancel_run",
+    "create_pull_request",
+    "add_issue_comment",
+})
+
+# Legacy alias kept so existing references compile.
+_READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset()
+
+# System-block text still injected alongside tool narrowing so the model
+# understands WHY its tool palette shrank.
 _LOOP_GUARD_OVERRIDE = """\
 ⚠️  LOOP GUARD — {n} ITERATIONS WITHOUT WRITING CODE
 
-You are in a reconnaissance loop. The runtime has detected this.
+The files you need are already in your task briefing under "Pre-loaded Files".
+Read-only tools have been removed. You can only call write tools right now.
 
-Your only valid next action is to write a file. Right now, in this response.
-
-Do not call read_file. Do not call search_codebase. Do not call log_run_step alone.
-Do not call update_working_memory alone. None of those advance the work.
-
-Action: open your next_steps. Take the first item. Write the minimal implementation
-using write_file or replace_in_file. If the symbol it references does not exist
-in the codebase, create it — that absence IS the task.
-
-Every response from this point forward must include at least one write tool call.
+Take the first uncompleted item from your next_steps. Write the implementation
+using write_file or replace_in_file. If the symbol does not exist, create it —
+absence is the task, not a blocker. Writing resets this guard.
 """
 
 # Injected when the agent has searched for the same query twice.
-# Signals that the symbol does not exist and the agent must create it.
 _SYMBOL_ABSENCE_OVERRIDE = """\
 ⚠️  SYMBOL ABSENCE — "{query}" NOT FOUND AFTER REPEATED SEARCH
 
@@ -284,7 +325,24 @@ async def run_agent_loop(
         logger.warning("⚠️ GitHub MCP server unavailable — %s. GitHub reads will use gh CLI.", exc)
         github_tools = []
 
-    tool_defs = _build_tool_definitions(extra_tools=github_tools)
+    all_tool_defs = _build_tool_definitions(extra_tools=github_tools)
+
+    # Developer agents use a minimal tool surface — only coding tools.
+    # Bookkeeping tools (log_run_step, update_working_memory, github_claim_issue,
+    # search_codebase, etc.) are stripped entirely so the model cannot waste
+    # iterations on non-coding actions.
+    if task.role == "developer":
+        tool_defs = [
+            t for t in all_tool_defs
+            if t["function"]["name"] in _DEVELOPER_TOOL_ALLOWLIST
+        ]
+        logger.info(
+            "✅ agent_loop: developer tool surface — %d tools (of %d total stripped to allowlist)",
+            len(tool_defs), len(all_tool_defs),
+        )
+    else:
+        tool_defs = all_tool_defs
+
     initial_message = await _fetch_task_briefing(run_id, task, worktree_path)
 
     messages: list[dict[str, object]] = [{"role": "user", "content": initial_message}]
@@ -350,16 +408,33 @@ async def run_agent_loop(
         if memory:
             extra_blocks.append({"type": "text", "text": render_memory(memory)})
 
-        # Loop-guard injection — fires when the agent has not written any code
-        # for _LOOP_GUARD_THRESHOLD consecutive iterations.  The override is an
-        # additional system block (not a user message) so it does not break the
-        # user/assistant alternation invariant and is always visible regardless
-        # of history pruning.
-        if iteration > _LOOP_GUARD_THRESHOLD and iterations_since_write >= _LOOP_GUARD_THRESHOLD:
+        # Loop-guard enforcement — fires when the agent has not written any code
+        # for _LOOP_GUARD_THRESHOLD consecutive iterations.
+        #
+        # The tool list is intentionally kept CONSTANT across all iterations
+        # (no narrowing when guard fires).  Changing the tool list busts
+        # Anthropic's prompt cache on the tool-catalogue block, turning every
+        # guarded turn from a cheap cache-read into a full cache-write.  With
+        # a threshold of 2, the list would flip every 2-3 turns and the cache
+        # would almost never hit — costing ~10× more per token.
+        #
+        # Instead, interception alone enforces the guard: the model is sent the
+        # full tool list, but any call to a non-permitted tool during guard mode
+        # is caught AFTER the LLM response and returned as a synthetic error.
+        # The model sees the error, understands it cannot read, and calls a
+        # write tool on the next turn — same behavioural outcome, no cache bust.
+        guard_active = (
+            iteration > _LOOP_GUARD_THRESHOLD
+            and iterations_since_write >= _LOOP_GUARD_THRESHOLD
+        )
+        # Always pass the full (constant) tool list so the cache key is stable.
+        active_tool_defs: list[ToolDefinition] = tool_defs
+        if guard_active:
             override_text = _LOOP_GUARD_OVERRIDE.format(n=iterations_since_write)
             extra_blocks.append({"type": "text", "text": override_text})
             logger.warning(
-                "⚠️ loop_guard fired — run_id=%s iteration=%d iterations_since_write=%d",
+                "⚠️ loop_guard fired — run_id=%s iteration=%d iterations_since_write=%d"
+                " (interception-only, tool list unchanged for cache stability)",
                 run_id, iteration, iterations_since_write,
             )
 
@@ -379,7 +454,7 @@ async def run_agent_loop(
             response: ToolResponse = await call_anthropic_with_tools(
                 bounded,
                 system=system_prompt,
-                tools=tool_defs,
+                tools=active_tool_defs,
                 extra_system_blocks=extra_blocks or None,
             )
         except Exception as exc:
@@ -410,14 +485,52 @@ async def run_agent_loop(
             return
 
         if response["stop_reason"] == "tool_calls":
-            tool_results = await _dispatch_tool_calls(
-                response["tool_calls"],
-                worktree_path,
-                run_id,
-                github_client=github_client,
-                github_tool_names=github_tool_names,
-            )
-            messages.extend(tool_results)
+            # During guard mode: intercept read-only tool calls and return
+            # synthetic error results BEFORE dispatching.  The model "remembers"
+            # tools from prior iterations and may call them even when they are
+            # absent from active_tool_defs — returning an error forces it to
+            # acknowledge the constraint and switch to a write tool.
+            tc_to_dispatch: list[ToolCall] = []
+            synthetic_errors: list[dict[str, object]] = []
+            if guard_active:
+                for tc in response["tool_calls"]:
+                    tc_name = tc["function"]["name"]
+                    if tc_name not in _GUARD_PERMITTED_TOOL_NAMES:
+                        synthetic_errors.append({
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": json.dumps({
+                                "ok": False,
+                                "error": (
+                                    f"GUARD MODE: '{tc_name}' is unavailable. "
+                                    f"You have not written code for "
+                                    f"{iterations_since_write} iterations. "
+                                    "Call write_file or replace_in_file to "
+                                    "implement code; that will restore all tools "
+                                    "including run_command and read_file."
+                                ),
+                            }),
+                        })
+                    else:
+                        tc_to_dispatch.append(tc)
+                if synthetic_errors:
+                    logger.warning(
+                        "⚠️ loop_guard intercepted %d read call(s) — run_id=%s",
+                        len(synthetic_errors), run_id,
+                    )
+            else:
+                tc_to_dispatch = list(response["tool_calls"])
+
+            tool_results: list[dict[str, object]] = []
+            if tc_to_dispatch:
+                tool_results = await _dispatch_tool_calls(
+                    tc_to_dispatch,
+                    worktree_path,
+                    run_id,
+                    github_client=github_client,
+                    github_tool_names=github_tool_names,
+                )
+            messages.extend(synthetic_errors + tool_results)
 
             # Loop-guard bookkeeping: track writes and repeated searches.
             tool_names_this_iter: set[str] = {
