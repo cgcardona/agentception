@@ -74,11 +74,13 @@ OrgNodeSpec.model_rebuild()
 import ast as _ast
 
 from agentception.config import settings
-from agentception.db.persist import acknowledge_agent_run, persist_agent_run_dispatch
+from agentception.db.persist import acknowledge_agent_run, persist_agent_run_dispatch, persist_execution_plan
 from agentception.db.queries import get_label_context
+from agentception.models import ExecutionPlan
 from agentception.services.agent_loop import run_agent_loop
 from agentception.services.code_indexer import SearchMatch, search_codebase
 from agentception.services.cognitive_arch import _resolve_cognitive_arch
+from agentception.services.planner import generate_execution_plan
 from agentception.services.run_factory import _configure_worktree_auth, _index_worktree
 from agentception.services.working_memory import WorkingMemory, write_memory
 from agentception.services.spawn_child import (
@@ -469,6 +471,42 @@ async def _extract_test_coverage(
     return result
 
 
+def _format_execution_plan(plan: ExecutionPlan) -> str:
+    """Render an ExecutionPlan as a Markdown section for the executor's task briefing.
+
+    The executor reads this section to know exactly which tool to call with
+    exactly which parameters — no file reads required.
+    """
+    lines: list[str] = [
+        "## EXECUTION PLAN",
+        "",
+        "Apply each operation below in order using the exact tool and parameters "
+        "specified. Do not read files. Do not add operations. Do not deviate.",
+        "",
+    ]
+    for i, op in enumerate(plan.operations, 1):
+        lines.append(f"### Operation {i}: {op.tool}")
+        lines.append(f"File: `{op.file}`")
+        lines.append("")
+        if op.tool == "replace_in_file":
+            lines.append("**old_string** (replace this exact text):")
+            lines.append(f"```\n{op.old_string}\n```")
+            lines.append("")
+            lines.append("**new_string** (replace with this exact text):")
+            lines.append(f"```\n{op.new_string}\n```")
+        elif op.tool == "insert_after_in_file":
+            lines.append("**after** (insert after this exact line):")
+            lines.append(f"```\n{op.after}\n```")
+            lines.append("")
+            lines.append("**text** (insert this text):")
+            lines.append(f"```\n{op.text}\n```")
+        elif op.tool == "write_file":
+            lines.append("**content** (write this as the complete file):")
+            lines.append(f"```\n{op.content}\n```")
+        lines.append("")
+    return "\n".join(lines)
+
+
 @router.post("/issue", response_model=DispatchResponse)
 async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
     """Create a worktree and immediately fire the agent loop via Anthropic.
@@ -620,6 +658,51 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
                     ", ".join(ac_file_paths),
                 )
 
+    # ---------------------------------------------------------------------------
+    # Planner / executor pipeline — developer role only
+    # ---------------------------------------------------------------------------
+    # For developer dispatches: call the planner LLM once to produce an
+    # ExecutionPlan, then switch to the executor role so the agent applies the
+    # plan mechanically without reading the codebase or adding extras.
+    #
+    # On planner failure: fall back to the developer role (original behaviour).
+    # ---------------------------------------------------------------------------
+    effective_role = req.role
+    if req.role == "developer" and task_description and req.issue_body:
+        ac_file_paths_for_planner = _extract_ac_file_paths(req.issue_body)
+        execution_plan = await generate_execution_plan(
+            run_id=run_id,
+            issue_number=req.issue_number,
+            issue_title=req.issue_title or "",
+            issue_body=req.issue_body,
+            worktree_path=Path(worktree_path),
+            file_paths=ac_file_paths_for_planner,
+        )
+        if execution_plan is not None:
+            # Store the plan in the DB before the executor loop starts.
+            await persist_execution_plan(
+                run_id=run_id,
+                plan_json=execution_plan.model_dump_json(),
+                issue_number=req.issue_number,
+            )
+            # Replace the task description with the formatted plan so the
+            # executor sees the exact operations to apply.
+            task_description = (
+                f"# {req.issue_title or 'Task'}\n\n"
+                + _format_execution_plan(execution_plan)
+            )
+            effective_role = "executor"
+            logger.info(
+                "✅ dispatch: planner generated %d-operation plan for run_id=%s — switching to executor role",
+                len(execution_plan.operations),
+                run_id,
+            )
+        else:
+            logger.warning(
+                "⚠️ dispatch: planner failed for run_id=%s — falling back to developer role",
+                run_id,
+            )
+
     # Build dispatch-time findings: type signatures + existing test names.
     # These are extracted from the worktree (which already exists on disk) and
     # injected into WorkingMemory.findings so the agent can write correctly-typed
@@ -685,10 +768,11 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
     logger.info("✅ dispatch: working memory reset for run_id=%s", run_id)
 
     # Persist all task context to DB; agents read via ac://runs/{run_id}/context.
+    # effective_role is "executor" when the planner succeeded, "developer" as fallback.
     await persist_agent_run_dispatch(
         run_id=run_id,
         issue_number=req.issue_number,
-        role=req.role,
+        role=effective_role,
         branch=branch,
         worktree_path=worktree_path,
         batch_id=batch_id,

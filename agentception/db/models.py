@@ -551,3 +551,31 @@ class ACIssueWorkflowState(Base):
         Index("ix_issue_workflow_state_initiative", "initiative"),
         Index("ix_issue_workflow_state_phase", "phase_key"),
     )
+
+
+# ---------------------------------------------------------------------------
+# ACExecutionPlan — planner / executor architecture
+# ---------------------------------------------------------------------------
+
+
+class ACExecutionPlan(Base):
+    """One row per agent run that went through the planner / executor pipeline.
+
+    The ``plan_json`` column stores the serialised :class:`ExecutionPlan`
+    (Pydantic model JSON).  It is written once by the planner before the
+    executor starts and is never updated — the plan is immutable.
+    """
+
+    __tablename__ = "execution_plans"
+
+    run_id: Mapped[str] = mapped_column(String(512), primary_key=True)
+    """FK-equivalent to ``agent_runs.id`` — not a hard FK to avoid coupling."""
+
+    issue_number: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    plan_json: Mapped[str] = mapped_column(Text, nullable=False)
+    """Serialised ``ExecutionPlan`` JSON — written once, never updated."""
+
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )

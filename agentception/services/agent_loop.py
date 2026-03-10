@@ -166,6 +166,27 @@ _DEVELOPER_TOOL_ALLOWLIST: frozenset[str] = frozenset({
     "add_issue_comment",
 })
 
+# ---------------------------------------------------------------------------
+# Executor agent — the most restricted tool surface in the system
+# ---------------------------------------------------------------------------
+# The executor receives an immutable ExecutionPlan and applies it mechanically.
+# It cannot read files (all parameters are pre-supplied in the plan) and
+# cannot call any bookkeeping or discovery tools.  The only permitted
+# actions are writes, shell execution, PR creation, and run completion.
+_EXECUTOR_TOOL_ALLOWLIST: frozenset[str] = frozenset({
+    # Write tools — the only file operations the executor may call.
+    "replace_in_file",
+    "insert_after_in_file",
+    "write_file",
+    # Shell — for git add/commit/push, mypy, pytest.
+    "run_command",
+    # Completion — the only ways to end the loop.
+    "build_complete_run",
+    "build_cancel_run",
+    # PR — required to submit work.
+    "create_pull_request",
+})
+
 # When the loop guard fires, the tool palette switches to an ALLOWLIST:
 # only write tools and a minimal set of essential non-read tools remain.
 _GUARD_PERMITTED_TOOL_NAMES: frozenset[str] = frozenset({
@@ -337,10 +358,18 @@ async def run_agent_loop(
     all_tool_defs = _build_tool_definitions(extra_tools=github_tools)
 
     # Developer agents use a minimal tool surface — only coding tools.
-    # Bookkeeping tools (log_run_step, update_working_memory, github_claim_issue,
-    # search_codebase, etc.) are stripped entirely so the model cannot waste
-    # iterations on non-coding actions.
-    if task.role == "developer":
+    # Executor agents use an even more restricted surface — no reads at all.
+    # All other roles get the full tool catalogue.
+    if task.role == "executor":
+        tool_defs = [
+            t for t in all_tool_defs
+            if t["function"]["name"] in _EXECUTOR_TOOL_ALLOWLIST
+        ]
+        logger.info(
+            "✅ agent_loop: executor tool surface — %d tools (of %d total stripped to allowlist)",
+            len(tool_defs), len(all_tool_defs),
+        )
+    elif task.role == "developer":
         tool_defs = [
             t for t in all_tool_defs
             if t["function"]["name"] in _DEVELOPER_TOOL_ALLOWLIST
@@ -367,7 +396,10 @@ async def run_agent_loop(
     # Pre-loop recon phase: model emits an exploration plan; runtime executes
     # all reads/searches concurrently and injects results into the initial
     # message.  This collapses 5-10 discovery turns into a zero-turn warm-up.
-    await _run_recon_phase(run_id, worktree_path, messages, system_prompt)
+    # Executor runs skip recon — the ExecutionPlan already supplies all file
+    # contents and exact parameters; no discovery reads are needed.
+    if task.role != "executor":
+        await _run_recon_phase(run_id, worktree_path, messages, system_prompt)
 
     # Loop-guard state — reset by any write tool call, incremented every
     # iteration that produces only reads/searches/memory-updates.
