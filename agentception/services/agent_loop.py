@@ -104,13 +104,22 @@ _DEFAULT_MAX_ITERATIONS = 100
 # Loop guard — runtime enforcement for write-first behaviour
 # ---------------------------------------------------------------------------
 
-# Tools that constitute a "code write" for loop-guard purposes.
+# Tools that constitute meaningful progress for loop-guard purposes.
 # Any iteration containing at least one of these resets the no-write counter.
+# run_command is included because the developer agent uses it for git operations
+# (commit, push) — without it the guard fires immediately after every shell
+# command and forces redundant file writes.
+# create_pull_request and build_complete_run are terminal actions; including
+# them prevents the guard from firing after the agent has already finished.
 _WRITE_TOOL_NAMES: frozenset[str] = frozenset({
     "replace_in_file",
     "write_file",
     "insert_after_in_file",
     "git_commit_and_push",
+    "run_command",
+    "create_pull_request",
+    "build_complete_run",
+    "build_cancel_run",
 })
 
 # Tools whose arguments carry a search query we want to track for
