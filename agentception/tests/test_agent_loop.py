@@ -1211,3 +1211,58 @@ def test_truncate_search_codebase_limit() -> None:
     assert isinstance(content, str)
     assert content.startswith("s" * 8_000)
     assert "truncated" in content
+
+
+class TestExtractExplicitFilePaths:
+    """Unit tests for the recon phase file-path extractor."""
+
+    def test_detects_paths_in_issue_body(self) -> None:
+        """Paths mentioned in the issue body are returned."""
+        from agentception.services.agent_loop import _extract_explicit_file_paths
+
+        text = (
+            "Edit `agentception/routes/api/__init__.py` and create "
+            "`agentception/routes/api/ping.py`.\n\n"
+            "Also update `agentception/tests/test_ping.py`."
+        )
+        result = _extract_explicit_file_paths(text)
+        assert "agentception/routes/api/__init__.py" in result
+        assert "agentception/routes/api/ping.py" in result
+        assert "agentception/tests/test_ping.py" in result
+
+    def test_does_not_scan_past_separator(self) -> None:
+        """Paths that appear only inside injected context (after ---) are ignored.
+
+        This is the core bug that was fixed: the extractor was scanning the
+        entire task text including Pre-injected Code Context and Pre-loaded
+        Files sections, picking up paths from *those* files and loading them
+        as if they were explicitly requested.
+        """
+        from agentception.services.agent_loop import _extract_explicit_file_paths
+
+        # Only the path before --- should be detected.
+        text = (
+            "Fix `agentception/routes/api/ping.py`.\n\n"
+            "\n---\n\n"
+            "## Pre-injected Code Context\n\n"
+            "**agentception/services/run_factory.py** (lines 1-50)\n"
+            "```\nsome code mentioning agentception/templates/api_reference.html\n```\n\n"
+            "## Pre-loaded Files\n\n"
+            "### `agentception/routes/api/__init__.py`\n"
+            "```\nfrom .health import router as _health\n```"
+        )
+        result = _extract_explicit_file_paths(text)
+        assert result == ["agentception/routes/api/ping.py"], (
+            f"Expected only ping.py, got {result}"
+        )
+
+    def test_deduplicates_paths(self) -> None:
+        """The same path mentioned twice is returned only once."""
+        from agentception.services.agent_loop import _extract_explicit_file_paths
+
+        text = (
+            "Edit `agentception/routes/api/ping.py`. "
+            "Then edit `agentception/routes/api/ping.py` again."
+        )
+        result = _extract_explicit_file_paths(text)
+        assert result.count("agentception/routes/api/ping.py") == 1
