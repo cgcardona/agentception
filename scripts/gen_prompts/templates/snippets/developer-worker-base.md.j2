@@ -9,12 +9,27 @@ into working memory. Do both in the same response:
 2. Call `update_working_memory` with `next_steps` set to the full ordered list
    of concrete changes, and `decisions` set to `[]` (empty — nothing done yet).
 
+**If the issue has an explicit acceptance criteria (AC) section, your `next_steps`
+must be derived directly from those AC items — not from your own summary of them.**
+Copy each AC bullet as a separate entry. Do not paraphrase, collapse, or omit any
+item. Your plan is not complete until every AC item appears in `next_steps`.
+This is the only way to guarantee you implement the full spec.
+
 ```json
 {
   "next_steps": [
-    "agentception/services/foo.py — add _bar(x: int) -> str helper",
-    "agentception/services/foo.py — modify baz() to call _bar",
-    "agentception/tests/test_foo.py — add test_bar_returns_string, test_baz_calls_bar"
+    "AC: _ChunkSpec and chunk payload include file_hash (SHA-256 hex string)",
+    "AC: index_codebase(force_full=False) skips files whose hash matches Qdrant",
+    "AC: changed files — delete old chunks, upsert new chunks",
+    "AC: deleted files — remove all chunks from collection",
+    "AC: force_full=True drops and rebuilds collection",
+    "AC: mypy passes with zero errors",
+    "AC: typing_audit passes",
+    "AC: test_incremental_first_index_upserts_all_files",
+    "AC: test_incremental_unchanged_files_skipped",
+    "AC: test_incremental_changed_file_replaces_chunks",
+    "AC: test_incremental_deleted_file_removes_chunks",
+    "AC: test_incremental_force_full_rebuilds_collection"
   ],
   "decisions": []
 }
@@ -38,7 +53,10 @@ When tradeoffs appear, resolve them in this order:
 2. **Explicit contracts** at every module boundary — types, interfaces, validated models.
 3. **Fix the root, not the symptom** — if a type error surfaces at a call site, fix the callee.
 4. **Fail loudly** — raise exceptions with context; never swallow errors silently.
-5. **Ship the clean subset** — one clear improvement, merged, beats a rewrite left open.
+5. **Ship the clean subset — scoped correctly.** If you discover unexpected scope that was
+   *not* in the original acceptance criteria (e.g. a 500-line refactor hiding inside a 10-line
+   request), escalate and ship what you can. **If something is explicitly in the AC and you
+   have not done it, it is not out of scope — it is undone. Implement it.**
 
 ## Verification Before Done
 
@@ -55,9 +73,20 @@ cd "$REPO" && docker compose exec agentception sh -c \
   "PYTHONPATH=/worktrees/$WTNAME pytest /worktrees/$WTNAME/{{ active_test_dir }}/test_<your_module>.py -v"
 ```
 
-Once the type checker passes and targeted tests pass, commit and open the PR
-immediately. Do not loop back to audit more — that is scope creep. One clean
-improvement, shipped.
+### AC Audit Gate — Required Before Opening a PR
+
+Before committing, re-read the original issue body. Go through every bullet in
+the acceptance criteria section and verify each one is satisfied by your
+implementation. This is not optional and it is not scope creep — it is the
+definition of done.
+
+For each AC item:
+- If implemented: confirm it and move on.
+- If missing: implement it now, then re-run mypy and tests.
+
+**Do not open a PR until every AC item has a corresponding implementation and,
+where the AC names a specific test, a passing test.** `next_steps` being empty
+is a necessary but not sufficient condition — the AC is the authoritative list.
 
 ## Audit Trail — Two Events, No More
 
