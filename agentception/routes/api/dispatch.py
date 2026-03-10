@@ -225,31 +225,15 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
     worktree_path = str(Path(settings.worktrees_dir) / slug)
     host_worktree_path = str(Path(settings.host_worktrees_dir) / slug)
 
-    if Path(worktree_path).exists():
-        raise HTTPException(
-            status_code=409,
-            detail=f"Worktree already exists at {worktree_path}. Remove it before re-dispatching.",
-        )
+    # Create git worktree anchored to origin/dev
+    from agentception.readers.git import ensure_worktree  # noqa: PLC0415
 
     try:
-        dev_sha = await _resolve_dev_sha()
+        await ensure_worktree(Path(worktree_path), branch, "origin/dev")
+        logger.info("✅ dispatch: worktree created at %s", worktree_path)
     except RuntimeError as exc:
+        logger.error("❌ dispatch: worktree creation failed — %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    proc = await asyncio.create_subprocess_exec(
-        "git", "worktree", "add", worktree_path, "-b", branch, dev_sha,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=str(settings.repo_dir),
-    )
-    stdout, stderr = await proc.communicate()
-
-    if proc.returncode != 0:
-        err = stderr.decode().strip()
-        logger.error("❌ dispatch: git worktree add failed — %s", err)
-        raise HTTPException(status_code=500, detail=f"git worktree add failed: {err}")
-
-    logger.info("✅ dispatch: worktree created at %s", worktree_path)
 
     # Embed GITHUB_TOKEN in the worktree remote so git push works without a
     # separate credential helper.  The adhoc path always did this; the issue

@@ -86,7 +86,9 @@ async def create_and_launch_run(
         figure_override=resolved_figure,
     )
 
-    await _create_worktree(worktree_path, branch_name, base_branch, run_id)
+    from agentception.readers.git import ensure_worktree  # noqa: PLC0415
+
+    await ensure_worktree(worktree_path, branch_name, base_branch)
     await _insert_run(
         run_id=run_id,
         role=role,

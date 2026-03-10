@@ -1101,3 +1101,97 @@ async def merge_pr(pr_number: int, delete_branch: bool = True) -> None:
                 head_ref,
                 exc,
             )
+
+
+async def ensure_pull_request(
+    head: str,
+    base: str,
+    title: str,
+    body: str,
+) -> tuple[int, bool]:
+    """Create a pull request only if one does not already exist for the head branch.
+
+    Idempotent: checks for an existing open PR with the same head branch before
+    creating. If found, returns the existing PR number with ``created=False``.
+    If not found, creates a new PR and returns its number with ``created=True``.
+
+    Parameters
+    ----------
+    head:
+        Head branch name (e.g. ``"feat/issue-123"``).
+    base:
+        Base branch to merge into (e.g. ``"dev"``).
+    title:
+        PR title.
+    body:
+        PR body (Markdown).
+
+    Returns
+    -------
+    tuple[int, bool]
+        ``(pr_number, created)`` where ``created`` is ``True`` if a new PR was
+        created, ``False`` if an existing PR was found.
+
+    Raises
+    ------
+    RuntimeError
+        If the GitHub API call fails.
+
+    Notes
+    -----
+    This function only checks for open PRs. Closed PRs with the same head branch
+    are ignored, and a new PR will be created.
+    """
+    repo = settings.gh_repo
+
+    # Check for existing open PR with the same head branch
+    async with httpx.AsyncClient() as client:
+        r = await client.get(
+            f"{_BASE_URL}/repos/{repo}/pulls",
+            params={"state": "open", "head": f"{repo.split('/')[0]}:{head}"},
+            headers=_headers(),
+            timeout=_TIMEOUT,
+        )
+        try:
+            r.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(
+                f"GitHub API GET /repos/{repo}/pulls failed "
+                f"({exc.response.status_code}): {exc.response.text[:400]}"
+            ) from exc
+
+        prs = r.json()
+        if prs:
+            # Found existing PR
+            pr_number = prs[0]["number"]
+            logger.info("✅ Found existing PR #%d for branch %r — skipping creation", pr_number, head)
+            return (pr_number, False)
+
+    # No existing PR — create one
+    payload: dict[str, object] = {
+        "title": title,
+        "body": body,
+        "head": head,
+        "base": base,
+    }
+    async with httpx.AsyncClient() as client:
+        r = await client.post(
+            f"{_BASE_URL}/repos/{repo}/pulls",
+            json=payload,
+            headers=_headers(),
+            timeout=_TIMEOUT,
+        )
+        try:
+            r.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(
+                f"GitHub API POST /repos/{repo}/pulls failed "
+                f"({exc.response.status_code}): {exc.response.text[:400]}"
+            ) from exc
+
+        pr_data = r.json()
+        pr_number = pr_data["number"]
+        _cache_invalidate()
+        logger.info("✅ Created PR #%d: %s → %s", pr_number, head, base)
+        return (pr_number, True)
+

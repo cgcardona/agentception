@@ -252,3 +252,121 @@ async def list_git_stash() -> list[dict[str, object]]:
         entries.append({"ref": ref, "branch": branch, "message": description})
 
     return entries
+
+
+async def ensure_branch(branch: str, base: str = "origin/dev") -> bool:
+    """Create a git branch only if it does not already exist.
+
+    Parameters
+    ----------
+    branch:
+        Branch name to create (e.g. ``"feat/issue-123"``).
+    base:
+        Base ref to branch from (default: ``"origin/dev"``).
+
+    Returns
+    -------
+    bool
+        ``True`` if the branch was created, ``False`` if it already existed.
+
+    Raises
+    ------
+    RuntimeError
+        If ``git branch`` fails for any reason other than the branch already
+        existing.
+    """
+    # Check if branch already exists
+    existing = await _git(["branch", "--list", branch])
+    if existing.strip():
+        logger.debug("Branch %r already exists — skipping creation", branch)
+        return False
+
+    # Create the branch
+    repo = str(settings.repo_dir)
+    cmd = ["git", "-C", repo, "branch", branch, base]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+
+    if proc.returncode != 0:
+        err = stderr.decode().strip()
+        raise RuntimeError(f"git branch {branch} {base} failed: {err}")
+
+    logger.info("✅ Created branch %r from %s", branch, base)
+    return True
+
+
+async def ensure_worktree(worktree_path: Path, branch: str, base: str = "origin/dev") -> bool:
+    """Create git worktree only if it does not already exist.
+
+    Handles three cases:
+    1. Both worktree dir and branch exist — return ``False`` (no-op, fully idempotent).
+    2. Branch exists but worktree dir does not (e.g. after bad teardown) — use
+       ``git worktree add <path> <branch>`` (no ``-b`` flag). Return ``True``.
+    3. Neither exists — use ``git worktree add -b <branch> <path> <base>``. Return ``True``.
+
+    Parameters
+    ----------
+    worktree_path:
+        Absolute path where the worktree should be created.
+    branch:
+        Branch name for the worktree (e.g. ``"feat/issue-123"``).
+    base:
+        Base ref to branch from when creating a new branch (default: ``"origin/dev"``).
+
+    Returns
+    -------
+    bool
+        ``True`` if the worktree was created, ``False`` if it already existed.
+
+    Raises
+    ------
+    RuntimeError
+        If ``git worktree add`` fails for any reason other than the worktree
+        already existing.
+
+    Notes
+    -----
+    This function does NOT configure worktree auth. Callers must still call
+    ``_configure_worktree_auth()`` separately after this returns ``True``.
+    """
+    # Case 1: Worktree directory already exists — assume fully configured
+    if worktree_path.exists():
+        logger.debug("Worktree %s already exists — skipping creation", worktree_path)
+        return False
+
+    # Check if branch exists
+    existing_branch = await _git(["branch", "--list", branch])
+    branch_exists = bool(existing_branch.strip())
+
+    repo = str(settings.repo_dir)
+    worktree_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if branch_exists:
+        # Case 2: Branch exists but worktree dir does not — add without -b
+        cmd = ["git", "-C", repo, "worktree", "add", str(worktree_path), branch]
+    else:
+        # Case 3: Neither exists — create branch and worktree together
+        cmd = ["git", "-C", repo, "worktree", "add", "-b", branch, str(worktree_path), base]
+
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+
+    if proc.returncode != 0:
+        err = stderr.decode().strip()
+        # If the error is "already exists", treat as idempotent success
+        if "already exists" in err.lower():
+            logger.debug("Worktree %s already exists (detected via error) — skipping", worktree_path)
+            return False
+        raise RuntimeError(f"git worktree add failed: {err}")
+
+    logger.info("✅ Created worktree %s on branch %s", worktree_path, branch)
+    return True
+
