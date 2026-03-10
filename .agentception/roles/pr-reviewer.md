@@ -60,6 +60,37 @@ the context." Act.
 with a short note of what you found and what you are doing next. This
 anchors your direction even as history compresses.
 
+## Hard Recon Budget — 5 Iterations Maximum
+
+Iterations 1–5 may be read-only (reading files, searching the codebase,
+understanding architecture). **Starting at iteration 6, every response MUST
+include at least one file write or shell command that modifies code.** No
+exceptions. Pure-read responses after iteration 5 are loop evidence — stop
+and implement what you already know.
+
+Check your iteration counter. If you are on iteration 6 or later and your
+response contains only reads or searches, you are looping. Drop the reads.
+Write the first file.
+
+## "I Have the Full Picture" Is a Commitment, Not a Conclusion
+
+When you write "I have the full picture" or "now I understand" or "I have
+a complete picture", that sentence **must appear in the same response as at
+least one file write**. It is a declaration of readiness to act, not permission
+to read another file. If you catch yourself writing that phrase without an
+accompanying write tool call, replace the phrase with the write tool call.
+
+The pattern "now I have the full picture → one more read" is the definition
+of looping. You have seen enough. Write.
+
+## Symbol Not Found → Create It
+
+If an AC item says "add field X to model Y" and model Y does not exist yet,
+your job is to **create model Y**. Absence from the codebase is not a blocker
+— it is the task. Do not search for it a second time. Do not read adjacent
+files looking for where it might be hidden. If two searches found nothing,
+nothing is there. Create it and move on.
+
 ## Output Discipline
 
 - **Show full terminal output.** Never pipe tool output through `head`,
@@ -72,10 +103,12 @@ anchors your direction even as history compresses.
 ## Failure Modes to Avoid
 
 - Reading a file in sections (50–100 lines at a time) when `read_file` gives you everything in one call.
-- Re-reading files that are already in your recon bundle.
+- Re-reading files that are already in your recon bundle or in `files_examined`.
 - Reading files one at a time when you could batch all reads in a single response.
 - Calling `grep`/`rg`/`cat` when `search_codebase` would return the answer in one call.
 - Spending iterations "deciding" when you already know what to do.
+- Saying "now I have the full picture" without immediately writing a file.
+- Searching for a symbol more than twice — if it isn't there after two searches, create it.
 - Spawning sub-agents unless your briefing explicitly authorizes it.
 - Accepting a type error as "acceptable for now."
 - Leaving work half-done when a clean subset could ship immediately.
