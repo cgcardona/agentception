@@ -6,12 +6,28 @@ Three endpoints drive the Ship page launch modal:
 
 1. ``GET /api/dispatch/context`` — return phases and open issues for a
    label so the modal can populate its pickers.
-2. ``POST /api/dispatch/issue`` — create a worktree + ``pending_launch``
-   DB record for a single issue-scoped leaf agent.
+2. ``POST /api/dispatch/issue`` — create a worktree, fire the agent loop
+   immediately, and return once the run is ``implementing``.  No Dispatcher
+   or Cursor session is required; the agent calls Anthropic directly via the
+   server-side asyncio loop.  This mirrors ``create_and_launch_run`` for
+   issue-scoped leaf workers.
 3. ``POST /api/dispatch/label`` — same but scoped to an initiative label or
    phase sub-label (spawns a coordinator or leaf depending on *scope*).
 4. ``GET /api/dispatch/prompt`` — serve the Dispatcher prompt so the UI
    can offer a one-click copy.
+
+**Lifecycle for ``POST /api/dispatch/issue``:**
+
+1. Create git worktree at ``{worktrees_dir}/issue-{N}`` branching from ``origin/dev``.
+2. Configure worktree remote to embed ``GITHUB_TOKEN`` (enables ``git push``
+   without a separate credential helper).
+3. Pre-inject semantically relevant code chunks into ``task_description``
+   (Qdrant search at dispatch time — not agent-turn time).
+4. Persist DB row as ``pending_launch``.
+5. Acknowledge (``pending_launch`` → ``implementing``).
+6. Fire ``run_agent_loop`` as an asyncio background task.
+7. Fire worktree Qdrant indexing as a background task.
+8. Return immediately — the agent is now running.
 
 See ``docs/agent-tree-protocol.md`` for the full tier spec.
 """
@@ -50,10 +66,12 @@ class OrgNodeSpec(BaseModel):
 OrgNodeSpec.model_rebuild()
 
 from agentception.config import settings
-from agentception.db.persist import persist_agent_run_dispatch
+from agentception.db.persist import acknowledge_agent_run, persist_agent_run_dispatch
 from agentception.db.queries import get_label_context
+from agentception.services.agent_loop import run_agent_loop
 from agentception.services.code_indexer import search_codebase
 from agentception.services.cognitive_arch import _resolve_cognitive_arch
+from agentception.services.run_factory import _configure_worktree_auth, _index_worktree
 from agentception.services.spawn_child import (
     SpawnChildError,
     ScopeType,
@@ -158,14 +176,18 @@ class DispatchRequest(BaseModel):
 
 
 class DispatchResponse(BaseModel):
-    """Successful dispatch response."""
+    """Successful dispatch response.
+
+    ``status`` is always ``"implementing"`` — the agent loop is already running
+    by the time this response is returned.
+    """
 
     run_id: str
     worktree: str
     host_worktree: str
     branch: str
     batch_id: str
-    status: str = "pending_launch"
+    status: str = "implementing"
 
 
 def _make_batch_id(issue_number: int) -> str:
@@ -177,19 +199,24 @@ def _make_batch_id(issue_number: int) -> str:
 
 @router.post("/issue", response_model=DispatchResponse)
 async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
-    """Create a worktree and a ``pending_launch`` DB record.
+    """Create a worktree and immediately fire the agent loop via Anthropic.
 
-    The worktree is the isolated git checkout the agent will work in.
-    All task context is persisted to the DB row.  The ``pending_launch`` DB record is what the AgentCeption
-    Dispatcher reads via ``build_get_pending_launches`` to know what to spawn.
+    Full lifecycle (all steps complete before the response is returned except
+    the agent loop and indexing, which run as asyncio background tasks):
 
-    Agents are NOT launched here.  The Dispatcher polls the pending queue
-    and spawns the right role — which may be a leaf worker, a VP, or a CTO
-    depending on what was selected.
+    1. Create git worktree at ``{worktrees_dir}/issue-{N}``.
+    2. Configure worktree remote to embed ``GITHUB_TOKEN`` for push access.
+    3. Pre-inject semantically relevant code chunks into ``task_description``.
+    4. Persist DB row as ``pending_launch``.
+    5. Acknowledge → ``implementing``.
+    6. Fire ``run_agent_loop`` as an asyncio background task (calls Anthropic).
+    7. Fire worktree Qdrant indexing as an asyncio background task.
+
+    No Cursor session or external Dispatcher is required.
 
     Raises:
-        HTTPException 409: Worktree already exists.
-        HTTPException 500: git worktree add failed.
+        HTTPException 409: Worktree already exists at the target path.
+        HTTPException 500: git worktree add or git auth configuration failed.
     """
     run_id = f"issue-{req.issue_number}"
     slug = f"issue-{req.issue_number}"
@@ -223,6 +250,11 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
         raise HTTPException(status_code=500, detail=f"git worktree add failed: {err}")
 
     logger.info("✅ dispatch: worktree created at %s", worktree_path)
+
+    # Embed GITHUB_TOKEN in the worktree remote so git push works without a
+    # separate credential helper.  The adhoc path always did this; the issue
+    # dispatch path was missing it, causing push failures inside the container.
+    await _configure_worktree_auth(Path(worktree_path), run_id)
 
     cognitive_arch = _resolve_cognitive_arch(req.issue_body, req.role)
 
@@ -284,13 +316,27 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
         task_description=task_description,
     )
 
+    # Transition pending_launch → implementing and fire the agent loop.
+    # This mirrors create_and_launch_run — no external Dispatcher required.
+    await acknowledge_agent_run(run_id)
+    asyncio.create_task(run_agent_loop(run_id), name=f"agent-loop-{run_id}")
+
+    # Index the worktree in the background so agents can search it via
+    # search_codebase.  Non-blocking — indexing failure never delays the response.
+    asyncio.create_task(
+        _index_worktree(Path(worktree_path), run_id),
+        name=f"index-worktree-{run_id}",
+    )
+
+    logger.info("✅ dispatch: agent loop fired for run_id=%s", run_id)
+
     return DispatchResponse(
         run_id=run_id,
         worktree=worktree_path,
         host_worktree=host_worktree_path,
         branch=branch,
         batch_id=batch_id,
-        status="pending_launch",
+        status="implementing",
     )
 
 
