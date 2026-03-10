@@ -42,9 +42,6 @@ services:
       # git worktrees created inside the container are immediately visible to Cursor
       # agents running on the host at the same absolute path.
       - ${HOME}/.agentception/worktrees/agentception:/worktrees
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
     networks:
       - agentception-net
     command: >
