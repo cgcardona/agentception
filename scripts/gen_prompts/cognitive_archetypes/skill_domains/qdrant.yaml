@@ -1,0 +1,77 @@
+# Skill Domain: Qdrant
+id: qdrant
+display_name: "Qdrant Vector Search"
+description: "Qdrant vector database: collection schema, payload indexes, hybrid search, async client usage in AgentCeption."
+
+prompt_fragment: |
+  ## Skill Domain: Qdrant Vector Search
+
+  You work with Qdrant as the primary vector store in AgentCeption.
+  Qdrant stores code chunks indexed by FastEmbed dense vectors and
+  searched by the `search_codebase` tool at agent dispatch time.
+
+  ## Stack facts
+
+  - Client: `qdrant-client` async (`AsyncQdrantClient`). All operations are async.
+  - Collection: configured in `settings.qdrant_collection` (default `"code"`).
+  - Vector size: `settings.embed_model_dim` (default 384 for BAAI/bge-small-en-v1.5).
+  - Distance metric: `Distance.COSINE`.
+  - Chunking: Python files → AST symbol chunks (`_chunk_file_ast`);
+    all others → overlapping character chunks (`_chunk_file_char`).
+  - Payload schema (every point): `file` (str), `chunk` (str), `start_line` (int),
+    `end_line` (int), `symbol` (str — e.g. `"class Foo"` or `"def bar"`,
+    empty string for character chunks).
+  - Payload indexes: `KeywordIndexType.KEYWORD` on `file` and `symbol` for O(1)
+    exact-match filtering without a full collection scan.
+
+  ## Collection lifecycle
+
+  `_ensure_collection()` in `agentception/services/code_indexer.py` is the
+  single entry point for collection setup. It is idempotent: it checks
+  `get_collections()` first and only calls `create_collection()` when the
+  collection is absent. Payload indexes are declared at creation time via
+  `payload_indexes_config` — they cannot be added retroactively without
+  a collection rebuild.
+
+  ## Coding rules for this codebase
+
+  - Never call `recreate_collection` — it is deprecated in qdrant-client ≥ 1.7.
+    Use `delete_collection` + `create_collection` only when a full rebuild is
+    explicitly requested (e.g. the `force_full` flag in `index_codebase`).
+  - All Qdrant I/O must be `await`ed. Never block the event loop with sync calls.
+  - Upserts use `PointStruct` with a deterministic `int` ID derived from
+    `md5(file:symbol_name)` for AST chunks or `md5(file:chunk_index)` for
+    character chunks. Re-indexing the same file produces the same IDs → safe upsert.
+  - Batch size: `_UPSERT_BATCH = 64` points per `client.upsert()` call.
+  - Errors from Qdrant are caught at the `index_codebase` / `search_codebase`
+    boundary and returned as `IndexStats(ok=False)` or `[]` — never propagated
+    to the agent loop.
+
+  ## Search
+
+  `search_codebase(query, n_results)` embeds the query via `_embed()` and calls
+  `client.query_points()` with the dense vector. Returns `list[SearchMatch]`
+  (TypedDict with `file`, `chunk`, `start_line`, `end_line`, `score`).
+
+  Planned: hybrid search (dense + sparse BM25) via named vectors. When
+  implementing, add a second `sparse` named vector at collection creation time
+  and use `client.query_points()` with `prefetch` + `fusion=Fusion.RRF`.
+
+  ## Testing
+
+  Never make live Qdrant calls in unit tests. Mock `AsyncQdrantClient` with
+  `unittest.mock.AsyncMock`. Use `SimpleNamespace` to fake
+  `CollectionsResponse` and `ScoredPoint` payloads. See
+  `agentception/tests/test_code_indexer.py` for the established patterns.
+
+review_checklist: |
+  - No `recreate_collection` calls (deprecated — delete + create instead)
+  - All Qdrant I/O is async (`await`ed)
+  - `symbol` field populated in every `_ChunkSpec` before upsert
+  - Payload indexes declared at collection creation, not retrofitted
+  - Unit tests mock `AsyncQdrantClient` — no live Qdrant dependency
+  - `_ensure_collection` remains idempotent (checks before creates)
+  - Batch size respected; no single-document upserts in bulk indexing paths
+
+quality_gates:
+  test_runner: "pytest agentception/tests/test_code_indexer.py -v"

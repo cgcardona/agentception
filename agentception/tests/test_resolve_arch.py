@@ -24,6 +24,7 @@ RESOLVE_ARCH = Path(__file__).parent.parent.parent / "scripts" / "gen_prompts" /
         "hopper",
         "the_architect:python",
         "the_pragmatist:devops",
+        "guido_van_rossum:qdrant:python",
     ],
 )
 def test_resolve_arch_produces_non_empty_output(arch_string: str) -> None:
@@ -64,6 +65,20 @@ def test_resolve_arch_fingerprint_flag_produces_fingerprint_table() -> None:
     assert result.returncode == 0
     assert "developer" in result.stdout
     assert "test-session-1" in result.stdout
+
+
+def test_resolve_arch_qdrant_skill_content_present() -> None:
+    """Output for a qdrant arch string must include the Qdrant skill section header and key concepts."""
+    result = subprocess.run(
+        [sys.executable, str(RESOLVE_ARCH), "guido_van_rossum:qdrant:python"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "Qdrant Vector Search" in result.stdout
+    assert "AsyncQdrantClient" in result.stdout
+    assert "_ensure_collection" in result.stdout
+    assert "symbol" in result.stdout
 
 
 def test_resolve_arch_unknown_figure_exits_nonzero() -> None:
