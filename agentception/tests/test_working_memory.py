@@ -29,19 +29,19 @@ def test_read_memory_missing_file_returns_none(tmp_path: Path) -> None:
 
 
 def test_read_memory_corrupt_json_returns_none(tmp_path: Path) -> None:
-    (tmp_path / ".ac").mkdir()
-    (tmp_path / ".ac" / "memory.json").write_text("not json", encoding="utf-8")
+    (tmp_path / ".agentception").mkdir()
+    (tmp_path / ".agentception" / "memory.json").write_text("not json", encoding="utf-8")
     assert read_memory(tmp_path) is None
 
 
 def test_read_memory_non_dict_returns_none(tmp_path: Path) -> None:
-    (tmp_path / ".ac").mkdir()
-    (tmp_path / ".ac" / "memory.json").write_text(json.dumps([1, 2, 3]), encoding="utf-8")
+    (tmp_path / ".agentception").mkdir()
+    (tmp_path / ".agentception" / "memory.json").write_text(json.dumps([1, 2, 3]), encoding="utf-8")
     assert read_memory(tmp_path) is None
 
 
 def test_read_memory_full_object(tmp_path: Path) -> None:
-    (tmp_path / ".ac").mkdir()
+    (tmp_path / ".agentception").mkdir()
     payload = {
         "plan": "implement X",
         "files_examined": ["a.py", "b.py"],
@@ -50,7 +50,7 @@ def test_read_memory_full_object(tmp_path: Path) -> None:
         "next_steps": ["write tests"],
         "blockers": ["unclear spec"],
     }
-    (tmp_path / ".ac" / "memory.json").write_text(json.dumps(payload), encoding="utf-8")
+    (tmp_path / ".agentception" / "memory.json").write_text(json.dumps(payload), encoding="utf-8")
     memory = read_memory(tmp_path)
     assert memory is not None
     assert memory["plan"] == "implement X"
@@ -62,10 +62,10 @@ def test_read_memory_full_object(tmp_path: Path) -> None:
 
 
 def test_read_memory_ignores_wrong_type_fields(tmp_path: Path) -> None:
-    (tmp_path / ".ac").mkdir()
+    (tmp_path / ".agentception").mkdir()
     # plan is an int instead of str — should be silently skipped
     payload = {"plan": 42, "decisions": ["ok"]}
-    (tmp_path / ".ac" / "memory.json").write_text(json.dumps(payload), encoding="utf-8")
+    (tmp_path / ".agentception" / "memory.json").write_text(json.dumps(payload), encoding="utf-8")
     memory = read_memory(tmp_path)
     assert memory is not None
     assert "plan" not in memory
@@ -77,10 +77,10 @@ def test_read_memory_ignores_wrong_type_fields(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_write_memory_creates_ac_directory(tmp_path: Path) -> None:
+def test_write_memory_creates_agentception_directory(tmp_path: Path) -> None:
     mem: WorkingMemory = WorkingMemory(plan="test plan")
     write_memory(tmp_path, mem)
-    assert (tmp_path / ".ac" / "memory.json").exists()
+    assert (tmp_path / ".agentception" / "memory.json").exists()
 
 
 def test_write_memory_roundtrip(tmp_path: Path) -> None:

@@ -1,6 +1,10 @@
 """Persistent working memory for agent runs.
 
-A lightweight JSON file stored at ``.ac/memory.json`` inside the worktree.
+A lightweight JSON file stored at ``.agentception/memory.json`` inside the
+worktree — alongside the repo's role files and prompt templates, so all
+AgentCeption runtime state is co-located under the project's canonical config
+directory rather than a one-off ``.ac/`` prefix.
+
 The agent loop reads it at the start of every iteration and injects a compact
 rendering as a secondary system block so the model always has its current state
 — without touching the prunable conversation history.
@@ -18,7 +22,7 @@ from typing import TypedDict
 
 logger = logging.getLogger(__name__)
 
-_MEMORY_FILENAME = ".ac/memory.json"
+_MEMORY_FILENAME = ".agentception/memory.json"
 
 
 class WorkingMemory(TypedDict, total=False):
