@@ -149,10 +149,6 @@ If you reference a function or constant name in your edits, you must have
 already read the file that defines it. Never write a call site for a function
 before defining it.
 
-If you reference a function or constant name in your edits, you must have
-already read the file that defines it. Never write a call site for a function
-before defining it.
-
 ## Decision Hierarchy
 
 When tradeoffs appear, resolve them in this order:
