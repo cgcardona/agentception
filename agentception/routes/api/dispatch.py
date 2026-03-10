@@ -513,12 +513,25 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
         logger.warning("⚠️ dispatch: test coverage extraction failed — %s", exc)
 
     # Reset working memory so re-dispatches always start with a clean slate.
-    # Seed plan from task_description and findings from the dispatch-time
-    # extraction so the agent never needs to re-read files to understand types
-    # or discover which tests already exist.
+    # For pr-reviewers: seed plan with the review task (PR number + branch),
+    # not the implementation issue body — otherwise the agent reads the issue
+    # text, assumes it is a developer picking up unfinished implementation work,
+    # and tries to implement instead of review.
+    if is_reviewer and req.pr_number:
+        review_plan = (
+            f"# Review PR #{req.pr_number}: {req.issue_title}\n\n"
+            f"Your task is to **review** the existing pull request #{req.pr_number} "
+            f"on branch `{branch}` against `dev`.\n\n"
+            f"The implementation is already committed. Do NOT implement anything. "
+            f"Read `task/briefing` for PR_NUMBER, BRANCH, GH_REPO, and ISSUE_NUMBER, "
+            f"then follow the Review Protocol in your role file."
+        )
+        memory_plan = review_plan
+    else:
+        memory_plan = task_description or ""
     write_memory(
         Path(worktree_path),
-        WorkingMemory(plan=task_description or "", findings=dispatch_findings),
+        WorkingMemory(plan=memory_plan, findings=dispatch_findings),
     )
     logger.info("✅ dispatch: working memory reset for run_id=%s", run_id)
 
