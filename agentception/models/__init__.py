@@ -766,6 +766,16 @@ class TemplateListEntry(BaseModel):
     size_bytes: int
 
 
+class VersionResponse(BaseModel):
+    """Response for ``GET /api/version``.
+
+    Returns the running application version so clients can confirm which
+    build is deployed without parsing the full OpenAPI schema.
+    """
+
+    version: str
+
+
 class OrgTreeRole(BaseModel):
     """A single role entry in the org tree returned by ``GET /api/org/tree``.
 
