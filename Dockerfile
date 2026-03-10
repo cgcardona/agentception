@@ -29,8 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # are missing — agents run non-interactively and must fail fast instead.
 COPY scripts/github-askpass /usr/local/bin/github-askpass
 RUN chmod +x /usr/local/bin/github-askpass \
-    && git config --system core.askPass /usr/local/bin/github-askpass \
-    && git config --system GIT_TERMINAL_PROMPT 0
+    && git config --system core.askPass /usr/local/bin/github-askpass
 
 # Install the GitHub MCP server binary — provides the agent loop with typed
 # GitHub tools (get_issue, list_issues, add_issue_comment, create_pull_request,
