@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+import textwrap
 from datetime import datetime
 
 # ── ANSI colours ──────────────────────────────────────────────────────────────
@@ -351,9 +352,13 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
     if rlm:
         chars = int(rlm.group("chars"))
         text = rlm.group("text").strip()
-        # Truncate long replies for display — full text is in the raw log.
-        display = text[:200] + ("…" if len(text) > 200 else "")
-        return f"{ts}  {GREY}💬 ({chars:,}ch) {display}{RESET}"
+        # Wrap the full chain of thought across multiple lines so nothing is
+        # hidden.  The first line gets the 💬 prefix; continuation lines are
+        # indented to align with the text.
+        prefix = f"{ts}  {GREY}💬 ({chars:,}ch) "
+        indent = " " * (len(ts) + 2 + 4 + len(f"({chars:,}ch) "))
+        wrapped = textwrap.wrap(text, width=120, subsequent_indent=indent)
+        return (prefix + "\n".join(wrapped) + RESET) if wrapped else ""
 
     # ── LLM done / stop reason ─────────────────────────────────────────────────
     ldm = _RE_LLM_DONE.search(msg)
