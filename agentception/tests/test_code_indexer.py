@@ -431,7 +431,7 @@ async def test_hybrid_search() -> None:
     
     # query_points is called twice: once for dense, once for sparse.
     # We need to return different results based on the 'using' parameter.
-    async def mock_query_points(collection_name, query, using, limit):
+    async def mock_query_points(collection_name: str, query: object, using: str, limit: int) -> object:
         if using == "dense":
             return dense_response
         elif using == "sparse":
@@ -500,21 +500,58 @@ def test_chunk_file_char_symbol_field_empty(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
-async def test_ensure_collection_creates_payload_indexes(tmp_path: Path) -> None:
-    """_ensure_collection configures keyword indexes for 'file' and 'symbol'."""
+async def test_ensure_collection_no_payload_indexes_config_kwarg(tmp_path: Path) -> None:
+    """Regression: _ensure_collection must not pass payload_indexes_config.
+
+    qdrant-client 1.17 does not accept this kwarg and raises
+    ``Unknown arguments: ['payload_indexes_config']``, crashing every index run.
+    """
     mock_client = AsyncMock()
     mock_client.get_collections.return_value = SimpleNamespace(collections=[])
 
     with patch("agentception.services.code_indexer.settings") as mock_settings:
-        mock_settings.qdrant_collection = "code"
         mock_settings.embed_model_dim = 384
         await _ensure_collection(mock_client, "code")
 
     mock_client.create_collection.assert_called_once()
     call_kwargs = mock_client.create_collection.call_args.kwargs
-    indexes = call_kwargs.get("payload_indexes_config", {})
-    assert "file" in indexes, "Expected 'file' payload index"
-    assert "symbol" in indexes, "Expected 'symbol' payload index"
+    assert "payload_indexes_config" not in call_kwargs, (
+        "payload_indexes_config is not supported by the installed qdrant-client "
+        "and must not be passed to create_collection"
+    )
+
+
+@pytest.mark.anyio
+async def test_ensure_collection_migrates_legacy_single_vector_schema() -> None:
+    """Regression: _ensure_collection must delete+recreate a legacy collection.
+
+    Before hybrid search, the code collection used a single unnamed VectorParams
+    (size=384, COSINE).  _ensure_collection previously skipped existing collections
+    entirely, leaving live searches on the old schema with no sparse/BM25 support.
+    """
+    from qdrant_client.models import Distance, VectorParams
+
+    legacy_col = SimpleNamespace(
+        name="code",
+        config=SimpleNamespace(
+            params=SimpleNamespace(
+                vectors=VectorParams(size=384, distance=Distance.COSINE),
+            )
+        ),
+    )
+    mock_client = AsyncMock()
+    mock_client.get_collections.return_value = SimpleNamespace(collections=[legacy_col])
+    mock_client.get_collection.return_value = legacy_col
+
+    with patch("agentception.services.code_indexer.settings") as mock_settings:
+        mock_settings.embed_model_dim = 384
+        await _ensure_collection(mock_client, "code")
+
+    mock_client.delete_collection.assert_called_once_with("code")
+    mock_client.create_collection.assert_called_once()
+    call_kwargs = mock_client.create_collection.call_args.kwargs
+    assert "dense" in call_kwargs["vectors_config"], "Expected named 'dense' vector"
+    assert "sparse" in call_kwargs["sparse_vectors_config"], "Expected 'sparse' vector"
 
 
 @pytest.mark.anyio
