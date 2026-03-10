@@ -24,7 +24,7 @@ import json
 import logging
 from pathlib import Path
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -172,6 +172,14 @@ class AgentCeptionSettings(BaseSettings):
 
     Must match the model — ``BAAI/bge-small-en-v1.5`` produces 384-dimensional
     vectors.  Override when switching to a different model.
+    """
+    agent_max_iterations: int = Field(default=100, ge=1)
+    """Maximum number of iterations an agent is allowed to run before being killed.
+
+    Set via ``AGENT_MAX_ITERATIONS`` env var.  Must be a positive integer.
+    Defaults to 100, which is sufficient for most tasks while preventing
+    runaway agents from consuming unbounded resources.  The reaper uses this
+    value to decide when to tear down a stalled worktree.
     """
     database_url: str | None = None
     """Async database URL for AgentCeption's own ac_* tables.

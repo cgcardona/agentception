@@ -378,3 +378,51 @@ def test_ac_task_runner_invalid_value_raises_validation_error(
         _make_settings(tmp_path)
     # Pydantic v2 raises ValidationError with details about the invalid enum value
     assert "validation error" in str(exc_info.value).lower() or "ac_task_runner" in str(exc_info.value).lower()
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — agent_max_iterations field
+# ---------------------------------------------------------------------------
+
+
+def test_agent_max_iterations_default(tmp_path: Path) -> None:
+    """agent_max_iterations defaults to 100 when AGENT_MAX_ITERATIONS is unset."""
+    s = _make_settings(tmp_path)
+    assert s.agent_max_iterations == 100
+
+
+def test_agent_max_iterations_env_var(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """agent_max_iterations reads its value from the AGENT_MAX_ITERATIONS env var."""
+    monkeypatch.setenv("AGENT_MAX_ITERATIONS", "50")
+    s = _make_settings(tmp_path)
+    assert s.agent_max_iterations == 50
+
+
+def test_agent_max_iterations_minimum_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """agent_max_iterations accepts 1 as the minimum valid value."""
+    monkeypatch.setenv("AGENT_MAX_ITERATIONS", "1")
+    s = _make_settings(tmp_path)
+    assert s.agent_max_iterations == 1
+
+
+def test_agent_max_iterations_zero_raises_validation_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """agent_max_iterations rejects 0 — at least one iteration is required."""
+    monkeypatch.setenv("AGENT_MAX_ITERATIONS", "0")
+    with pytest.raises(Exception) as exc_info:
+        _make_settings(tmp_path)
+    assert "agent_max_iterations" in str(exc_info.value).lower() or "validation error" in str(exc_info.value).lower()
+
+
+def test_agent_max_iterations_negative_raises_validation_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """agent_max_iterations rejects negative values."""
+    monkeypatch.setenv("AGENT_MAX_ITERATIONS", "-5")
+    with pytest.raises(Exception) as exc_info:
+        _make_settings(tmp_path)
+    assert "agent_max_iterations" in str(exc_info.value).lower() or "validation error" in str(exc_info.value).lower()
+

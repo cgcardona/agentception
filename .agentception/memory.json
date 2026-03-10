@@ -1,25 +1,10 @@
 {
-  "plan": "Add SHA-256 hash-based incremental indexing to code_indexer.py:\n1. Add `files_skipped` field to IndexStats TypedDict\n2. Add `_compute_file_hash(path)` helper that returns SHA-256 hex digest\n3. Add `_fetch_indexed_hashes(client, collection)` async helper that queries Qdrant for existing file hashes\n4. Modify `index_codebase` to: fetch existing hashes, skip files whose hash matches, store file_hash in point payloads, return files_skipped count\n5. Update tests: add files_skipped to existing test assertions, add new tests for skip behavior and hash storage",
+  "plan": "Add agent_max_iterations field to AgentCeptionSettings with a sensible default and validation, then add tests covering the default value and boundary validation.",
   "files_examined": [
-    "agentception/services/code_indexer.py",
-    "docs/reference/type-contracts.md",
-    "agentception/mcp/types.py",
-    "agentception/tests/test_code_indexer.py",
-    "agentception/tests/test_system_api.py"
+    "agentception/config.py",
+    "agentception/tests/test_config.py"
   ],
   "findings": {
-    "agentception/services/code_indexer.py": "[Type signatures]\nclass IndexStats(TypedDict): \"\"\"Result returned by :func:`index_codebase`.\"\"\"\nclass SearchMatch(TypedDict): \"\"\"A single result from :func:`search_codebase`.\"\"\"\ndef _get_model() -> object: \"\"\"Return the cached TextEmbedding model, initialising it on first call.\"\"\" global _cached_model\ndef _reset_model() -> None: \"\"\"Clear the cached model \u2014 used by tests to inject a mock.\"\"\" global _cached_model\ndef _embed_sync(texts: list[str]) -> list[list[float]]: \"\"\"Embed *texts* synchronously (runs in a thread pool via asyncio.to_thread).\"\"\" from fastembed import T\u2026\nasync def _embed(texts: list[str]) -> list[list[float]]: \"\"\"Async wrapper around :func:`_embed_sync` using the thread pool.\"\"\" return await asyncio.to_thread(_e\u2026\ndef _compute_bm25_vector(text: str, vocab_size: int = 10000) -> dict[int, float]: \"\"\"Compute a BM25-style sparse vector for *text*.\ndef _should_index(path: Path) -> bool: \"\"\"Return True when *path* is a text file we want to embed.\"\"\" if path.suffix not in _TEXT_EXTENSIONS:\ndef _walk_files(repo_path: Path) -> list[Path]: \"\"\"Return all indexable source files under *repo_path*, sorted.\"\"\" results: list[Path] = []\nclass _ChunkSpec(TypedDict): \"\"\"Internal: a raw chunk before embedding.\"\"\"\ndef _chunk_file_ast(path: Path, repo_root: Path) -> list[_ChunkSpec]: \"\"\"Split a Python file into chunks by top-level symbols (classes, functions).\ndef _chunk_file_char( path: Path, repo_root: Path, raw: str | None = None, rel: str | None = None ) -> list[_ChunkSpec]:\ndef _chunk_file(path: Path, repo_root: Path) -> list[_ChunkSpec]: \"\"\"Split *path* into chunks using the appropriate strategy.\nasync def _ensure_collection(client: \"AsyncQdrantClient\", collection: str) -> None: \"\"\"Create or migrate the Qdrant collection for hybrid dense+sparse search.\nasync def index_codebase( repo_path: Path | None = None, *,\nasync def search_codebase( query: str, n_results: int = 5,",
-    "agentception/tests/test_code_indexer.py": "[Existing tests \u2014 do not duplicate]\ntest_should_index_accepts_python_files\ntest_should_index_rejects_unknown_extension\ntest_should_index_rejects_large_file\ntest_walk_files_skips_git_and_pycache\ntest_walk_files_includes_multiple_extensions\ntest_chunk_file_produces_at_least_one_chunk\ntest_chunk_file_relative_path\ntest_chunk_file_large_file_produces_multiple_chunks\ntest_chunk_file_ids_are_deterministic\ntest_chunk_file_ids_are_unique_within_file\ntest_chunk_file_missing_file_returns_empty\ntest_chunk_file_ast_extracts_functions\ntest_chunk_file_ast_extracts_classes\ntest_chunk_file_ast_includes_decorators\ntest_chunk_file_ast_preserves_async_functions\ntest_chunk_file_ast_falls_back_on_syntax_error\ntest_chunk_file_ast_falls_back_when_no_symbols\ntest_chunk_file_ast_chunk_ids_use_symbol_names\ntest_chunk_file_non_python_uses_character_chunking\ntest_index_codebase_returns_stats\ntest_index_codebase_error_returns_ok_false\ntest_search_codebase_returns_matches\ntest_search_codebase_empty_when_no_results\ntest_search_codebase_returns_empty_on_qdrant_error\ntest_search_codebase_skips_malformed_payloads\ntest_hybrid_search\ntest_chunk_file_ast_symbol_field_populated\ntest_chunk_file_char_symbol_field_empty\ntest_ensure_collection_no_payload_indexes_config_kwarg\ntest_ensure_collection_migrates_legacy_single_vector_schema\ntest_index_codebase_writes_symbol_to_payload"
-  },
-  "decisions": [],
-  "next_steps": [
-    "code_indexer.py \u2014 add files_skipped to IndexStats TypedDict",
-    "code_indexer.py \u2014 add _compute_file_hash(path: Path) -> str helper",
-    "code_indexer.py \u2014 add _fetch_indexed_hashes(client, collection) async helper that scrolls Qdrant for file+hash payloads",
-    "code_indexer.py \u2014 modify index_codebase to use incremental logic: fetch hashes, skip unchanged files, store file_hash in payload, return files_skipped",
-    "test_code_indexer.py \u2014 update existing test assertions to include files_skipped field",
-    "test_code_indexer.py \u2014 add test_index_codebase_skips_unchanged_files and test_index_codebase_rehashes_changed_files tests",
-    "Run mypy and pytest to verify",
-    "Claim issue, commit, open PR"
-  ]
+    "agentception/tests/test_agentception_templates.py": "[Existing tests \u2014 do not duplicate]\ntest_export_creates_valid_tarball\ntest_export_includes_all_managed_files\ntest_export_manifest_contains_correct_metadata\ntest_export_persists_archive_to_store\ntest_import_extracts_to_target\ntest_import_detects_conflicts\ntest_import_raises_on_missing_manifest\ntest_import_raises_on_nonexistent_target\ntest_list_stored_templates_empty_when_no_store\ntest_list_stored_templates_returns_entries\ntest_api_export_returns_tarball\ntest_api_import_endpoint_extracts_files\ntest_api_list_templates_returns_json\ntest_api_download_template_returns_bytes\ntest_api_download_template_404_for_unknown_file\ntest_api_import_400_for_invalid_archive\ntest_ui_templates_page_renders"
+  }
 }
