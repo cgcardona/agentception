@@ -293,37 +293,15 @@ async def spawn_child(
             role, tier, org_domain, scope_type, scope_value, resolved_arch,
         )
 
-    # Resolve origin/dev SHA to pin the worktree start point.
-    # Using a concrete SHA instead of the main repo's HEAD prevents agents
-    # from inheriting local commits not yet on origin/dev and decouples the
-    # worktree from whatever branch the main repo currently has checked out.
-    sha_proc = await asyncio.create_subprocess_exec(
-        "git", "rev-parse", "origin/dev",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=str(settings.repo_dir),
-    )
-    sha_out, sha_err = await sha_proc.communicate()
-    if sha_proc.returncode != 0:
-        err = sha_err.decode().strip()
-        logger.error("❌ spawn_child: git rev-parse origin/dev failed — %s", err)
-        raise SpawnChildError(f"git rev-parse origin/dev failed: {err}")
-    dev_sha = sha_out.decode().strip()
+    # Create git worktree anchored to origin/dev
+    from agentception.readers.git import ensure_worktree  # noqa: PLC0415
 
-    # Create git worktree anchored to the resolved SHA
-    proc = await asyncio.create_subprocess_exec(
-        "git", "worktree", "add", "-b", branch, worktree_path, dev_sha,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=str(settings.repo_dir),
-    )
-    _, stderr_bytes = await proc.communicate()
-    if proc.returncode != 0:
-        err = stderr_bytes.decode().strip()
-        logger.error("❌ spawn_child: git worktree add failed — %s", err)
-        raise SpawnChildError(f"git worktree add failed: {err}")
-
-    logger.info("✅ spawn_child: worktree created at %s", worktree_path)
+    try:
+        await ensure_worktree(Path(worktree_path), branch, "origin/dev")
+        logger.info("✅ spawn_child: worktree created at %s", worktree_path)
+    except RuntimeError as exc:
+        logger.error("❌ spawn_child: worktree creation failed — %s", exc)
+        raise SpawnChildError(f"worktree creation failed: {exc}") from exc
 
     # Embed GITHUB_TOKEN in the worktree remote URL so git push works inside
     # the container without a separate credential helper.
