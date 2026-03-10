@@ -31,13 +31,20 @@ iterations. That is the single biggest source of wasted turns.
 change and need to confirm the exact result around a specific line, use
 `read_file_lines` for that narrow range. Not for initial exploration.
 
-**Batch your tool calls.** When you need information from multiple sources,
-emit ALL of them as tool calls in a single response — not one at a time.
-Three `search_codebase` queries in one response = one LLM turn and one
-inter-turn delay. Three queries across three separate responses = three turns
-and three delays. The loop dispatches every tool call you return before asking
-you again — use this. A well-batched first turn can replace ten sequential
-reconnaissance turns.
+**Batch your tool calls — reads AND writes.** When you need information from
+multiple sources, emit ALL of them as tool calls in a single response — not
+one at a time. Three `search_codebase` queries in one response = one LLM turn
+and one inter-turn delay. Three queries across three separate responses = three
+turns and three delays. The loop dispatches every tool call you return before
+asking you again — use this. A well-batched first turn can replace ten
+sequential reconnaissance turns.
+
+The same rule applies to writes across **different** files. If your plan
+requires editing `code_indexer.py` and `test_code_indexer.py`, emit both
+`replace_in_file` calls in the same response — the runtime executes them in
+parallel. **Do not** batch multiple edits to the **same** file in one response;
+keep same-file edits sequential so each replacement sees the result of the
+previous one.
 
 **Trust your first analysis.** Your initial read is high quality. If you
 identified a problem and a fix on the first pass, implement the fix
