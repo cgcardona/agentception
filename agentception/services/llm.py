@@ -154,10 +154,16 @@ def _api_key() -> str:
 
 
 def _base_headers() -> dict[str, str]:
-    """Build the HTTP headers required by every Anthropic API request."""
+    """Build the HTTP headers required by every Anthropic API request.
+
+    ``anthropic-beta: prompt-caching-2024-07-31`` is required to enable
+    ``cache_control`` on both the system prompt and the tool catalogue.
+    Without this header, cache_control blocks are silently ignored.
+    """
     return {
         "x-api-key": _api_key(),
         "anthropic-version": _ANTHROPIC_VERSION,
+        "anthropic-beta": "prompt-caching-2024-07-31",
         "content-type": "application/json",
     }
 
@@ -179,7 +185,17 @@ def _get_client() -> httpx.AsyncClient:
 
 
 def _tools_to_anthropic(tools: list[ToolDefinition]) -> list[dict[str, object]]:
-    """Convert OpenAI-format tool definitions to Anthropic's input_schema format."""
+    """Convert OpenAI-format tool definitions to Anthropic's input_schema format.
+
+    The last tool in the converted list receives ``cache_control: ephemeral`` so
+    Anthropic caches the entire tool catalogue after turn 1.  Without this, every
+    turn pays full input-token price for all tool schemas — with 40+ GitHub MCP
+    tools included that is easily 8–15K tokens per turn.  Caching cuts it to the
+    cache-read rate (~10% of normal cost) from turn 2 onward.
+
+    This is the server-side answer to "on-demand tool discovery": tools are
+    loaded once, cached, and referenced cheaply on every subsequent turn.
+    """
     result: list[dict[str, object]] = []
     for tool in tools:
         fn = tool["function"]
@@ -190,6 +206,9 @@ def _tools_to_anthropic(tools: list[ToolDefinition]) -> list[dict[str, object]]:
                 "input_schema": fn["parameters"],
             }
         )
+    # Mark the last tool as the cache boundary so the full list is cached.
+    if result:
+        result[-1] = {**result[-1], "cache_control": {"type": "ephemeral"}}
     return result
 
 
@@ -498,8 +517,10 @@ async def call_anthropic_with_tools(
     wire format — content-block arrays, tool_use/tool_result blocks,
     input_schema instead of parameters — happens internally.
 
-    Prompt caching is applied to the system prompt (cache_control: ephemeral).
-    Turn 1 writes the cache; turns 2-N read it at ~10% of normal input cost.
+    Prompt caching is applied to both the system prompt and the tool catalogue
+    (cache_control: ephemeral on each).  Turn 1 writes both caches; turns 2-N
+    read them at ~10% of normal input cost.  With 40+ GitHub MCP tools included,
+    tool-list caching alone saves 8–15K tokens per turn.
 
     Args:
         messages: OpenAI-format conversation history (user/assistant/tool).
