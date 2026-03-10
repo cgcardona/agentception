@@ -258,6 +258,12 @@ phases:
 
 ---
 
+## TaskRunner Abstraction
+
+The `TaskRunner` protocol (`agentception/services/task_runner.py`) defines a runner-agnostic interface for executing agent tasks. It decouples coordinators from specific execution engines (Cursor, Anthropic, etc.), allowing the system to swap implementations without changing orchestration logic. Concrete implementations live in sibling modules and are selected via the `ac_task_runner` config setting. The protocol uses structural subtyping (`@runtime_checkable`) to verify implementations at runtime without requiring explicit inheritance.
+
+---
+
 ## Further Reading
 
 - [Plan Spec format](plan-spec.md)
