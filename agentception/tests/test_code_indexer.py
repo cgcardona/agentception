@@ -18,6 +18,7 @@ from agentception.services.code_indexer import (
     SearchMatch,
     _chunk_file,
     _compute_file_hash,
+    _delete_chunks_by_file,
     _ensure_collection,
     _fetch_indexed_hashes,
     _reset_model,
@@ -748,3 +749,180 @@ async def test_index_codebase_rehashes_changed_files(tmp_path: Path) -> None:
     stored_hash = points[0].payload["file_hash"]
     assert len(stored_hash) == 64  # valid SHA-256 hex
     assert stored_hash != "stale_hash_value"
+
+
+# ── Incremental indexing tests ────────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_incremental_first_index_upserts_all_files(tmp_path: Path) -> None:
+    """First index with no prior state upserts all file chunks, no deletions."""
+    (tmp_path / "app.py").write_text("def hello(): pass\n")
+    (tmp_path / "readme.md").write_text("# Hello\n")
+
+    mock_client = AsyncMock()
+    mock_client.get_collections.return_value = SimpleNamespace(collections=[])
+    mock_client.scroll.return_value = ([], None)
+
+    with (
+        patch("agentception.services.code_indexer._embed", side_effect=_fake_embed),
+        patch("qdrant_client.AsyncQdrantClient", return_value=mock_client),
+    ):
+        stats: IndexStats = await index_codebase(repo_path=tmp_path)
+
+    assert stats["ok"] is True
+    assert stats["files_skipped"] == 0
+    assert stats["files_indexed"] == 2
+    mock_client.upsert.assert_called()
+    mock_client.delete.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_incremental_unchanged_files_skipped(tmp_path: Path) -> None:
+    """Files whose hash matches Qdrant are skipped — zero upsert or delete calls."""
+    py_file = tmp_path / "app.py"
+    py_file.write_text("def hello(): pass\n")
+    current_hash = _compute_file_hash(py_file)
+
+    existing_point = SimpleNamespace(
+        id=1,
+        payload={"file": "app.py", "file_hash": current_hash},
+    )
+    mock_client = AsyncMock()
+    mock_client.get_collections.return_value = SimpleNamespace(
+        collections=[SimpleNamespace(name="code")]
+    )
+    mock_client.get_collection.return_value = SimpleNamespace(
+        config=SimpleNamespace(
+            params=SimpleNamespace(vectors={"dense": object(), "sparse": object()})
+        )
+    )
+    mock_client.scroll.return_value = ([existing_point], None)
+
+    with (
+        patch("agentception.services.code_indexer._embed", side_effect=_fake_embed),
+        patch("qdrant_client.AsyncQdrantClient", return_value=mock_client),
+    ):
+        stats: IndexStats = await index_codebase(repo_path=tmp_path)
+
+    assert stats["ok"] is True
+    assert stats["files_skipped"] == 1
+    assert stats["files_indexed"] == 0
+    mock_client.upsert.assert_not_called()
+    mock_client.delete.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_incremental_changed_file_replaces_chunks(tmp_path: Path) -> None:
+    """A changed file has its old chunks deleted before new chunks are upserted."""
+    py_file = tmp_path / "app.py"
+    py_file.write_text("def hello(): pass\n")
+
+    stale_point = SimpleNamespace(
+        id=1,
+        payload={"file": "app.py", "file_hash": "old_stale_hash"},
+    )
+    mock_client = AsyncMock()
+    mock_client.get_collections.return_value = SimpleNamespace(
+        collections=[SimpleNamespace(name="code")]
+    )
+    mock_client.get_collection.return_value = SimpleNamespace(
+        config=SimpleNamespace(
+            params=SimpleNamespace(vectors={"dense": object(), "sparse": object()})
+        )
+    )
+    mock_client.scroll.return_value = ([stale_point], None)
+
+    with (
+        patch("agentception.services.code_indexer._embed", side_effect=_fake_embed),
+        patch("qdrant_client.AsyncQdrantClient", return_value=mock_client),
+    ):
+        stats: IndexStats = await index_codebase(repo_path=tmp_path)
+
+    assert stats["ok"] is True
+    assert stats["files_skipped"] == 0
+    assert stats["files_indexed"] == 1
+    # Old chunks deleted before new ones upserted.
+    mock_client.delete.assert_called_once()
+    mock_client.upsert.assert_called()
+
+
+@pytest.mark.anyio
+async def test_incremental_deleted_file_removes_chunks(tmp_path: Path) -> None:
+    """A file removed from disk has all its Qdrant chunks deleted."""
+    remaining = tmp_path / "remaining.py"
+    remaining.write_text("x = 1\n")
+    remaining_hash = _compute_file_hash(remaining)
+
+    remaining_point = SimpleNamespace(
+        id=1,
+        payload={"file": "remaining.py", "file_hash": remaining_hash},
+    )
+    deleted_point = SimpleNamespace(
+        id=2,
+        payload={"file": "deleted.py", "file_hash": "some_old_hash"},
+    )
+    mock_client = AsyncMock()
+    mock_client.get_collections.return_value = SimpleNamespace(
+        collections=[SimpleNamespace(name="code")]
+    )
+    mock_client.get_collection.return_value = SimpleNamespace(
+        config=SimpleNamespace(
+            params=SimpleNamespace(vectors={"dense": object(), "sparse": object()})
+        )
+    )
+    mock_client.scroll.return_value = ([remaining_point, deleted_point], None)
+
+    with (
+        patch("agentception.services.code_indexer._embed", side_effect=_fake_embed),
+        patch("qdrant_client.AsyncQdrantClient", return_value=mock_client),
+    ):
+        stats: IndexStats = await index_codebase(repo_path=tmp_path)
+
+    assert stats["ok"] is True
+    assert stats["files_skipped"] == 1  # remaining.py unchanged
+    # Exactly one delete call — for the removed file.
+    mock_client.delete.assert_called_once()
+    delete_kwargs = mock_client.delete.call_args.kwargs
+    must = delete_kwargs["points_selector"].filter.must
+    assert len(must) == 1
+    assert must[0].key == "file"
+    assert must[0].match.value == "deleted.py"
+
+
+@pytest.mark.anyio
+async def test_incremental_force_full_rebuilds_collection(tmp_path: Path) -> None:
+    """force_full=True drops the collection and indexes all files regardless of hashes."""
+    py_file = tmp_path / "app.py"
+    py_file.write_text("def hello(): pass\n")
+    current_hash = _compute_file_hash(py_file)
+
+    # Simulate the file already indexed with its current hash — would be skipped
+    # in incremental mode, but must be indexed in force_full mode.
+    existing_point = SimpleNamespace(
+        id=1,
+        payload={"file": "app.py", "file_hash": current_hash},
+    )
+    mock_client = AsyncMock()
+    # First call: collection exists (triggers force_full deletion).
+    # Second call: collection gone (triggers _ensure_collection to recreate it).
+    mock_client.get_collections.side_effect = [
+        SimpleNamespace(collections=[SimpleNamespace(name="code")]),
+        SimpleNamespace(collections=[]),
+    ]
+    mock_client.scroll.return_value = ([existing_point], None)
+
+    with (
+        patch("agentception.services.code_indexer._embed", side_effect=_fake_embed),
+        patch("qdrant_client.AsyncQdrantClient", return_value=mock_client),
+    ):
+        stats: IndexStats = await index_codebase(repo_path=tmp_path, force_full=True)
+
+    assert stats["ok"] is True
+    # force_full skips nothing — all files are indexed.
+    assert stats["files_skipped"] == 0
+    assert stats["files_indexed"] == 1
+    # Collection dropped and recreated.
+    mock_client.delete_collection.assert_called_once()
+    mock_client.create_collection.assert_called_once()
+    mock_client.upsert.assert_called()
