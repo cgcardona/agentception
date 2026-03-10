@@ -250,6 +250,7 @@ The browser loads **compiled bundles**, not source files directly:
 | Topic | File |
 |-------|------|
 | Setup/deploy | `docs/guides/setup.md` |
+| **Dispatching agents** | **`docs/guides/dispatch.md`** |
 | MCP integration | `docs/guides/integrate.md` |
 | API reference | `docs/reference/api.md` |
 | Architecture | `docs/architecture.md` |
