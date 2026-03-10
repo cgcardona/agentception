@@ -10,11 +10,17 @@ This guide covers the one canonical way to launch an agent in AgentCeption: `POS
 POST /api/dispatch/issue
         │
         ├─ 1. git worktree add   (isolated checkout at /worktrees/issue-{N})
+        │        • implementers  → branches from origin/dev
+        │        • pr-reviewer   → git fetch origin feat/issue-{N}, then
+        │                          branches from origin/feat/issue-{N}
+        │                          (reviewer starts on the implementer's code
+        │                           from turn 1 — no wasted branch-switching turns)
         ├─ 2. configure worktree auth  (_configure_worktree_auth embeds GITHUB_TOKEN
         │                              so git push works inside the container)
         ├─ 3. Qdrant pre-inject  (top-3 semantically relevant code chunks added
         │                         to task_description at dispatch time)
-        ├─ 4. persist DB row     (status = pending_launch, all context stored)
+        ├─ 4. persist DB row     (status = pending_launch, all context stored,
+        │                         pr_number written if provided)
         ├─ 5. acknowledge        (pending_launch → implementing)
         ├─ 6. asyncio.create_task(run_agent_loop)   ← Anthropic agent starts here
         └─ 7. asyncio.create_task(_index_worktree)  ← background Qdrant index
@@ -29,6 +35,8 @@ By the time you get the JSON response, the agent is already running against Anth
 
 ## Request shape
 
+### Implementer (developer)
+
 ```bash
 curl -s -X POST http://localhost:10003/api/dispatch/issue \
   -H "Content-Type: application/json" \
@@ -41,13 +49,33 @@ curl -s -X POST http://localhost:10003/api/dispatch/issue \
   }'
 ```
 
+### PR Reviewer
+
+```bash
+curl -s -X POST http://localhost:10003/api/dispatch/issue \
+  -H "Content-Type: application/json" \
+  -d '{
+    "issue_number": 35,
+    "issue_title":  "PR review for feat/issue-35 (#436)",
+    "issue_body":   "Review PR #436 (feat/issue-35). Run mypy, typing_audit, pytest. Fagan analysis. Merge if acceptable.",
+    "role":         "pr-reviewer",
+    "repo":         "agentception",
+    "pr_number":    436
+  }'
+```
+
+The endpoint fetches `origin/feat/issue-35` automatically and creates the worktree
+from that ref.  The reviewer is on the implementer's branch from its very first turn —
+no fetching, no hard-resetting, no wasted turns detecting the wrong branch.
+
 | Field | Required | Notes |
 |-------|----------|-------|
 | `issue_number` | yes | GitHub issue number — used for `run_id = "issue-{N}"` and the branch `feat/issue-{N}` |
 | `issue_title` | yes | Injected into the agent's task briefing and used as the Qdrant search query |
 | `issue_body` | no | Full issue body text; drives cognitive arch selection and task briefing. Pass `""` to let the agent read the body itself via `issue_read` |
-| `role` | yes | Role slug matching a file in `.agentception/roles/` — typically `"developer"` for leaf workers |
+| `role` | yes | Role slug matching a file in `.agentception/roles/` — `"developer"` for implementers, `"pr-reviewer"` for reviewers |
 | `repo` | yes | `owner/repo` string — e.g. `"agentception"` (short form resolved against `settings.gh_repo`) |
+| `pr_number` | no | PR number to associate with this run. **Required for `pr-reviewer` dispatches** so the DB row is pre-linked and the worktree can be anchored to the right branch. For implementers, omit — the agent self-reports it via `build_complete_run` |
 
 ### Re-dispatching a failed or cancelled run
 
@@ -119,7 +147,9 @@ The tool catalogue and system prompt are cached after turn 1. A `cache_read` ≥
 
 The agent reads its full task context from the DB at startup via the `task/briefing` MCP prompt — it never needs to call `issue_read` for the issue body if `issue_body` was passed at dispatch time. The recon phase (pre-loop) runs one LLM call that produces a JSON exploration plan; the runtime executes all reads and searches concurrently and injects the results into the initial user message, collapsing 5-10 discovery turns into zero.
 
-Typical successful run shape:
+For **reviewers**, the worktree is already on `feat/issue-{N}` — the agent verifies tools directly without any branch orientation steps.
+
+Typical implementer run shape:
 
 | Phase | Turns | What happens |
 |-------|-------|--------------|
@@ -128,6 +158,15 @@ Typical successful run shape:
 | Implement | 4–N | Writes functions, updates callers |
 | Verify | N+1 to N+5 | `mypy`, `typing_audit`, `pytest` inside the container |
 | Ship | last 2 | `git_commit_and_push`, `create_pull_request`, `merge_pull_request` |
+
+Typical reviewer run shape:
+
+| Phase | Turns | What happens |
+|-------|-------|--------------|
+| Recon | 0 (pre-loop) | Diff, changed files, tests injected as context |
+| Verify | 1–5 | `mypy`, `typing_audit`, `pytest` — confirms green |
+| Review | 6–12 | Fagan defect analysis, grade, inline comments |
+| Ship | last 1–2 | `merge_pull_request` (or block with comment if defects found) |
 
 ---
 
@@ -178,6 +217,7 @@ pending_launch  →  implementing  →  completed   (happy path)
 | Concern | File |
 |---------|------|
 | Dispatch endpoint | `agentception/routes/api/dispatch.py::dispatch_agent` |
+| Idempotent worktree creation | `agentception/readers/git.py::ensure_worktree` |
 | Agent loop | `agentception/services/agent_loop.py::run_agent_loop` |
 | Worktree auth | `agentception/services/run_factory.py::_configure_worktree_auth` |
 | Worktree indexing | `agentception/services/run_factory.py::_index_worktree` |

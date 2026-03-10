@@ -973,6 +973,7 @@ async def persist_agent_run_dispatch(
     is_resumed: bool = False,
     coord_fingerprint: str | None = None,
     task_description: str | None = None,
+    pr_number: int | None = None,
 ) -> None:
     """Insert an ``ACAgentRun`` row with status ``pending_launch`` at dispatch time.
 
@@ -1029,6 +1030,8 @@ async def persist_agent_run_dispatch(
                     existing.coord_fingerprint = coord_fingerprint
                 if task_description is not None:
                     existing.task_description = task_description
+                if pr_number is not None:
+                    existing.pr_number = pr_number
             else:
                 logger.warning(
                     "💾 persist_agent_run_dispatch: run_id=%r is new — inserting with status=pending_launch",
@@ -1039,7 +1042,7 @@ async def persist_agent_run_dispatch(
                         id=run_id,
                         wave_id=None,
                         issue_number=issue_number,
-                        pr_number=None,
+                        pr_number=pr_number,
                         branch=branch,
                         worktree_path=worktree_path,
                         role=role,

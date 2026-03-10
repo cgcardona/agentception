@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -216,3 +216,104 @@ async def test_ensure_pull_request_raises_on_creation_failure() -> None:
     with patch("agentception.readers.github.httpx.AsyncClient", return_value=mock_client):
         with pytest.raises(Exception):
             await ensure_pull_request(head, base, title, body)
+
+
+# ---------------------------------------------------------------------------
+# dispatch_agent — reviewer branch orientation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_dispatch_reviewer_fetches_pr_branch_and_uses_it_as_base(tmp_path: Path) -> None:
+    """PR-reviewer dispatch fetches the PR branch and passes origin/<branch> as base.
+
+    The critical invariant: ensure_worktree is called with base="origin/feat/issue-35"
+    (not "origin/dev") so the reviewer worktree starts on the implementer's code
+    without any manual branch-switching turns.
+    """
+    from agentception.routes.api.dispatch import dispatch_agent, DispatchRequest
+
+    fetch_proc = AsyncMock()
+    fetch_proc.returncode = 0
+    fetch_proc.communicate.return_value = (b"", b"")
+
+    captured_base: list[str] = []
+
+    async def mock_ensure_worktree(path: Path, branch: str, base: str = "origin/dev") -> bool:
+        captured_base.append(base)
+        return True
+
+    with (
+        patch("agentception.routes.api.dispatch.asyncio.create_subprocess_exec", return_value=fetch_proc),
+        patch("agentception.readers.git.ensure_worktree", side_effect=mock_ensure_worktree),
+        patch("agentception.routes.api.dispatch._configure_worktree_auth", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch._resolve_cognitive_arch", return_value=None),
+        patch("agentception.routes.api.dispatch.search_codebase", new_callable=AsyncMock, return_value=[]),
+        patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.acknowledge_agent_run", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.run_agent_loop", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.asyncio.create_task", return_value=asyncio.Future()),
+        patch("agentception.routes.api.dispatch._index_worktree", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.settings") as mock_settings,
+    ):
+        mock_settings.worktrees_dir = str(tmp_path / "worktrees")
+        mock_settings.host_worktrees_dir = str(tmp_path / "host_worktrees")
+        mock_settings.repo_dir = str(tmp_path)
+        mock_settings.gh_repo = "cgcardona/agentception"
+
+        req = DispatchRequest(
+            issue_number=35,
+            issue_title="PR review for feat/issue-35",
+            issue_body="Review this PR.",
+            role="pr-reviewer",
+            repo="agentception",
+            pr_number=436,
+        )
+        await dispatch_agent(req)
+
+    # The worktree base must be the PR branch on origin, not origin/dev
+    assert captured_base == ["origin/feat/issue-35"], (
+        f"Expected ensure_worktree to be called with base='origin/feat/issue-35', got {captured_base}"
+    )
+
+
+@pytest.mark.anyio
+async def test_dispatch_implementer_uses_origin_dev_as_base(tmp_path: Path) -> None:
+    """Implementer dispatch uses origin/dev as the worktree base (no fetch step)."""
+    from agentception.routes.api.dispatch import dispatch_agent, DispatchRequest
+
+    captured_base: list[str] = []
+
+    async def mock_ensure_worktree(path: Path, branch: str, base: str = "origin/dev") -> bool:
+        captured_base.append(base)
+        return True
+
+    with (
+        patch("agentception.readers.git.ensure_worktree", side_effect=mock_ensure_worktree),
+        patch("agentception.routes.api.dispatch._configure_worktree_auth", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch._resolve_cognitive_arch", return_value=None),
+        patch("agentception.routes.api.dispatch.search_codebase", new_callable=AsyncMock, return_value=[]),
+        patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.acknowledge_agent_run", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.run_agent_loop", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.asyncio.create_task", return_value=asyncio.Future()),
+        patch("agentception.routes.api.dispatch._index_worktree", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.settings") as mock_settings,
+    ):
+        mock_settings.worktrees_dir = str(tmp_path / "worktrees")
+        mock_settings.host_worktrees_dir = str(tmp_path / "host_worktrees")
+        mock_settings.repo_dir = str(tmp_path)
+        mock_settings.gh_repo = "cgcardona/agentception"
+
+        req = DispatchRequest(
+            issue_number=42,
+            issue_title="Implement some feature",
+            issue_body="",
+            role="developer",
+            repo="agentception",
+        )
+        await dispatch_agent(req)
+
+    assert captured_base == ["origin/dev"], (
+        f"Expected ensure_worktree to be called with base='origin/dev', got {captured_base}"
+    )
