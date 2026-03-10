@@ -49,13 +49,17 @@ from agentception.services.llm import (
     ToolDefinition,
     ToolFunction,
     ToolResponse,
+    call_anthropic,
     call_anthropic_with_tools,
 )
 from agentception.services.code_indexer import search_codebase
 from agentception.services.github_mcp_client import GitHubMCPClient
 from agentception.tools.definitions import (
     FILE_TOOL_DEFS,
+    FIND_CALL_SITES_TOOL_DEF,
     GIT_COMMIT_AND_PUSH_TOOL_DEF,
+    READ_SYMBOL_TOOL_DEF,
+    READ_WINDOW_TOOL_DEF,
     SEARCH_CODEBASE_TOOL_DEF,
     SHELL_TOOL_DEF,
     UPDATE_WORKING_MEMORY_TOOL_DEF,
@@ -68,10 +72,13 @@ from agentception.services.working_memory import (
     write_memory,
 )
 from agentception.tools.file_tools import (
+    find_call_sites,
     insert_after_in_file,
     list_directory,
     read_file,
     read_file_lines,
+    read_symbol,
+    read_window,
     replace_in_file,
     search_text,
     write_file,
@@ -101,6 +108,9 @@ _DEFAULT_MAX_ITERATIONS = 100
 _TOOL_RESULT_CHAR_LIMITS: dict[str, int] = {
     "read_file": 12_000,
     "read_file_lines": 12_000,
+    "read_symbol": 8_000,   # full function bodies; generous but bounded
+    "read_window": 10_000,  # centered window, slightly more than read_file_lines
+    "find_call_sites": 5_000,
     "search_codebase": 8_000,
     "search_text": 5_000,
     "run_command": 5_000,
@@ -157,6 +167,9 @@ _LOCAL_TOOL_NAMES: frozenset[str] = frozenset(
     {
         "read_file",
         "read_file_lines",
+        "read_symbol",
+        "read_window",
+        "find_call_sites",
         "replace_in_file",
         "insert_after_in_file",
         "write_file",
@@ -227,6 +240,11 @@ async def run_agent_loop(
         len(tool_defs),
         len(github_tool_names),
     )
+
+    # Pre-loop recon phase: model emits an exploration plan; runtime executes
+    # all reads/searches concurrently and injects results into the initial
+    # message.  This collapses 5-10 discovery turns into a zero-turn warm-up.
+    await _run_recon_phase(run_id, worktree_path, messages, system_prompt)
 
     for iteration in range(1, max_iterations + 1):
         await log_run_step(
@@ -599,6 +617,9 @@ def _build_tool_definitions(
     tool_defs.append(SHELL_TOOL_DEF)
     tool_defs.append(GIT_COMMIT_AND_PUSH_TOOL_DEF)
     tool_defs.append(SEARCH_CODEBASE_TOOL_DEF)
+    tool_defs.append(READ_SYMBOL_TOOL_DEF)
+    tool_defs.append(READ_WINDOW_TOOL_DEF)
+    tool_defs.append(FIND_CALL_SITES_TOOL_DEF)
     tool_defs.append(UPDATE_WORKING_MEMORY_TOOL_DEF)
 
     seen: set[str] = {t["function"]["name"] for t in tool_defs}
@@ -621,6 +642,231 @@ def _build_tool_definitions(
             seen.add(gh_name)
 
     return tool_defs
+
+
+# ---------------------------------------------------------------------------
+# Recon phase — structured exploration before the main execution loop
+# ---------------------------------------------------------------------------
+
+# System addendum injected for the single pre-loop planning call.
+# The model is asked to emit a compact JSON plan — no implementation yet.
+_RECON_SYSTEM_ADDENDUM = """
+---
+
+## RECON MODE — output a JSON exploration plan ONLY
+
+Before any implementation, emit exactly ONE JSON object:
+
+```json
+{
+  "files": ["<relative paths of files most likely to need editing or serve as patterns — max 5>"],
+  "searches": ["<natural language queries for search_codebase — focus on patterns/helpers to copy — max 5>"],
+  "plan": "<one sentence: your implementation approach>"
+}
+```
+
+Rules:
+- Output ONLY the JSON object, nothing else.
+- Do not implement anything yet.
+- Maximum 5 files and 5 searches.
+- Prefer files you know you will edit over files you are merely curious about.
+"""
+
+
+class _ReconPlan:
+    """Parsed output of the recon planning call."""
+
+    __slots__ = ("files", "searches", "plan")
+
+    def __init__(self, files: list[str], searches: list[str], plan: str) -> None:
+        self.files = files
+        self.searches = searches
+        self.plan = plan
+
+
+def _parse_recon_json(raw: str) -> _ReconPlan | None:
+    """Extract and parse the JSON exploration plan from the model response.
+
+    The model may wrap the JSON in markdown fences — we strip those first.
+    Returns ``None`` when the response cannot be parsed.
+    """
+    text = raw.strip()
+    # Strip ```json ... ``` fences if present.
+    if text.startswith("```"):
+        lines = text.splitlines()
+        inner = [l for l in lines if not l.startswith("```")]
+        text = "\n".join(inner).strip()
+
+    # Find the outermost JSON object.
+    start = text.find("{")
+    end = text.rfind("}") + 1
+    if start == -1 or end <= start:
+        return None
+    try:
+        data: object = json.loads(text[start:end])
+    except json.JSONDecodeError:
+        return None
+
+    if not isinstance(data, dict):
+        return None
+
+    files_raw = data.get("files", [])
+    searches_raw = data.get("searches", [])
+    plan_raw = data.get("plan", "")
+
+    files: list[str] = (
+        [f for f in files_raw if isinstance(f, str)][:5]
+        if isinstance(files_raw, list)
+        else []
+    )
+    searches: list[str] = (
+        [s for s in searches_raw if isinstance(s, str)][:5]
+        if isinstance(searches_raw, list)
+        else []
+    )
+    plan_str = str(plan_raw) if isinstance(plan_raw, str) else ""
+
+    if not files and not searches:
+        return None
+
+    return _ReconPlan(files=files, searches=searches, plan=plan_str)
+
+
+async def _run_recon_phase(
+    run_id: str,
+    worktree_path: Path,
+    messages: list[dict[str, object]],
+    system_prompt: str,
+) -> None:
+    """Execute a structured recon phase before the main agent loop begins.
+
+    1. Call the LLM once with a planning-only system addendum to obtain a
+       JSON exploration plan: which files to read, which searches to run.
+    2. Execute all requested reads and searches concurrently.
+    3. Append a compact bundle of results to ``messages[0]`` so the model
+       starts iteration 1 with context already in view.
+    4. Update working memory with discovered files and the high-level plan.
+
+    This phase runs outside the iteration counter and the inter-turn delay.
+    A failure at any point is non-fatal: the loop proceeds without recon context.
+    """
+    # Grab the task briefing text from the initial message.
+    task_text_raw = messages[0].get("content", "") if messages else ""
+    task_text = str(task_text_raw)[:4_000]  # cap for the planning prompt
+
+    try:
+        raw_plan = await call_anthropic(
+            task_text,
+            system_prompt=system_prompt + _RECON_SYSTEM_ADDENDUM,
+            max_tokens=400,
+            temperature=0.0,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("⚠️ recon phase: planning call failed — %s", exc)
+        return
+
+    plan = _parse_recon_json(raw_plan)
+    if plan is None:
+        logger.warning("⚠️ recon phase: could not parse plan from LLM response")
+        return
+
+    logger.info(
+        "✅ recon: files=%d searches=%d — %s",
+        len(plan.files),
+        len(plan.searches),
+        plan.plan,
+    )
+
+    # ── Execute all reads and searches concurrently ──────────────────────────
+
+    async def _read_one(rel_path: str) -> str | None:
+        path = worktree_path / rel_path
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+            return text[:4_000]  # cap per file in the bundle
+        except OSError:
+            return None
+
+    async def _search_one(query: str) -> list[dict[str, object]]:
+        try:
+            results = await search_codebase(query, 3)
+            return [
+                {"file": m["file"], "chunk": m["chunk"][:600], "score": m["score"]}
+                for m in results
+            ]
+        except Exception:  # noqa: BLE001
+            return []
+
+    file_tasks = [_read_one(f) for f in plan.files]
+    search_tasks = [_search_one(q) for q in plan.searches]
+
+    raw_file_results: list[str | None | BaseException] = list(
+        await asyncio.gather(*file_tasks, return_exceptions=True)
+    )
+    raw_search_results: list[object] = list(
+        await asyncio.gather(*search_tasks, return_exceptions=True)
+    )
+
+    # ── Bundle results ────────────────────────────────────────────────────────
+
+    sections: list[str] = []
+
+    if plan.plan:
+        sections.append(f"**Recon plan:** {plan.plan}")
+
+    discovered_files: list[str] = []
+
+    for rel_path, result in zip(plan.files, raw_file_results):
+        if isinstance(result, str):
+            sections.append(f"### `{rel_path}`\n```\n{result}\n```")
+            discovered_files.append(rel_path)
+        else:
+            sections.append(f"### `{rel_path}`\n_(could not read)_")
+
+    for query, raw_sr in zip(plan.searches, raw_search_results):
+        if not isinstance(raw_sr, list):
+            continue
+        search_hits: list[dict[str, object]] = [
+            item for item in raw_sr if isinstance(item, dict)
+        ]
+        if search_hits:
+            chunks = "\n\n".join(
+                f"**{m.get('file', '?')}** (score={m.get('score', 0.0)!s:.5})\n"
+                f"```\n{m.get('chunk', '')}\n```"
+                for m in search_hits
+            )
+            sections.append(f"### Search: _{query}_\n{chunks}")
+
+    if not sections:
+        logger.info("✅ recon: no usable results; skipping context injection")
+        return
+
+    bundle = "## Pre-execution Recon Bundle\n\n" + "\n\n".join(sections)
+
+    # Append to the initial user message (no alternation issues — still one user msg).
+    original_content = str(messages[0].get("content", ""))
+    messages[0] = {
+        **dict(messages[0]),
+        "content": original_content + "\n\n---\n\n" + bundle,
+    }
+
+    # ── Update working memory ─────────────────────────────────────────────────
+
+    existing_memory = read_memory(worktree_path)
+    mem_update = WorkingMemory()
+    if plan.plan:
+        mem_update["plan"] = plan.plan
+    if discovered_files:
+        mem_update["files_examined"] = discovered_files
+    if mem_update:
+        merged = merge_memory(existing_memory, mem_update)
+        write_memory(worktree_path, merged)
+
+    logger.info(
+        "✅ recon phase complete — injected %d sections, %d files in memory",
+        len(sections),
+        len(discovered_files),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -728,6 +974,32 @@ def _prune_history(
 # ---------------------------------------------------------------------------
 # Tool dispatch
 # ---------------------------------------------------------------------------
+
+
+def _auto_track_file_read(file_path: Path, worktree_path: Path) -> None:
+    """Record *file_path* in the agent's working memory after a successful read.
+
+    This is runtime-owned state: the loop updates ``files_examined`` after
+    every successful read without depending on the agent to remember to call
+    ``update_working_memory``.  Never raises — tracking failure is silently
+    ignored so the caller's result is unaffected.
+
+    Paths are stored relative to *worktree_path* when possible (shorter, cleaner).
+    """
+    try:
+        try:
+            rel = str(file_path.relative_to(worktree_path))
+        except ValueError:
+            rel = str(file_path)
+        existing = read_memory(worktree_path)
+        current: list[str] = list(existing.get("files_examined", [])) if existing else []
+        if rel not in current:
+            current.append(rel)
+            update = WorkingMemory(files_examined=current)
+            merged = merge_memory(existing, update)
+            write_memory(worktree_path, merged)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 async def _dispatch_tool_calls(
@@ -856,7 +1128,10 @@ async def _dispatch_local_tool(
 
     if name == "read_file":
         path = _resolve(args.get("path"), worktree_path)
-        return read_file(path)
+        result = read_file(path)
+        if result.get("ok"):
+            _auto_track_file_read(path, worktree_path)
+        return result
 
     if name == "read_file_lines":
         path_raw = args.get("path")
@@ -868,7 +1143,11 @@ async def _dispatch_local_tool(
             return {"ok": False, "error": "read_file_lines: 'start_line' must be an integer"}
         if not isinstance(end_raw, int):
             return {"ok": False, "error": "read_file_lines: 'end_line' must be an integer"}
-        return read_file_lines(_resolve(path_raw, worktree_path), start_raw, end_raw)
+        resolved = _resolve(path_raw, worktree_path)
+        result = read_file_lines(resolved, start_raw, end_raw)
+        if result.get("ok"):
+            _auto_track_file_read(resolved, worktree_path)
+        return result
 
     if name == "replace_in_file":
         path_raw = args.get("path")
@@ -972,6 +1251,44 @@ async def _dispatch_local_tool(
         collection_arg: str | None = collection_raw if isinstance(collection_raw, str) else None
         matches = await search_codebase(query_raw, n_results, collection=collection_arg)
         return {"ok": True, "matches": matches}
+
+    if name == "read_symbol":
+        path_raw = args.get("path")
+        symbol_raw = args.get("symbol_name")
+        if not isinstance(path_raw, str):
+            return {"ok": False, "error": "read_symbol: 'path' must be a string"}
+        if not isinstance(symbol_raw, str):
+            return {"ok": False, "error": "read_symbol: 'symbol_name' must be a string"}
+        resolved = _resolve(path_raw, worktree_path)
+        result = read_symbol(resolved, symbol_raw)
+        if result.get("ok"):
+            _auto_track_file_read(resolved, worktree_path)
+        return result
+
+    if name == "read_window":
+        path_raw = args.get("path")
+        center_raw = args.get("center_line")
+        if not isinstance(path_raw, str):
+            return {"ok": False, "error": "read_window: 'path' must be a string"}
+        if not isinstance(center_raw, int):
+            return {"ok": False, "error": "read_window: 'center_line' must be an integer"}
+        before_raw = args.get("before", 80)
+        after_raw = args.get("after", 120)
+        before = int(before_raw) if isinstance(before_raw, int) else 80
+        after = int(after_raw) if isinstance(after_raw, int) else 120
+        resolved = _resolve(path_raw, worktree_path)
+        result = read_window(resolved, center_raw, before=before, after=after)
+        if result.get("ok"):
+            _auto_track_file_read(resolved, worktree_path)
+        return result
+
+    if name == "find_call_sites":
+        symbol_raw = args.get("symbol_name")
+        if not isinstance(symbol_raw, str):
+            return {"ok": False, "error": "find_call_sites: 'symbol_name' must be a string"}
+        n_raw = args.get("n_results", 30)
+        n_results_fc = int(n_raw) if isinstance(n_raw, int) else 30
+        return await find_call_sites(symbol_raw, worktree_path, n_results=n_results_fc)
 
     if name == "update_working_memory":
         update = WorkingMemory()

@@ -371,6 +371,110 @@ SEARCH_CODEBASE_TOOL_DEF: ToolDefinition = ToolDefinition(
     ),
 )
 
+READ_SYMBOL_TOOL_DEF: ToolDefinition = ToolDefinition(
+    type="function",
+    function=ToolFunction(
+        name="read_symbol",
+        description=(
+            "Return the complete body of a function or class by name — including decorators. "
+            "PREFER this over read_file_lines when you know the symbol name: "
+            "it uses the Python AST for exact boundaries and returns the whole definition. "
+            "No follow-up read needed. "
+            "If the symbol is not found, falls back to a heuristic line scan. "
+            "Relative paths are resolved from the worktree root."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path to the source file (relative or absolute).",
+                },
+                "symbol_name": {
+                    "type": "string",
+                    "description": "Exact function or class name, e.g. '_truncate_tool_results'.",
+                },
+            },
+            "required": ["path", "symbol_name"],
+            "additionalProperties": False,
+        },
+    ),
+)
+
+READ_WINDOW_TOOL_DEF: ToolDefinition = ToolDefinition(
+    type="function",
+    function=ToolFunction(
+        name="read_window",
+        description=(
+            "Read a generous window of lines centered on a given line number. "
+            "PREFER this over read_file_lines for exploration: plug in the line "
+            "number from a search result and receive 80 lines before + 120 after "
+            "— enough to capture most complete function definitions without knowing "
+            "exact boundaries. "
+            "Relative paths are resolved from the worktree root."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path to the file (relative or absolute).",
+                },
+                "center_line": {
+                    "type": "integer",
+                    "description": "1-indexed line to center the window on (e.g. from a search result).",
+                    "minimum": 1,
+                },
+                "before": {
+                    "type": "integer",
+                    "description": "Lines to include before center_line (default 80).",
+                    "default": 80,
+                    "minimum": 1,
+                },
+                "after": {
+                    "type": "integer",
+                    "description": "Lines to include after center_line (default 120).",
+                    "default": 120,
+                    "minimum": 1,
+                },
+            },
+            "required": ["path", "center_line"],
+            "additionalProperties": False,
+        },
+    ),
+)
+
+FIND_CALL_SITES_TOOL_DEF: ToolDefinition = ToolDefinition(
+    type="function",
+    function=ToolFunction(
+        name="find_call_sites",
+        description=(
+            "Find all call sites and import locations of a function or class using ripgrep. "
+            "Use this AFTER read_symbol to understand usage patterns before editing — "
+            "knowing call sites prevents breaking changes. "
+            "Returns file paths and matching lines."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "symbol_name": {
+                    "type": "string",
+                    "description": "Function or class name to find (e.g. 'persist_agent_run_dispatch').",
+                },
+                "n_results": {
+                    "type": "integer",
+                    "description": "Max matching lines to return (default 30).",
+                    "default": 30,
+                    "minimum": 1,
+                    "maximum": 100,
+                },
+            },
+            "required": ["symbol_name"],
+            "additionalProperties": False,
+        },
+    ),
+)
+
 UPDATE_WORKING_MEMORY_TOOL_DEF: ToolDefinition = ToolDefinition(
     type="function",
     function=ToolFunction(
