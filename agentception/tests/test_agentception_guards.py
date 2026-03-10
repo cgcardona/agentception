@@ -274,7 +274,7 @@ async def test_stale_claim_shows_in_alerts(tmp_path: Path) -> None:
         ),
     ):
         poller_mock.worktrees_dir = tmp_path
-        alerts, stale_claims = await detect_alerts(worktrees, board)
+        alerts, stale_claims, _stalled = await detect_alerts(worktrees, board)
 
     assert any("Stale claim on #42" in a for a in alerts), (
         f"Expected 'Stale claim on #42' in alerts, got: {alerts}"

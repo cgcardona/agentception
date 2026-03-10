@@ -21,7 +21,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from agentception.db.queries import RunContextRow
-from agentception.models import AgentStatus, PipelineState
+from agentception.models import AgentStatus, PipelineState, StalledAgentEvent
 from agentception.poller import (
     GitHubBoard,
     broadcast,
@@ -215,7 +215,7 @@ async def test_stale_claim_alert_detected(tmp_path: Path) -> None:
         ),
     ):
         mock_settings.worktrees_dir = tmp_path
-        alerts, stale_claims = await detect_alerts([], board)
+        alerts, stale_claims, _stalled = await detect_alerts([], board)
 
     assert any("Stale claim on #42" in a for a in alerts), f"Expected stale-claim alert, got: {alerts}"
     assert len(stale_claims) == 1
@@ -243,7 +243,7 @@ async def test_no_stale_claim_when_worktree_exists(tmp_path: Path) -> None:
         ),
     ):
         mock_settings.worktrees_dir = tmp_path
-        alerts, _stale_claims = await detect_alerts(worktrees, board)
+        alerts, _stale_claims, _stalled = await detect_alerts(worktrees, board)
 
     assert not any("Stale claim on #99" in a for a in alerts)
 
@@ -272,7 +272,7 @@ async def test_out_of_order_pr_alert(tmp_path: Path) -> None:
         ),
     ):
         mock_settings.worktrees_dir = tmp_path
-        alerts, _stale_claims = await detect_alerts([], board)
+        alerts, _stale_claims, _stalled = await detect_alerts([], board)
 
     assert any("Out-of-order PR #77" in a for a in alerts), f"Expected out-of-order alert, got: {alerts}"
 
@@ -321,9 +321,162 @@ async def test_stuck_agent_alert_detected(tmp_path: Path) -> None:
         ),
     ):
         mock_settings.worktrees_dir = tmp_path / "worktrees"
-        alerts, _stale_claims = await detect_alerts(worktrees, board)
+        alerts, _stale_claims, _stalled = await detect_alerts(worktrees, board)
 
     assert any("stuck agent" in a.lower() for a in alerts), f"Expected stuck-agent alert, got: {alerts}"
+
+
+@pytest.mark.anyio
+async def test_stall_detection_primary_signal_cold_heartbeat(tmp_path: Path) -> None:
+    """Poller marks STALLED and emits StalledAgentEvent when last_activity_at is beyond threshold."""
+    stale_ts = time.time() - (35 * 60)  # 35 minutes ago
+    stale_iso = "2024-01-01T00:35:00"
+
+    worktrees = [
+        RunContextRow(
+            run_id="issue-99",
+            status="implementing",
+            role="developer",
+            cognitive_arch=None,
+            task_description=None,
+            issue_number=99,
+            pr_number=None,
+            branch="feat/issue-99",
+            worktree_path=str(tmp_path),
+            batch_id=None,
+            tier="worker",
+            org_domain=None,
+            parent_run_id=None,
+            gh_repo=None,
+            is_resumed=False,
+            coord_fingerprint=None,
+            spawned_at="2024-01-01T00:00:00",
+            last_activity_at=stale_iso,
+            completed_at=None,
+        )
+    ]
+    board = _empty_board()
+    threshold = 30 * 60  # 30 minutes
+
+    with (
+        patch("agentception.poller.settings") as mock_settings,
+        patch(
+            "agentception.poller.worktree_last_commit_time",
+            new_callable=AsyncMock,
+            return_value=stale_ts,
+        ),
+        patch(
+            "agentception.poller.detect_out_of_order_prs",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
+        patch("agentception.db.persist.update_agent_status", new_callable=AsyncMock),
+    ):
+        mock_settings.worktrees_dir = tmp_path / "worktrees"
+        # Freeze now so elapsed calculation is deterministic.
+        with patch("agentception.poller.time") as mock_time:
+            mock_time.time.return_value = stale_ts + 35 * 60
+            alerts, _claims, stalled = await detect_alerts(worktrees, board, threshold)
+
+    assert any("stuck agent" in a.lower() for a in alerts), alerts
+    assert len(stalled) == 1
+    assert isinstance(stalled[0], StalledAgentEvent)
+    assert stalled[0].run_id == "issue-99"
+    assert stalled[0].issue_number == 99
+    assert stalled[0].stalled_for_minutes >= 30
+
+
+@pytest.mark.anyio
+async def test_stall_detection_no_stall_when_heartbeat_warm(tmp_path: Path) -> None:
+    """Poller does NOT mark STALLED when last_activity_at is within the threshold window."""
+    recent_iso = "2024-01-01T00:55:00"  # only 5 min ago relative to mocked now
+    now_ts = 1704067200.0 + 60 * 60  # arbitrary base + 1 hour
+
+    worktrees = [
+        RunContextRow(
+            run_id="issue-88",
+            status="implementing",
+            role="developer",
+            cognitive_arch=None,
+            task_description=None,
+            issue_number=88,
+            pr_number=None,
+            branch="feat/issue-88",
+            worktree_path=str(tmp_path),
+            batch_id=None,
+            tier="worker",
+            org_domain=None,
+            parent_run_id=None,
+            gh_repo=None,
+            is_resumed=False,
+            coord_fingerprint=None,
+            spawned_at="2024-01-01T00:00:00",
+            last_activity_at=recent_iso,
+            completed_at=None,
+        )
+    ]
+    board = _empty_board()
+    threshold = 30 * 60
+
+    with (
+        patch("agentception.poller.settings") as mock_settings,
+        patch(
+            "agentception.poller.worktree_last_commit_time",
+            new_callable=AsyncMock,
+            # Old commit — but heartbeat is warm, so should only be advisory.
+            return_value=now_ts - 45 * 60,
+        ),
+        patch(
+            "agentception.poller.detect_out_of_order_prs",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
+    ):
+        mock_settings.worktrees_dir = tmp_path / "worktrees"
+        import datetime as _dt
+
+        with patch("agentception.poller.time") as mock_time:
+            # now_ts is 5 min after recent_iso → heartbeat warm
+            recent_ts = _dt.datetime.fromisoformat(recent_iso).timestamp()
+            mock_time.time.return_value = recent_ts + 5 * 60
+            alerts, _claims, stalled = await detect_alerts(worktrees, board, threshold)
+
+    assert len(stalled) == 0, f"Expected no stalled agents, got: {stalled}"
+    assert not any("stuck agent" in a.lower() for a in alerts), alerts
+
+
+@pytest.mark.anyio
+async def test_stalled_agents_in_pipeline_state(tmp_path: Path) -> None:
+    """PipelineState.stalled_agents is populated from detect_alerts and broadcast via SSE."""
+    stale_iso = "2024-01-01T00:00:00"
+    stalled_event = StalledAgentEvent(
+        run_id="issue-77",
+        issue_number=77,
+        worktree_path=str(tmp_path),
+        last_activity_at=stale_iso,
+        stalled_for_minutes=45,
+    )
+
+    # Patch only the three surfaces that tick() calls at module-level;
+    # all DB/SSE-expansion imports are lazy and fail silently via try/except.
+    with (
+        patch("agentception.poller.list_active_runs", new_callable=AsyncMock, return_value=[]),
+        patch(
+            "agentception.poller.build_github_board",
+            new_callable=AsyncMock,
+            return_value=_empty_board(),
+        ),
+        patch(
+            "agentception.poller.detect_alerts",
+            new_callable=AsyncMock,
+            return_value=([], [], [stalled_event]),
+        ),
+    ):
+        state = await tick()
+
+    assert len(state.stalled_agents) == 1
+    assert state.stalled_agents[0].run_id == "issue-77"
+    assert state.stalled_agents[0].stalled_for_minutes == 45
 
 
 # ---------------------------------------------------------------------------

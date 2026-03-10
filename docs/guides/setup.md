@@ -46,6 +46,7 @@ Open `.env` and fill in the required values:
 | `REPO_DIR` | Optional | Absolute path to the cloned agentception repo on the host. Used for git operations inside the container. | Default: `/app` (the container working directory) |
 | `PORT` | Optional | Port the FastAPI app listens on. | Default: `10003` |
 | `LOG_LEVEL` | Optional | Log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`. | Default: `INFO` |
+| `AC_PIPELINE_STALL_THRESHOLD_MINUTES` | Optional | Minutes of DB-heartbeat silence before a worker agent is promoted to `STALLED`. Stored in `PipelineConfig.stall_threshold_minutes`; also settable via `pipeline-config.json`. | Default: `30` |
 
 Minimal `.env` that works for a basic smoke test (no LLM features):
 
