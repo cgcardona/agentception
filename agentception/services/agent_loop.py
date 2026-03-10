@@ -433,14 +433,51 @@ async def run_agent_loop(
             return
 
         if response["stop_reason"] == "tool_calls":
-            tool_results = await _dispatch_tool_calls(
-                response["tool_calls"],
-                worktree_path,
-                run_id,
-                github_client=github_client,
-                github_tool_names=github_tool_names,
-            )
-            messages.extend(tool_results)
+            # During guard mode: intercept read-only tool calls and return
+            # synthetic error results BEFORE dispatching.  The model "remembers"
+            # tools from prior iterations and may call them even when they are
+            # absent from active_tool_defs — returning an error forces it to
+            # acknowledge the constraint and switch to a write tool.
+            tc_to_dispatch: list[ToolCall] = []
+            synthetic_errors: list[dict[str, object]] = []
+            if guard_active:
+                for tc in response["tool_calls"]:
+                    tc_name = tc["function"]["name"]
+                    if tc_name in _READ_ONLY_TOOL_NAMES:
+                        synthetic_errors.append({
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": json.dumps({
+                                "ok": False,
+                                "error": (
+                                    f"GUARD MODE: '{tc_name}' is unavailable. "
+                                    f"You have not written code for "
+                                    f"{iterations_since_write} iterations. "
+                                    "Call write_file or replace_in_file to "
+                                    "implement code; that will restore all tools."
+                                ),
+                            }),
+                        })
+                    else:
+                        tc_to_dispatch.append(tc)
+                if synthetic_errors:
+                    logger.warning(
+                        "⚠️ loop_guard intercepted %d read call(s) — run_id=%s",
+                        len(synthetic_errors), run_id,
+                    )
+            else:
+                tc_to_dispatch = list(response["tool_calls"])
+
+            tool_results: list[dict[str, object]] = []
+            if tc_to_dispatch:
+                tool_results = await _dispatch_tool_calls(
+                    tc_to_dispatch,
+                    worktree_path,
+                    run_id,
+                    github_client=github_client,
+                    github_tool_names=github_tool_names,
+                )
+            messages.extend(synthetic_errors + tool_results)
 
             # Loop-guard bookkeeping: track writes and repeated searches.
             tool_names_this_iter: set[str] = {
