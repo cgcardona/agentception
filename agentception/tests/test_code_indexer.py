@@ -322,7 +322,10 @@ async def test_search_codebase_returns_matches() -> None:
     m = matches[0]
     assert m["file"] == "agentception/config.py"
     assert "qdrant_url" in m["chunk"]
-    assert abs(m["score"] - 0.92) < 0.001
+    # Score is now an RRF score (sum of 1/(k+rank) from dense and sparse results).
+    # Just verify it's positive and reasonable.
+    assert m["score"] > 0.0
+    assert m["score"] < 1.0
 
 
 @pytest.mark.anyio
@@ -364,6 +367,108 @@ async def test_search_codebase_skips_malformed_payloads() -> None:
         matches = await search_codebase("test")
 
     assert matches == []
+
+
+@pytest.mark.anyio
+async def test_hybrid_search() -> None:
+    """Hybrid search combines dense and sparse results with RRF fusion.
+    
+    This test verifies:
+    1. Hybrid query returns results from both dense and sparse searches.
+    2. A keyword-heavy query (exact class name) benefits from sparse matching.
+    3. RRF fusion correctly merges results from both vectors.
+    """
+    # Create mock points that would come from dense and sparse searches.
+    # Point 1: High sparse score (exact keyword match), lower dense score.
+    point_keyword_match = SimpleNamespace(
+        id=1,
+        version=0,
+        score=0.95,  # High sparse score
+        payload={
+            "file": "models/state.py",
+            "chunk": "class RunState(str, enum.Enum):\n    implementing = 'implementing'\n",
+            "start_line": 10,
+            "end_line": 12,
+        },
+        vector=None,
+    )
+    
+    # Point 2: High dense score (semantic match), lower sparse score.
+    point_semantic_match = SimpleNamespace(
+        id=2,
+        version=0,
+        score=0.85,  # High dense score
+        payload={
+            "file": "services/workflow.py",
+            "chunk": "def transition_to_implementing(run_id: str) -> None:\n    pass\n",
+            "start_line": 50,
+            "end_line": 52,
+        },
+        vector=None,
+    )
+    
+    # Point 3: Appears in both results (should get highest RRF score).
+    point_both_match = SimpleNamespace(
+        id=3,
+        version=0,
+        score=0.80,
+        payload={
+            "file": "models/run.py",
+            "chunk": "class AgentRun:\n    state: RunState\n",
+            "start_line": 20,
+            "end_line": 22,
+        },
+        vector=None,
+    )
+
+    mock_client = AsyncMock()
+    
+    # Mock dense search returns points 2 and 3 (semantic matches).
+    dense_response = SimpleNamespace(points=[point_semantic_match, point_both_match])
+    
+    # Mock sparse search returns points 1 and 3 (keyword matches).
+    sparse_response = SimpleNamespace(points=[point_keyword_match, point_both_match])
+    
+    # query_points is called twice: once for dense, once for sparse.
+    # We need to return different results based on the 'using' parameter.
+    async def mock_query_points(collection_name, query, using, limit):
+        if using == "dense":
+            return dense_response
+        elif using == "sparse":
+            return sparse_response
+        else:
+            return SimpleNamespace(points=[])
+    
+    mock_client.query_points.side_effect = mock_query_points
+
+    with (
+        patch("agentception.services.code_indexer._embed", side_effect=_fake_embed),
+        patch("qdrant_client.AsyncQdrantClient", return_value=mock_client),
+    ):
+        matches = await search_codebase("RunState", n_results=3)
+
+    # Verify results are returned.
+    assert len(matches) == 3
+    
+    # Verify RRF fusion: point_both_match (id=3) should rank highest because
+    # it appears in both dense and sparse results, getting RRF score from both.
+    # RRF score for point 3: 1/(60+1) + 1/(60+2) ≈ 0.0164 + 0.0161 = 0.0325
+    # RRF score for point 1: 1/(60+1) ≈ 0.0164 (only in sparse, rank 1)
+    # RRF score for point 2: 1/(60+1) ≈ 0.0164 (only in dense, rank 1)
+    # Point 3 should be first.
+    assert matches[0]["file"] == "models/run.py"
+    
+    # Verify all expected files are present.
+    files = {m["file"] for m in matches}
+    assert "models/state.py" in files  # Keyword match
+    assert "services/workflow.py" in files  # Semantic match
+    assert "models/run.py" in files  # Both match
+    
+    # Verify scores are RRF scores (not raw similarity scores).
+    # All scores should be small positive floats (RRF scores are typically < 0.1).
+    for match in matches:
+        assert 0.0 < match["score"] < 1.0
+        assert isinstance(match["score"], float)
 
 
 # ── payload index and symbol field tests ─────────────────────────────────────

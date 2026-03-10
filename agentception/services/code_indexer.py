@@ -13,18 +13,27 @@ chunks that preserve complete definitions.
 
 Non-Python files use overlapping character-level chunks for compatibility.
 
+Hybrid Search
+-------------
+Search combines dense semantic vectors (FastEmbed) with sparse BM25 keyword
+vectors. Results from both retrieval methods are fused using Reciprocal Rank
+Fusion (RRF) with k=60, a standard parameter that balances the contribution
+of both ranking methods. This ensures exact keyword matches (e.g., class names)
+rank highly while preserving semantic similarity for natural language queries.
+
 Public API
 ----------
 ``index_codebase(repo_path)``
     Walk every readable source file in *repo_path*, chunk appropriately
     (AST for Python, character-level for others), embed with
     :data:`~agentception.config.settings.embed_model` (default
-    ``BAAI/bge-small-en-v1.5``), and upsert to the Qdrant collection
-    configured in :data:`~agentception.config.settings.qdrant_collection`.
+    ``BAAI/bge-small-en-v1.5``), compute BM25 sparse vectors, and upsert
+    both to the Qdrant collection configured in
+    :data:`~agentception.config.settings.qdrant_collection`.
 
 ``search_codebase(query, n_results)``
-    Embed *query* with the same model and return the top *n_results* code
-    chunks from Qdrant, ordered by cosine similarity.
+    Run hybrid search combining dense semantic and sparse BM25 retrieval,
+    fuse results with RRF, and return the top *n_results* code chunks.
 
 Both functions accept optional overrides for ``qdrant_url`` and
 ``collection`` so tests can inject isolated instances without touching the
@@ -131,6 +140,55 @@ def _embed_sync(texts: list[str]) -> list[list[float]]:
 async def _embed(texts: list[str]) -> list[list[float]]:
     """Async wrapper around :func:`_embed_sync` using the thread pool."""
     return await asyncio.to_thread(_embed_sync, texts)
+
+
+# ── BM25 sparse vector computation ───────────────────────────────────────────
+
+
+def _compute_bm25_vector(text: str, vocab_size: int = 10000) -> dict[int, float]:
+    """Compute a BM25-style sparse vector for *text*.
+
+    Returns a dictionary mapping token indices to BM25 scores. This is a
+    simplified BM25 implementation suitable for single-document scoring
+    without a corpus-wide IDF calculation.
+
+    Args:
+        text: The text to vectorize.
+        vocab_size: Maximum vocabulary size (hash space for tokens).
+
+    Returns:
+        Sparse vector as {index: score} dict. Qdrant accepts this format
+        for sparse vectors.
+    """
+    import re
+
+    # Tokenize: lowercase, split on non-alphanumeric, filter short tokens.
+    tokens = [t for t in re.findall(r"\w+", text.lower()) if len(t) > 2]
+    if not tokens:
+        return {}
+
+    # Compute term frequencies.
+    tf: dict[str, int] = {}
+    for token in tokens:
+        tf[token] = tf.get(token, 0) + 1
+
+    # BM25 parameters (standard values).
+    k1 = 1.5
+    b = 0.75
+    avgdl = 100.0  # Assume average document length of 100 tokens.
+    doc_len = len(tokens)
+
+    # Compute BM25 score for each unique token.
+    sparse_vec: dict[int, float] = {}
+    for token, freq in tf.items():
+        # Hash token to an index in [0, vocab_size).
+        token_idx = hash(token) % vocab_size
+        # BM25 formula (without IDF, which requires corpus statistics).
+        # We use a simplified version: score = (freq * (k1 + 1)) / (freq + k1 * (1 - b + b * doc_len / avgdl))
+        score = (freq * (k1 + 1)) / (freq + k1 * (1 - b + b * doc_len / avgdl))
+        sparse_vec[token_idx] = score
+
+    return sparse_vec
 
 
 # ── File walking and chunking ─────────────────────────────────────────────────
@@ -304,11 +362,16 @@ _UPSERT_BATCH = 64  # points per upsert call
 
 
 async def _ensure_collection(client: "AsyncQdrantClient", collection: str) -> None:
-    """Create the Qdrant collection if it does not exist yet."""
+    """Create the Qdrant collection if it does not exist yet.
+
+    The collection uses named vectors: 'dense' for semantic embeddings and
+    'sparse' for BM25 keyword vectors.
+    """
     from qdrant_client.models import (  # noqa: PLC0415
         Distance,
         KeywordIndexParams,
         KeywordIndexType,
+        SparseVectorParams,
         VectorParams,
     )
 
@@ -318,10 +381,15 @@ async def _ensure_collection(client: "AsyncQdrantClient", collection: str) -> No
         logger.info("✅ code_indexer — creating collection '%s'", collection)
         await client.create_collection(
             collection_name=collection,
-            vectors_config=VectorParams(
-                size=settings.embed_model_dim,
-                distance=Distance.COSINE,
-            ),
+            vectors_config={
+                "dense": VectorParams(
+                    size=settings.embed_model_dim,
+                    distance=Distance.COSINE,
+                ),
+            },
+            sparse_vectors_config={
+                "sparse": SparseVectorParams(),
+            },
             payload_indexes_config={
                 "file": KeywordIndexParams(type=KeywordIndexType.KEYWORD),
                 "symbol": KeywordIndexParams(type=KeywordIndexType.KEYWORD),
@@ -383,12 +451,21 @@ async def index_codebase(
             for batch_start in range(0, len(all_chunks), _UPSERT_BATCH):
                 batch = all_chunks[batch_start : batch_start + _UPSERT_BATCH]
                 texts = [c["text"] for c in batch]
-                vectors = await _embed(texts)
+                dense_vectors = await _embed(texts)
+                sparse_vectors = [_compute_bm25_vector(text) for text in texts]
+
+                from qdrant_client.models import SparseVector  # noqa: PLC0415
 
                 points = [
                     PointStruct(
                         id=chunk["chunk_id"],
-                        vector=vec,
+                        vector={
+                            "dense": dense_vec,
+                            "sparse": SparseVector(
+                                indices=list(sparse_vec.keys()),
+                                values=list(sparse_vec.values()),
+                            ),
+                        },
                         payload={
                             "file": chunk["file"],
                             "chunk": chunk["text"],
@@ -397,7 +474,7 @@ async def index_codebase(
                             "symbol": chunk["symbol"],
                         },
                     )
-                    for chunk, vec in zip(batch, vectors)
+                    for chunk, dense_vec, sparse_vec in zip(batch, dense_vectors, sparse_vectors)
                 ]
                 await client.upsert(collection_name=coll, points=points)
                 logger.debug(
@@ -434,6 +511,10 @@ async def search_codebase(
 ) -> list[SearchMatch]:
     """Search the indexed codebase for chunks relevant to *query*.
 
+    Performs hybrid search combining dense (FastEmbed) and sparse (BM25)
+    vectors, then fuses results using Reciprocal Rank Fusion (RRF) with
+    k=60 (standard parameter).
+
     Args:
         query: Natural-language description of what to find.
         n_results: Maximum results to return.
@@ -441,51 +522,94 @@ async def search_codebase(
         collection: Override the collection name (useful in tests).
 
     Returns:
-        List of :class:`SearchMatch` dicts ordered by descending relevance.
+        List of :class:`SearchMatch` dicts ordered by descending RRF score.
         Returns an empty list when the collection has not been indexed yet
         or when Qdrant is unavailable.
     """
     from qdrant_client import AsyncQdrantClient  # noqa: PLC0415
+    from qdrant_client.models import ScoredPoint, SparseVector  # noqa: PLC0415
 
     url = qdrant_url or settings.qdrant_url
     coll = collection or settings.qdrant_collection
 
     try:
-        vectors = await _embed([query])
-        query_vector = vectors[0]
+        # Compute both dense and sparse query vectors.
+        dense_vectors = await _embed([query])
+        dense_query = dense_vectors[0]
+        sparse_dict = _compute_bm25_vector(query)
+        sparse_query = SparseVector(
+            indices=list(sparse_dict.keys()),
+            values=list(sparse_dict.values()),
+        )
 
         client = AsyncQdrantClient(url=url)
         try:
-            response = await client.query_points(
+            # Run dense vector search.
+            dense_response = await client.query_points(
                 collection_name=coll,
-                query=query_vector,
-                limit=n_results,
+                query=dense_query,
+                using="dense",
+                limit=n_results * 2,  # Fetch more for fusion.
             )
-            results = response.points
+            dense_results = dense_response.points
+
+            # Run sparse vector search.
+            sparse_response = await client.query_points(
+                collection_name=coll,
+                query=sparse_query,
+                using="sparse",
+                limit=n_results * 2,  # Fetch more for fusion.
+            )
+            sparse_results = sparse_response.points
         finally:
             await client.close()
+
+        # Reciprocal Rank Fusion (RRF) with k=60.
+        rrf_k = 60
+        rrf_scores: dict[str, float] = {}
+
+        # Add dense results to RRF scores.
+        for rank, point in enumerate(dense_results, start=1):
+            point_id = str(point.id)
+            rrf_scores[point_id] = rrf_scores.get(point_id, 0.0) + 1.0 / (rrf_k + rank)
+
+        # Add sparse results to RRF scores.
+        for rank, point in enumerate(sparse_results, start=1):
+            point_id = str(point.id)
+            rrf_scores[point_id] = rrf_scores.get(point_id, 0.0) + 1.0 / (rrf_k + rank)
+
+        # Sort by RRF score descending and take top n_results.
+        sorted_ids = sorted(rrf_scores.keys(), key=lambda pid: rrf_scores[pid], reverse=True)[:n_results]
+
+        # Build a map of point_id -> point for payload extraction.
+        all_points: dict[str, ScoredPoint] = {str(p.id): p for p in dense_results}
+        all_points.update({str(p.id): p for p in sparse_results})
+
+        # Build final results.
+        matches: list[SearchMatch] = []
+        for point_id in sorted_ids:
+            scored_point: ScoredPoint | None = all_points.get(point_id)
+            if scored_point is None:
+                continue
+            payload = scored_point.payload or {}
+            file_val = payload.get("file")
+            chunk_val = payload.get("chunk")
+            start_val = payload.get("start_line")
+            end_val = payload.get("end_line")
+            if not isinstance(file_val, str) or not isinstance(chunk_val, str):
+                continue
+            matches.append(
+                SearchMatch(
+                    file=file_val,
+                    chunk=chunk_val,
+                    score=rrf_scores[point_id],
+                    start_line=int(start_val) if isinstance(start_val, int) else 0,
+                    end_line=int(end_val) if isinstance(end_val, int) else 0,
+                )
+            )
 
     except Exception as exc:
         logger.warning("⚠️ code_indexer — search failed: %s", exc)
         return []
-
-    matches: list[SearchMatch] = []
-    for point in results:
-        payload = point.payload or {}
-        file_val = payload.get("file")
-        chunk_val = payload.get("chunk")
-        start_val = payload.get("start_line")
-        end_val = payload.get("end_line")
-        if not isinstance(file_val, str) or not isinstance(chunk_val, str):
-            continue
-        matches.append(
-            SearchMatch(
-                file=file_val,
-                chunk=chunk_val,
-                score=float(point.score),
-                start_line=int(start_val) if isinstance(start_val, int) else 0,
-                end_line=int(end_val) if isinstance(end_val, int) else 0,
-            )
-        )
 
     return matches
