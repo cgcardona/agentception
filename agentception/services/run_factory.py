@@ -7,7 +7,11 @@ tool catches ``RunCreationError`` and returns a structured error dict.
 This module also owns the shared worktree utilities (``_configure_worktree_auth``,
 ``_index_worktree``, ``_WORKTREE_COLLECTION_PREFIX``) that are imported by
 ``spawn_child.py`` so every worktree — whether spawned via coordinator MCP tool
-or via the official dispatch pipeline — gets auth and Qdrant indexing.
+or via the official dispatch pipeline — gets worktree isolation and Qdrant indexing.
+
+Git push authentication is handled by the container-wide askpass helper baked
+into the image (``/usr/local/bin/github-askpass``).  No token is ever written
+to any git config file.
 """
 
 from __future__ import annotations
@@ -138,10 +142,9 @@ async def _create_worktree(
 ) -> None:
     """Create a git worktree at *worktree_path* branching off *base_ref*.
 
-    After creation the worktree's remote URL is rewritten to embed the
-    ``GITHUB_TOKEN`` so that ``git push`` works inside the container without
-    a separate credential helper.  The token lives only in the worktree's
-    local git config — it is not committed.
+    After creation ``_configure_worktree_auth`` enables ``extensions.worktreeConfig``
+    for config isolation.  Authentication for ``git push`` is handled automatically
+    by the container-wide askpass helper (``/usr/local/bin/github-askpass``).
     """
     worktree_path.parent.mkdir(parents=True, exist_ok=True)
     proc = await asyncio.create_subprocess_exec(
@@ -192,26 +195,26 @@ async def _index_worktree(worktree_path: Path, run_id: str) -> None:
 
 
 async def _configure_worktree_auth(worktree_path: Path, run_id: str) -> None:
-    """Configure git auth for the worktree using http.extraHeader.
+    """Enable per-worktree git config isolation for the newly created worktree.
 
-    Uses ``git config --worktree http.https://github.com/.extraHeader`` to
-    inject the GITHUB_TOKEN as a Bearer authorization header.  This writes
-    only to the worktree-specific config file
-    (``.git/worktrees/<name>/config.worktree``) and never touches
-    ``remote.origin.url`` or the shared ``.git/config``.
+    Git push authentication is handled entirely by the container-wide askpass
+    helper (``/usr/local/bin/github-askpass``, configured via
+    ``git config --system core.askPass`` in the Dockerfile).  The helper
+    returns ``x-access-token`` / ``$GITHUB_TOKEN`` as Basic credentials, which
+    is the only auth scheme that GitHub's git-receive-pack endpoint accepts.
+    Bearer tokens (``Authorization: Bearer …``) are rejected by the git
+    protocol even though they work for the REST API.
 
-    The old approach of embedding the token in the remote URL wrote to the
-    shared ``.git/config`` (git worktrees share one config), polluting the
-    main repo's remote URL and potentially triggering GitHub secret scanning
-    which auto-revokes exposed tokens.
+    This function's only remaining job is to enable ``extensions.worktreeConfig``
+    so that future worktree-specific git config keys (e.g. user.email overrides
+    or per-agent fetch refspecs) can be written to the isolated
+    ``.git/worktrees/<name>/config.worktree`` file rather than the shared
+    ``.git/config``.  This prevents any per-worktree setting from leaking into
+    the main repo config.
+
+    Tokens must never appear in ``remote.origin.url`` — GitHub's secret
+    scanning auto-revokes any PAT it detects in a pushed config blob.
     """
-    import os  # noqa: PLC0415
-
-    token = os.environ.get("GITHUB_TOKEN", "")
-    if not token:
-        logger.warning("⚠️ GITHUB_TOKEN not set — git push will require manual auth in worktrees")
-        return
-
     # Enable per-worktree config in the shared .git/config (idempotent).
     # Required for --worktree flag to write to the worktree-specific file
     # rather than the shared config.
@@ -221,27 +224,15 @@ async def _configure_worktree_auth(worktree_path: Path, run_id: str) -> None:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    await ext_proc.communicate()
-
-    # Write the Authorization header into the worktree-specific config only.
-    # Scoped to github.com so it never leaks to other hosts.
-    hdr_proc = await asyncio.create_subprocess_exec(
-        "git", "config", "--worktree",
-        "http.https://github.com/.extraHeader",
-        f"Authorization: Bearer {token}",
-        cwd=str(worktree_path),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    _, hdr_err = await hdr_proc.communicate()
-    if hdr_proc.returncode != 0:
+    _, ext_err = await ext_proc.communicate()
+    if ext_proc.returncode != 0:
         logger.warning(
-            "⚠️ _configure_worktree_auth — could not set extraHeader for run_id=%s: %s",
-            run_id, hdr_err.decode().strip(),
+            "⚠️ _configure_worktree_auth — could not enable worktreeConfig for run_id=%s: %s",
+            run_id, ext_err.decode().strip(),
         )
         return
 
-    logger.info("✅ worktree auth configured via extraHeader — run_id=%s", run_id)
+    logger.info("✅ worktree auth configured (askpass + worktreeConfig) — run_id=%s", run_id)
 
 
 async def _insert_run(
