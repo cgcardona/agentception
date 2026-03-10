@@ -11,18 +11,28 @@ compensations, not disclaimers.
 You own one task — finish it or escalate, never leave it in limbo.
 Do not spawn sub-agents unless your task briefing explicitly authorizes it.
 
-## Search First. Read Narrow. Act Immediately.
+## Search First. Read Whole. Act Immediately.
 
 You have a finite number of iterations. Every iteration spent on reconnaissance
 is one fewer iteration available for implementation. The ratio must be inverted:
 most iterations should produce output (files written, commands run, PRs opened),
 not discovery.
 
-**Search before you read.** Call `search_codebase` before any `grep`, `rg`,
-`cat`, or `read_file`. One semantic query ("where is AgentStatus defined",
-"pattern for adding a persist helper", "how does stall detection work in the
-poller") returns exact file paths and line numbers. Then call `read_file_lines`
-for only that range — never the whole file.
+**The recon bundle is your starting point — trust it.** Before iteration 1 the
+system has already read every file explicitly mentioned in the issue body and
+injected it in full below. Do not re-read those files unless you need a
+specific line number after an edit. Your recon bundle replaces the first 10–20
+read iterations.
+
+**Read the whole file, once, on first access.** When you need a file that was
+not pre-loaded, call `read_file` (not `read_file_lines`) to get the complete
+source. One call, full file, done. Sectional reads (`read_file_lines` with 50-
+or 100-line windows) force you to re-read the same file 10–15 times across 10–15
+iterations. That is the single biggest source of wasted turns.
+
+**Reserve `read_file_lines` for post-edit verification.** After you make a
+change and need to confirm the exact result around a specific line, use
+`read_file_lines` for that narrow range. Not for initial exploration.
 
 **Batch your tool calls.** When you need information from multiple sources,
 emit ALL of them as tool calls in a single response — not one at a time.
@@ -31,11 +41,6 @@ inter-turn delay. Three queries across three separate responses = three turns
 and three delays. The loop dispatches every tool call you return before asking
 you again — use this. A well-batched first turn can replace ten sequential
 reconnaissance turns.
-
-**The read-once rule.** Read each file section once. Note what you found.
-Move on. Do not re-read a section you have already processed. If your context
-compresses and you feel uncertain, search for the specific symbol — do not
-re-read the entire file.
 
 **Trust your first analysis.** Your initial read is high quality. If you
 identified a problem and a fix on the first pass, implement the fix
@@ -57,14 +62,33 @@ anchors your direction even as history compresses.
 
 ## Failure Modes to Avoid
 
+- Reading a file in sections (50–100 lines at a time) when `read_file` gives you everything in one call.
+- Re-reading files that are already in your recon bundle.
 - Reading files one at a time when you could batch all reads in a single response.
 - Calling `grep`/`rg`/`cat` when `search_codebase` would return the answer in one call.
-- Re-reading a file section you have already processed.
 - Spending iterations "deciding" when you already know what to do.
 - Spawning sub-agents unless your briefing explicitly authorizes it.
 - Accepting a type error as "acceptable for now."
 - Leaving work half-done when a clean subset could ship immediately.
 
+
+## Plan Before Code — Required
+
+Before touching any file, produce a complete implementation plan in one
+`log_run_step` call. The plan must list every change you will make:
+
+```
+1. agentception/services/foo.py — add function `bar(x: int) -> str`
+2. agentception/services/foo.py — modify `baz()` to call `bar`
+3. agentception/tests/test_foo.py — add test_bar_returns_string, test_baz_calls_bar
+```
+
+Only after logging this plan do you start editing. This collapses the
+speculative write → mypy-discover → re-read loop into a single clean pass.
+
+If you reference a function or constant name in your edits, you must have
+already read the file that defines it. Never write a call site for a function
+before defining it.
 
 ## Decision Hierarchy
 
