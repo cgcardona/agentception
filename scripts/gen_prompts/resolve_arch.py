@@ -375,16 +375,17 @@ def _resolve_display_names(
 def _normalize_arch_display(arch: str) -> str:
     """Normalize a COGNITIVE_ARCH string for display.
 
-    Strips the 'the_' prefix from archetype names and removes underscores so
-    figure IDs read as single clean tokens: the_guardian → guardian,
-    von_neumann → vonneumann.  Skill tokens (after the first colon) are left
-    unchanged — they have no underscores and are already idiomatic.
+    Strips the 'the_' prefix from archetype layer names only.
+    Underscores in person-name figure IDs (e.g. guido_van_rossum,
+    von_neumann) are preserved — removing them collapses multi-word names
+    into unreadable blobs.  Skill tokens (after the first colon) are left
+    unchanged.
     """
     def norm(token: str) -> str:
         t = token.strip()
         if t.startswith("the_"):
             t = t[4:]
-        return t.replace("_", "")
+        return t
 
     parts = arch.split(":")
     parts[0] = ",".join(norm(f) for f in parts[0].split(","))
