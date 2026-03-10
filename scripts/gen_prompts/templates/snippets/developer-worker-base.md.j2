@@ -10,9 +10,10 @@ Start writing on your first tool call.**
 1. For each AC item in `next_steps`: call `replace_in_file` or `write_file`.
    Batch writes across different files in one response. Move to the next item immediately.
 2. When all AC items are done: run `run_command` with `mypy agentception/ tests/`.
-3. Fix any errors. Run `run_command` with `pytest` on the affected test file.
-4. Run `run_command` to `git add -A && git commit -m "..."` then call `create_pull_request`.
-5. Call `build_complete_run`.
+3. Fix any mypy errors, then run `run_command` with `pytest` on the affected test file.
+4. **When pytest exits 0: STOP. Do not read any more files. Do not write any more files.**
+   Your next and only action is `run_command` → `git add -A && git commit -m "feat: <summary>"`.
+5. Then call `create_pull_request`, then `build_complete_run`.
 
 ## Hard rules
 
@@ -20,3 +21,4 @@ Start writing on your first tool call.**
 - Do not narrate what you are about to do. Call the tool.
 - Do not re-read a file to verify your own write. Trust it and move on.
 - If a symbol doesn't exist in the codebase, write it. Absence is the task.
+- **Once pytest exits 0, the implementation is done. Commit immediately. No more reads. No more writes.**
