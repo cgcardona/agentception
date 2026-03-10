@@ -411,31 +411,31 @@ async def run_agent_loop(
         # Loop-guard enforcement — fires when the agent has not written any code
         # for _LOOP_GUARD_THRESHOLD consecutive iterations.
         #
-        # Two-layer enforcement:
-        # 1. Tool narrowing: remove all read-only tools from the active tool
-        #    palette so the model cannot physically call them.  The agent can
-        #    only exit guard mode by calling a write tool (which resets the
-        #    counter and restores the full tool list on the next iteration).
-        # 2. System-block text: explains WHY the tool palette shrank and what
-        #    the agent must do.  Kept because a model that understands the
-        #    constraint behaves better than one that is silently crippled.
+        # The tool list is intentionally kept CONSTANT across all iterations
+        # (no narrowing when guard fires).  Changing the tool list busts
+        # Anthropic's prompt cache on the tool-catalogue block, turning every
+        # guarded turn from a cheap cache-read into a full cache-write.  With
+        # a threshold of 2, the list would flip every 2-3 turns and the cache
+        # would almost never hit — costing ~10× more per token.
+        #
+        # Instead, interception alone enforces the guard: the model is sent the
+        # full tool list, but any call to a non-permitted tool during guard mode
+        # is caught AFTER the LLM response and returned as a synthetic error.
+        # The model sees the error, understands it cannot read, and calls a
+        # write tool on the next turn — same behavioural outcome, no cache bust.
         guard_active = (
             iteration > _LOOP_GUARD_THRESHOLD
             and iterations_since_write >= _LOOP_GUARD_THRESHOLD
         )
-        active_tool_defs: list[ToolDefinition] = (
-            [t for t in tool_defs if t["function"]["name"] in _GUARD_PERMITTED_TOOL_NAMES]
-            if guard_active
-            else tool_defs
-        )
+        # Always pass the full (constant) tool list so the cache key is stable.
+        active_tool_defs: list[ToolDefinition] = tool_defs
         if guard_active:
             override_text = _LOOP_GUARD_OVERRIDE.format(n=iterations_since_write)
             extra_blocks.append({"type": "text", "text": override_text})
             logger.warning(
                 "⚠️ loop_guard fired — run_id=%s iteration=%d iterations_since_write=%d"
-                " active_tools=%d (of %d total)",
+                " (interception-only, tool list unchanged for cache stability)",
                 run_id, iteration, iterations_since_write,
-                len(active_tool_defs), len(tool_defs),
             )
 
         # Symbol-absence injection — fires once per repeated search query.

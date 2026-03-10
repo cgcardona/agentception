@@ -798,19 +798,21 @@ class TestLoopGuard:
     """
 
     @pytest.mark.anyio
-    async def test_loop_guard_narrows_tool_list_after_threshold(
+    async def test_loop_guard_keeps_tool_list_constant_for_cache_stability(
         self, tmp_path: Path
     ) -> None:
-        """Loop guard removes read-only tools from the active tool palette.
+        """Loop guard does NOT narrow the tool list; the tool list is constant.
 
-        When fired the model receives a narrowed tool list — read_file,
-        search_codebase, list_directory, etc. are absent.  The model cannot
-        call them even if it wants to; only write tools remain available.
-        This is the primary mechanical enforcement; the text injection is
-        secondary.
+        Changing the tool list between iterations busts Anthropic's prompt
+        cache on the tool-catalogue block, turning every guarded turn from a
+        cheap cache-read into a full cache-write (~10× more expensive).
+
+        Enforcement is via interception-only: the model receives the full tool
+        list on every turn, but calls to non-permitted tools during guard mode
+        are rejected via a synthetic error response.  The extra_system_blocks
+        still carry the LOOP GUARD explanation so the model understands why.
         """
         from agentception.services.agent_loop import (
-            _GUARD_PERMITTED_TOOL_NAMES,
             _LOOP_GUARD_THRESHOLD,
             run_agent_loop,
         )
@@ -882,36 +884,31 @@ class TestLoopGuard:
             with patch.object(al, "read_file", return_value=file_result):
                 await run_agent_loop("test-run-guard")
 
-        # Guard fires on the (THRESHOLD+1)-th LLM call (index = THRESHOLD).
         assert len(captured_tools) > _LOOP_GUARD_THRESHOLD, (
             "Expected at least THRESHOLD+1 LLM calls"
         )
-        guard_call_tools = captured_tools[_LOOP_GUARD_THRESHOLD]
-        guard_tool_names = {t["function"]["name"] for t in guard_call_tools}
 
-        # Every tool in the narrowed palette must be in the permitted set.
-        leaked = guard_tool_names - _GUARD_PERMITTED_TOOL_NAMES
-        assert not leaked, (
-            f"Loop guard must restrict to permitted tools; non-permitted: {leaked}"
-        )
+        # The tool list must be identical on every turn — no narrowing on guard fire.
+        first_names = {t["function"]["name"] for t in captured_tools[0]}
+        for i, turn_tools in enumerate(captured_tools):
+            turn_names = {t["function"]["name"] for t in turn_tools}
+            assert turn_names == first_names, (
+                f"Tool list changed on iteration {i} — this busts the prompt cache. "
+                f"Added: {turn_names - first_names}, removed: {first_names - turn_names}"
+            )
 
-        # The extra_system_blocks must contain the LOOP GUARD explanation.
+        # read_file must remain available in the tool list throughout (including
+        # when the guard is active — the interception, not the list, blocks it).
+        assert "read_file" in first_names, "read_file must be in the tool list at all times"
+        assert "run_command" in first_names, "run_command must be in the tool list at all times"
+
+        # The extra_system_blocks must still contain the LOOP GUARD explanation.
         guard_extra = captured_extra[_LOOP_GUARD_THRESHOLD]
         assert guard_extra is not None
         all_text = " ".join(
             str(b["text"]) for b in guard_extra if isinstance(b.get("text"), str)
         )
         assert "LOOP GUARD" in all_text
-
-        # Pre-guard iterations must have the full tool list (read tools present).
-        pre_guard_tools = captured_tools[0]
-        pre_guard_names = {t["function"]["name"] for t in pre_guard_tools}
-        assert "read_file" in pre_guard_names, (
-            "read_file must be available before the guard fires"
-        )
-        assert "run_command" in pre_guard_names, (
-            "run_command must be available before the guard fires"
-        )
 
     @pytest.mark.anyio
     async def test_write_tool_resets_loop_guard_counter(self, tmp_path: Path) -> None:
