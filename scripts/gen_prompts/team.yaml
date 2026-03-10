@@ -226,6 +226,9 @@ org:
       - python
       - fastapi
       - postgresql
+      # Vector search
+      - qdrant
+      - rag
       # Frontend / UI
       - htmx
       - jinja2
@@ -257,6 +260,8 @@ org:
       - python
       - fastapi
       - postgresql
+      - qdrant
+      - rag
       - htmx
       - jinja2
       - alpine
@@ -289,6 +294,10 @@ heuristics:
     skills: [midi, python]
   - keywords: [ml, ai, model, inference, huggingface, gradio]
     skills: [llm, python]
+  - keywords: [qdrant, vector, embedding, fastembed, search_codebase, index_codebase, chunk, payload_index]
+    skills: [qdrant, python]
+  - keywords: [rag, retrieval, hybrid search, bm25, rerank, semantic search]
+    skills: [qdrant, rag, python]
   - keywords: [docker, compose, nginx, deployment, ci, github actions]
     skills: [devops]
   - keywords: [javascript, fetch, dom, browser]
