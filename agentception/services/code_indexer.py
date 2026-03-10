@@ -362,41 +362,53 @@ _UPSERT_BATCH = 64  # points per upsert call
 
 
 async def _ensure_collection(client: "AsyncQdrantClient", collection: str) -> None:
-    """Create the Qdrant collection if it does not exist yet.
+    """Create or migrate the Qdrant collection for hybrid dense+sparse search.
 
-    The collection uses named vectors: 'dense' for semantic embeddings and
-    'sparse' for BM25 keyword vectors.
+    If the collection does not exist it is created with named vectors: ``dense``
+    (FastEmbed cosine) and ``sparse`` (BM25).
+
+    If the collection exists but uses the legacy single-unnamed-vector schema
+    (introduced before hybrid search), it is deleted and recreated so that
+    hybrid search works correctly.  The caller's indexing loop re-populates it
+    immediately after this function returns.
     """
     from qdrant_client.models import (  # noqa: PLC0415
         Distance,
-        KeywordIndexParams,
-        KeywordIndexType,
         SparseVectorParams,
         VectorParams,
     )
 
     collections_response = await client.get_collections()
     existing = {c.name for c in collections_response.collections}
-    if collection not in existing:
-        logger.info("✅ code_indexer — creating collection '%s'", collection)
-        await client.create_collection(
-            collection_name=collection,
-            vectors_config={
-                "dense": VectorParams(
-                    size=settings.embed_model_dim,
-                    distance=Distance.COSINE,
-                ),
-            },
-            sparse_vectors_config={
-                "sparse": SparseVectorParams(),
-            },
-            payload_indexes_config={
-                "file": KeywordIndexParams(type=KeywordIndexType.KEYWORD),
-                "symbol": KeywordIndexParams(type=KeywordIndexType.KEYWORD),
-            },
-        )
-    else:
-        logger.info("✅ code_indexer — collection '%s' already exists", collection)
+
+    if collection in existing:
+        col_info = await client.get_collection(collection)
+        vectors = col_info.config.params.vectors
+        if isinstance(vectors, VectorParams):
+            # Legacy schema: single unnamed vector.  Recreate for hybrid search.
+            logger.warning(
+                "⚠️ code_indexer — collection '%s' has legacy single-vector schema; "
+                "recreating for hybrid dense+sparse search (data will be re-indexed)",
+                collection,
+            )
+            await client.delete_collection(collection)
+        else:
+            logger.info("✅ code_indexer — collection '%s' schema is current", collection)
+            return
+
+    logger.info("✅ code_indexer — creating collection '%s'", collection)
+    await client.create_collection(
+        collection_name=collection,
+        vectors_config={
+            "dense": VectorParams(
+                size=settings.embed_model_dim,
+                distance=Distance.COSINE,
+            ),
+        },
+        sparse_vectors_config={
+            "sparse": SparseVectorParams(),
+        },
+    )
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
