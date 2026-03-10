@@ -672,7 +672,7 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
     # On planner failure: fall back to the developer role (original behaviour).
     # ---------------------------------------------------------------------------
     effective_role = req.role
-    if req.role == "developer" and task_description and req.issue_body:
+    if req.role == "developer" and task_description and req.issue_body and settings.planner_enabled:
         ac_file_paths_for_planner = _extract_ac_file_paths(req.issue_body)
         execution_plan = await generate_execution_plan(
             run_id=run_id,

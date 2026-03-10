@@ -385,3 +385,8 @@ def test_agent_max_iterations_default() -> None:
     s = AgentCeptionSettings()
     assert s.agent_max_iterations == 100
 
+
+def test_planner_enabled_default() -> None:
+    s = AgentCeptionSettings()
+    assert s.planner_enabled is True
+
