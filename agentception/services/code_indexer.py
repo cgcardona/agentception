@@ -170,6 +170,7 @@ class _ChunkSpec(TypedDict):
     text: str
     start_line: int
     end_line: int
+    symbol: str  # symbol name for AST chunks (e.g. "class Foo"); empty for char chunks
 
 
 def _chunk_file_ast(path: Path, repo_root: Path) -> list[_ChunkSpec]:
@@ -221,6 +222,7 @@ def _chunk_file_ast(path: Path, repo_root: Path) -> list[_ChunkSpec]:
         raw_hash = hashlib.md5(f"{rel}:{node.name}".encode()).hexdigest()
         chunk_id = int(raw_hash, 16) % (2**62)
 
+        kind = "class" if isinstance(node, ast.ClassDef) else "def"
         chunks.append(
             _ChunkSpec(
                 chunk_id=chunk_id,
@@ -228,6 +230,7 @@ def _chunk_file_ast(path: Path, repo_root: Path) -> list[_ChunkSpec]:
                 text=text,
                 start_line=start_line,
                 end_line=end_line,
+                symbol=f"{kind} {node.name}",
             )
         )
 
@@ -275,6 +278,7 @@ def _chunk_file_char(
                 text=text,
                 start_line=start_line,
                 end_line=end_line,
+                symbol="",
             )
         )
         start += _CHUNK_SIZE - _CHUNK_OVERLAP
@@ -301,7 +305,12 @@ _UPSERT_BATCH = 64  # points per upsert call
 
 async def _ensure_collection(client: "AsyncQdrantClient", collection: str) -> None:
     """Create the Qdrant collection if it does not exist yet."""
-    from qdrant_client.models import Distance, VectorParams  # noqa: PLC0415
+    from qdrant_client.models import (  # noqa: PLC0415
+        Distance,
+        KeywordIndexParams,
+        KeywordIndexType,
+        VectorParams,
+    )
 
     collections_response = await client.get_collections()
     existing = {c.name for c in collections_response.collections}
@@ -313,6 +322,10 @@ async def _ensure_collection(client: "AsyncQdrantClient", collection: str) -> No
                 size=settings.embed_model_dim,
                 distance=Distance.COSINE,
             ),
+            payload_indexes_config={
+                "file": KeywordIndexParams(type=KeywordIndexType.KEYWORD),
+                "symbol": KeywordIndexParams(type=KeywordIndexType.KEYWORD),
+            },
         )
     else:
         logger.info("✅ code_indexer — collection '%s' already exists", collection)
@@ -381,6 +394,7 @@ async def index_codebase(
                             "chunk": chunk["text"],
                             "start_line": chunk["start_line"],
                             "end_line": chunk["end_line"],
+                            "symbol": chunk["symbol"],
                         },
                     )
                     for chunk, vec in zip(batch, vectors)
