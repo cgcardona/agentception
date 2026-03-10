@@ -87,18 +87,24 @@ You have **50 iterations total**. Spend them deliberately:
 
 | Phase | Budget |
 |-------|--------|
-| Setup + fingerprint | ≤ 5 |
+| Setup + fingerprint + working memory | ≤ 5 |
 | Read changed files (once each, never re-read) | ≤ 12 |
-| Type checker + tests | ≤ 5 |
+| Type checker + tests (once each — never repeat) | ≤ 5 |
 | Grade + write review + merge | ≤ 8 |
 
-**If you are past iteration 30 and have not yet called `pull_request_review_write`,
-stop reading and grade what you have.** A review posted on partial information is
-better than no review posted at all.
+**Hard stop at iteration 30.** If you have not called `pull_request_review_write`
+by iteration 30, you must do so in iteration 31 — no exceptions, no one more read.
+A verdict on the evidence you have is always better than no verdict.
+
+**Evidence ceiling.** Once you have read a file or diff, you have all the
+information that file will ever give you. Re-reading it returns zero new signal.
+Once mypy and pytest have each run once and produced output, running them again
+returns zero new signal. Every repeated read or re-run is a wasted iteration
+that shortens the time available to form and post a verdict.
 
 ## Review Protocol — Follow in Order
 
-### Step 1 — Set context variables
+### Step 1 — Set context variables and initialise working memory
 
 All task context comes from your `task/briefing` MCP prompt — **do not read
 any file**. Extract these before doing anything else:
@@ -115,6 +121,30 @@ any file**. Extract these before doing anything else:
 WTNAME=$(basename "$(pwd)")
 REPO=$(git worktree list | head -1 | awk '{print $1}')
 ```
+
+Immediately call `update_working_memory` to record your review plan and track
+progress. Use `next_steps` as your ordered review checklist and `decisions` to
+record completed steps and findings as you go:
+
+```json
+{
+  "next_steps": [
+    "Read PR description and issue body — extract acceptance criteria",
+    "Read git diff (changed files, once each)",
+    "Run mypy — record result",
+    "Run targeted tests — record result",
+    "Cross-check each AC item against implementation",
+    "Write and post Fagan review verdict"
+  ],
+  "decisions": [],
+  "findings": []
+}
+```
+
+After each step completes: move it from `next_steps` to `decisions`, and append
+any defects or observations to `findings`. Update working memory immediately —
+do not batch updates. This keeps your review state persistent across context
+compression.
 
 ### Step 2 — Generate fingerprint (save, do not post yet)
 
@@ -196,6 +226,23 @@ PYTHONPATH=/worktrees/$WTNAME pytest /worktrees/$WTNAME/agentception/tests/test_
 
 Full output only — never pipe through `head` or `tail`.
 
+### Step 5b — Cross-check the acceptance criteria (AC audit)
+
+Read the original issue body. For every bullet in the acceptance criteria section,
+verify it is satisfied by the diff you already read. Record each item's status in
+working memory `findings`:
+
+- **Implemented** — code exists and (if the AC names a test) the test is present and passes.
+- **Missing** — no corresponding code or named test exists in the diff.
+
+If any AC item is **missing**, that is a defect. Classify it:
+- Logic gap (feature from AC is absent) → **D**
+- Named test from AC is absent → **C** minimum
+- TypedDict/model field named in AC is absent → **C** minimum
+
+Do not re-read any file to do this — use the diff you already read. If you need
+a specific symbol, use `read_symbol` once.
+
 ### Step 6 — Grade, write the review, and act
 
 Apply the Grading Rubric. Write your full review body as a string, then call
@@ -274,7 +321,19 @@ When a flaw is found, classify it in this order:
 
 ## Failure Modes to Avoid
 
-- Re-reading a file you have already processed.
+- **Re-reading a file, diff, or test output you have already seen.** Every re-read
+  wastes an iteration and returns zero new information. Track what you have read in
+  `decisions` and never revisit it.
+- **Running mypy or pytest more than once.** One run gives you the answer. A second
+  run gives you the same answer. It is not a confidence signal — it is a wasted turn.
+- **Reaching iteration 30 without a posted verdict.** The hard stop is not a guideline.
+  If you hit iteration 30 without calling `pull_request_review_write`, do it in
+  iteration 31 with the evidence you have.
+- **Not updating working memory after each step.** The working memory `findings` field
+  is your only persistent record of what you have observed. If you do not write it
+  down, it will be lost to context compression.
+- **Skipping the AC cross-check (Step 5b).** A PR that passes mypy and tests but is
+  missing features from the acceptance criteria is a D. Do not merge it.
 - Posting more than one comment on the issue — the outcome comment is the only one.
 - Calling `add_issue_comment` for the review body instead of `pull_request_review_write`.
 - Stopping at B or C instead of fixing in place.
