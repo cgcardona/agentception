@@ -19,6 +19,7 @@ import pytest
 from agentception.models import ExecutionPlan, PlanOperation
 from agentception.services.planner import (
     _build_planner_prompt,
+    _discover_files,
     _parse_plan_json,
     generate_execution_plan,
 )
@@ -291,9 +292,15 @@ async def test_generate_execution_plan_returns_plan_on_success(
         }
     )
 
-    with patch(
-        "agentception.services.planner.call_anthropic",
-        new=AsyncMock(return_value=llm_response),
+    with (
+        patch(
+            "agentception.services.planner.call_anthropic",
+            new=AsyncMock(return_value=llm_response),
+        ),
+        patch(
+            "agentception.services.planner.search_codebase",
+            new=AsyncMock(return_value=[]),
+        ),
     ):
         plan = await generate_execution_plan(
             run_id="issue-501",
@@ -314,9 +321,15 @@ async def test_generate_execution_plan_returns_none_on_llm_failure(
     tmp_path: Path,
 ) -> None:
     """generate_execution_plan returns None when the LLM call raises."""
-    with patch(
-        "agentception.services.planner.call_anthropic",
-        new=AsyncMock(side_effect=RuntimeError("API unavailable")),
+    with (
+        patch(
+            "agentception.services.planner.call_anthropic",
+            new=AsyncMock(side_effect=RuntimeError("API unavailable")),
+        ),
+        patch(
+            "agentception.services.planner.search_codebase",
+            new=AsyncMock(return_value=[]),
+        ),
     ):
         plan = await generate_execution_plan(
             run_id="issue-501",
@@ -335,9 +348,15 @@ async def test_generate_execution_plan_returns_none_on_bad_json(
     tmp_path: Path,
 ) -> None:
     """generate_execution_plan returns None when the LLM returns unparseable JSON."""
-    with patch(
-        "agentception.services.planner.call_anthropic",
-        new=AsyncMock(return_value="not json at all"),
+    with (
+        patch(
+            "agentception.services.planner.call_anthropic",
+            new=AsyncMock(return_value="not json at all"),
+        ),
+        patch(
+            "agentception.services.planner.search_codebase",
+            new=AsyncMock(return_value=[]),
+        ),
     ):
         plan = await generate_execution_plan(
             run_id="issue-501",
@@ -349,3 +368,135 @@ async def test_generate_execution_plan_returns_none_on_bad_json(
         )
 
     assert plan is None
+
+
+# ---------------------------------------------------------------------------
+# _discover_files — file discovery phase
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_discover_files_seeds_always_included(tmp_path: Path) -> None:
+    """Seed paths are always included even when Qdrant returns nothing."""
+    seed = tmp_path / "agentception" / "config.py"
+    seed.parent.mkdir(parents=True)
+    seed.write_text("x")
+
+    with patch(
+        "agentception.services.planner.search_codebase",
+        new=AsyncMock(return_value=[]),
+    ):
+        result = await _discover_files(
+            "add field",
+            ["agentception/config.py"],
+            tmp_path,
+            "test-run",
+        )
+
+    assert "agentception/config.py" in result
+
+
+@pytest.mark.anyio
+async def test_discover_files_qdrant_results_merged(tmp_path: Path) -> None:
+    """Qdrant results for files that exist in the worktree are included."""
+    (tmp_path / "agentception").mkdir(parents=True)
+    (tmp_path / "agentception" / "config.py").write_text("x")
+    (tmp_path / "agentception" / "poller.py").write_text("y")
+
+    qdrant_match = {"file": "agentception/poller.py", "chunk": "...", "score": 0.9, "start_line": 1, "end_line": 5}
+
+    with patch(
+        "agentception.services.planner.search_codebase",
+        new=AsyncMock(return_value=[qdrant_match]),
+    ):
+        result = await _discover_files(
+            "add field",
+            ["agentception/config.py"],
+            tmp_path,
+            "test-run",
+        )
+
+    assert "agentception/config.py" in result
+    assert "agentception/poller.py" in result
+
+
+@pytest.mark.anyio
+async def test_discover_files_nonexistent_qdrant_result_excluded(tmp_path: Path) -> None:
+    """Qdrant results referencing files absent from the worktree are filtered out."""
+    qdrant_match = {"file": "some/phantom/file.py", "chunk": "...", "score": 0.9, "start_line": 1, "end_line": 5}
+
+    with patch(
+        "agentception.services.planner.search_codebase",
+        new=AsyncMock(return_value=[qdrant_match]),
+    ):
+        result = await _discover_files("query", [], tmp_path, "test-run")
+
+    assert "some/phantom/file.py" not in result
+
+
+@pytest.mark.anyio
+async def test_discover_files_qdrant_failure_falls_back_to_seeds(tmp_path: Path) -> None:
+    """When Qdrant raises, _discover_files returns seed paths only — no crash."""
+    seed = tmp_path / "agentception" / "config.py"
+    seed.parent.mkdir(parents=True)
+    seed.write_text("x")
+
+    with patch(
+        "agentception.services.planner.search_codebase",
+        new=AsyncMock(side_effect=RuntimeError("qdrant down")),
+    ):
+        result = await _discover_files(
+            "query",
+            ["agentception/config.py"],
+            tmp_path,
+            "test-run",
+        )
+
+    assert result == ["agentception/config.py"]
+
+
+@pytest.mark.anyio
+async def test_discover_files_capped_at_max_files(tmp_path: Path) -> None:
+    """Total discovered files are capped at _MAX_FILES."""
+    from agentception.services.planner import _MAX_FILES
+
+    # Create 10 files in tmp worktree
+    (tmp_path / "agentception").mkdir(parents=True)
+    qdrant_results = []
+    for i in range(10):
+        fname = f"agentception/file{i}.py"
+        (tmp_path / fname).write_text("x")
+        qdrant_results.append(
+            {"file": fname, "chunk": "...", "score": 0.9, "start_line": 1, "end_line": 5}
+        )
+
+    with patch(
+        "agentception.services.planner.search_codebase",
+        new=AsyncMock(return_value=qdrant_results),
+    ):
+        result = await _discover_files("query", [], tmp_path, "test-run")
+
+    assert len(result) <= _MAX_FILES
+
+
+@pytest.mark.anyio
+async def test_discover_files_seeds_prioritised_over_qdrant(tmp_path: Path) -> None:
+    """Seed paths appear before Qdrant-discovered paths in the result."""
+    (tmp_path / "agentception").mkdir(parents=True)
+    (tmp_path / "agentception" / "seed.py").write_text("x")
+    (tmp_path / "agentception" / "qdrant.py").write_text("y")
+
+    qdrant_match = {"file": "agentception/qdrant.py", "chunk": "...", "score": 0.9, "start_line": 1, "end_line": 5}
+
+    with patch(
+        "agentception.services.planner.search_codebase",
+        new=AsyncMock(return_value=[qdrant_match]),
+    ):
+        result = await _discover_files(
+            "query",
+            ["agentception/seed.py"],
+            tmp_path,
+            "test-run",
+        )
+
+    assert result.index("agentception/seed.py") < result.index("agentception/qdrant.py")
