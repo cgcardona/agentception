@@ -918,12 +918,20 @@ def _extract_explicit_file_paths(text: str) -> list[str]:
 
     Scans for paths matching ``agentception/…``, ``tests/…``, ``scripts/…``, or
     ``docs/…`` with a recognised extension.  Order is preserved; duplicates are
-    removed.  Results are validated against the project root so phantom paths do
-    not consume recon slots.
+    removed.
+
+    IMPORTANT: only the portion of *text* before the first ``\\n---\\n`` separator
+    is scanned.  Everything after that separator is injected context (code chunks
+    from semantic search, pre-loaded file content) — scanning it would pick up
+    paths from *those* files and falsely label them as explicitly requested,
+    causing the recon phase to load irrelevant files and pollute the agent's
+    context.
     """
+    sep = text.find("\n---\n")
+    scan_text = text[:sep] if sep != -1 else text
     seen: set[str] = set()
     paths: list[str] = []
-    for match in _EXPLICIT_FILE_RE.finditer(text):
+    for match in _EXPLICIT_FILE_RE.finditer(scan_text):
         p = match.group(1)
         if p not in seen:
             seen.add(p)
@@ -1014,47 +1022,48 @@ async def _run_recon_phase(
 
     # ── Step 0: auto-detect explicitly named files in the task text ──────────
     # File paths written verbatim in the issue body (e.g. "agentception/services/
-    # code_indexer.py") are loaded in full before the LLM planning call.  This
-    # eliminates the 10-20 read_file_lines iterations the agent would otherwise
-    # spend reconstructing the same content piecemeal.
+    # code_indexer.py") are loaded in full before any LLM planning call.  Only
+    # the portion of the task text *before* the first injected-context separator
+    # is scanned — see _extract_explicit_file_paths for why.
     explicit_files = _extract_explicit_file_paths(task_text)
     if explicit_files:
         logger.info(
-            "✅ recon: auto-detected %d explicit file(s) from task text: %s",
+            "✅ recon: auto-detected %d explicit file(s) from issue body: %s",
             len(explicit_files),
             explicit_files,
         )
-
-    try:
-        raw_plan = await call_anthropic(
-            task_text,
-            system_prompt=system_prompt + _RECON_SYSTEM_ADDENDUM,
-            max_tokens=500,
-            temperature=0.0,
+        # When the issue body already names the files to touch, we have
+        # everything we need.  Skip the LLM planning call — it consistently
+        # recommends wrong files (e.g. "register in main.py") and adds
+        # searches that find unrelated code, poisoning the agent's context.
+        plan = _ReconPlan(
+            files=explicit_files[:8],
+            searches=[],
+            plan="Explicit files pre-loaded from issue body.",
         )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("⚠️ recon phase: planning call failed — %s", exc)
-        return
+    else:
+        # No explicitly named files — fall back to LLM planning so the agent
+        # at least starts with *some* codebase context for free-form tasks.
+        try:
+            raw_plan = await call_anthropic(
+                task_text,
+                system_prompt=system_prompt + _RECON_SYSTEM_ADDENDUM,
+                max_tokens=500,
+                temperature=0.0,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("⚠️ recon phase: planning call failed — %s", exc)
+            return
 
-    plan = _parse_recon_json(raw_plan)
-    if plan is None:
-        logger.warning("⚠️ recon phase: could not parse plan from LLM response")
-        return
-
-    # Merge explicit files (first priority) with LLM-planned files, deduplicated,
-    # cap at 8 total so the bundle stays within context window limits.
-    seen_files: set[str] = set()
-    merged_files: list[str] = []
-    for f in explicit_files + plan.files:
-        if f not in seen_files and len(merged_files) < 8:
-            seen_files.add(f)
-            merged_files.append(f)
-    plan = _ReconPlan(files=merged_files, searches=plan.searches, plan=plan.plan)
+        parsed = _parse_recon_json(raw_plan)
+        if parsed is None:
+            logger.warning("⚠️ recon phase: could not parse plan from LLM response")
+            return
+        plan = parsed
 
     logger.info(
-        "✅ recon: files=%d (incl. %d explicit) searches=%d — %s",
+        "✅ recon: files=%d searches=%d — %s",
         len(plan.files),
-        len(explicit_files),
         len(plan.searches),
         plan.plan,
     )
