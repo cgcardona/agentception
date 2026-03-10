@@ -6,7 +6,7 @@ AgentCeption — multi-agent orchestration system for AI-powered development wor
 
 - **Entry points:** `GET /` (Build dashboard), MCP tools (Cursor/Claude). Same engine, same pipeline.
 - **Stack:** Python 3.12, FastAPI, Jinja2, HTMX, Alpine.js, TypeScript (piecemeal — convert every `.ts` file you touch), SCSS, Pydantic v2, SQLAlchemy (async), Alembic. Fully async.
-- **Models:** `claude-sonnet-4-5-20250929` and `claude-opus-4-5-20250929` via Anthropic direct API. No others.
+- **Models:** `claude-sonnet-4-6` and `claude-opus-4-6` via Anthropic direct API. No others.
 - **Version:** Single source of truth in `pyproject.toml`.
 
 ## Agent scope
