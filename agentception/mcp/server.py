@@ -34,7 +34,6 @@ Boundary constraint: zero imports from external packages.
 
 import json
 import logging
-from typing import cast
 
 from agentception.mcp.build_commands import (
     build_block_run,
@@ -1234,7 +1233,7 @@ async def call_tool_async(
 
 def handle_request(
     raw: dict[str, object],
-) -> dict[str, object] | None:
+) -> JsonRpcSuccessResponse | JsonRpcErrorResponse | None:
     """Dispatch a JSON-RPC 2.0 request dict and return a response dict.
 
     This is the single entry point for the MCP layer.  The caller is
@@ -1263,19 +1262,19 @@ def handle_request(
 
     jsonrpc = raw.get("jsonrpc")
     if jsonrpc != "2.0":
-        return cast(dict[str, object], _make_error_response(
+        return _make_error_response(
             request_id,
             JSONRPC_ERR_INVALID_REQUEST,
             "jsonrpc must be '2.0'",
-        ))
+        )
 
     method = raw.get("method")
     if not isinstance(method, str):
-        return cast(dict[str, object], _make_error_response(
+        return _make_error_response(
             request_id,
             JSONRPC_ERR_INVALID_REQUEST,
             "method must be a string",
-        ))
+        )
 
     logger.debug("🔧 handle_request: method=%r id=%r", method, request_id)
 
@@ -1287,45 +1286,45 @@ def handle_request(
             "capabilities": {"tools": {}, "resources": {}, "prompts": {}},
             "serverInfo": _SERVER_INFO,
         }
-        return cast(dict[str, object], _make_success_response(request_id, result))
+        return _make_success_response(request_id, result)
 
     if method == "initialized":
         logger.debug("✅ MCP initialized notification received")
         return None
 
     if method == "ping":
-        return cast(dict[str, object], _make_success_response(request_id, {}))
+        return _make_success_response(request_id, {})
 
     # ── Tool methods ─────────────────────────────────────────────────────────
 
     if method == "tools/list":
         tools = list_tools()
-        return cast(dict[str, object], _make_success_response(request_id, {"tools": tools}))
+        return _make_success_response(request_id, {"tools": tools})
 
     if method == "tools/call":
         params = raw.get("params")
         if not isinstance(params, dict):
-            return cast(dict[str, object], _make_error_response(
+            return _make_error_response(
                 request_id,
                 JSONRPC_ERR_INVALID_PARAMS,
                 "params must be an object for tools/call",
-            ))
+            )
 
         tool_name = params.get("name")
         if not isinstance(tool_name, str):
-            return cast(dict[str, object], _make_error_response(
+            return _make_error_response(
                 request_id,
                 JSONRPC_ERR_INVALID_PARAMS,
                 "params.name must be a string",
-            ))
+            )
 
         arguments_raw = params.get("arguments", {})
         if not isinstance(arguments_raw, dict):
-            return cast(dict[str, object], _make_error_response(
+            return _make_error_response(
                 request_id,
                 JSONRPC_ERR_INVALID_PARAMS,
                 "params.arguments must be an object",
-            ))
+            )
 
         arguments: dict[str, object] = {k: v for k, v in arguments_raw.items()}
 
@@ -1333,68 +1332,68 @@ def handle_request(
             tool_result = call_tool(tool_name, arguments)
         except Exception as exc:
             logger.error("❌ handle_request: internal error in call_tool — %s", exc, exc_info=True)
-            return cast(dict[str, object], _make_error_response(
+            return _make_error_response(
                 request_id,
                 JSONRPC_ERR_INTERNAL_ERROR,
                 f"Internal error: {exc}",
-            ))
+            )
 
-        return cast(dict[str, object], _make_success_response(request_id, tool_result))
+        return _make_success_response(request_id, tool_result)
 
     # ── Prompt methods (sync — static prompts only) ───────────────────────────
     # Parameterized prompts (task/*) require async DB access; callers using
     # the sync path should use handle_request_async for those.
 
     if method == "prompts/list":
-        return cast(dict[str, object], _make_success_response(
+        return _make_success_response(
             request_id, {"prompts": list_prompts()}
-        ))
+        )
 
     if method == "prompts/get":
         params_p = raw.get("params")
         if not isinstance(params_p, dict):
-            return cast(dict[str, object], _make_error_response(
+            return _make_error_response(
                 request_id, JSONRPC_ERR_INVALID_PARAMS, "params must be an object"
-            ))
+            )
         prompt_name = params_p.get("name")
         if not isinstance(prompt_name, str) or not prompt_name:
-            return cast(dict[str, object], _make_error_response(
+            return _make_error_response(
                 request_id, JSONRPC_ERR_INVALID_PARAMS, "params.name must be a non-empty string"
-            ))
+            )
         if prompt_name.startswith("task/"):
-            return cast(dict[str, object], _make_error_response(
+            return _make_error_response(
                 request_id,
                 JSONRPC_ERR_INVALID_PARAMS,
                 f"Prompt {prompt_name!r} requires async resolution — use handle_request_async.",
-            ))
+            )
         prompt_result: ACPromptResult | None = get_static_prompt(prompt_name)
         if prompt_result is None:
-            return cast(dict[str, object], _make_error_response(
+            return _make_error_response(
                 request_id, JSONRPC_ERR_INVALID_PARAMS, f"Unknown prompt: {prompt_name!r}"
-            ))
-        return cast(dict[str, object], _make_success_response(request_id, prompt_result))
+            )
+        return _make_success_response(request_id, prompt_result)
 
     # ── Resource methods (sync server returns method-not-found for reads) ─────
     # The sync handle_request is only used in tests and legacy callers; all
     # resource reads require async I/O.  Direct async callers to handle_request_async.
 
     if method in ("resources/list", "resources/templates/list", "resources/read"):
-        return cast(dict[str, object], _make_error_response(
+        return _make_error_response(
             request_id,
             JSONRPC_ERR_METHOD_NOT_FOUND,
             f"Method '{method}' requires the async path — use handle_request_async",
-        ))
+        )
 
-    return cast(dict[str, object], _make_error_response(
+    return _make_error_response(
         request_id,
         JSONRPC_ERR_METHOD_NOT_FOUND,
         f"Method not found: {method!r}",
-    ))
+    )
 
 
 async def handle_request_async(
     raw: dict[str, object],
-) -> dict[str, object] | None:
+) -> JsonRpcSuccessResponse | JsonRpcErrorResponse | None:
     """Async variant of :func:`handle_request` — routes ``tools/call`` through
     :func:`call_tool_async` so that async tools (all build tools and
     ``plan_get_labels`` / ``plan_advance_phase``) are awaited correctly.
@@ -1413,19 +1412,19 @@ async def handle_request_async(
 
     jsonrpc = raw.get("jsonrpc")
     if jsonrpc != "2.0":
-        return cast(dict[str, object], _make_error_response(
+        return _make_error_response(
             request_id,
             JSONRPC_ERR_INVALID_REQUEST,
             "jsonrpc must be '2.0'",
-        ))
+        )
 
     method = raw.get("method")
     if not isinstance(method, str):
-        return cast(dict[str, object], _make_error_response(
+        return _make_error_response(
             request_id,
             JSONRPC_ERR_INVALID_REQUEST,
             "method must be a string",
-        ))
+        )
 
     logger.debug("🔧 handle_request_async: method=%r id=%r", method, request_id)
 
@@ -1435,45 +1434,45 @@ async def handle_request_async(
             "capabilities": {"tools": {}, "resources": {}, "prompts": {}},
             "serverInfo": _SERVER_INFO,
         }
-        return cast(dict[str, object], _make_success_response(request_id, result_a))
+        return _make_success_response(request_id, result_a)
 
     if method == "initialized":
         logger.debug("✅ MCP initialized notification received")
         return None
 
     if method == "ping":
-        return cast(dict[str, object], _make_success_response(request_id, {}))
+        return _make_success_response(request_id, {})
 
     # ── Tool methods ─────────────────────────────────────────────────────────
 
     if method == "tools/list":
         tools = list_tools()
-        return cast(dict[str, object], _make_success_response(request_id, {"tools": tools}))
+        return _make_success_response(request_id, {"tools": tools})
 
     if method == "tools/call":
         params = raw.get("params")
         if not isinstance(params, dict):
-            return cast(dict[str, object], _make_error_response(
+            return _make_error_response(
                 request_id,
                 JSONRPC_ERR_INVALID_PARAMS,
                 "params must be an object for tools/call",
-            ))
+            )
 
         tool_name = params.get("name")
         if not isinstance(tool_name, str):
-            return cast(dict[str, object], _make_error_response(
+            return _make_error_response(
                 request_id,
                 JSONRPC_ERR_INVALID_PARAMS,
                 "params.name must be a string",
-            ))
+            )
 
         arguments_raw = params.get("arguments", {})
         if not isinstance(arguments_raw, dict):
-            return cast(dict[str, object], _make_error_response(
+            return _make_error_response(
                 request_id,
                 JSONRPC_ERR_INVALID_PARAMS,
                 "params.arguments must be an object",
-            ))
+            )
 
         arguments: dict[str, object] = {k: v for k, v in arguments_raw.items()}
 
@@ -1485,32 +1484,32 @@ async def handle_request_async(
                 exc,
                 exc_info=True,
             )
-            return cast(dict[str, object], _make_error_response(
+            return _make_error_response(
                 request_id,
                 JSONRPC_ERR_INTERNAL_ERROR,
                 f"Internal error: {exc}",
-            ))
+            )
 
-        return cast(dict[str, object], _make_success_response(request_id, tool_result))
+        return _make_success_response(request_id, tool_result)
 
     # ── Prompt methods ────────────────────────────────────────────────────────
 
     if method == "prompts/list":
-        return cast(dict[str, object], _make_success_response(
+        return _make_success_response(
             request_id, {"prompts": list_prompts()}
-        ))
+        )
 
     if method == "prompts/get":
         params_pa = raw.get("params")
         if not isinstance(params_pa, dict):
-            return cast(dict[str, object], _make_error_response(
+            return _make_error_response(
                 request_id, JSONRPC_ERR_INVALID_PARAMS, "params must be an object"
-            ))
+            )
         prompt_name_a = params_pa.get("name")
         if not isinstance(prompt_name_a, str) or not prompt_name_a:
-            return cast(dict[str, object], _make_error_response(
+            return _make_error_response(
                 request_id, JSONRPC_ERR_INVALID_PARAMS, "params.name must be a non-empty string"
-            ))
+            )
         raw_args = params_pa.get("arguments")
         prompt_args: dict[str, str] = (
             {k: str(v) for k, v in raw_args.items() if isinstance(v, str)}
@@ -1518,40 +1517,40 @@ async def handle_request_async(
         )
         prompt_result_a: ACPromptResult | None = await get_prompt(prompt_name_a, prompt_args)
         if prompt_result_a is None:
-            return cast(dict[str, object], _make_error_response(
+            return _make_error_response(
                 request_id, JSONRPC_ERR_INVALID_PARAMS, f"Unknown prompt: {prompt_name_a!r}"
-            ))
-        return cast(dict[str, object], _make_success_response(request_id, prompt_result_a))
+            )
+        return _make_success_response(request_id, prompt_result_a)
 
     # ── Resource methods ──────────────────────────────────────────────────────
 
     if method == "resources/list":
         resources = list_resources()
-        return cast(dict[str, object], _make_success_response(
+        return _make_success_response(
             request_id, {"resources": resources}
-        ))
+        )
 
     if method == "resources/templates/list":
         templates = list_resource_templates()
-        return cast(dict[str, object], _make_success_response(
+        return _make_success_response(
             request_id, {"resourceTemplates": templates}
-        ))
+        )
 
     if method == "resources/read":
         params_r = raw.get("params")
         if not isinstance(params_r, dict):
-            return cast(dict[str, object], _make_error_response(
+            return _make_error_response(
                 request_id,
                 JSONRPC_ERR_INVALID_PARAMS,
                 "params must be an object for resources/read",
-            ))
+            )
         uri = params_r.get("uri")
         if not isinstance(uri, str) or not uri:
-            return cast(dict[str, object], _make_error_response(
+            return _make_error_response(
                 request_id,
                 JSONRPC_ERR_INVALID_PARAMS,
                 "params.uri must be a non-empty string",
-            ))
+            )
         try:
             resource_result = await read_resource(uri)
         except Exception as exc:
@@ -1560,15 +1559,15 @@ async def handle_request_async(
                 exc,
                 exc_info=True,
             )
-            return cast(dict[str, object], _make_error_response(
+            return _make_error_response(
                 request_id,
                 JSONRPC_ERR_INTERNAL_ERROR,
                 f"Internal error: {exc}",
-            ))
-        return cast(dict[str, object], _make_success_response(request_id, resource_result))
+            )
+        return _make_success_response(request_id, resource_result)
 
-    return cast(dict[str, object], _make_error_response(
+    return _make_error_response(
         request_id,
         JSONRPC_ERR_METHOD_NOT_FOUND,
         f"Method not found: {method!r}",
-    ))
+    )
