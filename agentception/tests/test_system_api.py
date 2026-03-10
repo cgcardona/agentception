@@ -27,7 +27,7 @@ def test_trigger_index_codebase_returns_202(client: TestClient) -> None:
     with patch(
         "agentception.routes.api.system.index_codebase",
         new_callable=AsyncMock,
-        return_value=IndexStats(ok=True, files_indexed=10, chunks_indexed=50, error=None),
+        return_value=IndexStats(ok=True, files_indexed=10, chunks_indexed=50, files_skipped=0, error=None),
     ):
         resp = client.post("/api/system/index-codebase")
 
@@ -45,7 +45,7 @@ def test_trigger_index_codebase_schedules_background_task(client: TestClient) ->
         nonlocal call_count
         call_count += 1
         # In real use this would take seconds; in test just record the call.
-        return IndexStats(ok=True, files_indexed=1, chunks_indexed=1, error=None)
+        return IndexStats(ok=True, files_indexed=1, chunks_indexed=1, files_skipped=0, error=None)
 
     with patch("agentception.routes.api.system.index_codebase", side_effect=slow_index):
         resp = client.post("/api/system/index-codebase")

@@ -21,15 +21,24 @@ Fusion (RRF) with k=60, a standard parameter that balances the contribution
 of both ranking methods. This ensures exact keyword matches (e.g., class names)
 rank highly while preserving semantic similarity for natural language queries.
 
+Incremental Indexing
+--------------------
+``index_codebase`` computes a SHA-256 content hash per file and stores it as
+``file_hash`` in each chunk's Qdrant payload.  On re-index, only files whose
+hash differs from the stored value (new, changed, or deleted) incur Qdrant
+writes.  Unchanged files are skipped entirely — zero Qdrant calls.  Pass
+``force_full=True`` to drop and rebuild the collection from scratch.
+
 Public API
 ----------
-``index_codebase(repo_path)``
+``index_codebase(repo_path, force_full=False)``
     Walk every readable source file in *repo_path*, chunk appropriately
     (AST for Python, character-level for others), embed with
     :data:`~agentception.config.settings.embed_model` (default
     ``BAAI/bge-small-en-v1.5``), compute BM25 sparse vectors, and upsert
     both to the Qdrant collection configured in
     :data:`~agentception.config.settings.qdrant_collection`.
+    Incremental by default — only changed/new/deleted files are processed.
 
 ``search_codebase(query, n_results)``
     Run hybrid search combining dense semantic and sparse BM25 retrieval,
@@ -89,6 +98,7 @@ class IndexStats(TypedDict):
     ok: bool
     files_indexed: int
     chunks_indexed: int
+    files_skipped: int
     error: str | None
 
 
@@ -229,6 +239,7 @@ class _ChunkSpec(TypedDict):
     start_line: int
     end_line: int
     symbol: str  # symbol name for AST chunks (e.g. "class Foo"); empty for char chunks
+    file_hash: str  # SHA-256 hex digest of the whole file; same value for every chunk of the same file
 
 
 def _chunk_file_ast(path: Path, repo_root: Path) -> list[_ChunkSpec]:
@@ -289,6 +300,7 @@ def _chunk_file_ast(path: Path, repo_root: Path) -> list[_ChunkSpec]:
                 start_line=start_line,
                 end_line=end_line,
                 symbol=f"{kind} {node.name}",
+                file_hash="",  # stamped by index_codebase after hashing the file
             )
         )
 
@@ -337,6 +349,7 @@ def _chunk_file_char(
                 start_line=start_line,
                 end_line=end_line,
                 symbol="",
+                file_hash="",  # stamped by index_codebase after hashing the file
             )
         )
         start += _CHUNK_SIZE - _CHUNK_OVERLAP
@@ -354,6 +367,72 @@ def _chunk_file(path: Path, repo_root: Path) -> list[_ChunkSpec]:
     if path.suffix == ".py":
         return _chunk_file_ast(path, repo_root)
     return _chunk_file_char(path, repo_root)
+
+
+# ── File hashing ─────────────────────────────────────────────────────────────
+
+
+def _compute_file_hash(path: Path) -> str:
+    """Return the SHA-256 hex digest of *path*'s contents.
+
+    Used to detect whether a file has changed since it was last indexed.
+    Returns an empty string when the file cannot be read (e.g. a race
+    condition between walking and hashing).
+    """
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return ""
+    return hashlib.sha256(data).hexdigest()
+
+
+async def _fetch_indexed_hashes(
+    client: "AsyncQdrantClient", collection: str
+) -> dict[str, str]:
+    """Return a mapping of ``{relative_file_path: file_hash}`` from Qdrant.
+
+    Scrolls through all points in *collection* and collects the ``file`` and
+    ``file_hash`` payload fields.  Points without a ``file_hash`` field are
+    ignored — they were indexed before this feature was introduced and will be
+    re-indexed on the next run.
+
+    Returns an empty dict when the collection does not exist or when Qdrant
+    is unreachable (the caller falls back to full re-indexing).
+    """
+    from qdrant_client.http.models import ExtendedPointId  # noqa: PLC0415
+
+    hashes: dict[str, str] = {}
+    offset: ExtendedPointId | None = None
+
+    try:
+        while True:
+            result = await client.scroll(
+                collection_name=collection,
+                scroll_filter=None,
+                limit=256,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            points, next_offset = result
+            for point in points:
+                payload = point.payload or {}
+                file_val = payload.get("file")
+                hash_val = payload.get("file_hash")
+                if isinstance(file_val, str) and isinstance(hash_val, str):
+                    # Last writer wins — all chunks for a file share the same hash.
+                    hashes[file_val] = hash_val
+            if next_offset is None:
+                break
+            offset = next_offset
+    except Exception as exc:
+        logger.warning(
+            "⚠️ code_indexer — could not fetch indexed hashes (will re-index all): %s",
+            exc,
+        )
+        return {}
+
+    return hashes
 
 
 # ── Qdrant helpers ────────────────────────────────────────────────────────────
@@ -411,6 +490,30 @@ async def _ensure_collection(client: "AsyncQdrantClient", collection: str) -> No
     )
 
 
+async def _delete_chunks_by_file(
+    client: "AsyncQdrantClient", collection: str, file_path: str
+) -> None:
+    """Delete all Qdrant points whose ``file`` payload matches *file_path*.
+
+    Used to remove stale chunks when a file changes or is deleted from disk.
+    """
+    from qdrant_client.models import (  # noqa: PLC0415
+        FieldCondition,
+        Filter,
+        FilterSelector,
+        MatchValue,
+    )
+
+    await client.delete(
+        collection_name=collection,
+        points_selector=FilterSelector(
+            filter=Filter(
+                must=[FieldCondition(key="file", match=MatchValue(value=file_path))]
+            )
+        ),
+    )
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 
@@ -419,8 +522,22 @@ async def index_codebase(
     *,
     qdrant_url: str | None = None,
     collection: str | None = None,
+    force_full: bool = False,
 ) -> IndexStats:
-    """Index every source file in *repo_path* into Qdrant.
+    """Index every source file in *repo_path* into Qdrant using hash-based incremental mode.
+
+    Incremental mode (default, ``force_full=False``): computes a SHA-256 content
+    hash per file and compares it with the stored ``file_hash`` payload field in
+    Qdrant.  Only files that are new, changed, or deleted incur Qdrant writes.
+    Unchanged files are skipped entirely — zero Qdrant calls.  The ``file_hash``
+    is stored in every chunk payload so subsequent runs can detect changes.
+    Changed files have their old chunks deleted before new chunks are upserted.
+    Files deleted from disk have all their chunks removed from Qdrant.
+
+    Force-full mode (``force_full=True``): drops the collection and rebuilds it
+    from scratch, regardless of stored hashes.  Use for explicit clean rebuilds
+    only — schema migration is handled by :func:`_ensure_collection` and is not
+    duplicated here.
 
     This is a long-running operation (seconds to minutes for large repos).
     Call it from a :class:`fastapi.BackgroundTasks` task so it does not block
@@ -431,6 +548,8 @@ async def index_codebase(
             ``settings.repo_dir``.
         qdrant_url: Override the Qdrant URL (useful in tests).
         collection: Override the collection name (useful in tests).
+        force_full: Drop and rebuild the collection from scratch when ``True``.
+            Defaults to ``False`` (incremental mode).
 
     Returns:
         :class:`IndexStats` with the number of files and chunks indexed,
@@ -449,15 +568,65 @@ async def index_codebase(
         files = _walk_files(root)
         logger.info("✅ code_indexer — found %d indexable files", len(files))
 
-        all_chunks: list[_ChunkSpec] = []
-        for f in files:
-            all_chunks.extend(_chunk_file(f, root))
-
-        logger.info("✅ code_indexer — %d chunks from %d files", len(all_chunks), len(files))
-
         client = AsyncQdrantClient(url=url)
         try:
+            if force_full:
+                # Drop the collection so _ensure_collection recreates it fresh.
+                collections_response = await client.get_collections()
+                existing = {c.name for c in collections_response.collections}
+                if coll in existing:
+                    logger.info(
+                        "✅ code_indexer — force_full: dropping collection '%s'", coll
+                    )
+                    await client.delete_collection(coll)
+
             await _ensure_collection(client, coll)
+
+            # Incremental: build file→hash map from Qdrant.
+            # Empty when force_full since the collection was just dropped.
+            indexed_hashes = (
+                {} if force_full else await _fetch_indexed_hashes(client, coll)
+            )
+
+            all_chunks: list[_ChunkSpec] = []
+            current_files: set[str] = set()
+            files_skipped = 0
+
+            for f in files:
+                rel = str(f.relative_to(root))
+                current_files.add(rel)
+                current_hash = _compute_file_hash(f)
+
+                if current_hash and indexed_hashes.get(rel) == current_hash:
+                    files_skipped += 1
+                    logger.debug("  skipping unchanged file: %s", rel)
+                    continue
+
+                # Changed file: delete stale chunks before upserting new ones.
+                if rel in indexed_hashes:
+                    await _delete_chunks_by_file(client, coll, rel)
+                    logger.debug("  deleted stale chunks for changed file: %s", rel)
+
+                chunks = _chunk_file(f, root)
+                # Stamp the file hash onto every chunk so it is stored in Qdrant.
+                for c in chunks:
+                    c["file_hash"] = current_hash
+                all_chunks.extend(chunks)
+
+            # Deleted files: present in Qdrant but no longer on disk.
+            for deleted_rel in set(indexed_hashes) - current_files:
+                await _delete_chunks_by_file(client, coll, deleted_rel)
+                logger.info(
+                    "✅ code_indexer — deleted chunks for removed file: %s", deleted_rel
+                )
+
+            files_indexed = len(files) - files_skipped
+            logger.info(
+                "✅ code_indexer — %d chunks from %d files (%d skipped as unchanged)",
+                len(all_chunks),
+                files_indexed,
+                files_skipped,
+            )
 
             # Embed and upsert in batches.
             for batch_start in range(0, len(all_chunks), _UPSERT_BATCH):
@@ -484,6 +653,7 @@ async def index_codebase(
                             "start_line": chunk["start_line"],
                             "end_line": chunk["end_line"],
                             "symbol": chunk["symbol"],
+                            "file_hash": chunk["file_hash"],
                         },
                     )
                     for chunk, dense_vec, sparse_vec in zip(batch, dense_vectors, sparse_vectors)
@@ -499,17 +669,25 @@ async def index_codebase(
 
     except Exception as exc:
         logger.exception("❌ code_indexer — indexing failed: %s", exc)
-        return IndexStats(ok=False, files_indexed=0, chunks_indexed=0, error=str(exc))
+        return IndexStats(
+            ok=False,
+            files_indexed=0,
+            chunks_indexed=0,
+            files_skipped=0,
+            error=str(exc),
+        )
 
     logger.info(
-        "✅ code_indexer — done: %d files, %d chunks",
-        len(files),
+        "✅ code_indexer — done: %d files indexed, %d skipped, %d chunks",
+        files_indexed,
+        files_skipped,
         len(all_chunks),
     )
     return IndexStats(
         ok=True,
-        files_indexed=len(files),
+        files_indexed=files_indexed,
         chunks_indexed=len(all_chunks),
+        files_skipped=files_skipped,
         error=None,
     )
 
