@@ -189,17 +189,17 @@ def test_parse_recon_json_with_markdown_fences() -> None:
     assert plan.files == ["a.py"]
 
 
-def test_parse_recon_json_caps_at_five() -> None:
+def test_parse_recon_json_caps_at_limits() -> None:
     from agentception.services.agent_loop import _parse_recon_json
 
     raw = json.dumps({
-        "files": [f"file{i}.py" for i in range(10)],
-        "searches": [f"query {i}" for i in range(10)],
+        "files": [f"file{i}.py" for i in range(20)],
+        "searches": [f"query {i}" for i in range(20)],
         "plan": "do lots",
     })
     plan = _parse_recon_json(raw)
     assert plan is not None
-    assert len(plan.files) == 5
+    assert len(plan.files) == 8   # cap raised to 8
     assert len(plan.searches) == 5
 
 
@@ -217,3 +217,35 @@ def test_parse_recon_json_json_in_prose() -> None:
     plan = _parse_recon_json(raw)
     assert plan is not None
     assert plan.files == ["x.py"]
+
+
+def test_extract_explicit_file_paths_finds_named_files() -> None:
+    from agentception.services.agent_loop import _extract_explicit_file_paths
+
+    text = (
+        "Modify `agentception/services/code_indexer.py` and add tests to "
+        "`agentception/tests/test_code_indexer.py`. Also see "
+        "docs/guides/setup.md for context."
+    )
+    paths = _extract_explicit_file_paths(text)
+    assert "agentception/services/code_indexer.py" in paths
+    assert "agentception/tests/test_code_indexer.py" in paths
+    assert "docs/guides/setup.md" in paths
+
+
+def test_extract_explicit_file_paths_deduplicates() -> None:
+    from agentception.services.agent_loop import _extract_explicit_file_paths
+
+    text = (
+        "Edit agentception/services/llm.py. Then edit agentception/services/llm.py again."
+    )
+    paths = _extract_explicit_file_paths(text)
+    assert paths.count("agentception/services/llm.py") == 1
+
+
+def test_extract_explicit_file_paths_ignores_unknown_trees() -> None:
+    from agentception.services.agent_loop import _extract_explicit_file_paths
+
+    text = "Look at /etc/hosts and /usr/bin/python3 — nothing from there."
+    paths = _extract_explicit_file_paths(text)
+    assert paths == []

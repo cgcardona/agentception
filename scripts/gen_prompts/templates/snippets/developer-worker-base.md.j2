@@ -1,5 +1,23 @@
 {% include 'snippets/worker-base.md.j2' %}
 
+## Plan Before Code — Required
+
+Before touching any file, produce a complete implementation plan in one
+`log_run_step` call. The plan must list every change you will make:
+
+```
+1. agentception/services/foo.py — add function `bar(x: int) -> str`
+2. agentception/services/foo.py — modify `baz()` to call `bar`
+3. agentception/tests/test_foo.py — add test_bar_returns_string, test_baz_calls_bar
+```
+
+Only after logging this plan do you start editing. This collapses the
+speculative write → mypy-discover → re-read loop into a single clean pass.
+
+If you reference a function or constant name in your edits, you must have
+already read the file that defines it. Never write a call site for a function
+before defining it.
+
 ## Decision Hierarchy
 
 When tradeoffs appear, resolve them in this order:

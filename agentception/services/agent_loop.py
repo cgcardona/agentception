@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import sys
 import time
 from pathlib import Path
@@ -659,7 +660,7 @@ Before any implementation, emit exactly ONE JSON object:
 
 ```json
 {
-  "files": ["<relative paths of files most likely to need editing or serve as patterns — max 5>"],
+  "files": ["<relative paths of files most likely to need editing or serve as patterns — max 8>"],
   "searches": ["<natural language queries for search_codebase — focus on patterns/helpers to copy — max 5>"],
   "plan": "<one sentence: your implementation approach>"
 }
@@ -668,9 +669,38 @@ Before any implementation, emit exactly ONE JSON object:
 Rules:
 - Output ONLY the JSON object, nothing else.
 - Do not implement anything yet.
-- Maximum 5 files and 5 searches.
+- Maximum 8 files and 5 searches.
 - Prefer files you know you will edit over files you are merely curious about.
+- Note: files explicitly mentioned in the issue body are pre-loaded automatically — do not repeat them unless you need additional context beyond what is already injected.
 """
+
+# Matches relative file paths that appear verbatim in issue text.
+# Covers agentception/, tests/, scripts/, docs/ trees and common extensions.
+_EXPLICIT_FILE_RE = re.compile(
+    r"\b((?:agentception|tests|scripts|docs)/[\w/.-]+\.(?:py|md|j2|yaml|yml|ts|scss|html))\b"
+)
+
+# Characters to include per file in the recon bundle.
+# 25 000 chars ≈ 600–700 lines — covers most source files completely.
+_RECON_FILE_CHAR_LIMIT = 25_000
+
+
+def _extract_explicit_file_paths(text: str) -> list[str]:
+    """Return deduplicated relative file paths mentioned verbatim in *text*.
+
+    Scans for paths matching ``agentception/…``, ``tests/…``, ``scripts/…``, or
+    ``docs/…`` with a recognised extension.  Order is preserved; duplicates are
+    removed.  Results are validated against the project root so phantom paths do
+    not consume recon slots.
+    """
+    seen: set[str] = set()
+    paths: list[str] = []
+    for match in _EXPLICIT_FILE_RE.finditer(text):
+        p = match.group(1)
+        if p not in seen:
+            seen.add(p)
+            paths.append(p)
+    return paths
 
 
 class _ReconPlan:
@@ -715,7 +745,7 @@ def _parse_recon_json(raw: str) -> _ReconPlan | None:
     plan_raw = data.get("plan", "")
 
     files: list[str] = (
-        [f for f in files_raw if isinstance(f, str)][:5]
+        [f for f in files_raw if isinstance(f, str)][:8]
         if isinstance(files_raw, list)
         else []
     )
@@ -752,13 +782,26 @@ async def _run_recon_phase(
     """
     # Grab the task briefing text from the initial message.
     task_text_raw = messages[0].get("content", "") if messages else ""
-    task_text = str(task_text_raw)[:4_000]  # cap for the planning prompt
+    task_text = str(task_text_raw)[:6_000]  # cap for the planning prompt
+
+    # ── Step 0: auto-detect explicitly named files in the task text ──────────
+    # File paths written verbatim in the issue body (e.g. "agentception/services/
+    # code_indexer.py") are loaded in full before the LLM planning call.  This
+    # eliminates the 10-20 read_file_lines iterations the agent would otherwise
+    # spend reconstructing the same content piecemeal.
+    explicit_files = _extract_explicit_file_paths(task_text)
+    if explicit_files:
+        logger.info(
+            "✅ recon: auto-detected %d explicit file(s) from task text: %s",
+            len(explicit_files),
+            explicit_files,
+        )
 
     try:
         raw_plan = await call_anthropic(
             task_text,
             system_prompt=system_prompt + _RECON_SYSTEM_ADDENDUM,
-            max_tokens=400,
+            max_tokens=500,
             temperature=0.0,
         )
     except Exception as exc:  # noqa: BLE001
@@ -770,9 +813,20 @@ async def _run_recon_phase(
         logger.warning("⚠️ recon phase: could not parse plan from LLM response")
         return
 
+    # Merge explicit files (first priority) with LLM-planned files, deduplicated,
+    # cap at 8 total so the bundle stays within context window limits.
+    seen_files: set[str] = set()
+    merged_files: list[str] = []
+    for f in explicit_files + plan.files:
+        if f not in seen_files and len(merged_files) < 8:
+            seen_files.add(f)
+            merged_files.append(f)
+    plan = _ReconPlan(files=merged_files, searches=plan.searches, plan=plan.plan)
+
     logger.info(
-        "✅ recon: files=%d searches=%d — %s",
+        "✅ recon: files=%d (incl. %d explicit) searches=%d — %s",
         len(plan.files),
+        len(explicit_files),
         len(plan.searches),
         plan.plan,
     )
@@ -783,15 +837,18 @@ async def _run_recon_phase(
         path = worktree_path / rel_path
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
-            return text[:4_000]  # cap per file in the bundle
+            # Load full file up to _RECON_FILE_CHAR_LIMIT so the agent starts
+            # with complete source rather than a truncated slice that forces
+            # piecemeal re-reading across many subsequent iterations.
+            return text[:_RECON_FILE_CHAR_LIMIT]
         except OSError:
             return None
 
     async def _search_one(query: str) -> list[dict[str, object]]:
         try:
-            results = await search_codebase(query, 3)
+            results = await search_codebase(query, 5)
             return [
-                {"file": m["file"], "chunk": m["chunk"][:600], "score": m["score"]}
+                {"file": m["file"], "chunk": m["chunk"][:800], "score": m["score"]}
                 for m in results
             ]
         except Exception:  # noqa: BLE001
