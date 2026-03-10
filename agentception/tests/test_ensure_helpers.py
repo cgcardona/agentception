@@ -73,6 +73,40 @@ async def test_ensure_worktree_raises_on_git_failure(tmp_path: Path) -> None:
             await ensure_worktree(worktree_path, branch, base_ref)
 
 
+@pytest.mark.anyio
+async def test_ensure_worktree_reset_removes_stale_dir_and_branch(tmp_path: Path) -> None:
+    """ensure_worktree with reset=True tears down any existing dir/branch before recreating."""
+    worktree_path = tmp_path / "issue-123"
+    worktree_path.mkdir(parents=True)
+    branch = "feat/issue-123"
+    base_ref = "origin/dev"
+
+    success_proc = AsyncMock()
+    success_proc.returncode = 0
+    success_proc.communicate.return_value = (b"", b"")
+
+    calls: list[list[str]] = []
+
+    async def capture_proc(*args: str, **kwargs: object) -> AsyncMock:
+        calls.append(list(args))
+        return success_proc
+
+    with (
+        patch("agentception.readers.git._git", new_callable=AsyncMock, return_value="  feat/issue-123"),
+        patch("agentception.readers.git.asyncio.create_subprocess_exec", side_effect=capture_proc),
+        patch("agentception.readers.git.shutil.rmtree"),
+    ):
+        result = await ensure_worktree(worktree_path, branch, base_ref, reset=True)
+
+    assert result is True
+    # git calls are: ("git", "-C", repo, verb, subcommand, ...)
+    # Extract (verb, subcommand) pairs — indices 3 and 4.
+    cmd_verbs = [tuple(c[3:5]) for c in calls if len(c) >= 5]
+    assert ("worktree", "remove") in cmd_verbs, f"Expected worktree remove in {cmd_verbs}"
+    assert ("branch", "-D") in cmd_verbs, f"Expected branch -D in {cmd_verbs}"
+    assert ("worktree", "add") in cmd_verbs, f"Expected worktree add in {cmd_verbs}"
+
+
 # ---------------------------------------------------------------------------
 # ensure_branch
 # ---------------------------------------------------------------------------
@@ -239,7 +273,7 @@ async def test_dispatch_reviewer_fetches_pr_branch_and_uses_it_as_base(tmp_path:
 
     captured_base: list[str] = []
 
-    async def mock_ensure_worktree(path: Path, branch: str, base: str = "origin/dev") -> bool:
+    async def mock_ensure_worktree(path: Path, branch: str, base: str = "origin/dev", reset: bool = False) -> bool:
         captured_base.append(base)
         return True
 
@@ -284,7 +318,7 @@ async def test_dispatch_implementer_uses_origin_dev_as_base(tmp_path: Path) -> N
 
     captured_base: list[str] = []
 
-    async def mock_ensure_worktree(path: Path, branch: str, base: str = "origin/dev") -> bool:
+    async def mock_ensure_worktree(path: Path, branch: str, base: str = "origin/dev", reset: bool = False) -> bool:
         captured_base.append(base)
         return True
 
@@ -335,7 +369,7 @@ async def test_dispatch_reviewer_pr_branch_override_respected(tmp_path: Path) ->
     captured_bases: list[str] = []
     captured_branches: list[str] = []
 
-    async def mock_ensure_worktree(path: Path, branch: str, base: str = "origin/dev") -> bool:
+    async def mock_ensure_worktree(path: Path, branch: str, base: str = "origin/dev", reset: bool = False) -> bool:
         captured_bases.append(base)
         captured_branches.append(branch)
         return True
@@ -438,7 +472,7 @@ async def test_dispatch_resets_stale_working_memory_on_redispatch(tmp_path: Path
     )
     write_memory(worktree_path, stale)
 
-    async def mock_ensure_worktree(path: Path, branch: str, base: str = "origin/dev") -> bool:
+    async def mock_ensure_worktree(path: Path, branch: str, base: str = "origin/dev", reset: bool = False) -> bool:
         return True  # worktree "already exists" — no-op
 
     with (
@@ -675,7 +709,7 @@ async def test_dispatch_agent_seeds_next_steps_from_ac_items(tmp_path: Path) -> 
     worktree_path = tmp_path / "worktrees" / "issue-77"
     worktree_path.mkdir(parents=True)
 
-    async def mock_ensure_worktree(path: Path, branch: str, base: str = "origin/dev") -> bool:
+    async def mock_ensure_worktree(path: Path, branch: str, base: str = "origin/dev", reset: bool = False) -> bool:
         return True
 
     issue_body = (

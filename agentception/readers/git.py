@@ -17,6 +17,7 @@ Public API:
 import asyncio
 import logging
 import re
+import shutil
 import time
 from pathlib import Path
 
@@ -299,14 +300,28 @@ async def ensure_branch(branch: str, base: str = "origin/dev") -> bool:
     return True
 
 
-async def ensure_worktree(worktree_path: Path, branch: str, base: str = "origin/dev") -> bool:
-    """Create git worktree only if it does not already exist.
+async def ensure_worktree(
+    worktree_path: Path,
+    branch: str,
+    base: str = "origin/dev",
+    reset: bool = False,
+) -> bool:
+    """Create git worktree, optionally resetting any stale state first.
 
-    Handles three cases:
-    1. Both worktree dir and branch exist — return ``False`` (no-op, fully idempotent).
-    2. Branch exists but worktree dir does not (e.g. after bad teardown) — use
-       ``git worktree add <path> <branch>`` (no ``-b`` flag). Return ``True``.
-    3. Neither exists — use ``git worktree add -b <branch> <path> <base>``. Return ``True``.
+    Handles four cases:
+
+    1. Both worktree dir and branch exist, ``reset=False`` — no-op, fully
+       idempotent.  Returns ``False``.
+    2. Both worktree dir and branch exist, ``reset=True`` — tear down the
+       existing worktree and branch, then recreate fresh from *base*.  Returns
+       ``True``.  Use this for re-dispatches so the executor always starts from
+       a clean ``origin/dev`` and never duplicates prior commits.
+    3. Branch exists but worktree dir does not, ``reset=False`` — reattach
+       without ``-b``.  Returns ``True``.
+    4. Branch exists but worktree dir does not, ``reset=True`` — delete the
+       stale branch first, then create fresh from *base*.  Returns ``True``.
+    5. Neither exists — ``git worktree add -b <branch> <path> <base>``.
+       Returns ``True``.
 
     Parameters
     ----------
@@ -315,12 +330,18 @@ async def ensure_worktree(worktree_path: Path, branch: str, base: str = "origin/
     branch:
         Branch name for the worktree (e.g. ``"feat/issue-123"``).
     base:
-        Base ref to branch from when creating a new branch (default: ``"origin/dev"``).
+        Base ref to branch from when creating a new branch (default:
+        ``"origin/dev"``).
+    reset:
+        When ``True``, any existing worktree directory or local branch is torn
+        down before (re)creating from *base*.  Use for re-dispatches.  When
+        ``False`` (default), the function is fully idempotent.
 
     Returns
     -------
     bool
-        ``True`` if the worktree was created, ``False`` if it already existed.
+        ``True`` if the worktree was created (or recreated), ``False`` if it
+        already existed and ``reset=False``.
 
     Raises
     ------
@@ -333,23 +354,62 @@ async def ensure_worktree(worktree_path: Path, branch: str, base: str = "origin/
     This function does NOT configure worktree auth. Callers must still call
     ``_configure_worktree_auth()`` separately after this returns ``True``.
     """
-    # Case 1: Worktree directory already exists — assume fully configured
-    if worktree_path.exists():
+    repo = str(settings.repo_dir)
+
+    dir_exists = worktree_path.exists()
+
+    # Fast path: directory exists and no reset requested — fully idempotent.
+    if dir_exists and not reset:
         logger.debug("Worktree %s already exists — skipping creation", worktree_path)
         return False
 
-    # Check if branch exists
     existing_branch = await _git(["branch", "--list", branch])
     branch_exists = bool(existing_branch.strip())
 
-    repo = str(settings.repo_dir)
+    # -----------------------------------------------------------------------
+    # Reset path: tear down whatever exists so we start clean from base.
+    # -----------------------------------------------------------------------
+    if reset and (dir_exists or branch_exists):
+        if dir_exists:
+            # Remove the worktree linkage and the directory.
+            rm_proc = await asyncio.create_subprocess_exec(
+                "git", "-C", repo, "worktree", "remove", "--force", str(worktree_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await rm_proc.communicate()
+            # If git worktree remove left the dir, wipe it.
+            if worktree_path.exists():
+                shutil.rmtree(worktree_path, ignore_errors=True)
+            logger.info("✅ ensure_worktree: removed stale worktree %s for reset", worktree_path)
+
+        if branch_exists:
+            del_proc = await asyncio.create_subprocess_exec(
+                "git", "-C", repo, "branch", "-D", branch,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await del_proc.communicate()
+            logger.info("✅ ensure_worktree: deleted stale branch %s for reset", branch)
+
+        # Prune stale worktree refs.
+        prune_proc = await asyncio.create_subprocess_exec(
+            "git", "-C", repo, "worktree", "prune",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await prune_proc.communicate()
+
+        dir_exists = False
+        branch_exists = False
+
     worktree_path.parent.mkdir(parents=True, exist_ok=True)
 
     if branch_exists:
-        # Case 2: Branch exists but worktree dir does not — add without -b
+        # Branch exists but worktree dir does not — reattach without -b.
         cmd = ["git", "-C", repo, "worktree", "add", str(worktree_path), branch]
     else:
-        # Case 3: Neither exists — create branch and worktree together
+        # Neither exists — create branch and worktree together from base.
         cmd = ["git", "-C", repo, "worktree", "add", "-b", branch, str(worktree_path), base]
 
     proc = await asyncio.create_subprocess_exec(
