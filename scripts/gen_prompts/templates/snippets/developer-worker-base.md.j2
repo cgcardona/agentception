@@ -74,16 +74,10 @@ body = "## Summary\n...\n\nCloses #<ISSUE_NUMBER>\n\n<CLAIM_FINGERPRINT>"
 
 - If you spawn a PR reviewer: the reviewer's outcome comment is the terminal event.
   One issue thread, two agents, two fingerprints, one outcome comment.
-- If you do not spawn a reviewer and the PR is merged by no other agent: close
-  the issue yourself (see below). Still no extra issue comment.
+- If no reviewer is spawned: your work ends when the PR is created. Do NOT close
+  the issue. The issue is closed by whoever merges the PR (reviewer or human).
 
-**Close the issue explicitly** — GitHub only auto-closes issues when a PR is merged
-into the repository's default branch (`main`). This repo merges into `dev`, so
-auto-close never fires. Whoever merges the PR must close the issue:
-
-```
-issue_write(method="update", owner=<OWNER>, repo=<REPO>, issue_number=<ISSUE_NUMBER>,
-            state="closed", state_reason="completed")
-```
-
-If a reviewer is spawned, the reviewer closes the issue after merging — you do not.
+**Never close the issue yourself.** The developer's job ends at PR creation.
+Issue closure belongs to the merge event — either the reviewer closes it after
+merging, or a human does. Calling `issue_write(state="closed")` from a developer
+agent is a bug.
