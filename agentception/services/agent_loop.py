@@ -100,6 +100,61 @@ if str(_RESOLVE_ARCH_DIR) not in sys.path:
 # Hard cap on conversation turns.  Each iteration is one LLM call.
 _DEFAULT_MAX_ITERATIONS = 100
 
+# ---------------------------------------------------------------------------
+# Loop guard — runtime enforcement for write-first behaviour
+# ---------------------------------------------------------------------------
+
+# Tools that constitute a "code write" for loop-guard purposes.
+# Any iteration containing at least one of these resets the no-write counter.
+_WRITE_TOOL_NAMES: frozenset[str] = frozenset({
+    "replace_in_file",
+    "write_file",
+    "insert_after_in_file",
+    "git_commit_and_push",
+})
+
+# Tools whose arguments carry a search query we want to track for
+# repeated symbol searches (symbol-absence heuristic).
+_SEARCH_TOOL_NAMES: frozenset[str] = frozenset({
+    "search_codebase",
+    "search_text",
+})
+
+# How many consecutive no-write iterations trigger the loop-guard injection.
+_LOOP_GUARD_THRESHOLD: int = 3
+
+# Injected as an additional system block when the agent has not written code
+# for _LOOP_GUARD_THRESHOLD iterations.  Plain text — no Markdown headers so
+# it reads as an urgent runtime message, not a documentation section.
+_LOOP_GUARD_OVERRIDE = """\
+⚠️  LOOP GUARD — {n} ITERATIONS WITHOUT WRITING CODE
+
+You are in a reconnaissance loop. The runtime has detected this.
+
+Your only valid next action is to write a file. Right now, in this response.
+
+Do not call read_file. Do not call search_codebase. Do not call log_run_step alone.
+Do not call update_working_memory alone. None of those advance the work.
+
+Action: open your next_steps. Take the first item. Write the minimal implementation
+using write_file or replace_in_file. If the symbol it references does not exist
+in the codebase, create it — that absence IS the task.
+
+Every response from this point forward must include at least one write tool call.
+"""
+
+# Injected when the agent has searched for the same query twice.
+# Signals that the symbol does not exist and the agent must create it.
+_SYMBOL_ABSENCE_OVERRIDE = """\
+⚠️  SYMBOL ABSENCE — "{query}" NOT FOUND AFTER REPEATED SEARCH
+
+You have searched for this term more than once. It does not exist in the codebase.
+
+Stop searching. Create it. Write the minimal implementation now.
+A new class, function, or field written incorrectly and then fixed is faster
+than searching a third time for something that was never there.
+"""
+
 # Per-tool character limits applied before tool results enter history.
 # File-read outputs can be 10-50k chars; search outputs 5-15k.  Applying a
 # single flat cap of 3k was the root cause of agents re-reading files they
@@ -247,6 +302,17 @@ async def run_agent_loop(
     # message.  This collapses 5-10 discovery turns into a zero-turn warm-up.
     await _run_recon_phase(run_id, worktree_path, messages, system_prompt)
 
+    # Loop-guard state — reset by any write tool call, incremented every
+    # iteration that produces only reads/searches/memory-updates.
+    iterations_since_write: int = 0
+    # Maps normalised search query → how many times it has been used this run.
+    # When a query appears >= 2 times the symbol is declared absent and the
+    # agent is instructed to create it rather than search again.
+    search_query_counts: dict[str, int] = {}
+    # Tracks which absent symbols have already triggered an injection so we
+    # don't spam the same message every subsequent iteration.
+    symbol_absence_injected: set[str] = set()
+
     for iteration in range(1, max_iterations + 1):
         await log_run_step(
             issue_number,
@@ -283,6 +349,30 @@ async def run_agent_loop(
         extra_blocks: list[dict[str, object]] = []
         if memory:
             extra_blocks.append({"type": "text", "text": render_memory(memory)})
+
+        # Loop-guard injection — fires when the agent has not written any code
+        # for _LOOP_GUARD_THRESHOLD consecutive iterations.  The override is an
+        # additional system block (not a user message) so it does not break the
+        # user/assistant alternation invariant and is always visible regardless
+        # of history pruning.
+        if iteration > _LOOP_GUARD_THRESHOLD and iterations_since_write >= _LOOP_GUARD_THRESHOLD:
+            override_text = _LOOP_GUARD_OVERRIDE.format(n=iterations_since_write)
+            extra_blocks.append({"type": "text", "text": override_text})
+            logger.warning(
+                "⚠️ loop_guard fired — run_id=%s iteration=%d iterations_since_write=%d",
+                run_id, iteration, iterations_since_write,
+            )
+
+        # Symbol-absence injection — fires once per repeated search query.
+        for query, count in search_query_counts.items():
+            if count >= 2 and query not in symbol_absence_injected:
+                absence_text = _SYMBOL_ABSENCE_OVERRIDE.format(query=query)
+                extra_blocks.append({"type": "text", "text": absence_text})
+                symbol_absence_injected.add(query)
+                logger.warning(
+                    "⚠️ symbol_absence fired — run_id=%s query=%r count=%d",
+                    run_id, query, count,
+                )
 
         try:
             bounded = _prune_history(_truncate_tool_results(messages))
@@ -328,6 +418,31 @@ async def run_agent_loop(
                 github_tool_names=github_tool_names,
             )
             messages.extend(tool_results)
+
+            # Loop-guard bookkeeping: track writes and repeated searches.
+            tool_names_this_iter: set[str] = {
+                tc["function"]["name"] for tc in response["tool_calls"]
+            }
+            if tool_names_this_iter & _WRITE_TOOL_NAMES:
+                iterations_since_write = 0
+            else:
+                iterations_since_write += 1
+
+            # Accumulate search queries for symbol-absence detection.
+            for tc in response["tool_calls"]:
+                if tc["function"]["name"] not in _SEARCH_TOOL_NAMES:
+                    continue
+                try:
+                    tc_args: dict[str, object] = json.loads(tc["function"]["arguments"])
+                    raw_query = tc_args.get("query", tc_args.get("pattern", ""))
+                    query_str = str(raw_query).strip()[:100]
+                    if query_str:
+                        search_query_counts[query_str] = (
+                            search_query_counts.get(query_str, 0) + 1
+                        )
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+
             continue
 
         # Unexpected stop reason (e.g. "length").
