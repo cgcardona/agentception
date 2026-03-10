@@ -1010,6 +1010,7 @@ async def persist_agent_run_dispatch(
                     run_id, existing.status,
                 )
                 existing.status = "pending_launch"
+                existing.role = role  # always update — role may change (e.g. developer → executor)
                 existing.spawn_mode = spawn_mode_json
                 # Reset spawned_at so the pending_launch TTL sweep (15 min window)
                 # does not immediately re-fail a re-dispatched run whose original
