@@ -781,3 +781,129 @@ class TestTerminalStateGuard:
         mock_llm.assert_not_called()
         # The loop exits gracefully without re-cancelling.
         mock_cancel.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Type-aware truncation — _build_tool_id_map + _truncate_tool_results
+# ---------------------------------------------------------------------------
+
+
+def test_build_tool_id_map_extracts_tool_names() -> None:
+    """_build_tool_id_map should produce id → name for every tool_call in history."""
+    from agentception.services.agent_loop import _build_tool_id_map
+
+    messages: list[dict[str, object]] = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "tc_1", "type": "function", "function": {"name": "read_file", "arguments": "{}"}},
+                {"id": "tc_2", "type": "function", "function": {"name": "run_command", "arguments": "{}"}},
+            ],
+        },
+        {"role": "tool", "tool_call_id": "tc_1", "content": "file content"},
+        {"role": "tool", "tool_call_id": "tc_2", "content": "cmd output"},
+    ]
+    mapping = _build_tool_id_map(messages)
+    assert mapping == {"tc_1": "read_file", "tc_2": "run_command"}
+
+
+def test_build_tool_id_map_ignores_non_assistant_messages() -> None:
+    from agentception.services.agent_loop import _build_tool_id_map
+
+    messages: list[dict[str, object]] = [
+        {"role": "user", "content": "hello"},
+        {"role": "tool", "tool_call_id": "tc_1", "content": "result"},
+    ]
+    assert _build_tool_id_map(messages) == {}
+
+
+def test_truncate_applies_generous_limit_for_read_file() -> None:
+    """read_file results are truncated at 12 000 chars (not the old 3 000 limit)."""
+    from agentception.services.agent_loop import _truncate_tool_results
+
+    big_content = "x" * 20_000
+    messages: list[dict[str, object]] = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "tc_1", "type": "function", "function": {"name": "read_file", "arguments": "{}"}},
+            ],
+        },
+        {"role": "tool", "tool_call_id": "tc_1", "content": big_content},
+    ]
+    result = _truncate_tool_results(messages)
+    tool_msg = next(m for m in result if m.get("role") == "tool")
+    content = tool_msg["content"]
+    assert isinstance(content, str)
+    assert "truncated" in content
+    # Should preserve the first 12 000 chars and truncate the rest.
+    assert content.startswith("x" * 12_000)
+    # Must not reach the old 3 000 limit pattern (confirm generous limit applied).
+    assert len(content) > 3_000
+
+
+def test_truncate_applies_tight_limit_for_unknown_tool() -> None:
+    """Unknown tool names use the default 3 000-char cap."""
+    from agentception.services.agent_loop import _truncate_tool_results
+
+    big_content = "y" * 4_000
+    messages: list[dict[str, object]] = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "tc_x", "type": "function", "function": {"name": "some_mcp_tool", "arguments": "{}"}},
+            ],
+        },
+        {"role": "tool", "tool_call_id": "tc_x", "content": big_content},
+    ]
+    result = _truncate_tool_results(messages)
+    tool_msg = next(m for m in result if m.get("role") == "tool")
+    content = tool_msg["content"]
+    assert isinstance(content, str)
+    assert content.startswith("y" * 3_000)
+    assert "truncated" in content
+
+
+def test_truncate_does_not_modify_short_content() -> None:
+    """Results under the per-tool limit are passed through unchanged."""
+    from agentception.services.agent_loop import _truncate_tool_results
+
+    messages: list[dict[str, object]] = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "tc_1", "type": "function", "function": {"name": "read_file", "arguments": "{}"}},
+            ],
+        },
+        {"role": "tool", "tool_call_id": "tc_1", "content": "short content"},
+    ]
+    result = _truncate_tool_results(messages)
+    tool_msg = next(m for m in result if m.get("role") == "tool")
+    assert tool_msg["content"] == "short content"
+
+
+def test_truncate_search_codebase_limit() -> None:
+    """search_codebase results get 8 000-char limit (between read_file and default)."""
+    from agentception.services.agent_loop import _truncate_tool_results
+
+    big_content = "s" * 9_000
+    messages: list[dict[str, object]] = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "tc_s", "type": "function", "function": {"name": "search_codebase", "arguments": "{}"}},
+            ],
+        },
+        {"role": "tool", "tool_call_id": "tc_s", "content": big_content},
+    ]
+    result = _truncate_tool_results(messages)
+    tool_msg = next(m for m in result if m.get("role") == "tool")
+    content = tool_msg["content"]
+    assert isinstance(content, str)
+    assert content.startswith("s" * 8_000)
+    assert "truncated" in content

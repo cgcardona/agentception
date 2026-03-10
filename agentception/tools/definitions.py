@@ -330,8 +330,10 @@ SEARCH_CODEBASE_TOOL_DEF: ToolDefinition = ToolDefinition(
             "The index covers every .py, .md, .j2, .yaml, .toml, .json file in the repo. "
             "Call this BEFORE any grep, rg, cat, or read_file_lines when you need to "
             "locate a class, function, pattern, or concept. "
-            "The results include exact file paths and line numbers — use read_file_lines "
-            "to fetch only that specific range, never the whole file. "
+            "Results include the matched code block with its file path and line numbers. "
+            "READ THE CHUNK CONTENT DIRECTLY — it already contains the relevant code. "
+            "DO NOT follow up with read_file_lines on the same region; the chunk is the code. "
+            "Only use read_file_lines if you need lines adjacent to the matched region. "
             "Examples of what to search: 'where is AgentStatus defined', "
             "'how does the poller detect stalled agents', 'pattern for adding a persist helper', "
             "'alembic migration that adds a column'. "
@@ -364,6 +366,66 @@ SEARCH_CODEBASE_TOOL_DEF: ToolDefinition = ToolDefinition(
                 },
             },
             "required": ["query"],
+            "additionalProperties": False,
+        },
+    ),
+)
+
+UPDATE_WORKING_MEMORY_TOOL_DEF: ToolDefinition = ToolDefinition(
+    type="function",
+    function=ToolFunction(
+        name="update_working_memory",
+        description=(
+            "Update your persistent working memory — a structured scratch-pad that "
+            "survives history pruning and is injected fresh into every turn. "
+            "Call this IMMEDIATELY after any discovery so you never lose a finding. "
+            "Call it BEFORE complex reasoning to record your plan and next steps. "
+            "Only supply the fields you want to change; others are preserved. "
+            "The 'findings' dict is union-merged so you can add individual keys. "
+            "Use 'files_examined' to record every file you read so you can skip re-reads. "
+            "Memory is rendered in your system context at the start of every turn."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "plan": {
+                    "type": "string",
+                    "description": "High-level implementation plan for this session.",
+                },
+                "files_examined": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Complete list of file paths you have read or examined. "
+                        "Replaces the stored list — include all files, not just new ones."
+                    ),
+                },
+                "findings": {
+                    "type": "object",
+                    "additionalProperties": {"type": "string"},
+                    "description": (
+                        "Key/value findings to record. Keys are file paths or topic slugs; "
+                        "values are short notes. Merged into existing findings — "
+                        "you only need to supply new or updated entries."
+                    ),
+                },
+                "decisions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Architecture or approach decisions locked in this session.",
+                },
+                "next_steps": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Ordered queue of remaining work items (replaces stored list).",
+                },
+                "blockers": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Anything blocking progress. Clear when resolved.",
+                },
+            },
+            "required": [],
             "additionalProperties": False,
         },
     ),
