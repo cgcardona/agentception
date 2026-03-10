@@ -121,7 +121,9 @@ _SEARCH_TOOL_NAMES: frozenset[str] = frozenset({
 })
 
 # How many consecutive no-write iterations trigger the loop-guard.
-_LOOP_GUARD_THRESHOLD: int = 3
+# Set to 2: with files pre-loaded in the task briefing, the agent has no
+# legitimate reason to spend more than one iteration doing reads before writing.
+_LOOP_GUARD_THRESHOLD: int = 2
 
 # When the loop guard fires, the tool palette switches to an ALLOWLIST:
 # only write tools and a minimal set of essential non-read tools remain.
@@ -134,9 +136,11 @@ _GUARD_PERMITTED_TOOL_NAMES: frozenset[str] = frozenset({
     "replace_in_file",
     "insert_after_in_file",
     "git_commit_and_push",
-    # Bookkeeping — safe, low-cost, non-read.
+    # update_working_memory is allowed so the agent can record progress.
+    # log_run_step is intentionally excluded: calling it alone is bookkeeping
+    # overhead, not work.  If the agent's only response is log_run_step, the
+    # guard should stay active until it writes something real.
     "update_working_memory",
-    "log_run_step",
     # Terminal actions — the agent may create the PR or cancel from guard mode.
     "build_complete_run",
     "build_cancel_run",
@@ -153,12 +157,12 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset()
 _LOOP_GUARD_OVERRIDE = """\
 ⚠️  LOOP GUARD — {n} ITERATIONS WITHOUT WRITING CODE
 
-Read-only tools (read_file, search_codebase, list_directory, etc.) have been
-removed from your tool palette for this iteration. You can only call write tools.
+The files you need are already in your task briefing under "Pre-loaded Files".
+Read-only tools have been removed. You can only call write tools right now.
 
-Take the first item from your acceptance criteria. Write the minimal
-implementation using write_file or replace_in_file. If the symbol does not
-exist in the codebase, create it — absence is the task, not a blocker.
+Take the first uncompleted item from your next_steps. Write the implementation
+using write_file or replace_in_file. If the symbol does not exist, create it —
+absence is the task, not a blocker. Writing resets this guard.
 """
 
 # Injected when the agent has searched for the same query twice.

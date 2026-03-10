@@ -123,6 +123,12 @@ _AC_CHECKBOX_RE = re.compile(r"^-\s+\[[ xX]\]\s+(.+)$")
 _SECTION_HEADER_RE = re.compile(r"^#{1,3}\s+")
 # Matches the acceptance criteria section header (case-insensitive)
 _AC_HEADER_RE = re.compile(r"^#{1,3}\s+acceptance criteria", re.IGNORECASE)
+# Matches file paths with at least one slash, e.g. agentception/db/models.py
+_AC_FILE_PATH_RE = re.compile(r"`([a-zA-Z0-9_./-]+\.[a-zA-Z]+)`")
+
+# Max lines to inject per file.  Beyond this, the tail is truncated with a
+# notice — the agent can always read_file_lines for deeper context if needed.
+_AC_FILE_MAX_LINES: int = 250
 
 
 def _extract_ac_items(issue_body: str) -> list[str]:
@@ -153,6 +159,76 @@ def _extract_ac_items(issue_body: str) -> list[str]:
                 ac_items.append(f"AC: {m.group(1).strip()}")
 
     return ac_items
+
+
+def _extract_ac_file_paths(issue_body: str) -> list[str]:
+    """Return unique file paths (with at least one slash) mentioned in AC items.
+
+    Scans every backtick-quoted token in the issue body for tokens that look
+    like relative file paths (contain ``/`` and an extension).  Deduplicates
+    and sorts so the order is deterministic across runs.
+
+    Examples of matches:
+        ``agentception/db/models.py``
+        ``agentception/alembic/versions/0009_add_contract_hash.py``
+        ``agentception/README.md``
+    """
+    paths: set[str] = set()
+    for match in _AC_FILE_PATH_RE.finditer(issue_body):
+        candidate = match.group(1)
+        if "/" in candidate:
+            paths.add(candidate)
+    return sorted(paths)
+
+
+def _build_ac_file_sections(worktree_path: Path, file_paths: list[str]) -> list[str]:
+    """Read each AC-mentioned file from *worktree_path* and return Markdown sections.
+
+    For files that exist: inject up to ``_AC_FILE_MAX_LINES`` lines with a
+    truncation notice when the file is longer.
+
+    For files that do not yet exist (e.g. a new Alembic migration): list the
+    most-recent sibling files in the same directory so the agent knows the
+    naming convention and can write the new file without any discovery reads.
+    """
+    sections: list[str] = []
+    for rel_path in file_paths:
+        full_path = worktree_path / rel_path
+        if full_path.exists() and full_path.is_file():
+            try:
+                raw_lines = full_path.read_text(encoding="utf-8").splitlines()
+            except OSError:
+                continue
+            total = len(raw_lines)
+            head = raw_lines[:_AC_FILE_MAX_LINES]
+            suffix = (
+                f"\n... ({total - _AC_FILE_MAX_LINES} more lines — use read_file_lines for the rest)"
+                if total > _AC_FILE_MAX_LINES
+                else ""
+            )
+            lang = "python" if rel_path.endswith(".py") else ""
+            sections.append(
+                f"### `{rel_path}` ({total} lines)\n"
+                f"```{lang}\n"
+                + "\n".join(head)
+                + suffix
+                + "\n```"
+            )
+        else:
+            # File doesn't exist — show the parent directory listing so the
+            # agent knows the naming convention (e.g. Alembic migration numbers).
+            parent = full_path.parent
+            if parent.exists():
+                siblings = sorted(p.name for p in parent.iterdir() if p.is_file())
+                if siblings:
+                    listing = "\n".join(siblings[-8:])
+                    sections.append(
+                        f"### `{rel_path}` (file does not exist yet)\n"
+                        f"Existing files in `{parent.relative_to(worktree_path)}`:\n"
+                        f"```\n{listing}\n```"
+                    )
+    return sections
+
 
 # ---------------------------------------------------------------------------
 # GET /api/dispatch/context — label context for the launch modal
@@ -520,6 +596,29 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
                     )
         except Exception as exc:  # noqa: BLE001
             logger.warning("⚠️ dispatch: context pre-injection failed — %s", exc)
+
+    # Pre-load files explicitly named in the AC items.
+    # The agent spends 40–60% of its iteration budget on discovery reads.
+    # Injecting the full content of every AC-referenced file into the task
+    # briefing eliminates that phase entirely — the agent starts iteration 1
+    # with all the context it needs and can go straight to IMPLEMENT.
+    if req.issue_body and task_description:
+        ac_file_paths = _extract_ac_file_paths(req.issue_body)
+        if ac_file_paths:
+            ac_file_sections = _build_ac_file_sections(Path(worktree_path), ac_file_paths)
+            if ac_file_sections:
+                task_description += (
+                    "\n\n---\n\n## Pre-loaded Files\n\n"
+                    "_These files are injected verbatim at dispatch time. "
+                    "You do not need to read them — start implementing immediately._\n\n"
+                    + "\n\n".join(ac_file_sections)
+                )
+                logger.info(
+                    "✅ dispatch: pre-loaded %d AC file(s) for run_id=%s: %s",
+                    len(ac_file_sections),
+                    run_id,
+                    ", ".join(ac_file_paths),
+                )
 
     # Build dispatch-time findings: type signatures + existing test names.
     # These are extracted from the worktree (which already exists on disk) and
