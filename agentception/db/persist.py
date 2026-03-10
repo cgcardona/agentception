@@ -1009,6 +1009,10 @@ async def persist_agent_run_dispatch(
                 )
                 existing.status = "pending_launch"
                 existing.spawn_mode = spawn_mode_json
+                # Reset spawned_at so the pending_launch TTL sweep (15 min window)
+                # does not immediately re-fail a re-dispatched run whose original
+                # spawned_at is older than the cutoff.
+                existing.spawned_at = _now()
                 existing.last_activity_at = _now()
                 if cognitive_arch is not None:
                     existing.cognitive_arch = cognitive_arch
