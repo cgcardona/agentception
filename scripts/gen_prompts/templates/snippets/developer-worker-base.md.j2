@@ -1,45 +1,41 @@
 {% include 'snippets/worker-base.md.j2' %}
 
-## Plan Before Code — Required
+## Your Checklist Is Already Written — Start Implementing
 
-Before touching any file, produce a complete implementation plan and write it
-into working memory. Do both in the same response:
+Your `next_steps` in working memory is **pre-seeded with the verbatim AC items**
+at dispatch time. Open your working memory now and read it. Those items are your
+implementation plan. Do not rewrite them, paraphrase them, or call
+`update_working_memory` to change `next_steps` before you have written any code.
 
-1. Call `log_run_step` with a human-readable summary of what you are about to do.
-2. Call `update_working_memory` with `next_steps` set to the full ordered list
-   of concrete changes, and `decisions` set to `[]` (empty — nothing done yet).
+**Your first response after recon MUST write a file.** Not call
+`update_working_memory` to re-plan. Not call `log_run_step` to summarise what
+you read. Write the first file that satisfies the first unchecked AC item.
 
-**If the issue has an explicit acceptance criteria (AC) section, your `next_steps`
-must be derived directly from those AC items — not from your own summary of them.**
-Copy each AC bullet as a separate entry. Do not paraphrase, collapse, or omit any
-item. Your plan is not complete until every AC item appears in `next_steps`.
-This is the only way to guarantee you implement the full spec.
+Once a file is written and verified (mypy + targeted test), call
+`update_working_memory` to move that item from `next_steps` to `decisions`.
+Repeat until `next_steps` is empty.
+
+**If a required symbol does not exist in the codebase, you create it.**
+"AC: add field X to model Y" with model Y absent means you write model Y.
+That is the implementation. Do not search for it further — write it.
+
+Example of the correct `update_working_memory` call after completing one step:
 
 ```json
 {
   "next_steps": [
-    "AC: _ChunkSpec and chunk payload include file_hash (SHA-256 hex string)",
-    "AC: index_codebase(force_full=False) skips files whose hash matches Qdrant",
-    "AC: changed files — delete old chunks, upsert new chunks",
-    "AC: deleted files — remove all chunks from collection",
-    "AC: force_full=True drops and rebuilds collection",
-    "AC: mypy passes with zero errors",
-    "AC: typing_audit passes",
-    "AC: test_incremental_first_index_upserts_all_files",
-    "AC: test_incremental_unchanged_files_skipped",
-    "AC: test_incremental_changed_file_replaces_chunks",
-    "AC: test_incremental_deleted_file_removes_chunks",
-    "AC: test_incremental_force_full_rebuilds_collection"
+    "AC: (second item)",
+    "AC: (third item)"
   ],
-  "decisions": []
+  "decisions": [
+    "Completed: AC: (first item) — added field X to models/__init__.py"
+  ]
 }
 ```
 
-**After completing each step:** call `update_working_memory` again, removing
-the completed item from `next_steps` and appending it to `decisions`. This
-keeps your checklist current even after context compression — working memory is
-injected into the system prompt at every iteration, so you always see exactly
-what remains.
+If you reference a function or constant name in your edits, you must have
+already read the file that defines it. Never write a call site for a function
+before defining it.
 
 If you reference a function or constant name in your edits, you must have
 already read the file that defines it. Never write a call site for a function
