@@ -170,6 +170,7 @@ class _ChunkSpec(TypedDict):
     text: str
     start_line: int
     end_line: int
+    symbol: str  # symbol name for AST chunks (e.g. "class Foo"); empty for char chunks
 
 
 def _chunk_file_ast(path: Path, repo_root: Path) -> list[_ChunkSpec]:
@@ -221,6 +222,7 @@ def _chunk_file_ast(path: Path, repo_root: Path) -> list[_ChunkSpec]:
         raw_hash = hashlib.md5(f"{rel}:{node.name}".encode()).hexdigest()
         chunk_id = int(raw_hash, 16) % (2**62)
 
+        kind = "class" if isinstance(node, ast.ClassDef) else "def"
         chunks.append(
             _ChunkSpec(
                 chunk_id=chunk_id,
@@ -228,6 +230,7 @@ def _chunk_file_ast(path: Path, repo_root: Path) -> list[_ChunkSpec]:
                 text=text,
                 start_line=start_line,
                 end_line=end_line,
+                symbol=f"{kind} {node.name}",
             )
         )
 
@@ -275,6 +278,7 @@ def _chunk_file_char(
                 text=text,
                 start_line=start_line,
                 end_line=end_line,
+                symbol="",
             )
         )
         start += _CHUNK_SIZE - _CHUNK_OVERLAP
@@ -390,6 +394,7 @@ async def index_codebase(
                             "chunk": chunk["text"],
                             "start_line": chunk["start_line"],
                             "end_line": chunk["end_line"],
+                            "symbol": chunk["symbol"],
                         },
                     )
                     for chunk, vec in zip(batch, vectors)

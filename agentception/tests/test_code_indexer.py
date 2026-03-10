@@ -17,6 +17,7 @@ from agentception.services.code_indexer import (
     IndexStats,
     SearchMatch,
     _chunk_file,
+    _ensure_collection,
     _reset_model,
     _should_index,
     _walk_files,
@@ -363,3 +364,69 @@ async def test_search_codebase_skips_malformed_payloads() -> None:
         matches = await search_codebase("test")
 
     assert matches == []
+
+
+# ── payload index and symbol field tests ─────────────────────────────────────
+
+
+def test_chunk_file_ast_symbol_field_populated(tmp_path: Path) -> None:
+    """AST chunks carry a populated symbol field ('class X' or 'def f')."""
+    f = tmp_path / "syms.py"
+    f.write_text(
+        "class MyModel:\n"
+        "    pass\n"
+        "\n"
+        "async def my_handler():\n"
+        "    pass\n"
+    )
+    chunks = _chunk_file(f, tmp_path)
+    assert len(chunks) == 2
+    assert chunks[0]["symbol"] == "class MyModel"
+    assert chunks[1]["symbol"] == "def my_handler"
+
+
+def test_chunk_file_char_symbol_field_empty(tmp_path: Path) -> None:
+    """Character-level chunks always have an empty symbol field."""
+    f = tmp_path / "prose.md"
+    f.write_text("# Hello\n\nSome text.\n")
+    chunks = _chunk_file(f, tmp_path)
+    assert len(chunks) >= 1
+    assert all(c["symbol"] == "" for c in chunks)
+
+
+@pytest.mark.anyio
+async def test_ensure_collection_creates_payload_indexes(tmp_path: Path) -> None:
+    """_ensure_collection configures keyword indexes for 'file' and 'symbol'."""
+    mock_client = AsyncMock()
+    mock_client.get_collections.return_value = SimpleNamespace(collections=[])
+
+    with patch("agentception.services.code_indexer.settings") as mock_settings:
+        mock_settings.qdrant_collection = "code"
+        mock_settings.embed_model_dim = 384
+        await _ensure_collection(mock_client, "code")
+
+    mock_client.create_collection.assert_called_once()
+    call_kwargs = mock_client.create_collection.call_args.kwargs
+    indexes = call_kwargs.get("payload_indexes_config", {})
+    assert "file" in indexes, "Expected 'file' payload index"
+    assert "symbol" in indexes, "Expected 'symbol' payload index"
+
+
+@pytest.mark.anyio
+async def test_index_codebase_writes_symbol_to_payload(tmp_path: Path) -> None:
+    """index_codebase includes 'symbol' in each upserted Qdrant point payload."""
+    (tmp_path / "mod.py").write_text("def compute():\n    return 42\n")
+
+    mock_client = AsyncMock()
+    mock_client.get_collections.return_value = SimpleNamespace(collections=[])
+
+    with (
+        patch("agentception.services.code_indexer._embed", side_effect=_fake_embed),
+        patch("qdrant_client.AsyncQdrantClient", return_value=mock_client),
+    ):
+        await index_codebase(repo_path=tmp_path)
+
+    mock_client.upsert.assert_called()
+    points = mock_client.upsert.call_args.kwargs["points"]
+    assert len(points) == 1
+    assert points[0].payload["symbol"] == "def compute"
