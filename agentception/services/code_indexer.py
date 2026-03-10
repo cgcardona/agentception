@@ -301,7 +301,12 @@ _UPSERT_BATCH = 64  # points per upsert call
 
 async def _ensure_collection(client: "AsyncQdrantClient", collection: str) -> None:
     """Create the Qdrant collection if it does not exist yet."""
-    from qdrant_client.models import Distance, VectorParams  # noqa: PLC0415
+    from qdrant_client.models import (  # noqa: PLC0415
+        Distance,
+        KeywordIndexParams,
+        KeywordIndexType,
+        VectorParams,
+    )
 
     collections_response = await client.get_collections()
     existing = {c.name for c in collections_response.collections}
@@ -313,6 +318,10 @@ async def _ensure_collection(client: "AsyncQdrantClient", collection: str) -> No
                 size=settings.embed_model_dim,
                 distance=Distance.COSINE,
             ),
+            payload_indexes_config={
+                "file": KeywordIndexParams(type=KeywordIndexType.KEYWORD),
+                "symbol": KeywordIndexParams(type=KeywordIndexType.KEYWORD),
+            },
         )
     else:
         logger.info("✅ code_indexer — collection '%s' already exists", collection)
