@@ -38,9 +38,10 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-# Maximum characters of file content injected per file.  25 000 chars ≈ 1 000
-# lines — enough for every file in this codebase in full without truncation.
-_FILE_CHAR_LIMIT: int = 25_000
+# Maximum characters of file content injected per file.  75 000 chars ≈ 3 000
+# lines — covers the largest files in this codebase (e.g. mcp/server.py at
+# ~1 600 lines / 63 K chars) in full without truncation.
+_FILE_CHAR_LIMIT: int = 75_000
 
 # Maximum files to inject into the planner prompt.  Qdrant results beyond
 # this cap are discarded to keep the prompt within a sane token budget.
@@ -51,8 +52,9 @@ _MAX_FILES: int = 6
 # the cap.
 _DISCOVERY_SEARCH_RESULTS: int = 10
 
-# Hard cap on operations in one plan — prevents planner over-engineering.
-_MAX_OPERATIONS: int = 20
+# Hard cap on operations in one plan.  50 supports large refactors such as
+# eliminating all cast() calls across a single file (up to ~40 sites).
+_MAX_OPERATIONS: int = 50
 
 # ---------------------------------------------------------------------------
 # System prompt
@@ -327,7 +329,7 @@ async def generate_execution_plan(
         raw = await call_anthropic(
             user_message,
             system_prompt=_PLANNER_SYSTEM_PROMPT,
-            max_tokens=8192,
+            max_tokens=16384,
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("⚠️ planner: LLM call failed — %s", exc)
