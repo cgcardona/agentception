@@ -123,19 +123,30 @@ _SEARCH_TOOL_NAMES: frozenset[str] = frozenset({
 # How many consecutive no-write iterations trigger the loop-guard.
 _LOOP_GUARD_THRESHOLD: int = 3
 
-# When the loop guard fires, read-only tools are removed from the tool list.
-# The model cannot call a tool it cannot see — this is mechanical enforcement,
-# not advisory text.  The agent can only exit guard mode by calling a write tool.
-_READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset({
-    "read_file",
-    "read_file_lines",
-    "read_symbol",
-    "read_window",
-    "find_call_sites",
-    "search_codebase",
-    "search_text",
-    "list_directory",
+# When the loop guard fires, the tool palette switches to an ALLOWLIST:
+# only write tools and a minimal set of essential non-read tools remain.
+# This is an allowlist (not a blocklist) so new tools default to blocked —
+# the agent cannot use run_command (cat/grep workarounds), read_file, or
+# search tools until it makes at least one code write that resets the counter.
+_GUARD_PERMITTED_TOOL_NAMES: frozenset[str] = frozenset({
+    # Code write tools — calling any of these exits guard mode.
+    "write_file",
+    "replace_in_file",
+    "insert_after_in_file",
+    "git_commit_and_push",
+    # Bookkeeping — safe, low-cost, non-read.
+    "update_working_memory",
+    "log_run_step",
+    # Terminal actions — the agent may create the PR or cancel from guard mode.
+    "build_complete_run",
+    "build_cancel_run",
+    "create_pull_request",
+    "add_issue_comment",
+    "github_claim_issue",
 })
+
+# Legacy alias used in interception logic — kept for clarity.
+_READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset()
 
 # System-block text still injected alongside tool narrowing so the model
 # understands WHY its tool palette shrank.
@@ -372,7 +383,7 @@ async def run_agent_loop(
             and iterations_since_write >= _LOOP_GUARD_THRESHOLD
         )
         active_tool_defs: list[ToolDefinition] = (
-            [t for t in tool_defs if t["function"]["name"] not in _READ_ONLY_TOOL_NAMES]
+            [t for t in tool_defs if t["function"]["name"] in _GUARD_PERMITTED_TOOL_NAMES]
             if guard_active
             else tool_defs
         )
@@ -443,7 +454,7 @@ async def run_agent_loop(
             if guard_active:
                 for tc in response["tool_calls"]:
                     tc_name = tc["function"]["name"]
-                    if tc_name in _READ_ONLY_TOOL_NAMES:
+                    if tc_name not in _GUARD_PERMITTED_TOOL_NAMES:
                         synthetic_errors.append({
                             "role": "tool",
                             "tool_call_id": tc["id"],
@@ -454,7 +465,8 @@ async def run_agent_loop(
                                     f"You have not written code for "
                                     f"{iterations_since_write} iterations. "
                                     "Call write_file or replace_in_file to "
-                                    "implement code; that will restore all tools."
+                                    "implement code; that will restore all tools "
+                                    "including run_command and read_file."
                                 ),
                             }),
                         })

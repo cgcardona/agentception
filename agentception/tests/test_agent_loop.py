@@ -810,8 +810,8 @@ class TestLoopGuard:
         secondary.
         """
         from agentception.services.agent_loop import (
+            _GUARD_PERMITTED_TOOL_NAMES,
             _LOOP_GUARD_THRESHOLD,
-            _READ_ONLY_TOOL_NAMES,
             run_agent_loop,
         )
 
@@ -889,10 +889,10 @@ class TestLoopGuard:
         guard_call_tools = captured_tools[_LOOP_GUARD_THRESHOLD]
         guard_tool_names = {t["function"]["name"] for t in guard_call_tools}
 
-        # No read-only tool may appear in the narrowed palette.
-        leaked = guard_tool_names & _READ_ONLY_TOOL_NAMES
+        # Every tool in the narrowed palette must be in the permitted set.
+        leaked = guard_tool_names - _GUARD_PERMITTED_TOOL_NAMES
         assert not leaked, (
-            f"Loop guard must remove read-only tools; leaked: {leaked}"
+            f"Loop guard must restrict to permitted tools; non-permitted: {leaked}"
         )
 
         # The extra_system_blocks must contain the LOOP GUARD explanation.
@@ -907,7 +907,10 @@ class TestLoopGuard:
         pre_guard_tools = captured_tools[0]
         pre_guard_names = {t["function"]["name"] for t in pre_guard_tools}
         assert "read_file" in pre_guard_names, (
-            "Read tools must be available before the guard fires"
+            "read_file must be available before the guard fires"
+        )
+        assert "run_command" in pre_guard_names, (
+            "run_command must be available before the guard fires"
         )
 
     @pytest.mark.anyio
