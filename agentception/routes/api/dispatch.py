@@ -576,7 +576,11 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
         worktree_base = "origin/dev"
 
     try:
-        await ensure_worktree(Path(worktree_path), branch, worktree_base)
+        # reset=True for implementers: if a stale worktree/branch exists from a
+        # prior run, tear it down first so the executor always starts from a
+        # clean origin/dev.  Reviewers use reset=False — they reuse the branch
+        # the implementer already pushed.
+        await ensure_worktree(Path(worktree_path), branch, worktree_base, reset=not is_reviewer)
         logger.info("✅ dispatch: worktree created at %s (base=%s)", worktree_path, worktree_base)
     except RuntimeError as exc:
         logger.error("❌ dispatch: worktree creation failed — %s", exc)
