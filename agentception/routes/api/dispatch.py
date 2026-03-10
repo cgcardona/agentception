@@ -117,6 +117,43 @@ async def _resolve_dev_sha() -> str:
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
+# Matches a Markdown checkbox bullet: "- [ ] text" or "- [x] text"
+_AC_CHECKBOX_RE = re.compile(r"^-\s+\[[ xX]\]\s+(.+)$")
+# Matches a Markdown section header at level 1–3
+_SECTION_HEADER_RE = re.compile(r"^#{1,3}\s+")
+# Matches the acceptance criteria section header (case-insensitive)
+_AC_HEADER_RE = re.compile(r"^#{1,3}\s+acceptance criteria", re.IGNORECASE)
+
+
+def _extract_ac_items(issue_body: str) -> list[str]:
+    """Return AC checkbox bullets from *issue_body* as verbatim ``next_steps`` strings.
+
+    Scans for a ``## Acceptance criteria`` section (any level 1–3 header,
+    case-insensitive) and extracts every ``- [ ] item`` checkbox bullet
+    verbatim.  Stops at the next section header.
+
+    Each item is prefixed with ``"AC: "`` so the agent knows it came directly
+    from the spec and must not be paraphrased or skipped.
+
+    Returns an empty list when no AC section or no checkboxes are found.
+    """
+    ac_items: list[str] = []
+    in_ac_section = False
+
+    for line in issue_body.splitlines():
+        stripped = line.strip()
+        if _AC_HEADER_RE.match(stripped):
+            in_ac_section = True
+            continue
+        if in_ac_section and _SECTION_HEADER_RE.match(stripped):
+            break
+        if in_ac_section:
+            m = _AC_CHECKBOX_RE.match(stripped)
+            if m:
+                ac_items.append(f"AC: {m.group(1).strip()}")
+
+    return ac_items
+
 # ---------------------------------------------------------------------------
 # GET /api/dispatch/context — label context for the launch modal
 # ---------------------------------------------------------------------------
@@ -527,12 +564,25 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
             f"then follow the Review Protocol in your role file."
         )
         memory_plan = review_plan
+        ac_next_steps: list[str] = []
     else:
         memory_plan = task_description or ""
-    write_memory(
-        Path(worktree_path),
-        WorkingMemory(plan=memory_plan, findings=dispatch_findings),
-    )
+        # Mechanically extract AC checkbox bullets from the issue body and
+        # pre-populate next_steps verbatim.  This bypasses the agent's lossy
+        # reading of the AC — items are injected before iteration 1 so the
+        # agent cannot paraphrase, collapse, or drop any requirement.
+        ac_next_steps = _extract_ac_items(req.issue_body) if req.issue_body else []
+        if ac_next_steps:
+            logger.info(
+                "✅ dispatch: pre-seeded %d AC items into next_steps for run_id=%s",
+                len(ac_next_steps),
+                run_id,
+            )
+
+    initial_memory = WorkingMemory(plan=memory_plan, findings=dispatch_findings)
+    if ac_next_steps:
+        initial_memory["next_steps"] = ac_next_steps
+    write_memory(Path(worktree_path), initial_memory)
     logger.info("✅ dispatch: working memory reset for run_id=%s", run_id)
 
     # Persist all task context to DB; agents read via ac://runs/{run_id}/context.
