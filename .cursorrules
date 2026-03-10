@@ -92,7 +92,9 @@ The enforcement protocol:
 ## Execution
 
 - **Docker-first:** Never run Python on the host. `docker compose exec agentception <cmd>`.
-- **Dev bind mounts are active.** `docker-compose.override.yml` bind-mounts `agentception/`, `tests/`, `scripts/`, and `pyproject.toml` into the container. Host file edits are **instantly visible** inside the container — no rebuild needed for code changes. Only rebuild (`docker compose build agentception && docker compose up -d`) when you change `requirements.txt`, `Dockerfile`, or `entrypoint.sh`.
+- **Dev bind mounts are active.** `docker-compose.override.yml` bind-mounts `agentception/`, `tests/`, `scripts/`, and `pyproject.toml` into the container. Host file edits are **instantly visible on disk** inside the container — but **uvicorn auto-reload is intentionally disabled** (auto-reload would kill in-flight agent runs on every file save). This means:
+  - **Python source change** → `docker compose restart agentception` (no rebuild — the bind mount already delivered the new file; restart makes uvicorn load it).
+  - **`requirements.txt`, `Dockerfile`, or `entrypoint.sh` change** → `docker compose build agentception && docker compose up -d agentception` (full image rebuild required — these files are baked into the image layer, not bind-mounted).
 - **Verification order: mypy → tests → docs.** Always run mypy first. Fix type errors before running tests so you only need one test pass.
 - **Mypy:** `docker compose exec agentception mypy agentception/ tests/` — must be clean before any commit.
 - **Typing ceiling:** `python tools/typing_audit.py --dirs agentception/ tests/ --max-any 0`. Zero `Any` is the hard ceiling — never raise it.

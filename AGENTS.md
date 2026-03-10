@@ -361,7 +361,9 @@ There is no third option. A codebase with known broken tests that everyone steps
 
 **Run locally before opening a PR — in this exact order.** CI does not run on feature → dev PRs; this checklist is the gate.
 
-> **Dev bind mounts are active.** Your host file edits are instantly visible inside the container — do NOT rebuild for code changes. Only rebuild when `requirements.txt`, `Dockerfile`, or `entrypoint.sh` change.
+> **Dev bind mounts are active.** `docker-compose.override.yml` bind-mounts `agentception/`, `tests/`, `scripts/`, and `pyproject.toml` into the container. Host file edits are **instantly visible on disk** inside the container — but **uvicorn auto-reload is intentionally disabled** (auto-reload would kill in-flight agent runs on every file save). This means:
+> - **Python source change** → `docker compose restart agentception` (no rebuild — the bind mount already delivered the new file; restart makes uvicorn load it).
+> - **`requirements.txt`, `Dockerfile`, or `entrypoint.sh` change** → `docker compose build agentception && docker compose up -d agentception` (full image rebuild required — these files are baked into the image layer, not bind-mounted).
 
 0. [ ] Confirm you are on a feature branch or inside a worktree — **never on `dev` or `main`**
 1. [ ] `docker compose exec agentception mypy agentception/ tests/` — clean, zero errors
