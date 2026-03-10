@@ -156,8 +156,20 @@ def render_memory(memory: WorkingMemory) -> str:
 
     The rendering is intentionally terse — one line per item — to minimise the
     token cost while keeping the model oriented.
+
+    Order: findings first (type signatures + existing tests are facts the agent
+    needs before writing any code), then plan, then files examined, then
+    decisions/next_steps/blockers.  Putting facts before the task description
+    means the agent reads the constraints before it starts planning, which
+    eliminates the mypy-fix loop and test-collision discovery turns.
     """
     lines: list[str] = ["## Working Memory"]
+
+    findings = memory.get("findings")
+    if findings:
+        lines.append("**Findings (read before writing any code):**")
+        for key, note in findings.items():
+            lines.append(f"- `{key}`: {note}")
 
     plan = memory.get("plan")
     if plan:
@@ -167,12 +179,6 @@ def render_memory(memory: WorkingMemory) -> str:
     if files_examined:
         files_str = ", ".join(f"`{f}`" for f in files_examined)
         lines.append(f"**Files read (skip re-reading):** {files_str}")
-
-    findings = memory.get("findings")
-    if findings:
-        lines.append("**Findings:**")
-        for key, note in findings.items():
-            lines.append(f"- `{key}`: {note}")
 
     decisions = memory.get("decisions")
     if decisions:

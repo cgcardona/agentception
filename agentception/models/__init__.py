@@ -169,6 +169,25 @@ class PlanDraftEvent(BaseModel):
     output_path: str
 
 
+class StalledAgentEvent(BaseModel):
+    """Structured record of a stalled agent emitted by the poller on every tick.
+
+    Carried in ``PipelineState.stalled_agents`` and broadcast via the existing
+    SSE stream so the dashboard can surface a Stalled badge and a re-dispatch
+    button without polling.
+
+    Primary stall signal is ``last_activity_at`` (DB heartbeat).  A secondary
+    signal — ``worktree_last_commit_time()`` — is used only for advisory
+    "active but not committing" warnings; it does NOT promote to STALLED alone.
+    """
+
+    run_id: str
+    issue_number: int
+    worktree_path: str
+    last_activity_at: str  # ISO-format UTC timestamp from the DB row
+    stalled_for_minutes: int
+
+
 class PipelineState(BaseModel):
     """Snapshot of the entire AgentCeption pipeline at a point in time.
 
@@ -205,6 +224,7 @@ class PipelineState(BaseModel):
     pending_approval: list[dict[str, object]] = []
     plan_draft_events: list[PlanDraftEvent] = []
     loop_guard_triggered: list[str] = []
+    stalled_agents: list[StalledAgentEvent] = []
 
     @classmethod
     def empty(cls) -> PipelineState:
@@ -230,6 +250,7 @@ class PipelineState(BaseModel):
             stale_branches=[],
             pending_approval=[],
             plan_draft_events=[],
+            stalled_agents=[],
         )
 
 
@@ -413,6 +434,15 @@ class PipelineConfig(BaseModel):
     phase_advance_active_label: str = "pipeline/active"
     #: Maximum message_count before an agent is flagged as looping.
     max_attempts: int = Field(default=3, gt=0, description="Max message_count before loop guard triggers.")
+    #: Minutes of DB-heartbeat silence before an agent is promoted to STALLED.
+    stall_threshold_minutes: int = Field(
+        default=30,
+        gt=0,
+        description=(
+            "Minutes of silence on last_activity_at before a worker agent is promoted "
+            "to STALLED.  Override with AC_PIPELINE_STALL_THRESHOLD_MINUTES env var."
+        ),
+    )
 
 
 class SwitchProjectRequest(BaseModel):

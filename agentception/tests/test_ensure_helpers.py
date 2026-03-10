@@ -481,3 +481,112 @@ async def test_dispatch_resets_stale_working_memory_on_redispatch(tmp_path: Path
     assert raw.get("findings") in (None, {}), (
         "Stale findings from prior run must be cleared on re-dispatch"
     )
+
+
+# ---------------------------------------------------------------------------
+# _ast_signatures_from_file
+# ---------------------------------------------------------------------------
+
+
+def test_ast_signatures_extracts_class_and_function(tmp_path: Path) -> None:
+    """_ast_signatures_from_file returns class and function declaration lines."""
+    from agentception.routes.api.dispatch import _ast_signatures_from_file
+
+    src = tmp_path / "mymodule.py"
+    src.write_text(
+        "class Foo(BaseModel):\n"
+        "    x: int\n"
+        "\n"
+        "def bar(a: int, b: str) -> bool:\n"
+        "    return True\n",
+        encoding="utf-8",
+    )
+    result = _ast_signatures_from_file(src)
+    assert "class Foo" in result
+    assert "def bar" in result
+
+
+def test_ast_signatures_returns_empty_on_syntax_error(tmp_path: Path) -> None:
+    """_ast_signatures_from_file returns empty string for unparseable files."""
+    from agentception.routes.api.dispatch import _ast_signatures_from_file
+
+    bad = tmp_path / "bad.py"
+    bad.write_text("def (: broken syntax!!!!", encoding="utf-8")
+    assert _ast_signatures_from_file(bad) == ""
+
+
+def test_ast_signatures_returns_empty_for_missing_file(tmp_path: Path) -> None:
+    """_ast_signatures_from_file returns empty string when the file doesn't exist."""
+    from agentception.routes.api.dispatch import _ast_signatures_from_file
+
+    assert _ast_signatures_from_file(tmp_path / "nonexistent.py") == ""
+
+
+# ---------------------------------------------------------------------------
+# _extract_type_signatures (async wrapper)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_extract_type_signatures_returns_signatures_for_py_files(tmp_path: Path) -> None:
+    """_extract_type_signatures returns a dict entry for each readable Python file."""
+    from agentception.routes.api.dispatch import _extract_type_signatures
+
+    (tmp_path / "agentception").mkdir()
+    src = tmp_path / "agentception" / "models.py"
+    src.write_text("class MyModel:\n    pass\n", encoding="utf-8")
+
+    result = await _extract_type_signatures(tmp_path, ["agentception/models.py"])
+    assert "agentception/models.py" in result
+    assert "MyModel" in result["agentception/models.py"]
+
+
+@pytest.mark.anyio
+async def test_extract_type_signatures_skips_non_python_files(tmp_path: Path) -> None:
+    """_extract_type_signatures silently skips non-.py files."""
+    from agentception.routes.api.dispatch import _extract_type_signatures
+
+    result = await _extract_type_signatures(tmp_path, ["agentception/overview.html"])
+    assert result == {}
+
+
+# ---------------------------------------------------------------------------
+# _test_names_from_file / _extract_test_coverage
+# ---------------------------------------------------------------------------
+
+
+def test_test_names_from_file_finds_test_functions(tmp_path: Path) -> None:
+    """_test_names_from_file returns only def test_* names."""
+    from agentception.routes.api.dispatch import _test_names_from_file
+
+    src = tmp_path / "test_mymodule.py"
+    src.write_text(
+        "def helper(): pass\n"
+        "def test_foo(): pass\n"
+        "async def test_bar(): pass\n",
+        encoding="utf-8",
+    )
+    names = _test_names_from_file(src)
+    assert names == ["test_foo", "test_bar"]
+    assert "helper" not in names
+
+
+@pytest.mark.anyio
+async def test_extract_test_coverage_matches_source_to_test_file(tmp_path: Path) -> None:
+    """_extract_test_coverage finds test_agentception_poller.py for agentception/poller.py."""
+    from agentception.routes.api.dispatch import _extract_test_coverage
+
+    tests_dir = tmp_path / "agentception" / "tests"
+    tests_dir.mkdir(parents=True)
+    test_file = tests_dir / "test_agentception_poller.py"
+    test_file.write_text(
+        "def test_stall_detected(): pass\n"
+        "def test_no_stall_when_recent(): pass\n",
+        encoding="utf-8",
+    )
+
+    result = await _extract_test_coverage(tmp_path, ["agentception/poller.py"])
+    key = "agentception/tests/test_agentception_poller.py"
+    assert key in result
+    assert "test_stall_detected" in result[key]
+    assert "test_no_stall_when_recent" in result[key]

@@ -586,6 +586,14 @@
       <span class="summary-label">Loop Guard</span>
       <span class="summary-value" x-text="(state.loop_guard_triggered || []).length"></span>
     </div>
+    <div
+      class="summary-item"
+      :class="(state.stalled_agents || []).length > 0 ? 'summary-item--warn' : 'summary-item--dim'"
+      :title="(state.stalled_agents || []).length > 0 ? '⏸ Stalled: ' + (state.stalled_agents || []).map(a => 'issue #' + a.issue_number).join(', ') : 'No stalled agents'"
+    >
+      <span class="summary-label">⏸ Stalled</span>
+      <span class="summary-value" x-text="(state.stalled_agents || []).length"></span>
+    </div>
     <div class="summary-item">
       <span class="summary-label">Msgs</span>
       <span class="summary-value summary-value--accent" x-text="totalMsgCount()"></span>
