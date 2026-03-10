@@ -7,6 +7,7 @@ receives structured feedback rather than a Python exception traceback.
 
 from __future__ import annotations
 
+import ast as _ast
 import logging
 from pathlib import Path
 
@@ -349,3 +350,227 @@ async def search_text(
         return {"ok": False, "error": f"rg failed (exit {proc.returncode}): {err_text}"}
 
     return {"ok": True, "matches": output or "(no matches)"}
+
+
+# ---------------------------------------------------------------------------
+# Symbol-aware navigation tools
+# ---------------------------------------------------------------------------
+
+
+def _find_symbol_lines_py(text: str, symbol_name: str) -> tuple[int, int] | None:
+    """Return (start_line, end_line) for *symbol_name* using the Python AST.
+
+    Walks every function/class definition in the parsed tree and returns the
+    first match.  Includes decorator lines in the start.  Returns ``None`` on
+    a parse error or when the symbol is not found.
+    """
+    try:
+        tree = _ast.parse(text)
+    except SyntaxError:
+        return None
+
+    for node in _ast.walk(tree):
+        if not isinstance(
+            node, (_ast.FunctionDef, _ast.AsyncFunctionDef, _ast.ClassDef)
+        ):
+            continue
+        if node.name != symbol_name:
+            continue
+        end_line: int | None = getattr(node, "end_lineno", None)
+        if end_line is None:
+            continue
+        start_line = node.lineno
+        if node.decorator_list:
+            start_line = min(d.lineno for d in node.decorator_list)
+        return start_line, end_line
+
+    return None
+
+
+def read_symbol(path: str | Path, symbol_name: str) -> dict[str, object]:
+    """Return the complete body of a function or class by name.
+
+    For ``.py`` files, uses the Python AST to find exact symbol boundaries
+    (including decorators).  Returns the full definition so the model can act
+    on it without a follow-up ``read_file_lines`` call.
+
+    Args:
+        path: Source file to search.
+        symbol_name: Exact function or class name (e.g. ``_truncate_tool_results``).
+
+    Returns:
+        ``{"ok": True, "content": str, "start_line": int, "end_line": int,
+        "total_lines": int}`` — the symbol body with its line range.  Or
+        ``{"ok": False, "error": str}`` when the symbol is not found or the
+        file cannot be read.
+    """
+    p = Path(path)
+    try:
+        text = p.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {"ok": False, "error": f"File not found: {p}"}
+    except PermissionError:
+        return {"ok": False, "error": f"Permission denied: {p}"}
+    except OSError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    lines = text.splitlines(keepends=True)
+    total = len(lines)
+
+    if p.suffix == ".py":
+        bounds = _find_symbol_lines_py(text, symbol_name)
+        if bounds is not None:
+            start, end = bounds
+            content = "".join(lines[start - 1 : end])
+            logger.info("✅ read_symbol — %s::%s lines %d-%d", p, symbol_name, start, end)
+            return {
+                "ok": True,
+                "content": content,
+                "start_line": start,
+                "end_line": end,
+                "total_lines": total,
+            }
+        # AST found nothing — fall through to string scan below.
+
+    # Non-Python or AST miss: scan for `def name` / `class name`.
+    for i, line in enumerate(lines, 1):
+        stripped = line.lstrip()
+        if stripped.startswith(f"def {symbol_name}(") or stripped.startswith(
+            f"class {symbol_name}("
+        ) or stripped.startswith(f"class {symbol_name}:"):
+            # Heuristic end: next non-indented non-empty line at same or
+            # lower indent level.  Good enough for most source files.
+            base_indent = len(line) - len(stripped)
+            end = i
+            for j in range(i, total):
+                following = lines[j]
+                if following.strip() == "":
+                    end = j + 1
+                    continue
+                curr_indent = len(following) - len(following.lstrip())
+                if curr_indent <= base_indent and j > i:
+                    break
+                end = j + 1
+            content = "".join(lines[i - 1 : end])
+            logger.info("✅ read_symbol — %s::%s lines %d-%d (heuristic)", p, symbol_name, i, end)
+            return {
+                "ok": True,
+                "content": content,
+                "start_line": i,
+                "end_line": end,
+                "total_lines": total,
+            }
+
+    return {"ok": False, "error": f"Symbol '{symbol_name}' not found in {p}"}
+
+
+def read_window(
+    path: str | Path,
+    center_line: int,
+    *,
+    before: int = 80,
+    after: int = 120,
+) -> dict[str, object]:
+    """Read a window of lines centered on *center_line*.
+
+    More ergonomic than ``read_file_lines`` for exploration: plug in a line
+    number from search results and receive enough surrounding context to act
+    without a follow-up read.  The default window (80 before, 120 after)
+    captures most complete function definitions.
+
+    Args:
+        path: File to read.
+        center_line: 1-indexed line to center the window on.
+        before: Lines to include before *center_line* (default 80).
+        after: Lines to include after *center_line* (default 120).
+
+    Returns:
+        ``{"ok": True, "content": str, "start_line": int, "end_line": int,
+        "center_line": int, "total_lines": int}`` or ``{"ok": False, "error": str}``.
+    """
+    p = Path(path)
+    try:
+        text = p.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {"ok": False, "error": f"File not found: {p}"}
+    except PermissionError:
+        return {"ok": False, "error": f"Permission denied: {p}"}
+    except OSError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    lines = text.splitlines(keepends=True)
+    total = len(lines)
+
+    start = max(1, center_line - before)
+    end = min(total, center_line + after)
+    content = "".join(lines[start - 1 : end])
+
+    logger.info("✅ read_window — %s center=%d (%d-%d/%d)", p, center_line, start, end, total)
+    return {
+        "ok": True,
+        "content": content,
+        "start_line": start,
+        "end_line": end,
+        "center_line": center_line,
+        "total_lines": total,
+    }
+
+
+async def find_call_sites(
+    symbol_name: str,
+    directory: str | Path,
+    *,
+    n_results: int = 30,
+) -> dict[str, object]:
+    """Find all call sites of *symbol_name* using ripgrep.
+
+    Searches for ``symbol_name(`` to catch function calls, plus ``symbol_name``
+    in import lines.  Returns file paths, line numbers, and the matching line
+    so the model can see usage patterns before editing.
+
+    Args:
+        symbol_name: Function or class name to search for.
+        directory: Root directory to search (defaults to worktree root).
+        n_results: Maximum matching lines to return.
+
+    Returns:
+        ``{"ok": True, "matches": str}`` — ripgrep-formatted output — or
+        ``{"ok": False, "error": str}`` on failure.
+    """
+    import asyncio
+
+    d = Path(directory)
+    if not d.exists():
+        return {"ok": False, "error": f"Directory does not exist: {d}"}
+
+    # Match call sites `name(` AND import lines `import name` / `from x import name`.
+    pattern = rf"\b{symbol_name}[\(\s]|import\s+{symbol_name}"
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "rg",
+            "--heading",
+            "--line-number",
+            "--max-count",
+            str(n_results),
+            "-e",
+            pattern,
+            str(d),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+    except FileNotFoundError:
+        return {"ok": False, "error": "rg (ripgrep) not found on PATH"}
+    except asyncio.TimeoutError:
+        return {"ok": False, "error": "find_call_sites timed out after 30s"}
+    except OSError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    output = stdout.decode("utf-8", errors="replace")
+    if proc.returncode not in (0, 1):
+        err_text = stderr.decode("utf-8", errors="replace").strip()
+        return {"ok": False, "error": f"rg failed (exit {proc.returncode}): {err_text}"}
+
+    logger.info("✅ find_call_sites — %s in %s", symbol_name, d)
+    return {"ok": True, "matches": output or "(no call sites found)"}
