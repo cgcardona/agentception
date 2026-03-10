@@ -36,6 +36,7 @@ from agentception.db.models import (
     ACAgentEvent,
     ACAgentMessage,
     ACAgentRun,
+    ACExecutionPlan,
     ACInitiativePhase,
     ACIssue,
     ACIssueWorkflowState,
@@ -1659,3 +1660,50 @@ async def _write_messages(
             await session.commit()
     except Exception as exc:
         logger.warning("⚠️  _write_messages failed (non-fatal): %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# Execution plan persistence
+# ---------------------------------------------------------------------------
+
+
+async def persist_execution_plan(run_id: str, plan_json: str, issue_number: int) -> None:
+    """Store the serialised ExecutionPlan for *run_id*.
+
+    Called once by the planner before the executor starts.  Subsequent calls
+    for the same ``run_id`` are silently ignored (the plan is immutable).
+
+    Args:
+        run_id: Agent run identifier (e.g. ``"issue-501"``).
+        plan_json: Serialised ``ExecutionPlan`` (``model.model_dump_json()``).
+        issue_number: GitHub issue number — stored for efficient index lookups.
+    """
+    try:
+        async with get_session() as session:
+            existing = (
+                await session.execute(
+                    select(ACExecutionPlan).where(ACExecutionPlan.run_id == run_id)
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                logger.info(
+                    "✅ persist_execution_plan: plan already exists for run_id=%s — skipping",
+                    run_id,
+                )
+                return
+            session.add(
+                ACExecutionPlan(
+                    run_id=run_id,
+                    issue_number=issue_number,
+                    plan_json=plan_json,
+                    created_at=_now(),
+                )
+            )
+            await session.commit()
+            logger.info(
+                "✅ persist_execution_plan: stored plan for run_id=%s issue=%d",
+                run_id,
+                issue_number,
+            )
+    except Exception as exc:
+        logger.warning("⚠️  persist_execution_plan failed (non-fatal): %s", exc)

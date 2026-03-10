@@ -7,10 +7,12 @@ routes, and the frontend templates. Keep them flat — no nested Pydantic
 models that reference external services.
 """
 
+import datetime
 import logging
 import re
 from enum import Enum
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -1190,3 +1192,86 @@ class EnrichedManifest(BaseModel):
         self.estimated_waves = max(wave_depths.values(), default=1)
 
         return self
+
+
+# ---------------------------------------------------------------------------
+# Execution Plan — planner / executor two-stage architecture
+# ---------------------------------------------------------------------------
+
+
+class PlanOperation(BaseModel):
+    """A single atomic file operation produced by the planner agent.
+
+    Each operation maps 1-to-1 to a tool call the executor agent will make.
+    The planner must supply all parameters the executor needs — the executor
+    cannot read files to fill in missing values.
+
+    Tool semantics:
+    - ``replace_in_file``: replace ``old_string`` with ``new_string`` in ``file``.
+    - ``insert_after_in_file``: insert ``text`` immediately after the line
+      matching ``after`` in ``file``.
+    - ``write_file``: create or overwrite ``file`` with ``content``.
+    """
+
+    tool: Literal["replace_in_file", "insert_after_in_file", "write_file"]
+    file: str
+    """Relative path from worktree root, e.g. ``agentception/config.py``."""
+
+    # replace_in_file
+    old_string: str | None = None
+    new_string: str | None = None
+
+    # insert_after_in_file
+    after: str | None = None
+    text: str | None = None
+
+    # write_file
+    content: str | None = None
+
+    @model_validator(mode="after")
+    def validate_required_params(self) -> "PlanOperation":
+        """Ensure each tool has its required parameters."""
+        if self.tool == "replace_in_file":
+            if self.old_string is None or self.new_string is None:
+                raise ValueError(
+                    "replace_in_file requires old_string and new_string"
+                )
+        elif self.tool == "insert_after_in_file":
+            if self.after is None or self.text is None:
+                raise ValueError(
+                    "insert_after_in_file requires after and text"
+                )
+        elif self.tool == "write_file":
+            if self.content is None:
+                raise ValueError("write_file requires content")
+        return self
+
+
+class ExecutionPlan(BaseModel):
+    """Immutable ordered list of file operations for implementing a single GitHub issue.
+
+    Produced by the planner agent before the executor agent starts.  The plan
+    is stored in the ``execution_plans`` DB table keyed by ``run_id`` and
+    injected verbatim into the executor's task briefing.
+
+    The executor must apply operations in order and may not modify, skip, or
+    supplement them.  If an operation fails the executor calls
+    ``build_cancel_run`` rather than attempting a workaround.
+    """
+
+    run_id: str
+    issue_number: int
+    operations: list[PlanOperation]
+    created_at: datetime.datetime = Field(
+        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
+    )
+
+    @field_validator("operations")
+    @classmethod
+    def operations_must_be_non_empty(
+        cls, v: list[PlanOperation]
+    ) -> list[PlanOperation]:
+        """A plan with no operations cannot produce a PR."""
+        if not v:
+            raise ValueError("ExecutionPlan must contain at least one operation")
+        return v

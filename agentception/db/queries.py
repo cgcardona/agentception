@@ -21,6 +21,7 @@ from agentception.db.models import (
     ACAgentEvent,
     ACAgentMessage,
     ACAgentRun,
+    ACExecutionPlan,
     ACIssue,
     ACIssueWorkflowState,
     ACPipelineSnapshot,
@@ -2923,5 +2924,29 @@ async def get_run_by_worktree_path(worktree_path: str) -> RunSummaryRow | None:
     except Exception as exc:
         logger.warning(
             "⚠️  get_run_by_worktree_path DB query failed (non-fatal): %s", exc
+        )
+        return None
+
+
+async def load_execution_plan(run_id: str) -> str | None:
+    """Return the raw ``plan_json`` for *run_id*, or ``None`` if absent.
+
+    Args:
+        run_id: Agent run identifier (e.g. ``"issue-501"``).
+
+    Returns:
+        The serialised ``ExecutionPlan`` JSON string, or ``None`` when no
+        plan exists for this run or on DB error.
+    """
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACExecutionPlan).where(ACExecutionPlan.run_id == run_id)
+            )
+            row = result.scalar_one_or_none()
+        return row.plan_json if row is not None else None
+    except Exception as exc:
+        logger.warning(
+            "⚠️  load_execution_plan DB query failed (non-fatal): %s", exc
         )
         return None
