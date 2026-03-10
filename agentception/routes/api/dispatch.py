@@ -22,11 +22,10 @@ import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-
-from typing import Literal
 
 
 class OrgNodeSpec(BaseModel):
@@ -53,6 +52,7 @@ OrgNodeSpec.model_rebuild()
 from agentception.config import settings
 from agentception.db.persist import persist_agent_run_dispatch
 from agentception.db.queries import get_label_context
+from agentception.services.code_indexer import search_codebase
 from agentception.services.cognitive_arch import _resolve_cognitive_arch
 from agentception.services.spawn_child import (
     SpawnChildError,
@@ -236,6 +236,39 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
         if req.issue_body:
             parts.append(req.issue_body.strip())
         task_description = "\n\n".join(parts)
+
+    # Pre-inject semantically relevant code context from the main Qdrant index.
+    # Searching at dispatch time (not agent-turn time) amortises the embedding
+    # cost once and gives the agent oriented code context from turn 1.
+    # Cap: top 3 chunks, 800 chars each, total ≤ 3 000 chars added.
+    if task_description:
+        search_query = f"{req.issue_title} {req.issue_body}"[:800]
+        try:
+            code_matches = await search_codebase(search_query, n_results=3)
+            if code_matches:
+                ctx_blocks: list[str] = []
+                remaining = 3_000
+                for m in code_matches:
+                    block = (
+                        f"**{m['file']}** (lines {m['start_line']}–{m['end_line']})\n"
+                        f"```\n{m['chunk'][:800]}\n```"
+                    )
+                    if remaining <= 0:
+                        break
+                    ctx_blocks.append(block)
+                    remaining -= len(block)
+                if ctx_blocks:
+                    task_description += (
+                        "\n\n---\n\n## Pre-injected Code Context\n\n"
+                        + "\n\n".join(ctx_blocks)
+                    )
+                    logger.info(
+                        "✅ dispatch: pre-injected %d code chunks for run_id=%s",
+                        len(ctx_blocks),
+                        run_id,
+                    )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("⚠️ dispatch: context pre-injection failed — %s", exc)
 
     # Persist all task context to DB; agents read via ac://runs/{run_id}/context.
     await persist_agent_run_dispatch(

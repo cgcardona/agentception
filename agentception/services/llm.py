@@ -489,6 +489,7 @@ async def call_anthropic_with_tools(
     model: str = _MODEL,
     temperature: float = 0.0,
     max_tokens: int = 16384,
+    extra_system_blocks: list[dict[str, object]] | None = None,
 ) -> ToolResponse:
     """Call Claude via the Anthropic API with tool-use support.
 
@@ -507,6 +508,9 @@ async def call_anthropic_with_tools(
         model: Anthropic model ID.
         temperature: Sampling temperature.  Defaults to 0 for determinism.
         max_tokens: Maximum tokens the model may emit per turn.
+        extra_system_blocks: Additional Anthropic content blocks appended
+            after the cached system prompt block.  Used to inject dynamic
+            context (e.g. working memory) without invalidating the cache.
 
     Returns:
         :class:`ToolResponse` with ``stop_reason``, ``content``, and a
@@ -521,6 +525,8 @@ async def call_anthropic_with_tools(
 
     # System prompt as a cacheable content-block array.
     # cache_control: ephemeral → 5-minute TTL; charged at ~10% on cache hits.
+    # extra_system_blocks (e.g. working memory) are appended WITHOUT cache_control
+    # so they are re-evaluated fresh every turn without busting the main cache.
     system_block: list[dict[str, object]] = [
         {
             "type": "text",
@@ -528,6 +534,8 @@ async def call_anthropic_with_tools(
             "cache_control": {"type": "ephemeral"},
         }
     ]
+    if extra_system_blocks:
+        system_block.extend(extra_system_blocks)
 
     payload: dict[str, object] = {
         "model": model,

@@ -58,6 +58,14 @@ from agentception.tools.definitions import (
     GIT_COMMIT_AND_PUSH_TOOL_DEF,
     SEARCH_CODEBASE_TOOL_DEF,
     SHELL_TOOL_DEF,
+    UPDATE_WORKING_MEMORY_TOOL_DEF,
+)
+from agentception.services.working_memory import (
+    WorkingMemory,
+    merge_memory,
+    read_memory,
+    render_memory,
+    write_memory,
 )
 from agentception.tools.file_tools import (
     insert_after_in_file,
@@ -84,10 +92,22 @@ if str(_RESOLVE_ARCH_DIR) not in sys.path:
 # Hard cap on conversation turns.  Each iteration is one LLM call.
 _DEFAULT_MAX_ITERATIONS = 100
 
-# Tool results longer than this are truncated before being stored in history.
-# read_file / run_command can easily dump 50k+ chars; keeping them unbounded
-# inflates every subsequent input token count linearly.
-_MAX_TOOL_RESULT_CHARS: int = 3_000
+# Per-tool character limits applied before tool results enter history.
+# File-read outputs can be 10-50k chars; search outputs 5-15k.  Applying a
+# single flat cap of 3k was the root cause of agents re-reading files they
+# had already fetched — the first read was truncated and looked incomplete.
+# These limits are generous but finite; the agent still sees the full start
+# of every result with a clear truncation marker when the limit is hit.
+_TOOL_RESULT_CHAR_LIMITS: dict[str, int] = {
+    "read_file": 12_000,
+    "read_file_lines": 12_000,
+    "search_codebase": 8_000,
+    "search_text": 5_000,
+    "run_command": 5_000,
+    "git_commit_and_push": 3_000,
+    "list_directory": 2_000,
+}
+_DEFAULT_TOOL_RESULT_CHARS: int = 3_000
 
 # When the message history (excluding system) exceeds this count, old turns
 # are dropped from the middle.  The first user message (task briefing) and the
@@ -145,6 +165,7 @@ _LOCAL_TOOL_NAMES: frozenset[str] = frozenset(
         "run_command",
         "git_commit_and_push",
         "search_codebase",
+        "update_working_memory",
     }
 )
 
@@ -234,12 +255,23 @@ async def run_agent_loop(
         # of one LLM interaction and the start of the next.
         await _enforce_turn_delay()
 
+        # Read working memory and render it as a secondary system block.
+        # This is injected fresh every turn OUTSIDE the prunable history so
+        # the agent always has its scratch-pad regardless of how many turns
+        # have been pruned.  The main system-prompt cache is not invalidated
+        # because the working memory is a separate, un-cached block.
+        memory = read_memory(worktree_path)
+        extra_blocks: list[dict[str, object]] = []
+        if memory:
+            extra_blocks.append({"type": "text", "text": render_memory(memory)})
+
         try:
             bounded = _prune_history(_truncate_tool_results(messages))
             response: ToolResponse = await call_anthropic_with_tools(
                 bounded,
                 system=system_prompt,
                 tools=tool_defs,
+                extra_system_blocks=extra_blocks or None,
             )
         except Exception as exc:
             _record_llm_call()  # stamp even on error so next delay is measured correctly
@@ -567,6 +599,7 @@ def _build_tool_definitions(
     tool_defs.append(SHELL_TOOL_DEF)
     tool_defs.append(GIT_COMMIT_AND_PUSH_TOOL_DEF)
     tool_defs.append(SEARCH_CODEBASE_TOOL_DEF)
+    tool_defs.append(UPDATE_WORKING_MEMORY_TOOL_DEF)
 
     seen: set[str] = {t["function"]["name"] for t in tool_defs}
 
@@ -595,25 +628,61 @@ def _build_tool_definitions(
 # ---------------------------------------------------------------------------
 
 
+def _build_tool_id_map(messages: list[dict[str, object]]) -> dict[str, str]:
+    """Build a mapping from tool_call_id → tool_name by scanning assistant messages.
+
+    Required by :func:`_truncate_tool_results` to look up which tool produced
+    each result so the correct per-tool character limit can be applied.
+    """
+    mapping: dict[str, str] = {}
+    for msg in messages:
+        if msg.get("role") != "assistant":
+            continue
+        calls = msg.get("tool_calls")
+        if not isinstance(calls, list):
+            continue
+        for tc in calls:
+            if not isinstance(tc, dict):
+                continue
+            tc_id = tc.get("id", "")
+            fn = tc.get("function", {})
+            if isinstance(fn, dict) and isinstance(tc_id, str) and tc_id:
+                name = fn.get("name", "")
+                if isinstance(name, str):
+                    mapping[tc_id] = name
+    return mapping
+
+
 def _truncate_tool_results(
     messages: list[dict[str, object]],
 ) -> list[dict[str, object]]:
-    """Truncate oversized tool-result content to ``_MAX_TOOL_RESULT_CHARS``.
+    """Truncate oversized tool-result content using per-tool character limits.
 
-    Tool calls such as ``read_file`` and ``run_command`` can return tens of
-    thousands of characters.  Every subsequent LLM turn pays full input-token
-    price for that content, so we cap it here.  The model still sees the
-    beginning and a clear truncation marker.
+    Applies generous but finite caps per tool type so the agent is never
+    blinded by truncation while still keeping tokens bounded:
+
+    - File reads (``read_file``, ``read_file_lines``): 12 000 chars
+    - Semantic search (``search_codebase``): 8 000 chars
+    - Shell / text search: 5 000 chars
+    - Everything else: 3 000 chars
+
+    The tool name is resolved via the ``tool_call_id`` ↔ name mapping built
+    from the preceding assistant messages.  The model still sees the beginning
+    of every result with a clear truncation marker at the cut point.
     """
+    tool_id_map = _build_tool_id_map(messages)
     out: list[dict[str, object]] = []
     for msg in messages:
         if msg.get("role") == "tool":
+            tc_id = str(msg.get("tool_call_id", ""))
+            tool_name = tool_id_map.get(tc_id, "")
+            limit = _TOOL_RESULT_CHAR_LIMITS.get(tool_name, _DEFAULT_TOOL_RESULT_CHARS)
             raw = msg.get("content", "")
-            if isinstance(raw, str) and len(raw) > _MAX_TOOL_RESULT_CHARS:
+            if isinstance(raw, str) and len(raw) > limit:
                 msg = dict(msg)
                 msg["content"] = (
-                    raw[:_MAX_TOOL_RESULT_CHARS]
-                    + f"\n... [truncated — {len(raw) - _MAX_TOOL_RESULT_CHARS} chars omitted]"
+                    raw[:limit]
+                    + f"\n... [truncated — {len(raw) - limit} chars omitted]"
                 )
         out.append(msg)
     return out
@@ -903,5 +972,32 @@ async def _dispatch_local_tool(
         collection_arg: str | None = collection_raw if isinstance(collection_raw, str) else None
         matches = await search_codebase(query_raw, n_results, collection=collection_arg)
         return {"ok": True, "matches": matches}
+
+    if name == "update_working_memory":
+        update = WorkingMemory()
+        plan_raw = args.get("plan")
+        if isinstance(plan_raw, str):
+            update["plan"] = plan_raw
+        files_raw = args.get("files_examined")
+        if isinstance(files_raw, list) and all(isinstance(f, str) for f in files_raw):
+            update["files_examined"] = list(files_raw)
+        findings_raw = args.get("findings")
+        if isinstance(findings_raw, dict) and all(
+            isinstance(k, str) and isinstance(v, str) for k, v in findings_raw.items()
+        ):
+            update["findings"] = dict(findings_raw)
+        decisions_raw = args.get("decisions")
+        if isinstance(decisions_raw, list) and all(isinstance(d, str) for d in decisions_raw):
+            update["decisions"] = list(decisions_raw)
+        next_steps_raw = args.get("next_steps")
+        if isinstance(next_steps_raw, list) and all(isinstance(s, str) for s in next_steps_raw):
+            update["next_steps"] = list(next_steps_raw)
+        blockers_raw = args.get("blockers")
+        if isinstance(blockers_raw, list) and all(isinstance(b, str) for b in blockers_raw):
+            update["blockers"] = list(blockers_raw)
+        existing = read_memory(worktree_path)
+        merged = merge_memory(existing, update)
+        write_memory(worktree_path, merged)
+        return {"ok": True, "result": "Working memory updated."}
 
     return {"ok": False, "error": f"Unknown local tool: {name!r}"}
