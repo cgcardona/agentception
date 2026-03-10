@@ -4,13 +4,23 @@ Replaces Cursor's ``@Codebase`` feature with a self-hosted vector store.
 Files are chunked, embedded with a local ONNX model (FastEmbed), and stored
 in Qdrant.  The agent then searches with natural language instead of regex.
 
+Chunking Strategy
+-----------------
+Python files are chunked by top-level symbols (classes, functions, async
+functions) using AST parsing. Each symbol becomes a single chunk, including
+its decorators, docstring, and full body. This produces semantically coherent
+chunks that preserve complete definitions.
+
+Non-Python files use overlapping character-level chunks for compatibility.
+
 Public API
 ----------
 ``index_codebase(repo_path)``
-    Walk every readable source file in *repo_path*, split into overlapping
-    character-level chunks, embed with :data:`~agentception.config.settings.embed_model`
-    (default ``BAAI/bge-small-en-v1.5``), and upsert to the Qdrant
-    collection configured in :data:`~agentception.config.settings.qdrant_collection`.
+    Walk every readable source file in *repo_path*, chunk appropriately
+    (AST for Python, character-level for others), embed with
+    :data:`~agentception.config.settings.embed_model` (default
+    ``BAAI/bge-small-en-v1.5``), and upsert to the Qdrant collection
+    configured in :data:`~agentception.config.settings.qdrant_collection`.
 
 ``search_codebase(query, n_results)``
     Embed *query* with the same model and return the top *n_results* code
@@ -162,14 +172,89 @@ class _ChunkSpec(TypedDict):
     end_line: int
 
 
-def _chunk_file(path: Path, repo_root: Path) -> list[_ChunkSpec]:
-    """Split *path* into overlapping character-level chunks."""
+def _chunk_file_ast(path: Path, repo_root: Path) -> list[_ChunkSpec]:
+    """Split a Python file into chunks by top-level symbols (classes, functions).
+
+    Each top-level class or function becomes a single chunk, including its
+    decorators, docstring, and full body. This produces semantically coherent
+    chunks that preserve complete definitions.
+
+    Falls back to character-based chunking if AST parsing fails.
+    """
+    import ast
+
     try:
         raw = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return []
 
     rel = str(path.relative_to(repo_root))
+
+    # Try to parse as Python AST.
+    try:
+        tree = ast.parse(raw, filename=str(path))
+    except SyntaxError:
+        # Fall back to character chunking for malformed Python.
+        return _chunk_file_char(path, repo_root, raw, rel)
+
+    chunks: list[_ChunkSpec] = []
+    lines = raw.splitlines(keepends=True)
+
+    for idx, node in enumerate(tree.body):
+        # Only chunk top-level classes and functions.
+        if not isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+
+        # Extract the full source for this node, including decorators.
+        start_line = node.lineno
+        end_line = node.end_lineno or start_line
+
+        # Include decorators if present.
+        if node.decorator_list:
+            first_decorator = node.decorator_list[0]
+            start_line = first_decorator.lineno
+
+        # Extract text from the original source (1-indexed lines).
+        text = "".join(lines[start_line - 1 : end_line])
+
+        # Generate deterministic chunk ID.
+        raw_hash = hashlib.md5(f"{rel}:{node.name}".encode()).hexdigest()
+        chunk_id = int(raw_hash, 16) % (2**62)
+
+        chunks.append(
+            _ChunkSpec(
+                chunk_id=chunk_id,
+                file=rel,
+                text=text,
+                start_line=start_line,
+                end_line=end_line,
+            )
+        )
+
+    # If no top-level symbols found, fall back to character chunking.
+    if not chunks:
+        return _chunk_file_char(path, repo_root, raw, rel)
+
+    return chunks
+
+
+def _chunk_file_char(
+    path: Path, repo_root: Path, raw: str | None = None, rel: str | None = None
+) -> list[_ChunkSpec]:
+    """Split a file into overlapping character-level chunks.
+
+    This is the fallback strategy for non-Python files or Python files
+    that cannot be parsed with AST.
+    """
+    if raw is None:
+        try:
+            raw = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return []
+
+    if rel is None:
+        rel = str(path.relative_to(repo_root))
+
     chunks: list[_ChunkSpec] = []
     start = 0
     chunk_idx = 0
@@ -196,6 +281,17 @@ def _chunk_file(path: Path, repo_root: Path) -> list[_ChunkSpec]:
         chunk_idx += 1
 
     return chunks
+
+
+def _chunk_file(path: Path, repo_root: Path) -> list[_ChunkSpec]:
+    """Split *path* into chunks using the appropriate strategy.
+
+    Python files are chunked by top-level symbols (classes, functions) via AST.
+    All other files use overlapping character-level chunks.
+    """
+    if path.suffix == ".py":
+        return _chunk_file_ast(path, repo_root)
+    return _chunk_file_char(path, repo_root)
 
 
 # ── Qdrant helpers ────────────────────────────────────────────────────────────
