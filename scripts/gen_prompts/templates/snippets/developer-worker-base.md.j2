@@ -29,10 +29,10 @@ Once the type checker passes and targeted tests pass, commit and open the PR
 immediately. Do not loop back to audit more — that is scope creep. One clean
 improvement, shipped.
 
-## Audit Trail — Required at Every Touch Point
+## Audit Trail — Two Events, No More
 
-Post a fingerprint comment at each lifecycle event. All values come from your
-task briefing — do NOT read any file to obtain them.
+Post exactly **two** fingerprint events per implementer run. All values come from
+your task briefing — do NOT read any file to obtain them.
 
 ```bash
 # Populate from your task briefing before running anything below:
@@ -48,7 +48,7 @@ WTNAME=$(basename "$(pwd)")
 
 ### Event 1 — Claim (immediately after adding `{{ claim_label }}` label)
 
-Generate the fingerprint:
+Generate the fingerprint once and reuse it for both events:
 
 ```bash
 {% include 'snippets/fingerprint-claim.md.j2' %}
@@ -70,18 +70,20 @@ Include `$CLAIM_FINGERPRINT` verbatim at the end of the PR body when calling
 body = "## Summary\n...\n\nCloses #<ISSUE_NUMBER>\n\n<CLAIM_FINGERPRINT>"
 ```
 
-### Event 3 — Done (after PR is merged or work is complete)
+**That is all.** Do NOT post a third "done" comment on the issue.
 
-```
-add_issue_comment(owner=<OWNER>, repo=<REPO>, issue_number=<ISSUE_NUMBER>,
-                  body="🤖 **Implemented by agent** — PR #<PR_NUMBER>\n\n<CLAIM_FINGERPRINT>")
-```
+- If you spawn a PR reviewer: the reviewer's outcome comment is the terminal event.
+  One issue thread, two agents, two fingerprints, one outcome comment.
+- If you do not spawn a reviewer and the PR is merged by no other agent: close
+  the issue yourself (see below). Still no extra issue comment.
 
 **Close the issue explicitly** — GitHub only auto-closes issues when a PR is merged
 into the repository's default branch (`main`). This repo merges into `dev`, so
-auto-close never fires. After the PR merges, close the issue manually:
+auto-close never fires. Whoever merges the PR must close the issue:
 
 ```
 issue_write(method="update", owner=<OWNER>, repo=<REPO>, issue_number=<ISSUE_NUMBER>,
             state="closed", state_reason="completed")
 ```
+
+If a reviewer is spawned, the reviewer closes the issue after merging — you do not.

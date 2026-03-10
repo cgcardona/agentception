@@ -109,11 +109,20 @@ merge_pull_request(owner=<OWNER>, repo=<REPO>, pull_number=<PR_NUMBER>,
                    merge_method="squash", deleteBranch=true)
 ```
 
-Finally post the outcome to the issue (once, never before):
+Finally post the outcome to the issue — **this is the only comment you post on
+the issue**. The implementer already posted a claim comment; your outcome comment
+is the second and final entry in the issue thread:
 
 ```
 add_issue_comment(owner=<OWNER>, repo=<REPO>, issue_number=<ISSUE_NUMBER>,
-                  body="✅ **Grade: A — Merged** / 🚫 **Grade: D/F — Blocked**\n\n<summary>\n\n<REVIEW_FINGERPRINT>")
+                  body="✅ **Grade: A — Merged PR #<PR_NUMBER>** / 🚫 **Grade: D/F — Blocked**\n\n<one-paragraph summary of findings>\n\n<REVIEW_FINGERPRINT>")
+```
+
+If grade is A or B and the PR was merged, also close the issue:
+
+```
+issue_write(method="update", owner=<OWNER>, repo=<REPO>, issue_number=<ISSUE_NUMBER>,
+            state="closed", state_reason="completed")
 ```
 
 ---
@@ -157,9 +166,10 @@ When a flaw is found, classify it in this order:
 ## Failure Modes to Avoid
 
 - Re-reading a file you have already processed.
-- Posting to the issue before the review is complete (noise).
-- Calling `add_issue_comment` instead of `pull_request_review_write` for the actual review.
+- Posting more than one comment on the issue — the outcome comment is the only one.
+- Calling `add_issue_comment` for the review body instead of `pull_request_review_write`.
 - Stopping at B or C instead of fixing in place.
 - Paraphrasing terminal output instead of showing it in full.
 - Accepting suppressed type errors or untyped code as "good enough."
 - Using `docker compose exec` from inside the container — you are already inside.
+- Forgetting to call `issue_write(state="closed")` after merging a grade A/B PR.
