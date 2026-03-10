@@ -18,9 +18,10 @@ Three endpoints drive the Ship page launch modal:
 
 **Lifecycle for ``POST /api/dispatch/issue``:**
 
-1. Create git worktree at ``{worktrees_dir}/issue-{N}`` branching from ``origin/dev``
-   (implementers) or ``origin/feat/issue-{N}`` (``pr-reviewer`` role — remote branch
-   is fetched first so the reviewer starts on the implementer's code immediately).
+    1. Create git worktree at ``{worktrees_dir}/issue-{N}`` branching from ``origin/dev``
+   (implementers) or from the PR branch (``pr-reviewer`` role — remote branch
+   is fetched first; branch name is ``pr_branch`` if provided, otherwise
+   ``feat/issue-{N}``; reviewer starts on the implementer's code immediately).
 2. Configure worktree remote to embed ``GITHUB_TOKEN`` (enables ``git push``
    without a separate credential helper).
 3. Pre-inject semantically relevant code chunks into ``task_description``
@@ -179,10 +180,24 @@ class DispatchRequest(BaseModel):
     """PR number to associate with this run.
 
     Required for ``pr-reviewer`` dispatches — the worktree is anchored to the
-    PR branch (``origin/feat/issue-{N}``) instead of ``origin/dev``, so the
-    reviewer starts on the implementer's code without any manual branch-switching.
+    PR branch instead of ``origin/dev``, so the reviewer starts on the
+    implementer's code without any manual branch-switching.
     Optional for implementer dispatches; when omitted, the DB field is left
     ``NULL`` until the agent self-reports the PR via ``build_complete_run``.
+    """
+    pr_branch: str | None = None
+    """Exact remote branch name for the PR being reviewed.
+
+    For ``pr-reviewer`` dispatches only.  When omitted the endpoint derives
+    the branch as ``feat/issue-{issue_number}``, which is the standard naming
+    convention for AgentCeption agent branches.
+
+    Provide this field when the PR branch does not follow the standard naming
+    convention — e.g. ``feat/reviewer-branch-orientation`` (not tied to a
+    single issue number).
+
+    The ``run_id`` and worktree slug are always derived from ``issue_number``
+    regardless of what ``pr_branch`` is set to.
     """
 
 
@@ -229,12 +244,15 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
     No Cursor session or external Dispatcher is required.
 
     Raises:
-        HTTPException 409: Worktree already exists at the target path.
+        HTTPException 422: PR branch not found on remote (already deleted after merge,
+            or non-standard name not passed via ``pr_branch``).
         HTTPException 500: git worktree add or git auth configuration failed.
     """
     run_id = f"issue-{req.issue_number}"
     slug = f"issue-{req.issue_number}"
-    branch = f"feat/issue-{req.issue_number}"
+    # For reviewer dispatches the PR branch may not follow feat/issue-{N} naming
+    # (e.g. feat/reviewer-branch-orientation).  pr_branch overrides the default.
+    branch = req.pr_branch if req.pr_branch else f"feat/issue-{req.issue_number}"
     batch_id = _make_batch_id(req.issue_number)
     worktree_path = str(Path(settings.worktrees_dir) / slug)
     host_worktree_path = str(Path(settings.host_worktrees_dir) / slug)
@@ -245,10 +263,9 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
 
     if is_reviewer:
         # For reviewers the relevant code lives on the implementer's branch, not
-        # dev.  Fetch the remote branch so `origin/feat/issue-{N}` is up to date,
-        # then create the worktree from that ref instead of origin/dev.  The agent
-        # is on the correct branch from its very first turn — no wasted turns
-        # fetching, resetting, or detecting that it is on the wrong branch.
+        # dev.  Fetch the remote branch so `origin/<branch>` is up to date, then
+        # create the worktree from that ref.  The agent is on the correct branch
+        # from its very first turn — no wasted turns detecting the wrong branch.
         fetch_proc = await asyncio.create_subprocess_exec(
             "git", "fetch", "origin", branch,
             cwd=str(settings.repo_dir),
@@ -260,8 +277,14 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
             err_msg = _fetch_err.decode(errors="replace").strip()
             logger.error("❌ dispatch: fetch of %s failed — %s", branch, err_msg)
             raise HTTPException(
-                status_code=500,
-                detail=f"git fetch origin {branch} failed: {err_msg}",
+                status_code=422,
+                detail=(
+                    f"Remote branch '{branch}' not found. "
+                    "If the PR was already merged and the branch deleted, reviewers "
+                    "must be dispatched before merge. "
+                    "If the branch uses a non-standard name, pass it in 'pr_branch'. "
+                    f"git error: {err_msg}"
+                ),
             )
         worktree_base = f"origin/{branch}"
         logger.info("✅ dispatch: fetched %s for reviewer worktree", branch)

@@ -64,18 +64,41 @@ curl -s -X POST http://localhost:10003/api/dispatch/issue \
   }'
 ```
 
-The endpoint fetches `origin/feat/issue-35` automatically and creates the worktree
-from that ref.  The reviewer is on the implementer's branch from its very first turn —
-no fetching, no hard-resetting, no wasted turns detecting the wrong branch.
+If the PR branch does **not** follow the `feat/issue-{N}` convention (e.g. it is named
+`feat/reviewer-branch-orientation`), pass `pr_branch` explicitly:
+
+```bash
+curl -s -X POST http://localhost:10003/api/dispatch/issue \
+  -H "Content-Type: application/json" \
+  -d '{
+    "issue_number": 35,
+    "issue_title":  "PR review for feat/reviewer-branch-orientation (#437)",
+    "issue_body":   "Review PR #437. Run mypy, typing_audit, pytest. Fagan analysis. Merge if acceptable.",
+    "role":         "pr-reviewer",
+    "repo":         "agentception",
+    "pr_number":    437,
+    "pr_branch":    "feat/reviewer-branch-orientation"
+  }'
+```
+
+The endpoint fetches the remote branch automatically and creates the worktree from it.
+The reviewer is on the implementer's branch from its very first turn — no fetching,
+no hard-resetting, no wasted turns detecting the wrong branch.
+
+> **Reviewers must be dispatched before the PR is merged.** Once a PR is merged and
+> the branch deleted, `git fetch` will return `fatal: couldn't find remote ref …` and
+> the endpoint returns HTTP 422. The correct workflow: implementer creates PR →
+> dispatcher launches reviewer → reviewer verifies and merges.
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `issue_number` | yes | GitHub issue number — used for `run_id = "issue-{N}"` and the branch `feat/issue-{N}` |
+| `issue_number` | yes | GitHub issue number — used for `run_id = "issue-{N}"` and the worktree slug |
 | `issue_title` | yes | Injected into the agent's task briefing and used as the Qdrant search query |
 | `issue_body` | no | Full issue body text; drives cognitive arch selection and task briefing. Pass `""` to let the agent read the body itself via `issue_read` |
 | `role` | yes | Role slug matching a file in `.agentception/roles/` — `"developer"` for implementers, `"pr-reviewer"` for reviewers |
 | `repo` | yes | `owner/repo` string — e.g. `"agentception"` (short form resolved against `settings.gh_repo`) |
-| `pr_number` | no | PR number to associate with this run. **Required for `pr-reviewer` dispatches** so the DB row is pre-linked and the worktree can be anchored to the right branch. For implementers, omit — the agent self-reports it via `build_complete_run` |
+| `pr_number` | no | PR number to associate with this run. **Required for `pr-reviewer` dispatches** so the DB row is pre-linked. Implementers omit — the agent self-reports it via `build_complete_run` |
+| `pr_branch` | no | Exact remote branch name for the PR. **Only for `pr-reviewer` when the branch does not follow `feat/issue-{N}` naming.** Omit for standard-named branches |
 
 ### Re-dispatching a failed or cancelled run
 

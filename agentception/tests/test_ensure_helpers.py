@@ -317,3 +317,100 @@ async def test_dispatch_implementer_uses_origin_dev_as_base(tmp_path: Path) -> N
     assert captured_base == ["origin/dev"], (
         f"Expected ensure_worktree to be called with base='origin/dev', got {captured_base}"
     )
+
+
+@pytest.mark.anyio
+async def test_dispatch_reviewer_pr_branch_override_respected(tmp_path: Path) -> None:
+    """When pr_branch is provided, it overrides the feat/issue-{N} default branch name.
+
+    This covers PRs whose branch doesn't follow the standard naming convention
+    (e.g. feat/reviewer-branch-orientation vs feat/issue-35).
+    """
+    from agentception.routes.api.dispatch import dispatch_agent, DispatchRequest
+
+    fetch_proc = AsyncMock()
+    fetch_proc.returncode = 0
+    fetch_proc.communicate.return_value = (b"", b"")
+
+    captured_bases: list[str] = []
+    captured_branches: list[str] = []
+
+    async def mock_ensure_worktree(path: Path, branch: str, base: str = "origin/dev") -> bool:
+        captured_bases.append(base)
+        captured_branches.append(branch)
+        return True
+
+    with (
+        patch("agentception.routes.api.dispatch.asyncio.create_subprocess_exec", return_value=fetch_proc),
+        patch("agentception.readers.git.ensure_worktree", side_effect=mock_ensure_worktree),
+        patch("agentception.routes.api.dispatch._configure_worktree_auth", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch._resolve_cognitive_arch", return_value=None),
+        patch("agentception.routes.api.dispatch.search_codebase", new_callable=AsyncMock, return_value=[]),
+        patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.acknowledge_agent_run", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.run_agent_loop", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.asyncio.create_task", return_value=asyncio.Future()),
+        patch("agentception.routes.api.dispatch._index_worktree", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.settings") as mock_settings,
+    ):
+        mock_settings.worktrees_dir = str(tmp_path / "worktrees")
+        mock_settings.host_worktrees_dir = str(tmp_path / "host_worktrees")
+        mock_settings.repo_dir = str(tmp_path)
+        mock_settings.gh_repo = "cgcardona/agentception"
+
+        req = DispatchRequest(
+            issue_number=35,
+            issue_title="PR review for non-standard branch",
+            issue_body="",
+            role="pr-reviewer",
+            repo="agentception",
+            pr_number=437,
+            pr_branch="feat/reviewer-branch-orientation",
+        )
+        await dispatch_agent(req)
+
+    # The custom pr_branch must be fetched and used as the worktree base
+    assert captured_branches == ["feat/reviewer-branch-orientation"], (
+        f"Expected branch 'feat/reviewer-branch-orientation', got {captured_branches}"
+    )
+    assert captured_bases == ["origin/feat/reviewer-branch-orientation"], (
+        f"Expected base 'origin/feat/reviewer-branch-orientation', got {captured_bases}"
+    )
+
+
+@pytest.mark.anyio
+async def test_dispatch_reviewer_deleted_branch_returns_422(tmp_path: Path) -> None:
+    """When the remote branch is gone (already merged + deleted), dispatch returns 422 not 500."""
+    from fastapi import HTTPException
+    from agentception.routes.api.dispatch import dispatch_agent, DispatchRequest
+
+    # Simulate git fetch failing because the branch was deleted after merge
+    fetch_proc = AsyncMock()
+    fetch_proc.returncode = 128
+    fetch_proc.communicate.return_value = (
+        b"",
+        b"fatal: couldn't find remote ref feat/issue-35",
+    )
+
+    with (
+        patch("agentception.routes.api.dispatch.asyncio.create_subprocess_exec", return_value=fetch_proc),
+        patch("agentception.routes.api.dispatch.settings") as mock_settings,
+    ):
+        mock_settings.worktrees_dir = str(tmp_path / "worktrees")
+        mock_settings.host_worktrees_dir = str(tmp_path / "host_worktrees")
+        mock_settings.repo_dir = str(tmp_path)
+        mock_settings.gh_repo = "cgcardona/agentception"
+
+        req = DispatchRequest(
+            issue_number=35,
+            issue_title="PR review for already-merged PR",
+            issue_body="",
+            role="pr-reviewer",
+            repo="agentception",
+            pr_number=436,
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await dispatch_agent(req)
+
+    assert exc_info.value.status_code == 422
+    assert "already merged" in exc_info.value.detail or "pr_branch" in exc_info.value.detail
