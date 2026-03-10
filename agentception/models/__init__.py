@@ -204,6 +204,7 @@ class PipelineState(BaseModel):
     stale_branches: list[str] = []
     pending_approval: list[dict[str, object]] = []
     plan_draft_events: list[PlanDraftEvent] = []
+    loop_guard_triggered: list[str] = []
 
     @classmethod
     def empty(cls) -> PipelineState:
@@ -410,6 +411,8 @@ class PipelineConfig(BaseModel):
     phase_advance_blocked_label: str = "pipeline/gated"
     #: Label added to to_phase issues when they become eligible for dispatch.
     phase_advance_active_label: str = "pipeline/active"
+    #: Maximum message_count before an agent is flagged as looping.
+    max_attempts: int = Field(default=3, gt=0, description="Max message_count before loop guard triggers.")
 
 
 class SwitchProjectRequest(BaseModel):

@@ -24,6 +24,7 @@ from agentception.models import PipelineConfig
 _DEFAULTS: dict[str, int | dict[str, int]] = {
     "coordinator_limits": {"engineering-coordinator": 1, "qa-coordinator": 1},
     "pool_size": 4,
+    "max_attempts": 3,
 }
 
 _CONFIG_PATH: Path = settings.ac_dir / "pipeline-config.json"

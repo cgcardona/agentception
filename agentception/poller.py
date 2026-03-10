@@ -581,6 +581,32 @@ async def tick() -> PipelineState:
     alerts, stale_claims = await detect_alerts(active_runs, github)
     plan_draft_events: list[PlanDraftEvent] = []
 
+    # ── Loop guard detection ────────────────────────────────────────────────
+    # Check message_count against max_attempts from PipelineConfig.
+    # Agents exceeding the ceiling are flagged in loop_guard_triggered.
+    loop_guard_triggered: list[str] = []
+    try:
+        from agentception.readers.pipeline_config import read_pipeline_config
+        config = await read_pipeline_config()
+        max_attempts = config.max_attempts
+        for run in active_runs:
+            msg_count_raw = run.get("message_count", 0)
+            msg_count = int(msg_count_raw) if isinstance(msg_count_raw, (int, float)) else 0
+            if msg_count > max_attempts:
+                run_id = run["run_id"]
+                issue_num = run.get("issue_number")
+                label = f"issue #{issue_num}" if issue_num else run_id
+                loop_guard_triggered.append(label)
+                logger.warning(
+                    "⚠️  agent_loop_guard_triggered — run_id=%s issue=%s message_count=%d max_attempts=%d",
+                    run_id,
+                    label,
+                    msg_count,
+                    max_attempts,
+                )
+    except Exception as exc:
+        logger.warning("⚠️  Loop guard detection failed (non-fatal): %s", exc)
+
     # ── Persist raw tick data to Postgres ────────────────────────────────────
     # Non-blocking: a DB outage cannot crash the poller or stall the SSE stream.
     try:
@@ -596,6 +622,7 @@ async def tick() -> PipelineState:
                 board_issues=[],
                 polled_at=time.time(),
                 plan_draft_events=plan_draft_events,
+                loop_guard_triggered=loop_guard_triggered,
             ),
             open_issues=github.open_issues,
             open_prs=github.open_prs,
@@ -661,6 +688,7 @@ async def tick() -> PipelineState:
         merged_prs_count=merged_prs_count,
         stale_branches=stale_branches,
         plan_draft_events=plan_draft_events,
+        loop_guard_triggered=loop_guard_triggered,
     )
     _state = state
 
