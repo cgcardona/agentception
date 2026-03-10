@@ -252,25 +252,15 @@ async def test_spawn_child_skills_hint_overrides_body_extraction() -> None:
 
 @pytest.mark.anyio
 async def test_spawn_child_worktree_failure_raises_spawn_child_error() -> None:
-    # spawn_child now calls create_subprocess_exec twice:
-    #   1. git rev-parse origin/dev  → succeeds (returns a SHA)
-    #   2. git worktree add ...      → fails (the case under test)
-    sha_proc = MagicMock()
-    sha_proc.returncode = 0
-    sha_proc.communicate = AsyncMock(
-        return_value=(b"abc1234abc1234abc1234abc1234abc1234abc1234\n", b"")
-    )
-
-    fail_proc = MagicMock()
-    fail_proc.returncode = 1
-    fail_proc.communicate = AsyncMock(return_value=(b"", b"fatal: branch already exists"))
-
+    # spawn_child delegates worktree creation to ensure_worktree (readers.git).
+    # Simulate a failure by having ensure_worktree raise RuntimeError — spawn_child
+    # must convert that into a SpawnChildError with a "worktree creation failed" message.
     with (
         patch(
-            "agentception.services.spawn_child.asyncio.create_subprocess_exec",
-            side_effect=[sha_proc, fail_proc],
+            "agentception.readers.git.ensure_worktree",
+            AsyncMock(side_effect=RuntimeError("git worktree add failed: fatal: branch already exists")),
         ),
-        pytest.raises(SpawnChildError, match="git worktree add failed"),
+        pytest.raises(SpawnChildError, match="worktree creation failed"),
     ):
         await spawn_child(
             parent_run_id="coord-xyz",

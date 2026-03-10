@@ -18,7 +18,9 @@ Three endpoints drive the Ship page launch modal:
 
 **Lifecycle for ``POST /api/dispatch/issue``:**
 
-1. Create git worktree at ``{worktrees_dir}/issue-{N}`` branching from ``origin/dev``.
+1. Create git worktree at ``{worktrees_dir}/issue-{N}`` branching from ``origin/dev``
+   (implementers) or ``origin/feat/issue-{N}`` (``pr-reviewer`` role — remote branch
+   is fetched first so the reviewer starts on the implementer's code immediately).
 2. Configure worktree remote to embed ``GITHUB_TOKEN`` (enables ``git push``
    without a separate credential helper).
 3. Pre-inject semantically relevant code chunks into ``task_description``
@@ -170,9 +172,18 @@ class DispatchRequest(BaseModel):
     issue_body: str = ""
     """Issue body text used to derive skill domains for the cognitive arch."""
     role: str
-    """Role slug from ``.agentception/roles/`` (e.g. ``developer``)."""
+    """Role slug from ``.agentception/roles/`` (e.g. ``developer``, ``pr-reviewer``)."""
     repo: str
     """``owner/repo`` string (e.g. ``cgcardona/agentception``)."""
+    pr_number: int | None = None
+    """PR number to associate with this run.
+
+    Required for ``pr-reviewer`` dispatches — the worktree is anchored to the
+    PR branch (``origin/feat/issue-{N}``) instead of ``origin/dev``, so the
+    reviewer starts on the implementer's code without any manual branch-switching.
+    Optional for implementer dispatches; when omitted, the DB field is left
+    ``NULL`` until the agent self-reports the PR via ``build_complete_run``.
+    """
 
 
 class DispatchResponse(BaseModel):
@@ -204,10 +215,13 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
     Full lifecycle (all steps complete before the response is returned except
     the agent loop and indexing, which run as asyncio background tasks):
 
-    1. Create git worktree at ``{worktrees_dir}/issue-{N}``.
+    1. Create git worktree — anchored to ``origin/dev`` for implementers;
+       anchored to ``origin/feat/issue-{N}`` for ``pr-reviewer`` dispatches
+       (after fetching the remote branch so the reviewer starts on the
+       implementer's code from turn 1 with no manual branch-switching needed).
     2. Configure worktree remote to embed ``GITHUB_TOKEN`` for push access.
     3. Pre-inject semantically relevant code chunks into ``task_description``.
-    4. Persist DB row as ``pending_launch``.
+    4. Persist DB row as ``pending_launch`` (``pr_number`` written if provided).
     5. Acknowledge → ``implementing``.
     6. Fire ``run_agent_loop`` as an asyncio background task (calls Anthropic).
     7. Fire worktree Qdrant indexing as an asyncio background task.
@@ -225,12 +239,38 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
     worktree_path = str(Path(settings.worktrees_dir) / slug)
     host_worktree_path = str(Path(settings.host_worktrees_dir) / slug)
 
-    # Create git worktree anchored to origin/dev
     from agentception.readers.git import ensure_worktree  # noqa: PLC0415
 
+    is_reviewer = req.role == "pr-reviewer"
+
+    if is_reviewer:
+        # For reviewers the relevant code lives on the implementer's branch, not
+        # dev.  Fetch the remote branch so `origin/feat/issue-{N}` is up to date,
+        # then create the worktree from that ref instead of origin/dev.  The agent
+        # is on the correct branch from its very first turn — no wasted turns
+        # fetching, resetting, or detecting that it is on the wrong branch.
+        fetch_proc = await asyncio.create_subprocess_exec(
+            "git", "fetch", "origin", branch,
+            cwd=str(settings.repo_dir),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _fetch_out, _fetch_err = await fetch_proc.communicate()
+        if fetch_proc.returncode != 0:
+            err_msg = _fetch_err.decode(errors="replace").strip()
+            logger.error("❌ dispatch: fetch of %s failed — %s", branch, err_msg)
+            raise HTTPException(
+                status_code=500,
+                detail=f"git fetch origin {branch} failed: {err_msg}",
+            )
+        worktree_base = f"origin/{branch}"
+        logger.info("✅ dispatch: fetched %s for reviewer worktree", branch)
+    else:
+        worktree_base = "origin/dev"
+
     try:
-        await ensure_worktree(Path(worktree_path), branch, "origin/dev")
-        logger.info("✅ dispatch: worktree created at %s", worktree_path)
+        await ensure_worktree(Path(worktree_path), branch, worktree_base)
+        logger.info("✅ dispatch: worktree created at %s (base=%s)", worktree_path, worktree_base)
     except RuntimeError as exc:
         logger.error("❌ dispatch: worktree creation failed — %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -298,6 +338,7 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
         cognitive_arch=cognitive_arch,
         gh_repo=settings.gh_repo,
         task_description=task_description,
+        pr_number=req.pr_number,
     )
 
     # Transition pending_launch → implementing and fire the agent loop.
