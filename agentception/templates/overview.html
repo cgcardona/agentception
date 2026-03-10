@@ -578,6 +578,14 @@
       <span class="summary-label" x-text="sweeping ? 'Sweeping…' : 'Stale'"></span>
       <span class="summary-value" x-text="(state.stale_branches || []).length"></span>
     </div>
+    <div
+      class="summary-item"
+      :class="(state.loop_guard_triggered || []).length > 0 ? 'summary-item--warn' : 'summary-item--dim'"
+      :title="(state.loop_guard_triggered || []).length > 0 ? 'Loop guard triggered for: ' + (state.loop_guard_triggered || []).join(', ') : ''"
+    >
+      <span class="summary-label">Loop Guard</span>
+      <span class="summary-value" x-text="(state.loop_guard_triggered || []).length"></span>
+    </div>
     <div class="summary-item">
       <span class="summary-label">Msgs</span>
       <span class="summary-value summary-value--accent" x-text="totalMsgCount()"></span>

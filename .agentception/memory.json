@@ -1,0 +1,21 @@
+{
+  "plan": "Add max_attempts field to PipelineConfig, enforce ceiling in poller tick(), emit agent_loop_guard_triggered SSE event, add red Loop Guard badge to dashboard template.",
+  "files_examined": [
+    "agentception/models/__init__.py",
+    "agentception/poller.py",
+    "agentception/intelligence/guards.py",
+    "agentception/templates/overview.html"
+  ],
+  "findings": {
+    "agentception/models/__init__.py": "PipelineConfig.max_attempts already exists (default=3), PipelineState.loop_guard_triggered already exists",
+    "agentception/poller.py": "Loop guard detection already implemented in tick() function (lines 583-602), emits warnings and populates loop_guard_triggered list",
+    "agentception/templates/overview.html": "Need to add Loop Guard badge to pipeline-summary-bar (after line 580, before Msgs badge)"
+  },
+  "next_steps": [
+    "Add Loop Guard badge to overview.html template (red badge, similar to Stale badge)",
+    "Run mypy and tests",
+    "Commit and create PR",
+    "Spawn PR reviewer",
+    "Mark run complete"
+  ]
+}
