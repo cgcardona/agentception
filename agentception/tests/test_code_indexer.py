@@ -17,7 +17,9 @@ from agentception.services.code_indexer import (
     IndexStats,
     SearchMatch,
     _chunk_file,
+    _compute_file_hash,
     _ensure_collection,
+    _fetch_indexed_hashes,
     _reset_model,
     _should_index,
     _walk_files,
@@ -278,6 +280,7 @@ async def test_index_codebase_returns_stats(tmp_path: Path) -> None:
     assert stats["ok"] is True
     assert stats["files_indexed"] == 2
     assert stats["chunks_indexed"] >= 2
+    assert stats["files_skipped"] == 0
     assert stats["error"] is None
 
 
@@ -572,3 +575,176 @@ async def test_index_codebase_writes_symbol_to_payload(tmp_path: Path) -> None:
     points = mock_client.upsert.call_args.kwargs["points"]
     assert len(points) == 1
     assert points[0].payload["symbol"] == "def compute"
+    assert "file_hash" in points[0].payload
+    assert len(points[0].payload["file_hash"]) == 64  # SHA-256 hex digest
+
+
+# ── _compute_file_hash tests ──────────────────────────────────────────────────
+
+
+def test_compute_file_hash_returns_sha256_hex(tmp_path: Path) -> None:
+    """_compute_file_hash returns a 64-character hex SHA-256 digest."""
+    f = tmp_path / "sample.py"
+    f.write_text("def foo(): pass\n")
+    digest = _compute_file_hash(f)
+    assert len(digest) == 64
+    assert all(c in "0123456789abcdef" for c in digest)
+
+
+def test_compute_file_hash_is_deterministic(tmp_path: Path) -> None:
+    """Same file content always produces the same hash."""
+    f = tmp_path / "stable.py"
+    f.write_text("x = 1\n")
+    assert _compute_file_hash(f) == _compute_file_hash(f)
+
+
+def test_compute_file_hash_differs_on_content_change(tmp_path: Path) -> None:
+    """Different file contents produce different hashes."""
+    f = tmp_path / "changing.py"
+    f.write_text("x = 1\n")
+    hash_before = _compute_file_hash(f)
+    f.write_text("x = 2\n")
+    hash_after = _compute_file_hash(f)
+    assert hash_before != hash_after
+
+
+def test_compute_file_hash_missing_file_returns_empty(tmp_path: Path) -> None:
+    """_compute_file_hash returns '' for a file that does not exist."""
+    f = tmp_path / "nonexistent.py"
+    assert _compute_file_hash(f) == ""
+
+
+# ── _fetch_indexed_hashes tests ───────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_fetch_indexed_hashes_returns_file_hash_map() -> None:
+    """_fetch_indexed_hashes extracts file→hash pairs from Qdrant payloads."""
+    from types import SimpleNamespace
+
+    point = SimpleNamespace(
+        id=1,
+        payload={"file": "agentception/config.py", "file_hash": "abc123"},
+    )
+    mock_client = AsyncMock()
+    # scroll returns (points, next_offset); None offset signals end of scroll.
+    mock_client.scroll.return_value = ([point], None)
+
+    result = await _fetch_indexed_hashes(mock_client, "code")
+
+    assert result == {"agentception/config.py": "abc123"}
+
+
+@pytest.mark.anyio
+async def test_fetch_indexed_hashes_ignores_points_without_hash() -> None:
+    """Points that lack a file_hash field (legacy) are silently ignored."""
+    from types import SimpleNamespace
+
+    point_legacy = SimpleNamespace(id=1, payload={"file": "old.py"})
+    point_new = SimpleNamespace(
+        id=2, payload={"file": "new.py", "file_hash": "deadbeef" * 8}
+    )
+    mock_client = AsyncMock()
+    mock_client.scroll.return_value = ([point_legacy, point_new], None)
+
+    result = await _fetch_indexed_hashes(mock_client, "code")
+
+    assert "old.py" not in result
+    assert result["new.py"] == "deadbeef" * 8
+
+
+@pytest.mark.anyio
+async def test_fetch_indexed_hashes_returns_empty_on_error() -> None:
+    """_fetch_indexed_hashes returns {} when Qdrant raises an exception."""
+    mock_client = AsyncMock()
+    mock_client.scroll.side_effect = ConnectionRefusedError("qdrant down")
+
+    result = await _fetch_indexed_hashes(mock_client, "code")
+
+    assert result == {}
+
+
+# ── incremental indexing tests ────────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_index_codebase_skips_unchanged_files(tmp_path: Path) -> None:
+    """Files whose hash matches the stored hash are skipped (files_skipped > 0)."""
+    import hashlib
+
+    py_file = tmp_path / "mod.py"
+    py_file.write_text("def foo(): pass\n")
+    md_file = tmp_path / "readme.md"
+    md_file.write_text("# Hello\n")
+
+    # Pre-compute the hash for mod.py so it appears already indexed.
+    py_hash = hashlib.sha256(py_file.read_bytes()).hexdigest()
+    py_rel = "mod.py"
+
+    # Simulate Qdrant already having mod.py indexed with its current hash.
+    existing_point = SimpleNamespace(
+        id=1,
+        payload={"file": py_rel, "file_hash": py_hash},
+    )
+
+    mock_client = AsyncMock()
+    mock_client.get_collections.return_value = SimpleNamespace(
+        collections=[SimpleNamespace(name="code")]
+    )
+    mock_client.get_collection.return_value = SimpleNamespace(
+        config=SimpleNamespace(
+            params=SimpleNamespace(vectors={"dense": object(), "sparse": object()})
+        )
+    )
+    mock_client.scroll.return_value = ([existing_point], None)
+
+    with (
+        patch("agentception.services.code_indexer._embed", side_effect=_fake_embed),
+        patch("qdrant_client.AsyncQdrantClient", return_value=mock_client),
+    ):
+        stats: IndexStats = await index_codebase(repo_path=tmp_path)
+
+    assert stats["ok"] is True
+    assert stats["files_skipped"] == 1  # mod.py was skipped
+    assert stats["files_indexed"] == 1  # readme.md was indexed
+
+
+@pytest.mark.anyio
+async def test_index_codebase_rehashes_changed_files(tmp_path: Path) -> None:
+    """A file whose content changed since last index is re-indexed."""
+    py_file = tmp_path / "mod.py"
+    py_file.write_text("def foo(): pass\n")
+
+    # Store a *stale* hash so the file appears changed.
+    stale_point = SimpleNamespace(
+        id=1,
+        payload={"file": "mod.py", "file_hash": "stale_hash_value"},
+    )
+
+    mock_client = AsyncMock()
+    mock_client.get_collections.return_value = SimpleNamespace(
+        collections=[SimpleNamespace(name="code")]
+    )
+    mock_client.get_collection.return_value = SimpleNamespace(
+        config=SimpleNamespace(
+            params=SimpleNamespace(vectors={"dense": object(), "sparse": object()})
+        )
+    )
+    mock_client.scroll.return_value = ([stale_point], None)
+
+    with (
+        patch("agentception.services.code_indexer._embed", side_effect=_fake_embed),
+        patch("qdrant_client.AsyncQdrantClient", return_value=mock_client),
+    ):
+        stats: IndexStats = await index_codebase(repo_path=tmp_path)
+
+    assert stats["ok"] is True
+    assert stats["files_skipped"] == 0  # stale hash → file was re-indexed
+    assert stats["files_indexed"] == 1
+
+    # Verify the upserted point carries the new (correct) hash.
+    mock_client.upsert.assert_called()
+    points = mock_client.upsert.call_args.kwargs["points"]
+    stored_hash = points[0].payload["file_hash"]
+    assert len(stored_hash) == 64  # valid SHA-256 hex
+    assert stored_hash != "stale_hash_value"

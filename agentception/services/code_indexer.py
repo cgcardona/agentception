@@ -89,6 +89,7 @@ class IndexStats(TypedDict):
     ok: bool
     files_indexed: int
     chunks_indexed: int
+    files_skipped: int
     error: str | None
 
 
@@ -356,6 +357,72 @@ def _chunk_file(path: Path, repo_root: Path) -> list[_ChunkSpec]:
     return _chunk_file_char(path, repo_root)
 
 
+# ── File hashing ─────────────────────────────────────────────────────────────
+
+
+def _compute_file_hash(path: Path) -> str:
+    """Return the SHA-256 hex digest of *path*'s contents.
+
+    Used to detect whether a file has changed since it was last indexed.
+    Returns an empty string when the file cannot be read (e.g. a race
+    condition between walking and hashing).
+    """
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return ""
+    return hashlib.sha256(data).hexdigest()
+
+
+async def _fetch_indexed_hashes(
+    client: "AsyncQdrantClient", collection: str
+) -> dict[str, str]:
+    """Return a mapping of ``{relative_file_path: file_hash}`` from Qdrant.
+
+    Scrolls through all points in *collection* and collects the ``file`` and
+    ``file_hash`` payload fields.  Points without a ``file_hash`` field are
+    ignored — they were indexed before this feature was introduced and will be
+    re-indexed on the next run.
+
+    Returns an empty dict when the collection does not exist or when Qdrant
+    is unreachable (the caller falls back to full re-indexing).
+    """
+    from qdrant_client.http.models import ExtendedPointId  # noqa: PLC0415
+
+    hashes: dict[str, str] = {}
+    offset: ExtendedPointId | None = None
+
+    try:
+        while True:
+            result = await client.scroll(
+                collection_name=collection,
+                scroll_filter=None,
+                limit=256,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            points, next_offset = result
+            for point in points:
+                payload = point.payload or {}
+                file_val = payload.get("file")
+                hash_val = payload.get("file_hash")
+                if isinstance(file_val, str) and isinstance(hash_val, str):
+                    # Last writer wins — all chunks for a file share the same hash.
+                    hashes[file_val] = hash_val
+            if next_offset is None:
+                break
+            offset = next_offset
+    except Exception as exc:
+        logger.warning(
+            "⚠️ code_indexer — could not fetch indexed hashes (will re-index all): %s",
+            exc,
+        )
+        return {}
+
+    return hashes
+
+
 # ── Qdrant helpers ────────────────────────────────────────────────────────────
 
 _UPSERT_BATCH = 64  # points per upsert call
@@ -449,15 +516,36 @@ async def index_codebase(
         files = _walk_files(root)
         logger.info("✅ code_indexer — found %d indexable files", len(files))
 
-        all_chunks: list[_ChunkSpec] = []
-        for f in files:
-            all_chunks.extend(_chunk_file(f, root))
-
-        logger.info("✅ code_indexer — %d chunks from %d files", len(all_chunks), len(files))
-
         client = AsyncQdrantClient(url=url)
         try:
             await _ensure_collection(client, coll)
+
+            # Fetch hashes of already-indexed files so we can skip unchanged ones.
+            indexed_hashes = await _fetch_indexed_hashes(client, coll)
+
+            all_chunks: list[_ChunkSpec] = []
+            file_hashes: dict[str, str] = {}  # rel_path -> sha256 for files we will index
+            files_skipped = 0
+
+            for f in files:
+                rel = str(f.relative_to(root))
+                current_hash = _compute_file_hash(f)
+                if current_hash and indexed_hashes.get(rel) == current_hash:
+                    files_skipped += 1
+                    logger.debug("  skipping unchanged file: %s", rel)
+                    continue
+                chunks = _chunk_file(f, root)
+                all_chunks.extend(chunks)
+                if current_hash:
+                    file_hashes[rel] = current_hash
+
+            files_indexed = len(files) - files_skipped
+            logger.info(
+                "✅ code_indexer — %d chunks from %d files (%d skipped as unchanged)",
+                len(all_chunks),
+                files_indexed,
+                files_skipped,
+            )
 
             # Embed and upsert in batches.
             for batch_start in range(0, len(all_chunks), _UPSERT_BATCH):
@@ -484,6 +572,7 @@ async def index_codebase(
                             "start_line": chunk["start_line"],
                             "end_line": chunk["end_line"],
                             "symbol": chunk["symbol"],
+                            "file_hash": file_hashes.get(chunk["file"], ""),
                         },
                     )
                     for chunk, dense_vec, sparse_vec in zip(batch, dense_vectors, sparse_vectors)
@@ -499,17 +588,25 @@ async def index_codebase(
 
     except Exception as exc:
         logger.exception("❌ code_indexer — indexing failed: %s", exc)
-        return IndexStats(ok=False, files_indexed=0, chunks_indexed=0, error=str(exc))
+        return IndexStats(
+            ok=False,
+            files_indexed=0,
+            chunks_indexed=0,
+            files_skipped=0,
+            error=str(exc),
+        )
 
     logger.info(
-        "✅ code_indexer — done: %d files, %d chunks",
-        len(files),
+        "✅ code_indexer — done: %d files indexed, %d skipped, %d chunks",
+        files_indexed,
+        files_skipped,
         len(all_chunks),
     )
     return IndexStats(
         ok=True,
-        files_indexed=len(files),
+        files_indexed=files_indexed,
         chunks_indexed=len(all_chunks),
+        files_skipped=files_skipped,
         error=None,
     )
 
