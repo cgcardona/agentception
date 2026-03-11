@@ -34,6 +34,7 @@ Boundary constraint: zero imports from external packages.
 
 import json
 import logging
+from typing import TypedDict
 
 from agentception.mcp.build_commands import (
     build_block_run,
@@ -98,7 +99,12 @@ logger = logging.getLogger(__name__)
 _MCP_PROTOCOL_VERSION = "2024-11-05"
 
 #: Server identity advertised in the ``initialize`` response.
-_SERVER_INFO: dict[str, object] = {"name": "agentception", "version": "0.1.1"}
+class _ServerInfo(TypedDict):
+    name: str
+    version: str
+
+
+_SERVER_INFO: _ServerInfo = {"name": "agentception", "version": "0.1.1"}
 
 # ---------------------------------------------------------------------------
 # Tool registry
