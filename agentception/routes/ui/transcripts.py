@@ -63,10 +63,9 @@ async def transcripts_browser(request: Request) -> HTMLResponse:
         error = str(exc)
 
     # Collect unique roles from the full unfiltered index for the filter UI
-    # (re-use transcripts if no filters active, otherwise do a second pass cheaply)
     all_roles: list[str] = []
     seen_roles: set[str] = set()
-    for t in transcripts:
+    for t in (all_transcripts if tr_root is not None else []):
         r = str(t.get("role") or "unknown")
         if r not in seen_roles:
             seen_roles.add(r)
