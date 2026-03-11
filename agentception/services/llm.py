@@ -305,7 +305,7 @@ async def call_anthropic(
     system_prompt: str | None = None,
     temperature: float = 0.2,
     max_tokens: int = 4096,
-
+    json_schema: dict[str, object] | None = None,
 ) -> str:
     """Call Claude via the Anthropic API and return the full text response.
 
@@ -314,6 +314,10 @@ async def call_anthropic(
         system_prompt: Optional system-turn message.
         temperature: Sampling temperature (0.0--1.0).
         max_tokens: Maximum tokens in the completion.
+        json_schema: When set, enables Anthropic's Structured Outputs beta and
+            constrains the model to emit JSON matching this schema.  The
+            response text will be valid JSON — no prose, no markdown fences.
+            Requires the ``structured-outputs-2025-11-13`` beta header.
 
     Returns:
         The raw text string of the model's response.
@@ -331,6 +335,15 @@ async def call_anthropic(
     }
     if system_prompt:
         payload["system"] = system_prompt
+    if json_schema is not None:
+        payload["output_format"] = {"type": "json_schema", "schema": json_schema}
+
+    headers = dict(_base_headers())
+    if json_schema is not None:
+        # Add the structured-outputs beta alongside the existing prompt-caching beta.
+        headers["anthropic-beta"] = (
+            headers.get("anthropic-beta", "") + ",structured-outputs-2025-11-13"
+        )
 
     logger.info("✅ LLM call — model=%s prompt_chars=%d", _MODEL, len(user_prompt))
 
@@ -339,7 +352,7 @@ async def call_anthropic(
 
     for attempt in range(_MAX_RETRIES + 1):
         try:
-            resp = await client.post(_ANTHROPIC_URL, json=payload, headers=_base_headers())
+            resp = await client.post(_ANTHROPIC_URL, json=payload, headers=headers)
             resp.raise_for_status()
             break
         except httpx.HTTPStatusError as exc:
