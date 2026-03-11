@@ -241,8 +241,40 @@ def _build_ac_file_sections(worktree_path: Path, file_paths: list[str]) -> list[
 
 
 # ---------------------------------------------------------------------------
+# POST /api/dispatch/regenerate — re-run generate.py and refresh prompt files
+# ---------------------------------------------------------------------------
+
+
+class RegenerateResponse(BaseModel):
+    """Response shape for ``POST /api/dispatch/regenerate``."""
+
+    ok: bool
+    files: list[str] = []
+    error: str | None = None
+
+
+@router.post("/regenerate", response_model=RegenerateResponse)
+async def regenerate_prompts() -> RegenerateResponse:
+    """Re-run generate.py and return the list of regenerated .md files."""
+    proc = await asyncio.create_subprocess_exec(
+        "python3",
+        "/app/scripts/gen_prompts/generate.py",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        err_text = stderr.decode(errors="replace")[:500]
+        return RegenerateResponse(ok=False, error=err_text)
+    agentception_dir = Path(settings.repo_dir) / ".agentception"
+    files = sorted(str(p) for p in agentception_dir.rglob("*.md"))
+    return RegenerateResponse(ok=True, files=files)
+
+
+# ---------------------------------------------------------------------------
 # GET /api/dispatch/context — label context for the launch modal
 # ---------------------------------------------------------------------------
+
 
 
 class PhaseSummaryItem(BaseModel):
