@@ -613,7 +613,15 @@ async def _fetch_indexed_hashes(
 
 # ── Qdrant helpers ────────────────────────────────────────────────────────────
 
-_UPSERT_BATCH = 64  # points per upsert call
+_UPSERT_BATCH = 16  # points per upsert call — smaller batches give more frequent progress logs
+                    # and reduce the per-batch latency spike from large code chunks.
+
+# Jina jina-embeddings-v2-base-code has an 8192-token context window.
+# At ~4 chars/token for code, 8192 tokens ≈ 32 768 characters.  We cap
+# embed text at 24 000 chars (~6 000 tokens) as a safety margin, since ONNX
+# attention is O(n²) — runaway large sequences cause per-batch stalls of
+# several minutes even when the model technically supports the length.
+_MAX_EMBED_CHARS = 24_000
 
 
 async def _ensure_collection(client: "AsyncQdrantClient", collection: str) -> None:
@@ -839,52 +847,126 @@ async def index_codebase(
             )
 
             # Embed and upsert in batches.
+            import time as _time  # noqa: PLC0415
+
             from qdrant_client.models import SparseVector  # noqa: PLC0415
+
+            n_batches = (len(all_chunks) + _UPSERT_BATCH - 1) // _UPSERT_BATCH
+            batch_errors = 0
 
             for batch_start in range(0, len(all_chunks), _UPSERT_BATCH):
                 batch = all_chunks[batch_start : batch_start + _UPSERT_BATCH]
+                batch_num = batch_start // _UPSERT_BATCH + 1
+                batch_files = sorted({c["file"] for c in batch})
+                t_batch = _time.monotonic()
+
+                logger.info(
+                    "✅ code_indexer — batch %d/%d [chunks %d–%d] files: %s",
+                    batch_num,
+                    n_batches,
+                    batch_start,
+                    batch_start + len(batch) - 1,
+                    batch_files[:3],
+                )
 
                 # Enrich each chunk with its file path and symbol name before
                 # embedding.  Prepending this metadata anchors the dense vector
                 # to the chunk's location and identity, so "create a worktree"
                 # scores highest for the *implementation* in worktrees.py rather
                 # than callers or tests that reference the same function name.
-                embed_texts = [
+                # Truncate to _MAX_EMBED_CHARS to prevent O(n²) attention stalls
+                # on very large method bodies (Jina's context window is 8192 tokens).
+                raw_embed_texts = [
                     f"# {c['file']}\n# {c['symbol']}\n{c['text']}"
                     if c["symbol"]
                     else f"# {c['file']}\n{c['text']}"
                     for c in batch
                 ]
-                dense_vectors = await _embed(embed_texts)
-                sparse_vectors = await _compute_bm25_vectors(embed_texts)
+                embed_texts = [t[:_MAX_EMBED_CHARS] for t in raw_embed_texts]
 
-                points = [
-                    PointStruct(
-                        id=chunk["chunk_id"],
-                        vector={
-                            "dense": dense_vec,
-                            "sparse": SparseVector(
-                                indices=list(sparse_vec.keys()),
-                                values=list(sparse_vec.values()),
-                            ),
-                        },
-                        payload={
-                            "file": chunk["file"],
-                            "chunk": chunk["text"],
-                            "start_line": chunk["start_line"],
-                            "end_line": chunk["end_line"],
-                            "symbol": chunk["symbol"],
-                            "file_hash": chunk["file_hash"],
-                            "_index_version": _INDEX_VERSION,
-                        },
+                oversized = [(i, len(t)) for i, t in enumerate(raw_embed_texts) if len(t) > _MAX_EMBED_CHARS]
+                if oversized:
+                    for idx, length in oversized:
+                        logger.warning(
+                            "⚠️ code_indexer — chunk truncated %d→%d chars: %s %s",
+                            length,
+                            _MAX_EMBED_CHARS,
+                            batch[idx]["file"],
+                            batch[idx]["symbol"],
+                        )
+
+                try:
+                    t0 = _time.monotonic()
+                    dense_vectors = await _embed(embed_texts)
+                    logger.info(
+                        "✅ code_indexer —   embed: %.1fs (%d chunks, max %d chars)",
+                        _time.monotonic() - t0,
+                        len(batch),
+                        max(len(t) for t in embed_texts),
                     )
-                    for chunk, dense_vec, sparse_vec in zip(batch, dense_vectors, sparse_vectors)
-                ]
-                await client.upsert(collection_name=coll, points=points)
-                logger.debug(
-                    "  upserted batch %d–%d",
-                    batch_start,
-                    batch_start + len(batch),
+                except Exception as embed_exc:
+                    logger.exception(
+                        "❌ code_indexer — embed FAILED on batch %d/%d: %s",
+                        batch_num, n_batches, embed_exc,
+                    )
+                    batch_errors += 1
+                    continue
+
+                try:
+                    t0 = _time.monotonic()
+                    sparse_vectors = await _compute_bm25_vectors(embed_texts)
+                    logger.info(
+                        "✅ code_indexer —   bm25:  %.1fs", _time.monotonic() - t0
+                    )
+                except Exception as bm25_exc:
+                    logger.exception(
+                        "❌ code_indexer — BM25 FAILED on batch %d/%d: %s",
+                        batch_num, n_batches, bm25_exc,
+                    )
+                    batch_errors += 1
+                    continue
+
+                try:
+                    points = [
+                        PointStruct(
+                            id=chunk["chunk_id"],
+                            vector={
+                                "dense": dense_vec,
+                                "sparse": SparseVector(
+                                    indices=list(sparse_vec.keys()),
+                                    values=list(sparse_vec.values()),
+                                ),
+                            },
+                            payload={
+                                "file": chunk["file"],
+                                "chunk": chunk["text"],
+                                "start_line": chunk["start_line"],
+                                "end_line": chunk["end_line"],
+                                "symbol": chunk["symbol"],
+                                "file_hash": chunk["file_hash"],
+                                "_index_version": _INDEX_VERSION,
+                            },
+                        )
+                        for chunk, dense_vec, sparse_vec in zip(batch, dense_vectors, sparse_vectors)
+                    ]
+                    t0 = _time.monotonic()
+                    await client.upsert(collection_name=coll, points=points)
+                    logger.info(
+                        "✅ code_indexer —   upsert: %.1fs | batch total: %.1fs",
+                        _time.monotonic() - t0,
+                        _time.monotonic() - t_batch,
+                    )
+                except Exception as upsert_exc:
+                    logger.exception(
+                        "❌ code_indexer — upsert FAILED on batch %d/%d: %s",
+                        batch_num, n_batches, upsert_exc,
+                    )
+                    batch_errors += 1
+                    continue
+
+            if batch_errors:
+                logger.warning(
+                    "⚠️ code_indexer — %d batch(es) failed and were skipped", batch_errors
                 )
         finally:
             await client.close()
