@@ -84,9 +84,14 @@ build_complete_run(
   issue_number=$ISSUE_NUMBER,
   pr_url=<pr_url>,
   summary="Grade: <grade> — rejected.",
-  grade="<grade>",
+  grade="<grade>",                          ← REQUIRED: must be "C", "D", or "F"
   reviewer_feedback="<full numbered defect list, plain text>")
 ```
+
+**`grade` is not optional.** If you omit it or pass an empty string, the
+system treats the run as approved and no redispatch fires. The next
+executor will never receive your feedback. Always pass the literal grade
+letter ("C", "D", or "F") as the `grade` argument.
 
 The system automatically closes the PR and redispatches the executor with
 your defect list injected at the top of the briefing — no human needed.
