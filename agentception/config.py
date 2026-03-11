@@ -197,6 +197,20 @@ class AgentCeptionSettings(BaseSettings):
     with acceptable CPU latency (~50 ms for 10 candidates).  Set to an empty
     string to disable reranking.
     """
+    worktree_index_enabled: bool = True
+    """Whether to index each agent worktree into a per-run Qdrant collection.
+
+    When ``true`` (default), every dispatched agent run triggers a background
+    ``index_codebase`` pass over its worktree, creating a ``worktree-<run_id>``
+    collection the agent can search with ``search_codebase``.
+
+    Set to ``false`` (via ``WORKTREE_INDEX_ENABLED=false``) to skip per-run
+    indexing entirely.  The main ``code`` collection (full-repo index) remains
+    available for all ``search_codebase`` calls — it is sufficient for code
+    discovery on the current codebase.  Disabling saves ~500 MB+ of peak RSS
+    per agent run by avoiding the concurrent ONNX embed batches that otherwise
+    run alongside the first LLM call.
+    """
     database_url: str | None = None
     """Async database URL for AgentCeption's own ac_* tables.
 
