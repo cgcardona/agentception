@@ -203,20 +203,23 @@ def _build_planner_prompt(
 def _repair_json(text: str) -> str:
     """Apply lightweight repairs to common LLM JSON defects.
 
-    The LLM occasionally emits:
-    - Trailing commas before ``]`` or ``}``  (``[1, 2,]`` → ``[1, 2]``)
-    - Unquoted object keys              (``{tool: …}`` → ``{"tool": …}``)
+    Handles the two most frequent patterns:
+    - Trailing commas before ``]`` or ``}`` — e.g. ``[1, 2,]`` → ``[1, 2]``
+    - Bare (unquoted) object keys at the start of a value — e.g.
+      ``{ tool: "x" }`` → ``{ "tool": "x" }``
 
     We cannot safely repair unescaped double-quotes inside string values
-    (e.g. ``"old_string": "if x == "y""``), so those are left for the
-    caller to handle as a parse error.
+    (e.g. ``"old_string": "if x == "y""``), so those remain a hard failure.
     """
     import re as _re
 
     # Strip trailing commas before ] or }.
-    text = _re.sub(r",\s*([\]\}])", r"\1", text)
-    # Quote bare identifier keys (word chars only, not already quoted).
-    text = _re.sub(r'(?<=[{,]\s*)([A-Za-z_]\w*)\s*:', r'"\1":', text)
+    text = _re.sub(r",(\s*[\]\}])", r"\1", text)
+    # Quote bare identifier keys.  Use a capturing group instead of
+    # look-behind to avoid the fixed-width restriction in Python's re.
+    # Matches: optional whitespace, a bare word, optional whitespace, colon —
+    # but only when preceded by { or , (captured in group 1).
+    text = _re.sub(r'([{,]\s*)([A-Za-z_]\w*)(\s*:)', lambda m: m.group(1) + '"' + m.group(2) + '"' + m.group(3), text)
     return text
 
 
