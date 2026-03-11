@@ -1255,6 +1255,215 @@ class TestLoopGuardReviewer:
 
 
 # ---------------------------------------------------------------------------
+# Reviewer tool allowlist and iteration cap
+# ---------------------------------------------------------------------------
+
+
+class TestReviewerToolAllowlist:
+    """Reviewer role must use a narrow tool surface and respect a tighter iteration cap.
+
+    The reviewer may only call read tools, shell, specific GitHub tools, and the
+    two completion tools.  Write tools (write_file, replace_in_file, etc.) and
+    agent-management tools must be absent from the tool definitions passed to
+    the LLM.  Additionally the reviewer's max_iterations must be capped at
+    _REVIEWER_MAX_ITERATIONS regardless of the value passed by the caller.
+    """
+
+    @pytest.mark.anyio
+    async def test_reviewer_tool_surface_excludes_write_tools(
+        self, tmp_path: Path
+    ) -> None:
+        """write_file and replace_in_file must NOT appear in the reviewer tool list."""
+        from agentception.services.agent_loop import (
+            _REVIEWER_MAX_ITERATIONS,
+            _REVIEWER_TOOL_ALLOWLIST,
+            run_agent_loop,
+        )
+
+        worktree = tmp_path / "review-allowlist-run"
+        worktree.mkdir()
+
+        reviewer_spec = AgentTaskSpec(
+            id="review-allowlist-run",
+            role="reviewer",
+            tier="worker",
+            cognitive_arch="Review carefully.",
+            issue_number=99,
+            worktree=str(worktree),
+        )
+
+        captured_tools: list[list[ToolDefinition]] = []
+
+        async def fake_llm(
+            *args: object,
+            tools: list[ToolDefinition] | None = None,
+            extra_system_blocks: list[dict[str, object]] | None = None,
+            **kwargs: object,
+        ) -> ToolResponse:
+            if tools is not None:
+                captured_tools.append(tools)
+            return _stop_response("Review done.")
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=reviewer_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.get_run_by_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": [], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic_with_tools",
+                side_effect=fake_llm,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
+            # Pass a high cap — must be overridden to _REVIEWER_MAX_ITERATIONS.
+            await run_agent_loop("review-allowlist-run", max_iterations=100)
+
+        assert captured_tools, "fake_llm must have been called at least once"
+        offered_names = {t["function"]["name"] for t in captured_tools[0]}
+
+        # Write tools must be absent.
+        for banned in ("write_file", "replace_in_file", "insert_after_in_file"):
+            assert banned not in offered_names, (
+                f"Reviewer was offered write tool {banned!r} — must be excluded."
+            )
+
+        # Completion tools must be present.
+        for required in ("build_complete_run", "build_cancel_run"):
+            assert required in offered_names, (
+                f"Reviewer was not offered {required!r} — must be included."
+            )
+
+        # Every offered tool must appear in the allowlist.
+        for name in offered_names:
+            assert name in _REVIEWER_TOOL_ALLOWLIST, (
+                f"Tool {name!r} offered to reviewer but not in _REVIEWER_TOOL_ALLOWLIST."
+            )
+
+    @pytest.mark.anyio
+    async def test_reviewer_iteration_cap_applied(self, tmp_path: Path) -> None:
+        """Reviewer max_iterations must be capped at _REVIEWER_MAX_ITERATIONS.
+
+        Even when the caller passes a higher value, the effective ceiling must
+        equal _REVIEWER_MAX_ITERATIONS because the reviewer's loop is
+        intentionally bounded tighter than the global default.
+        """
+        from agentception.services.agent_loop import (
+            _REVIEWER_MAX_ITERATIONS,
+            run_agent_loop,
+        )
+
+        worktree = tmp_path / "review-cap-run"
+        worktree.mkdir()
+
+        reviewer_spec = AgentTaskSpec(
+            id="review-cap-run",
+            role="reviewer",
+            tier="worker",
+            cognitive_arch="Review carefully.",
+            issue_number=99,
+            worktree=str(worktree),
+        )
+
+        iteration_labels: list[str] = []
+
+        async def fake_log_step(
+            issue_number: int, label: str, run_id: str, **kwargs: object
+        ) -> dict[str, object]:
+            if label.startswith("Iteration "):
+                iteration_labels.append(label)
+            return {"ok": True}
+
+        async def fake_llm(
+            *args: object,
+            tools: list[ToolDefinition] | None = None,
+            extra_system_blocks: list[dict[str, object]] | None = None,
+            **kwargs: object,
+        ) -> ToolResponse:
+            # Always return a tool read so the loop keeps going until capped.
+            return _tool_response(
+                "issue_read", {"owner": "o", "repo": "r", "issueNumber": 1}
+            )
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=reviewer_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.get_run_by_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": [], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic_with_tools",
+                side_effect=fake_llm,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                side_effect=fake_log_step,
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
+            # Pass 100 — must be silently capped to _REVIEWER_MAX_ITERATIONS.
+            await run_agent_loop("review-cap-run", max_iterations=100)
+
+        assert iteration_labels, "No iteration labels captured — loop did not run"
+        last_label = iteration_labels[-1]
+        # The label format is "Iteration N/M" — extract M (the effective cap).
+        effective_cap = int(last_label.split("/")[-1])
+        assert effective_cap == _REVIEWER_MAX_ITERATIONS, (
+            f"Expected reviewer cap={_REVIEWER_MAX_ITERATIONS}, "
+            f"got effective_cap={effective_cap} from label {last_label!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Type-aware truncation — _build_tool_id_map + _truncate_tool_results
 # ---------------------------------------------------------------------------
 

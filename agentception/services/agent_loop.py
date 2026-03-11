@@ -197,6 +197,42 @@ _EXECUTOR_TOOL_ALLOWLIST: frozenset[str] = frozenset({
     "create_pull_request",
 })
 
+# ---------------------------------------------------------------------------
+# Reviewer agent — read-only surface for gatekeeping PRs
+# ---------------------------------------------------------------------------
+# The reviewer inspects a diff, reads files for context, runs mypy/pytest,
+# then either merges (grade A/B) or rejects (grade C/D/F) by calling
+# build_complete_run.  It must never write, create PRs, or spawn children.
+# The allowlist is intentionally narrow: fewer choices = faster decisions.
+#
+# GitHub MCP tools are loaded dynamically; their names must exactly match
+# what the GitHub MCP server advertises (see mcps/user-github/tools/).
+_REVIEWER_TOOL_ALLOWLIST: frozenset[str] = frozenset({
+    # Read — inspect files in the worktree for context.
+    "read_file",
+    "read_file_lines",
+    "search_text",
+    "list_directory",
+    # Shell — git diff, mypy, pytest (read-only commands).
+    "run_command",
+    # GitHub MCP — inspect issue and PR, post review, merge.
+    "issue_read",
+    "pull_request_read",
+    "pull_request_review_write",
+    "merge_pull_request",
+    "add_issue_comment",
+    "issue_write",
+    "update_pull_request",
+    "list_pull_requests",
+    # Completion — the only two ways to end the loop.
+    "build_complete_run",
+    "build_cancel_run",
+})
+
+# Hard cap on reviewer iterations.  A reviewer should read, decide, and act
+# in well under 40 turns.  100 (the default) allows too many re-read loops.
+_REVIEWER_MAX_ITERATIONS = 40
+
 # When the loop guard fires, the tool palette switches to an ALLOWLIST:
 # only write tools and a minimal set of essential non-read tools remain.
 _GUARD_PERMITTED_TOOL_NAMES: frozenset[str] = frozenset({
@@ -380,7 +416,8 @@ async def run_agent_loop(
 
     # Developer agents use a minimal tool surface — only coding tools.
     # Executor agents use an even more restricted surface — no reads at all.
-    # All other roles get the full tool catalogue.
+    # Reviewer agents get a read-and-GitHub-only surface — no file writes.
+    # All other roles (planner, etc.) get the full tool catalogue.
     if task.role == "executor":
         tool_defs = [
             t for t in all_tool_defs
@@ -398,6 +435,19 @@ async def run_agent_loop(
         logger.info(
             "✅ agent_loop: developer tool surface — %d tools (of %d total stripped to allowlist)",
             len(tool_defs), len(all_tool_defs),
+        )
+    elif task.role == "reviewer":
+        tool_defs = [
+            t for t in all_tool_defs
+            if t["function"]["name"] in _REVIEWER_TOOL_ALLOWLIST
+        ]
+        # Also enforce a tighter iteration cap so a stuck reviewer self-terminates
+        # well before the global ceiling of 100 turns.
+        max_iterations = min(max_iterations, _REVIEWER_MAX_ITERATIONS)
+        logger.info(
+            "✅ agent_loop: reviewer tool surface — %d tools (of %d total), "
+            "iteration cap set to %d",
+            len(tool_defs), len(all_tool_defs), max_iterations,
         )
     else:
         tool_defs = all_tool_defs
