@@ -9,6 +9,32 @@ AgentCeption — multi-agent orchestration system for AI-powered development wor
 - **Models:** `claude-sonnet-4-6` and `claude-opus-4-6` via Anthropic direct API. No others.
 - **Version:** Single source of truth in `pyproject.toml`.
 
+## Kill before you fix — absolute rule
+
+**Every dispatched agent that is failing costs money every second it runs. Kill it before doing anything else.**
+
+When a dispatched agent is misbehaving, looping, or producing wrong output:
+
+1. **Kill it immediately** — before reading logs, before making code changes, before opening a branch:
+   ```bash
+   docker compose exec agentception python3 -c "
+   import asyncio
+   from agentception.db.engine import init_db, get_session
+   from sqlalchemy import update
+   from agentception.db.models import ACAgentRun
+   async def main():
+       await init_db()
+       async with get_session() as s:
+           await s.execute(update(ACAgentRun).where(ACAgentRun.id == 'issue-NNN').values(status='cancelled'))
+           await s.commit()
+   asyncio.run(main())
+   "
+   ```
+2. **Confirm it stopped** — `tail` the logs and verify `agent_loop: run … is already in terminal state 'cancelled'`.
+3. **Then** diagnose, fix, branch, commit, restart, re-fire.
+
+Never let a failing agent keep running while you iterate on a fix. The loop burns tokens on every turn regardless of whether progress is being made.
+
 ## Agent scope
 
 You may: implement features, fix bugs, refactor, extend architecture, add tests, update docs.

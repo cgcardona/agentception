@@ -57,6 +57,39 @@ _DISCOVERY_SEARCH_RESULTS: int = 10
 _MAX_OPERATIONS: int = 50
 
 # ---------------------------------------------------------------------------
+# Structured-output JSON schema for ExecutionPlan
+# ---------------------------------------------------------------------------
+# Passed to call_anthropic via the structured-outputs-2025-11-13 beta so the
+# model is *guaranteed* to emit valid JSON matching this schema — no prose
+# preamble, no markdown fences, no format errors.
+
+_EXECUTION_PLAN_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "operations": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "tool": {
+                        "type": "string",
+                        "enum": ["replace_in_file", "insert_after_in_file", "write_file"],
+                    },
+                    "file": {"type": "string"},
+                    "old_string": {"type": "string"},
+                    "new_string": {"type": "string"},
+                    "after": {"type": "string"},
+                    "text": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+                "required": ["tool", "file"],
+            },
+        },
+    },
+    "required": ["operations"],
+}
+
+# ---------------------------------------------------------------------------
 # System prompt
 # ---------------------------------------------------------------------------
 
@@ -374,6 +407,7 @@ async def generate_execution_plan(
             user_message,
             system_prompt=_PLANNER_SYSTEM_PROMPT,
             max_tokens=16384,
+            json_schema=_EXECUTION_PLAN_SCHEMA,
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("⚠️ planner: LLM call failed — %s", exc)

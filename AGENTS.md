@@ -4,6 +4,34 @@ This document defines how AI agents operate in this repository. It applies to al
 
 ---
 
+## Kill before you fix — absolute rule
+
+**Every dispatched agent that is failing costs real money every second it runs. Kill it before doing anything else.**
+
+When a dispatched agent is looping, producing wrong output, or failing repeatedly:
+
+1. **Kill it first** — before reading logs, before branching, before writing a single line of fix code:
+   ```bash
+   docker compose exec agentception python3 -c "
+   import asyncio
+   from agentception.db.engine import init_db, get_session
+   from sqlalchemy import update
+   from agentception.db.models import ACAgentRun
+   async def main():
+       await init_db()
+       async with get_session() as s:
+           await s.execute(update(ACAgentRun).where(ACAgentRun.id == 'issue-NNN').values(status='cancelled'))
+           await s.commit()
+   asyncio.run(main())
+   "
+   ```
+2. **Confirm the loop stopped** — tail the logs and verify `agent_loop: run … is already in terminal state 'cancelled'`.
+3. **Then** diagnose, fix, branch, commit, restart, re-fire.
+
+Never leave a failing agent running while iterating on a fix. Each LLM turn costs money regardless of whether the agent makes progress.
+
+---
+
 ## Agent Role
 
 You are a **senior implementation agent** maintaining a long-lived, evolving multi-agent orchestration system.
