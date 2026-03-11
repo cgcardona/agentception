@@ -785,7 +785,7 @@ Named `TypedDict` for every shape in the MCP JSON-RPC 2.0 wire protocol. No `dic
 | `ac://runs/{run_id}` | Single run metadata |
 | `ac://runs/{run_id}/children` | Child runs |
 | `ac://runs/{run_id}/events` | Structured event log (append `?after_id=N` to paginate) |
-| `ac://runs/{run_id}/task` | Raw `ac://runs/{run_id}/context` TOML |
+| `ac://runs/{run_id}/context` | Full task context for a run — RunContextRow with status, role, cognitive_arch, task_description, issue_number, worktree_path and related fields |
 | `ac://batches/{batch_id}/tree` | Full batch run tree |
 | `ac://system/dispatcher` | Dispatcher counters |
 | `ac://system/health` | DB reachability + status counts |
@@ -795,6 +795,12 @@ Named `TypedDict` for every shape in the MCP JSON-RPC 2.0 wire protocol. No `dic
 | `ac://plan/figures/{role}` | Cognitive-arch figures for a role |
 | `ac://roles/list` | All available role slugs |
 | `ac://roles/{slug}` | Full role definition Markdown |
+| `ac://arch/figures` | Index of all cognitive figures; returns `{figures: [{id, display_name, description}]}` sorted by id |
+| `ac://arch/archetypes` | Index of all cognitive archetypes; returns `{archetypes: [{id, display_name, description}]}` |
+| `ac://arch/figures/{figure_id}` | Full cognitive figure profile; id discoverable from `ac://arch/figures` |
+| `ac://arch/archetypes/{archetype_id}` | Full archetype definition; id discoverable from `ac://arch/archetypes` |
+| `ac://arch/skills/{skill_id}` | Full skill domain definition: id, display_name, description, characteristic patterns |
+| `ac://arch/atoms/{atom_id}` | Full cognitive atom definition; atom ids include `epistemic_style`, `quality_bar`, `error_posture` |
 
 ### Prompt protocol types
 
