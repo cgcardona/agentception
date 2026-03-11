@@ -38,6 +38,7 @@ from agentception.config import settings
 from agentception.db.engine import get_session
 from agentception.db.models import ACAgentRun
 from agentception.db.queries import get_run_by_id
+from agentception.db.persist import accumulate_token_usage
 from agentception.mcp.build_commands import build_cancel_run, build_complete_run
 from agentception.mcp.log_tools import log_run_error, log_run_step
 from agentception.workflow.status import is_terminal
@@ -504,6 +505,19 @@ async def run_agent_loop(
             return
 
         _record_llm_call()  # stamp after successful response — this is the reference point for the next delay
+
+        # Accumulate real token counts for cost tracking.  Fire-and-forget so
+        # a DB hiccup never interrupts the agent loop.
+        asyncio.create_task(
+            accumulate_token_usage(
+                run_id=run_id,
+                input_tokens=response.get("input_tokens", 0),
+                output_tokens=response.get("output_tokens", 0),
+                cache_write_tokens=response.get("cache_creation_input_tokens", 0),
+                cache_read_tokens=response.get("cache_read_input_tokens", 0),
+            ),
+            name=f"token-accum-{run_id}-{iteration}",
+        )
 
         # Append assistant message to history.
         assistant_msg: dict[str, object] = {"role": "assistant", "content": response["content"]}

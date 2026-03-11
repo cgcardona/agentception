@@ -165,6 +165,18 @@ class ACAgentRun(Base):
     Null for top-level dispatches and ad-hoc runs.
     """
 
+    total_input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    """Cumulative input tokens billed across all LLM turns for this run."""
+
+    total_output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    """Cumulative output tokens generated across all LLM turns for this run."""
+
+    total_cache_write_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    """Cumulative tokens written to Anthropic's prompt cache (Turn 1 of each session)."""
+
+    total_cache_read_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    """Cumulative tokens read from Anthropic's prompt cache (Turns 2-N)."""
+
     spawned_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
