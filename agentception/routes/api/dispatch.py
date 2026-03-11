@@ -825,10 +825,13 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
     # search_codebase scoped to "worktree-<run_id>" reflects the agent's own
     # edits, not just origin/dev.  The incremental indexer only re-hashes
     # changed files, so the cost after the initial build is minimal.
-    asyncio.create_task(
-        _index_worktree(Path(worktree_path), run_id),
-        name=f"index-worktree-{run_id}",
-    )
+    # Disabled via WORKTREE_INDEX_ENABLED=false to avoid the concurrent ONNX
+    # embed batches that spike RSS by ~500 MB alongside the first LLM call.
+    if settings.worktree_index_enabled:
+        asyncio.create_task(
+            _index_worktree(Path(worktree_path), run_id),
+            name=f"index-worktree-{run_id}",
+        )
 
     logger.info("✅ dispatch: agent loop fired for run_id=%s", run_id)
 
