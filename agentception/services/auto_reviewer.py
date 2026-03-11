@@ -1,4 +1,4 @@
-"""Auto-dispatch a pr-reviewer agent after an implementer calls build_complete_run.
+"""Auto-dispatch a reviewer agent after an implementer calls build_complete_run.
 
 The reviewer is triggered as a fire-and-forget background task.  Failures are
 logged but never propagate back to the caller — the implementer's run is already
@@ -35,7 +35,7 @@ async def auto_dispatch_reviewer(
     pr_url: str,
     pr_branch: str | None = None,
 ) -> None:
-    """Fire a pr-reviewer dispatch for the given PR.
+    """Fire a reviewer dispatch for the given PR.
 
     Called as a background task from build_complete_run.  Never raises — all
     errors are logged at ERROR level and swallowed so the implementer's completed
@@ -66,7 +66,7 @@ async def auto_dispatch_reviewer(
         "issue_number": issue_number,
         "issue_title": f"Review PR #{pr_number}",
         "issue_body": "",
-        "role": "pr-reviewer",
+        "role": "reviewer",
         "repo": settings.gh_repo,
         "pr_number": pr_number,
         "pr_branch": branch,

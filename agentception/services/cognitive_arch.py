@@ -89,7 +89,7 @@ ROLE_DEFAULT_FIGURE: dict[str, str] = {
     "coordinator":               "satya_nadella",
     "conductor":                 "jeff_dean",
     # PR reviewer
-    "pr-reviewer":               "michael_fagan",
+    "reviewer":               "michael_fagan",
     # C-suite roles
     "cto":                       "jeff_dean",
     "csto":                      "avie_tevanian",

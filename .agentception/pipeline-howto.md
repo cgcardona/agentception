@@ -67,7 +67,7 @@ agent. The pool stays at N concurrent workers continuously until the queue drain
 | `.agentception/roles/qa-coordinator.md` | QA Coordinator |
 | `.agentception/roles/developer.md` | Leaf implementation agents (Python/API work) |
 | `.agentception/roles/database-architect.md` | Leaf agents on migrations / seed data |
-| `.agentception/roles/pr-reviewer.md` | Leaf review agents |
+| `.agentception/roles/reviewer.md` | Leaf review agents |
 | `.agentception/roles/coordinator.md` | Mid-tier coordinators |
 
 ### Conflict Prevention (structural — set and forget)
@@ -182,7 +182,7 @@ git worktree add ~/.agentception/worktrees/agentception/pr-{N} origin/$BRANCH
 ### Step 3 — Dispatch agents via `build_spawn_child`
 
 One file per worktree. Use the TOML format above. Key fields:
-- `role =` — pick from: `developer`, `database-architect`, `pr-reviewer`
+- `role =` — pick from: `developer`, `database-architect`, `reviewer`
 - `scope.description =` — multi-line description of what to build/review
 
 ### Step 4 — Launch the two managers (skip the CTO for simple waves)

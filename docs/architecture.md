@@ -119,7 +119,7 @@ Markdown files that define the organizational identity and operational constrain
 |------|-------|---------|
 | C-Suite | 8 | CEO, CTO, CPO, CFO, CISO, CDO, CMO, COO |
 | Coordinator Level | 10 | Engineering, QA, Product, Design, Data, Security, Infrastructure, Mobile, Platform, ML |
-| Workers | 15 | python-developer, database-architect, pr-reviewer, frontend-developer, full-stack-developer, mobile-developer, systems-programmer, ml-engineer, data-engineer, devops-engineer, security-engineer, test-engineer, architect, api-developer, technical-writer |
+| Workers | 15 | python-developer, database-architect, reviewer, frontend-developer, full-stack-developer, mobile-developer, systems-programmer, ml-engineer, data-engineer, devops-engineer, security-engineer, test-engineer, architect, api-developer, technical-writer |
 
 Managed via the Role Studio UI (`GET /roles`) and the roles API (`/api/roles/*`).
 

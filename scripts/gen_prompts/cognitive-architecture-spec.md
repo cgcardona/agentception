@@ -384,7 +384,7 @@ ARCH_CONTEXT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" \
 echo "$ARCH_CONTEXT"
 ```
 
-For reviewers (`pr-reviewer.md`), pass `--mode reviewer` to load skill-specific
+For reviewers (`reviewer.md`), pass `--mode reviewer` to load skill-specific
 review checklists instead of implementer fragments.
 
 ### `resolve_arch.py`

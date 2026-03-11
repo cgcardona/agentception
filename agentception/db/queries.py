@@ -245,7 +245,7 @@ class AllPRRow(TypedDict):
 
 
 class ShipReviewerRunRow(TypedDict):
-    """Latest pr-reviewer run attached to a PR on the Ship board."""
+    """Latest reviewer run attached to a PR on the Ship board."""
 
     id: str
     status: str
@@ -2221,7 +2221,7 @@ async def get_prs_grouped_by_phase(
 
     Each PR is matched to its closing issue (via ``closes_issue_number``) to
     determine the phase and initiative membership.  Each PR is enriched with
-    the latest ``pr-reviewer`` agent run.
+    the latest ``reviewer`` agent run.
 
     When *initiative* is supplied, only PRs whose closing issue (or the PR
     itself) carries that initiative label are included.
@@ -2250,7 +2250,7 @@ async def get_prs_grouped_by_phase(
 
             reviewer_run_result = await session.execute(
                 select(ACAgentRun)
-                .where(ACAgentRun.role == "pr-reviewer")
+                .where(ACAgentRun.role == "reviewer")
                 .order_by(ACAgentRun.spawned_at.desc())
             )
             all_reviewer_run_rows = reviewer_run_result.scalars().all()

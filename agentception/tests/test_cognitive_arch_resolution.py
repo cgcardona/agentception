@@ -54,7 +54,7 @@ _ALL_ROLE_SLUGS = {
     "engineering-coordinator",
     "qa-coordinator",
     "coordinator",
-    "pr-reviewer",
+    "reviewer",
     "cto",
     "ceo",
     "cpo",
@@ -100,8 +100,8 @@ def test_qa_coordinator_uses_deming() -> None:
     assert ROLE_DEFAULT_FIGURE["qa-coordinator"] == "w_edwards_deming"
 
 
-def test_pr_reviewer_uses_fagan() -> None:
-    assert ROLE_DEFAULT_FIGURE["pr-reviewer"] == "michael_fagan"
+def test_reviewer_uses_fagan() -> None:
+    assert ROLE_DEFAULT_FIGURE["reviewer"] == "michael_fagan"
 
 
 def test_test_engineer_uses_kent_beck() -> None:

@@ -104,7 +104,7 @@ _CATALOG: list[OrgPresetDetail] = [
               _t("developer"),
               _t("developer")),
            _t("qa-coordinator",
-              _t("pr-reviewer"))),
+              _t("reviewer"))),
     ),
 
     _mk(
@@ -115,7 +115,7 @@ _CATALOG: list[OrgPresetDetail] = [
         _t("engineering-coordinator",
            _t("developer"),
            _t("developer"),
-           _t("pr-reviewer")),
+           _t("reviewer")),
     ),
 
     _mk(
@@ -123,7 +123,7 @@ _CATALOG: list[OrgPresetDetail] = [
         "QA Lead surveys all open PRs and dispatches a dedicated reviewer for each one.",
         "◎", "amber", "engineering",
         _t("qa-coordinator",
-           _t("pr-reviewer"),
+           _t("reviewer"),
            _t("test-engineer")),
     ),
 
@@ -144,7 +144,7 @@ _CATALOG: list[OrgPresetDetail] = [
            _t("developer"),
            _t("developer"),
            _t("developer"),
-           _t("pr-reviewer")),
+           _t("reviewer")),
     ),
 
     _mk(
@@ -156,7 +156,7 @@ _CATALOG: list[OrgPresetDetail] = [
            _t("developer"),
            _t("developer"),
            _t("developer"),
-           _t("pr-reviewer")),
+           _t("reviewer")),
     ),
 
     _mk(
@@ -182,7 +182,7 @@ _CATALOG: list[OrgPresetDetail] = [
            _t("developer"),
            _t("developer"),
            _t("developer"),
-           _t("pr-reviewer")),
+           _t("reviewer")),
     ),
 
     # ── ML / Data ─────────────────────────────────────────────────────────────
@@ -257,7 +257,7 @@ _CATALOG: list[OrgPresetDetail] = [
                  _t("developer"),
                  _t("developer")),
               _t("qa-coordinator",
-                 _t("pr-reviewer")))),
+                 _t("reviewer")))),
     ),
 
     _mk(
@@ -286,7 +286,7 @@ _CATALOG: list[OrgPresetDetail] = [
                  _t("developer"),
                  _t("developer")),
               _t("qa-coordinator",
-                 _t("pr-reviewer"))),
+                 _t("reviewer"))),
            _t("cpo",
               _t("design-coordinator",
                  _t("developer"),

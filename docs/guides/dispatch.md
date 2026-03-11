@@ -39,7 +39,7 @@ POST /api/dispatch/issue  (role: "developer")
         build_complete_run fires auto_dispatch_reviewer
                 │
                 ├─ release executor worktree  (directory removed, branch kept for PR)
-                └─ POST /api/dispatch/issue  (role: "pr-reviewer", internal)
+                └─ POST /api/dispatch/issue  (role: "reviewer", internal)
                         │
                         ├─ git fetch origin feat/issue-{N}
                         ├─ git worktree add /worktrees/review-{N} feat/issue-{N}
@@ -84,7 +84,7 @@ curl -s -X POST http://localhost:10003/api/dispatch/issue \
     "issue_number": 35,
     "issue_title":  "PR review for feat/issue-35 (#436)",
     "issue_body":   "Review PR #436 (feat/issue-35). Run mypy, typing_audit, pytest. Merge if acceptable.",
-    "role":         "pr-reviewer",
+    "role":         "reviewer",
     "repo":         "cgcardona/agentception",
     "pr_number":    436
   }'
@@ -100,7 +100,7 @@ curl -s -X POST http://localhost:10003/api/dispatch/issue \
     "issue_number": 35,
     "issue_title":  "PR review for feat/custom-branch (#437)",
     "issue_body":   "Review PR #437.",
-    "role":         "pr-reviewer",
+    "role":         "reviewer",
     "repo":         "cgcardona/agentception",
     "pr_number":    437,
     "pr_branch":    "feat/custom-branch"
@@ -118,10 +118,10 @@ curl -s -X POST http://localhost:10003/api/dispatch/issue \
 | `issue_number` | yes | GitHub issue number — used for `run_id = "issue-{N}"` and the worktree slug |
 | `issue_title` | yes | Injected into the task briefing; used as the Qdrant search query |
 | `issue_body` | no | Full issue body text; drives the planner and cognitive arch selection. Pass `""` to let the agent read it via `issue_read` |
-| `role` | yes | `"developer"` for implementation (planner → executor pipeline). `"pr-reviewer"` for review. Never pass `"executor"` or `"planner"` — those are internal |
+| `role` | yes | `"developer"` for implementation (planner → executor pipeline). `"reviewer"` for review. Never pass `"executor"` or `"planner"` — those are internal |
 | `repo` | yes | `owner/repo` string — e.g. `"cgcardona/agentception"` |
-| `pr_number` | no | PR number to associate with this run. Required for `pr-reviewer` dispatches. Omit for implementers — the executor self-reports it via `build_complete_run` |
-| `pr_branch` | no | Exact remote branch name for the PR. `pr-reviewer` only. Omit when the branch follows `feat/issue-{N}` naming |
+| `pr_number` | no | PR number to associate with this run. Required for `reviewer` dispatches. Omit for implementers — the executor self-reports it via `build_complete_run` |
+| `pr_branch` | no | Exact remote branch name for the PR. `reviewer` only. Omit when the branch follows `feat/issue-{N}` naming |
 
 ---
 

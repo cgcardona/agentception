@@ -66,7 +66,7 @@ def sample_presets() -> list[dict[str, object]]:
             "description": "Minimal setup.",
             "tiers": {
                 "leadership": ["cto"],
-                "workers": ["developer", "pr-reviewer"],
+                "workers": ["developer", "reviewer"],
             },
         },
         {
@@ -619,7 +619,7 @@ class TestOrgTree:
                 return_value={
                     "cto": {"tier": "C-Suite", "label": "CTO", "title": "CTO", "compatible_figures": many_figures},
                     "developer": {"tier": "Worker", "label": "Python Dev", "title": "Python Dev", "compatible_figures": []},
-                    "pr-reviewer": {"tier": "Worker", "label": "PR Reviewer", "title": "PR Reviewer", "compatible_figures": []},
+                    "reviewer": {"tier": "Worker", "label": "PR Reviewer", "title": "PR Reviewer", "compatible_figures": []},
                 },
             ),
         ):

@@ -172,7 +172,7 @@ async def test_spawn_child_leaf_pr_happy_path() -> None:
     ):
         result = await spawn_child(
             parent_run_id="coord-qa-xyz",
-            role="pr-reviewer",
+            role="reviewer",
             tier="worker",
             scope_type="pr",
             scope_value="112",

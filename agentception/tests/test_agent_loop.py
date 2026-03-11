@@ -1141,12 +1141,12 @@ class TestLoopGuard:
 
 
 # ---------------------------------------------------------------------------
-# Loop guard disabled for pr-reviewer
+# Loop guard disabled for reviewer
 # ---------------------------------------------------------------------------
 
 
 class TestLoopGuardReviewer:
-    """Loop guard must not fire for the pr-reviewer role.
+    """Loop guard must not fire for the reviewer role.
 
     Regression for the bug where the guard intercepted merge_pull_request
     after just 2 read-only iterations, forcing the reviewer into 20+
@@ -1158,10 +1158,10 @@ class TestLoopGuardReviewer:
     """
 
     @pytest.mark.anyio
-    async def test_loop_guard_never_fires_for_pr_reviewer(
+    async def test_loop_guard_never_fires_for_reviewer(
         self, tmp_path: Path
     ) -> None:
-        """Guard never fires for pr-reviewer even after many read-only iterations."""
+        """Guard never fires for reviewer even after many read-only iterations."""
         from agentception.services.agent_loop import (
             _LOOP_GUARD_THRESHOLD,
             run_agent_loop,
@@ -1173,7 +1173,7 @@ class TestLoopGuardReviewer:
         # A reviewer task spec.
         reviewer_spec = AgentTaskSpec(
             id="review-run",
-            role="pr-reviewer",
+            role="reviewer",
             tier="worker",
             cognitive_arch="Review carefully.",
             issue_number=42,
@@ -1249,7 +1249,7 @@ class TestLoopGuardReviewer:
                 str(b.get("text", "")) for b in blocks if isinstance(b, dict)
             )
             assert "LOOP GUARD" not in all_text, (
-                f"Loop guard fired on iteration {i} for a pr-reviewer — "
+                f"Loop guard fired on iteration {i} for a reviewer — "
                 "the guard must be disabled for the reviewer role."
             )
 

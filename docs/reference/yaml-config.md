@@ -160,7 +160,7 @@ org:
       skills: [python, fastapi, postgresql]
       cognitive_arch: "turing:python:fastapi:postgresql"
 
-    pr_reviewer:
+    reviewer:
       figures: [knuth]
       archetype: the_scholar
       skills: [python]

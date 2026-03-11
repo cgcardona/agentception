@@ -9,7 +9,7 @@ presets:
       workers:
         - python-developer
         - site-reliability-engineer
-        - pr-reviewer
+        - reviewer
 
   - id: content-team
     name: Content Team
@@ -18,7 +18,7 @@ presets:
       leadership: []
       workers:
         - content-writer
-        - pr-reviewer
+        - reviewer
 
   - id: legal-team
     name: Legal Team
@@ -27,7 +27,7 @@ presets:
       leadership: []
       workers:
         - legal-analyst
-        - pr-reviewer
+        - reviewer
 
   - id: ops-team
     name: Ops Team
@@ -36,4 +36,4 @@ presets:
       leadership: []
       workers:
         - ops-analyst
-        - pr-reviewer
+        - reviewer

@@ -34,7 +34,7 @@ _ROLE_KEYWORDS: list[tuple[str, str]] = [
     ("QA Coordinator", "qa-coordinator"),
     ("database-architect", "database-architect"),
     ("developer", "developer"),
-    ("pr-reviewer", "pr-reviewer"),
+    ("reviewer", "reviewer"),
 ]
 
 _PR_URL_RE = re.compile(r"https?://github\.com/([^/\s]+/[^/\s]+/pull/\d+)")

@@ -55,7 +55,7 @@ def pipeline_with_agent(agent_node: AgentNode) -> PipelineState:
     """PipelineState with one root agent and one child agent."""
     child = AgentNode(
         id="child-abc",
-        role="pr-reviewer",
+        role="reviewer",
         status=AgentStatus.REVIEWING,
         message_count=1,
         transcript_path=None,
@@ -135,7 +135,7 @@ def test_agent_detail_renders_child_agent(
     ):
         response = client.get("/agents/child-abc")
     assert response.status_code == 200
-    assert "pr-reviewer" in response.text
+    assert "reviewer" in response.text
 
 
 def test_agent_detail_no_transcript_path(client: TestClient) -> None:

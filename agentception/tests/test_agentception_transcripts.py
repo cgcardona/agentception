@@ -154,12 +154,12 @@ def test_infer_role_python_developer() -> None:
     assert infer_role_from_messages(messages) == "developer"
 
 
-def test_infer_role_pr_reviewer() -> None:
-    """An assistant message containing 'pr-reviewer' maps to that role."""
+def test_infer_role_reviewer() -> None:
+    """An assistant message containing 'reviewer' maps to that role."""
     messages = [
-        {"role": "assistant", "text": "Operating as pr-reviewer for PR #42."},
+        {"role": "assistant", "text": "Operating as reviewer for PR #42."},
     ]
-    assert infer_role_from_messages(messages) == "pr-reviewer"
+    assert infer_role_from_messages(messages) == "reviewer"
 
 
 def test_infer_role_unknown_when_no_keywords() -> None:
@@ -279,7 +279,7 @@ async def test_build_agent_tree_parent_child(tmp_path: Path) -> None:
             ("user", "Review PR #99"),
             (
                 "assistant",
-                "Operating as pr-reviewer. "
+                "Operating as reviewer. "
                 "PR merged: https://github.com/cgcardona/agentception/pull/99",
             ),
         ],
@@ -293,7 +293,7 @@ async def test_build_agent_tree_parent_child(tmp_path: Path) -> None:
 
     child = node.children[0]
     assert child.id == child_uuid
-    assert child.role == "pr-reviewer"
+    assert child.role == "reviewer"
     assert child.status == AgentStatus.COMPLETED
     assert child.message_count == 2
 

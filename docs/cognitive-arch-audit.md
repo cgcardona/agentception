@@ -27,7 +27,7 @@ A second, independent bug exists at the root: **`cto.md` hardcodes `COGNITIVE_AR
 | 6 | `build_spawn_child` MCP tool → `_build_coordinator_task()` | `agentception/mcp/plan_tools.py:220`, `agentception/routes/api/_shared.py:116` | coordinator (bugs-to-issues workflow) | **Y** | **Y** (hardcoded from `ROLE_DEFAULT_FIGURE`) | **Y** |
 | 7 | `_build_conductor_task()` | `agentception/routes/api/_shared.py:180` | coordinator / conductor | **Y** | **Y** (hardcoded from `ROLE_DEFAULT_FIGURE`) | **Y** |
 | 8 | Engineering Coordinator → `build_spawn_child` (per-issue) | `.agentception/roles/engineering-coordinator.md:158` | leaf / engineer | **Y** | N/A (leaf) | **N** |
-| 9 | QA Coordinator → `build_spawn_child` (per-PR) | `.agentception/roles/qa-coordinator.md` | leaf / pr-reviewer | **Y** | N/A (leaf) | **N** |
+| 9 | QA Coordinator → `build_spawn_child` (per-PR) | `.agentception/roles/qa-coordinator.md` | leaf / reviewer | **Y** | N/A (leaf) | **N** |
 | 10 | CTO sub-spawn (engineering-coordinator child) | `.agentception/roles/cto.md:~290` | coordinator | **Y** | **Y** | **Y** |
 | 11 | CTO sub-spawn (qa-coordinator child) | `.agentception/roles/cto.md:~3888` | coordinator | **Y** | **Y** | **Y** |
 | 12 | Dispatcher → Task call for coordinator | `.agentception/dispatcher.md:100` | coordinator | **Y** *(in DB context)* | **Y** | **Y** *(role file reads from DB context)* |
@@ -99,7 +99,7 @@ cognitive_arch = _resolve_cognitive_arch(
 
 `issue_body` and `skills_hint` are forwarded from the parent coordinator's call, enabling issue-body-driven arch selection.  The resolved arch is written to `[agent].cognitive_arch` (line 263 in `_build_child_task`).
 
-**Gap:** For children whose role is a leaf (e.g., `python-developer`, `pr-reviewer`), the role file has no self-introduction block.  For children whose role is a coordinator (e.g., `engineering-coordinator`), the role file DOES have the block — intro IS triggered.
+**Gap:** For children whose role is a leaf (e.g., `python-developer`, `reviewer`), the role file has no self-introduction block.  For children whose role is a coordinator (e.g., `engineering-coordinator`), the role file DOES have the block — intro IS triggered.
 
 ---
 
@@ -152,9 +152,9 @@ build_spawn_child(
 )
 ```
 
-**QA Coordinator** spawns `pr-reviewer` leaves via the same MCP tool.
+**QA Coordinator** spawns `reviewer` leaves via the same MCP tool.
 
-In both cases, cognitive_arch IS resolved and written to the child's `ac://runs/{run_id}/context`.  But neither `python-developer.md` nor `pr-reviewer.md` contain a `MANDATORY FIRST RESPONSE` block.
+In both cases, cognitive_arch IS resolved and written to the child's `ac://runs/{run_id}/context`.  But neither `python-developer.md` nor `reviewer.md` contain a `MANDATORY FIRST RESPONSE` block.
 
 ---
 
@@ -187,7 +187,7 @@ For leaf agents, the briefing is similarly arch-free.  The agent must read `COGN
 | `engineering-coordinator.md` | **Y** (line 17) | **Y** (line 29) | **Y** |
 | `qa-coordinator.md` | **Y** (similar to eng-coord) | **Y** (line 29) | **Y** |
 | `python-developer.md` | Partial (reads for fingerprint only, line 88) | **N** | **N** |
-| `pr-reviewer.md` | Partial (reads for reviewer context, line 12) | **N** | **N** |
+| `reviewer.md` | Partial (reads for reviewer context, line 12) | **N** | **N** |
 | All other leaf roles (42 files) | **N** | **N** | **N** |
 
 ---
@@ -221,7 +221,7 @@ COGNITIVE_ARCH="<from RunContextRow.cognitive_arch via ac://runs/{run_id}/contex
 ### Root Cause #2 — All leaf role files (44 files) have no self-introduction block
 
 **Files:** All role files except `cto.md`, `engineering-coordinator.md`, `qa-coordinator.md`  
-**Examples:** `python-developer.md`, `pr-reviewer.md`, `frontend-developer.md`, `architect.md`, (41 more)
+**Examples:** `python-developer.md`, `reviewer.md`, `frontend-developer.md`, `architect.md`, (41 more)
 
 Leaf role files read `cognitive_arch` from `ac://runs/{run_id}/context` only to generate a fingerprint comment (`resolve_arch.py --fingerprint`, `python-developer.md:88`).  They do NOT call `resolve_arch.py --mode implementer` to load the full cognitive context block, and they contain no `MANDATORY FIRST RESPONSE` announcement.
 
@@ -257,7 +257,7 @@ At least one `arch_received=Y / intro_triggered=N` row is documented in the tabl
 | `POST /api/dispatch/issue` (leaf) | Y | **N** |
 | `POST /api/dispatch/label` scope=issue (leaf) | Y | **N** |
 | `build_spawn_child` → leaf engineer | Y | **N** |
-| `build_spawn_child` → pr-reviewer | Y | **N** |
+| `build_spawn_child` → reviewer | Y | **N** |
 | Dispatcher → leaf Task call | Y | **N** |
 
 Five distinct spawn paths write the arch field but the leaf agent never announces it.

@@ -202,7 +202,7 @@ async def build_complete_run(
     Was: part of ``build_report_done``.  Teardown is now a separate explicit
     command so orchestration layers can control when cleanup happens.
 
-    When called by a pr-reviewer with a failing grade (C/D/F), a new developer
+    When called by a reviewer with a failing grade (C/D/F), a new developer
     run is automatically dispatched with the reviewer's feedback injected into
     the briefing — up to 3 attempts before the loop is abandoned.
 
@@ -211,9 +211,9 @@ async def build_complete_run(
         pr_url: Full URL of the opened (or rejected) pull request.
         summary: Optional one-sentence description of what was done.
         agent_run_id: Run ID used to transition the run state.
-        grade: Grade assigned by the pr-reviewer (e.g. "A", "B", "C", "D", "F").
+        grade: Grade assigned by the reviewer (e.g. "A", "B", "C", "D", "F").
             Empty string when called by a non-reviewer agent.
-        reviewer_feedback: Full defect list from the pr-reviewer.  Injected
+        reviewer_feedback: Full defect list from the reviewer.  Injected
             verbatim into the re-dispatched developer briefing.  Empty string
             when called by a non-reviewer agent.
 
@@ -244,7 +244,7 @@ async def build_complete_run(
     # Reviewer path: grade determines whether to merge (handled by reviewer) or
     # redispatch a corrected developer run.
     caller_role = await get_agent_run_role(agent_run_id) if agent_run_id else None
-    if caller_role == "pr-reviewer":
+    if caller_role == "reviewer":
         _FAILING_GRADES: frozenset[str] = frozenset({"C", "D", "F"})
         normalised_grade = grade.strip().upper()
         if normalised_grade in _FAILING_GRADES:

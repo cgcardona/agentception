@@ -229,8 +229,8 @@ def test_count_nested_children() -> None:
                  _t("developer"),
                  _t("developer")),
               _t("qa-coordinator",
-                 _t("pr-reviewer")))
-    # cto(1) + eng-coord(1) + python-dev(1) + go-dev(1) + qa-coord(1) + pr-reviewer(1) = 6
+                 _t("reviewer")))
+    # cto(1) + eng-coord(1) + python-dev(1) + go-dev(1) + qa-coord(1) + reviewer(1) = 6
     assert _count(tree) == 6
 
 
@@ -253,7 +253,7 @@ def test_t_with_figure() -> None:
 
 def test_t_leaf_has_empty_children() -> None:
     """`_t` with no children produces an empty children list."""
-    node = _t("pr-reviewer")
+    node = _t("reviewer")
     assert node.children == []
 
 
