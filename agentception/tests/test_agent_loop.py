@@ -923,7 +923,9 @@ class TestLoopGuard:
             from agentception.services import agent_loop as al
 
             with patch.object(al, "read_file", return_value=file_result):
-                await run_agent_loop("test-run-guard")
+                # max_iterations=20 → loop_guard_threshold=max(2, 20//10)=2,
+                # matching _LOOP_GUARD_THRESHOLD so the assertions below hold.
+                await run_agent_loop("test-run-guard", max_iterations=20)
 
         assert len(captured_tools) > _LOOP_GUARD_THRESHOLD, (
             "Expected at least THRESHOLD+1 LLM calls"
@@ -1032,7 +1034,8 @@ class TestLoopGuard:
                 patch.object(al, "read_file", return_value=file_result),
                 patch.object(al, "write_file", return_value=write_result),
             ):
-                await run_agent_loop("test-run-write-reset")
+                # max_iterations=20 → threshold=2 = _LOOP_GUARD_THRESHOLD.
+                await run_agent_loop("test-run-write-reset", max_iterations=20)
 
         # No call should have the LOOP GUARD text — the write reset the counter.
         for blocks in captured_extra:
@@ -1138,6 +1141,106 @@ class TestLoopGuard:
         assert found_absence, (
             "Symbol absence override must fire after the same query is searched twice"
         )
+
+    @pytest.mark.anyio
+    async def test_loop_guard_threshold_scales_with_max_iterations(
+        self, tmp_path: Path
+    ) -> None:
+        """loop_guard_threshold = max(2, max_iterations // 10).
+
+        A 100-iteration run allows 10 consecutive reads before the guard fires.
+        A 20-iteration run allows only 2 (the floor).
+        """
+        from agentception.services.agent_loop import (
+            _LOOP_GUARD_THRESHOLD,
+            run_agent_loop,
+        )
+
+        worktree = tmp_path / "test-run-scale"
+        worktree.mkdir()
+        task_spec = _make_task_spec(worktree)
+
+        # With max_iterations=100, threshold = max(2, 10) = 10.
+        # Run 8 read-only iterations — guard must NOT fire yet.
+        n_reads = 8
+        assert n_reads > _LOOP_GUARD_THRESHOLD, (
+            "This test requires more reads than the floor threshold"
+        )
+        read_responses = [
+            _tool_response("read_file", {"path": "agentception/models.py"})
+            for _ in range(n_reads)
+        ]
+        all_responses = read_responses + [_stop_response("Done.")]
+
+        captured_extra: list[list[dict[str, object]] | None] = []
+
+        async def fake_llm(
+            *args: object,
+            extra_system_blocks: list[dict[str, object]] | None = None,
+            **kwargs: object,
+        ) -> ToolResponse:
+            captured_extra.append(extra_system_blocks)
+            return all_responses[len(captured_extra) - 1]
+
+        file_result: dict[str, object] = {"ok": True, "content": "# stub", "truncated": False}
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.get_run_by_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic_with_tools",
+                side_effect=fake_llm,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
+
+            from agentception.services import agent_loop as al
+
+            with patch.object(al, "read_file", return_value=file_result):
+                # max_iterations=100 → loop_guard_threshold = max(2, 10) = 10.
+                # 8 reads is below the threshold, so the guard must NOT fire.
+                await run_agent_loop("test-run-scale", max_iterations=100)
+
+        for i, blocks in enumerate(captured_extra):
+            if blocks is None:
+                continue
+            all_text = " ".join(
+                str(b["text"]) for b in blocks if isinstance(b.get("text"), str)
+            )
+            assert "LOOP GUARD" not in all_text, (
+                f"Guard fired at iteration {i + 1} with only {n_reads} reads "
+                f"and a threshold of 10 (max_iterations=100) — should not fire until 10"
+            )
 
 
 # ---------------------------------------------------------------------------
