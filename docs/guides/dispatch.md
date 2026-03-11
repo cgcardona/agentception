@@ -49,9 +49,9 @@ POST /api/dispatch/issue  (role: "developer")
                         Reviewer verifies mypy + pytest, grades, merges or rejects
 ```
 
-By the time you get the JSON response, the planner has already run and the
-executor agent is live against Anthropic. The reviewer fires automatically at
-the end — you never need to dispatch it manually.
+By the time you get the JSON response, the context assembler has already run and
+the developer agent is live against Anthropic. The reviewer fires automatically
+at the end — you never need to dispatch it manually.
 
 ---
 
@@ -117,8 +117,8 @@ curl -s -X POST http://localhost:10003/api/dispatch/issue \
 |-------|----------|-------|
 | `issue_number` | yes | GitHub issue number — used for `run_id = "issue-{N}"` and the worktree slug |
 | `issue_title` | yes | Injected into the task briefing; used as the Qdrant search query |
-| `issue_body` | no | Full issue body text; drives the planner and cognitive arch selection. Pass `""` to let the agent read it via `issue_read` |
-| `role` | yes | `"developer"` for implementation (planner → executor pipeline). `"reviewer"` for review. Never pass `"executor"` or `"planner"` — those are internal |
+| `issue_body` | no | Full issue body text; drives context assembly and cognitive arch selection. Pass `""` to let the agent read it via `issue_read` |
+| `role` | yes | `"developer"` for implementation. `"reviewer"` for review. |
 | `repo` | yes | `owner/repo` string — e.g. `"cgcardona/agentception"` |
 | `pr_number` | no | PR number to associate with this run. Required for `reviewer` dispatches. Omit for implementers — the executor self-reports it via `build_complete_run` |
 | `pr_branch` | no | Exact remote branch name for the PR. `reviewer` only. Omit when the branch follows `feat/issue-{N}` naming |
@@ -251,26 +251,26 @@ curl -s -X POST http://localhost:10003/api/dispatch/issue \
 
 The dispatch endpoint handles stale worktrees automatically: if the worktree
 directory already exists for a `failed` or `cancelled` run, `ensure_worktree`
-resets it to a clean state from `origin/dev` before the planner runs.
+resets it to a clean state from `origin/dev` before the agent loop starts.
 
 ---
 
 ## What happens inside the agent
 
-**Planner (synchronous, before the agent loop starts):** One structured LLM
-call reads the issue body and the pre-injected code chunks, then outputs an
-`ExecutionPlan` — a list of atomic file operations (`write_file`,
-`replace_in_file`, `insert_after_in_file`) with all parameters pre-filled.
-The plan is stored in the DB.
+**Context assembler (synchronous, before the agent loop starts):** Zero LLM
+calls.  Runs 3 targeted Qdrant queries in parallel (~300 ms), then uses Python
+`ast` to extract the exact enclosing function/class scope for each match.
+Imports for each file are prepended.  The assembled context is appended to the
+task briefing so the developer starts implementation from turn 1 with precise
+code context — no file reads, no discovery loop.
 
-**Executor (agent loop, role = `"executor"`):** Receives the formatted
-`ExecutionPlan` in its task briefing. Applies each operation mechanically,
-runs `mypy` + `pytest`, commits, opens a PR, and calls `build_complete_run`.
-The executor never reads the codebase speculatively — all context was
-pre-supplied by the planner.
+**Developer (agent loop, role = `"developer"`):** Receives the issue body,
+pre-injected Qdrant chunks, AC-referenced file content, and the pre-extracted
+AST scope bodies.  Implements the changes, runs `mypy` + `pytest`, commits,
+opens a PR, and calls `build_complete_run`.
 
 **Auto-reviewer (fires on `build_complete_run`):** `build_complete_run`
-releases the executor's worktree (directory only — branch kept for the open
+releases the developer's worktree (directory only — branch kept for the open
 PR), then fires `auto_dispatch_reviewer` as a background task. The reviewer
 gets its own worktree on the same branch, verifies correctness, and merges or
 rejects.
@@ -279,15 +279,15 @@ Typical turn counts per tier:
 
 | Tier | Turns | What happens |
 |------|-------|--------------|
-| Planner | 0 (pre-loop, 1 LLM call) | Reads issue + code chunks, outputs ExecutionPlan |
-| Executor | 5–20 | Applies plan, runs mypy + pytest, commits, opens PR |
+| Context assembler | 0 (pre-loop, zero LLM calls, ~300 ms) | Qdrant + AST → scope bodies in briefing |
+| Developer | 5–20 | Implements, runs mypy + pytest, commits, opens PR |
 | Reviewer | 3–10 | Reads diff, verifies tools, grades, merges or rejects |
 
 ---
 
-## What the executor must do to finish
+## What the developer must do to finish
 
-1. Apply every operation in the `ExecutionPlan` using `write_file` or `replace_in_file`.
+1. Implement every requirement in the issue using `write_file`, `replace_in_file`, or `insert_after_in_file`.
 2. Run `mypy agentception/ agentception/tests/` — zero errors.
 3. Run `python3 tools/typing_audit.py --dirs agentception/ agentception/tests/ --max-any 0` — passes.
 4. Run `pytest agentception/tests/ -v` — all green.
@@ -333,8 +333,8 @@ If a run hits the limit:
 | Concern | File |
 |---------|------|
 | Dispatch endpoint | `agentception/routes/api/dispatch.py` |
-| Planner | `agentception/services/planner.py` |
-| Executor agent loop | `agentception/services/agent_loop.py::run_agent_loop` |
+| Context assembler | `agentception/services/context_assembler.py` |
+| Developer agent loop | `agentception/services/agent_loop.py::run_agent_loop` |
 | Auto-reviewer trigger | `agentception/mcp/build_commands.py::build_complete_run` |
 | Auto-reviewer dispatch | `agentception/services/auto_reviewer.py::auto_dispatch_reviewer` |
 | Worktree creation | `agentception/readers/git.py::ensure_worktree` |

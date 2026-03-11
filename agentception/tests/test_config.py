@@ -386,11 +386,6 @@ def test_agent_max_iterations_default() -> None:
     assert s.agent_max_iterations == 100
 
 
-def test_planner_enabled_default() -> None:
-    s = AgentCeptionSettings()
-    assert s.planner_enabled is True
-
-
 def test_ac_min_turn_delay_secs_default() -> None:
     s = AgentCeptionSettings()
     assert s.ac_min_turn_delay_secs == 1.5
