@@ -422,6 +422,27 @@ def _get_role(uri: str, slug: str) -> dict[str, object]:
     return {"ok": True, "slug": slug, "content": content}
 
 
+async def _handle_run_task(uri: str, run_id: str) -> ACResourceResult:
+    """Return the task_description field for a run as a text resource."""
+    from sqlalchemy import select
+
+    from agentception.db.engine import get_session
+    from agentception.db.models import ACAgentRun
+
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun).where(ACAgentRun.id == run_id)
+            )
+            row = result.scalar_one_or_none()
+        if row is None:
+            return _not_found(uri)
+        return _content(uri, {"run_id": run_id, "task_description": row.task_description})
+    except Exception as exc:
+        logger.error("❌ _handle_run_task %r: %s", run_id, exc, exc_info=True)
+        return _content(uri, {"error": str(exc)})
+
+
 def _content(uri: str, data: dict[str, object]) -> ACResourceResult:
     """Wrap a result dict into a single-item ACResourceResult."""
     return ACResourceResult(
@@ -531,6 +552,9 @@ async def _dispatch(
 
             if sub == "context" and len(path_parts) == 2:
                 return _content(uri, await query_run_context(run_id))
+
+            if sub == "task" and len(path_parts) == 2:
+                return await _handle_run_task(uri, run_id)
 
             if sub == "events" and len(path_parts) == 2:
                 after_id_vals = query.get("after_id", [])

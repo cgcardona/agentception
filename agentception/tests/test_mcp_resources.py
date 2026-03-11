@@ -726,6 +726,59 @@ async def test_read_resource_plan_figures_unknown_role() -> None:
 
 
 # ---------------------------------------------------------------------------
+# ac://runs/{run_id}/task
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_run_task_resource_returns_task_description() -> None:
+    """ac://runs/{run_id}/task returns task_description when the run exists."""
+    from unittest.mock import MagicMock
+
+    mock_row = MagicMock()
+    mock_row.task_description = "Implement the foo feature"
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = mock_row
+
+    mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(return_value=mock_result)
+
+    mock_ctx = MagicMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("agentception.db.engine.get_session", return_value=mock_ctx):
+        result = await read_resource("ac://runs/issue-42/task")
+
+    payload = _content(result)
+    assert payload["run_id"] == "issue-42"
+    assert payload["task_description"] == "Implement the foo feature"
+
+
+@pytest.mark.anyio
+async def test_run_task_resource_returns_not_found_when_run_missing() -> None:
+    """ac://runs/{run_id}/task returns a not-found payload when the run does not exist."""
+    from unittest.mock import MagicMock
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = None
+
+    mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(return_value=mock_result)
+
+    mock_ctx = MagicMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("agentception.db.engine.get_session", return_value=mock_ctx):
+        result = await read_resource("ac://runs/issue-999/task")
+
+    payload = _content(result)
+    assert "error" in payload
+
+
+# ---------------------------------------------------------------------------
 # URI edge cases
 # ---------------------------------------------------------------------------
 
