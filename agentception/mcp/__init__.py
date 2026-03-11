@@ -9,8 +9,7 @@ dispatchers for the plan-step-v2 pipeline.  All tools operate within the
 Public surface:
   - ``agentception.mcp.types``      — protocol TypedDicts (ACToolDef, ACToolResult, …)
   - ``agentception.mcp.plan_tools`` — plan_get_schema(), plan_validate_spec(),
-                                      plan_get_labels(), plan_validate_manifest(),
-                                      plan_spawn_coordinator()
+                                      plan_get_labels(), plan_validate_manifest()
   - ``agentception.mcp.server``     — JSON-RPC 2.0 dispatcher (handle_request)
 
 Boundary constraint: zero imports from external packages.
