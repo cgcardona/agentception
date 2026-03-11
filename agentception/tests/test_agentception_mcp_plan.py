@@ -14,6 +14,7 @@ Boundary: zero imports from external packages.
 """
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -120,7 +121,7 @@ def _call_request(
     }
 
 
-def _unwrap(resp: dict[str, object] | None) -> dict[str, object]:
+def _unwrap(resp: Mapping[str, object] | None) -> Mapping[str, object]:
     """Assert that handle_request returned a response (not a notification None) and narrow the type."""
     assert resp is not None, "handle_request returned None — expected a response dict"
     return resp

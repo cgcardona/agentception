@@ -24,6 +24,7 @@ Resources tested:
 """
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -63,13 +64,13 @@ def _rpc(method: str, params: dict[str, object] | None = None) -> dict[str, obje
     return req
 
 
-def _unwrap_rpc(resp: dict[str, object] | None) -> dict[str, object]:
+def _unwrap_rpc(resp: Mapping[str, object] | None) -> Mapping[str, object]:
     """Assert the RPC response is non-None and return it with narrowed type."""
     assert resp is not None
     return resp
 
 
-def _rpc_result(resp: dict[str, object] | None) -> dict[str, object]:
+def _rpc_result(resp: Mapping[str, object] | None) -> Mapping[str, object]:
     """Extract and narrow the 'result' value from an RPC response."""
     unwrapped = _unwrap_rpc(resp)
     result = unwrapped["result"]
@@ -77,7 +78,7 @@ def _rpc_result(resp: dict[str, object] | None) -> dict[str, object]:
     return result
 
 
-def _rpc_contents(resp: dict[str, object] | None) -> list[dict[str, object]]:
+def _rpc_contents(resp: Mapping[str, object] | None) -> list[dict[str, object]]:
     """Extract the 'contents' list from a resources/read RPC response."""
     result = _rpc_result(resp)
     raw_contents = result["contents"]

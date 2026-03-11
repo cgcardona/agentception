@@ -13,6 +13,7 @@ from __future__ import annotations
 
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from unittest.mock import patch
 
@@ -33,9 +34,8 @@ def _rpc(method: str, params: dict[str, object] | None = None, req_id: int = 1) 
     return req
 
 
-def _unwrap(resp: dict[str, object] | None) -> dict[str, object]:
+def _unwrap(resp: Mapping[str, object] | None) -> Mapping[str, object]:
     assert resp is not None
-    assert isinstance(resp, dict)
     return resp
 
 

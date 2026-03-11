@@ -16,6 +16,7 @@ from __future__ import annotations
 
 
 import json
+from collections.abc import Mapping
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -31,14 +32,13 @@ def _rpc_call(name: str, args: dict[str, object]) -> dict[str, object]:
     return {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": args}}
 
 
-async def _dispatch(name: str, args: dict[str, object]) -> dict[str, object]:
+async def _dispatch(name: str, args: dict[str, object]) -> Mapping[str, object]:
     resp = await handle_request_async(_rpc_call(name, args))
     assert resp is not None
-    assert isinstance(resp, dict)
     return resp
 
 
-def _result_payload(resp: dict[str, object]) -> dict[str, object]:
+def _result_payload(resp: Mapping[str, object]) -> dict[str, object]:
     result = resp.get("result")
     assert isinstance(result, dict)
     content = result.get("content")
