@@ -69,6 +69,13 @@ merge_pull_request(owner=$OWNER, repo=$REPO, pull_number=$PR_NUMBER,
 
 issue_write(method="update", owner=$OWNER, repo=$REPO,
             issue_number=$ISSUE_NUMBER, state="closed", state_reason="completed")
+
+build_complete_run(
+  issue_number=$ISSUE_NUMBER,
+  pr_url=<pr_url>,
+  summary="Grade: A — merged.",
+  grade="A",                               ← REQUIRED: always pass "A" for passing reviews
+  reviewer_feedback="")
 ```
 
 If grade C/D/F — reject:
@@ -104,5 +111,5 @@ Up to 3 attempts are allowed before the loop is abandoned.
 - **Do not re-read the diff.** It is already in your context.
 - If you need one file for clarification, one `read_file` is acceptable. No grep, no search_text, no list_directory.
 - Merge or reject. Those are the only two outcomes.
-- Call `build_complete_run` after merging or after posting rejection.
+- `build_complete_run` is shown in **both** the grade A and grade C/D/F code blocks above. Call it exactly as shown — always with the literal grade letter.
 - **You should reach a decision in ≤5 iterations.** If you are still reading on iteration 5, stop and grade based on what you have.
