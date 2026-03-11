@@ -123,6 +123,15 @@ _WRITE_TOOL_NAMES: frozenset[str] = frozenset({
     "build_cancel_run",
 })
 
+# Subset of write tools that mutate a specific file and carry a `file_path`
+# argument.  Used by the write-journal to record which files have been touched
+# so the agent can see that evidence even after the history is pruned.
+_FILE_MUTATING_TOOL_NAMES: frozenset[str] = frozenset({
+    "replace_in_file",
+    "write_file",
+    "insert_after_in_file",
+})
+
 # Tools whose arguments carry a search query we want to track for
 # repeated symbol searches (symbol-absence heuristic).
 _SEARCH_TOOL_NAMES: frozenset[str] = frozenset({
@@ -214,6 +223,20 @@ Read-only tools have been removed. You can only call write tools right now.
 Take the first uncompleted item from your next_steps. Write the implementation
 using write_file or replace_in_file. If the symbol does not exist, create it —
 absence is the task, not a blocker. Writing resets this guard.
+"""
+
+# Injected every turn (via extra_blocks) once any file has been written.
+# Lives outside the prunable history window so the agent always knows which
+# files it has already modified, even after the middle of history is dropped.
+_WRITE_JOURNAL_HEADER = """\
+📝  FILES MODIFIED THIS SESSION — do NOT re-implement these; they are already done.
+
+{entries}
+
+If a file you need to check is listed above, read only the specific lines that
+are relevant — do not re-read the whole file.  All writes in the list are
+already committed to disk.  Your next action should be the NEXT uncompleted
+task, not a re-implementation of what is listed.
 """
 
 # Injected when the agent has searched for the same query twice.
@@ -409,6 +432,9 @@ async def run_agent_loop(
     # Tracks which absent symbols have already triggered an injection so we
     # don't spam the same message every subsequent iteration.
     symbol_absence_injected: set[str] = set()
+    # Write journal: file path → number of mutations applied this session.
+    # Injected into extra_blocks every turn so it survives history pruning.
+    files_written: dict[str, int] = {}
 
     for iteration in range(1, max_iterations + 1):
         await log_run_step(
@@ -446,6 +472,20 @@ async def run_agent_loop(
         extra_blocks: list[dict[str, object]] = []
         if memory:
             extra_blocks.append({"type": "text", "text": render_memory(memory)})
+
+        # Write journal — injected outside the prunable history window so the
+        # agent always knows which files it has already modified.  Without this,
+        # once the history is pruned to _HISTORY_TAIL messages the agent loses
+        # evidence of its own writes and loops re-implementing the same code.
+        if files_written:
+            entries = "\n".join(
+                f"  • {path} ({count} write{'s' if count > 1 else ''})"
+                for path, count in sorted(files_written.items())
+            )
+            extra_blocks.append({
+                "type": "text",
+                "text": _WRITE_JOURNAL_HEADER.format(entries=entries),
+            })
 
         # Loop-guard enforcement — fires when the agent has not written any code
         # for _LOOP_GUARD_THRESHOLD consecutive iterations.
@@ -592,6 +632,19 @@ async def run_agent_loop(
                 iterations_since_write = 0
             else:
                 iterations_since_write += 1
+
+            # Write-journal bookkeeping: record which files were mutated so
+            # the agent can see that evidence even after history is pruned.
+            for tc in response["tool_calls"]:
+                if tc["function"]["name"] not in _FILE_MUTATING_TOOL_NAMES:
+                    continue
+                try:
+                    write_args: dict[str, object] = json.loads(tc["function"]["arguments"])
+                    fp = str(write_args.get("file_path", "")).strip()
+                    if fp:
+                        files_written[fp] = files_written.get(fp, 0) + 1
+                except (json.JSONDecodeError, AttributeError):
+                    pass
 
             # Accumulate search queries for symbol-absence detection.
             for tc in response["tool_calls"]:
