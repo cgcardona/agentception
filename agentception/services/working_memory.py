@@ -34,6 +34,9 @@ class WorkingMemory(TypedDict, total=False):
     plan: str
     """High-level implementation plan for this session."""
 
+    files_written: list[str]
+    """Paths of files already written this session — do not re-implement these."""
+
     files_examined: list[str]
     """Paths of files already read or inspected — skip re-reading these."""
 
@@ -71,6 +74,12 @@ def read_memory(worktree_path: Path) -> WorkingMemory | None:
         plan = raw.get("plan")
         if isinstance(plan, str):
             result["plan"] = plan
+        files_written = raw.get("files_written")
+        if (
+            isinstance(files_written, list)
+            and all(isinstance(f, str) for f in files_written)
+        ):
+            result["files_written"] = list(files_written)
         files_examined = raw.get("files_examined")
         if (
             isinstance(files_examined, list)
@@ -123,6 +132,8 @@ def merge_memory(existing: WorkingMemory | None, update: WorkingMemory) -> Worki
     if existing is not None:
         if "plan" in existing:
             result["plan"] = existing["plan"]
+        if "files_written" in existing:
+            result["files_written"] = existing["files_written"]
         if "files_examined" in existing:
             result["files_examined"] = existing["files_examined"]
         if "findings" in existing:
@@ -136,6 +147,8 @@ def merge_memory(existing: WorkingMemory | None, update: WorkingMemory) -> Worki
 
     if "plan" in update:
         result["plan"] = update["plan"]
+    if "files_written" in update:
+        result["files_written"] = update["files_written"]
     if "files_examined" in update:
         result["files_examined"] = update["files_examined"]
     if "findings" in update:
@@ -164,6 +177,11 @@ def render_memory(memory: WorkingMemory) -> str:
     eliminates the mypy-fix loop and test-collision discovery turns.
     """
     lines: list[str] = ["## Working Memory"]
+
+    files_written = memory.get("files_written")
+    if files_written:
+        files_str = ", ".join(f"`{f}`" for f in files_written)
+        lines.append(f"**Already written this session (do NOT re-implement):** {files_str}")
 
     findings = memory.get("findings")
     if findings:
