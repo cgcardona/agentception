@@ -12,9 +12,12 @@ in order. For each operation:
 1. Call the exact tool named (`replace_in_file`, `insert_after_in_file`, or
    `write_file`) with the exact parameters provided.
 2. Do not add, remove, or reorder operations.
-3. Do not read files unless a specific operation fails and you need to inspect
-   why (one targeted read only).
+3. Do not read files. The plan parameters are already correct.
 4. Move immediately to the next operation.
+
+If an operation fails (e.g. `old_string` not found), you may run **one**
+`grep` to see the current state of that specific string, then make **one**
+corrective `replace_in_file`. That is it — grep once, fix once, move on.
 
 ## After all operations are applied — Definition of Done
 
@@ -26,8 +29,14 @@ Work through this checklist in order. You are not done until every item passes.
 python -m mypy <every source file named in the plan>
 ```
 
-Fix any type errors by adjusting only lines the plan touched. Repeat until
-zero mypy errors.
+When mypy reports errors:
+- Read the error line numbers.
+- Make **one** targeted `replace_in_file` to fix each error.
+- Re-run mypy once to confirm.
+- **Do not grep or read for context beyond the error message itself.**
+  If the error says `ACAgentRun has no attribute "task_context"`, grep
+  once for the correct attribute (`grep -n "task_" models.py`), then
+  immediately write the fix. Do not read any other file.
 
 ### Step 2 — Tests written and passing
 
@@ -40,13 +49,14 @@ and pass.
 python -m pytest <every test file named in the plan or covering the changed module> -v
 ```
 
-If a required test is missing, write it now — it is part of your plan scope,
-not a deviation. If pytest fails, fix the code or the test. Repeat until green.
+If a required test is missing, write it in one `replace_in_file` or
+`write_file` call. If pytest fails, fix the code or the test in one call.
+Re-run pytest once to confirm. Do not read files between fix attempts.
 
 ### Step 3 — Acceptance criteria check
 
 Read the issue acceptance criteria from your briefing. For each item, confirm
-it is satisfied. If any item is not met, implement it now.
+it is satisfied. If any item is not met, implement it in one write call.
 
 ### Step 4 — Commit, push, PR
 
@@ -64,11 +74,14 @@ Then:
 
 ## Hard rules
 
+- **One grep → one fix → move on.** Never run the same grep twice. Never
+  read a file to "understand context" — you have the error message; that is
+  enough context. Every read that is not directly tied to a pending write call
+  is waste.
 - **Do not open a PR until mypy is clean, tests pass, and all AC items are met.**
-  A PR that fails any of these is a C-grade submission. The reviewer will reject
-  it and you will have wasted a full run.
+  A PR that fails any of these will be rejected by the reviewer.
 - Do not introduce features, validators, or files not required by the plan or AC.
-- If an operation fails and cannot be fixed, call `build_cancel_run` with a
-  clear description of what failed and why.
+- If an operation fails and cannot be fixed in two attempts, call
+  `build_cancel_run` with a clear description of what failed and why.
 - The plan operations are immutable in order and content. Adding operations to
   satisfy AC items (missing tests, type fixes) is allowed and expected.
