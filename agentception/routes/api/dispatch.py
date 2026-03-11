@@ -136,6 +136,11 @@ _AC_FILE_FULL_LINES: int = 500
 _AC_FILE_HEAD_LINES: int = 120
 # …and this many lines from the tail (most recently added functions / patterns).
 _AC_FILE_TAIL_LINES: int = 200
+# Context window (lines above + below) around each symbol match in large files.
+_AC_SYMBOL_WINDOW: int = 25
+
+# Regex to pull snake_case identifiers from backtick-quoted spans in the issue body.
+_BACKTICK_SYMBOL_RE = re.compile(r"`([a-z][a-z0-9_]{2,})`")
 
 
 def _extract_ac_items(issue_body: str) -> list[str]:
@@ -193,21 +198,56 @@ def _extract_ac_file_paths(issue_body: str) -> list[str]:
     return sorted(paths)
 
 
-def _build_ac_file_sections(worktree_path: Path, file_paths: list[str]) -> list[str]:
+def _symbol_windows(
+    raw_lines: list[str], symbols: set[str], window: int
+) -> list[tuple[int, int]]:
+    """Return merged (start, end) line-index ranges covering each symbol match.
+
+    Scans *raw_lines* for occurrences of any name in *symbols*, then grows a
+    ±*window* buffer around each hit.  Overlapping ranges are merged so the
+    agent receives one contiguous block instead of duplicated lines.
+    """
+    ranges: list[tuple[int, int]] = []
+    total = len(raw_lines)
+    for i, line in enumerate(raw_lines):
+        for sym in symbols:
+            if sym in line:
+                lo = max(0, i - window)
+                hi = min(total, i + window + 1)
+                ranges.append((lo, hi))
+                break
+    if not ranges:
+        return []
+    ranges.sort()
+    merged: list[tuple[int, int]] = [ranges[0]]
+    for lo, hi in ranges[1:]:
+        prev_lo, prev_hi = merged[-1]
+        if lo <= prev_hi:
+            merged[-1] = (prev_lo, max(prev_hi, hi))
+        else:
+            merged.append((lo, hi))
+    return merged
+
+
+def _build_ac_file_sections(
+    worktree_path: Path,
+    file_paths: list[str],
+    issue_symbols: set[str] | None = None,
+) -> list[str]:
     """Read each AC-mentioned file from *worktree_path* and return Markdown sections.
 
     Injection strategy:
     - Files ≤ _AC_FILE_FULL_LINES: inject verbatim — agent has complete context.
-    - Files > _AC_FILE_FULL_LINES: inject head (_AC_FILE_HEAD_LINES) + tail
-      (_AC_FILE_TAIL_LINES) with an omission marker in the middle.  The head
-      covers imports and class structure; the tail covers the most recently
-      added functions — the exact patterns the agent should emulate when adding
-      a new function at the end of the file.
+    - Files > _AC_FILE_FULL_LINES: inject head + symbol-matched middle windows +
+      tail.  The head covers imports; the middle windows expose the exact
+      registration blocks, TOOLS lists, and dispatch handlers the agent needs
+      to emulate; the tail covers the most recently added functions.
 
     For files that do not yet exist (e.g. a new Alembic migration): list the
     most-recent sibling files in the same directory so the agent knows the
     naming convention and can write the new file without any discovery reads.
     """
+    symbols: set[str] = issue_symbols or set()
     sections: list[str] = []
     for rel_path in file_paths:
         full_path = worktree_path / rel_path
@@ -223,12 +263,35 @@ def _build_ac_file_sections(worktree_path: Path, file_paths: list[str]) -> list[
             else:
                 head = raw_lines[:_AC_FILE_HEAD_LINES]
                 tail = raw_lines[-_AC_FILE_TAIL_LINES:]
-                omitted = total - _AC_FILE_HEAD_LINES - _AC_FILE_TAIL_LINES
-                body = (
-                    "\n".join(head)
-                    + f"\n\n# ... {omitted} lines omitted (use search_text or read_file_lines) ...\n\n"
-                    + "\n".join(tail)
-                )
+                head_end = _AC_FILE_HEAD_LINES
+                tail_start = total - _AC_FILE_TAIL_LINES
+
+                # Find middle windows around symbols, excluding head/tail overlap.
+                windows = _symbol_windows(raw_lines, symbols, _AC_SYMBOL_WINDOW)
+                middle_windows = [
+                    (lo, hi) for lo, hi in windows
+                    if hi > head_end and lo < tail_start
+                ]
+
+                parts: list[str] = ["\n".join(head)]
+                prev_end = head_end
+                for lo, hi in middle_windows:
+                    lo = max(lo, head_end)
+                    hi = min(hi, tail_start)
+                    if lo >= hi:
+                        continue
+                    omitted = lo - prev_end
+                    if omitted > 0:
+                        parts.append(f"\n# ... {omitted} lines omitted ...\n")
+                    parts.append("\n".join(raw_lines[lo:hi]))
+                    prev_end = hi
+
+                omitted_before_tail = tail_start - prev_end
+                if omitted_before_tail > 0:
+                    parts.append(f"\n# ... {omitted_before_tail} lines omitted ...\n")
+                parts.append("\n".join(tail))
+                body = "\n".join(parts)
+
             sections.append(
                 f"### `{rel_path}` ({total} lines)\n"
                 f"```{lang}\n"
@@ -726,8 +789,13 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
     # with all the context it needs and can go straight to IMPLEMENT.
     if effective_issue_body and task_description:
         ac_file_paths = _extract_ac_file_paths(effective_issue_body)
+        issue_symbols: set[str] = {
+            m.group(1) for m in _BACKTICK_SYMBOL_RE.finditer(effective_issue_body)
+        }
         if ac_file_paths:
-            ac_file_sections = _build_ac_file_sections(Path(worktree_path), ac_file_paths)
+            ac_file_sections = _build_ac_file_sections(
+                Path(worktree_path), ac_file_paths, issue_symbols
+            )
             if ac_file_sections:
                 task_description += (
                     "\n\n---\n\n## Pre-loaded Files\n\n"

@@ -1719,6 +1719,25 @@ def _auto_track_file_read(file_path: Path, worktree_path: Path) -> None:
         pass
 
 
+def _auto_track_file_write(rel_path: str, worktree_path: Path) -> None:
+    """Record *rel_path* in ``files_written`` after every successful file write.
+
+    Mirrors ``_auto_track_file_read`` — runtime-owned, never raises.  The agent
+    sees this list at the top of its working memory every iteration so it cannot
+    accidentally re-implement something it already wrote.
+    """
+    try:
+        existing = read_memory(worktree_path)
+        current: list[str] = list(existing.get("files_written", [])) if existing else []
+        if rel_path not in current:
+            current.append(rel_path)
+            update = WorkingMemory(files_written=current)
+            merged = merge_memory(existing, update)
+            write_memory(worktree_path, merged)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 async def _dispatch_tool_calls(
     tool_calls: list[ToolCall],
     worktree_path: Path,
@@ -1878,12 +1897,15 @@ async def _dispatch_local_tool(
             return {"ok": False, "error": "replace_in_file: 'new_string' must be a string"}
         allow_raw = args.get("allow_multiple", False)
         allow = bool(allow_raw) if isinstance(allow_raw, bool) else False
-        return replace_in_file(
+        result = replace_in_file(
             _resolve(path_raw, worktree_path),
             old_raw,
             new_raw,
             allow_multiple=allow,
         )
+        if result.get("ok"):
+            _auto_track_file_write(path_raw, worktree_path)
+        return result
 
     if name == "insert_after_in_file":
         path_raw = args.get("path")
@@ -1895,11 +1917,14 @@ async def _dispatch_local_tool(
             return {"ok": False, "error": "insert_after_in_file: 'anchor' must be a string"}
         if not isinstance(new_content_raw, str):
             return {"ok": False, "error": "insert_after_in_file: 'new_content' must be a string"}
-        return insert_after_in_file(
+        result = insert_after_in_file(
             _resolve(path_raw, worktree_path),
             anchor_raw,
             new_content_raw,
         )
+        if result.get("ok"):
+            _auto_track_file_write(path_raw, worktree_path)
+        return result
 
     if name == "write_file":
         path_raw = args.get("path")
@@ -1908,7 +1933,10 @@ async def _dispatch_local_tool(
             return {"ok": False, "error": "write_file: 'path' must be a string"}
         if not isinstance(content_raw, str):
             return {"ok": False, "error": "write_file: 'content' must be a string"}
-        return write_file(_resolve(path_raw, worktree_path), content_raw)
+        result = write_file(_resolve(path_raw, worktree_path), content_raw)
+        if result.get("ok"):
+            _auto_track_file_write(path_raw, worktree_path)
+        return result
 
     if name == "list_directory":
         path = _resolve(args.get("path", "."), worktree_path)
