@@ -21,7 +21,7 @@ Start writing on your first tool call.**
 3. Fix any mypy errors, then run `run_command` with `pytest` on the affected test file.
 4. **When pytest exits 0: STOP. Do not read any more files. Do not write any more files.**
    Your next and only action is `run_command` → `git add -A && git commit -m "feat: <summary>"`.
-5. Then call `create_pull_request`, then `build_complete_run`.
+5. Then call `create_pull_request` — **always pass `base: "dev"`**, never `main`. Then call `build_complete_run`.
 
 ## Hard rules
 
