@@ -49,12 +49,13 @@ _OPUS_MODEL = "claude-opus-4-6"
 _ANTHROPIC_VERSION = "2023-06-01"
 # Per-phase timeouts for Anthropic API calls.
 # connect/write: generous but bounded — API should accept the request quickly.
-# read: capped at 90s.  Streaming responses reset the read timer on every
-#   chunk, so a single float timeout never fires during a slow generation.
-#   Using httpx.Timeout(read=90) enforces a hard ceiling on the time between
-#   received bytes — if Anthropic stops sending for 90s the call raises
-#   TimeoutException and the loop retries, rather than hanging indefinitely.
-_DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=90.0, write=30.0, pool=10.0)
+# read: 300s (5 minutes).  With large agent contexts (50–80k+ tokens across
+#   many iterations), Anthropic can take well over 90 seconds before sending
+#   the first byte of a response — the server processes the full prompt before
+#   beginning to stream.  90s was too aggressive and caused repeated
+#   ReadTimeout → retries → run cancellation on large generations.  300s gives
+#   ample headroom while still bounding truly hung connections.
+_DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=10.0)
 _MAX_RETRIES = 2
 # Minimum seconds to wait after a 429 before retrying.  Anthropic's rolling
 # TPM window does not clear in 2–4s, so the standard exponential backoff used
