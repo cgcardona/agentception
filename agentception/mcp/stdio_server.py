@@ -22,6 +22,7 @@ import asyncio
 import json
 import logging
 import sys
+from collections.abc import Mapping
 
 from agentception.db.engine import init_db
 from agentception.mcp.server import handle_request_async
@@ -69,7 +70,7 @@ async def _run() -> None:
             request.get("id"),
         )
 
-        maybe_response: dict[str, object] | None = await handle_request_async(request)
+        maybe_response: Mapping[str, object] | None = await handle_request_async(request)
         if maybe_response is None:
             # JSON-RPC notification — no response on the wire.
             logger.warning("📭 MCP notification (no response): method=%r", method)

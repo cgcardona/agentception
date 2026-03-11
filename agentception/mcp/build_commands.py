@@ -36,6 +36,7 @@ from agentception.db.persist import (
 )
 
 
+from agentception.services.auto_reviewer import auto_dispatch_reviewer
 from agentception.services.spawn_child import ScopeType, SpawnChildError, Tier, spawn_child
 from agentception.services.teardown import teardown_agent_worktree
 
@@ -226,6 +227,14 @@ async def build_complete_run(
         "✅ build_complete_run: issue=%d pr_url=%r run_id=%r",
         issue_number, pr_url, agent_run_id,
     )
+
+    # Auto-dispatch a pr-reviewer for every completed implementer run.
+    # Fire-and-forget: reviewer failure never affects the implementer's result.
+    asyncio.create_task(
+        auto_dispatch_reviewer(issue_number=issue_number, pr_url=pr_url),
+        name=f"auto-reviewer-{issue_number}",
+    )
+
     return {"ok": True, "event": "done", "status": "completed"}
 
 
