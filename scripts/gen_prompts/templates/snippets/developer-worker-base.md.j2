@@ -6,29 +6,10 @@ planning steps. No "let me check". Just tool calls.
 need to modify are already there — start writing on your first tool call.
 Do not search. Do not read. Write.**
 
-## When your context is incomplete
-
-Only reach for discovery tools when something you need is genuinely absent
-from Pre-loaded Files / Pre-extracted Code Context. Use in this order:
-
-1. **`read_file`** — when you know the filename and it is ≤ 400 lines. One call, done.
-
-2. **`search_codebase`** — when you need to find code whose location you don't know.
-   Results include the actual code — read them directly, no follow-up reads needed.
-
-3. **`search_text`** — exact string/regex match, only when semantic search misses.
-
-4. **`read_file_lines`** — narrow window adjacent to a location you already found.
-   Hard limit: **200 lines per call**. For files > 400 lines, use `search_codebase` instead.
-
-**Do not re-read anything already in your context.** Redundant reads inflate every
-subsequent LLM call and slow the entire run.
-
 ## Sequence
 
-1. Check Pre-loaded Files. If they contain what you need: **write immediately.**
-2. If anything is missing: use the discovery steps above, then write.
-3. For each AC item: call `replace_in_file` or `write_file`.
+1. **Write immediately.** Your pre-loaded files contain what you need.
+2. For each AC item: call `replace_in_file` or `write_file`.
    Batch writes across different files in one response. Move to the next item immediately.
 4. When all AC items are done: run `run_command` with:
    ```

@@ -130,9 +130,12 @@ _AC_FILE_PATH_RE = re.compile(r"`([a-zA-Z0-9_./-]+\.[a-zA-Z0-9]+)`")
 # Requires at least one slash so bare words like "foo.py" are not matched.
 _PLAIN_FILE_PATH_RE = re.compile(r"\b([a-zA-Z0-9_.][a-zA-Z0-9_./]*(?:/[a-zA-Z0-9_.]+)+\.[a-zA-Z0-9]+)\b")
 
-# Max lines to inject per file.  Beyond this, the tail is truncated with a
-# notice — the agent can always read_file_lines for deeper context if needed.
-_AC_FILE_MAX_LINES: int = 250
+# For files that fit within this limit, inject the full content.
+_AC_FILE_FULL_LINES: int = 500
+# For files larger than _AC_FILE_FULL_LINES, inject this many lines from the head…
+_AC_FILE_HEAD_LINES: int = 120
+# …and this many lines from the tail (most recently added functions / patterns).
+_AC_FILE_TAIL_LINES: int = 200
 
 
 def _extract_ac_items(issue_body: str) -> list[str]:
@@ -193,8 +196,13 @@ def _extract_ac_file_paths(issue_body: str) -> list[str]:
 def _build_ac_file_sections(worktree_path: Path, file_paths: list[str]) -> list[str]:
     """Read each AC-mentioned file from *worktree_path* and return Markdown sections.
 
-    For files that exist: inject up to ``_AC_FILE_MAX_LINES`` lines with a
-    truncation notice when the file is longer.
+    Injection strategy:
+    - Files ≤ _AC_FILE_FULL_LINES: inject verbatim — agent has complete context.
+    - Files > _AC_FILE_FULL_LINES: inject head (_AC_FILE_HEAD_LINES) + tail
+      (_AC_FILE_TAIL_LINES) with an omission marker in the middle.  The head
+      covers imports and class structure; the tail covers the most recently
+      added functions — the exact patterns the agent should emulate when adding
+      a new function at the end of the file.
 
     For files that do not yet exist (e.g. a new Alembic migration): list the
     most-recent sibling files in the same directory so the agent knows the
@@ -209,18 +217,22 @@ def _build_ac_file_sections(worktree_path: Path, file_paths: list[str]) -> list[
             except OSError:
                 continue
             total = len(raw_lines)
-            head = raw_lines[:_AC_FILE_MAX_LINES]
-            suffix = (
-                f"\n... ({total - _AC_FILE_MAX_LINES} more lines — use read_file_lines for the rest)"
-                if total > _AC_FILE_MAX_LINES
-                else ""
-            )
             lang = "python" if rel_path.endswith(".py") else ""
+            if total <= _AC_FILE_FULL_LINES:
+                body = "\n".join(raw_lines)
+            else:
+                head = raw_lines[:_AC_FILE_HEAD_LINES]
+                tail = raw_lines[-_AC_FILE_TAIL_LINES:]
+                omitted = total - _AC_FILE_HEAD_LINES - _AC_FILE_TAIL_LINES
+                body = (
+                    "\n".join(head)
+                    + f"\n\n# ... {omitted} lines omitted (use search_text or read_file_lines) ...\n\n"
+                    + "\n".join(tail)
+                )
             sections.append(
                 f"### `{rel_path}` ({total} lines)\n"
                 f"```{lang}\n"
-                + "\n".join(head)
-                + suffix
+                + body
                 + "\n```"
             )
         else:
