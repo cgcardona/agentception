@@ -8,6 +8,7 @@ pydantic-settings>=2.3.0
 sse-starlette>=2.1.0
 httpx>=0.27.0
 psutil>=5.9.0
+types-psutil>=5.9.0
 python-multipart>=0.0.9
 # Vector store — Qdrant client + FastEmbed for local embeddings (ONNX, no API key)
 qdrant-client>=1.7.0

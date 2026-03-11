@@ -1473,6 +1473,11 @@ async def _run_recon_phase(
             return None
 
     async def _search_one(query: str) -> list[dict[str, object]]:
+        import os
+        import psutil as _psutil
+        _p = _psutil.Process(os.getpid())
+        _rss_before = _p.memory_info().rss // 1024 // 1024
+        logger.warning("📊 recon._search_one START query=%r RSS=%dMB", query[:60], _rss_before)
         # Prefer the worktree-scoped collection so results include any files
         # the agent has already written.  Fall back to the main "code"
         # collection if the worktree collection doesn't exist yet (indexing
@@ -1482,6 +1487,8 @@ async def _run_recon_phase(
             results = await search_codebase(query, 5, collection=_wt_collection)
             if not results:
                 results = await search_codebase(query, 5)
+            _rss_after = _p.memory_info().rss // 1024 // 1024
+            logger.warning("📊 recon._search_one DONE query=%r RSS=%dMB (+%dMB)", query[:60], _rss_after, _rss_after - _rss_before)
             return [
                 {"file": m["file"], "chunk": m["chunk"][:800], "score": m["score"]}
                 for m in results
@@ -1489,12 +1496,21 @@ async def _run_recon_phase(
         except Exception:  # noqa: BLE001
             try:
                 results = await search_codebase(query, 5)
+                _rss_after = _p.memory_info().rss // 1024 // 1024
+                logger.warning("📊 recon._search_one FALLBACK DONE query=%r RSS=%dMB (+%dMB)", query[:60], _rss_after, _rss_after - _rss_before)
                 return [
                     {"file": m["file"], "chunk": m["chunk"][:800], "score": m["score"]}
                     for m in results
                 ]
             except Exception:  # noqa: BLE001
+                logger.warning("📊 recon._search_one FAILED query=%r", query[:60])
                 return []
+
+    import os as _os
+    import psutil as _psutil_recon
+    _p_recon = _psutil_recon.Process(_os.getpid())
+    logger.warning("📊 recon: before gather RSS=%dMB files=%d searches=%d",
+                   _p_recon.memory_info().rss // 1024 // 1024, len(plan.files), len(plan.searches))
 
     file_tasks = [_read_one(f) for f in plan.files]
     search_tasks = [_search_one(q) for q in plan.searches]
@@ -1502,9 +1518,11 @@ async def _run_recon_phase(
     raw_file_results: list[str | None | BaseException] = list(
         await asyncio.gather(*file_tasks, return_exceptions=True)
     )
+    logger.warning("📊 recon: after file gather RSS=%dMB", _p_recon.memory_info().rss // 1024 // 1024)
     raw_search_results: list[object] = list(
         await asyncio.gather(*search_tasks, return_exceptions=True)
     )
+    logger.warning("📊 recon: after search gather RSS=%dMB", _p_recon.memory_info().rss // 1024 // 1024)
 
     # ── Bundle results ────────────────────────────────────────────────────────
 

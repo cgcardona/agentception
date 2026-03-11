@@ -16,11 +16,19 @@ Architecture:
 from __future__ import annotations
 
 import asyncio
+import atexit
+import faulthandler
 import logging
 import logging.config
+import os
+import signal
+import sys
+import traceback
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+import psutil
 
 # Configure application-level logging before any module imports so that
 # every `logging.getLogger(__name__)` in agentception.* emits at INFO+.
@@ -85,6 +93,68 @@ logger = logging.getLogger(__name__)
 # Resolve paths relative to this file so the app works regardless of cwd.
 _HERE = Path(__file__).parent
 
+# ---------------------------------------------------------------------------
+# Diagnostic instrumentation — memory monitor + crash handlers
+# ---------------------------------------------------------------------------
+
+_diag_logger = logging.getLogger("agentception.diag")
+_proc = psutil.Process(os.getpid())
+
+
+def _rss_mb() -> int:
+    return int(_proc.memory_info().rss) // 1024 // 1024
+
+
+def _log_rss(label: str) -> None:
+    mem = _proc.memory_info()
+    rss = mem.rss // 1024 // 1024
+    vms = mem.vms // 1024 // 1024
+    _diag_logger.warning("📊 MEM [%s] RSS=%dMB VMS=%dMB", label, rss, vms)
+
+
+def _on_exit() -> None:
+    """atexit: log RSS + full stack of every thread when the process exits."""
+    _log_rss("atexit")
+    frames = sys._current_frames()
+    _diag_logger.warning("📊 EXIT stack — %d thread(s):", len(frames))
+    for tid, frame in frames.items():
+        import types as _types
+        if isinstance(frame, _types.FrameType):
+            tb = "".join(traceback.format_stack(frame))
+            _diag_logger.warning("📊 thread %d:\n%s", tid, tb)
+
+
+def _on_sigterm(signum: int, frame: object) -> None:
+    """SIGTERM: log RSS + stack before uvicorn's shutdown handler takes over."""
+    _log_rss("SIGTERM")
+    frames = sys._current_frames()
+    for tid, f in frames.items():
+        import types as _types
+        if isinstance(f, _types.FrameType):
+            tb = "".join(traceback.format_stack(f))
+            _diag_logger.warning("📊 SIGTERM thread %d:\n%s", tid, tb)
+    # Re-raise so uvicorn's own SIGTERM handler still runs.
+    signal.signal(signum, signal.SIG_DFL)
+    os.kill(os.getpid(), signum)
+
+
+# Enable faulthandler so SIGSEGV / SIGABRT dump a traceback to stderr.
+faulthandler.enable()
+
+# Register exit hooks.
+atexit.register(_on_exit)
+_original_sigterm = signal.getsignal(signal.SIGTERM)
+signal.signal(signal.SIGTERM, _on_sigterm)
+
+_diag_logger.warning("📊 DIAG instrumentation active — PID=%d RSS=%dMB", os.getpid(), _rss_mb())
+
+
+async def _memory_monitor_loop() -> None:
+    """Log RSS every 10 seconds so we can see the climb in docker logs."""
+    while True:
+        await asyncio.sleep(10)
+        _log_rss("heartbeat")
+
 
 async def _reaper_loop() -> None:
     """Periodic worktree reaper — runs every 15 minutes for the process lifetime."""
@@ -104,13 +174,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     poller = asyncio.create_task(polling_loop(), name="agentception-poller")
     reaper = asyncio.create_task(_reaper_loop(), name="agentception-reaper")
+    mem_monitor = asyncio.create_task(_memory_monitor_loop(), name="agentception-mem-monitor")
     logger.info("✅ AgentCeption poller and worktree reaper started")
     try:
         yield
     finally:
         poller.cancel()
         reaper.cancel()
-        for task in (poller, reaper):
+        mem_monitor.cancel()
+        for task in (poller, reaper, mem_monitor):
             try:
                 await task
             except asyncio.CancelledError:
