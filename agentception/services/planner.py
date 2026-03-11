@@ -238,9 +238,17 @@ def _parse_plan_json(raw: str, run_id: str, issue_number: int) -> ExecutionPlan 
     lines = text.splitlines()
     text = "\n".join(ln for ln in lines if not ln.startswith("```")).strip()
 
-    start = text.find("{")
+    # Search for the ExecutionPlan root key rather than the first bare "{".
+    # The model sometimes emits prose reasoning before the JSON block
+    # (e.g. "I'll implement ac://runs/{run_id}/task…").  The bare "{" in
+    # "{run_id}" or similar patterns would be picked up as the JSON start,
+    # causing an immediate parse failure.  Anchoring on '{"operations"'
+    # skips any leading prose and finds the actual plan object.
+    start = text.find('{"operations"')
     if start == -1:
-        logger.warning("⚠️ planner: no JSON object found in response (first 200 chars): %r", raw[:200])
+        logger.warning(
+            "⚠️ planner: no ExecutionPlan JSON found in response (first 200 chars): %r", raw[:200]
+        )
         return None
 
     decoder = json.JSONDecoder()
@@ -253,8 +261,11 @@ def _parse_plan_json(raw: str, run_id: str, issue_number: int) -> ExecutionPlan 
             text[start : start + 300],
         )
         repaired = _repair_json(text)
+        repair_start = repaired.find('{"operations"')
+        if repair_start == -1:
+            repair_start = repaired.find("{")
         try:
-            data, _ = decoder.raw_decode(repaired, repaired.find("{"))
+            data, _ = decoder.raw_decode(repaired, repair_start)
         except json.JSONDecodeError as exc2:
             logger.warning("⚠️ planner: JSON repair failed — %s", exc2)
             return None
@@ -358,19 +369,9 @@ async def generate_execution_plan(
         len(file_contents),
     )
 
-    # Append a hard JSON-output cue to the user message.  This is more
-    # reliable than system-prompt instructions alone: placing the partial
-    # JSON structure immediately before the model's response window makes
-    # it structurally difficult to emit prose first.
-    forced_message = (
-        user_message
-        + '\n\n---\nOutput the ExecutionPlan JSON now. '
-        'Begin your response immediately with {"operations": ['
-    )
-
     try:
         raw = await call_anthropic(
-            forced_message,
+            user_message,
             system_prompt=_PLANNER_SYSTEM_PROMPT,
             max_tokens=16384,
         )
