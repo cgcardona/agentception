@@ -43,9 +43,10 @@ logger = logging.getLogger(__name__)
 # ~1 600 lines / 63 K chars) in full without truncation.
 _FILE_CHAR_LIMIT: int = 75_000
 
-# Maximum files to inject into the planner prompt.  Qdrant results beyond
-# this cap are discarded to keep the prompt within a sane token budget.
-_MAX_FILES: int = 6
+# Maximum files to inject into the planner prompt.  Raised from 6 to 8 to
+# accommodate anchored files (db/models.py, mcp/types.py, test files) without
+# displacing the Qdrant-discovered source files.
+_MAX_FILES: int = 8
 
 # Number of Qdrant results to request for file discovery.  Fetching slightly
 # more than _MAX_FILES lets us filter out non-existent files and still fill
@@ -208,16 +209,49 @@ async def _discover_files(
             exc,
         )
 
-    # Always include db/models.py when any db/ file is present — it is the
-    # ground truth for column names and must be visible to the planner so it
-    # never uses a field name from the issue spec that doesn't exist in code.
+    # Anchor critical files that are ground truth for types and field names.
+    # These are inserted after seed paths so they never displace them.
+    seed_count = len(seed_paths)
+    anchors: list[str] = []
+
+    # db/models.py — ground truth for DB column names.  Always include when
+    # any db/ file is discovered so the planner never trusts the issue spec
+    # for attribute names that don't exist on the ORM model.
     db_models = "agentception/db/models.py"
-    has_db_file = any("db/" in p or "models" in p for p in discovered)
-    if has_db_file and db_models not in discovered and (worktree_path / db_models).exists():
-        # Insert after seed paths but before the rest so it counts toward the cap.
-        seed_count = len(seed_paths)
+    has_db_file = any("db/" in p for p in discovered)
+    if has_db_file and db_models not in discovered:
+        anchors.append(db_models)
+
+    # mcp/types.py — defines ACResourceResult, ACResourceContent, and all
+    # JsonRpc* TypedDicts.  Required whenever any mcp/ source file is touched
+    # so the planner generates correct return types.
+    mcp_types = "agentception/mcp/types.py"
+    has_mcp_file = any("agentception/mcp/" in p and p != mcp_types for p in discovered)
+    if has_mcp_file and mcp_types not in discovered:
+        anchors.append(mcp_types)
+
+    # Test file anchoring — for every source file discovered, include its
+    # corresponding test file so the planner can see existing test patterns
+    # and emit a correct test operation.
+    test_dir = "agentception/tests"
+    for source_path in list(discovered.keys()):
+        if "/tests/" in source_path or not source_path.endswith(".py"):
+            continue
+        module = source_path.replace("/", "_").replace(".py", "")
+        # Strip the package prefix to get a short module name for the test file.
+        # e.g. "agentception/mcp/resources.py" → "test_mcp_resources.py"
+        parts = source_path.split("/")
+        short_module = "_".join(parts[1:]).replace(".py", "")
+        candidate = f"{test_dir}/test_{short_module}.py"
+        if candidate not in discovered and candidate not in anchors and (worktree_path / candidate).exists():
+            anchors.append(candidate)
+
+    # Insert anchors after seed paths.
+    if anchors:
         keys = list(discovered.keys())
-        keys.insert(seed_count, db_models)
+        for i, anchor in enumerate(anchors):
+            if (worktree_path / anchor).exists():
+                keys.insert(seed_count + i, anchor)
         discovered = {k: None for k in keys}
 
     result = list(discovered.keys())[:_MAX_FILES]
