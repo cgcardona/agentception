@@ -56,7 +56,7 @@ _RE_INSERT = re.compile(
     r"insert_after_in_file — (?P<path>\S+) \(inserted at byte"
 )
 _RE_WRITE = re.compile(
-    r"write_file — (?P<path>\S+?)(?:\s+\((?P<bytes>\d+) bytes\))?"
+    r"write_file — (?P<path>\S+)(?:\s+\((?P<bytes>\d+) bytes\))?"
 )
 # shell commands (agent_loop.py run_command lines)
 _RE_SHELL_CMD = re.compile(
