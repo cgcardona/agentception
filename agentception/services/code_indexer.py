@@ -642,13 +642,17 @@ _UPSERT_BATCH = 16  # points per upsert call — smaller batches give more frequ
                     # and reduce the per-batch latency spike from large code chunks.
 
 # Safety cap on the embed text length fed to the dense model.
-# ONNX attention is O(n²) in sequence length — a single 10k-char chunk in a
-# batch pads all 15 other chunks to that length too, multiplying batch latency
-# by (10000/1500)² ≈ 44×.  4 000 chars ≈ 1 000 tokens is ample for any
-# application-level function signature, docstring, and core logic; the only
-# files that genuinely exceed this are auto-generated ones (migrations, etc.)
-# which are excluded from the index by _SKIP_PATH_SEGMENTS below.
-_MAX_EMBED_CHARS = 4_000
+# ONNX attention is O(n²) in sequence length — a single outlier chunk in a
+# batch pads every other chunk to the same length, multiplying batch latency.
+#
+# Observed maximums in this codebase's application code: ~6 060 chars
+# (get_issues_grouped_by_phase, get_prs_grouped_by_phase).  8 000 chars
+# ≈ 2 000 tokens covers all legitimate functions with comfortable headroom.
+# Worst-case batch time for an 8k chunk: (8000/1500)² ≈ 28× a 375-char batch
+# ≈ 15-20 s — acceptable.  Auto-generated files that previously caused
+# catastrophic stalls (alembic/versions, 10k+ chars) are excluded by
+# _SKIP_PATH_PAIRS and never reach this path.
+_MAX_EMBED_CHARS = 8_000
 
 
 async def _ensure_collection(client: "AsyncQdrantClient", collection: str) -> None:
