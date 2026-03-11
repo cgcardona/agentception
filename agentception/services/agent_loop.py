@@ -424,6 +424,12 @@ async def run_agent_loop(
 
     # Loop-guard state — reset by any write tool call, incremented every
     # iteration that produces only reads/searches/memory-updates.
+    # Disabled for pr-reviewer: the reviewer's workflow is inherently
+    # read-heavy (diff, issue, code) before taking a single merge/reject
+    # action.  The guard was designed for code-writers; applying it to a
+    # reviewer intercepts merge_pull_request and forces confusing retries.
+    # The iteration ceiling (100) is the backstop for runaway reviewers.
+    loop_guard_enabled: bool = task.role != "pr-reviewer"
     iterations_since_write: int = 0
     # Maps normalised search query → how many times it has been used this run.
     # When a query appears >= 2 times the symbol is declared absent and the
@@ -503,7 +509,8 @@ async def run_agent_loop(
         # The model sees the error, understands it cannot read, and calls a
         # write tool on the next turn — same behavioural outcome, no cache bust.
         guard_active = (
-            iteration > _LOOP_GUARD_THRESHOLD
+            loop_guard_enabled
+            and iteration > _LOOP_GUARD_THRESHOLD
             and iterations_since_write >= _LOOP_GUARD_THRESHOLD
         )
         # Always pass the full (constant) tool list so the cache key is stable.
