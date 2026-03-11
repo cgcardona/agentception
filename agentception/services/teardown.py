@@ -21,6 +21,43 @@ from agentception.services.run_factory import _WORKTREE_COLLECTION_PREFIX
 logger = logging.getLogger(__name__)
 
 
+async def release_worktree(worktree_path: str, repo_dir: str) -> None:
+    """Remove the worktree directory and prune stale refs — branches untouched.
+
+    Used by :func:`build_complete_run` immediately before dispatching the PR
+    reviewer.  The reviewer needs to check out the same branch in its own
+    worktree; git forbids two worktrees sharing a branch, so the executor's
+    worktree must be released first.  Branches are intentionally **not** deleted
+    here because the open PR still references the remote branch.
+
+    Safe to call even if the worktree dir no longer exists (idempotent).
+    """
+    repo = repo_dir
+    if Path(worktree_path).exists():
+        rm_proc = await asyncio.create_subprocess_exec(
+            "git", "-C", repo, "worktree", "remove", "--force", worktree_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await rm_proc.communicate()
+        if rm_proc.returncode == 0:
+            logger.info("✅ release_worktree: removed %s", worktree_path)
+        else:
+            logger.warning(
+                "⚠️  release_worktree: worktree remove failed: %s",
+                stderr.decode().strip(),
+            )
+    else:
+        logger.info("ℹ️  release_worktree: %s already gone — skipping", worktree_path)
+
+    prune_proc = await asyncio.create_subprocess_exec(
+        "git", "-C", repo, "worktree", "prune",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await prune_proc.communicate()
+
+
 async def teardown_agent_worktree(run_id: str) -> None:
     """Remove the worktree, prune refs, and delete the branch for a finished agent.
 

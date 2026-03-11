@@ -396,6 +396,11 @@ async def test_build_complete_run_implementer_does_redispatch_reviewer() -> None
             return_value="developer",
         ),
         patch(
+            "agentception.mcp.build_commands.get_agent_run_teardown",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+        patch(
             "agentception.mcp.build_commands.auto_dispatch_reviewer",
             new_callable=AsyncMock,
         ),
@@ -412,3 +417,59 @@ async def test_build_complete_run_implementer_does_redispatch_reviewer() -> None
 
     assert json.loads(result["content"][0]["text"])["ok"] is True
     mock_create_task.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_build_complete_run_releases_worktree_before_reviewer() -> None:
+    """Executor worktree is released before the reviewer is dispatched.
+
+    Regression for the "branch already used by worktree" failure: if the
+    executor's worktree still holds feat/issue-N when the reviewer tries to
+    create its own worktree for the same branch, git rejects the second
+    worktree with a fatal error.  build_complete_run must call
+    release_worktree (remove dir + prune refs) first.
+    """
+    with (
+        patch(
+            "agentception.mcp.build_commands.persist_agent_event",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agentception.mcp.build_commands.complete_agent_run",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands.get_agent_run_role",
+            new_callable=AsyncMock,
+            return_value="developer",
+        ),
+        patch(
+            "agentception.mcp.build_commands.get_agent_run_teardown",
+            new_callable=AsyncMock,
+            return_value={"worktree_path": "/worktrees/issue-99", "branch": "feat/issue-99"},
+        ),
+        patch(
+            "agentception.mcp.build_commands.release_worktree",
+            new_callable=AsyncMock,
+        ) as mock_release,
+        patch(
+            "agentception.mcp.build_commands.auto_dispatch_reviewer",
+            new_callable=AsyncMock,
+        ),
+        patch("asyncio.create_task"),
+    ):
+        result = await call_tool_async(
+            "build_complete_run",
+            {
+                "issue_number": 99,
+                "pr_url": "https://github.com/owner/repo/pull/200",
+                "agent_run_id": "issue-99",
+            },
+        )
+
+    assert json.loads(result["content"][0]["text"])["ok"] is True
+    mock_release.assert_awaited_once_with(
+        worktree_path="/worktrees/issue-99",
+        repo_dir=str(__import__("agentception.config", fromlist=["settings"]).settings.repo_dir),
+    )

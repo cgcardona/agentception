@@ -34,11 +34,12 @@ from agentception.db.persist import (
     resume_agent_run,
     stop_agent_run,
 )
-from agentception.db.queries import get_agent_run_role
+from agentception.config import settings
+from agentception.db.queries import get_agent_run_role, get_agent_run_teardown
 
 from agentception.services.auto_reviewer import auto_dispatch_reviewer
 from agentception.services.spawn_child import ScopeType, SpawnChildError, Tier, spawn_child
-from agentception.services.teardown import teardown_agent_worktree
+from agentception.services.teardown import release_worktree, teardown_agent_worktree
 
 logger = logging.getLogger(__name__)
 
@@ -238,6 +239,21 @@ async def build_complete_run(
             agent_run_id,
         )
     else:
+        # Release the executor's worktree before dispatching the reviewer.
+        # Git forbids the same branch in two worktrees simultaneously; if the
+        # executor's worktree still holds the branch the reviewer dispatch will
+        # fail with "already used by worktree at …".  We only remove the
+        # worktree directory and prune refs — branches are left intact because
+        # the open PR still references the remote branch.
+        if agent_run_id:
+            teardown_info = await get_agent_run_teardown(agent_run_id)
+            wt_path = teardown_info.get("worktree_path") if teardown_info else None
+            if wt_path is not None:
+                await release_worktree(
+                    worktree_path=wt_path,
+                    repo_dir=str(settings.repo_dir),
+                )
+
         # Fire-and-forget: reviewer failure never affects the implementer's result.
         asyncio.create_task(
             auto_dispatch_reviewer(issue_number=issue_number, pr_url=pr_url),
