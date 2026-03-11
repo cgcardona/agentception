@@ -110,7 +110,10 @@ async def create_and_launch_run(
     # identical to the main repo at spawn time — the worktree-specific index
     # becomes more valuable as the agent writes new or modified files.
     # Non-blocking: indexing failure never prevents the run from launching.
-    asyncio.create_task(_index_worktree(worktree_path, run_id))
+    # Disabled via WORKTREE_INDEX_ENABLED=false to avoid the concurrent ONNX
+    # embed batches that spike RSS by ~500 MB alongside the first LLM call.
+    if settings.worktree_index_enabled:
+        asyncio.create_task(_index_worktree(worktree_path, run_id))
 
     if launch:
         # Import here to avoid a circular import at module load time.

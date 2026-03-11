@@ -309,7 +309,10 @@ async def spawn_child(
 
     # Index the worktree into a per-run Qdrant collection so agents can use
     # search_codebase with the run-specific collection.  Non-blocking.
-    asyncio.create_task(_index_worktree(Path(worktree_path), run_id))
+    # Disabled via WORKTREE_INDEX_ENABLED=false to avoid the concurrent ONNX
+    # embed batches that spike RSS by ~500 MB alongside the first LLM call.
+    if settings.worktree_index_enabled:
+        asyncio.create_task(_index_worktree(Path(worktree_path), run_id))
 
     # Persist DB record — all task context goes to the DB row.
     # file is written.  Agents read their full briefing from the DB via the

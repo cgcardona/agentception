@@ -48,6 +48,12 @@ services:
       # Disable HuggingFace tokenizers Rust parallelism — it spawns its own
       # thread pool that stacks on top of ORT's, making contention worse.
       TOKENIZERS_PARALLELISM: "false"
+      # ── Worktree indexing ─────────────────────────────────────────────────
+      # Disable per-run worktree indexing to prevent the concurrent ONNX embed
+      # batches from spiking RSS by ~500 MB alongside the first LLM call.
+      # The main `code` collection (full-repo index) remains available for all
+      # search_codebase calls — sufficient for code discovery on this codebase.
+      WORKTREE_INDEX_ENABLED: "false"
     volumes:
       # Mount cursor dir at same absolute path so worktree paths resolve correctly.
       - ${HOME}/.cursor:${HOME}/.cursor
