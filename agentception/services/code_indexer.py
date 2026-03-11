@@ -166,7 +166,7 @@ class SearchMatch(TypedDict):
 # implementation, chunk text enrichment format, etc.).  A mismatch between
 # the stored value and _INDEX_VERSION triggers an automatic forced full rebuild.
 
-_INDEX_VERSION = "v5"
+_INDEX_VERSION = "v6"
 
 
 # ── Module-level embedding model caches ───────────────────────────────────────
@@ -668,6 +668,7 @@ async def _ensure_collection(client: "AsyncQdrantClient", collection: str) -> No
     """
     from qdrant_client.models import (  # noqa: PLC0415
         Distance,
+        Modifier,
         SparseVectorParams,
         VectorParams,
     )
@@ -700,7 +701,14 @@ async def _ensure_collection(client: "AsyncQdrantClient", collection: str) -> No
             ),
         },
         sparse_vectors_config={
-            "sparse": SparseVectorParams(),
+            # Modifier.IDF enables proper BM25 term-frequency weighting in
+            # Qdrant's sparse retrieval.  Without it, Qdrant treats sparse
+            # vectors as plain dot-product and ignores IDF — common tokens
+            # like "def" or "self" are not down-weighted, degrading retrieval
+            # quality for code search.  The FastEmbed Qdrant/bm25 model
+            # pre-computes IDF-scaled token weights; this modifier tells
+            # Qdrant to apply corpus-level IDF on top during query scoring.
+            "sparse": SparseVectorParams(modifier=Modifier.IDF),
         },
     )
 
@@ -878,9 +886,14 @@ async def index_codebase(
             )
 
             # Embed and upsert in batches.
+            import resource as _resource  # noqa: PLC0415
             import time as _time  # noqa: PLC0415
 
             from qdrant_client.models import SparseVector  # noqa: PLC0415
+
+            def _rss_mb() -> float:
+                """Return current process RSS in MiB (Linux: ru_maxrss is in KiB)."""
+                return _resource.getrusage(_resource.RUSAGE_SELF).ru_maxrss / 1024
 
             # Pre-compute enriched texts for all chunks so we can measure each
             # chunk's length before deciding batch boundaries.  Enrichment
@@ -919,13 +932,15 @@ async def index_codebase(
             for batch_num, (batch, embed_texts) in enumerate(dyn_batches, start=1):
                 batch_files = sorted({c["file"] for c in batch})
                 t_batch = _time.monotonic()
+                rss_before = _rss_mb()
 
                 logger.info(
-                    "✅ code_indexer — batch %d/%d [chunks %d–%d] files: %s",
+                    "✅ code_indexer — batch %d/%d [chunks %d–%d] rss=%.0fMiB files: %s",
                     batch_num,
                     n_batches,
                     chunk_offset,
                     chunk_offset + len(batch) - 1,
+                    rss_before,
                     batch_files[:3],
                 )
                 chunk_offset += len(batch)
@@ -933,11 +948,14 @@ async def index_codebase(
                 try:
                     t0 = _time.monotonic()
                     dense_vectors = await _embed(embed_texts)
+                    rss_after = _rss_mb()
                     logger.info(
-                        "✅ code_indexer —   embed: %.1fs (%d chunks, max %d chars)",
+                        "✅ code_indexer —   embed: %.1fs (%d chunks, max %d chars) rss=%.0fMiB Δ%+.0fMiB",
                         _time.monotonic() - t0,
                         len(batch),
                         max(len(t) for t in embed_texts),
+                        rss_after,
+                        rss_after - rss_before,
                     )
                 except Exception as embed_exc:
                     logger.exception(
