@@ -190,10 +190,17 @@ def _get_model() -> object:
     """Return the cached dense TextEmbedding model, initialising it on first call."""
     global _cached_model
     if _cached_model is None:
+        import os
+        import psutil as _psutil
+        _p = _psutil.Process(os.getpid())
+        _rss_before = _p.memory_info().rss // 1024 // 1024
+        logger.warning("📊 _get_model: LOADING embed model RSS_before=%dMB", _rss_before)
         from fastembed import TextEmbedding  # noqa: PLC0415
 
         logger.info("✅ code_indexer — loading embed model: %s", settings.embed_model)
         _cached_model = TextEmbedding(model_name=settings.embed_model)
+        _rss_after = _p.memory_info().rss // 1024 // 1024
+        logger.warning("📊 _get_model: LOADED embed model RSS_after=%dMB (+%dMB)", _rss_after, _rss_after - _rss_before)
     return _cached_model
 
 
@@ -207,10 +214,17 @@ def _get_bm25_model() -> object:
     """Return the cached SparseTextEmbedding BM25 model, initialising it on first call."""
     global _bm25_model
     if _bm25_model is None:
+        import os
+        import psutil as _psutil
+        _p = _psutil.Process(os.getpid())
+        _rss_before = _p.memory_info().rss // 1024 // 1024
+        logger.warning("📊 _get_bm25_model: LOADING BM25 RSS_before=%dMB", _rss_before)
         from fastembed.sparse import SparseTextEmbedding  # noqa: PLC0415
 
         logger.info("✅ code_indexer — loading BM25 sparse model: Qdrant/bm25")
         _bm25_model = SparseTextEmbedding("Qdrant/bm25")
+        _rss_after = _p.memory_info().rss // 1024 // 1024
+        logger.warning("📊 _get_bm25_model: LOADED BM25 RSS_after=%dMB (+%dMB)", _rss_after, _rss_after - _rss_before)
     return _bm25_model
 
 
@@ -224,12 +238,19 @@ def _get_rerank_model() -> object:
     """Return the cached TextCrossEncoder reranker, initialising it on first call."""
     global _rerank_model
     if _rerank_model is None:
+        import os
+        import psutil as _psutil
+        _p = _psutil.Process(os.getpid())
+        _rss_before = _p.memory_info().rss // 1024 // 1024
+        logger.warning("📊 _get_rerank_model: LOADING reranker RSS_before=%dMB", _rss_before)
         from fastembed.rerank.cross_encoder import TextCrossEncoder  # noqa: PLC0415
 
         logger.info(
             "✅ code_indexer — loading reranker model: %s", settings.rerank_model
         )
         _rerank_model = TextCrossEncoder(settings.rerank_model)
+        _rss_after = _p.memory_info().rss // 1024 // 1024
+        logger.warning("📊 _get_rerank_model: LOADED reranker RSS_after=%dMB (+%dMB)", _rss_after, _rss_after - _rss_before)
     return _rerank_model
 
 
@@ -1142,6 +1163,14 @@ async def search_codebase(
         list when the collection has not been indexed yet or Qdrant is
         unavailable.
     """
+    import os as _os_sc
+    import psutil as _psutil_sc
+    import time as _time_sc
+    _p_sc = _psutil_sc.Process(_os_sc.getpid())
+    _sc_rss_start = _p_sc.memory_info().rss // 1024 // 1024
+    _sc_t0 = _time_sc.monotonic()
+    logger.warning("📊 search_codebase START query=%r coll=%s RSS=%dMB", query[:60], collection or "(default)", _sc_rss_start)
+
     from qdrant_client import AsyncQdrantClient  # noqa: PLC0415
     from qdrant_client.models import (  # noqa: PLC0415
         Fusion,
@@ -1162,6 +1191,7 @@ async def search_codebase(
             _embed([query]),
             _compute_bm25_vectors([query]),
         )
+        logger.warning("📊 search_codebase VECTORS_DONE query=%r RSS=%dMB elapsed=%.1fs", query[:60], _p_sc.memory_info().rss // 1024 // 1024, _time_sc.monotonic() - _sc_t0)
         dense_query = dense_vecs[0]
         sparse_dict = bm25_vecs[0]
         sparse_query = SparseVector(
@@ -1223,6 +1253,7 @@ async def search_codebase(
             ))
 
         if not valid:
+            logger.warning("📊 search_codebase NO_RESULTS query=%r RSS=%dMB elapsed=%.1fs", query[:60], _p_sc.memory_info().rss // 1024 // 1024, _time_sc.monotonic() - _sc_t0)
             return []
 
         # Cross-encoder reranking: score each candidate against the query and
@@ -1235,7 +1266,7 @@ async def search_codebase(
                 key=lambda pair: pair[1],
                 reverse=True,
             )
-            return [
+            _result = [
                 SearchMatch(
                     file=c.file,
                     chunk=c.chunk,
@@ -1245,9 +1276,11 @@ async def search_codebase(
                 )
                 for c, score in ranked[:n_results]
             ]
+            logger.warning("📊 search_codebase DONE query=%r hits=%d RSS=%dMB elapsed=%.1fs", query[:60], len(_result), _p_sc.memory_info().rss // 1024 // 1024, _time_sc.monotonic() - _sc_t0)
+            return _result
 
         # Reranking disabled: return top n_results by RRF score.
-        return [
+        _result2 = [
             SearchMatch(
                 file=c.file,
                 chunk=c.chunk,
@@ -1257,7 +1290,10 @@ async def search_codebase(
             )
             for c in valid[:n_results]
         ]
+        logger.warning("📊 search_codebase DONE(no-rerank) query=%r hits=%d RSS=%dMB elapsed=%.1fs", query[:60], len(_result2), _p_sc.memory_info().rss // 1024 // 1024, _time_sc.monotonic() - _sc_t0)
+        return _result2
 
     except Exception as exc:
+        logger.warning("📊 search_codebase FAILED query=%r exc=%s RSS=%dMB elapsed=%.1fs", query[:60], exc, _p_sc.memory_info().rss // 1024 // 1024, _time_sc.monotonic() - _sc_t0)
         logger.warning("⚠️ code_indexer — search failed: %s", exc)
         return []
