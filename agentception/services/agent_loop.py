@@ -54,7 +54,7 @@ from agentception.services.llm import (
     call_anthropic,
     call_anthropic_with_tools,
 )
-from agentception.services.code_indexer import search_codebase
+from agentception.services.code_indexer import index_codebase, search_codebase
 from agentception.services.github_mcp_client import GitHubMCPClient
 from agentception.tools.definitions import (
     FILE_TOOL_DEFS,
@@ -726,6 +726,20 @@ async def run_agent_loop(
                         files_written[fp] = files_written.get(fp, 0) + 1
                 except (json.JSONDecodeError, AttributeError):
                     pass
+
+            # Re-index the worktree after any write so that subsequent
+            # search_codebase calls targeting "worktree-<run_id>" reflect the
+            # agent's own edits.  Incremental mode: only changed files are
+            # re-embedded — cost is proportional to what was written.
+            if tool_names_this_iter & _WRITE_TOOL_NAMES:
+                _worktree_collection = f"worktree-{run_id}"
+                asyncio.create_task(
+                    index_codebase(
+                        worktree_path,
+                        collection=_worktree_collection,
+                    ),
+                    name=f"reindex-{run_id}-iter-{iteration}",
+                )
 
             # Accumulate search queries for symbol-absence detection.
             for tc in response["tool_calls"]:
@@ -1422,14 +1436,28 @@ async def _run_recon_phase(
             return None
 
     async def _search_one(query: str) -> list[dict[str, object]]:
+        # Prefer the worktree-scoped collection so results include any files
+        # the agent has already written.  Fall back to the main "code"
+        # collection if the worktree collection doesn't exist yet (indexing
+        # runs in the background and may not have finished).
+        _wt_collection = f"worktree-{run_id}"
         try:
-            results = await search_codebase(query, 5)
+            results = await search_codebase(query, 5, collection=_wt_collection)
+            if not results:
+                results = await search_codebase(query, 5)
             return [
                 {"file": m["file"], "chunk": m["chunk"][:800], "score": m["score"]}
                 for m in results
             ]
         except Exception:  # noqa: BLE001
-            return []
+            try:
+                results = await search_codebase(query, 5)
+                return [
+                    {"file": m["file"], "chunk": m["chunk"][:800], "score": m["score"]}
+                    for m in results
+                ]
+            except Exception:  # noqa: BLE001
+                return []
 
     file_tasks = [_read_one(f) for f in plan.files]
     search_tasks = [_search_one(q) for q in plan.searches]
