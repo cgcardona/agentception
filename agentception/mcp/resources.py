@@ -225,6 +225,16 @@ RESOURCE_TEMPLATES: list[ACResourceTemplate] = [
         mimeType=_MIME,
     ),
     ACResourceTemplate(
+        uriTemplate="ac://runs/{run_id}/task",
+        name="Run raw task context",
+        description=(
+            "Raw task_context string for a run, as stored in ac_agent_runs. "
+            "Returns the plain text task context. "
+            "Returns ResourceNotFound error for nonexistent run_id."
+        ),
+        mimeType="text/plain",
+    ),
+    ACResourceTemplate(
         uriTemplate="ac://runs/{run_id}/context",
         name="Run task context",
         description=(
@@ -439,6 +449,37 @@ def _not_found(uri: str) -> ACResourceResult:
     return _content(uri, {"error": f"Unknown resource URI: {uri!r}"})
 
 
+async def _handle_run_task(uri: str, run_id: str) -> ACResourceResult:
+    """Return the task_description field for a run as a plain-text resource."""
+    from sqlalchemy import select
+    from agentception.db.engine import get_session
+    from agentception.db.models import ACAgentRun
+
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun).where(ACAgentRun.id == run_id)
+            )
+            row = result.scalar_one_or_none()
+    except Exception as exc:
+        logger.error("❌ _handle_run_task: DB error for %r: %s", run_id, exc)
+        return _content(uri, {"error": f"Internal error: {exc}"})
+
+    if row is None:
+        return _content(uri, {"error": f"Run {run_id!r} not found"})
+
+    task_description: str = row.task_description or ""
+    return ACResourceResult(
+        contents=[
+            ACResourceContent(
+                uri=uri,
+                mimeType="text/plain",
+                text=task_description,
+            )
+        ]
+    )
+
+
 async def read_resource(uri: str) -> ACResourceResult:
     """Dispatch a ``resources/read`` request by URI.
 
@@ -531,6 +572,9 @@ async def _dispatch(
 
             if sub == "context" and len(path_parts) == 2:
                 return _content(uri, await query_run_context(run_id))
+
+            if sub == "task" and len(path_parts) == 2:
+                return await _handle_run_task(uri, run_id)
 
             if sub == "events" and len(path_parts) == 2:
                 after_id_vals = query.get("after_id", [])
