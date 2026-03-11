@@ -13,7 +13,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agentception.tools.shell_tools import _is_safe, git_commit_and_push, run_command
+from agentception.tools.shell_tools import (
+    _check_oom_risk,
+    _is_safe,
+    git_commit_and_push,
+    run_command,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -77,6 +82,69 @@ class TestIsSafe:
     def test_npm_command_is_safe(self) -> None:
         safe, _ = _is_safe("npm run build")
         assert safe is True
+
+    # -- mypy OOM-risk guard --------------------------------------------------
+
+    def test_mypy_dir_scan_bare_is_blocked(self) -> None:
+        safe, reason = _is_safe("mypy agentception/")
+        assert safe is False
+        assert "BLOCKED" in reason
+        assert "--follow-imports=silent" in reason
+
+    def test_mypy_dir_scan_python3_m_is_blocked(self) -> None:
+        safe, reason = _is_safe("python3 -m mypy agentception/")
+        assert safe is False
+        assert "BLOCKED" in reason
+
+    def test_mypy_dir_scan_python_m_is_blocked(self) -> None:
+        safe, reason = _is_safe("python -m mypy agentception/")
+        assert safe is False
+        assert "BLOCKED" in reason
+
+    def test_mypy_dir_scan_no_trailing_slash_is_blocked(self) -> None:
+        """agentception without trailing slash is still a directory target."""
+        safe, reason = _is_safe("mypy agentception")
+        assert safe is False
+        assert "BLOCKED" in reason
+
+    def test_mypy_dir_scan_tests_is_blocked(self) -> None:
+        safe, reason = _is_safe("mypy tests/")
+        assert safe is False
+        assert "BLOCKED" in reason
+
+    def test_mypy_dir_scan_both_dirs_is_blocked(self) -> None:
+        safe, reason = _is_safe("mypy agentception/ tests/")
+        assert safe is False
+        assert "BLOCKED" in reason
+
+    def test_mypy_dir_scan_python3_both_dirs_is_blocked(self) -> None:
+        safe, reason = _is_safe("python3 -m mypy agentception/ tests/")
+        assert safe is False
+        assert "BLOCKED" in reason
+
+    def test_mypy_safe_form_specific_files_is_allowed(self) -> None:
+        safe, _ = _is_safe(
+            "mypy --follow-imports=silent agentception/db/persist.py agentception/mcp/log_tools.py"
+        )
+        assert safe is True
+
+    def test_mypy_safe_form_python3_m_is_allowed(self) -> None:
+        safe, _ = _is_safe(
+            "python3 -m mypy --follow-imports=silent agentception/services/agent_loop.py"
+        )
+        assert safe is True
+
+    def test_mypy_safe_form_single_file_is_allowed(self) -> None:
+        safe, _ = _is_safe(
+            "mypy --follow-imports=silent agentception/tools/shell_tools.py"
+        )
+        assert safe is True
+
+    def test_check_oom_risk_returns_actionable_message(self) -> None:
+        safe, reason = _check_oom_risk("mypy agentception/ tests/")
+        assert safe is False
+        assert "follow-imports=silent" in reason
+        assert "OOM" in reason or "container" in reason.lower()
 
 
 # ---------------------------------------------------------------------------

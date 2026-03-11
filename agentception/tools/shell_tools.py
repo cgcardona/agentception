@@ -12,12 +12,17 @@ Safety is enforced via a denylist of obviously destructive patterns rather
 than an allowlist — the model needs broad access (git, pytest, mypy, rg, gh,
 docker, npm, python3, …) so an allowlist would be too brittle.  Catastrophic
 accidents (``rm -rf /``, fork bombs, privilege escalation) are blocked.
+
+A second, smarter check blocks commands that are not destructive but are
+known to OOM-kill the container due to its memory profile (see
+``_check_oom_risk``).
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import shlex
 from pathlib import Path
 
@@ -53,16 +58,69 @@ _BLOCKED_PATTERNS: frozenset[str] = frozenset(
     }
 )
 
+# Matches any mypy invocation that targets a directory rather than specific
+# files.  The container runs ONNX embedding models that consume ~5.7 GB RSS.
+# Spawning a mypy subprocess that cold-loads the full project type graph adds
+# another ~1.5-2 GB and deterministically OOM-kills the container.
+#
+# Safe form:  mypy --follow-imports=silent <file1> <file2> ...
+# Unsafe form: mypy agentception/   mypy agentception/ tests/   etc.
+#
+# The regex matches the unsafe form: a mypy invocation where at least one
+# positional argument ends with "/" (a directory) or is exactly "agentception",
+# "tests", or "agentception/tests" — the common culprits.  It does NOT match
+# when --follow-imports=silent is present AND no directory args appear, so the
+# correct invocation is always allowed through.
+_MYPY_DIR_SCAN_RE: re.Pattern[str] = re.compile(
+    r"""
+    (?:python3?\s+-m\s+)?   # optional: python3 -m  or  python -m
+    mypy\b                  # the mypy invocation
+    (?!.*--follow-imports=silent.*\s+\S+\.py)  # NOT already safe form
+    .*                      # any flags
+    (?:
+        \bagentception/?    # directory arg: agentception  or  agentception/
+      | \btests/?           # directory arg: tests  or  tests/
+    )
+    """,
+    re.VERBOSE | re.IGNORECASE,
+)
+
+_MYPY_OOM_ERROR = (
+    "BLOCKED — mypy directory scan would OOM-kill the container.\n"
+    "\n"
+    "The container runs ONNX embedding models (~5.7 GB RSS). Spawning "
+    "`mypy agentception/` or `mypy agentception/ tests/` cold-loads the "
+    "full project type graph in a new subprocess (~1.5-2 GB extra) and "
+    "crashes the container.\n"
+    "\n"
+    "Use the scoped form instead:\n"
+    "  mypy --follow-imports=silent agentception/path/to/file1.py agentception/path/to/file2.py\n"
+    "\n"
+    "Only list the files YOU modified — not entire directories."
+)
+
+
+def _check_oom_risk(command: str) -> tuple[bool, str]:
+    """Return *(safe, reason)* for commands that are not destructive but are
+    known to cause OOM crashes due to the container's memory profile.
+
+    Currently guards against mypy full-directory scans.  Returns ``(False,
+    human-readable explanation)`` when the command matches a known OOM pattern.
+    """
+    if _MYPY_DIR_SCAN_RE.search(command):
+        return False, _MYPY_OOM_ERROR
+    return True, ""
+
 
 def _is_safe(command: str) -> tuple[bool, str]:
     """Return *(safe, reason)*.  ``safe`` is ``False`` when the command matches
-    a blocked pattern.
+    a blocked pattern or a known OOM-risk pattern.
     """
     lower = command.lower().strip()
     for pattern in _BLOCKED_PATTERNS:
         if pattern in lower:
             return False, f"Blocked pattern detected: {pattern!r}"
-    return True, ""
+    return _check_oom_risk(command)
 
 
 async def run_command(
