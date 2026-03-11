@@ -2,7 +2,7 @@
 # PR Reviewer — Auto-Dispatch
 
 Reviewer agents are now **auto-dispatched** by the system. When an implementer
-calls `build_complete_run`, the server automatically fires a `pr-reviewer`
+calls `build_complete_run`, the server automatically fires a `reviewer`
 dispatch for the resulting PR. No manual coordination is needed.
 
 ## What the reviewer does
@@ -27,7 +27,7 @@ curl -X POST http://localhost:10003/api/dispatch/issue \
     "issue_number": 123,
     "issue_title": "Review PR #456",
     "issue_body": "",
-    "role": "pr-reviewer",
+    "role": "reviewer",
     "repo": "cgcardona/agentception",
     "pr_number": 456,
     "pr_branch": "feat/issue-123"
@@ -36,7 +36,7 @@ curl -X POST http://localhost:10003/api/dispatch/issue \
 
 ## Role file
 
-The reviewer's instructions live in `.agentception/roles/pr-reviewer.md`.
+The reviewer's instructions live in `.agentception/roles/reviewer.md`.
 To change reviewer behaviour, edit
-`scripts/gen_prompts/templates/roles/pr-reviewer.md.j2` and run
+`scripts/gen_prompts/templates/roles/reviewer.md.j2` and run
 `docker compose exec agentception python3 /app/scripts/gen_prompts/generate.py`.

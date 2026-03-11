@@ -1010,7 +1010,7 @@ STEP 6 — SPAWN A QA REVIEWER FOR YOUR OWN PR (run this before self-destructing
     # Use build_spawn_child MCP tool — no manual file writing needed.
     # build_spawn_child(
     #   parent_run_id   = "<your own run_id from task briefing>",
-    #   role            = "pr-reviewer",
+    #   role            = "reviewer",
     #   tier            = "engineer",
     #   org_domain      = "engineering",
     #   scope_type      = "pr",

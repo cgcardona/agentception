@@ -19,7 +19,7 @@ AgentCeption uses a multi-way tree structure. In CS terms the tree has
 | **Worker** | leaf | Claims a single unit of work (one issue or one PR), executes it, may chain-spawn one downstream worker before reporting done | One downstream worker only — never a coordinator |
 
 Coordinator examples: `ceo`, `cto`, `engineering-coordinator`, `qa-coordinator`.  
-Worker examples: `python-developer`, `frontend-developer`, `pr-reviewer`.
+Worker examples: `python-developer`, `frontend-developer`, `reviewer`.
 
 ---
 
@@ -30,24 +30,24 @@ Worker examples: `python-developer`, `frontend-developer`, `pr-reviewer`.
  └── cto  (coordinator)
       ├── engineering-coordinator  (coordinator)
       │    └── engineer            (worker — one issue)
-      │         └── pr-reviewer   (worker — chain-spawned after engineer opens PR)
+      │         └── reviewer   (worker — chain-spawned after engineer opens PR)
       └── qa-coordinator           (coordinator — cleanup sweep only)
-           └── pr-reviewer         (worker — one unreviewed PR)
+           └── reviewer         (worker — one unreviewed PR)
 ```
 
-`pr-reviewer` reaches the tree in **two independent paths**:
+`reviewer` reaches the tree in **two independent paths**:
 
 1. **Engineer chain-spawn** — after an engineer opens its PR it immediately
-   spawns a `pr-reviewer` worker before exiting.  The reviewer's `PARENT_RUN_ID`
+   spawns a `reviewer` worker before exiting.  The reviewer's `PARENT_RUN_ID`
    is the engineer's `RUN_ID` and its `ORG_DOMAIN` is `qa`.  No physical QA
    coordinator needs to be running for the reviewer to be placed correctly in
    the hierarchy — `ORG_DOMAIN` alone is enough for the dashboard.
 2. **QA coordinator sweep** — the CTO spawns a `qa-coordinator` when issues
    are exhausted but stale unreviewed PRs remain.  The QA coordinator spawns
-   one `pr-reviewer` worker per unreviewed PR.
+   one `reviewer` worker per unreviewed PR.
 
 **Chain-spawn constraint:** engineers must never spawn a QA coordinator; they
-spawn only the single `pr-reviewer` worker that covers their own PR.  A
+spawn only the single `reviewer` worker that covers their own PR.  A
 concurrent QA coordinator launched while issues remain would race against
 chain-spawned reviewers and find no additional PRs to cover.
 
@@ -63,7 +63,7 @@ kind of work a worker performs — the tier does not.
 | Tier | Agent type | Role examples | GitHub scope | Can spawn |
 |------|-----------|--------------|--------------|-----------|
 | `coordinator` | coordinator | `ceo`, `cto`, `engineering-coordinator`, `qa-coordinator` | issues and/or PRs filtered to `scope_value` (exact scope determined by role) | any coordinator or worker |
-| `worker` | worker | `python-developer`, `pr-reviewer`, `devops-engineer`, … | **one issue** or **one PR** (`scope_value` = number; `scope_type` tells the worker which) | one downstream worker only (chain-spawn) |
+| `worker` | worker | `python-developer`, `reviewer`, `devops-engineer`, … | **one issue** or **one PR** (`scope_value` = number; `scope_type` tells the worker which) | one downstream worker only (chain-spawn) |
 
 ### Root coordinator spawn loop
 
@@ -189,7 +189,7 @@ HOST_ROLE_FILE = "<host-repo-root>/.agentception/roles/python-developer.md"
 
 ```toml
 RUN_ID        = "pr-99-20260303T200200Z-e5f6"
-ROLE          = "pr-reviewer"
+ROLE          = "reviewer"
 TIER          = "worker"
 ORG_DOMAIN    = "qa"               # dashboard places this node under the QA column
 SCOPE_TYPE    = "pr"
@@ -200,8 +200,8 @@ WORKTREE      = "$HOME/.agentception/worktrees/agentception/pr-99"
 BATCH_ID      = "label-AC-UI-0-20260303T200000Z-a1b2"
 PARENT_RUN_ID = "issue-42-20260303T200100Z-c3d4"  # ← worker that spawned this reviewer
 AC_URL        = "http://localhost:10003"
-ROLE_FILE     = "<container-repo-root>/.agentception/roles/pr-reviewer.md"
-HOST_ROLE_FILE = "<host-repo-root>/.agentception/roles/pr-reviewer.md"
+ROLE_FILE     = "<container-repo-root>/.agentception/roles/reviewer.md"
+HOST_ROLE_FILE = "<host-repo-root>/.agentception/roles/reviewer.md"
 ```
 
 > **`TIER` vs `ORG_DOMAIN`:** `TIER` is the behavioral execution tier —
@@ -256,7 +256,7 @@ Each engineer self-replaces (spawns its successor before exiting).
 github_list_prs(state="open")
 ```
 
-Spawns one `pr-reviewer` worker Task per unreviewed PR, up to 3 concurrently.
+Spawns one `reviewer` worker Task per unreviewed PR, up to 3 concurrently.
 Only spawned by the CTO when `ISSUES == 0` and stale unreviewed PRs remain.
 
 ### `worker` — implementing (scope_type=issue)
@@ -267,7 +267,7 @@ github_get_issue(number=$SCOPE_VALUE)
 ```
 
 Implements the issue, opens a PR, then **immediately chain-spawns a
-`pr-reviewer` worker Task** before calling `report/done`. The reviewer's
+`reviewer` worker Task** before calling `report/done`. The reviewer's
 `PARENT_RUN_ID` is set to this worker's `RUN_ID`, `TIER` is `worker`, and
 `ORG_DOMAIN` is `qa`. This makes the reviewer a logical child of the
 implementing worker in the hierarchy even though no physical QA coordinator is
@@ -283,7 +283,7 @@ github_get_pr(number=$SCOPE_VALUE)
 Reviews, requests changes or approves+merges, calls `report/done`, exits.
 Spawned by **either** an implementing worker (chain-spawn) **or** a
 `qa-coordinator` (cleanup sweep) — the reviewing worker behaves identically in
-both cases. The `role` field (`pr-reviewer`) and `scope_type=pr` fully identify
+both cases. The `role` field (`reviewer`) and `scope_type=pr` fully identify
 it; no separate tier value is needed.
 
 ---
@@ -336,4 +336,4 @@ They do NOT call `build_report_done` — they exit naturally after their queue d
 | `coordinator` | coordinator | `engineering-coordinator` | CTO (always when issues > 0) |
 | `coordinator` | coordinator | `qa-coordinator` | CTO (cleanup sweep only — issues == 0, PRs > 0) |
 | `worker` | worker | `python-developer`, `frontend-developer`, `typescript-developer`, `react-developer`, `go-developer`, `rust-developer`, `api-developer`, `devops-engineer`, `data-engineer`, `site-reliability-engineer`, `security-engineer`, `mobile-developer`, `ios-developer`, `android-developer`, `full-stack-developer`, `architect`, `technical-writer`, `test-engineer`, `ml-engineer`, `systems-programmer`, `rails-developer`, `database-architect` | engineering-coordinator |
-| `reviewer` | worker | `pr-reviewer` | engineer worker (chain-spawn after PR open) **or** qa-coordinator (cleanup sweep) |
+| `reviewer` | worker | `reviewer` | engineer worker (chain-spawn after PR open) **or** qa-coordinator (cleanup sweep) |

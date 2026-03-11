@@ -331,13 +331,13 @@ async def test_claim_stop_resume_flow() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Regression: pr-reviewer must not trigger a second reviewer
+# Regression: reviewer must not trigger a second reviewer
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.anyio
 async def test_build_complete_run_reviewer_does_not_redispatch_reviewer() -> None:
-    """When a pr-reviewer calls build_complete_run, no auto-reviewer is dispatched.
+    """When a reviewer calls build_complete_run, no auto-reviewer is dispatched.
 
     Regression for the infinite reviewer loop: reviewer merges PR → calls
     build_complete_run → auto_dispatch_reviewer → second reviewer → …
@@ -355,7 +355,7 @@ async def test_build_complete_run_reviewer_does_not_redispatch_reviewer() -> Non
         patch(
             "agentception.mcp.build_commands.get_agent_run_role",
             new_callable=AsyncMock,
-            return_value="pr-reviewer",
+            return_value="reviewer",
         ) as mock_role,
         patch(
             "agentception.mcp.build_commands.auto_dispatch_reviewer",

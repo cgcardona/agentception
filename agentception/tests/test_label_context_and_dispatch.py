@@ -154,8 +154,8 @@ def test_tier_for_role_engineering_coordinator_is_coordinator() -> None:
     assert _tier_for_role("engineering-coordinator") == "coordinator"
 
 
-def test_tier_for_role_pr_reviewer_is_worker() -> None:
-    assert _tier_for_role("pr-reviewer") == "worker"
+def test_tier_for_role_reviewer_is_worker() -> None:
+    assert _tier_for_role("reviewer") == "worker"
 
 
 def test_tier_for_role_python_developer_is_worker() -> None:
@@ -483,13 +483,13 @@ def test_reviewer_run_id_uses_pr_number_slug() -> None:
         issue_number=450,
         issue_title="Review PR #555",
         issue_body="",
-        role="pr-reviewer",
+        role="reviewer",
         repo="cgcardona/agentception",
         pr_number=555,
         pr_branch="feat/issue-450",
     )
 
-    is_reviewer = reviewer_req.role == "pr-reviewer"
+    is_reviewer = reviewer_req.role == "reviewer"
     if is_reviewer and reviewer_req.pr_number is not None:
         slug = f"review-{reviewer_req.pr_number}"
         run_id = f"review-{reviewer_req.pr_number}"
@@ -516,7 +516,7 @@ def test_implementer_run_id_uses_issue_slug() -> None:
         repo="cgcardona/agentception",
     )
 
-    is_reviewer = implementer_req.role == "pr-reviewer"
+    is_reviewer = implementer_req.role == "reviewer"
     if is_reviewer and implementer_req.pr_number is not None:
         run_id = f"review-{implementer_req.pr_number}"
     else:

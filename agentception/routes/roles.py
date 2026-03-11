@@ -84,7 +84,7 @@ _MANAGED_FILES: dict[str, str] = {
     # specialisation is supplied by cognitive architecture at dispatch time.
     "developer": ".agentception/roles/developer.md",
     "database-architect": ".agentception/roles/database-architect.md",
-    "pr-reviewer": ".agentception/roles/pr-reviewer.md",
+    "reviewer": ".agentception/roles/reviewer.md",
     "ml-engineer": ".agentception/roles/ml-engineer.md",
     "ml-researcher": ".agentception/roles/ml-researcher.md",
     "data-engineer": ".agentception/roles/data-engineer.md",

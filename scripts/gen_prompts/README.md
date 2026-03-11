@@ -84,7 +84,7 @@ scripts/gen_prompts/
       cto.md.j2
       engineering-coordinator.md.j2
       qa-coordinator.md.j2
-      pr-reviewer.md.j2
+      reviewer.md.j2
       developer.md.j2
       coordinator.md.j2
       database-architect.md.j2

@@ -68,7 +68,7 @@ def test_valid_roles_is_nonempty() -> None:
     core_roles = {
         "developer",
         "database-architect",
-        "pr-reviewer",
+        "reviewer",
     }
     assert core_roles.issubset(VALID_ROLES), (
         f"Core roles missing from VALID_ROLES: {core_roles - VALID_ROLES}"

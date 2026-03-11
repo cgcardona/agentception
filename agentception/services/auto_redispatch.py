@@ -1,6 +1,6 @@
 """Auto-redispatch a developer run after a reviewer rejection.
 
-When the pr-reviewer calls build_complete_run with a failing grade (C/D/F),
+When the reviewer calls build_complete_run with a failing grade (C/D/F),
 this service:
 
 1. Closes the rejected PR.
@@ -77,7 +77,7 @@ async def auto_redispatch_after_rejection(
     """Close a rejected PR and redispatch the developer for a new attempt.
 
     Called as a fire-and-forget background task from build_complete_run when
-    the pr-reviewer signals a failing grade.  Never raises — all errors are
+    the reviewer signals a failing grade.  Never raises — all errors are
     logged at ERROR level and swallowed so the reviewer's completed state is
     not disturbed.
 

@@ -24,7 +24,7 @@ def test_agent_node_carries_tier_and_org_domain() -> None:
     """AgentNode stores tier, org_domain, and parent_run_id."""
     node = AgentNode(
         id="pr-99",
-        role="pr-reviewer",
+        role="reviewer",
         status=AgentStatus.REVIEWING,
         tier="worker",
         org_domain="qa",
@@ -51,7 +51,7 @@ def test_agent_node_serialises_lineage_fields() -> None:
     """model_dump() includes tier, org_domain, and parent_run_id keys."""
     node = AgentNode(
         id="pr-99",
-        role="pr-reviewer",
+        role="reviewer",
         status=AgentStatus.REVIEWING,
         tier="worker",
         org_domain="qa",

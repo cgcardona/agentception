@@ -31,7 +31,7 @@ Roles fall into two categories that map to tree nodes and leaf nodes:
 | Category | Description | Examples |
 |----------|-------------|---------|
 | **Coordinator** | Receives delegated scope, delegates to sub-coordinators or workers | `engineering-coordinator`, `cto`, `ceo` |
-| **Worker** | Performs leaf-level work, produces an artifact | `developer`, `pr-reviewer`, `content-writer` |
+| **Worker** | Performs leaf-level work, produces an artifact | `developer`, `reviewer`, `content-writer` |
 
 All roles in `roles/` are served over MCP as `role/<slug>` prompts and included in template archives. C-suite roles (`ceo`, `cto`, etc.) are coordinators at the top of the tree.
 

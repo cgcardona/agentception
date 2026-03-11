@@ -19,7 +19,7 @@ Three endpoints drive the Ship page launch modal:
 **Lifecycle for ``POST /api/dispatch/issue``:**
 
     1. Create git worktree at ``{worktrees_dir}/issue-{N}`` branching from ``origin/dev``
-   (implementers) or from the PR branch (``pr-reviewer`` role — remote branch
+   (implementers) or from the PR branch (``reviewer`` role — remote branch
    is fetched first; branch name is ``pr_branch`` if provided, otherwise
    ``feat/issue-{N}``; reviewer starts on the implementer's code immediately).
 2. Configure worktree remote to embed ``GITHUB_TOKEN`` (enables ``git push``
@@ -358,13 +358,13 @@ class DispatchRequest(BaseModel):
     issue_body: str = ""
     """Issue body text used to derive skill domains for the cognitive arch."""
     role: str
-    """Role slug from ``.agentception/roles/`` (e.g. ``developer``, ``pr-reviewer``)."""
+    """Role slug from ``.agentception/roles/`` (e.g. ``developer``, ``reviewer``)."""
     repo: str
     """``owner/repo`` string (e.g. ``cgcardona/agentception``)."""
     pr_number: int | None = None
     """PR number to associate with this run.
 
-    Required for ``pr-reviewer`` dispatches — the worktree is anchored to the
+    Required for ``reviewer`` dispatches — the worktree is anchored to the
     PR branch instead of ``origin/dev``, so the reviewer starts on the
     implementer's code without any manual branch-switching.
     Optional for implementer dispatches; when omitted, the DB field is left
@@ -373,7 +373,7 @@ class DispatchRequest(BaseModel):
     pr_branch: str | None = None
     """Exact remote branch name for the PR being reviewed.
 
-    For ``pr-reviewer`` dispatches only.  When omitted the endpoint derives
+    For ``reviewer`` dispatches only.  When omitted the endpoint derives
     the branch as ``feat/issue-{issue_number}``, which is the standard naming
     convention for AgentCeption agent branches.
 
@@ -579,7 +579,7 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
     the agent loop and indexing, which run as asyncio background tasks):
 
     1. Create git worktree — anchored to ``origin/dev`` for implementers;
-       anchored to ``origin/feat/issue-{N}`` for ``pr-reviewer`` dispatches
+       anchored to ``origin/feat/issue-{N}`` for ``reviewer`` dispatches
        (after fetching the remote branch so the reviewer starts on the
        implementer's code from turn 1 with no manual branch-switching needed).
     2. Configure worktree remote to embed ``GITHUB_TOKEN`` for push access.
@@ -596,7 +596,7 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
             or non-standard name not passed via ``pr_branch``).
         HTTPException 500: git worktree add or git auth configuration failed.
     """
-    is_reviewer = req.role == "pr-reviewer"
+    is_reviewer = req.role == "reviewer"
 
     # Reviewers get their own run_id and worktree slug so they don't clobber the
     # implementer's DB row (token counts, status history, etc.).
@@ -809,7 +809,7 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
         logger.warning("⚠️ dispatch: test coverage extraction failed — %s", exc)
 
     # Reset working memory so re-dispatches always start with a clean slate.
-    # For pr-reviewers: seed plan with the review task (PR number + branch),
+    # For reviewers: seed plan with the review task (PR number + branch),
     # not the implementation issue body — otherwise the agent reads the issue
     # text, assumes it is a developer picking up unfinished implementation work,
     # and tries to implement instead of review.
@@ -938,7 +938,7 @@ _ROLE_DOMAIN: dict[str, str] = {
     "mobile-coordinator": "engineering",
     "security-coordinator": "engineering",
     "product-coordinator": "engineering",
-    "pr-reviewer": "qa",
+    "reviewer": "qa",
 }
 
 _ROLE_DOMAIN_PREFIXES: list[tuple[str, str]] = [

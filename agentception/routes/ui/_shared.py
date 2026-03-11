@@ -34,7 +34,7 @@ _ROLE_CATEGORY_MAP: dict[str, tuple[str, int]] = {
     "architect":                ("Engineering", 2),
     # Quality
     "test-engineer":            ("Quality", 0),
-    "pr-reviewer":              ("Quality", 1),
+    "reviewer":              ("Quality", 1),
     "technical-writer":         ("Quality", 2),
     # Infrastructure
     "devops-engineer":          ("Infrastructure", 0),

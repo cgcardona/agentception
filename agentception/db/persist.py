@@ -661,7 +661,7 @@ async def _recompute_workflow_state(session: object, repo: str) -> list[str]:
             if best and best["pr_state"] in ("open", "draft"):
                 for r in all_runs:
                     if (
-                        r.role == "pr-reviewer"
+                        r.role == "reviewer"
                         and r.pr_number == best["pr_number"]
                         and r.status in ("implementing", "reviewing")
                     ):

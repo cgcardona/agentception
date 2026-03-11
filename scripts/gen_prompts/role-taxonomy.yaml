@@ -461,7 +461,7 @@ levels:
     - fastapi
     - sql
     file_exists: true
-  - slug: pr-reviewer
+  - slug: reviewer
     label: PR Reviewer
     title: Pull Request Reviewer
     category: quality

@@ -520,7 +520,7 @@ SEED:
           ```
           build_spawn_child(
             parent_run_id = <your RUN_ID from the task briefing>,
-            role          = "pr-reviewer",
+            role          = "reviewer",
             tier          = "reviewer",
             org_domain    = "qa",
             scope_type    = "pr",
