@@ -793,11 +793,15 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
     asyncio.create_task(run_agent_loop(run_id), name=f"agent-loop-{run_id}")
 
     # Index the worktree in the background so agents can search it via
-    # search_codebase.  Non-blocking — indexing failure never delays the response.
-    asyncio.create_task(
-        _index_worktree(Path(worktree_path), run_id),
-        name=f"index-worktree-{run_id}",
-    )
+    # search_codebase.  Skipped for executor dispatches: the planner already
+    # indexed the same worktree moments ago, and the executor operates from an
+    # immutable plan — it never calls search_codebase.  Re-embedding 4 600+
+    # chunks is the primary cause of per-dispatch OOM spikes.
+    if effective_role != "executor":
+        asyncio.create_task(
+            _index_worktree(Path(worktree_path), run_id),
+            name=f"index-worktree-{run_id}",
+        )
 
     logger.info("✅ dispatch: agent loop fired for run_id=%s", run_id)
 
