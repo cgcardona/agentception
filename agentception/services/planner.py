@@ -358,15 +358,21 @@ async def generate_execution_plan(
         len(file_contents),
     )
 
+    # Append a hard JSON-output cue to the user message.  This is more
+    # reliable than system-prompt instructions alone: placing the partial
+    # JSON structure immediately before the model's response window makes
+    # it structurally difficult to emit prose first.
+    forced_message = (
+        user_message
+        + '\n\n---\nOutput the ExecutionPlan JSON now. '
+        'Begin your response immediately with {"operations": ['
+    )
+
     try:
         raw = await call_anthropic(
-            user_message,
+            forced_message,
             system_prompt=_PLANNER_SYSTEM_PROMPT,
             max_tokens=16384,
-            # Force JSON output: prefilling the assistant turn with the
-            # opening of the JSON object prevents the model from writing
-            # prose reasoning before the JSON, which breaks _parse_plan_json.
-            prefill='{"operations":',
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("⚠️ planner: LLM call failed — %s", exc)

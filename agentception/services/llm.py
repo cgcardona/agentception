@@ -305,7 +305,7 @@ async def call_anthropic(
     system_prompt: str | None = None,
     temperature: float = 0.2,
     max_tokens: int = 4096,
-    prefill: str | None = None,
+
 ) -> str:
     """Call Claude via the Anthropic API and return the full text response.
 
@@ -314,31 +314,20 @@ async def call_anthropic(
         system_prompt: Optional system-turn message.
         temperature: Sampling temperature (0.0--1.0).
         max_tokens: Maximum tokens in the completion.
-        prefill: Optional assistant-turn prefix inserted before the model's
-            response.  When set, the model is forced to *continue* from this
-            string rather than choosing its own opening.  The prefill is
-            prepended to the returned text so callers receive the full string.
-            Use ``prefill='{"operations":'`` to guarantee JSON output from the
-            planner — the model cannot write prose if the assistant turn already
-            starts with a JSON object opener.
 
     Returns:
-        The raw text string of the model's response (prefill prepended if set).
+        The raw text string of the model's response.
 
     Raises:
         RuntimeError: When ``ANTHROPIC_API_KEY`` is not set.
         httpx.HTTPStatusError: On non-2xx responses after retries.
         httpx.TimeoutException: When the request exceeds ``_DEFAULT_TIMEOUT``.
     """
-    messages: list[dict[str, object]] = [{"role": "user", "content": user_prompt}]
-    if prefill:
-        messages.append({"role": "assistant", "content": prefill})
-
     payload: dict[str, object] = {
         "model": _MODEL,
         "max_tokens": max_tokens,
         "temperature": temperature,
-        "messages": messages,
+        "messages": [{"role": "user", "content": user_prompt}],
     }
     if system_prompt:
         payload["system"] = system_prompt
@@ -389,8 +378,6 @@ async def call_anthropic(
                 text_parts.append(text)
 
     result = "".join(text_parts)
-    if prefill:
-        result = prefill + result
     logger.info("✅ LLM response — %d chars", len(result))
     return result
 
