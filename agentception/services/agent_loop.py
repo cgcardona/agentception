@@ -661,7 +661,7 @@ async def run_agent_loop(
             )
             return
 
-        if response["stop_reason"] == "tool_calls":
+        if response["stop_reason"] in ("tool_calls", "length") and response["tool_calls"]:
             # During guard mode: intercept read-only tool calls and return
             # synthetic error results BEFORE dispatching.  The model "remembers"
             # tools from prior iterations and may call them even when they are
@@ -748,9 +748,33 @@ async def run_agent_loop(
 
             continue
 
-        # Unexpected stop reason (e.g. "length").
+        # stop_reason="length" with no tool calls means the response was
+        # genuinely truncated mid-generation — nothing actionable was produced.
+        # (If tool_calls were present we already handled it in the branch above.)
+        if response["stop_reason"] == "length":
+            logger.warning(
+                "⚠️ agent_loop stop_reason=length with no tool calls on iteration %d"
+                " — response truncated mid-generation, injecting recovery hint",
+                iteration,
+            )
+            # Inject a synthetic tool result that tells the model to produce a
+            # smaller response.  This is cheaper than cancelling — the agent
+            # may still finish the task in the next turn.
+            messages.append({
+                "role": "user",
+                "content": (
+                    "⚠️ Your previous response was cut off (max output tokens reached) "
+                    "before you issued a tool call.  Please issue ONE tool call now — "
+                    "no reasoning preamble.  If you need to write a large block of code, "
+                    "split it into smaller replace_in_file calls targeting specific "
+                    "sections rather than rewriting the whole file."
+                ),
+            })
+            continue
+
+        # Truly unexpected stop reason — cancel.
         logger.warning(
-            "⚠️ agent_loop unexpected stop_reason=%s on iteration %d",
+            "⚠️ agent_loop unexpected stop_reason=%r on iteration %d",
             response["stop_reason"],
             iteration,
         )
