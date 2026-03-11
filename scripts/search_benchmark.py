@@ -43,15 +43,15 @@ class Query:
 EVAL_SET: list[Query] = [
     Query(
         query="create a git worktree from a remote branch",
-        expected_file="readers/worktrees.py",
+        expected_file="readers/git.py",
         expected_symbol="ensure_worktree",
         description="ensure_worktree",
     ),
     Query(
         query="delete and clean up a git worktree after an agent finishes",
-        expected_file="readers/worktrees.py",
-        expected_symbol="teardown_worktree",
-        description="teardown_worktree",
+        expected_file="services/teardown.py",
+        expected_symbol="teardown_agent_worktree",
+        description="teardown_agent_worktree",
     ),
     Query(
         query="hybrid dense and sparse vector search combining results with RRF",
@@ -109,7 +109,7 @@ EVAL_SET: list[Query] = [
     ),
     Query(
         query="SQLAlchemy async session factory for database connections",
-        expected_file="db/base.py",
+        expected_file="db/engine.py",
         expected_symbol=None,
         description="async DB session",
     ),
