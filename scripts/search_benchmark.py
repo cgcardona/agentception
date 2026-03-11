@@ -5,19 +5,29 @@ Measures MRR@5, Hit@1, Hit@3, Hit@5, and per-query latency against a
 hand-crafted evaluation set derived from this codebase.  Run this script
 before and after each search-quality improvement to quantify progress.
 
-Usage:
-    docker compose exec agentception python3 /app/scripts/search_benchmark.py
+Calls the live /api/system/search HTTP endpoint so the already-loaded ONNX
+models in uvicorn are reused — no second model load, no OOM from running
+inside the container alongside the running server.
 
-Output:
-    Per-query table with hit/miss indicators and rank, plus aggregate
-    MRR@5, Hit@1, Hit@3, Hit@5, and mean latency.
+Usage:
+    # From the host (recommended):
+    python3 scripts/search_benchmark.py
+
+    # Inside the container (also works):
+    docker compose exec agentception python3 /app/scripts/search_benchmark.py
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass
+
+BASE_URL = "http://localhost:10003"
 
 
 @dataclass(frozen=True)
@@ -25,9 +35,9 @@ class Query:
     """A single evaluation query with its expected answer."""
 
     query: str
-    expected_file: str          # substring that should appear in the top result's file path
+    expected_file: str           # substring that should appear in the top result's file path
     expected_symbol: str | None  # function/class name that should appear in the chunk (optional)
-    description: str            # human-readable label for the result table
+    description: str             # human-readable label for the result table
 
 
 EVAL_SET: list[Query] = [
@@ -108,6 +118,23 @@ EVAL_SET: list[Query] = [
 TOP_K = 5  # Evaluate MRR and hits up to this rank.
 
 
+def _search(query: str, n_results: int) -> tuple[list[dict[str, object]], float]:
+    """Call /api/system/search and return (matches, elapsed_ms)."""
+    params = urllib.parse.urlencode({"q": query, "n": n_results})
+    url = f"{BASE_URL}/api/system/search?{params}"
+    t0 = time.perf_counter()
+    try:
+        with urllib.request.urlopen(url, timeout=60) as resp:
+            body: dict[str, object] = json.loads(resp.read())
+    except urllib.error.URLError as exc:
+        raise SystemExit(f"Could not reach {url}: {exc}") from exc
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+    matches = body.get("matches", [])
+    if not isinstance(matches, list):
+        matches = []
+    return matches, elapsed_ms
+
+
 def _hit_rank(results: list[dict[str, object]], q: Query) -> int | None:
     """Return the 1-based rank of the first result matching *q*, or None."""
     for rank, r in enumerate(results[:TOP_K], start=1):
@@ -119,14 +146,8 @@ def _hit_rank(results: list[dict[str, object]], q: Query) -> int | None:
     return None
 
 
-async def run_benchmark() -> None:
+def run_benchmark() -> None:
     """Execute all evaluation queries and print a formatted results table."""
-    # Late import so the script can be run before the module is on sys.path.
-    import sys
-    sys.path.insert(0, "/app")
-
-    from agentception.services.code_indexer import search_codebase
-
     print("\n" + "=" * 72)
     print("  AgentCeption  —  Qdrant Search Quality Benchmark")
     print("=" * 72)
@@ -138,9 +159,7 @@ async def run_benchmark() -> None:
     latencies: list[float] = []
 
     for q in EVAL_SET:
-        t0 = time.perf_counter()
-        results = await search_codebase(q.query, n_results=TOP_K)
-        elapsed_ms = (time.perf_counter() - t0) * 1000
+        results, elapsed_ms = _search(q.query, TOP_K)
         latencies.append(elapsed_ms)
 
         rank = _hit_rank(results, q)
@@ -151,11 +170,9 @@ async def run_benchmark() -> None:
             if rank is not None and rank <= k:
                 hit_at[k] += 1
 
-        # Per-query output
         rank_str = str(rank) if rank else "—"
         file_hit = "✅" if rank is not None else "❌"
 
-        # Check symbol independently for visibility
         sym_hit = "n/a"
         if q.expected_symbol is not None:
             found_sym = any(
@@ -181,4 +198,4 @@ async def run_benchmark() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(run_benchmark())
+    run_benchmark()
