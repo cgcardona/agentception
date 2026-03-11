@@ -628,17 +628,40 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
     # dispatch path was missing it, causing push failures inside the container.
     await _configure_worktree_auth(Path(worktree_path), run_id)
 
-    cognitive_arch = _resolve_cognitive_arch(req.issue_body, req.role)
+    # Auto-fetch issue body from GitHub if the caller didn't supply it.
+    # The context assembler needs the full body to extract named file paths;
+    # without it, no named-file pre-injection happens, costing the agent 4-8
+    # extra discovery iterations.
+    effective_issue_body = req.issue_body or ""
+    if not effective_issue_body and req.issue_number:
+        try:
+            from agentception.readers.github import get_issue as _get_issue  # noqa: PLC0415
+            _issue_data = await _get_issue(req.issue_number)
+            effective_issue_body = str(_issue_data.get("body", "") or "")
+            if effective_issue_body:
+                logger.info(
+                    "✅ dispatch: auto-fetched issue body (%d chars) for run_id=%s",
+                    len(effective_issue_body),
+                    run_id,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "⚠️ dispatch: could not auto-fetch issue body for run_id=%s — %s",
+                run_id,
+                exc,
+            )
+
+    cognitive_arch = _resolve_cognitive_arch(effective_issue_body, req.role)
 
     # Build task_description from the issue title + body so the agent briefing
     # includes the full issue text and never needs to call issue_read for context.
     task_description: str | None = None
-    if req.issue_title or req.issue_body:
+    if req.issue_title or effective_issue_body:
         parts = []
         if req.issue_title:
             parts.append(f"# {req.issue_title}")
-        if req.issue_body:
-            parts.append(req.issue_body.strip())
+        if effective_issue_body:
+            parts.append(effective_issue_body.strip())
         task_description = "\n\n".join(parts)
 
     # Pre-inject semantically relevant code context from the main Qdrant index.
@@ -652,10 +675,10 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
     from agentception.services.context_assembler import _extract_code_queries  # noqa: PLC0415
     code_matches: list[SearchMatch] = []
     if task_description:
-        dispatch_queries = _extract_code_queries(req.issue_title or "", req.issue_body or "")
+        dispatch_queries = _extract_code_queries(req.issue_title or "", effective_issue_body)
         # Use the first (most signal-dense) query for the dispatch-time snippet.
         search_query = dispatch_queries[0] if dispatch_queries else (
-            f"{req.issue_title} {req.issue_body}"[:800]
+            f"{req.issue_title} {effective_issue_body}"[:800]
         )
         try:
             code_matches = await search_codebase(search_query, n_results=5)
@@ -689,8 +712,8 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
     # Injecting the full content of every AC-referenced file into the task
     # briefing eliminates that phase entirely — the agent starts iteration 1
     # with all the context it needs and can go straight to IMPLEMENT.
-    if req.issue_body and task_description:
-        ac_file_paths = _extract_ac_file_paths(req.issue_body)
+    if effective_issue_body and task_description:
+        ac_file_paths = _extract_ac_file_paths(effective_issue_body)
         if ac_file_paths:
             ac_file_sections = _build_ac_file_sections(Path(worktree_path), ac_file_paths)
             if ac_file_sections:
@@ -716,11 +739,11 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
     # from turn 1 with precise code context — no file reads, no discovery loop.
     # ---------------------------------------------------------------------------
     effective_role = req.role
-    if req.role == "developer" and task_description and req.issue_body:
+    if req.role == "developer" and task_description and effective_issue_body:
         try:
             assembled = await assemble_executor_context(
                 issue_title=req.issue_title or "",
-                issue_body=req.issue_body,
+                issue_body=effective_issue_body,
                 worktree_path=Path(worktree_path),
                 existing_matches=code_matches,
             )
@@ -785,7 +808,7 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
         # pre-populate next_steps verbatim.  This bypasses the agent's lossy
         # reading of the AC — items are injected before iteration 1 so the
         # agent cannot paraphrase, collapse, or drop any requirement.
-        ac_next_steps = _extract_ac_items(req.issue_body) if req.issue_body else []
+        ac_next_steps = _extract_ac_items(effective_issue_body) if effective_issue_body else []
         if ac_next_steps:
             logger.info(
                 "✅ dispatch: pre-seeded %d AC items into next_steps for run_id=%s",
