@@ -813,7 +813,8 @@ async def test_dispatch_agent_reviewer_does_not_seed_ac_items(tmp_path: Path) ->
     import json
     from agentception.routes.api.dispatch import dispatch_agent, DispatchRequest
 
-    worktree_path = tmp_path / "worktrees" / "issue-88"
+    # Reviewer dispatch uses slug "review-{pr_number}", not "issue-{N}".
+    worktree_path = tmp_path / "worktrees" / "review-500"
     worktree_path.mkdir(parents=True)
 
     fetch_proc = MagicMock()
