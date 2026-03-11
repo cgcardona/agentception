@@ -1859,6 +1859,82 @@ class TestReviewerWarmup:
         assert not recon_called, "_run_recon_phase must NOT be called for reviewer role"
 
 
+class TestAgentLoopPersistsMessages:
+    @pytest.mark.anyio
+    async def test_agent_loop_persists_messages_to_db(self, tmp_path: Path) -> None:
+        """persist_agent_messages_async is called once per LLM response turn."""
+        worktree = tmp_path / "test-run-1"
+        worktree.mkdir()
+        task_spec = _make_task_spec(worktree)
+
+        responses = [
+            _tool_response("read_file", {"path": "README.md"}),
+            _stop_response("Done."),
+        ]
+
+        file_result: dict[str, object] = {"ok": True, "content": "# stub", "truncated": False}
+
+        persist_calls: list[tuple[str, list[dict[str, object]]]] = []
+
+        async def fake_persist(agent_run_id: str, messages: list[dict[str, object]]) -> None:
+            persist_calls.append((agent_run_id, list(messages)))
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic_with_tools",
+                new_callable=AsyncMock,
+                side_effect=responses,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+            patch(
+                "agentception.services.agent_loop.persist_agent_messages_async",
+                side_effect=fake_persist,
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
+
+            from agentception.services import agent_loop as al
+
+            with patch.object(al, "read_file", return_value=file_result):
+                await al.run_agent_loop("test-run-1")
+
+        # Called once per LLM response turn (2 turns: tool_call + stop).
+        assert len(persist_calls) == 2
+        # Each call uses the correct run_id.
+        for run_id_arg, _ in persist_calls:
+            assert run_id_arg == "test-run-1"
+        # The messages list passed on the first turn includes the assistant reply.
+        first_messages = persist_calls[0][1]
+        assistant_msgs = [m for m in first_messages if m.get("role") == "assistant"]
+        assert assistant_msgs, "messages passed to persist must include the assistant reply"
+
+
 class TestExtractExplicitFilePaths:
     """Unit tests for the recon phase file-path extractor."""
 
