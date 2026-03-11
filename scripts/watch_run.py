@@ -80,6 +80,7 @@ _RE_GITHUB_TOOL = re.compile(
 _RE_LLM_CALL = re.compile(
     r"LLM tool-use call — model=(?P<model>\S+) turns=(?P<turns>\d+) tools=(?P<tools>\d+)"
 )
+_RE_LLM_RETRY = re.compile(r"LLM retry (?P<n>\d+)/(?P<max>\d+) after (?P<secs>[\d.]+)s")
 _RE_LLM_USAGE = re.compile(
     r"LLM usage — input=(?P<input>\d+) cache_written=(?P<cw>\d+) cache_read=(?P<cr>\d+)"
 )
@@ -404,7 +405,64 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
     return None
 
 
+import threading
+import time as _time_mod
+
+# ── Silence tracker — shared between log reader and heartbeat thread ──────────
+_silence_lock = threading.Lock()
+_last_output_ts: float = 0.0     # epoch seconds of last printed output line
+_last_llm_call_ts: float = 0.0   # epoch seconds of most recent LLM call log
+_llm_retry_count: int = 0        # retries fired for the current in-flight call
+_stop_heartbeat = threading.Event()
+
+
+def _heartbeat(run_id_filter: str | None) -> None:
+    """Background thread: print a status line every 10s when logs go silent.
+
+    The LLM read timeout is 90s, so a retry fires at ~92s (90s + 2s sleep).
+    STUCK_AFTER_S must exceed that to avoid false positives on large generations.
+    """
+    WARN_AFTER_S = 10     # first notice
+    STUCK_AFTER_S = 120   # escalate to ⚠️ stuck (> 90s read timeout + 30s buffer)
+
+    while not _stop_heartbeat.wait(timeout=5):
+        now = _time_mod.time()
+        with _silence_lock:
+            last_out = _last_output_ts
+            last_llm = _last_llm_call_ts
+            retry_count = _llm_retry_count
+
+        silent_for = now - last_out if last_out else 0.0
+        if silent_for < WARN_AFTER_S:
+            continue  # still active — nothing to print
+
+        ts_str = GREY + _time_mod.strftime("%H:%M:%S") + RESET
+
+        if last_llm and (now - last_llm) > WARN_AFTER_S:
+            # LLM call is in flight and unacknowledged
+            llm_wait = int(now - last_llm)
+            retry_tag = f" (retry {retry_count})" if retry_count else ""
+            if silent_for >= STUCK_AFTER_S:
+                label = (
+                    f"{RED}{BOLD}⚠️  LLM call in flight{retry_tag} — {llm_wait}s"
+                    f" — LIKELY STUCK (container crash?){RESET}"
+                )
+            else:
+                label = f"{YELLOW}⏳ waiting for Anthropic response{retry_tag} — {llm_wait}s elapsed{RESET}"
+        else:
+            # No LLM call pending — agent is idle for another reason
+            if silent_for >= STUCK_AFTER_S:
+                label = f"{RED}{BOLD}⚠️  no agent activity for {int(silent_for)}s — run may be dead{RESET}"
+            else:
+                label = f"{GREY}    … no new activity for {int(silent_for)}s{RESET}"
+
+        filter_tag = f"[{run_id_filter}] " if run_id_filter else ""
+        print(f"{ts_str}  {filter_tag}{label}", flush=True)
+
+
 def main() -> None:
+    global _last_output_ts, _last_llm_call_ts, _llm_retry_count
+
     run_id_filter: str | None = sys.argv[1] if len(sys.argv) > 1 else None
 
     if run_id_filter:
@@ -419,12 +477,18 @@ def main() -> None:
             f"{GREY}    (Ctrl-C to stop){RESET}\n"
         )
 
+    with _silence_lock:
+        _last_output_ts = _time_mod.time()
+
+    hb = threading.Thread(target=_heartbeat, args=(run_id_filter,), daemon=True)
+    hb.start()
+
     proc = subprocess.Popen(
         ["docker", "compose", "logs", "agentception", "--follow"],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
-        bufsize=1,  # line-buffered reads from docker
+        bufsize=1,
     )
 
     try:
@@ -433,10 +497,27 @@ def main() -> None:
             line = raw_line.rstrip()
             out = process_line(line, run_id_filter)
             if out is not None:
+                now = _time_mod.time()
+                with _silence_lock:
+                    _last_output_ts = now
+                    # Track when an LLM call was fired so heartbeat knows
+                    # whether silence means "waiting on Anthropic" vs idle.
+                    if _RE_LLM_CALL.search(line):
+                        _last_llm_call_ts = now
+                        _llm_retry_count = 0
+                    elif _RE_LLM_DONE.search(line):
+                        _last_llm_call_ts = 0.0  # cleared on response
+                        _llm_retry_count = 0
+                    elif m := _RE_LLM_RETRY.search(line):
+                        # Retry fired: reset the in-flight timer so elapsed
+                        # counts from the retry, not the original call.
+                        _last_llm_call_ts = now
+                        _llm_retry_count = int(m.group("n"))
                 print(out, flush=True)
     except KeyboardInterrupt:
         print(f"\n{GREY}stopped.{RESET}", flush=True)
     finally:
+        _stop_heartbeat.set()
         proc.terminate()
 
 
