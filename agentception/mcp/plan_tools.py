@@ -39,6 +39,8 @@ from pydantic import ValidationError
 from agentception.models import EnrichedManifest, PlanSpec
 from agentception.readers.github import get_repo_labels
 
+logger = logging.getLogger(__name__)
+
 # Path to the cognitive archetypes directory (repo root / scripts / gen_prompts / ...)
 _ARCHETYPES_DIR: Path = (
     Path(__file__).parent.parent.parent
@@ -153,8 +155,6 @@ def plan_get_cognitive_figures(role: str) -> dict[str, object]:
         "✅ plan_get_cognitive_figures: role=%r → %d figure(s)", role, len(entries)
     )
     return {"role": role, "figures": entries}
-
-logger = logging.getLogger(__name__)
 
 # Module-level cache: populated on the first call to plan_get_schema().
 _schema_cache: dict[str, object] | None = None
