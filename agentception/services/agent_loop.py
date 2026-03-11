@@ -38,7 +38,7 @@ from agentception.config import settings
 from agentception.db.engine import get_session
 from agentception.db.models import ACAgentRun
 from agentception.db.queries import get_run_by_id
-from agentception.db.persist import accumulate_token_usage
+from agentception.db.persist import accumulate_token_usage, persist_agent_messages_async
 from agentception.mcp.build_commands import build_cancel_run, build_complete_run
 from agentception.mcp.log_tools import log_run_error, log_run_step
 from agentception.workflow.status import is_terminal
@@ -638,6 +638,10 @@ async def run_agent_loop(
         if response["tool_calls"]:
             assistant_msg["tool_calls"] = list(response["tool_calls"])
         messages.append(assistant_msg)
+
+        # Persist the updated transcript in the background so SSE consumers
+        # see new messages in real-time without blocking the agent loop.
+        await persist_agent_messages_async(run_id, messages)
 
         if response["stop_reason"] == "stop":
             logger.info("✅ agent_loop complete — run_id=%s iterations=%d", run_id, iteration)
