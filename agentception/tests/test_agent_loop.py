@@ -1589,6 +1589,173 @@ def test_truncate_search_codebase_limit() -> None:
     assert "truncated" in content
 
 
+# ---------------------------------------------------------------------------
+# Reviewer warmup — _run_reviewer_warmup injects context into messages[0]
+# ---------------------------------------------------------------------------
+
+
+class TestReviewerWarmup:
+    """_run_reviewer_warmup must inject pre-computed context before iteration 1.
+
+    With the diff, mypy, pytest, and issue pre-loaded the reviewer should
+    need zero shell calls during the main loop.  These tests verify that the
+    warmup modifies messages[0] and that the full run_agent_loop skips the
+    LLM-driven recon phase for the reviewer role.
+    """
+
+    @pytest.mark.anyio
+    async def test_warmup_injects_sections_into_initial_message(
+        self, tmp_path: Path
+    ) -> None:
+        """_run_reviewer_warmup must append a Pre-loaded Review Context block."""
+        from agentception.services.agent_loop import _run_reviewer_warmup
+        from agentception.services.github_mcp_client import GitHubMCPClient
+
+        worktree = tmp_path / "wt"
+        worktree.mkdir()
+
+        messages: list[dict[str, object]] = [
+            {"role": "user", "content": "initial briefing"}
+        ]
+
+        shell_outputs = {
+            "fetch": "",
+            "files": "agentception/routes/ui/transcripts.py\nagentception/static/scss/_transcripts.scss",
+            "diff": "--- a/foo.py\n+++ b/foo.py\n@@ -1 +1 @@\n-old\n+new",
+            "mypy": "Success: no issues found in 5 source files",
+            "pytest": "2 passed in 0.3s",
+        }
+        call_count = 0
+
+        async def fake_shell(
+            cmd: str,
+            cwd: Path,
+            timeout: int = 300,
+        ) -> str:
+            nonlocal call_count
+            call_count += 1
+            if "fetch" in cmd:
+                return shell_outputs["fetch"]
+            if "--name-only" in cmd:
+                return shell_outputs["files"]
+            if "git diff" in cmd:
+                return shell_outputs["diff"]
+            if "mypy" in cmd:
+                return shell_outputs["mypy"]
+            if "pytest" in cmd:
+                return shell_outputs["pytest"]
+            return ""
+
+        mock_client = _mock_github_client()
+
+        with patch(
+            "agentception.services.agent_loop._shell_capture",
+            side_effect=fake_shell,
+        ):
+            await _run_reviewer_warmup(
+                worktree_path=worktree,
+                pr_branch="feat/issue-37",
+                issue_number=37,
+                messages=messages,
+                github_client=mock_client,
+                owner="cgcardona",
+                repo="agentception",
+            )
+
+        content = str(messages[0].get("content", ""))
+        assert "Pre-loaded Review Context" in content, "Bundle header missing"
+        assert "Changed files" in content, "Changed files section missing"
+        assert "Full diff" in content, "Diff section missing"
+        assert "mypy" in content, "mypy section missing"
+        assert "pytest" in content, "pytest section missing"
+        assert "initial briefing" in content, "Original content must be preserved"
+        assert "Do NOT re-run" in content, "Guard instruction missing"
+
+    @pytest.mark.anyio
+    async def test_reviewer_loop_skips_llm_recon(self, tmp_path: Path) -> None:
+        """run_agent_loop must call _run_reviewer_warmup, not _run_recon_phase."""
+        from agentception.services.agent_loop import run_agent_loop
+
+        worktree = tmp_path / "review-warmup-run"
+        worktree.mkdir()
+
+        reviewer_spec = AgentTaskSpec(
+            id="review-warmup-run",
+            role="reviewer",
+            tier="worker",
+            cognitive_arch="Review carefully.",
+            issue_number=99,
+            worktree=str(worktree),
+            branch="feat/issue-99",
+            gh_repo="cgcardona/agentception",
+        )
+
+        warmup_called: list[bool] = []
+        recon_called: list[bool] = []
+
+        async def fake_warmup(**kwargs: object) -> None:
+            warmup_called.append(True)
+
+        async def fake_recon(*args: object, **kwargs: object) -> None:
+            recon_called.append(True)
+
+        async def fake_llm(
+            *args: object,
+            tools: list[ToolDefinition] | None = None,
+            extra_system_blocks: list[dict[str, object]] | None = None,
+            **kwargs: object,
+        ) -> ToolResponse:
+            return _stop_response("done")
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=reviewer_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.get_run_by_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic_with_tools",
+                side_effect=fake_llm,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+            patch(
+                "agentception.services.agent_loop._run_reviewer_warmup",
+                side_effect=fake_warmup,
+            ),
+            patch(
+                "agentception.services.agent_loop._run_recon_phase",
+                side_effect=fake_recon,
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.gh_repo = "cgcardona/agentception"
+            await run_agent_loop("review-warmup-run")
+
+        assert warmup_called, "_run_reviewer_warmup was not called for reviewer role"
+        assert not recon_called, "_run_recon_phase must NOT be called for reviewer role"
+
+
 class TestExtractExplicitFilePaths:
     """Unit tests for the recon phase file-path extractor."""
 
