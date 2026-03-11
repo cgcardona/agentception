@@ -50,9 +50,9 @@ async def query_pending_runs() -> dict[str, object]:
     Returns:
         ``{"pending": [...], "count": N}``
     """
-    logger.warning("🔍 query_pending_runs: querying DB for pending launches")
+    logger.debug("🔍 query_pending_runs: querying DB for pending launches")
     launches = await get_pending_launches()
-    logger.warning("🔍 query_pending_runs: got %d row(s) from DB", len(launches))
+    logger.debug("🔍 query_pending_runs: got %d row(s) from DB", len(launches))
     for i, launch in enumerate(launches):
         logger.warning(
             "🔍   [%d] run_id=%r role=%r host_worktree_path=%r branch=%r",
