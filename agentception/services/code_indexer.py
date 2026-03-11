@@ -102,6 +102,15 @@ _CHUNK_SIZE = 1_500  # characters per chunk (≈ 50 lines of Python)
 _CHUNK_OVERLAP = 200  # overlap between consecutive chunks for context continuity
 _MAX_FILE_BYTES = 200_000  # skip files larger than ~200 KB
 
+# Hard cap on the character length of any single chunk fed to the embedding
+# model.  ONNX transformer attention is O(n²) in sequence length; chunks
+# produced by the AST chunker have no natural size bound (a single large
+# function or class with no methods can be thousands of lines).  Any AST chunk
+# that exceeds this limit is char-split into _CHUNK_SIZE-character sub-chunks
+# so that the embedder never receives an oversized input.
+# 8 192 chars ≈ 2 048 tokens, comfortably inside jina-v2's 8 192-token window.
+_MAX_CHUNK_CHARS = 8_192
+
 # ── File extensions to index ───────────────────────────────────────────────────
 
 _TEXT_EXTENSIONS: frozenset[str] = frozenset(
@@ -470,7 +479,43 @@ def _chunk_file_ast(path: Path, repo_root: Path) -> list[_ChunkSpec]:
     if not chunks:
         return _chunk_file_char(path, repo_root, raw, rel)
 
-    return chunks
+    # Hard-cap: split any AST chunk that exceeds _MAX_CHUNK_CHARS into
+    # _CHUNK_SIZE-character sub-chunks so the embedder never receives an
+    # oversized input.  A large function or data-only class can easily exceed
+    # this limit; the sub-chunks inherit the parent's file/symbol metadata.
+    capped: list[_ChunkSpec] = []
+    for spec in chunks:
+        if len(spec["text"]) <= _MAX_CHUNK_CHARS:
+            capped.append(spec)
+            continue
+        # Char-split the oversized chunk, keeping the parent symbol in context.
+        text = spec["text"]
+        file_path = spec["file"]
+        symbol = spec["symbol"]
+        start_line = spec["start_line"]
+        end_line = spec["end_line"]
+        file_hash = spec["file_hash"]
+        sub_start = 0
+        sub_idx = 0
+        while sub_start < len(text):
+            sub_end = min(sub_start + _CHUNK_SIZE, len(text))
+            sub_text = text[sub_start:sub_end]
+            raw_hash = hashlib.md5(
+                f"{file_path}:{symbol}:sub{sub_idx}".encode()
+            ).hexdigest()
+            capped.append(_ChunkSpec(
+                chunk_id=int(raw_hash, 16) % (2**62),
+                file=file_path,
+                text=sub_text,
+                start_line=start_line,
+                end_line=end_line,
+                symbol=f"{symbol} [part {sub_idx + 1}]",
+                file_hash=file_hash,
+            ))
+            sub_start += _CHUNK_SIZE - _CHUNK_OVERLAP
+            sub_idx += 1
+
+    return capped
 
 
 def _chunk_file_char(
