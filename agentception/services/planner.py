@@ -121,6 +121,12 @@ remove it. The measure of a correct plan is its minimality.
   in the pre-loaded file content below.
 - old_string must be unique within the file so the replacement is
   unambiguous.
+- **Verify every identifier against the pre-loaded files.** When the issue
+  names a class attribute, database column, function, or method (e.g.
+  "return the task_context field"), search the pre-loaded file contents for
+  that exact name. If it does not appear, find the correct name in the
+  pre-loaded files and use that instead. Never trust the issue spec for
+  attribute or field names — always use what the code actually defines.
 
 ## Output format
 
@@ -201,6 +207,18 @@ async def _discover_files(
             run_id,
             exc,
         )
+
+    # Always include db/models.py when any db/ file is present — it is the
+    # ground truth for column names and must be visible to the planner so it
+    # never uses a field name from the issue spec that doesn't exist in code.
+    db_models = "agentception/db/models.py"
+    has_db_file = any("db/" in p or "models" in p for p in discovered)
+    if has_db_file and db_models not in discovered and (worktree_path / db_models).exists():
+        # Insert after seed paths but before the rest so it counts toward the cap.
+        seed_count = len(seed_paths)
+        keys = list(discovered.keys())
+        keys.insert(seed_count, db_models)
+        discovered = {k: None for k in keys}
 
     result = list(discovered.keys())[:_MAX_FILES]
     logger.info(
