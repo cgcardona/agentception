@@ -22,7 +22,7 @@ import re
 import uuid
 from typing import TYPE_CHECKING, TypedDict
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 # Label namespace prefixes that are part of the taxonomy and must never be
 # interpreted as initiative slugs.  Any label whose prefix-before-"/" matches
@@ -1282,6 +1282,38 @@ async def update_agent_status(run_id: str, status: str) -> bool:
     except Exception as exc:
         logger.warning("⚠️  update_agent_status failed: %s", exc)
         return False
+
+
+async def accumulate_token_usage(
+    run_id: str,
+    input_tokens: int,
+    output_tokens: int,
+    cache_write_tokens: int,
+    cache_read_tokens: int,
+) -> None:
+    """Add per-turn token counts to the cumulative totals on an ACAgentRun.
+
+    Called after every successful LLM turn.  Uses an atomic SQL increment so
+    concurrent writes from the same run cannot race — the cumulative columns
+    always reflect the true total regardless of iteration order.
+
+    Silently skips when the run is not found (e.g. tests that stub the loop).
+    """
+    try:
+        async with get_session() as session:
+            await session.execute(
+                update(ACAgentRun)
+                .where(ACAgentRun.id == run_id)
+                .values(
+                    total_input_tokens=ACAgentRun.total_input_tokens + input_tokens,
+                    total_output_tokens=ACAgentRun.total_output_tokens + output_tokens,
+                    total_cache_write_tokens=ACAgentRun.total_cache_write_tokens + cache_write_tokens,
+                    total_cache_read_tokens=ACAgentRun.total_cache_read_tokens + cache_read_tokens,
+                )
+            )
+            await session.commit()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("⚠️  accumulate_token_usage failed for run_id=%r — %s", run_id, exc)
 
 
 async def reset_build_runs_to_failed() -> int:
