@@ -83,10 +83,12 @@ _EXECUTION_PLAN_SCHEMA: dict[str, object] = {
                     "content": {"type": "string"},
                 },
                 "required": ["tool", "file"],
+                "additionalProperties": False,
             },
         },
     },
     "required": ["operations"],
+    "additionalProperties": False,
 }
 
 # ---------------------------------------------------------------------------
