@@ -200,12 +200,33 @@ def _build_planner_prompt(
     return "\n\n".join(parts)
 
 
+def _repair_json(text: str) -> str:
+    """Apply lightweight repairs to common LLM JSON defects.
+
+    The LLM occasionally emits:
+    - Trailing commas before ``]`` or ``}``  (``[1, 2,]`` → ``[1, 2]``)
+    - Unquoted object keys              (``{tool: …}`` → ``{"tool": …}``)
+
+    We cannot safely repair unescaped double-quotes inside string values
+    (e.g. ``"old_string": "if x == "y""``), so those are left for the
+    caller to handle as a parse error.
+    """
+    import re as _re
+
+    # Strip trailing commas before ] or }.
+    text = _re.sub(r",\s*([\]\}])", r"\1", text)
+    # Quote bare identifier keys (word chars only, not already quoted).
+    text = _re.sub(r'(?<=[{,]\s*)([A-Za-z_]\w*)\s*:', r'"\1":', text)
+    return text
+
+
 def _parse_plan_json(raw: str, run_id: str, issue_number: int) -> ExecutionPlan | None:
     """Parse the LLM response into an ExecutionPlan.
 
     Strips markdown fences if present, then extracts the first valid JSON
     object using ``JSONDecoder.raw_decode`` so trailing text (explanations,
-    notes) never causes a parse error.  Returns ``None`` on any parse or
+    notes) never causes a parse error.  Applies lightweight JSON repair on
+    the first failure before giving up.  Returns ``None`` on any parse or
     validation error.
     """
     text = raw.strip()
@@ -216,15 +237,24 @@ def _parse_plan_json(raw: str, run_id: str, issue_number: int) -> ExecutionPlan 
 
     start = text.find("{")
     if start == -1:
-        logger.warning("⚠️ planner: no JSON object found in response")
+        logger.warning("⚠️ planner: no JSON object found in response (first 200 chars): %r", raw[:200])
         return None
 
     decoder = json.JSONDecoder()
     try:
         data, _ = decoder.raw_decode(text, start)
     except json.JSONDecodeError as exc:
-        logger.warning("⚠️ planner: JSON parse error — %s", exc)
-        return None
+        logger.warning(
+            "⚠️ planner: JSON parse error — %s — attempting repair (first 300 chars): %r",
+            exc,
+            text[start : start + 300],
+        )
+        repaired = _repair_json(text)
+        try:
+            data, _ = decoder.raw_decode(repaired, repaired.find("{"))
+        except json.JSONDecodeError as exc2:
+            logger.warning("⚠️ planner: JSON repair failed — %s", exc2)
+            return None
 
     if not isinstance(data, dict):
         logger.warning("⚠️ planner: JSON root is not an object")
