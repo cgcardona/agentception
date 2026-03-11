@@ -863,9 +863,21 @@ async def _upsert_agent_runs(
         # lifecycle, not by the GitHub polling loop.  Exclude them from the
         # orphan sweep so the polling tick never flips an in-progress adhoc
         # run to "failed" just because it isn't backed by a GitHub issue.
-        if orphan.id not in live_ids and orphan.issue_number is not None:
+        #
+        # Reviewer runs are also excluded: unlike executor runs (where
+        # pr_number is set only after the PR is opened and the run is done),
+        # reviewer runs have pr_number set AT DISPATCH TIME because the PR
+        # already exists.  Applying the pr_number → completed heuristic to a
+        # reviewer would kill it immediately after creation.  Reviewer
+        # lifecycle is always driven by build_complete_run, never by poller
+        # inference.
+        if (
+            orphan.id not in live_ids
+            and orphan.issue_number is not None
+            and orphan.role != "reviewer"
+        ):
             if orphan.pr_number is not None:
-                # Engineer completed — PR exists but the agent is done working.
+                # Executor completed — PR exists but the agent is done working.
                 # "done" puts the card in the "PR Open" lane (any status with
                 # pr_number except "reviewing"), which is correct: the PR is
                 # open awaiting human or reviewer-agent action, not being
