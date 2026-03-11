@@ -40,7 +40,13 @@ specific functions you need without the dead weight.
 1. Use the discovery funnel above to locate any code not already in Pre-loaded Files.
 2. For each AC item: call `replace_in_file` or `write_file`.
    Batch writes across different files in one response. Move to the next item immediately.
-3. When all AC items are done: run `run_command` with `mypy agentception/ tests/`.
+3. When all AC items are done: run `run_command` with:
+   ```
+   mypy --follow-imports=silent <file1> <file2> ...
+   ```
+   List **only the files you modified** — not `agentception/` or `tests/` as directories.
+   `--follow-imports=silent` is mandatory: it prevents mypy from loading the full project
+   import graph, which would OOM-kill the container on top of already-loaded model weights.
 4. Fix any mypy errors, then run `run_command` with `pytest` on the affected test file.
 5. **When pytest exits 0: STOP. Do not read any more files. Do not write any more files.**
    Your next and only action is `run_command` → `git add -A && git commit -m "feat: <summary>"`.
@@ -54,3 +60,6 @@ specific functions you need without the dead weight.
 - Do not re-read a file to verify your own write. Trust it and move on.
 - If a symbol doesn't exist in the codebase, write it. Absence is the task.
 - **Once pytest exits 0, the implementation is done. Commit immediately. No more reads. No more writes.**
+- **Never run `mypy agentception/` or `mypy agentception/ tests/` (full directory scan).** Always
+  use `mypy --follow-imports=silent` on only your changed files. Full scans cold-start the entire
+  import graph in a subprocess and OOM-kill the container.
