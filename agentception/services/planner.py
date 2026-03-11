@@ -4,24 +4,23 @@ from __future__ import annotations
 
 Pipeline
 --------
-1. **Discovery** — Qdrant semantic search against the main ``code`` collection
-   surfaces the most relevant files.  Any file paths explicitly named in the
-   issue body (seed paths) are merged in and prioritised.
+The planner is a small tool-equipped agent (max 8 turns) rather than a
+single-shot full-file-dump call.  It receives only the issue title and body,
+then uses three tools to gather exactly the context it needs:
 
-2. **Full file reads** — each discovered file is read in full from the
-   worktree.  Chunks from Qdrant are only used for discovery; the planner
-   always receives complete file content so it can emit verbatim
-   ``old_string`` / ``after`` anchors that match the real file byte-for-byte.
+1. ``search_codebase`` — Qdrant semantic search returning function/class-level
+   chunks.  Typically sufficient to produce verbatim ``old_string`` anchors
+   without reading the whole file.
 
-3. **Plan generation** — a single LLM call receives the issue text plus all
-   file contents and returns a JSON ``ExecutionPlan``.  The system prompt
-   instils a shortest-path / minimal-change mental model so the planner emits
-   only what the issue explicitly requests.
+2. ``read_file_lines`` — reads a specific line range when the chunk alone
+   is not enough to produce a unique anchor.
 
-Separation of concerns
------------------------
-Planner  → creative reasoning (reads files, infers context, generates plan)
-Executor → mechanical determinism (applies plan, no codebase access)
+3. ``submit_plan`` — validates and stores the ``ExecutionPlan``, terminating
+   the loop.
+
+This keeps the planner prompt small regardless of file size.  For a 1,200-line
+file, a semantic search returns the 30-40 relevant lines; the old approach
+loaded all 1,200 unconditionally (114k-char prompts on issue #407).
 """
 
 import json
@@ -29,68 +28,18 @@ import logging
 from pathlib import Path
 
 from agentception.models import ExecutionPlan, PlanOperation
-from agentception.services.code_indexer import search_codebase
-from agentception.services.llm import call_anthropic
+from agentception.services.code_indexer import SearchMatch, search_codebase
+from agentception.services.llm import (
+    ToolDefinition,
+    ToolFunction,
+    call_anthropic_with_tools,
+)
+from agentception.tools.file_tools import read_file_lines
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-# Maximum characters of file content injected per file.  75 000 chars ≈ 3 000
-# lines — covers the largest files in this codebase (e.g. mcp/server.py at
-# ~1 600 lines / 63 K chars) in full without truncation.
-_FILE_CHAR_LIMIT: int = 75_000
-
-# Maximum files to inject into the planner prompt.  Raised from 6 to 8 to
-# accommodate anchored files (db/models.py, mcp/types.py, test files) without
-# displacing the Qdrant-discovered source files.
-_MAX_FILES: int = 8
-
-# Number of Qdrant results to request for file discovery.  Fetching slightly
-# more than _MAX_FILES lets us filter out non-existent files and still fill
-# the cap.
-_DISCOVERY_SEARCH_RESULTS: int = 10
-
-# Hard cap on operations in one plan.  50 supports large refactors such as
-# eliminating all cast() calls across a single file (up to ~40 sites).
 _MAX_OPERATIONS: int = 50
-
-# ---------------------------------------------------------------------------
-# Structured-output JSON schema for ExecutionPlan
-# ---------------------------------------------------------------------------
-# Passed to call_anthropic via the structured-outputs-2025-11-13 beta so the
-# model is *guaranteed* to emit valid JSON matching this schema — no prose
-# preamble, no markdown fences, no format errors.
-
-_EXECUTION_PLAN_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "properties": {
-        "operations": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "tool": {
-                        "type": "string",
-                        "enum": ["replace_in_file", "insert_after_in_file", "write_file"],
-                    },
-                    "file": {"type": "string"},
-                    "old_string": {"type": "string"},
-                    "new_string": {"type": "string"},
-                    "after": {"type": "string"},
-                    "text": {"type": "string"},
-                    "content": {"type": "string"},
-                },
-                "required": ["tool", "file"],
-                "additionalProperties": False,
-            },
-        },
-    },
-    "required": ["operations"],
-    "additionalProperties": False,
-}
+_MAX_PLANNER_TURNS: int = 8
 
 # ---------------------------------------------------------------------------
 # System prompt
@@ -99,271 +48,150 @@ _EXECUTION_PLAN_SCHEMA: dict[str, object] = {
 _PLANNER_SYSTEM_PROMPT = """\
 You are a minimal-change planning agent.
 
-## Mental model — shortest path
+## Goal
 
-You find the shortest path from the current codebase state to the
-spec-compliant state described by the issue, and then you stop.
+Convert the GitHub issue into an ExecutionPlan — a minimal ordered list of
+file operations for the executor to apply mechanically.
 
-Every operation you emit must be provably required by the issue. An
-operation you cannot derive directly from the issue text is not on the
-shortest path and must be omitted. You do not improve surrounding code. You
-do not add what is not asked. Before emitting each operation, ask yourself:
-if I remove this operation, does the plan still satisfy the issue? If yes,
-remove it. The measure of a correct plan is its minimality.
+## How to work
 
-## Rules
+1. Call search_codebase for each distinct code gap in the issue.  Qdrant
+   returns function/class-level chunks — usually enough to produce a verbatim
+   old_string anchor without reading the whole file.
+2. Call read_file_lines only when the chunk did not include the exact lines
+   you need for a unique anchor.
+3. Call submit_plan exactly once, with all operations verified against real
+   file content.  This ends the session.
+
+## Operation rules
 
 - Implement ONLY what the issue explicitly requests.
-- Do not add validators, docstrings, or extra tests unless the issue says so.
-- Do not create new files unless the issue says to create them.
-- Do not improve or refactor surrounding code.
-- Each operation maps to one tool call. Parameters must be verbatim — the
-  executor cannot read files, so every string you emit must appear exactly
-  in the pre-loaded file content below.
-- old_string must be unique within the file so the replacement is
-  unambiguous.
-- **Verify every identifier against the pre-loaded files.** When the issue
-  names a class attribute, database column, function, or method (e.g.
-  "return the task_context field"), search the pre-loaded file contents for
-  that exact name. If it does not appear, find the correct name in the
-  pre-loaded files and use that instead. Never trust the issue spec for
-  attribute or field names — always use what the code actually defines.
-
-## Output format
-
-Output ONLY a JSON object with this exact schema — no markdown fences, no
-surrounding text, no explanation:
-
-{
-  "operations": [
-    {
-      "tool": "replace_in_file",
-      "file": "relative/path/to/file.py",
-      "old_string": "exact existing text to replace",
-      "new_string": "exact replacement text"
-    },
-    {
-      "tool": "insert_after_in_file",
-      "file": "relative/path/to/file.py",
-      "after": "exact line to insert after",
-      "text": "text to insert"
-    },
-    {
-      "tool": "write_file",
-      "file": "relative/path/to/new_file.py",
-      "content": "complete file content"
-    }
-  ]
-}
-
-Prefer replace_in_file for edits to existing files — it is the most
-precise operation and easiest for the executor to apply correctly.
-Use insert_after_in_file when appending after a known anchor line.
-Use write_file only when creating a brand-new file.
+- old_string must appear exactly once in the file — verify uniqueness from
+  the chunk or read_file_lines output before emitting.
+- old_string / new_string / after / content must be verbatim — the executor
+  cannot read files and will fail if the string doesn't match exactly.
+- Prefer replace_in_file for edits.  Use insert_after_in_file only for a
+  pure append-after-anchor (never after a bare class/def header line whose
+  indented body immediately follows — that would detach the body and cause a
+  SyntaxError).  Use write_file only for brand-new files.
+- Do not add what is not asked.  Do not improve surrounding code.
 """
 
+# ---------------------------------------------------------------------------
+# Tool definitions (OpenAI format — llm.py converts to Anthropic internally)
+# ---------------------------------------------------------------------------
+
+_OPERATION_ITEM_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "tool": {
+            "type": "string",
+            "enum": ["replace_in_file", "insert_after_in_file", "write_file"],
+        },
+        "file": {"type": "string"},
+        "old_string": {"type": "string"},
+        "new_string": {"type": "string"},
+        "after": {"type": "string"},
+        "text": {"type": "string"},
+        "content": {"type": "string"},
+    },
+    "required": ["tool", "file"],
+    "additionalProperties": False,
+}
+
+_PLANNER_TOOLS: list[ToolDefinition] = [
+    ToolDefinition(
+        type="function",
+        function=ToolFunction(
+            name="search_codebase",
+            description=(
+                "Semantic search over the codebase. Returns function/class-level "
+                "code chunks. Use this first for each gap in the issue."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Natural-language description of the code to find",
+                    },
+                    "n": {
+                        "type": "integer",
+                        "description": "Number of results (default 5, max 8)",
+                    },
+                },
+                "required": ["query"],
+                "additionalProperties": False,
+            },
+        ),
+    ),
+    ToolDefinition(
+        type="function",
+        function=ToolFunction(
+            name="read_file_lines",
+            description=(
+                "Read a specific line range from a file in the repo. "
+                "Use only when a search chunk did not include the exact anchor text you need."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative path from repo root (e.g. agentception/readers/github.py)",
+                    },
+                    "start_line": {
+                        "type": "integer",
+                        "description": "First line to read (1-indexed)",
+                    },
+                    "end_line": {
+                        "type": "integer",
+                        "description": "Last line to read (inclusive)",
+                    },
+                },
+                "required": ["path", "start_line", "end_line"],
+                "additionalProperties": False,
+            },
+        ),
+    ),
+    ToolDefinition(
+        type="function",
+        function=ToolFunction(
+            name="submit_plan",
+            description=(
+                "Submit the final ExecutionPlan. Call this exactly once when you "
+                "have verified all anchor strings against real file content. "
+                "Terminates the planning session."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "operations": {
+                        "type": "array",
+                        "items": _OPERATION_ITEM_SCHEMA,
+                        "description": "Ordered list of file operations for the executor",
+                    },
+                },
+                "required": ["operations"],
+                "additionalProperties": False,
+            },
+        ),
+    ),
+]
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
 
-async def _discover_files(
-    query: str,
-    seed_paths: list[str],
-    worktree_path: Path,
+def _validate_operations(
+    ops_raw: object,
     run_id: str,
-) -> list[str]:
-    """Return the ordered list of files the planner should read.
-
-    Strategy
-    --------
-    1. Start with *seed_paths* — files explicitly named in the issue body or
-       supplied by the caller.  These are always included and kept in front.
-    2. Run a semantic search against the main Qdrant ``code`` collection to
-       find additional relevant files.  The worktree is freshly created from
-       ``origin/dev``, so the main collection's content is identical.
-    3. Filter search results to files that actually exist in the worktree (a
-       file mentioned by Qdrant but absent on disk would cause a read error).
-    4. Return the union of seed paths and discovered paths, seed paths first,
-       capped at ``_MAX_FILES``.
-
-    Qdrant unavailability is treated as a non-fatal warning — the planner
-    falls back to seed paths only, which is still better than nothing.
-    """
-    # Use a dict to preserve insertion order while deduplicating.
-    discovered: dict[str, None] = {p: None for p in seed_paths}
-
-    try:
-        matches = await search_codebase(query, n_results=_DISCOVERY_SEARCH_RESULTS)
-        for match in matches:
-            file_path = match["file"]
-            # Only include files that exist in the worktree — Qdrant may
-            # reference paths from a slightly different repo state.
-            if (worktree_path / file_path).exists():
-                discovered[file_path] = None
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "⚠️ planner: Qdrant discovery failed for run_id=%s — %s (seed paths only)",
-            run_id,
-            exc,
-        )
-
-    # Anchor critical files that are ground truth for types and field names.
-    # These are inserted after seed paths so they never displace them.
-    seed_count = len(seed_paths)
-    anchors: list[str] = []
-
-    # db/models.py — ground truth for DB column names.  Always include when
-    # any db/ file is discovered so the planner never trusts the issue spec
-    # for attribute names that don't exist on the ORM model.
-    db_models = "agentception/db/models.py"
-    has_db_file = any("db/" in p for p in discovered)
-    if has_db_file and db_models not in discovered:
-        anchors.append(db_models)
-
-    # mcp/types.py — defines ACResourceResult, ACResourceContent, and all
-    # JsonRpc* TypedDicts.  Required whenever any mcp/ source file is touched
-    # so the planner generates correct return types.
-    mcp_types = "agentception/mcp/types.py"
-    has_mcp_file = any("agentception/mcp/" in p and p != mcp_types for p in discovered)
-    if has_mcp_file and mcp_types not in discovered:
-        anchors.append(mcp_types)
-
-    # Test file anchoring — for every source file discovered, include its
-    # corresponding test file so the planner can see existing test patterns
-    # and emit a correct test operation.
-    test_dir = "agentception/tests"
-    for source_path in list(discovered.keys()):
-        if "/tests/" in source_path or not source_path.endswith(".py"):
-            continue
-        module = source_path.replace("/", "_").replace(".py", "")
-        # Strip the package prefix to get a short module name for the test file.
-        # e.g. "agentception/mcp/resources.py" → "test_mcp_resources.py"
-        parts = source_path.split("/")
-        short_module = "_".join(parts[1:]).replace(".py", "")
-        candidate = f"{test_dir}/test_{short_module}.py"
-        if candidate not in discovered and candidate not in anchors and (worktree_path / candidate).exists():
-            anchors.append(candidate)
-
-    # Insert anchors after seed paths.
-    if anchors:
-        keys = list(discovered.keys())
-        for i, anchor in enumerate(anchors):
-            if (worktree_path / anchor).exists():
-                keys.insert(seed_count + i, anchor)
-        discovered = {k: None for k in keys}
-
-    result = list(discovered.keys())[:_MAX_FILES]
-    logger.info(
-        "✅ planner: discovered %d file(s) for run_id=%s: %s",
-        len(result),
-        run_id,
-        result,
-    )
-    return result
-
-
-def _build_planner_prompt(
-    issue_title: str,
-    issue_body: str,
-    file_contents: dict[str, str],
-) -> str:
-    """Build the user message for the planner LLM call."""
-    parts: list[str] = []
-    parts.append(f"# Issue: {issue_title}\n\n{issue_body.strip()}")
-
-    if file_contents:
-        parts.append("## Pre-loaded file contents\n")
-        for rel_path, content in file_contents.items():
-            truncated = content[:_FILE_CHAR_LIMIT]
-            suffix = (
-                f"\n... (truncated at {_FILE_CHAR_LIMIT} chars)"
-                if len(content) > _FILE_CHAR_LIMIT
-                else ""
-            )
-            parts.append(f"### {rel_path}\n\n```\n{truncated}{suffix}\n```")
-
-    return "\n\n".join(parts)
-
-
-def _repair_json(text: str) -> str:
-    """Apply lightweight repairs to common LLM JSON defects.
-
-    Handles the two most frequent patterns:
-    - Trailing commas before ``]`` or ``}`` — e.g. ``[1, 2,]`` → ``[1, 2]``
-    - Bare (unquoted) object keys at the start of a value — e.g.
-      ``{ tool: "x" }`` → ``{ "tool": "x" }``
-
-    We cannot safely repair unescaped double-quotes inside string values
-    (e.g. ``"old_string": "if x == "y""``), so those remain a hard failure.
-    """
-    import re as _re
-
-    # Strip trailing commas before ] or }.
-    text = _re.sub(r",(\s*[\]\}])", r"\1", text)
-    # Quote bare identifier keys.  Use a capturing group instead of
-    # look-behind to avoid the fixed-width restriction in Python's re.
-    # Matches: optional whitespace, a bare word, optional whitespace, colon —
-    # but only when preceded by { or , (captured in group 1).
-    text = _re.sub(r'([{,]\s*)([A-Za-z_]\w*)(\s*:)', lambda m: m.group(1) + '"' + m.group(2) + '"' + m.group(3), text)
-    return text
-
-
-def _parse_plan_json(raw: str, run_id: str, issue_number: int) -> ExecutionPlan | None:
-    """Parse the LLM response into an ExecutionPlan.
-
-    Strips markdown fences if present, then extracts the first valid JSON
-    object using ``JSONDecoder.raw_decode`` so trailing text (explanations,
-    notes) never causes a parse error.  Applies lightweight JSON repair on
-    the first failure before giving up.  Returns ``None`` on any parse or
-    validation error.
-    """
-    text = raw.strip()
-
-    # Remove markdown code fences regardless of where they appear.
-    lines = text.splitlines()
-    text = "\n".join(ln for ln in lines if not ln.startswith("```")).strip()
-
-    # Search for the ExecutionPlan root key rather than the first bare "{".
-    # The model sometimes emits prose reasoning before the JSON block
-    # (e.g. "I'll implement ac://runs/{run_id}/task…").  The bare "{" in
-    # "{run_id}" or similar patterns would be picked up as the JSON start,
-    # causing an immediate parse failure.  Anchoring on '{"operations"'
-    # skips any leading prose and finds the actual plan object.
-    start = text.find('{"operations"')
-    if start == -1:
-        logger.warning(
-            "⚠️ planner: no ExecutionPlan JSON found in response (first 200 chars): %r", raw[:200]
-        )
-        return None
-
-    decoder = json.JSONDecoder()
-    try:
-        data, _ = decoder.raw_decode(text, start)
-    except json.JSONDecodeError as exc:
-        logger.warning(
-            "⚠️ planner: JSON parse error — %s — attempting repair (first 300 chars): %r",
-            exc,
-            text[start : start + 300],
-        )
-        repaired = _repair_json(text)
-        repair_start = repaired.find('{"operations"')
-        if repair_start == -1:
-            repair_start = repaired.find("{")
-        try:
-            data, _ = decoder.raw_decode(repaired, repair_start)
-        except json.JSONDecodeError as exc2:
-            logger.warning("⚠️ planner: JSON repair failed — %s", exc2)
-            return None
-
-    if not isinstance(data, dict):
-        logger.warning("⚠️ planner: JSON root is not an object")
-        return None
-
-    ops_raw = data.get("operations", [])
+    issue_number: int,
+) -> ExecutionPlan | None:
+    """Validate the operations list from submit_plan and build an ExecutionPlan."""
     if not isinstance(ops_raw, list):
-        logger.warning("⚠️ planner: 'operations' is not a list")
+        logger.warning("⚠️ planner: submit_plan 'operations' is not a list")
         return None
 
     operations: list[PlanOperation] = []
@@ -377,18 +205,31 @@ def _parse_plan_json(raw: str, run_id: str, issue_number: int) -> ExecutionPlan 
             logger.warning("⚠️ planner: operation %d invalid — %s — skipping", i, exc)
 
     if not operations:
-        logger.warning("⚠️ planner: no valid operations parsed from response")
+        logger.warning("⚠️ planner: no valid operations in submitted plan")
         return None
 
     try:
         return ExecutionPlan(
-            run_id=run_id,
-            issue_number=issue_number,
-            operations=operations,
+            run_id=run_id, issue_number=issue_number, operations=operations
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("⚠️ planner: ExecutionPlan construction failed — %s", exc)
         return None
+
+
+def _format_search_results(results: list[SearchMatch]) -> str:
+    """Format Qdrant search results into a compact string for the LLM."""
+    if not results:
+        return "No results found."
+    parts: list[str] = []
+    for r in results:
+        file_path = r["file"]
+        score = r["score"]
+        chunk = r["chunk"]
+        start = r["start_line"]
+        end = r["end_line"]
+        parts.append(f"### {file_path} (lines {start}–{end}, score={score:.2f})\n```\n{chunk}\n```")
+    return "\n\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -404,109 +245,155 @@ async def generate_execution_plan(
     worktree_path: Path,
     file_paths: list[str],
 ) -> ExecutionPlan | None:
-    """Call the LLM once to produce a minimal ExecutionPlan for *run_id*.
+    """Run the tool-equipped planner loop and return an ExecutionPlan.
 
-    Three-phase pipeline:
-
-    1. **Discovery** — ``_discover_files`` merges *file_paths* (explicit seeds
-       from the issue body) with Qdrant semantic search results to build the
-       final list of files to read.
-    2. **Full file reads** — each discovered file is read in full from the
-       worktree so the LLM can emit verbatim ``old_string`` / ``after`` values
-       that the executor can apply without ever reading the file itself.
-    3. **Plan generation** — a single ``call_anthropic`` call returns a JSON
-       ``ExecutionPlan`` which is validated and returned.
+    The planner receives only the issue title and body, then uses
+    ``search_codebase``, ``read_file_lines``, and ``submit_plan`` to gather
+    exactly the context it needs — no full file dumps.
 
     Args:
-        run_id: Agent run identifier (e.g. ``"issue-501"``).
+        run_id: Agent run identifier (e.g. ``"issue-407"``).
         issue_number: GitHub issue number.
         issue_title: Issue title string.
         issue_body: Raw Markdown issue body.
         worktree_path: Absolute path to the git worktree on disk.
-        file_paths: Seed paths — files explicitly named in the issue body.
-            These are always included and prioritised over Qdrant results.
+        file_paths: Currently unused (kept for interface compatibility).
+            Previously used as seed paths for file discovery; the tool-based
+            planner discovers context organically via search_codebase.
 
     Returns:
-        A validated :class:`ExecutionPlan`, or ``None`` if any phase fails.
-        Callers should fall back to the developer role when ``None`` is
-        returned.
+        A validated :class:`ExecutionPlan`, or ``None`` if the planner loop
+        ends without calling ``submit_plan``.  Callers fall back to the
+        developer role on ``None``.
     """
-    # Phase 1: File discovery.
-    discovery_query = f"{issue_title}\n\n{issue_body[:600]}"
-    all_file_paths = await _discover_files(
-        discovery_query, file_paths, worktree_path, run_id
-    )
-
-    # Phase 2: Full file reads from the worktree.
-    file_contents: dict[str, str] = {}
-    for rel in all_file_paths:
-        full = worktree_path / rel
-        try:
-            file_contents[rel] = full.read_text(encoding="utf-8", errors="replace")
-        except OSError as exc:
-            logger.warning("⚠️ planner: could not read %s — %s", rel, exc)
-
-    # Phase 3: Plan generation.
-    user_message = _build_planner_prompt(issue_title, issue_body, file_contents)
+    messages: list[dict[str, object]] = [
+        {
+            "role": "user",
+            "content": f"# Issue: {issue_title}\n\n{issue_body.strip()}",
+        }
+    ]
+    plan_result: ExecutionPlan | None = None
 
     logger.info(
-        "✅ planner: calling LLM for run_id=%s issue=%d files=%d",
+        "✅ planner: starting tool loop for run_id=%s issue=%d (max_turns=%d)",
         run_id,
         issue_number,
-        len(file_contents),
+        _MAX_PLANNER_TURNS,
     )
 
-    try:
-        raw = await call_anthropic(
-            user_message,
-            system_prompt=_PLANNER_SYSTEM_PROMPT,
-            max_tokens=16384,
-            json_schema=_EXECUTION_PLAN_SCHEMA,
+    for turn in range(_MAX_PLANNER_TURNS):
+        try:
+            response = await call_anthropic_with_tools(
+                messages,
+                system=_PLANNER_SYSTEM_PROMPT,
+                tools=_PLANNER_TOOLS,
+                max_tokens=4096,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("⚠️ planner: LLM call failed on turn %d — %s", turn, exc)
+            return None
+
+        # Append the assistant turn to history.
+        messages.append(
+            {
+                "role": "assistant",
+                "content": response["content"],
+                "tool_calls": response["tool_calls"],
+            }
         )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("⚠️ planner: LLM call failed — %s", exc)
-        return None
 
-    plan = _parse_plan_json(raw, run_id, issue_number)
-    if plan is None:
-        logger.warning("⚠️ planner: could not parse ExecutionPlan from LLM response")
-        return None
+        if response["stop_reason"] != "tool_calls":
+            logger.warning(
+                "⚠️ planner: stopped with reason=%r on turn %d without submit_plan",
+                response["stop_reason"],
+                turn,
+            )
+            break
 
-    # Validate and auto-correct operation file paths.  The LLM sometimes
-    # generates paths with a spurious leading component (e.g.
-    # ``agentception/.cursor/mcp.json`` instead of ``.cursor/mcp.json``).
-    # For read/modify operations we can fix this by stripping leading
-    # components until the file is found; write_file creates new files so
-    # there is nothing to validate against.
-    for op in plan.operations:
-        if op.tool in ("replace_in_file", "insert_after_in_file"):
-            if not (worktree_path / op.file).exists():
-                parts = Path(op.file).parts
-                corrected: str | None = None
-                for i in range(1, len(parts)):
-                    candidate = str(Path(*parts[i:]))
-                    if (worktree_path / candidate).exists():
-                        corrected = candidate
-                        break
-                if corrected is not None:
-                    logger.warning(
-                        "⚠️ planner: corrected path %r → %r for run_id=%s",
-                        op.file,
-                        corrected,
-                        run_id,
-                    )
-                    op.file = corrected
+        # Dispatch each tool call and collect results.
+        done = False
+        tool_result_messages: list[dict[str, object]] = []
+
+        for tc in response["tool_calls"]:
+            tool_name = tc["function"]["name"]
+            try:
+                args: object = json.loads(tc["function"]["arguments"])
+            except json.JSONDecodeError:
+                args = {}
+            if not isinstance(args, dict):
+                args = {}
+
+            if tool_name == "search_codebase":
+                query = str(args.get("query", ""))
+                n = min(int(args.get("n", 5)), 8)
+                try:
+                    results = await search_codebase(query, n_results=n)
+                    result_text = _format_search_results(results)
+                except Exception as exc:  # noqa: BLE001
+                    result_text = f"Search failed: {exc}"
+                logger.info(
+                    "✅ planner: search_codebase(q=%r, n=%d) → %d results",
+                    query,
+                    n,
+                    len(results) if "results" in dir() else 0,
+                )
+
+            elif tool_name == "read_file_lines":
+                rel_path = str(args.get("path", ""))
+                start = int(args.get("start_line", 1))
+                end = int(args.get("end_line", start + 50))
+                abs_path = worktree_path / rel_path
+                read_result = read_file_lines(abs_path, start, end)
+                if read_result.get("ok"):
+                    result_text = f"### {rel_path} (lines {start}–{end})\n```\n{read_result['content']}\n```"
                 else:
-                    logger.warning(
-                        "⚠️ planner: path not found in worktree: %r (run_id=%s) — executor will fail",
-                        op.file,
-                        run_id,
-                    )
+                    result_text = f"Error: {read_result.get('error', 'unknown')}"
+                logger.info(
+                    "✅ planner: read_file_lines(%s, %d-%d)", rel_path, start, end
+                )
 
-    logger.info(
-        "✅ planner: generated plan for run_id=%s — %d operation(s): %s",
-        run_id,
-        len(plan.operations),
-        [f"{op.tool}({op.file})" for op in plan.operations],
-    )
-    return plan
+            elif tool_name == "submit_plan":
+                ops_raw = args.get("operations", [])
+                plan_result = _validate_operations(ops_raw, run_id, issue_number)
+                if plan_result is not None:
+                    result_text = json.dumps(
+                        {
+                            "ok": True,
+                            "operation_count": len(plan_result.operations),
+                            "operations": [
+                                f"{op.tool}({op.file})" for op in plan_result.operations
+                            ],
+                        }
+                    )
+                    logger.info(
+                        "✅ planner: submit_plan accepted — %d operation(s): %s",
+                        len(plan_result.operations),
+                        [f"{op.tool}({op.file})" for op in plan_result.operations],
+                    )
+                else:
+                    result_text = json.dumps({"ok": False, "error": "validation failed"})
+                    logger.warning("⚠️ planner: submit_plan rejected — validation failed")
+                done = True
+
+            else:
+                result_text = f"Unknown tool: {tool_name}"
+                logger.warning("⚠️ planner: unknown tool call: %s", tool_name)
+
+            tool_result_messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": result_text,
+                }
+            )
+
+        messages.extend(tool_result_messages)
+
+        if done:
+            break
+
+    if plan_result is None:
+        logger.warning(
+            "⚠️ planner: loop ended without submit_plan for run_id=%s", run_id
+        )
+    return plan_result
