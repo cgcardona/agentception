@@ -139,9 +139,11 @@ _SEARCH_TOOL_NAMES: frozenset[str] = frozenset({
     "search_text",
 })
 
-# How many consecutive no-write iterations trigger the loop-guard.
-# Set to 2: with files pre-loaded in the task briefing, the agent has no
-# legitimate reason to spend more than one iteration doing reads before writing.
+# Minimum consecutive no-write iterations before the loop-guard fires.
+# The actual per-run threshold is max(_LOOP_GUARD_THRESHOLD, max_iterations // 10),
+# computed at loop start — so a 20-iteration executor gets 2, a 100-iteration
+# developer gets 10, a 200-iteration deep task gets 20. Floor at 2 so the
+# guard always fires eventually even on minimal budgets.
 _LOOP_GUARD_THRESHOLD: int = 2
 
 # ---------------------------------------------------------------------------
@@ -497,6 +499,11 @@ async def run_agent_loop(
     # reviewer intercepts merge_pull_request and forces confusing retries.
     # The iteration ceiling (100) is the backstop for runaway reviewers.
     loop_guard_enabled: bool = task.role != "reviewer"
+    # Scale the guard threshold with the iteration budget so a 10-iteration
+    # executor (threshold=2) gets tighter enforcement than a 100-iteration
+    # developer working through a large file (threshold=10).  Floor at 2 so
+    # the guard always fires eventually, even on minimal budgets.
+    loop_guard_threshold: int = max(2, max_iterations // 10)
     iterations_since_write: int = 0
     # Maps normalised search query → how many times it has been used this run.
     # When a query appears >= 2 times the symbol is declared absent and the
@@ -561,14 +568,14 @@ async def run_agent_loop(
             })
 
         # Loop-guard enforcement — fires when the agent has not written any code
-        # for _LOOP_GUARD_THRESHOLD consecutive iterations.
+        # for loop_guard_threshold consecutive iterations (scaled to max_iterations).
         #
         # The tool list is intentionally kept CONSTANT across all iterations
         # (no narrowing when guard fires).  Changing the tool list busts
         # Anthropic's prompt cache on the tool-catalogue block, turning every
-        # guarded turn from a cheap cache-read into a full cache-write.  With
-        # a threshold of 2, the list would flip every 2-3 turns and the cache
-        # would almost never hit — costing ~10× more per token.
+        # guarded turn from a cheap cache-read into a full cache-write.
+        # Enforcement is via interception only: calls to non-write tools during
+        # guard mode are rejected with a synthetic error.
         #
         # Instead, interception alone enforces the guard: the model is sent the
         # full tool list, but any call to a non-permitted tool during guard mode
@@ -577,8 +584,8 @@ async def run_agent_loop(
         # write tool on the next turn — same behavioural outcome, no cache bust.
         guard_active = (
             loop_guard_enabled
-            and iteration > _LOOP_GUARD_THRESHOLD
-            and iterations_since_write >= _LOOP_GUARD_THRESHOLD
+            and iteration > loop_guard_threshold
+            and iterations_since_write >= loop_guard_threshold
         )
         # Always pass the full (constant) tool list so the cache key is stable.
         active_tool_defs: list[ToolDefinition] = tool_defs
