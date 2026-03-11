@@ -28,6 +28,7 @@ new routes added to ``/api/*`` are protected automatically.
 
 from __future__ import annotations
 
+import hmac
 import logging
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -59,7 +60,7 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         provided = _extract_key(request)
-        if provided != settings.ac_api_key:
+        if not hmac.compare_digest(provided, settings.ac_api_key):
             logger.warning(
                 "⚠️ auth — rejected %s %s from %s (invalid or missing key)",
                 request.method,
