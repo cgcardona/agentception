@@ -540,8 +540,19 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
             or non-standard name not passed via ``pr_branch``).
         HTTPException 500: git worktree add or git auth configuration failed.
     """
-    run_id = f"issue-{req.issue_number}"
-    slug = f"issue-{req.issue_number}"
+    is_reviewer = req.role == "pr-reviewer"
+
+    # Reviewers get their own run_id and worktree slug so they don't clobber the
+    # implementer's DB row (token counts, status history, etc.).
+    # slug: review-{pr_number}  →  worktree at /worktrees/review-{pr_number}
+    # Implementers always use the issue-{N} slug.
+    if is_reviewer and req.pr_number is not None:
+        slug = f"review-{req.pr_number}"
+        run_id = f"review-{req.pr_number}"
+    else:
+        slug = f"issue-{req.issue_number}"
+        run_id = f"issue-{req.issue_number}"
+
     # For reviewer dispatches the PR branch may not follow feat/issue-{N} naming
     # (e.g. feat/reviewer-branch-orientation).  pr_branch overrides the default.
     branch = req.pr_branch if req.pr_branch else f"feat/issue-{req.issue_number}"
@@ -550,8 +561,6 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
     host_worktree_path = str(Path(settings.host_worktrees_dir) / slug)
 
     from agentception.readers.git import ensure_worktree  # noqa: PLC0415
-
-    is_reviewer = req.role == "pr-reviewer"
 
     if is_reviewer:
         # For reviewers the relevant code lives on the implementer's branch, not
