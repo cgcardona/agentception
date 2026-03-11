@@ -41,6 +41,7 @@ async def transcripts_browser(request: Request) -> HTMLResponse:
         if tr_root is not None:
             transcripts_dir_str = str(tr_root)
             all_transcripts = await index_transcripts(tr_root)
+            _all_transcripts_for_roles = all_transcripts
 
             # Server-side filter pass
             for t in all_transcripts:
@@ -63,10 +64,9 @@ async def transcripts_browser(request: Request) -> HTMLResponse:
         error = str(exc)
 
     # Collect unique roles from the full unfiltered index for the filter UI
-    # (re-use transcripts if no filters active, otherwise do a second pass cheaply)
     all_roles: list[str] = []
     seen_roles: set[str] = set()
-    for t in transcripts:
+    for t in (_all_transcripts_for_roles if '_all_transcripts_for_roles' in dir() else transcripts):
         r = str(t.get("role") or "unknown")
         if r not in seen_roles:
             seen_roles.add(r)
