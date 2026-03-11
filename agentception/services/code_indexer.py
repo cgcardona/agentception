@@ -638,21 +638,21 @@ async def _fetch_indexed_hashes(
 
 # ── Qdrant helpers ────────────────────────────────────────────────────────────
 
-_UPSERT_BATCH = 16  # points per upsert call — smaller batches give more frequent progress logs
-                    # and reduce the per-batch latency spike from large code chunks.
-
-# Safety cap on the embed text length fed to the dense model.
-# ONNX attention is O(n²) in sequence length — a single outlier chunk in a
-# batch pads every other chunk to the same length, multiplying batch latency.
+# Dynamic batching: pack chunks into variable-size batches so that the TOTAL
+# enriched-text length across the batch stays bounded.  FastEmbed pads every
+# sequence in a batch to the length of the longest one before running ONNX
+# attention (O(n²) in sequence length).  One 8 000-char chunk in a 16-chunk
+# batch makes the model treat all 16 as 2 000-token sequences:
+#   16 × 2 000² × 2 bytes = ~128 MB of attention weights alone.
+# By capping the SUM of lengths, large chunks automatically get smaller
+# batches with no truncation and bounded memory usage.
 #
-# Observed maximums in this codebase's application code: ~6 060 chars
-# (get_issues_grouped_by_phase, get_prs_grouped_by_phase).  8 000 chars
-# ≈ 2 000 tokens covers all legitimate functions with comfortable headroom.
-# Worst-case batch time for an 8k chunk: (8000/1500)² ≈ 28× a 375-char batch
-# ≈ 15-20 s — acceptable.  Auto-generated files that previously caused
-# catastrophic stalls (alembic/versions, 10k+ chars) are excluded by
-# _SKIP_PATH_PAIRS and never reach this path.
-_MAX_EMBED_CHARS = 8_000
+# _MAX_BATCH_TOTAL_CHARS = 16 × 1 500 (typical small-chunk size) = 24 000.
+# Examples:
+#   16 × 1 500-char chunks  → batch of 16  (typical case, same as before)
+#    3 × 8 000-char chunks  → batch of  3  (large functions, ~8× less RAM)
+#    1 × 14 000-char chunk  → batch of  1  (outliers embedded solo)
+_MAX_BATCH_TOTAL_CHARS = 24_000
 
 
 async def _ensure_collection(client: "AsyncQdrantClient", collection: str) -> None:
@@ -882,12 +882,41 @@ async def index_codebase(
 
             from qdrant_client.models import SparseVector  # noqa: PLC0415
 
-            n_batches = (len(all_chunks) + _UPSERT_BATCH - 1) // _UPSERT_BATCH
-            batch_errors = 0
+            # Pre-compute enriched texts for all chunks so we can measure each
+            # chunk's length before deciding batch boundaries.  Enrichment
+            # prepends the file path and symbol name to anchor the dense vector.
+            all_enriched: list[str] = [
+                f"# {c['file']}\n# {c['symbol']}\n{c['text']}"
+                if c["symbol"]
+                else f"# {c['file']}\n{c['text']}"
+                for c in all_chunks
+            ]
 
-            for batch_start in range(0, len(all_chunks), _UPSERT_BATCH):
-                batch = all_chunks[batch_start : batch_start + _UPSERT_BATCH]
-                batch_num = batch_start // _UPSERT_BATCH + 1
+            # Build dynamic batches: pack until adding the next chunk would
+            # exceed _MAX_BATCH_TOTAL_CHARS, then start a new batch.
+            dyn_batches: list[tuple[list[_ChunkSpec], list[str]]] = []
+            cur_chunks: list[_ChunkSpec] = []
+            cur_texts: list[str] = []
+            cur_total = 0
+            for chunk, text in zip(all_chunks, all_enriched):
+                text_len = len(text)
+                if cur_chunks and cur_total + text_len > _MAX_BATCH_TOTAL_CHARS:
+                    dyn_batches.append((cur_chunks, cur_texts))
+                    cur_chunks = [chunk]
+                    cur_texts = [text]
+                    cur_total = text_len
+                else:
+                    cur_chunks.append(chunk)
+                    cur_texts.append(text)
+                    cur_total += text_len
+            if cur_chunks:
+                dyn_batches.append((cur_chunks, cur_texts))
+
+            n_batches = len(dyn_batches)
+            batch_errors = 0
+            chunk_offset = 0
+
+            for batch_num, (batch, embed_texts) in enumerate(dyn_batches, start=1):
                 batch_files = sorted({c["file"] for c in batch})
                 t_batch = _time.monotonic()
 
@@ -895,36 +924,11 @@ async def index_codebase(
                     "✅ code_indexer — batch %d/%d [chunks %d–%d] files: %s",
                     batch_num,
                     n_batches,
-                    batch_start,
-                    batch_start + len(batch) - 1,
+                    chunk_offset,
+                    chunk_offset + len(batch) - 1,
                     batch_files[:3],
                 )
-
-                # Enrich each chunk with its file path and symbol name before
-                # embedding.  Prepending this metadata anchors the dense vector
-                # to the chunk's location and identity, so "create a worktree"
-                # scores highest for the *implementation* in worktrees.py rather
-                # than callers or tests that reference the same function name.
-                # Truncate to _MAX_EMBED_CHARS to prevent O(n²) attention stalls
-                # on very large method bodies (Jina's context window is 8192 tokens).
-                raw_embed_texts = [
-                    f"# {c['file']}\n# {c['symbol']}\n{c['text']}"
-                    if c["symbol"]
-                    else f"# {c['file']}\n{c['text']}"
-                    for c in batch
-                ]
-                embed_texts = [t[:_MAX_EMBED_CHARS] for t in raw_embed_texts]
-
-                oversized = [(i, len(t)) for i, t in enumerate(raw_embed_texts) if len(t) > _MAX_EMBED_CHARS]
-                if oversized:
-                    for idx, length in oversized:
-                        logger.warning(
-                            "⚠️ code_indexer — chunk truncated %d→%d chars: %s %s",
-                            length,
-                            _MAX_EMBED_CHARS,
-                            batch[idx]["file"],
-                            batch[idx]["symbol"],
-                        )
+                chunk_offset += len(batch)
 
                 try:
                     t0 = _time.monotonic()
