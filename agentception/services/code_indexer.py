@@ -638,21 +638,29 @@ async def _fetch_indexed_hashes(
 
 # ── Qdrant helpers ────────────────────────────────────────────────────────────
 
-# Dynamic batching: pack chunks into variable-size batches so that the TOTAL
-# enriched-text length across the batch stays bounded.  FastEmbed pads every
-# sequence in a batch to the length of the longest one before running ONNX
-# attention (O(n²) in sequence length).  One 8 000-char chunk in a 16-chunk
-# batch makes the model treat all 16 as 2 000-token sequences:
-#   16 × 2 000² × 2 bytes = ~128 MB of attention weights alone.
-# By capping the SUM of lengths, large chunks automatically get smaller
-# batches with no truncation and bounded memory usage.
+# Dynamic batching — padded-cost model.
 #
-# _MAX_BATCH_TOTAL_CHARS = 16 × 1 500 (typical small-chunk size) = 24 000.
+# FastEmbed passes the entire batch to ONNX as a single tensor padded to the
+# LONGEST sequence.  The attention compute and peak memory scale as:
+#
+#   cost = n_chunks × max_seq_len²   (O(n²) attention per chunk, n chunks)
+#
+# Capping Σ(lengths) (our previous approach) is wrong: a batch of 27 small
+# chunks plus one 6 268-char chunk pads ALL 27 to ~1 567 tokens, making the
+# effective cost 27 × 1 567² ≈ 66 M — far above the budget — while the sum
+# of lengths (say 18 000 chars) looks safe.
+#
+# Correct constraint: n_chunks × max_len ≤ _MAX_PADDED_CHARS where
+# _MAX_PADDED_CHARS = 16 × 1 500 = 24 000 (16 typical chunks at 1 500 chars).
+# This means the padded tensor fed to ONNX is never wider than it would be
+# for a homogeneous batch of 16 average-sized chunks.
+#
 # Examples:
-#   16 × 1 500-char chunks  → batch of 16  (typical case, same as before)
-#    3 × 8 000-char chunks  → batch of  3  (large functions, ~8× less RAM)
-#    1 × 14 000-char chunk  → batch of  1  (outliers embedded solo)
-_MAX_BATCH_TOTAL_CHARS = 24_000
+#   16 × 1 500-char chunks → 16 × 1 500 = 24 000 → batch of 16  (typical)
+#    3 × 6 268-char chunks → 3  × 6 268 = 18 804 → batch of  3  (large fns)
+#    4 × 6 268-char chunks → 4  × 6 268 = 25 072 > 24 000 → flush at 3
+#    1 × 14 000-char chunk → 1  × 14 000 = 14 000 → solo batch  (outlier)
+_MAX_PADDED_CHARS = 24_000
 
 
 async def _ensure_collection(client: "AsyncQdrantClient", collection: str) -> None:
@@ -905,23 +913,27 @@ async def index_codebase(
                 for c in all_chunks
             ]
 
-            # Build dynamic batches: pack until adding the next chunk would
-            # exceed _MAX_BATCH_TOTAL_CHARS, then start a new batch.
+            # Build dynamic batches using the padded-cost model.
+            # Adding a new chunk raises the effective cost to
+            # (n + 1) × max(cur_max_len, new_len).  Flush the current batch
+            # before that cost would exceed _MAX_PADDED_CHARS.
             dyn_batches: list[tuple[list[_ChunkSpec], list[str]]] = []
             cur_chunks: list[_ChunkSpec] = []
             cur_texts: list[str] = []
-            cur_total = 0
+            cur_max_len = 0
             for chunk, text in zip(all_chunks, all_enriched):
                 text_len = len(text)
-                if cur_chunks and cur_total + text_len > _MAX_BATCH_TOTAL_CHARS:
+                projected_max = max(cur_max_len, text_len)
+                projected_cost = (len(cur_chunks) + 1) * projected_max
+                if cur_chunks and projected_cost > _MAX_PADDED_CHARS:
                     dyn_batches.append((cur_chunks, cur_texts))
                     cur_chunks = [chunk]
                     cur_texts = [text]
-                    cur_total = text_len
+                    cur_max_len = text_len
                 else:
                     cur_chunks.append(chunk)
                     cur_texts.append(text)
-                    cur_total += text_len
+                    cur_max_len = projected_max
             if cur_chunks:
                 dyn_batches.append((cur_chunks, cur_texts))
 
@@ -934,12 +946,17 @@ async def index_codebase(
                 t_batch = _time.monotonic()
                 rss_before = _rss_mb()
 
+                padded_cost = len(batch) * max(len(t) for t in embed_texts)
                 logger.info(
-                    "✅ code_indexer — batch %d/%d [chunks %d–%d] rss=%.0fMiB files: %s",
+                    "✅ code_indexer — batch %d/%d [chunks %d–%d] "
+                    "n=%d max=%d cost=%d rss=%.0fMiB files: %s",
                     batch_num,
                     n_batches,
                     chunk_offset,
                     chunk_offset + len(batch) - 1,
+                    len(batch),
+                    max(len(t) for t in embed_texts),
+                    padded_cost,
                     rss_before,
                     batch_files[:3],
                 )
