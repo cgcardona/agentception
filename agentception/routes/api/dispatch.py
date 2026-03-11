@@ -272,6 +272,30 @@ async def regenerate_prompts() -> RegenerateResponse:
 
 
 # ---------------------------------------------------------------------------
+# POST /api/dispatch/launch — return dispatcher prompt as JSON
+# ---------------------------------------------------------------------------
+
+
+class LaunchPromptResponse(BaseModel):
+    """Response shape for ``POST /api/dispatch/launch``."""
+
+    ok: bool
+    prompt: str
+    error: str | None = None
+
+
+@router.post("/launch", response_model=LaunchPromptResponse)
+async def launch_dispatcher_prompt() -> LaunchPromptResponse:
+    """Read .agentception/agent-conductor.md and return its contents as JSON."""
+    conductor_path = Path(settings.repo_dir) / ".agentception" / "agent-conductor.md"
+    try:
+        contents = conductor_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return LaunchPromptResponse(ok=False, prompt="", error="agent-conductor.md not found")
+    return LaunchPromptResponse(ok=True, prompt=contents)
+
+
+# ---------------------------------------------------------------------------
 # GET /api/dispatch/context — label context for the launch modal
 # ---------------------------------------------------------------------------
 
