@@ -2587,6 +2587,23 @@ async def get_agent_run_teardown(run_id: str) -> AgentRunTeardownRow | None:
         return None
 
 
+async def get_agent_run_role(run_id: str) -> str | None:
+    """Return the role of a single agent run, or None if not found / on error.
+
+    Intentionally lightweight — fetches only the role column.
+    """
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun.role).where(ACAgentRun.id == run_id)
+            )
+            row = result.one_or_none()
+        return row[0] if row is not None else None
+    except Exception as exc:
+        logger.warning("⚠️  get_agent_run_role DB query failed (non-fatal): %s", exc)
+        return None
+
+
 class TerminalRunRow(TypedDict):
     """Minimal run fields needed by the worktree reaper."""
 

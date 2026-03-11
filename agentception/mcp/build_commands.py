@@ -34,7 +34,7 @@ from agentception.db.persist import (
     resume_agent_run,
     stop_agent_run,
 )
-
+from agentception.db.queries import get_agent_run_role
 
 from agentception.services.auto_reviewer import auto_dispatch_reviewer
 from agentception.services.spawn_child import ScopeType, SpawnChildError, Tier, spawn_child
@@ -228,12 +228,21 @@ async def build_complete_run(
         issue_number, pr_url, agent_run_id,
     )
 
-    # Auto-dispatch a pr-reviewer for every completed implementer run.
-    # Fire-and-forget: reviewer failure never affects the implementer's result.
-    asyncio.create_task(
-        auto_dispatch_reviewer(issue_number=issue_number, pr_url=pr_url),
-        name=f"auto-reviewer-{issue_number}",
-    )
+    # Auto-dispatch a pr-reviewer for completed implementer runs only.
+    # Skip when the completing run is itself a pr-reviewer to prevent an
+    # infinite reviewer → reviewer → … dispatch loop.
+    caller_role = await get_agent_run_role(agent_run_id) if agent_run_id else None
+    if caller_role == "pr-reviewer":
+        logger.info(
+            "ℹ️ build_complete_run: skipping auto-reviewer (caller is pr-reviewer) run_id=%r",
+            agent_run_id,
+        )
+    else:
+        # Fire-and-forget: reviewer failure never affects the implementer's result.
+        asyncio.create_task(
+            auto_dispatch_reviewer(issue_number=issue_number, pr_url=pr_url),
+            name=f"auto-reviewer-{issue_number}",
+        )
 
     return {"ok": True, "event": "done", "status": "completed"}
 

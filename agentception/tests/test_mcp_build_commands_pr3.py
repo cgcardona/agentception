@@ -328,3 +328,87 @@ async def test_claim_stop_resume_flow() -> None:
         )
 
     assert json.loads(resume_result["content"][0]["text"])["status"] == "implementing"
+
+
+# ---------------------------------------------------------------------------
+# Regression: pr-reviewer must not trigger a second reviewer
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_build_complete_run_reviewer_does_not_redispatch_reviewer() -> None:
+    """When a pr-reviewer calls build_complete_run, no auto-reviewer is dispatched.
+
+    Regression for the infinite reviewer loop: reviewer merges PR → calls
+    build_complete_run → auto_dispatch_reviewer → second reviewer → …
+    """
+    with (
+        patch(
+            "agentception.mcp.build_commands.persist_agent_event",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agentception.mcp.build_commands.complete_agent_run",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands.get_agent_run_role",
+            new_callable=AsyncMock,
+            return_value="pr-reviewer",
+        ) as mock_role,
+        patch(
+            "agentception.mcp.build_commands.auto_dispatch_reviewer",
+            new_callable=AsyncMock,
+        ) as mock_dispatch,
+        patch("asyncio.create_task"),
+    ):
+        result = await call_tool_async(
+            "build_complete_run",
+            {
+                "issue_number": 449,
+                "pr_url": "https://github.com/owner/repo/pull/553",
+                "agent_run_id": "issue-449",
+            },
+        )
+
+    assert json.loads(result["content"][0]["text"])["ok"] is True
+    mock_role.assert_awaited_once_with("issue-449")
+    mock_dispatch.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_build_complete_run_implementer_does_redispatch_reviewer() -> None:
+    """When a developer calls build_complete_run, reviewer IS dispatched."""
+    with (
+        patch(
+            "agentception.mcp.build_commands.persist_agent_event",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agentception.mcp.build_commands.complete_agent_run",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands.get_agent_run_role",
+            new_callable=AsyncMock,
+            return_value="developer",
+        ),
+        patch(
+            "agentception.mcp.build_commands.auto_dispatch_reviewer",
+            new_callable=AsyncMock,
+        ),
+        patch("asyncio.create_task") as mock_create_task,
+    ):
+        result = await call_tool_async(
+            "build_complete_run",
+            {
+                "issue_number": 42,
+                "pr_url": "https://github.com/owner/repo/pull/100",
+                "agent_run_id": "issue-42",
+            },
+        )
+
+    assert json.loads(result["content"][0]["text"])["ok"] is True
+    mock_create_task.assert_called_once()
