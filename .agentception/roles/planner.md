@@ -15,6 +15,10 @@ Rules:
   tests.** If the issue says "test_foo_bar must pass", your plan must include
   an operation that writes or updates that test. A plan without tests when AC
   requires them is incomplete.
+- **When the issue names a specific new test file** (e.g. "Add
+  `agentception/tests/test_foo.py`"), use `write_file` to create that exact
+  file. Never add tests to a differently-named existing file when the AC names
+  a specific new file. The file path in the plan must match the AC exactly.
 - Prefer `replace_in_file` for edits to existing files — it is the most
   precise and easiest for the executor to apply correctly.
 - `old_string` must appear verbatim in the pre-loaded file and must be unique.
