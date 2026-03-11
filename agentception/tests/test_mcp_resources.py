@@ -123,12 +123,22 @@ def test_all_resources_have_required_fields() -> None:
 
 
 def test_all_resource_templates_have_required_fields() -> None:
-    """Every resource template has uriTemplate, name, description, and mimeType."""
+    """Every resource template has uriTemplate, name, description, and mimeType.
+
+    Most templates return JSON; the task template returns plain text because
+    task_context is a raw Markdown/text string, not a structured payload.
+    """
+    _text_plain_templates = {"ac://runs/{run_id}/task"}
     for t in RESOURCE_TEMPLATES:
         assert t["uriTemplate"]
         assert t["name"]
         assert t["description"]
-        assert t["mimeType"] == "application/json"
+        expected_mime = (
+            "text/plain"
+            if t["uriTemplate"] in _text_plain_templates
+            else "application/json"
+        )
+        assert t["mimeType"] == expected_mime
 
 
 def test_list_resources_returns_full_catalogue() -> None:
@@ -752,3 +762,36 @@ async def test_read_resource_empty_uri_returns_error() -> None:
     result = await read_resource("")
     payload = _content(result)
     assert "error" in payload
+
+
+@pytest.mark.anyio
+async def test_run_task_resource() -> None:
+    """ac://runs/{run_id}/task returns task_context text for a valid run_id,
+    and a -32002 error payload for an unknown run_id.
+    """
+    task_text = "## My Task\n\nDo the thing."
+
+    # Happy path: run exists, task_context is returned as plain text.
+    with patch(
+        "agentception.mcp.resources.query_run_task",
+        new_callable=AsyncMock,
+        return_value={"ok": True, "task_context": task_text},
+    ):
+        result = await read_resource("ac://runs/issue-449/task")
+
+    # The result should be a success response with text content.
+    assert result is not None
+    contents = result["contents"]  # type: ignore[index]
+    assert len(contents) == 1
+    assert contents[0]["text"] == task_text
+
+    # Failure path: run does not exist → error payload with ok=False.
+    with patch(
+        "agentception.mcp.resources.query_run_task",
+        new_callable=AsyncMock,
+        return_value={"ok": False, "error": "Run 'issue-999' not found"},
+    ):
+        error_result = await read_resource("ac://runs/issue-999/task")
+
+    error_payload = _content(error_result)
+    assert error_payload["ok"] is False

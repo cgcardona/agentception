@@ -27,6 +27,7 @@ Templated resources (RFC 6570)
     ac://runs/{run_id}/children         — child runs spawned by this run
     ac://runs/{run_id}/events           — full structured event log
     ac://runs/{run_id}/events?after_id={n} — paginated event log (n > 0)
+    ac://runs/{run_id}/task             — raw task_context text for a run
 
     ac://batches/{batch_id}/tree        — all runs in a batch, flat list
     ac://plan/figures/{role}            — cognitive-arch figures for a role
@@ -54,6 +55,7 @@ from agentception.mcp.query_tools import (
     query_run,
     query_run_context,
     query_run_events,
+    query_run_task,
     query_run_tree,
     query_system_health,
 )
@@ -236,6 +238,17 @@ RESOURCE_TEMPLATES: list[ACResourceTemplate] = [
             "Returns ok=false when the run does not exist."
         ),
         mimeType=_MIME,
+    ),
+    ACResourceTemplate(
+        uriTemplate="ac://runs/{run_id}/task",
+        name="Run task briefing",
+        description=(
+            "Raw task_context text for a run — the agent's full task briefing as "
+            "stored in ac_agent_runs.task_context. "
+            "Returns plain text (text/plain) rather than JSON. "
+            "Returns a ResourceNotFound error when the run does not exist."
+        ),
+        mimeType="text/plain",
     ),
 
     ACResourceTemplate(
@@ -435,6 +448,35 @@ def _content(uri: str, data: dict[str, object]) -> ACResourceResult:
     )
 
 
+def _text_content(uri: str, text: str) -> ACResourceResult:
+    """Wrap a plain-text string into a single-item ACResourceResult."""
+    return ACResourceResult(
+        contents=[
+            ACResourceContent(
+                uri=uri,
+                mimeType="text/plain",
+                text=text,
+            )
+        ]
+    )
+
+
+async def _read_run_task(uri: str, run_id: str) -> ACResourceResult:
+    """Return the raw task_context text for a run.
+
+    Queries ac_agent_runs for the given run_id and returns the task_context
+    field as a plain-text resource.  Returns a ResourceNotFound error payload
+    (code -32002) when the run does not exist.
+    """
+    result = await query_run_task(run_id)
+    if not result.get("ok"):
+        return _content(
+            uri,
+            {"ok": False, "error": {"code": -32002, "message": f"Run {run_id!r} not found"}},
+        )
+    return _text_content(uri, str(result.get("task_context") or ""))
+
+
 def _not_found(uri: str) -> ACResourceResult:
     return _content(uri, {"error": f"Unknown resource URI: {uri!r}"})
 
@@ -531,6 +573,9 @@ async def _dispatch(
 
             if sub == "context" and len(path_parts) == 2:
                 return _content(uri, await query_run_context(run_id))
+
+            if sub == "task" and len(path_parts) == 2:
+                return await _read_run_task(uri, run_id)
 
             if sub == "events" and len(path_parts) == 2:
                 after_id_vals = query.get("after_id", [])

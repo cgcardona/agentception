@@ -109,6 +109,30 @@ async def query_run_context(run_id: str) -> dict[str, object]:
     return {"ok": True, "context": dict(row)}
 
 
+async def query_run_task(run_id: str) -> dict[str, object]:
+    """Return the raw task_context string for a single run.
+
+    Serves the ``ac://runs/{run_id}/task`` MCP resource.  Unlike
+    ``query_run_context``, which returns the full structured context as JSON,
+    this returns only the ``task_context`` field as plain text — the verbatim
+    briefing that was injected into the agent's prompt at dispatch time.
+
+    Args:
+        run_id: The run ID to look up.
+
+    Returns:
+        ``{"ok": True, "task_context": "..."}`` when found, or
+        ``{"ok": False, "error": "..."}`` when the run does not exist.
+    """
+    row = await get_run_context(run_id)
+    if row is None:
+        logger.warning("🔍 query_run_task: run_id=%r not found", run_id)
+        return {"ok": False, "error": f"Run {run_id!r} not found"}
+    task_context = row.get("task_context") or ""
+    logger.info("✅ query_run_task: found run_id=%r (%d chars)", run_id, len(str(task_context)))
+    return {"ok": True, "task_context": task_context}
+
+
 async def query_children(run_id: str) -> dict[str, object]:
     """Return all runs spawned by *run_id*, ordered by spawn time.
 
