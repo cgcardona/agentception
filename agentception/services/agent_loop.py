@@ -1719,6 +1719,23 @@ def _auto_track_file_read(file_path: Path, worktree_path: Path) -> None:
         pass
 
 
+def _session_writes_note(worktree_path: Path) -> dict[str, str]:
+    """Return a dict with a 'session_writes' key listing all files written so far.
+
+    Merged into every successful write tool result so the list stays visible
+    in the conversation history — not just in the secondary memory block —
+    where the agent's recency attention is strongest.
+    """
+    try:
+        mem = read_memory(worktree_path)
+        written: list[str] = list(mem.get("files_written", [])) if mem else []
+        if written:
+            return {"session_writes": "Already written this session — do NOT re-implement: " + ", ".join(written)}
+    except Exception:  # noqa: BLE001
+        pass
+    return {}
+
+
 def _auto_track_file_write(rel_path: str, worktree_path: Path) -> None:
     """Record *rel_path* in ``files_written`` after every successful file write.
 
@@ -1905,6 +1922,7 @@ async def _dispatch_local_tool(
         )
         if result.get("ok"):
             _auto_track_file_write(path_raw, worktree_path)
+            result = {**result, **_session_writes_note(worktree_path)}
         return result
 
     if name == "insert_after_in_file":
@@ -1924,6 +1942,7 @@ async def _dispatch_local_tool(
         )
         if result.get("ok"):
             _auto_track_file_write(path_raw, worktree_path)
+            result = {**result, **_session_writes_note(worktree_path)}
         return result
 
     if name == "write_file":
@@ -1936,6 +1955,7 @@ async def _dispatch_local_tool(
         result = write_file(_resolve(path_raw, worktree_path), content_raw)
         if result.get("ok"):
             _auto_track_file_write(path_raw, worktree_path)
+            result = {**result, **_session_writes_note(worktree_path)}
         return result
 
     if name == "list_directory":
