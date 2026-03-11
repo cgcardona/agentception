@@ -125,8 +125,11 @@ _AC_CHECKBOX_RE = re.compile(r"^-\s+\[[ xX]\]\s+(.+)$")
 _SECTION_HEADER_RE = re.compile(r"^#{1,3}\s+")
 # Matches the acceptance criteria section header (case-insensitive)
 _AC_HEADER_RE = re.compile(r"^#{1,3}\s+acceptance criteria", re.IGNORECASE)
-# Matches file paths with at least one slash, e.g. agentception/db/models.py
-_AC_FILE_PATH_RE = re.compile(r"`([a-zA-Z0-9_./-]+\.[a-zA-Z]+)`")
+# Matches backtick-quoted file paths, e.g. `agentception/db/models.py`
+_AC_FILE_PATH_RE = re.compile(r"`([a-zA-Z0-9_./-]+\.[a-zA-Z0-9]+)`")
+# Matches plain (unquoted) relative file paths, e.g. agentception/mcp/__init__.py
+# Requires at least one slash so bare words like "foo.py" are not matched.
+_PLAIN_FILE_PATH_RE = re.compile(r"\b([a-zA-Z0-9_.][a-zA-Z0-9_./]*(?:/[a-zA-Z0-9_.]+)+\.[a-zA-Z0-9]+)\b")
 
 # Max lines to inject per file.  Beyond this, the tail is truncated with a
 # notice — the agent can always read_file_lines for deeper context if needed.
@@ -164,21 +167,26 @@ def _extract_ac_items(issue_body: str) -> list[str]:
 
 
 def _extract_ac_file_paths(issue_body: str) -> list[str]:
-    """Return unique file paths (with at least one slash) mentioned in AC items.
+    """Return unique file paths (with at least one slash) mentioned in the issue body.
 
-    Scans every backtick-quoted token in the issue body for tokens that look
-    like relative file paths (contain ``/`` and an extension).  Deduplicates
-    and sorts so the order is deterministic across runs.
+    Scans both backtick-quoted tokens and plain unquoted text for tokens that
+    look like relative file paths (contain ``/`` and have a file extension).
+    Deduplicates and sorts so the order is deterministic across runs.
 
-    Examples of matches:
+    Examples of matches (backtick-quoted or plain):
         ``agentception/db/models.py``
-        ``agentception/alembic/versions/0009_add_contract_hash.py``
-        ``agentception/README.md``
+        agentception/mcp/__init__.py
+        ``.cursor/mcp.json``
     """
     paths: set[str] = set()
     for match in _AC_FILE_PATH_RE.finditer(issue_body):
         candidate = match.group(1)
         if "/" in candidate:
+            paths.add(candidate)
+    for match in _PLAIN_FILE_PATH_RE.finditer(issue_body):
+        candidate = match.group(1)
+        # Exclude URLs and other non-path patterns.
+        if not candidate.startswith(("http", "www")):
             paths.add(candidate)
     return sorted(paths)
 

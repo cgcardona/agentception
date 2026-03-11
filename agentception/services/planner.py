@@ -340,6 +340,37 @@ async def generate_execution_plan(
         logger.warning("⚠️ planner: could not parse ExecutionPlan from LLM response")
         return None
 
+    # Validate and auto-correct operation file paths.  The LLM sometimes
+    # generates paths with a spurious leading component (e.g.
+    # ``agentception/.cursor/mcp.json`` instead of ``.cursor/mcp.json``).
+    # For read/modify operations we can fix this by stripping leading
+    # components until the file is found; write_file creates new files so
+    # there is nothing to validate against.
+    for op in plan.operations:
+        if op.tool in ("replace_in_file", "insert_after_in_file"):
+            if not (worktree_path / op.file).exists():
+                parts = Path(op.file).parts
+                corrected: str | None = None
+                for i in range(1, len(parts)):
+                    candidate = str(Path(*parts[i:]))
+                    if (worktree_path / candidate).exists():
+                        corrected = candidate
+                        break
+                if corrected is not None:
+                    logger.warning(
+                        "⚠️ planner: corrected path %r → %r for run_id=%s",
+                        op.file,
+                        corrected,
+                        run_id,
+                    )
+                    op.file = corrected
+                else:
+                    logger.warning(
+                        "⚠️ planner: path not found in worktree: %r (run_id=%s) — executor will fail",
+                        op.file,
+                        run_id,
+                    )
+
     logger.info(
         "✅ planner: generated plan for run_id=%s — %d operation(s): %s",
         run_id,
