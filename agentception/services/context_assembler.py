@@ -31,9 +31,16 @@ _MAX_SCOPE_CHARS: int = 3_000    # max chars per extracted scope body
 _MAX_SCOPES: int = 12            # cap on number of scopes to include
 _MAX_CONTEXT_CHARS: int = 30_000 # hard cap on total assembled output
 
+# Files named explicitly in an issue body are injected verbatim when they are
+# ≤ this many lines.  Larger files are left for the agent to search selectively.
+_MAX_INJECT_LINES: int = 400
+
 # Regex that matches a backtick-wrapped code reference in Markdown.
 # Captures the inner text (no newlines, 2–80 chars).
 _RE_BACKTICK = re.compile(r"`([^`\n]{2,80})`")
+
+# Regex that matches what looks like a file path (contains a '/' and a '.' in the last segment).
+_RE_FILE_PATH = re.compile(r"^[\w./\-]+/[\w.\-]+$")
 
 # Heuristic: a backtick-wrapped item is a code artifact (not prose) when it
 # contains a path separator, an underscore, or starts with an uppercase letter
@@ -110,6 +117,45 @@ def _extract_code_queries(issue_title: str, issue_body: str) -> list[str]:
                 queries.append(gap_text)
 
     return queries[:5]  # hard cap at 5 parallel queries
+
+
+def _extract_named_file_paths(issue_body: str) -> list[str]:
+    """Return file paths explicitly named in backticks inside the issue body.
+
+    Only returns items that look like relative file paths (contain ``/`` and a
+    ``.`` extension in the last segment).  Paths are deduplicated and ordered by
+    first appearance.
+    """
+    seen: set[str] = set()
+    paths: list[str] = []
+    for ref in _RE_BACKTICK.findall(issue_body):
+        if ref in seen:
+            continue
+        seen.add(ref)
+        # Must look like agentception/foo/bar.py  (has '/' and extension)
+        if "/" in ref and _RE_FILE_PATH.match(ref):
+            paths.append(ref)
+    return paths
+
+
+def _read_named_file(worktree_path: Path, rel_path: str) -> tuple[str, str]:
+    """Read *rel_path* from the worktree and return ``(rel_path, content)``.
+
+    Returns ``("", "")`` when the file is absent, binary, or exceeds
+    ``_MAX_INJECT_LINES`` lines.  Designed to run via ``asyncio.to_thread``.
+    """
+    full = worktree_path / rel_path
+    if not full.exists() or not full.is_file():
+        return ("", "")
+    try:
+        text = full.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ("", "")
+    lines = text.splitlines()
+    if len(lines) > _MAX_INJECT_LINES:
+        # File is too large to inject whole — the agent should use search_codebase.
+        return ("", "")
+    return (rel_path, text)
 
 
 # ---------------------------------------------------------------------------
@@ -265,6 +311,45 @@ async def assemble_executor_context(
         [q[:60] for q in queries],
     )
 
+    # ------------------------------------------------------------------
+    # Phase 0 — inject full content of files explicitly named in the issue.
+    # These are the highest-signal inputs: the spec literally tells the agent
+    # which files to modify, so we hand them over verbatim rather than making
+    # the agent search/read them iteratively.
+    # ------------------------------------------------------------------
+    named_paths = _extract_named_file_paths(issue_body)
+    named_file_reads = await asyncio.gather(
+        *[asyncio.to_thread(_read_named_file, worktree_path, p) for p in named_paths],
+    )
+
+    named_sections: list[str] = []
+    injected_files: set[str] = set()
+    named_chars = 0
+    for rel_path, content in named_file_reads:
+        if not rel_path or not content:
+            continue
+        ext = Path(rel_path).suffix
+        lang = "python" if ext == ".py" else ""
+        section = f"### `{rel_path}` _(full file — {len(content.splitlines())} lines)_\n\n```{lang}\n{content}\n```"
+        if named_chars + len(section) > _MAX_CONTEXT_CHARS // 2:
+            # Cap named-file injection at half the total budget so Qdrant
+            # results still have room.
+            break
+        named_sections.append(section)
+        injected_files.add(rel_path)
+        named_chars += len(section)
+
+    if named_sections:
+        logger.info(
+            "✅ context_assembler: injected %d named file(s) (%d chars): %s",
+            len(named_sections),
+            named_chars,
+            list(injected_files),
+        )
+
+    # ------------------------------------------------------------------
+    # Phase 1 — Qdrant semantic search for additional relevant scopes.
+    # ------------------------------------------------------------------
     all_matches: list[SearchMatch] = list(existing_matches)
 
     if queries:
@@ -281,16 +366,20 @@ async def assemble_executor_context(
 
     # Deduplicate by (file, start_line), preserving insertion order so that
     # the already-computed existing_matches (highest-confidence hits) appear first.
+    # Skip files already injected verbatim — the agent has the full content.
     seen: set[tuple[str, int]] = set()
     unique: list[SearchMatch] = []
     for m in all_matches:
+        if m["file"] in injected_files:
+            continue
         key = (m["file"], m["start_line"])
         if key not in seen:
             seen.add(key)
             unique.append(m)
 
-    sections: list[str] = []
-    total_chars = 0
+    qdrant_sections: list[str] = []
+    qdrant_chars = 0
+    remaining_budget = _MAX_CONTEXT_CHARS - named_chars
     for m in unique[:_MAX_SCOPES]:
         label, code_block = await asyncio.to_thread(
             _scope_section, worktree_path, m["file"], m["start_line"]
@@ -298,24 +387,38 @@ async def assemble_executor_context(
         if not label or not code_block:
             continue
         section = f"### {label}\n\n{code_block}"
-        if total_chars + len(section) > _MAX_CONTEXT_CHARS:
+        if qdrant_chars + len(section) > remaining_budget:
             break
-        sections.append(section)
-        total_chars += len(section)
+        qdrant_sections.append(section)
+        qdrant_chars += len(section)
 
-    if not sections:
+    all_sections = named_sections + qdrant_sections
+    if not all_sections:
         return ""
 
+    total_chars = named_chars + qdrant_chars
     logger.info(
-        "✅ context_assembler: assembled %d scope sections (%d chars) for worktree=%s",
-        len(sections),
+        "✅ context_assembler: assembled %d section(s) (%d chars, %d named + %d qdrant) worktree=%s",
+        len(all_sections),
         total_chars,
+        len(named_sections),
+        len(qdrant_sections),
         worktree_path.name,
     )
 
-    return (
-        "## Pre-extracted Code Context\n\n"
-        "_Exact function/class scope bodies assembled at dispatch time. "
-        "No file reads needed — start implementing directly._\n\n"
-        + "\n\n".join(sections)
-    )
+    parts: list[str] = []
+    if named_sections:
+        parts.append(
+            "## Pre-loaded Files\n\n"
+            "_These files are named in your task spec. Do NOT re-read them — "
+            "the full content is already here._\n\n"
+            + "\n\n".join(named_sections)
+        )
+    if qdrant_sections:
+        parts.append(
+            "## Pre-extracted Code Context\n\n"
+            "_Exact function/class scope bodies assembled at dispatch time. "
+            "No file reads needed — start implementing directly._\n\n"
+            + "\n\n".join(qdrant_sections)
+        )
+    return "\n\n".join(parts)

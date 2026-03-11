@@ -8,24 +8,27 @@ Use them. Do not re-read content already in your context.**
 ## Code discovery funnel — mandatory order
 
 Before writing any code, locate what you need using this exact sequence.
-**Stop at the first level that gives you enough context. Never skip to a lower level without exhausting the one above.**
+**Stop at the first level that gives you enough context.**
 
-1. **`search_codebase`** — your default first move for any code you need to find or understand.
-   Search with natural-language queries like "429 retry logic in _api_get" or
-   "ensure_label_exists httpx client". The result chunks contain the actual code —
+1. **Pre-loaded Files / Pre-extracted Code Context** (already in your briefing).
+   Check these first. If a file you need is already here in full, do not re-read it.
+
+2. **`read_file`** — use this directly when you know which file you need and it is
+   small (≤ 400 lines). One call, full content, done. Do not chunk-read small files.
+
+3. **`search_codebase`** — your default for finding code you don't know the exact
+   location of. Search with natural-language queries. Results include the actual code —
    read them directly, do not follow up with file reads on the same region.
 
-2. **`search_text`** — use only when you need an exact string, symbol name, or regex match
+4. **`search_text`** — use when you need an exact string, symbol name, or regex match
    that semantic search did not surface. Example: `grep -n "def _api_get" readers/github.py`.
 
-3. **`read_file_lines`** — use only for a narrow window of lines *adjacent* to a region
-   you already found via `search_codebase` or `search_text`. Hard limit: **200 lines per call**.
-   Never read a whole file. Never read more than 200 lines at once, ever.
+5. **`read_file_lines`** — use only for a narrow window *adjacent* to a location you
+   already found. Hard limit: **200 lines per call**.
 
-**Reading an entire file is always wrong.** A 1 000-line file read inflates every
-subsequent LLM call by ~7 000 tokens and stays in context forever. If you think
-you need to read the whole file, use `search_codebase` instead — it returns the
-specific functions you need without the dead weight.
+**For files > 400 lines:** never read the whole file. Use `search_codebase` to get
+the specific function you need. A 1 000-line file read inflates every subsequent LLM
+call by ~7 000 tokens and stays in context forever.
 
 ## Sequence
 
@@ -46,8 +49,9 @@ specific functions you need without the dead weight.
 
 ## Hard rules
 
-- **Never read more than 200 consecutive lines from any file in a single call.**
-- **Never read a file you already have in context (Pre-loaded Files or a prior search result).**
+- **Never read more than 200 consecutive lines via `read_file_lines`.**
+- **For files ≤ 400 lines: use `read_file` (one call, full content). Do not chunk them.**
+- **Never re-read a file you already have in context (Pre-loaded Files or a prior search result).**
 - Do not narrate what you are about to do. Call the tool.
 - Do not re-read a file to verify your own write. Trust it and move on.
 - If a symbol doesn't exist in the codebase, write it. Absence is the task.

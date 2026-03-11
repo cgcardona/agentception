@@ -113,15 +113,22 @@ def _log_rss(label: str) -> None:
 
 
 def _on_exit() -> None:
-    """atexit: log RSS + full stack of every thread when the process exits."""
-    _log_rss("atexit")
-    frames = sys._current_frames()
-    _diag_logger.warning("📊 EXIT stack — %d thread(s):", len(frames))
-    for tid, frame in frames.items():
-        import types as _types
-        if isinstance(frame, _types.FrameType):
-            tb = "".join(traceback.format_stack(frame))
-            _diag_logger.warning("📊 thread %d:\n%s", tid, tb)
+    """atexit: write RSS + thread stacks to stderr (logging may be closed at exit)."""
+    import types as _types
+    try:
+        mem = _proc.memory_info()
+        rss = int(mem.rss) // 1024 // 1024
+        vms = int(mem.vms) // 1024 // 1024
+        sys.stderr.write(f"📊 MEM [atexit] RSS={rss}MB VMS={vms}MB\n")
+        frames = sys._current_frames()
+        sys.stderr.write(f"📊 EXIT stack — {len(frames)} thread(s):\n")
+        for tid, frame in frames.items():
+            if isinstance(frame, _types.FrameType):
+                tb = "".join(traceback.format_stack(frame))
+                sys.stderr.write(f"📊 thread {tid}:\n{tb}\n")
+        sys.stderr.flush()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _on_sigterm(signum: int, frame: object) -> None:

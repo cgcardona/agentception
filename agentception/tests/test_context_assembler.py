@@ -18,6 +18,8 @@ import pytest
 from agentception.services.context_assembler import (
     _ast_enclosing_scope,
     _ast_imports,
+    _extract_named_file_paths,
+    _read_named_file,
     _scope_section,
     assemble_executor_context,
 )
@@ -315,3 +317,135 @@ async def test_assemble_executor_context_skips_missing_files(tmp_path: Path) -> 
         )
 
     assert result == ""
+
+
+# ---------------------------------------------------------------------------
+# _extract_named_file_paths
+# ---------------------------------------------------------------------------
+
+
+def test_extract_named_file_paths_finds_file_paths() -> None:
+    """Backtick-wrapped file paths with a '/' and extension are extracted."""
+    body = (
+        "Modify `agentception/db/persist.py` and `agentception/mcp/log_tools.py`.\n"
+        "Also touch `agentception/mcp/server.py` for registration."
+    )
+    result = _extract_named_file_paths(body)
+    assert "agentception/db/persist.py" in result
+    assert "agentception/mcp/log_tools.py" in result
+    assert "agentception/mcp/server.py" in result
+
+
+def test_extract_named_file_paths_ignores_prose_symbols() -> None:
+    """Prose symbols without '/' are not treated as file paths."""
+    body = "Call `log_run_step` and `persist_run_heartbeat` here."
+    result = _extract_named_file_paths(body)
+    assert result == []
+
+
+def test_extract_named_file_paths_deduplicates() -> None:
+    """Each path appears at most once even when mentioned multiple times."""
+    body = "See `agentception/mcp/log_tools.py` and `agentception/mcp/log_tools.py` again."
+    result = _extract_named_file_paths(body)
+    assert result.count("agentception/mcp/log_tools.py") == 1
+
+
+# ---------------------------------------------------------------------------
+# _read_named_file
+# ---------------------------------------------------------------------------
+
+
+def test_read_named_file_returns_content_for_small_file(tmp_path: Path) -> None:
+    """A file within the line limit is read and returned verbatim."""
+    (tmp_path / "foo.py").write_text("x = 1\n")
+    path, content = _read_named_file(tmp_path, "foo.py")
+    assert path == "foo.py"
+    assert "x = 1" in content
+
+
+def test_read_named_file_skips_missing_file(tmp_path: Path) -> None:
+    """A non-existent file returns ('', '')."""
+    path, content = _read_named_file(tmp_path, "nonexistent.py")
+    assert path == ""
+    assert content == ""
+
+
+def test_read_named_file_skips_large_file(tmp_path: Path) -> None:
+    """A file exceeding _MAX_INJECT_LINES returns ('', '')."""
+    from agentception.services.context_assembler import _MAX_INJECT_LINES
+    big = "\n".join(f"x_{i} = {i}" for i in range(_MAX_INJECT_LINES + 1))
+    (tmp_path / "big.py").write_text(big)
+    path, content = _read_named_file(tmp_path, "big.py")
+    assert path == ""
+    assert content == ""
+
+
+# ---------------------------------------------------------------------------
+# assemble_executor_context — named-file injection
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_assemble_executor_context_injects_named_files(tmp_path: Path) -> None:
+    """Files explicitly named in the issue body appear under 'Pre-loaded Files'."""
+    (tmp_path / "agentception").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "agentception" / "mcp").mkdir(parents=True, exist_ok=True)
+    log_tools = "def log_run_step() -> None:\n    pass\n"
+    (tmp_path / "agentception" / "mcp" / "log_tools.py").write_text(log_tools)
+
+    body = "Add to `agentception/mcp/log_tools.py`."
+
+    with patch(
+        "agentception.services.context_assembler.search_codebase",
+        new_callable=AsyncMock,
+        return_value=[],
+    ):
+        result = await assemble_executor_context(
+            issue_title="Add heartbeat",
+            issue_body=body,
+            worktree_path=tmp_path,
+            existing_matches=[],
+        )
+
+    assert "Pre-loaded Files" in result
+    assert "agentception/mcp/log_tools.py" in result
+    assert "log_run_step" in result
+
+
+@pytest.mark.anyio
+async def test_assemble_executor_context_named_files_not_duplicated_in_qdrant(
+    tmp_path: Path,
+) -> None:
+    """Files injected verbatim are excluded from the Qdrant scope sections."""
+    import textwrap as _textwrap
+
+    (tmp_path / "agentception").mkdir(parents=True, exist_ok=True)
+    src = _textwrap.dedent("""\
+        def my_func() -> None:
+            pass
+    """)
+    (tmp_path / "agentception" / "tools.py").write_text(src)
+
+    body = "Use `agentception/tools.py`."
+    qdrant_match: SearchMatch = {
+        "file": "agentception/tools.py",
+        "chunk": src,
+        "score": 0.9,
+        "start_line": 1,
+        "end_line": 2,
+    }
+
+    with patch(
+        "agentception.services.context_assembler.search_codebase",
+        new_callable=AsyncMock,
+        return_value=[qdrant_match],
+    ):
+        result = await assemble_executor_context(
+            issue_title="Use tools",
+            issue_body=body,
+            worktree_path=tmp_path,
+            existing_matches=[],
+        )
+
+    # File content appears once (in Pre-loaded Files), not again in Qdrant section.
+    assert result.count("my_func") == 1
