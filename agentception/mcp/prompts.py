@@ -442,6 +442,12 @@ def _render_task_briefing(ctx: RunContextRow, role_content: str) -> str:
     task_description: str | None = ctx["task_description"]
     batch_id: str | None = ctx["batch_id"]
     parent_run_id: str | None = ctx["parent_run_id"]
+    gh_repo: str = ctx["gh_repo"] or ""
+    # Derive owner and repo_name from "owner/repo" — used by GitHub MCP tools.
+    gh_owner, _, gh_repo_name = gh_repo.partition("/")
+    if not gh_owner:
+        gh_owner = gh_repo
+        gh_repo_name = gh_repo
 
     figure_ids, skill_ids = _parse_arch_components(cognitive_arch)
 
@@ -474,6 +480,9 @@ def _render_task_briefing(ctx: RunContextRow, role_content: str) -> str:
         f"**Cognitive Architecture:** `{cognitive_arch}`  ",
         f"**Worktree:** `{worktree_path}`  ",
         f"**Branch:** `{branch}`  ",
+        f"**GH_REPO:** `{gh_repo}`  ",
+        f"**OWNER:** `{gh_owner}`  ",
+        f"**REPO:** `{gh_repo_name}`  ",
         f"**Search index:** `{worktree_collection}` (your worktree) · `code` (full repo)",
         "",
         "> **Before you read any file:** call `search_codebase` first.",
