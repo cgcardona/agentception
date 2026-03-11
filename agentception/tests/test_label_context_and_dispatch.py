@@ -523,3 +523,4 @@ def test_implementer_run_id_uses_issue_slug() -> None:
         run_id = f"issue-{implementer_req.issue_number}"
 
     assert run_id == "issue-450"
+
