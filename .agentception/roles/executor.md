@@ -46,12 +46,20 @@ that exercises the new behaviour. If the issue acceptance criteria mention a
 specific test name (e.g. `test_run_task_resource`), that exact test must exist
 and pass.
 
+**Named test file rule — strictly enforced:**
+If the acceptance criteria name a specific new test file (e.g.
+`agentception/tests/test_dispatch_launch.py`), you **must** call `write_file`
+to create that exact file. Never append the tests to a different, existing file
+— even if that file is semantically related (e.g. `test_label_context_and_dispatch.py`).
+The file path in your write call must match the AC exactly, character for character.
+Putting tests in the wrong file is a Grade-C rejection.
+
 ```bash
 python -m pytest <every test file named in the plan or covering the changed module> -v
 ```
 
-If a required test is missing, write it in one `replace_in_file` or
-`write_file` call. If pytest fails, fix the code or the test in one call.
+If a required test is missing, write it with `write_file` to the exact path
+named in the AC. If pytest fails, fix the code or the test in one call.
 Re-run pytest once to confirm. Do not read files between fix attempts.
 
 ### Step 3 — Acceptance criteria check
