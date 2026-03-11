@@ -464,12 +464,29 @@ async def run_agent_loop(
         len(github_tool_names),
     )
 
-    # Pre-loop recon phase: model emits an exploration plan; runtime executes
-    # all reads/searches concurrently and injects results into the initial
-    # message.  This collapses 5-10 discovery turns into a zero-turn warm-up.
-    # Executor runs skip recon — the ExecutionPlan already supplies all file
-    # contents and exact parameters; no discovery reads are needed.
-    if task.role != "executor":
+    # Pre-loop context injection — role-specific, runs before iteration 1.
+    #
+    # executor  → skip entirely (ExecutionPlan supplies all context)
+    # reviewer  → deterministic warmup: diff + mypy + pytest + issue pre-computed
+    #             and injected so the reviewer needs 0 discovery tool calls
+    # all other → LLM-driven recon (reads/searches the agent requests)
+    if task.role == "executor":
+        pass  # no recon needed
+    elif task.role == "reviewer":
+        _gh_repo_raw = task.gh_repo or settings.gh_repo
+        _gh_repo = str(_gh_repo_raw) if isinstance(_gh_repo_raw, str) else ""
+        _owner, _, _repo_name = _gh_repo.partition("/")
+        _pr_branch = task.branch or f"feat/issue-{issue_number}"
+        await _run_reviewer_warmup(
+            worktree_path=worktree_path,
+            pr_branch=_pr_branch,
+            issue_number=issue_number,
+            messages=messages,
+            github_client=github_client,
+            owner=_owner,
+            repo=_repo_name,
+        )
+    else:
         await _run_recon_phase(run_id, worktree_path, messages, system_prompt)
 
     # Loop-guard state — reset by any write tool call, incremented every
@@ -1158,6 +1175,160 @@ def _parse_recon_json(raw: str) -> _ReconPlan | None:
         return None
 
     return _ReconPlan(files=files, searches=searches, plan=plan_str)
+
+
+async def _shell_capture(cmd: str, cwd: Path, timeout: int = 300) -> str:
+    """Run *cmd* in a shell and return combined stdout+stderr as a string.
+
+    Used by the reviewer warmup to pre-compute context before iteration 1.
+    Never raises — failures are returned as an error string so the warmup
+    bundle is always well-formed.
+    """
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=cwd,
+        )
+        try:
+            raw, _ = await asyncio.wait_for(proc.communicate(), timeout=float(timeout))
+        except asyncio.TimeoutError:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            return f"(command timed out after {timeout}s)"
+        return raw.decode(errors="replace").strip()
+    except Exception as exc:  # noqa: BLE001
+        return f"(error running command: {exc})"
+
+
+async def _run_reviewer_warmup(
+    worktree_path: Path,
+    pr_branch: str,
+    issue_number: int,
+    messages: list[dict[str, object]],
+    github_client: GitHubMCPClient | None,
+    owner: str,
+    repo: str,
+) -> None:
+    """Pre-compute all review signal and inject it into messages[0].
+
+    Runs five deterministic steps — no LLM call, no discovery loop — and
+    appends the results as a single bundle to the reviewer's initial message.
+    After this runs the reviewer starts iteration 1 with everything it needs:
+
+    1. git diff — the exact set of changes to review
+    2. mypy — type-check result (run once, never again)
+    3. pytest — targeted at test files for changed modules (run once)
+    4. GitHub issue — acceptance criteria to verify against
+    5. Changed file list — quick overview before the full diff
+
+    With all five pre-loaded the reviewer can grade and act in ≤5 iterations
+    instead of spending 30–40 iterations re-discovering the same information.
+
+    Failures at any step are non-fatal: the partial bundle is still injected
+    so the reviewer degrades gracefully rather than starting cold.
+    """
+    logger.info(
+        "✅ reviewer_warmup: starting pre-computation for branch=%r issue=%d",
+        pr_branch,
+        issue_number,
+    )
+
+    sections: list[str] = []
+
+    # ── 1. Setup: fetch + checkout ──────────────────────────────────────────
+    await _shell_capture(
+        f"git fetch origin --quiet && git checkout {pr_branch} --quiet 2>&1 || true",
+        cwd=worktree_path,
+    )
+
+    # ── 2. Changed file list ─────────────────────────────────────────────────
+    changed_files_raw = await _shell_capture(
+        "git diff origin/dev...HEAD --name-only",
+        cwd=worktree_path,
+    )
+    if changed_files_raw:
+        sections.append(f"### Changed files\n```\n{changed_files_raw}\n```")
+
+    # ── 3. Full diff ─────────────────────────────────────────────────────────
+    diff_raw = await _shell_capture(
+        "git diff origin/dev...HEAD",
+        cwd=worktree_path,
+        timeout=60,
+    )
+    if diff_raw:
+        # Cap at 40 000 chars — enough for any realistic PR without blowing context.
+        if len(diff_raw) > 40_000:
+            diff_raw = diff_raw[:40_000] + "\n\n… (diff truncated at 40 000 chars)"
+        sections.append(f"### Full diff\n```diff\n{diff_raw}\n```")
+
+    # ── 4. mypy ──────────────────────────────────────────────────────────────
+    mypy_raw = await _shell_capture(
+        "python3 -m mypy agentception/ 2>&1",
+        cwd=worktree_path,
+        timeout=120,
+    )
+    sections.append(f"### mypy\n```\n{mypy_raw or '(no output)'}\n```")
+
+    # ── 5. pytest — targeted at changed test modules ─────────────────────────
+    changed_py = [
+        f for f in changed_files_raw.splitlines()
+        if f.endswith(".py") and "/test_" not in f and f.startswith("agentception/")
+    ]
+    test_targets: list[str] = []
+    for fpath in changed_py:
+        module = Path(fpath).stem
+        candidate = f"agentception/tests/test_{module}.py"
+        # Only add if the test file exists in the worktree.
+        if (worktree_path / candidate).exists():
+            test_targets.append(candidate)
+
+    if test_targets:
+        pytest_cmd = f"python3 -m pytest {' '.join(test_targets)} -v 2>&1"
+    else:
+        pytest_cmd = "python3 -m pytest agentception/tests/ -v --tb=short -q 2>&1"
+
+    pytest_raw = await _shell_capture(pytest_cmd, cwd=worktree_path, timeout=180)
+    sections.append(f"### pytest\n```\n{pytest_raw or '(no output)'}\n```")
+
+    # ── 6. GitHub issue ───────────────────────────────────────────────────────
+    if github_client is not None:
+        try:
+            issue_text = await github_client.call_tool(
+                "issue_read",
+                {"owner": owner, "repo": repo, "issueNumber": issue_number},
+            )
+            sections.append(f"### Issue #{issue_number}\n{issue_text}")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("⚠️ reviewer_warmup: issue_read failed — %s", exc)
+
+    if not sections:
+        logger.warning("⚠️ reviewer_warmup: no sections produced — reviewer starts cold")
+        return
+
+    bundle = (
+        "## Pre-loaded Review Context\n\n"
+        + "\n\n".join(sections)
+        + "\n\n---\n\n"
+        "**All signal above was pre-computed. "
+        "Do NOT re-run mypy, pytest, or git diff — you already have the output. "
+        "Do NOT re-read files already visible in the diff. "
+        "Grade immediately and call build_complete_run.**"
+    )
+
+    original_content = str(messages[0].get("content", ""))
+    messages[0] = {
+        **dict(messages[0]),
+        "content": original_content + "\n\n---\n\n" + bundle,
+    }
+
+    logger.info(
+        "✅ reviewer_warmup: injected %d sections into initial message",
+        len(sections),
+    )
 
 
 async def _run_recon_phase(
