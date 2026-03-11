@@ -15,10 +15,10 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from agentception.services.code_indexer import (
-    _BM25_VERSION,
+    _INDEX_VERSION,
     IndexStats,
     SearchMatch,
-    _bm25_version_is_current,
+    _index_version_is_current,
     _chunk_file,
     _compute_file_hash,
     _delete_chunks_by_file,
@@ -61,8 +61,8 @@ def _make_scored_point(
 
 
 def _fake_embed(_texts: list[str]) -> list[list[float]]:
-    """Return deterministic 384-dim zero vectors — no model download."""
-    return [[0.0] * 384 for _ in _texts]
+    """Return deterministic 768-dim zero vectors — no model download."""
+    return [[0.0] * 768 for _ in _texts]
 
 
 async def _fake_bm25(texts: list[str]) -> list[dict[int, float]]:
@@ -76,8 +76,8 @@ def _mock_bm25_vectors() -> Generator[None, None, None]:
 
     - ``_compute_bm25_vectors``: prevented from loading the Qdrant/bm25 ONNX
       model — returns trivial sparse vectors instead.
-    - ``_needs_bm25_rebuild``: always returns False so incremental tests are
-      not perturbed by missing ``_bm25_version`` fields in mock payloads.
+    - ``_needs_index_rebuild``: always returns False so incremental tests are
+      not perturbed by missing ``_index_version`` fields in mock payloads.
 
     Tests that need to exercise the rebuild path should override these patches
     locally with their own ``patch`` context managers.
@@ -89,7 +89,7 @@ def _mock_bm25_vectors() -> Generator[None, None, None]:
             side_effect=_fake_bm25,
         ),
         patch(
-            "agentception.services.code_indexer._needs_bm25_rebuild",
+            "agentception.services.code_indexer._needs_index_rebuild",
             new_callable=AsyncMock,
             return_value=False,
         ),
@@ -206,12 +206,15 @@ def test_chunk_file_ast_extracts_functions(tmp_path: Path) -> None:
     assert "def bar():" in chunks[1]["text"]
 
 
-def test_chunk_file_ast_extracts_classes(tmp_path: Path) -> None:
-    """AST chunking extracts each top-level class as a separate chunk."""
+def test_chunk_file_ast_extracts_class_with_methods_as_separate_chunks(
+    tmp_path: Path,
+) -> None:
+    """Classes with methods are split: one header chunk + one chunk per method."""
     f = tmp_path / "classes.py"
     f.write_text(
         "class Alpha:\n"
         "    '''Class docstring.'''\n"
+        "    x: int = 0\n"
         "    def method(self):\n"
         "        pass\n"
         "\n"
@@ -219,11 +222,35 @@ def test_chunk_file_ast_extracts_classes(tmp_path: Path) -> None:
         "    pass\n"
     )
     chunks = _chunk_file(f, tmp_path)
-    assert len(chunks) == 2
-    assert "class Alpha:" in chunks[0]["text"]
-    assert "Class docstring" in chunks[0]["text"]
-    assert "def method" in chunks[0]["text"]
-    assert "class Beta:" in chunks[1]["text"]
+    # Alpha → header + 1 method; Beta → whole class (no methods).
+    assert len(chunks) == 3
+
+    symbols = [c["symbol"] for c in chunks]
+    assert "class Alpha" in symbols
+    assert "class Alpha > def method" in symbols
+    assert "class Beta" in symbols
+
+    header = next(c for c in chunks if c["symbol"] == "class Alpha")
+    assert "class Alpha:" in header["text"]
+    assert "Class docstring" in header["text"]
+    assert "def method" not in header["text"]  # method is in its own chunk
+
+    method_chunk = next(c for c in chunks if c["symbol"] == "class Alpha > def method")
+    assert "def method" in method_chunk["text"]
+
+
+def test_chunk_file_ast_class_without_methods_emits_whole_class(tmp_path: Path) -> None:
+    """A class with no methods is emitted as a single chunk."""
+    f = tmp_path / "data_class.py"
+    f.write_text(
+        "class Point:\n"
+        "    x: float\n"
+        "    y: float\n"
+    )
+    chunks = _chunk_file(f, tmp_path)
+    assert len(chunks) == 1
+    assert "class Point" in chunks[0]["symbol"]
+    assert "class Point:" in chunks[0]["text"]
 
 
 def test_chunk_file_ast_includes_decorators(tmp_path: Path) -> None:
@@ -351,11 +378,13 @@ async def test_search_codebase_returns_matches() -> None:
     )
 
     mock_client = AsyncMock()
+    # Native hybrid search: single query_points call returns fused results.
     mock_client.query_points.return_value = SimpleNamespace(points=[expected_point])
 
     with (
         patch("agentception.services.code_indexer._embed", side_effect=_fake_embed),
         patch("qdrant_client.AsyncQdrantClient", return_value=mock_client),
+        # Only 1 valid candidate — reranking is skipped (requires len > 1).
     ):
         matches: list[SearchMatch] = await search_codebase("qdrant url config", n_results=3)
 
@@ -363,10 +392,7 @@ async def test_search_codebase_returns_matches() -> None:
     m = matches[0]
     assert m["file"] == "agentception/config.py"
     assert "qdrant_url" in m["chunk"]
-    # Score is now an RRF score (sum of 1/(k+rank) from dense and sparse results).
-    # Just verify it's positive and reasonable.
-    assert m["score"] > 0.0
-    assert m["score"] < 1.0
+    assert isinstance(m["score"], float)
 
 
 @pytest.mark.anyio
@@ -411,114 +437,110 @@ async def test_search_codebase_skips_malformed_payloads() -> None:
 
 
 @pytest.mark.anyio
-async def test_hybrid_search() -> None:
-    """Hybrid search combines dense and sparse results with RRF fusion.
-    
-    This test verifies:
-    1. Hybrid query returns results from both dense and sparse searches.
-    2. A keyword-heavy query (exact class name) benefits from sparse matching.
-    3. RRF fusion correctly merges results from both vectors.
+async def test_hybrid_search_uses_native_qdrant_prefetch() -> None:
+    """search_codebase issues a single prefetch+RRF query and cross-encoder reranks.
+
+    The new pipeline issues one ``query_points`` call with ``prefetch`` for
+    both dense and sparse sub-queries, delegating RRF fusion to Qdrant
+    server-side.  A cross-encoder then re-orders by relevance score.
     """
-    # Create mock points that would come from dense and sparse searches.
-    # Point 1: High sparse score (exact keyword match), lower dense score.
-    point_keyword_match = SimpleNamespace(
-        id=1,
-        version=0,
-        score=0.95,  # High sparse score
-        payload={
-            "file": "models/state.py",
-            "chunk": "class RunState(str, enum.Enum):\n    implementing = 'implementing'\n",
-            "start_line": 10,
-            "end_line": 12,
-        },
-        vector=None,
-    )
-    
-    # Point 2: High dense score (semantic match), lower sparse score.
-    point_semantic_match = SimpleNamespace(
-        id=2,
-        version=0,
-        score=0.85,  # High dense score
-        payload={
-            "file": "services/workflow.py",
-            "chunk": "def transition_to_implementing(run_id: str) -> None:\n    pass\n",
-            "start_line": 50,
-            "end_line": 52,
-        },
-        vector=None,
-    )
-    
-    # Point 3: Appears in both results (should get highest RRF score).
-    point_both_match = SimpleNamespace(
-        id=3,
-        version=0,
-        score=0.80,
+    from qdrant_client.models import FusionQuery, Prefetch
+
+    p_high = SimpleNamespace(
+        id=1, version=0, score=0.03,
         payload={
             "file": "models/run.py",
             "chunk": "class AgentRun:\n    state: RunState\n",
-            "start_line": 20,
-            "end_line": 22,
+            "start_line": 20, "end_line": 22,
+        },
+        vector=None,
+    )
+    p_mid = SimpleNamespace(
+        id=2, version=0, score=0.02,
+        payload={
+            "file": "services/workflow.py",
+            "chunk": "def transition_to_implementing(run_id: str) -> None:\n    pass\n",
+            "start_line": 50, "end_line": 52,
+        },
+        vector=None,
+    )
+    p_low = SimpleNamespace(
+        id=3, version=0, score=0.01,
+        payload={
+            "file": "models/state.py",
+            "chunk": "class RunState(str, enum.Enum):\n    implementing = 'implementing'\n",
+            "start_line": 10, "end_line": 12,
         },
         vector=None,
     )
 
     mock_client = AsyncMock()
-    
-    # Mock dense search returns points 2 and 3 (semantic matches).
-    dense_response = SimpleNamespace(points=[point_semantic_match, point_both_match])
-    
-    # Mock sparse search returns points 1 and 3 (keyword matches).
-    sparse_response = SimpleNamespace(points=[point_keyword_match, point_both_match])
-    
-    # query_points is called twice: once for dense, once for sparse.
-    # We need to return different results based on the 'using' parameter.
-    async def mock_query_points(collection_name: str, query: object, using: str, limit: int) -> object:
-        if using == "dense":
-            return dense_response
-        elif using == "sparse":
-            return sparse_response
-        else:
-            return SimpleNamespace(points=[])
-    
-    mock_client.query_points.side_effect = mock_query_points
+    mock_client.query_points.return_value = SimpleNamespace(points=[p_high, p_mid, p_low])
+
+    # Reranker reverses the order: state.py → workflow.py → run.py.
+    fake_rerank_scores = [0.1, 0.5, 0.9]
 
     with (
         patch("agentception.services.code_indexer._embed", side_effect=_fake_embed),
+        patch(
+            "agentception.services.code_indexer._rerank",
+            new_callable=AsyncMock,
+            return_value=fake_rerank_scores,
+        ),
         patch("qdrant_client.AsyncQdrantClient", return_value=mock_client),
     ):
         matches = await search_codebase("RunState", n_results=3)
 
-    # Verify results are returned.
+    # Single native Qdrant call with prefetch structure.
+    assert mock_client.query_points.call_count == 1
+    call_kwargs = mock_client.query_points.call_args.kwargs
+    assert "prefetch" in call_kwargs
+    prefetch = call_kwargs["prefetch"]
+    assert len(prefetch) == 2
+    assert all(isinstance(p, Prefetch) for p in prefetch)
+    assert isinstance(call_kwargs["query"], FusionQuery)
+
+    # Reranker re-ordered results.
     assert len(matches) == 3
-    
-    # Verify RRF fusion: point_both_match (id=3) should rank highest because
-    # it appears in both dense and sparse results, getting RRF score from both.
-    # RRF score for point 3: 1/(60+1) + 1/(60+2) ≈ 0.0164 + 0.0161 = 0.0325
-    # RRF score for point 1: 1/(60+1) ≈ 0.0164 (only in sparse, rank 1)
-    # RRF score for point 2: 1/(60+1) ≈ 0.0164 (only in dense, rank 1)
-    # Point 3 should be first.
-    assert matches[0]["file"] == "models/run.py"
-    
-    # Verify all expected files are present.
-    files = {m["file"] for m in matches}
-    assert "models/state.py" in files  # Keyword match
-    assert "services/workflow.py" in files  # Semantic match
-    assert "models/run.py" in files  # Both match
-    
-    # Verify scores are RRF scores (not raw similarity scores).
-    # All scores should be small positive floats (RRF scores are typically < 0.1).
-    for match in matches:
-        assert 0.0 < match["score"] < 1.0
-        assert isinstance(match["score"], float)
+    assert matches[0]["file"] == "models/state.py"
+    assert matches[1]["file"] == "services/workflow.py"
+    assert matches[2]["file"] == "models/run.py"
+    assert matches[0]["score"] == pytest.approx(0.9)
+
+
+@pytest.mark.anyio
+async def test_search_codebase_skips_reranking_for_single_result() -> None:
+    """Reranking is skipped when only one valid candidate is returned."""
+    point = _make_scored_point("agentception/config.py", "x = 1", score=0.5)
+    mock_client = AsyncMock()
+    mock_client.query_points.return_value = SimpleNamespace(points=[point])
+
+    rerank_called = False
+
+    async def _fake_rerank(q: str, docs: list[str]) -> list[float]:
+        nonlocal rerank_called
+        rerank_called = True
+        return [1.0] * len(docs)
+
+    with (
+        patch("agentception.services.code_indexer._embed", side_effect=_fake_embed),
+        patch("agentception.services.code_indexer._rerank", side_effect=_fake_rerank),
+        patch("qdrant_client.AsyncQdrantClient", return_value=mock_client),
+    ):
+        matches = await search_codebase("x", n_results=1)
+
+    assert not rerank_called
+    assert len(matches) == 1
 
 
 # ── payload index and symbol field tests ─────────────────────────────────────
 
 
 def test_chunk_file_ast_symbol_field_populated(tmp_path: Path) -> None:
-    """AST chunks carry a populated symbol field ('class X' or 'def f')."""
+    """AST chunks carry a populated symbol field describing each symbol."""
     f = tmp_path / "syms.py"
     f.write_text(
+        # MyModel has no methods → emitted as one whole-class chunk.
         "class MyModel:\n"
         "    pass\n"
         "\n"
@@ -526,9 +548,9 @@ def test_chunk_file_ast_symbol_field_populated(tmp_path: Path) -> None:
         "    pass\n"
     )
     chunks = _chunk_file(f, tmp_path)
-    assert len(chunks) == 2
-    assert chunks[0]["symbol"] == "class MyModel"
-    assert chunks[1]["symbol"] == "def my_handler"
+    symbols = {c["symbol"] for c in chunks}
+    assert "class MyModel" in symbols
+    assert "async def my_handler" in symbols
 
 
 def test_chunk_file_char_symbol_field_empty(tmp_path: Path) -> None:
@@ -538,6 +560,61 @@ def test_chunk_file_char_symbol_field_empty(tmp_path: Path) -> None:
     chunks = _chunk_file(f, tmp_path)
     assert len(chunks) >= 1
     assert all(c["symbol"] == "" for c in chunks)
+
+
+@pytest.mark.anyio
+async def test_index_codebase_embeds_enriched_text(tmp_path: Path) -> None:
+    """index_codebase prepends file path and symbol to each chunk before embedding.
+
+    The embedded text must start with ``# <file>`` so the dense vector is
+    anchored to the chunk's location, not just the raw source code.
+    """
+    py_file = tmp_path / "utils.py"
+    py_file.write_text("def helper():\n    return 42\n")
+
+    embedded_texts: list[str] = []
+
+    def _capture_embed(texts: list[str]) -> list[list[float]]:
+        embedded_texts.extend(texts)
+        return [[0.0] * 768 for _ in texts]
+
+    mock_client = AsyncMock()
+    mock_client.get_collections.return_value = SimpleNamespace(collections=[])
+    mock_client.scroll.return_value = ([], None)
+
+    with (
+        patch("agentception.services.code_indexer._embed", side_effect=_capture_embed),
+        patch("qdrant_client.AsyncQdrantClient", return_value=mock_client),
+    ):
+        await index_codebase(repo_path=tmp_path)
+
+    assert embedded_texts, "At least one text must have been embedded"
+    for text in embedded_texts:
+        assert text.startswith("# "), (
+            f"Embedded text must start with file path header, got: {text[:60]!r}"
+        )
+        assert "utils.py" in text
+
+
+@pytest.mark.anyio
+async def test_index_codebase_creates_payload_index(tmp_path: Path) -> None:
+    """index_codebase calls create_payload_index to enable filtered search."""
+    py_file = tmp_path / "mod.py"
+    py_file.write_text("def f(): pass\n")
+
+    mock_client = AsyncMock()
+    mock_client.get_collections.return_value = SimpleNamespace(collections=[])
+    mock_client.scroll.return_value = ([], None)
+
+    with (
+        patch("agentception.services.code_indexer._embed", side_effect=_fake_embed),
+        patch("qdrant_client.AsyncQdrantClient", return_value=mock_client),
+    ):
+        await index_codebase(repo_path=tmp_path)
+
+    mock_client.create_payload_index.assert_called_once()
+    call_kwargs = mock_client.create_payload_index.call_args.kwargs
+    assert call_kwargs["field_name"] == "file"
 
 
 @pytest.mark.anyio
@@ -965,28 +1042,29 @@ async def test_incremental_force_full_rebuilds_collection(tmp_path: Path) -> Non
     mock_client.upsert.assert_called()
 
 
-def test_bm25_version_is_current_true_when_version_matches() -> None:
-    """_bm25_version_is_current returns True when payload contains the current version."""
-    assert _bm25_version_is_current({"_bm25_version": _BM25_VERSION}) is True
+def test_index_version_is_current_true_when_version_matches() -> None:
+    """_index_version_is_current returns True when payload contains the current version."""
+    assert _index_version_is_current({"_index_version": _INDEX_VERSION}) is True
 
 
-def test_bm25_version_is_current_false_when_version_absent() -> None:
-    """_bm25_version_is_current returns False when _bm25_version field is missing."""
-    assert _bm25_version_is_current({"file": "mod.py"}) is False
+def test_index_version_is_current_false_when_version_absent() -> None:
+    """_index_version_is_current returns False when _index_version field is missing."""
+    assert _index_version_is_current({"file": "mod.py"}) is False
 
 
-def test_bm25_version_is_current_false_when_version_stale() -> None:
-    """_bm25_version_is_current returns False when payload holds an older version."""
-    assert _bm25_version_is_current({"_bm25_version": "qdrant-bm25-v1"}) is False
+def test_index_version_is_current_false_when_version_stale() -> None:
+    """_index_version_is_current returns False when payload holds an older version."""
+    assert _index_version_is_current({"_index_version": "v1"}) is False
 
 
 @pytest.mark.anyio
-async def test_bm25_version_mismatch_triggers_full_rebuild(tmp_path: Path) -> None:
-    """index_codebase drops and rebuilds the collection when _needs_bm25_rebuild returns True.
+async def test_index_version_mismatch_triggers_full_rebuild(tmp_path: Path) -> None:
+    """index_codebase drops and rebuilds the collection when _needs_index_rebuild returns True.
 
-    Regression: switching from the old hash-based BM25 to Qdrant/bm25 changes
-    the sparse vector index space.  The automatic rebuild replaces stale points
-    so hybrid search returns correct results from the first run.
+    Regression: any change to the index pipeline (embedding model, chunking
+    strategy, BM25 implementation, chunk text enrichment) changes vector
+    semantics.  The automatic rebuild replaces stale points so search returns
+    correct results from the first run after an upgrade.
     """
     py_file = tmp_path / "mod.py"
     py_file.write_text("def greet(): return 'hello'\n")
@@ -1005,10 +1083,10 @@ async def test_bm25_version_mismatch_triggers_full_rebuild(tmp_path: Path) -> No
     )
     mock_client.scroll.return_value = ([], None)
 
-    # Override autouse mock: _needs_bm25_rebuild returns True to trigger rebuild.
+    # Override autouse mock: _needs_index_rebuild returns True to trigger rebuild.
     with (
         patch(
-            "agentception.services.code_indexer._needs_bm25_rebuild",
+            "agentception.services.code_indexer._needs_index_rebuild",
             new_callable=AsyncMock,
             return_value=True,
         ),
@@ -1021,13 +1099,13 @@ async def test_bm25_version_mismatch_triggers_full_rebuild(tmp_path: Path) -> No
     # Version mismatch forced a full rebuild — nothing skipped.
     assert stats["files_skipped"] == 0
     assert stats["files_indexed"] == 1
-    # Collection was dropped and recreated to replace stale sparse vectors.
+    # Collection was dropped and recreated.
     mock_client.delete_collection.assert_called()
     mock_client.create_collection.assert_called()
-    # All upserted points must carry the current BM25 version.
+    # All upserted points must carry the current index version.
     upsert_call = mock_client.upsert.call_args
     upserted_points = upsert_call.kwargs["points"]
     for point in upserted_points:
-        assert point.payload.get("_bm25_version") == _BM25_VERSION, (
-            "Every indexed chunk must carry the current _bm25_version"
+        assert point.payload.get("_index_version") == _INDEX_VERSION, (
+            "Every indexed chunk must carry the current _index_version"
         )

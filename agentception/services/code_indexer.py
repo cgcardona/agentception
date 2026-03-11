@@ -6,25 +6,47 @@ in Qdrant.  The agent then searches with natural language instead of regex.
 
 Chunking Strategy
 -----------------
-Python files are chunked by top-level symbols (classes, functions, async
-functions) using AST parsing. Each symbol becomes a single chunk, including
-its decorators, docstring, and full body. This produces semantically coherent
-chunks that preserve complete definitions.
+Python files are chunked at the symbol level using AST parsing:
 
-Non-Python files use overlapping character-level chunks for compatibility.
+- **Top-level functions** become individual chunks.
+- **Top-level classes** are split into a *class header* chunk (class
+  definition, docstring, class-level attributes) and one *method chunk* per
+  method/async-method in the class body.  This ensures precise retrieval of
+  individual methods even in large classes — searching for
+  ``teardown_worktree`` returns exactly that method, not the full
+  ``WorktreeManager`` class.
+
+TypeScript / JavaScript files are chunked by function and class boundaries
+via tree-sitter AST parsing.  All other files use overlapping character-level
+chunks for compatibility.
+
+Chunk Text Enrichment
+---------------------
+Before embedding, every chunk's raw source text is prefixed with its file
+path and symbol name::
+
+    # agentception/readers/worktrees.py
+    # def ensure_worktree
+    <raw source>
+
+This anchors the dense embedding to the file's location and symbol identity
+so that queries like "create a git worktree" score highest for
+``readers/worktrees.py :: ensure_worktree`` rather than for callers of that
+function in other files.
 
 Hybrid Search
 -------------
-Search combines dense semantic vectors (FastEmbed ``BAAI/bge-small-en-v1.5``)
-with sparse BM25 vectors produced by FastEmbed's ``Qdrant/bm25`` model.  The
-sparse model computes proper corpus-aware IDF (pre-trained on a large text
-corpus) instead of the old hash-based toy implementation that had a 10k-slot
-vocabulary, ~40–50% token-collision rate, and no IDF weighting.
+Search combines dense semantic vectors (``jinaai/jina-embeddings-v2-base-code``
+— a code-specific 768-dimension model with 8 192-token context window) with
+sparse BM25 vectors produced by FastEmbed's ``Qdrant/bm25`` model.  The
+sparse model computes proper corpus-aware IDF instead of a hash-based toy.
 
-Results from both retrieval methods are fused using Reciprocal Rank Fusion
-(RRF) with k=60.  This ensures exact keyword matches (e.g. class names, rare
-identifiers) rank highly while preserving semantic similarity for natural
-language queries.
+Results are fused server-side by Qdrant using Reciprocal Rank Fusion (RRF)
+via the native ``prefetch + Fusion.RRF`` API — a single round-trip rather
+than two sequential queries plus manual Python fusion.
+
+After fusion, a cross-encoder reranker (``BAAI/bge-reranker-base``) scores
+each candidate jointly against the query and re-orders the list for precision.
 
 Incremental Indexing
 --------------------
@@ -34,26 +56,25 @@ hash differs from the stored value (new, changed, or deleted) incur Qdrant
 writes.  Unchanged files are skipped entirely — zero Qdrant calls.  Pass
 ``force_full=True`` to drop and rebuild the collection from scratch.
 
-A ``_bm25_version`` field is stored in every chunk payload.  When the BM25
-implementation changes (e.g. upgrading from the old hash-based vectors to
-``Qdrant/bm25``), the stored version is compared with ``_BM25_VERSION`` at
+An ``_index_version`` field is stored in every chunk payload.  When the
+indexing pipeline changes (chunking strategy, embedding model, BM25
+implementation), the stored version is compared with ``_INDEX_VERSION`` at
 the start of ``index_codebase``.  A mismatch triggers an automatic forced
-full rebuild so the new sparse vectors replace the old ones in one pass.
+full rebuild.
 
 Public API
 ----------
 ``index_codebase(repo_path, force_full=False)``
-    Walk every readable source file in *repo_path*, chunk appropriately
-    (AST for Python, character-level for others), embed with
-    :data:`~agentception.config.settings.embed_model` (default
-    ``BAAI/bge-small-en-v1.5``), compute BM25 sparse vectors via
-    ``Qdrant/bm25``, and upsert both to the Qdrant collection configured in
+    Walk every readable source file in *repo_path*, chunk appropriately,
+    enrich chunk text with file path + symbol prefix, embed with the
+    code-specific FastEmbed model, compute BM25 sparse vectors, and upsert
+    to the Qdrant collection configured in
     :data:`~agentception.config.settings.qdrant_collection`.
     Incremental by default — only changed/new/deleted files are processed.
 
 ``search_codebase(query, n_results)``
-    Run hybrid search combining dense (FastEmbed) and sparse (BM25)
-    vectors, fuse results with RRF, and return the top *n_results* code chunks.
+    Run hybrid search (dense + sparse via Qdrant native RRF), then rerank
+    with a cross-encoder.  Returns the top *n_results* code chunks.
 
 Both functions accept optional overrides for ``qdrant_url`` and
 ``collection`` so tests can inject isolated instances without touching the
@@ -123,18 +144,22 @@ class SearchMatch(TypedDict):
     end_line: int
 
 
-# ── BM25 version sentinel ─────────────────────────────────────────────────────
-# Stored in every chunk payload so index_codebase can detect when the sparse
-# vectorizer has changed and trigger an automatic full rebuild.
+# ── Index pipeline version sentinel ───────────────────────────────────────────
+# Stored in every chunk payload under the key ``_index_version``.  Bump this
+# string whenever the indexing pipeline changes in a way that invalidates
+# existing vectors (new chunking strategy, new embedding model, new BM25
+# implementation, chunk text enrichment format, etc.).  A mismatch between
+# the stored value and _INDEX_VERSION triggers an automatic forced full rebuild.
 
-_BM25_VERSION = "qdrant-bm25-v2"
+_INDEX_VERSION = "v5"
 
 
 # ── Module-level embedding model caches ───────────────────────────────────────
 # Lazily initialised on first use so tests can monkey-patch before loading.
 
-_cached_model: object = None   # TextEmbedding instance after first load
-_bm25_model: object = None     # SparseTextEmbedding instance after first load
+_cached_model: object = None    # TextEmbedding instance after first load
+_bm25_model: object = None      # SparseTextEmbedding instance after first load
+_rerank_model: object = None    # TextCrossEncoder instance after first load
 
 
 def _get_model() -> object:
@@ -171,8 +196,51 @@ def _reset_bm25_model() -> None:
     _bm25_model = None
 
 
+def _get_rerank_model() -> object:
+    """Return the cached TextCrossEncoder reranker, initialising it on first call."""
+    global _rerank_model
+    if _rerank_model is None:
+        from fastembed.rerank.cross_encoder import TextCrossEncoder  # noqa: PLC0415
+
+        logger.info(
+            "✅ code_indexer — loading reranker model: %s", settings.rerank_model
+        )
+        _rerank_model = TextCrossEncoder(settings.rerank_model)
+    return _rerank_model
+
+
+def _reset_rerank_model() -> None:
+    """Clear the cached reranker — used by tests to inject a mock."""
+    global _rerank_model
+    _rerank_model = None
+
+
+def _rerank_sync(query: str, documents: list[str]) -> list[float]:
+    """Return cross-encoder relevance scores for *documents* given *query*.
+
+    Runs synchronously — call via :func:`asyncio.to_thread` from async code.
+    Scores are in the same order as *documents*.
+    """
+    from fastembed.rerank.cross_encoder import TextCrossEncoder  # noqa: PLC0415
+
+    model = _get_rerank_model()
+    if not isinstance(model, TextCrossEncoder):
+        raise TypeError(f"Expected TextCrossEncoder, got {type(model)}")
+    return [float(s) for s in model.rerank(query, documents)]
+
+
+async def _rerank(query: str, documents: list[str]) -> list[float]:
+    """Async wrapper around :func:`_rerank_sync` using the thread pool."""
+    return await asyncio.to_thread(_rerank_sync, query, documents)
+
+
 def _embed_sync(texts: list[str]) -> list[list[float]]:
-    """Embed *texts* synchronously (runs in a thread pool via asyncio.to_thread)."""
+    """Embed *texts* synchronously (runs in a thread pool via asyncio.to_thread).
+
+    Uses ``jinaai/jina-embeddings-v2-base-code`` (768 dims, 8 192-token context)
+    which is trained on code and substantially outperforms general English models
+    for code retrieval tasks.
+    """
     from fastembed import TextEmbedding  # noqa: PLC0415
 
     model = _get_model()
@@ -268,11 +336,18 @@ class _ChunkSpec(TypedDict):
 
 
 def _chunk_file_ast(path: Path, repo_root: Path) -> list[_ChunkSpec]:
-    """Split a Python file into chunks by top-level symbols (classes, functions).
+    """Split a Python file into symbol-level chunks using AST parsing.
 
-    Each top-level class or function becomes a single chunk, including its
-    decorators, docstring, and full body. This produces semantically coherent
-    chunks that preserve complete definitions.
+    **Top-level functions** each become a single chunk.
+
+    **Top-level classes** are split into:
+    - A *class header* chunk: the class definition, docstring, and any
+      class-level attributes up to the first method body.  This preserves
+      class-level context (``__slots__``, class variables, type annotations)
+      without duplicating all method bodies.
+    - One *method chunk* per ``FunctionDef`` / ``AsyncFunctionDef`` in the
+      class body, labelled ``"class Foo > def bar"``.  This enables precise
+      retrieval of individual methods even in large classes.
 
     Falls back to character-based chunking if AST parsing fails.
     """
@@ -285,51 +360,88 @@ def _chunk_file_ast(path: Path, repo_root: Path) -> list[_ChunkSpec]:
 
     rel = str(path.relative_to(repo_root))
 
-    # Try to parse as Python AST.
     try:
         tree = ast.parse(raw, filename=str(path))
     except SyntaxError:
-        # Fall back to character chunking for malformed Python.
         return _chunk_file_char(path, repo_root, raw, rel)
 
     chunks: list[_ChunkSpec] = []
     lines = raw.splitlines(keepends=True)
 
-    for idx, node in enumerate(tree.body):
-        # Only chunk top-level classes and functions.
-        if not isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-
-        # Extract the full source for this node, including decorators.
-        start_line = node.lineno
-        end_line = node.end_lineno or start_line
-
-        # Include decorators if present.
+    def _node_start(node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> int:
+        """Return the first line of *node* including any decorators (1-indexed)."""
         if node.decorator_list:
-            first_decorator = node.decorator_list[0]
-            start_line = first_decorator.lineno
+            return node.decorator_list[0].lineno
+        return node.lineno
 
-        # Extract text from the original source (1-indexed lines).
-        text = "".join(lines[start_line - 1 : end_line])
+    def _node_end(node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> int:
+        """Return the last line of *node* (1-indexed)."""
+        return node.end_lineno if node.end_lineno is not None else node.lineno
 
-        # Generate deterministic chunk ID.
-        raw_hash = hashlib.md5(f"{rel}:{node.name}".encode()).hexdigest()
+    def _make_chunk(key: str, symbol: str, start: int, end: int) -> _ChunkSpec:
+        text = "".join(lines[start - 1 : end])
+        raw_hash = hashlib.md5(f"{rel}:{key}".encode()).hexdigest()
         chunk_id = int(raw_hash, 16) % (2**62)
-
-        kind = "class" if isinstance(node, ast.ClassDef) else "def"
-        chunks.append(
-            _ChunkSpec(
-                chunk_id=chunk_id,
-                file=rel,
-                text=text,
-                start_line=start_line,
-                end_line=end_line,
-                symbol=f"{kind} {node.name}",
-                file_hash="",  # stamped by index_codebase after hashing the file
-            )
+        return _ChunkSpec(
+            chunk_id=chunk_id,
+            file=rel,
+            text=text,
+            start_line=start,
+            end_line=end,
+            symbol=symbol,
+            file_hash="",
         )
 
-    # If no top-level symbols found, fall back to character chunking.
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            kind = "def" if isinstance(node, ast.FunctionDef) else "async def"
+            chunks.append(_make_chunk(
+                key=node.name,
+                symbol=f"{kind} {node.name}",
+                start=_node_start(node),
+                end=_node_end(node),
+            ))
+
+        elif isinstance(node, ast.ClassDef):
+            class_start = _node_start(node)
+            class_end = _node_end(node)
+
+            methods = [
+                child for child in node.body
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+            ]
+
+            if methods:
+                # Class header: from class decorator/definition up to just
+                # before the first method body (exclusive).
+                first_m_start = _node_start(methods[0])
+                header_end = first_m_start - 1
+                header_text = "".join(lines[class_start - 1 : header_end]).rstrip()
+                if header_text:
+                    chunks.append(_make_chunk(
+                        key=f"{node.name}:header",
+                        symbol=f"class {node.name}",
+                        start=class_start,
+                        end=header_end,
+                    ))
+
+                for method in methods:
+                    m_kind = "def" if isinstance(method, ast.FunctionDef) else "async def"
+                    chunks.append(_make_chunk(
+                        key=f"{node.name}.{method.name}",
+                        symbol=f"class {node.name} > {m_kind} {method.name}",
+                        start=_node_start(method),
+                        end=_node_end(method),
+                    ))
+            else:
+                # No methods (e.g. NamedTuple, pure-data class): emit whole class.
+                chunks.append(_make_chunk(
+                    key=node.name,
+                    symbol=f"class {node.name}",
+                    start=class_start,
+                    end=class_end,
+                ))
+
     if not chunks:
         return _chunk_file_char(path, repo_root, raw, rel)
 
@@ -411,22 +523,22 @@ def _compute_file_hash(path: Path) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _bm25_version_is_current(payload: dict[str, object]) -> bool:
-    """Return True when *payload* contains the current :data:`_BM25_VERSION`.
+def _index_version_is_current(payload: dict[str, object]) -> bool:
+    """Return True when *payload* contains the current :data:`_INDEX_VERSION`.
 
-    Extracted from :func:`_needs_bm25_rebuild` so the version check logic
+    Extracted from :func:`_needs_index_rebuild` so the version check logic
     can be tested without a live Qdrant client or async context.
     """
-    return payload.get("_bm25_version") == _BM25_VERSION
+    return payload.get("_index_version") == _INDEX_VERSION
 
 
-async def _needs_bm25_rebuild(client: "AsyncQdrantClient", collection: str) -> bool:
-    """Return True when the stored BM25 version does not match :data:`_BM25_VERSION`.
+async def _needs_index_rebuild(client: "AsyncQdrantClient", collection: str) -> bool:
+    """Return True when the stored index version does not match :data:`_INDEX_VERSION`.
 
-    Fetches a single point from *collection* and checks its ``_bm25_version``
-    payload field via :func:`_bm25_version_is_current`.  If the field is absent
+    Fetches a single point from *collection* and checks its ``_index_version``
+    payload field via :func:`_index_version_is_current`.  If the field is absent
     (pre-upgrade points) or holds an older version string, a full forced rebuild
-    is required to replace the stale sparse vectors.  Returns ``False`` when the
+    is required to replace the stale vectors.  Returns ``False`` when the
     collection is empty or when Qdrant is unreachable — neither case requires a
     rebuild.
     """
@@ -441,7 +553,7 @@ async def _needs_bm25_rebuild(client: "AsyncQdrantClient", collection: str) -> b
         points, _ = result
         if not points:
             return False
-        return not _bm25_version_is_current(points[0].payload or {})
+        return not _index_version_is_current(points[0].payload or {})
     except Exception as exc:  # noqa: BLE001
         logger.warning(
             "⚠️ code_indexer — could not check BM25 version (skipping rebuild check): %s",
@@ -578,6 +690,23 @@ async def _delete_chunks_by_file(
     )
 
 
+async def _ensure_payload_index(client: "AsyncQdrantClient", collection: str) -> None:
+    """Create a keyword payload index on the ``file`` field if not present.
+
+    This index lets callers filter search results by file path server-side
+    (e.g. restrict to ``agentception/services/``) without pulling irrelevant
+    chunks into Python.  Qdrant silently ignores the call when the index
+    already exists, so this is safe to call on every index run.
+    """
+    from qdrant_client.models import PayloadSchemaType  # noqa: PLC0415
+
+    await client.create_payload_index(
+        collection_name=collection,
+        field_name="file",
+        field_schema=PayloadSchemaType.KEYWORD,
+    )
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 
@@ -646,17 +775,22 @@ async def index_codebase(
 
             await _ensure_collection(client, coll)
 
-            # Detect BM25 implementation change — auto-trigger full rebuild.
-            # Sparse vectors from the old hash-based implementation are
-            # incompatible with Qdrant/bm25 (different index ranges).
-            if not force_full and await _needs_bm25_rebuild(client, coll):
+            # Detect index pipeline changes — auto-trigger full rebuild.
+            # Any change to chunking strategy, embedding model, BM25
+            # implementation, or chunk text enrichment format requires a
+            # clean rebuild so all vectors are consistent.
+            if not force_full and await _needs_index_rebuild(client, coll):
                 logger.info(
-                    "✅ code_indexer — BM25 version mismatch; triggering full rebuild "
-                    "to replace stale sparse vectors with Qdrant/bm25"
+                    "✅ code_indexer — index version mismatch (want %s); "
+                    "triggering full rebuild",
+                    _INDEX_VERSION,
                 )
                 await client.delete_collection(coll)
                 await _ensure_collection(client, coll)
                 force_full = True
+
+            # Ensure file-path keyword index for filtered search.
+            await _ensure_payload_index(client, coll)
 
             # Incremental: build file→hash map from Qdrant.
             # Empty when force_full since the collection was just dropped.
@@ -709,9 +843,20 @@ async def index_codebase(
 
             for batch_start in range(0, len(all_chunks), _UPSERT_BATCH):
                 batch = all_chunks[batch_start : batch_start + _UPSERT_BATCH]
-                texts = [c["text"] for c in batch]
-                dense_vectors = await _embed(texts)
-                sparse_vectors = await _compute_bm25_vectors(texts)
+
+                # Enrich each chunk with its file path and symbol name before
+                # embedding.  Prepending this metadata anchors the dense vector
+                # to the chunk's location and identity, so "create a worktree"
+                # scores highest for the *implementation* in worktrees.py rather
+                # than callers or tests that reference the same function name.
+                embed_texts = [
+                    f"# {c['file']}\n# {c['symbol']}\n{c['text']}"
+                    if c["symbol"]
+                    else f"# {c['file']}\n{c['text']}"
+                    for c in batch
+                ]
+                dense_vectors = await _embed(embed_texts)
+                sparse_vectors = await _compute_bm25_vectors(embed_texts)
 
                 points = [
                     PointStruct(
@@ -730,7 +875,7 @@ async def index_codebase(
                             "end_line": chunk["end_line"],
                             "symbol": chunk["symbol"],
                             "file_hash": chunk["file_hash"],
-                            "_bm25_version": _BM25_VERSION,
+                            "_index_version": _INDEX_VERSION,
                         },
                     )
                     for chunk, dense_vec, sparse_vec in zip(batch, dense_vectors, sparse_vectors)
@@ -778,33 +923,50 @@ async def search_codebase(
 ) -> list[SearchMatch]:
     """Search the indexed codebase for chunks relevant to *query*.
 
-    Performs hybrid search combining dense (FastEmbed) and sparse (BM25)
-    vectors, then fuses results using Reciprocal Rank Fusion (RRF) with
-    k=60 (standard parameter).
+    Pipeline:
+    1. **Embed** the query with the same code-specific dense model used at
+       index time (``jinaai/jina-embeddings-v2-base-code``).
+    2. **Hybrid retrieval** — Qdrant fetches ``n_results * 4`` candidates by
+       running dense and sparse (BM25) searches in parallel server-side and
+       fusing them with Reciprocal Rank Fusion (RRF) in a single round-trip.
+    3. **Rerank** — a cross-encoder (``BAAI/bge-reranker-base``) scores each
+       candidate jointly against the query and re-orders the list, cutting
+       false positives that slipped through the retrieval phase.
 
     Args:
-        query: Natural-language description of what to find.
-        n_results: Maximum results to return.
+        query: Natural-language or code-level description of what to find.
+        n_results: Maximum results to return after reranking.
         qdrant_url: Override the Qdrant URL (useful in tests).
         collection: Override the collection name (useful in tests).
 
     Returns:
-        List of :class:`SearchMatch` dicts ordered by descending RRF score.
-        Returns an empty list when the collection has not been indexed yet
-        or when Qdrant is unavailable.
+        List of :class:`SearchMatch` dicts ordered by descending reranker
+        score (or RRF score when reranking is disabled).  Returns an empty
+        list when the collection has not been indexed yet or Qdrant is
+        unavailable.
     """
     from qdrant_client import AsyncQdrantClient  # noqa: PLC0415
-    from qdrant_client.models import ScoredPoint, SparseVector  # noqa: PLC0415
+    from qdrant_client.models import (  # noqa: PLC0415
+        Fusion,
+        FusionQuery,
+        Prefetch,
+        SparseVector,
+    )
 
     url = qdrant_url or settings.qdrant_url
     coll = collection or settings.qdrant_collection
 
+    # Fetch more candidates than needed so the reranker has room to reorder.
+    fetch_limit = n_results * 4
+
     try:
-        # Compute both dense and sparse query vectors.
-        dense_vectors = await _embed([query])
-        dense_query = dense_vectors[0]
-        bm25_results = await _compute_bm25_vectors([query])
-        sparse_dict = bm25_results[0]
+        # Compute query vectors (dense + sparse) concurrently.
+        dense_vecs, bm25_vecs = await asyncio.gather(
+            _embed([query]),
+            _compute_bm25_vectors([query]),
+        )
+        dense_query = dense_vecs[0]
+        sparse_dict = bm25_vecs[0]
         sparse_query = SparseVector(
             indices=list(sparse_dict.keys()),
             values=list(sparse_dict.values()),
@@ -812,72 +974,93 @@ async def search_codebase(
 
         client = AsyncQdrantClient(url=url)
         try:
-            # Run dense vector search.
-            dense_response = await client.query_points(
+            # Native Qdrant hybrid search: prefetch dense + sparse in parallel,
+            # fuse server-side with RRF — single round-trip, no Python fusion.
+            response = await client.query_points(
                 collection_name=coll,
-                query=dense_query,
-                using="dense",
-                limit=n_results * 2,  # Fetch more for fusion.
+                prefetch=[
+                    Prefetch(query=dense_query, using="dense", limit=fetch_limit),
+                    Prefetch(query=sparse_query, using="sparse", limit=fetch_limit),
+                ],
+                query=FusionQuery(fusion=Fusion.RRF),
+                limit=fetch_limit,
+                with_payload=True,
             )
-            dense_results = dense_response.points
-
-            # Run sparse vector search.
-            sparse_response = await client.query_points(
-                collection_name=coll,
-                query=sparse_query,
-                using="sparse",
-                limit=n_results * 2,  # Fetch more for fusion.
-            )
-            sparse_results = sparse_response.points
+            candidates = response.points
         finally:
             await client.close()
 
-        # Reciprocal Rank Fusion (RRF) with k=60.
-        rrf_k = 60
-        rrf_scores: dict[str, float] = {}
+        # Extract payload fields, dropping malformed points.
+        class _Candidate:
+            __slots__ = ("file", "chunk", "start_line", "end_line", "rrf_score")
 
-        # Add dense results to RRF scores.
-        for rank, point in enumerate(dense_results, start=1):
-            point_id = str(point.id)
-            rrf_scores[point_id] = rrf_scores.get(point_id, 0.0) + 1.0 / (rrf_k + rank)
+            def __init__(
+                self,
+                file: str,
+                chunk: str,
+                start_line: int,
+                end_line: int,
+                rrf_score: float,
+            ) -> None:
+                self.file = file
+                self.chunk = chunk
+                self.start_line = start_line
+                self.end_line = end_line
+                self.rrf_score = rrf_score
 
-        # Add sparse results to RRF scores.
-        for rank, point in enumerate(sparse_results, start=1):
-            point_id = str(point.id)
-            rrf_scores[point_id] = rrf_scores.get(point_id, 0.0) + 1.0 / (rrf_k + rank)
-
-        # Sort by RRF score descending and take top n_results.
-        sorted_ids = sorted(rrf_scores.keys(), key=lambda pid: rrf_scores[pid], reverse=True)[:n_results]
-
-        # Build a map of point_id -> point for payload extraction.
-        all_points: dict[str, ScoredPoint] = {str(p.id): p for p in dense_results}
-        all_points.update({str(p.id): p for p in sparse_results})
-
-        # Build final results.
-        matches: list[SearchMatch] = []
-        for point_id in sorted_ids:
-            scored_point: ScoredPoint | None = all_points.get(point_id)
-            if scored_point is None:
-                continue
-            payload = scored_point.payload or {}
+        valid: list[_Candidate] = []
+        for point in candidates:
+            payload = point.payload or {}
             file_val = payload.get("file")
             chunk_val = payload.get("chunk")
-            start_val = payload.get("start_line")
-            end_val = payload.get("end_line")
             if not isinstance(file_val, str) or not isinstance(chunk_val, str):
                 continue
-            matches.append(
-                SearchMatch(
-                    file=file_val,
-                    chunk=chunk_val,
-                    score=rrf_scores[point_id],
-                    start_line=int(start_val) if isinstance(start_val, int) else 0,
-                    end_line=int(end_val) if isinstance(end_val, int) else 0,
-                )
+            start_val = payload.get("start_line")
+            end_val = payload.get("end_line")
+            valid.append(_Candidate(
+                file=file_val,
+                chunk=chunk_val,
+                start_line=int(start_val) if isinstance(start_val, int) else 0,
+                end_line=int(end_val) if isinstance(end_val, int) else 0,
+                rrf_score=float(point.score),
+            ))
+
+        if not valid:
+            return []
+
+        # Cross-encoder reranking: score each candidate against the query and
+        # re-order by relevance.  Skip when rerank_model is empty (test override).
+        if settings.rerank_model and len(valid) > 1:
+            documents = [c.chunk for c in valid]
+            rerank_scores = await _rerank(query, documents)
+            ranked = sorted(
+                zip(valid, rerank_scores),
+                key=lambda pair: pair[1],
+                reverse=True,
             )
+            return [
+                SearchMatch(
+                    file=c.file,
+                    chunk=c.chunk,
+                    score=score,
+                    start_line=c.start_line,
+                    end_line=c.end_line,
+                )
+                for c, score in ranked[:n_results]
+            ]
+
+        # Reranking disabled: return top n_results by RRF score.
+        return [
+            SearchMatch(
+                file=c.file,
+                chunk=c.chunk,
+                score=c.rrf_score,
+                start_line=c.start_line,
+                end_line=c.end_line,
+            )
+            for c in valid[:n_results]
+        ]
 
     except Exception as exc:
         logger.warning("⚠️ code_indexer — search failed: %s", exc)
         return []
-
-    return matches

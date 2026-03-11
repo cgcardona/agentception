@@ -171,19 +171,31 @@ class AgentCeptionSettings(BaseSettings):
     """
     qdrant_collection: str = "code"
     """Name of the Qdrant collection used for codebase vectors."""
-    embed_model: str = "BAAI/bge-small-en-v1.5"
+    embed_model: str = "jinaai/jina-embeddings-v2-base-code"
     """FastEmbed model name for generating code chunk embeddings.
 
-    ``BAAI/bge-small-en-v1.5`` produces 384-dimensional vectors and is
-    fast enough to index a mid-sized codebase in seconds on CPU.  The model
-    is downloaded from HuggingFace Hub on first use and cached in
+    ``jinaai/jina-embeddings-v2-base-code`` is a code-specific 768-dimensional
+    model trained on English and 30 programming languages with an 8 192-token
+    context window.  It substantially outperforms general-purpose text models
+    (e.g. ``BAAI/bge-small-en-v1.5``) on code retrieval tasks because it
+    understands identifier names, type signatures, and code patterns.  The model
+    is downloaded from HuggingFace Hub on first use (~640 MB) and cached in
     ``FASTEMBED_CACHE_DIR`` (default ``/tmp/fastembed_cache``).
     """
-    embed_model_dim: int = 384
+    embed_model_dim: int = 768
     """Vector dimension produced by ``embed_model``.
 
-    Must match the model — ``BAAI/bge-small-en-v1.5`` produces 384-dimensional
-    vectors.  Override when switching to a different model.
+    Must match the model — ``jinaai/jina-embeddings-v2-base-code`` produces
+    768-dimensional vectors.  Override when switching to a different model.
+    """
+    rerank_model: str = "BAAI/bge-reranker-base"
+    """FastEmbed cross-encoder model used to rerank hybrid search results.
+
+    After dense+sparse retrieval, a cross-encoder scores each candidate chunk
+    jointly with the query text and re-orders the list for precision.
+    ``BAAI/bge-reranker-base`` (~280 MB) provides a strong relevance signal
+    with acceptable CPU latency (~50 ms for 10 candidates).  Set to an empty
+    string to disable reranking.
     """
     database_url: str | None = None
     """Async database URL for AgentCeption's own ac_* tables.
