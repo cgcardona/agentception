@@ -1,59 +1,66 @@
 from __future__ import annotations
 
-"""Worktree reaper — removes orphaned agent worktrees without agent cooperation.
+"""Worktree reaper — removes orphaned agent worktree directories.
 
 ``teardown_agent_worktree`` in ``services/teardown.py`` is called by agents
-when they finish normally (via ``build_report_done``).  Agents that crash or
-are killed never reach that call, leaving their worktrees on disk indefinitely.
+when they finish normally (via ``build_complete_run``).  Agents that crash or
+are killed never reach that call, leaving their worktree directories on disk
+indefinitely.
 
 This module provides ``reap_stale_worktrees()``, which is called:
 - Once at application startup (catches orphans from the previous session).
 - Every 15 minutes by a background asyncio task (catches orphans from the
   current session).
 
-The reaper delegates all actual cleanup to the existing
-``teardown_agent_worktree()`` function — it adds no new git logic.
+**Important:** the reaper calls ``release_worktree`` (remove directory + prune
+refs only), NOT ``teardown_agent_worktree`` (which also deletes remote and
+local git branches).  Deleting the remote branch of a run that still has an
+open PR would cause GitHub to auto-close that PR — a side effect the reaper
+must never trigger.  Branch deletion is the responsibility of the merge/close
+workflow, not the disk-space cleanup pass.
 """
 
 import logging
 from pathlib import Path
 
+from agentception.config import settings
 from agentception.db.queries import get_terminal_runs_with_worktrees
-from agentception.services.teardown import teardown_agent_worktree
+from agentception.services.teardown import release_worktree
 
 logger = logging.getLogger(__name__)
 
 
 async def reap_stale_worktrees() -> int:
-    """Remove worktrees for all terminal runs whose directories still exist.
+    """Remove worktree directories for terminal runs that left them on disk.
 
-    Queries the DB for runs with status ``done`` or ``stale`` that still have
-    a ``worktree_path`` set, then tears down any whose directories are present
-    on disk.  Each teardown delegates to ``teardown_agent_worktree``, which
-    handles git worktree removal, branch deletion, and ref pruning — and
-    swallows all errors so a single bad worktree never blocks the sweep.
+    Queries the DB for runs with a terminal status (completed, failed,
+    cancelled, stopped) that still have a ``worktree_path`` set, then releases
+    any whose directories are present on disk.  Uses ``release_worktree``
+    (directory removal + ref pruning only) — **never** deletes git branches,
+    so open PRs are not closed as a side effect.
 
     Returns:
-        The number of worktrees reaped in this pass.
+        The number of worktree directories released in this pass.
     """
     runs = await get_terminal_runs_with_worktrees()
     if not runs:
         logger.debug("ℹ️  worktree reaper: no terminal runs with live worktrees")
         return 0
 
+    repo_dir = str(settings.repo_dir)
     reaped = 0
     for run in runs:
         worktree_path = run["worktree_path"]
         if not Path(worktree_path).exists():
             continue
         logger.info(
-            "⚠️  worktree reaper: stale worktree found for run %r at %s — tearing down",
+            "⚠️  worktree reaper: releasing stale worktree dir for run %r at %s",
             run["id"],
             worktree_path,
         )
-        await teardown_agent_worktree(run["id"])
+        await release_worktree(worktree_path=worktree_path, repo_dir=repo_dir)
         reaped += 1
 
     if reaped:
-        logger.info("✅ worktree reaper: reaped %d stale worktree(s)", reaped)
+        logger.info("✅ worktree reaper: released %d stale worktree dir(s)", reaped)
     return reaped
