@@ -90,7 +90,7 @@ issue_write(method="update", owner=$OWNER, repo=$REPO,
             issue_number=$ISSUE_NUMBER, state="closed", state_reason="completed")
 ```
 
-If grade B/C/D/F — reject:
+If grade C/D/F — reject:
 
 ```
 pull_request_review_write(
@@ -98,9 +98,18 @@ pull_request_review_write(
   method="create_and_submit",
   event="REQUEST_CHANGES",
   body="Grade: <grade> — <specific defect: what failed and why>")
+
+build_complete_run(
+  issue_number=$ISSUE_NUMBER,
+  pr_url=<pr_url>,
+  summary="Grade: <grade> — rejected.",
+  grade="<grade>",
+  reviewer_feedback="<full numbered defect list, plain text>")
 ```
 
-Then call `build_complete_run`.
+The system automatically closes the PR and redispatches the executor with
+your defect list injected at the top of the briefing — no human needed.
+Up to 3 attempts are allowed before the loop is abandoned.
 
 ## Hard Rules
 
