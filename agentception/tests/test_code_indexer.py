@@ -7,6 +7,7 @@ or model downloads.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Generator
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -14,13 +15,16 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from agentception.services.code_indexer import (
+    _BM25_VERSION,
     IndexStats,
     SearchMatch,
+    _bm25_version_is_current,
     _chunk_file,
     _compute_file_hash,
     _delete_chunks_by_file,
     _ensure_collection,
     _fetch_indexed_hashes,
+    _reset_bm25_model,
     _reset_model,
     _should_index,
     _walk_files,
@@ -59,6 +63,39 @@ def _make_scored_point(
 def _fake_embed(_texts: list[str]) -> list[list[float]]:
     """Return deterministic 384-dim zero vectors — no model download."""
     return [[0.0] * 384 for _ in _texts]
+
+
+async def _fake_bm25(texts: list[str]) -> list[dict[int, float]]:
+    """Return trivial sparse vectors — no BM25 model download."""
+    return [{42: 1.0} for _ in texts]
+
+
+@pytest.fixture(autouse=True)
+def _mock_bm25_vectors() -> Generator[None, None, None]:
+    """Auto-patch BM25 helpers for every test in this file.
+
+    - ``_compute_bm25_vectors``: prevented from loading the Qdrant/bm25 ONNX
+      model — returns trivial sparse vectors instead.
+    - ``_needs_bm25_rebuild``: always returns False so incremental tests are
+      not perturbed by missing ``_bm25_version`` fields in mock payloads.
+
+    Tests that need to exercise the rebuild path should override these patches
+    locally with their own ``patch`` context managers.
+    """
+    _reset_bm25_model()
+    with (
+        patch(
+            "agentception.services.code_indexer._compute_bm25_vectors",
+            side_effect=_fake_bm25,
+        ),
+        patch(
+            "agentception.services.code_indexer._needs_bm25_rebuild",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+    ):
+        yield
+    _reset_bm25_model()
 
 
 # ── File walking tests ────────────────────────────────────────────────────────
@@ -926,3 +963,71 @@ async def test_incremental_force_full_rebuilds_collection(tmp_path: Path) -> Non
     mock_client.delete_collection.assert_called_once()
     mock_client.create_collection.assert_called_once()
     mock_client.upsert.assert_called()
+
+
+def test_bm25_version_is_current_true_when_version_matches() -> None:
+    """_bm25_version_is_current returns True when payload contains the current version."""
+    assert _bm25_version_is_current({"_bm25_version": _BM25_VERSION}) is True
+
+
+def test_bm25_version_is_current_false_when_version_absent() -> None:
+    """_bm25_version_is_current returns False when _bm25_version field is missing."""
+    assert _bm25_version_is_current({"file": "mod.py"}) is False
+
+
+def test_bm25_version_is_current_false_when_version_stale() -> None:
+    """_bm25_version_is_current returns False when payload holds an older version."""
+    assert _bm25_version_is_current({"_bm25_version": "qdrant-bm25-v1"}) is False
+
+
+@pytest.mark.anyio
+async def test_bm25_version_mismatch_triggers_full_rebuild(tmp_path: Path) -> None:
+    """index_codebase drops and rebuilds the collection when _needs_bm25_rebuild returns True.
+
+    Regression: switching from the old hash-based BM25 to Qdrant/bm25 changes
+    the sparse vector index space.  The automatic rebuild replaces stale points
+    so hybrid search returns correct results from the first run.
+    """
+    py_file = tmp_path / "mod.py"
+    py_file.write_text("def greet(): return 'hello'\n")
+
+    mock_client = AsyncMock()
+    # First _ensure_collection call: collection exists with current schema.
+    # Second _ensure_collection call (after delete): collection gone → create.
+    mock_client.get_collections.side_effect = [
+        SimpleNamespace(collections=[SimpleNamespace(name="code")]),
+        SimpleNamespace(collections=[]),
+    ]
+    mock_client.get_collection.return_value = SimpleNamespace(
+        config=SimpleNamespace(
+            params=SimpleNamespace(vectors={"dense": object(), "sparse": object()})
+        )
+    )
+    mock_client.scroll.return_value = ([], None)
+
+    # Override autouse mock: _needs_bm25_rebuild returns True to trigger rebuild.
+    with (
+        patch(
+            "agentception.services.code_indexer._needs_bm25_rebuild",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch("agentception.services.code_indexer._embed", side_effect=_fake_embed),
+        patch("qdrant_client.AsyncQdrantClient", return_value=mock_client),
+    ):
+        stats: IndexStats = await index_codebase(repo_path=tmp_path)
+
+    assert stats["ok"] is True
+    # Version mismatch forced a full rebuild — nothing skipped.
+    assert stats["files_skipped"] == 0
+    assert stats["files_indexed"] == 1
+    # Collection was dropped and recreated to replace stale sparse vectors.
+    mock_client.delete_collection.assert_called()
+    mock_client.create_collection.assert_called()
+    # All upserted points must carry the current BM25 version.
+    upsert_call = mock_client.upsert.call_args
+    upserted_points = upsert_call.kwargs["points"]
+    for point in upserted_points:
+        assert point.payload.get("_bm25_version") == _BM25_VERSION, (
+            "Every indexed chunk must carry the current _bm25_version"
+        )

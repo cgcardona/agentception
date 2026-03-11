@@ -15,11 +15,16 @@ Non-Python files use overlapping character-level chunks for compatibility.
 
 Hybrid Search
 -------------
-Search combines dense semantic vectors (FastEmbed) with sparse BM25 keyword
-vectors. Results from both retrieval methods are fused using Reciprocal Rank
-Fusion (RRF) with k=60, a standard parameter that balances the contribution
-of both ranking methods. This ensures exact keyword matches (e.g., class names)
-rank highly while preserving semantic similarity for natural language queries.
+Search combines dense semantic vectors (FastEmbed ``BAAI/bge-small-en-v1.5``)
+with sparse BM25 vectors produced by FastEmbed's ``Qdrant/bm25`` model.  The
+sparse model computes proper corpus-aware IDF (pre-trained on a large text
+corpus) instead of the old hash-based toy implementation that had a 10k-slot
+vocabulary, ~40–50% token-collision rate, and no IDF weighting.
+
+Results from both retrieval methods are fused using Reciprocal Rank Fusion
+(RRF) with k=60.  This ensures exact keyword matches (e.g. class names, rare
+identifiers) rank highly while preserving semantic similarity for natural
+language queries.
 
 Incremental Indexing
 --------------------
@@ -29,20 +34,26 @@ hash differs from the stored value (new, changed, or deleted) incur Qdrant
 writes.  Unchanged files are skipped entirely — zero Qdrant calls.  Pass
 ``force_full=True`` to drop and rebuild the collection from scratch.
 
+A ``_bm25_version`` field is stored in every chunk payload.  When the BM25
+implementation changes (e.g. upgrading from the old hash-based vectors to
+``Qdrant/bm25``), the stored version is compared with ``_BM25_VERSION`` at
+the start of ``index_codebase``.  A mismatch triggers an automatic forced
+full rebuild so the new sparse vectors replace the old ones in one pass.
+
 Public API
 ----------
 ``index_codebase(repo_path, force_full=False)``
     Walk every readable source file in *repo_path*, chunk appropriately
     (AST for Python, character-level for others), embed with
     :data:`~agentception.config.settings.embed_model` (default
-    ``BAAI/bge-small-en-v1.5``), compute BM25 sparse vectors, and upsert
-    both to the Qdrant collection configured in
+    ``BAAI/bge-small-en-v1.5``), compute BM25 sparse vectors via
+    ``Qdrant/bm25``, and upsert both to the Qdrant collection configured in
     :data:`~agentception.config.settings.qdrant_collection`.
     Incremental by default — only changed/new/deleted files are processed.
 
 ``search_codebase(query, n_results)``
-    Run hybrid search combining dense semantic and sparse BM25 retrieval,
-    fuse results with RRF, and return the top *n_results* code chunks.
+    Run hybrid search combining dense (FastEmbed) and sparse (BM25)
+    vectors, fuse results with RRF, and return the top *n_results* code chunks.
 
 Both functions accept optional overrides for ``qdrant_url`` and
 ``collection`` so tests can inject isolated instances without touching the
@@ -112,14 +123,22 @@ class SearchMatch(TypedDict):
     end_line: int
 
 
-# ── Module-level embedding model cache ───────────────────────────────────────
+# ── BM25 version sentinel ─────────────────────────────────────────────────────
+# Stored in every chunk payload so index_codebase can detect when the sparse
+# vectorizer has changed and trigger an automatic full rebuild.
+
+_BM25_VERSION = "qdrant-bm25-v2"
+
+
+# ── Module-level embedding model caches ───────────────────────────────────────
 # Lazily initialised on first use so tests can monkey-patch before loading.
 
-_cached_model: object = None  # TextEmbedding instance after first load
+_cached_model: object = None   # TextEmbedding instance after first load
+_bm25_model: object = None     # SparseTextEmbedding instance after first load
 
 
 def _get_model() -> object:
-    """Return the cached TextEmbedding model, initialising it on first call."""
+    """Return the cached dense TextEmbedding model, initialising it on first call."""
     global _cached_model
     if _cached_model is None:
         from fastembed import TextEmbedding  # noqa: PLC0415
@@ -130,9 +149,26 @@ def _get_model() -> object:
 
 
 def _reset_model() -> None:
-    """Clear the cached model — used by tests to inject a mock."""
+    """Clear the cached dense model — used by tests to inject a mock."""
     global _cached_model
     _cached_model = None
+
+
+def _get_bm25_model() -> object:
+    """Return the cached SparseTextEmbedding BM25 model, initialising it on first call."""
+    global _bm25_model
+    if _bm25_model is None:
+        from fastembed.sparse import SparseTextEmbedding  # noqa: PLC0415
+
+        logger.info("✅ code_indexer — loading BM25 sparse model: Qdrant/bm25")
+        _bm25_model = SparseTextEmbedding("Qdrant/bm25")
+    return _bm25_model
+
+
+def _reset_bm25_model() -> None:
+    """Clear the cached BM25 model — used by tests to inject a mock."""
+    global _bm25_model
+    _bm25_model = None
 
 
 def _embed_sync(texts: list[str]) -> list[list[float]]:
@@ -155,50 +191,39 @@ async def _embed(texts: list[str]) -> list[list[float]]:
 # ── BM25 sparse vector computation ───────────────────────────────────────────
 
 
-def _compute_bm25_vector(text: str, vocab_size: int = 10000) -> dict[int, float]:
-    """Compute a BM25-style sparse vector for *text*.
+def _compute_bm25_vectors_sync(texts: list[str]) -> list[dict[int, float]]:
+    """Compute BM25 sparse vectors for a batch of *texts*.
 
-    Returns a dictionary mapping token indices to BM25 scores. This is a
-    simplified BM25 implementation suitable for single-document scoring
-    without a corpus-wide IDF calculation.
+    Uses FastEmbed's ``Qdrant/bm25`` model which applies corpus-aware IDF
+    weights pre-trained on a large text corpus.  This produces far better
+    discriminative power than a hash-based toy implementation because:
+
+    - Rare, information-dense tokens (``ensure_worktree``, ``persist_agent_event``)
+      receive high IDF scores.
+    - Common tokens (``def``, ``self``, ``return``) receive low IDF scores.
+    - No hash collisions — the model uses a proper vocabulary.
 
     Args:
-        text: The text to vectorize.
-        vocab_size: Maximum vocabulary size (hash space for tokens).
+        texts: Batch of strings to vectorise.
 
     Returns:
-        Sparse vector as {index: score} dict. Qdrant accepts this format
-        for sparse vectors.
+        One ``{index: score}`` dict per input text, in the same order.
+        Qdrant accepts this format for sparse vectors.
     """
-    import re
+    from fastembed.sparse import SparseTextEmbedding  # noqa: PLC0415
 
-    # Tokenize: lowercase, split on non-alphanumeric, filter short tokens.
-    tokens = [t for t in re.findall(r"\w+", text.lower()) if len(t) > 2]
-    if not tokens:
-        return {}
+    model = _get_bm25_model()
+    if not isinstance(model, SparseTextEmbedding):
+        raise TypeError(f"Expected SparseTextEmbedding, got {type(model)}")
+    return [
+        {int(idx): float(val) for idx, val in zip(emb.indices, emb.values)}
+        for emb in model.embed(texts)
+    ]
 
-    # Compute term frequencies.
-    tf: dict[str, int] = {}
-    for token in tokens:
-        tf[token] = tf.get(token, 0) + 1
 
-    # BM25 parameters (standard values).
-    k1 = 1.5
-    b = 0.75
-    avgdl = 100.0  # Assume average document length of 100 tokens.
-    doc_len = len(tokens)
-
-    # Compute BM25 score for each unique token.
-    sparse_vec: dict[int, float] = {}
-    for token, freq in tf.items():
-        # Hash token to an index in [0, vocab_size).
-        token_idx = hash(token) % vocab_size
-        # BM25 formula (without IDF, which requires corpus statistics).
-        # We use a simplified version: score = (freq * (k1 + 1)) / (freq + k1 * (1 - b + b * doc_len / avgdl))
-        score = (freq * (k1 + 1)) / (freq + k1 * (1 - b + b * doc_len / avgdl))
-        sparse_vec[token_idx] = score
-
-    return sparse_vec
+async def _compute_bm25_vectors(texts: list[str]) -> list[dict[int, float]]:
+    """Async wrapper around :func:`_compute_bm25_vectors_sync` using the thread pool."""
+    return await asyncio.to_thread(_compute_bm25_vectors_sync, texts)
 
 
 # ── File walking and chunking ─────────────────────────────────────────────────
@@ -384,6 +409,45 @@ def _compute_file_hash(path: Path) -> str:
     except OSError:
         return ""
     return hashlib.sha256(data).hexdigest()
+
+
+def _bm25_version_is_current(payload: dict[str, object]) -> bool:
+    """Return True when *payload* contains the current :data:`_BM25_VERSION`.
+
+    Extracted from :func:`_needs_bm25_rebuild` so the version check logic
+    can be tested without a live Qdrant client or async context.
+    """
+    return payload.get("_bm25_version") == _BM25_VERSION
+
+
+async def _needs_bm25_rebuild(client: "AsyncQdrantClient", collection: str) -> bool:
+    """Return True when the stored BM25 version does not match :data:`_BM25_VERSION`.
+
+    Fetches a single point from *collection* and checks its ``_bm25_version``
+    payload field via :func:`_bm25_version_is_current`.  If the field is absent
+    (pre-upgrade points) or holds an older version string, a full forced rebuild
+    is required to replace the stale sparse vectors.  Returns ``False`` when the
+    collection is empty or when Qdrant is unreachable — neither case requires a
+    rebuild.
+    """
+    try:
+        result = await client.scroll(
+            collection_name=collection,
+            scroll_filter=None,
+            limit=1,
+            with_payload=True,
+            with_vectors=False,
+        )
+        points, _ = result
+        if not points:
+            return False
+        return not _bm25_version_is_current(points[0].payload or {})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "⚠️ code_indexer — could not check BM25 version (skipping rebuild check): %s",
+            exc,
+        )
+        return False
 
 
 async def _fetch_indexed_hashes(
@@ -582,6 +646,18 @@ async def index_codebase(
 
             await _ensure_collection(client, coll)
 
+            # Detect BM25 implementation change — auto-trigger full rebuild.
+            # Sparse vectors from the old hash-based implementation are
+            # incompatible with Qdrant/bm25 (different index ranges).
+            if not force_full and await _needs_bm25_rebuild(client, coll):
+                logger.info(
+                    "✅ code_indexer — BM25 version mismatch; triggering full rebuild "
+                    "to replace stale sparse vectors with Qdrant/bm25"
+                )
+                await client.delete_collection(coll)
+                await _ensure_collection(client, coll)
+                force_full = True
+
             # Incremental: build file→hash map from Qdrant.
             # Empty when force_full since the collection was just dropped.
             indexed_hashes = (
@@ -629,13 +705,13 @@ async def index_codebase(
             )
 
             # Embed and upsert in batches.
+            from qdrant_client.models import SparseVector  # noqa: PLC0415
+
             for batch_start in range(0, len(all_chunks), _UPSERT_BATCH):
                 batch = all_chunks[batch_start : batch_start + _UPSERT_BATCH]
                 texts = [c["text"] for c in batch]
                 dense_vectors = await _embed(texts)
-                sparse_vectors = [_compute_bm25_vector(text) for text in texts]
-
-                from qdrant_client.models import SparseVector  # noqa: PLC0415
+                sparse_vectors = await _compute_bm25_vectors(texts)
 
                 points = [
                     PointStruct(
@@ -654,6 +730,7 @@ async def index_codebase(
                             "end_line": chunk["end_line"],
                             "symbol": chunk["symbol"],
                             "file_hash": chunk["file_hash"],
+                            "_bm25_version": _BM25_VERSION,
                         },
                     )
                     for chunk, dense_vec, sparse_vec in zip(batch, dense_vectors, sparse_vectors)
@@ -726,7 +803,8 @@ async def search_codebase(
         # Compute both dense and sparse query vectors.
         dense_vectors = await _embed([query])
         dense_query = dense_vectors[0]
-        sparse_dict = _compute_bm25_vector(query)
+        bm25_results = await _compute_bm25_vectors([query])
+        sparse_dict = bm25_results[0]
         sparse_query = SparseVector(
             indices=list(sparse_dict.keys()),
             values=list(sparse_dict.values()),
