@@ -132,6 +132,22 @@ def test_walk_files_skips_git_and_pycache(tmp_path: Path) -> None:
     assert "mod.pyc" not in paths
 
 
+def test_walk_files_skips_alembic_versions(tmp_path: Path) -> None:
+    """Alembic migration files are excluded — they are auto-generated DDL noise."""
+    (tmp_path / "alembic").mkdir()
+    (tmp_path / "alembic" / "env.py").write_text("# alembic env")
+    (tmp_path / "alembic" / "versions").mkdir()
+    (tmp_path / "alembic" / "versions" / "0001_schema.py").write_text("def upgrade(): pass")
+    (tmp_path / "app.py").write_text("pass")
+
+    files = _walk_files(tmp_path)
+    names = {f.name for f in files}
+
+    assert "app.py" in names
+    assert "env.py" in names          # alembic/env.py IS indexed (hand-authored)
+    assert "0001_schema.py" not in names  # alembic/versions/ is skipped
+
+
 def test_walk_files_includes_multiple_extensions(tmp_path: Path) -> None:
     (tmp_path / "code.py").write_text("pass")
     (tmp_path / "readme.md").write_text("# Hello")
