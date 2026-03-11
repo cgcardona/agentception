@@ -644,13 +644,21 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
     # Pre-inject semantically relevant code context from the main Qdrant index.
     # Searching at dispatch time (not agent-turn time) amortises the embedding
     # cost once and gives the agent oriented code context from turn 1.
-    # Cap: top 3 chunks, 800 chars each, total ≤ 3 000 chars added.
+    # Cap: top 5 chunks, 800 chars each, total ≤ 3 000 chars added.
     # code_matches is also reused below for type-signature extraction.
+    #
+    # Query: prefer the symbol-rich issue title + backtick-wrapped code refs
+    # over a raw body slice, which for most issues is background prose.
+    from agentception.services.context_assembler import _extract_code_queries  # noqa: PLC0415
     code_matches: list[SearchMatch] = []
     if task_description:
-        search_query = f"{req.issue_title} {req.issue_body}"[:800]
+        dispatch_queries = _extract_code_queries(req.issue_title or "", req.issue_body or "")
+        # Use the first (most signal-dense) query for the dispatch-time snippet.
+        search_query = dispatch_queries[0] if dispatch_queries else (
+            f"{req.issue_title} {req.issue_body}"[:800]
+        )
         try:
-            code_matches = await search_codebase(search_query, n_results=3)
+            code_matches = await search_codebase(search_query, n_results=5)
             if code_matches:
                 ctx_blocks: list[str] = []
                 remaining = 3_000
