@@ -2604,6 +2604,25 @@ async def get_agent_run_role(run_id: str) -> str | None:
         return None
 
 
+async def get_agent_run_task_description(run_id: str) -> str | None:
+    """Return the task_description for a single agent run, or None if not found.
+
+    Used by auto_redispatch to count prior reviewer-rejection sections injected
+    into the task description — the rejection count determines the attempt number
+    without requiring an extra DB column.
+    """
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun.task_description).where(ACAgentRun.id == run_id)
+            )
+            row = result.one_or_none()
+        return row[0] if row is not None else None
+    except Exception as exc:
+        logger.warning("⚠️  get_agent_run_task_description DB query failed (non-fatal): %s", exc)
+        return None
+
+
 class TerminalRunRow(TypedDict):
     """Minimal run fields needed by the worktree reaper."""
 

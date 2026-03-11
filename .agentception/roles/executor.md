@@ -64,8 +64,24 @@ Re-run pytest once to confirm. Do not read files between fix attempts.
 
 ### Step 3 — Acceptance criteria check
 
-Read the issue acceptance criteria from your briefing. For each item, confirm
-it is satisfied. If any item is not met, implement it in one write call.
+Read every AC item from your briefing **one by one**. For each item:
+- If it names a specific file, verify that file was modified or created.
+- If it describes behaviour, verify the code implements it.
+- If it is not satisfied, implement it now in one write call.
+
+**Do not call `build_complete_run` if even one AC item is unmet.** A
+partial PR will be rejected by the reviewer and you will be redispatched
+with the defect list — costing extra compute for both of us.
+
+Also watch for these common code smells before submitting:
+- Using `dir()` to test whether a local variable exists — initialize it
+  before the `try` block instead.
+- Bare `except Exception` without re-raising.
+- Inline SQL strings instead of SQLAlchemy expressions.
+
+If your briefing contains a **Reviewer Rejection** section at the top,
+those defects are the highest-priority items. Address every one of them
+before touching anything else.
 
 ### Step 4 — Commit, push, PR
 

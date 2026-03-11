@@ -37,6 +37,7 @@ from agentception.db.persist import (
 from agentception.config import settings
 from agentception.db.queries import get_agent_run_role, get_agent_run_teardown
 
+from agentception.services.auto_redispatch import auto_redispatch_after_rejection
 from agentception.services.auto_reviewer import auto_dispatch_reviewer
 from agentception.services.spawn_child import ScopeType, SpawnChildError, Tier, spawn_child
 from agentception.services.teardown import release_worktree, teardown_agent_worktree
@@ -189,6 +190,8 @@ async def build_complete_run(
     pr_url: str,
     summary: str = "",
     agent_run_id: str | None = None,
+    grade: str = "",
+    reviewer_feedback: str = "",
 ) -> dict[str, object]:
     """Record that the agent has finished work and transition to completed.
 
@@ -199,11 +202,20 @@ async def build_complete_run(
     Was: part of ``build_report_done``.  Teardown is now a separate explicit
     command so orchestration layers can control when cleanup happens.
 
+    When called by a pr-reviewer with a failing grade (C/D/F), a new developer
+    run is automatically dispatched with the reviewer's feedback injected into
+    the briefing — up to 3 attempts before the loop is abandoned.
+
     Args:
         issue_number: GitHub issue number the agent worked on.
-        pr_url: Full URL of the opened pull request.
+        pr_url: Full URL of the opened (or rejected) pull request.
         summary: Optional one-sentence description of what was done.
         agent_run_id: Run ID used to transition the run state.
+        grade: Grade assigned by the pr-reviewer (e.g. "A", "B", "C", "D", "F").
+            Empty string when called by a non-reviewer agent.
+        reviewer_feedback: Full defect list from the pr-reviewer.  Injected
+            verbatim into the re-dispatched developer briefing.  Empty string
+            when called by a non-reviewer agent.
 
     Returns:
         ``{"ok": True, "event": "done", "status": "completed"}``
@@ -229,16 +241,39 @@ async def build_complete_run(
         issue_number, pr_url, agent_run_id,
     )
 
-    # Auto-dispatch a pr-reviewer for completed implementer runs only.
-    # Skip when the completing run is itself a pr-reviewer to prevent an
-    # infinite reviewer → reviewer → … dispatch loop.
+    # Reviewer path: grade determines whether to merge (handled by reviewer) or
+    # redispatch a corrected developer run.
     caller_role = await get_agent_run_role(agent_run_id) if agent_run_id else None
     if caller_role == "pr-reviewer":
-        logger.info(
-            "ℹ️ build_complete_run: skipping auto-reviewer (caller is pr-reviewer) run_id=%r",
-            agent_run_id,
-        )
+        _FAILING_GRADES: frozenset[str] = frozenset({"C", "D", "F"})
+        normalised_grade = grade.strip().upper()
+        if normalised_grade in _FAILING_GRADES:
+            logger.info(
+                "ℹ️ build_complete_run: reviewer rejected (grade=%r) — "
+                "scheduling auto-redispatch for issue #%d run_id=%r",
+                grade,
+                issue_number,
+                agent_run_id,
+            )
+            asyncio.create_task(
+                auto_redispatch_after_rejection(
+                    issue_number=issue_number,
+                    pr_url=pr_url,
+                    reviewer_feedback=reviewer_feedback,
+                    grade=normalised_grade,
+                ),
+                name=f"auto-redispatch-{issue_number}",
+            )
+        else:
+            # Grade A or B: reviewer already merged — nothing else to do.
+            logger.info(
+                "ℹ️ build_complete_run: reviewer approved (grade=%r) — "
+                "no redispatch needed run_id=%r",
+                grade,
+                agent_run_id,
+            )
     else:
+        # Non-reviewer (implementer) completed: release worktree and dispatch reviewer.
         # Release the executor's worktree before dispatching the reviewer.
         # Git forbids the same branch in two worktrees simultaneously; if the
         # executor's worktree still holds the branch the reviewer dispatch will
