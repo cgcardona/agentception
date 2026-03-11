@@ -121,6 +121,21 @@ _SKIP_DIRS: frozenset[str] = frozenset(
     }
 )
 
+# Path-segment pairs that together identify auto-generated subtrees with no
+# search value.  A file is skipped when ALL segments in any pair appear (in
+# order) as consecutive components of its path.
+#
+# ``("alembic", "versions")`` — Alembic migration files are DDL generated
+# from SQLAlchemy models.  The models in ``agentception/db/models.py`` are the
+# source of truth; indexing both creates duplicate, lower-quality signal.
+# Migrations also contain large monolithic ``upgrade()`` functions (10k+ chars)
+# that cause O(n²) ONNX attention stalls even with the _MAX_EMBED_CHARS cap.
+_SKIP_PATH_PAIRS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("alembic", "versions"),
+    }
+)
+
 # ── Public result types ───────────────────────────────────────────────────────
 
 
@@ -315,8 +330,18 @@ def _walk_files(repo_path: Path) -> list[Path]:
     for child in sorted(repo_path.rglob("*")):
         if child.is_dir():
             continue
-        # Prune whole subtrees early.
-        if any(part in _SKIP_DIRS for part in child.parts):
+        parts = child.parts
+        # Prune whole subtrees matching single-directory skip list.
+        if any(part in _SKIP_DIRS for part in parts):
+            continue
+        # Prune subtrees matching consecutive path-segment pairs (e.g. alembic/versions).
+        if any(
+            any(
+                parts[i] == a and i + 1 < len(parts) and parts[i + 1] == b
+                for i in range(len(parts) - 1)
+            )
+            for a, b in _SKIP_PATH_PAIRS
+        ):
             continue
         if _should_index(child):
             results.append(child)
@@ -616,12 +641,14 @@ async def _fetch_indexed_hashes(
 _UPSERT_BATCH = 16  # points per upsert call — smaller batches give more frequent progress logs
                     # and reduce the per-batch latency spike from large code chunks.
 
-# Jina jina-embeddings-v2-base-code has an 8192-token context window.
-# At ~4 chars/token for code, 8192 tokens ≈ 32 768 characters.  We cap
-# embed text at 24 000 chars (~6 000 tokens) as a safety margin, since ONNX
-# attention is O(n²) — runaway large sequences cause per-batch stalls of
-# several minutes even when the model technically supports the length.
-_MAX_EMBED_CHARS = 24_000
+# Safety cap on the embed text length fed to the dense model.
+# ONNX attention is O(n²) in sequence length — a single 10k-char chunk in a
+# batch pads all 15 other chunks to that length too, multiplying batch latency
+# by (10000/1500)² ≈ 44×.  4 000 chars ≈ 1 000 tokens is ample for any
+# application-level function signature, docstring, and core logic; the only
+# files that genuinely exceed this are auto-generated ones (migrations, etc.)
+# which are excluded from the index by _SKIP_PATH_SEGMENTS below.
+_MAX_EMBED_CHARS = 4_000
 
 
 async def _ensure_collection(client: "AsyncQdrantClient", collection: str) -> None:
