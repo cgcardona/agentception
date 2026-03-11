@@ -100,6 +100,23 @@ _MCP_PROTOCOL_VERSION = "2024-11-05"
 #: Server identity advertised in the ``initialize`` response.
 _SERVER_INFO: dict[str, object] = {"name": "agentception", "version": "0.1.1"}
 
+#: Retired tool names mapped to the ``ac://`` resource URI that supersedes them.
+#: Reconstructed on every call_tool invocation in the old design; hoisted here
+#: so the dict is built once at import time.
+_RETIRED_TOOL_URIS: dict[str, str] = {
+    "query_pending_runs": "ac://runs/pending",
+    "query_run": "ac://runs/{run_id}",
+    "query_children": "ac://runs/{run_id}/children",
+    "query_run_events": "ac://runs/{run_id}/events",
+    "query_active_runs": "ac://runs/active",
+    "query_run_tree": "ac://batches/{batch_id}/tree",
+    "query_dispatcher_state": "ac://system/dispatcher",
+    "query_system_health": "ac://system/health",
+    "plan_get_schema": "ac://plan/schema",
+    "plan_get_labels": "ac://plan/labels",
+    "plan_get_cognitive_figures": "ac://plan/figures/{role}",
+}
+
 # ---------------------------------------------------------------------------
 # Tool registry
 # ---------------------------------------------------------------------------
@@ -777,19 +794,6 @@ def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
     # ── Retired tool redirects — point callers at the resource URI ───────────
     # These tools have been superseded by ac:// resources.  Return an isError
     # result that tells the agent exactly which resource/read call to use.
-    _RETIRED_TOOL_URIS: dict[str, str] = {
-        "query_pending_runs": "ac://runs/pending",
-        "query_run": "ac://runs/{run_id}",
-        "query_children": "ac://runs/{run_id}/children",
-        "query_run_events": "ac://runs/{run_id}/events",
-        "query_active_runs": "ac://runs/active",
-        "query_run_tree": "ac://batches/{batch_id}/tree",
-        "query_dispatcher_state": "ac://system/dispatcher",
-        "query_system_health": "ac://system/health",
-        "plan_get_schema": "ac://plan/schema",
-        "plan_get_labels": "ac://plan/labels",
-        "plan_get_cognitive_figures": "ac://plan/figures/{role}",
-    }
     if name in _RETIRED_TOOL_URIS:
         uri = _RETIRED_TOOL_URIS[name]
         err_text = _tool_result_to_text(
