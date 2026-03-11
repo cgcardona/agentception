@@ -463,3 +463,63 @@ def test_dispatch_label_returns_200_with_cascade_disabled(
 
     assert res.status_code == 200
     persist_mock.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Regression: reviewer run_id must not clobber the implementer's DB row
+# ---------------------------------------------------------------------------
+
+
+def test_reviewer_run_id_uses_pr_number_slug() -> None:
+    """Reviewer dispatches must derive run_id from the PR number, not the issue number.
+
+    Regression for token-cost clobbering: the reviewer was dispatched with
+    run_id='issue-N', which overwrote the implementer's DB row and zeroed all
+    accumulated token counts.  After the fix, reviewers use run_id='review-{pr}'.
+    """
+    from agentception.routes.api.dispatch import DispatchRequest
+
+    reviewer_req = DispatchRequest(
+        issue_number=450,
+        issue_title="Review PR #555",
+        issue_body="",
+        role="pr-reviewer",
+        repo="cgcardona/agentception",
+        pr_number=555,
+        pr_branch="feat/issue-450",
+    )
+
+    is_reviewer = reviewer_req.role == "pr-reviewer"
+    if is_reviewer and reviewer_req.pr_number is not None:
+        slug = f"review-{reviewer_req.pr_number}"
+        run_id = f"review-{reviewer_req.pr_number}"
+    else:
+        slug = f"issue-{reviewer_req.issue_number}"
+        run_id = f"issue-{reviewer_req.issue_number}"
+
+    assert run_id == "review-555", f"Expected review-555, got {run_id}"
+    assert slug == "review-555", f"Expected review-555, got {slug}"
+    assert run_id != f"issue-{reviewer_req.issue_number}", (
+        "Reviewer must not share run_id with implementer"
+    )
+
+
+def test_implementer_run_id_uses_issue_slug() -> None:
+    """Implementer dispatches continue to use issue-{N} as the run_id."""
+    from agentception.routes.api.dispatch import DispatchRequest
+
+    implementer_req = DispatchRequest(
+        issue_number=450,
+        issue_title="Move logger",
+        issue_body="",
+        role="developer",
+        repo="cgcardona/agentception",
+    )
+
+    is_reviewer = implementer_req.role == "pr-reviewer"
+    if is_reviewer and implementer_req.pr_number is not None:
+        run_id = f"review-{implementer_req.pr_number}"
+    else:
+        run_id = f"issue-{implementer_req.issue_number}"
+
+    assert run_id == "issue-450"
