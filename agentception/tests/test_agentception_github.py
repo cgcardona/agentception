@@ -589,3 +589,164 @@ async def test_merge_pr_raises_on_api_failure() -> None:
     with patch("agentception.readers.github.httpx.AsyncClient", return_value=mock):
         with pytest.raises(RuntimeError, match="GitHub API PUT"):
             await merge_pr(99, delete_branch=False)
+
+
+# ---------------------------------------------------------------------------
+# 429 retry / backoff coverage (Gap 4)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_api_get_retries_on_429() -> None:
+    """_api_get must retry after a 429 and succeed on the second attempt."""
+    import asyncio
+
+    from agentception.readers.github import _api_get
+
+    payload = {"number": 1, "title": "Retried"}
+
+    # First call returns 429; second returns 200.
+    resp_429 = _mock_response(None, 429)
+    resp_429.headers = {"retry-after": "0"}
+    resp_200 = _mock_response(payload, 200)
+
+    client = MagicMock()
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=False)
+    client.get = AsyncMock(side_effect=[resp_429, resp_200])
+
+    with (
+        patch("agentception.readers.github.httpx.AsyncClient", return_value=client),
+        patch("agentception.readers.github.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        result = await _api_get("repos/x/y/issues/1", {}, "retry_key")
+
+    assert result == payload
+    assert client.get.call_count == 2
+
+
+@pytest.mark.anyio
+async def test_api_get_raises_after_max_retries_on_429() -> None:
+    """_api_get must raise RuntimeError when all retries are exhausted on 429."""
+    from agentception.readers.github import _MAX_RETRIES, _api_get
+
+    resp_429 = _mock_response(None, 429)
+    resp_429.headers = {"retry-after": "0"}
+
+    client = MagicMock()
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=False)
+    client.get = AsyncMock(return_value=resp_429)
+
+    with (
+        patch("agentception.readers.github.httpx.AsyncClient", return_value=client),
+        patch("agentception.readers.github.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        with pytest.raises(RuntimeError, match="429"):
+            await _api_get("repos/x/y/issues/1", {}, "exhaust_key")
+
+    assert client.get.call_count == _MAX_RETRIES + 1
+
+
+@pytest.mark.anyio
+async def test_api_post_retries_on_429() -> None:
+    """_api_post must retry after a 429 and succeed on the second attempt."""
+    from agentception.readers.github import _api_post
+
+    payload = {"number": 42, "html_url": "https://github.com/x/y/issues/42"}
+
+    resp_429 = _mock_response(None, 429)
+    resp_429.headers = {"retry-after": "0"}
+    resp_200 = _mock_response(payload, 200)
+
+    client = MagicMock()
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=False)
+    client.post = AsyncMock(side_effect=[resp_429, resp_200])
+
+    with (
+        patch("agentception.readers.github.httpx.AsyncClient", return_value=client),
+        patch("agentception.readers.github.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        result = await _api_post("repos/x/y/issues", {"title": "Test"})
+
+    assert result == payload
+    assert client.post.call_count == 2
+
+
+@pytest.mark.anyio
+async def test_create_issue_returns_issue_dict() -> None:
+    """create_issue() must POST to the issues endpoint and return the response dict."""
+    from agentception.readers.github import create_issue
+
+    issue_payload = {
+        "number": 99,
+        "html_url": "https://github.com/x/y/issues/99",
+        "state": "open",
+        "title": "New issue",
+        "body": "Details here.",
+    }
+    mock = _mock_client(post=issue_payload)
+
+    with patch("agentception.readers.github.httpx.AsyncClient", return_value=mock):
+        result = await create_issue("New issue", "Details here.", labels=["bug"])
+
+    assert result["number"] == 99
+    assert result["title"] == "New issue"
+    post_json = mock.post.call_args.kwargs["json"]
+    assert post_json["title"] == "New issue"
+    assert post_json["labels"] == ["bug"]
+
+
+@pytest.mark.anyio
+async def test_update_issue_patches_only_provided_fields() -> None:
+    """update_issue() must PATCH only the fields that are not None."""
+    from agentception.readers.github import update_issue
+
+    updated_payload = {
+        "number": 7,
+        "state": "closed",
+        "title": "Original title",
+        "body": "Original body",
+    }
+    mock = _mock_client(patch=updated_payload)
+
+    with patch("agentception.readers.github.httpx.AsyncClient", return_value=mock):
+        result = await update_issue(7, state="closed")
+
+    assert result["state"] == "closed"
+    patch_json = mock.patch.call_args.kwargs["json"]
+    assert patch_json == {"state": "closed"}
+    assert "title" not in patch_json
+    assert "body" not in patch_json
+
+
+@pytest.mark.anyio
+async def test_ensure_label_exists_updates_on_422() -> None:
+    """ensure_label_exists() must PATCH the label when the POST returns 422 (already exists)."""
+    from agentception.readers.github import ensure_label_exists
+
+    # POST returns 422 (label exists); PATCH succeeds.
+    resp_422 = _mock_response(None, 422)
+    resp_422.raise_for_status = MagicMock()  # 422 is handled before raise_for_status
+    resp_200_patch = _mock_response({"name": "approved"}, 200)
+
+    post_client = MagicMock()
+    post_client.__aenter__ = AsyncMock(return_value=post_client)
+    post_client.__aexit__ = AsyncMock(return_value=False)
+    post_client.post = AsyncMock(return_value=resp_422)
+
+    patch_client = MagicMock()
+    patch_client.__aenter__ = AsyncMock(return_value=patch_client)
+    patch_client.__aexit__ = AsyncMock(return_value=False)
+    patch_client.patch = AsyncMock(return_value=resp_200_patch)
+
+    with patch(
+        "agentception.readers.github.httpx.AsyncClient",
+        side_effect=[post_client, patch_client],
+    ):
+        await ensure_label_exists("approved", "2ea44f", "Approved by reviewer")
+
+    # POST was attempted once, then PATCH was called to update.
+    assert post_client.post.call_count == 1
+    assert patch_client.patch.call_count == 1
+

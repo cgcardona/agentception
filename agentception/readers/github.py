@@ -18,6 +18,7 @@ Usage::
     label  = await get_active_label()
 """
 
+import asyncio
 import logging
 import time
 import urllib.parse
@@ -43,6 +44,14 @@ _BASE_URL = "https://api.github.com"
 _ACCEPT = "application/vnd.github+json"
 _API_VERSION = "2022-11-28"
 _TIMEOUT = 30.0
+
+# ---------------------------------------------------------------------------
+# 429 retry / backoff constants
+# ---------------------------------------------------------------------------
+# GitHub's rate-limit window is 60 s.  We wait at least this long before
+# retrying so we don't burn the remaining quota on a burst of retries.
+_MAX_RETRIES = 3
+_RATE_LIMIT_BACKOFF_SECS: float = 60.0
 
 
 def _cache_get(key: str) -> JsonValue:
@@ -71,6 +80,38 @@ def _cache_invalidate() -> None:
     """
     _cache.clear()
     logger.debug("⚠️  GitHub cache invalidated after write operation")
+
+
+# ---------------------------------------------------------------------------
+# 429 backoff helper
+# ---------------------------------------------------------------------------
+
+async def _rate_limit_sleep(response: httpx.Response, attempt: int) -> None:
+    """Sleep the appropriate amount after a 429 response from GitHub.
+
+    Reads the ``Retry-After`` header when present; otherwise uses an
+    exponentially growing backoff starting at ``_RATE_LIMIT_BACKOFF_SECS``.
+
+    Parameters
+    ----------
+    response:
+        The 429 response from GitHub.
+    attempt:
+        Zero-based retry attempt index (0 = first retry).
+    """
+    retry_after_raw = response.headers.get("retry-after", "")
+    try:
+        wait = max(float(retry_after_raw), _RATE_LIMIT_BACKOFF_SECS)
+    except (ValueError, TypeError):
+        wait = _RATE_LIMIT_BACKOFF_SECS * (2.0 ** attempt)
+    logger.warning(
+        "⚠️  GitHub rate-limited (429) retry %d/%d — sleeping %.0fs (Retry-After=%r)",
+        attempt + 1,
+        _MAX_RETRIES,
+        wait,
+        retry_after_raw or "not set",
+    )
+    await asyncio.sleep(wait)
 
 
 # ---------------------------------------------------------------------------
@@ -134,24 +175,32 @@ async def _api_get(
         return cached
 
     logger.debug("⏱️  GitHub REST GET: %s params=%s", path, params)
-    async with httpx.AsyncClient() as client:
-        r = await client.get(
-            f"{_BASE_URL}/{path}",
-            params=params,
-            headers=_headers(),
-            timeout=_TIMEOUT,
-        )
-    try:
-        r.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        raise RuntimeError(
-            f"GitHub API GET /{path} failed ({exc.response.status_code}): "
-            f"{exc.response.text[:400]}"
-        ) from exc
+    for attempt in range(_MAX_RETRIES + 1):
+        async with httpx.AsyncClient() as client:
+            r = await client.get(
+                f"{_BASE_URL}/{path}",
+                params=params,
+                headers=_headers(),
+                timeout=_TIMEOUT,
+            )
+        if r.status_code == 429 and attempt < _MAX_RETRIES:
+            await _rate_limit_sleep(r, attempt)
+            continue
+        try:
+            r.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(
+                f"GitHub API GET /{path} failed ({exc.response.status_code}): "
+                f"{exc.response.text[:400]}"
+            ) from exc
+        result: JsonValue = r.json()
+        _cache_set(cache_key, result)
+        return result
 
-    result: JsonValue = r.json()
-    _cache_set(cache_key, result)
-    return result
+    # Exhausted retries on 429 — raise from the last response.
+    raise RuntimeError(
+        f"GitHub API GET /{path} failed after {_MAX_RETRIES} retries (429 rate limit)"
+    )
 
 
 async def _api_get_all(
@@ -176,41 +225,48 @@ async def _api_get_all(
     all_items: list[dict[str, object]] = []
     page = 1
 
-    async with httpx.AsyncClient() as client:
-        while len(all_items) < limit:
-            page_params: dict[str, str | int] = {
-                **params,
-                "per_page": per_page,
-                "page": page,
-            }
-            logger.debug("⏱️  GitHub REST GET page %d: %s", page, path)
-            r = await client.get(
-                f"{_BASE_URL}/{path}",
-                params=page_params,
-                headers=_headers(),
-                timeout=_TIMEOUT,
-            )
-            try:
-                r.raise_for_status()
-            except httpx.HTTPStatusError as exc:
-                raise RuntimeError(
-                    f"GitHub API GET /{path} page {page} failed "
-                    f"({exc.response.status_code}): {exc.response.text[:400]}"
-                ) from exc
+    while len(all_items) < limit:
+        page_params: dict[str, str | int] = {
+            **params,
+            "per_page": per_page,
+            "page": page,
+        }
+        logger.debug("⏱️  GitHub REST GET page %d: %s", page, path)
+        r: httpx.Response | None = None
+        for attempt in range(_MAX_RETRIES + 1):
+            async with httpx.AsyncClient() as client:
+                r = await client.get(
+                    f"{_BASE_URL}/{path}",
+                    params=page_params,
+                    headers=_headers(),
+                    timeout=_TIMEOUT,
+                )
+            if r.status_code == 429 and attempt < _MAX_RETRIES:
+                await _rate_limit_sleep(r, attempt)
+                continue
+            break
+        assert r is not None
+        try:
+            r.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(
+                f"GitHub API GET /{path} page {page} failed "
+                f"({exc.response.status_code}): {exc.response.text[:400]}"
+            ) from exc
 
-            page_data: object = r.json()
-            if not isinstance(page_data, list) or not page_data:
+        page_data: object = r.json()
+        if not isinstance(page_data, list) or not page_data:
+            break
+
+        for item in page_data:
+            if isinstance(item, dict):
+                all_items.append(item)
+            if len(all_items) >= limit:
                 break
 
-            for item in page_data:
-                if isinstance(item, dict):
-                    all_items.append(item)
-                if len(all_items) >= limit:
-                    break
-
-            if len(page_data) < per_page:
-                break  # last page — no point requesting further
-            page += 1
+        if len(page_data) < per_page:
+            break  # last page — no point requesting further
+        page += 1
 
     # Store as list[object] (the JsonValue-compatible supertype).
     _cache_set(cache_key, list(all_items))
@@ -219,87 +275,116 @@ async def _api_get_all(
 
 async def _api_post(path: str, payload: dict[str, object]) -> dict[str, object]:
     """Authenticated POST. Always invalidates the cache on success."""
-    async with httpx.AsyncClient() as client:
-        r = await client.post(
-            f"{_BASE_URL}/{path}",
-            json=payload,
-            headers=_headers(),
-            timeout=_TIMEOUT,
-        )
-    try:
-        r.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        raise RuntimeError(
-            f"GitHub API POST /{path} failed ({exc.response.status_code}): "
-            f"{exc.response.text[:400]}"
-        ) from exc
+    for attempt in range(_MAX_RETRIES + 1):
+        async with httpx.AsyncClient() as client:
+            r = await client.post(
+                f"{_BASE_URL}/{path}",
+                json=payload,
+                headers=_headers(),
+                timeout=_TIMEOUT,
+            )
+        if r.status_code == 429 and attempt < _MAX_RETRIES:
+            await _rate_limit_sleep(r, attempt)
+            continue
+        try:
+            r.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(
+                f"GitHub API POST /{path} failed ({exc.response.status_code}): "
+                f"{exc.response.text[:400]}"
+            ) from exc
+        _cache_invalidate()
+        result: object = r.json()
+        return result if isinstance(result, dict) else {}
 
-    _cache_invalidate()
-    result: object = r.json()
-    return result if isinstance(result, dict) else {}
+    raise RuntimeError(
+        f"GitHub API POST /{path} failed after {_MAX_RETRIES} retries (429 rate limit)"
+    )
 
 
 async def _api_patch(path: str, payload: dict[str, object]) -> dict[str, object]:
     """Authenticated PATCH. Always invalidates the cache on success."""
-    async with httpx.AsyncClient() as client:
-        r = await client.patch(
-            f"{_BASE_URL}/{path}",
-            json=payload,
-            headers=_headers(),
-            timeout=_TIMEOUT,
-        )
-    try:
-        r.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        raise RuntimeError(
-            f"GitHub API PATCH /{path} failed ({exc.response.status_code}): "
-            f"{exc.response.text[:400]}"
-        ) from exc
+    for attempt in range(_MAX_RETRIES + 1):
+        async with httpx.AsyncClient() as client:
+            r = await client.patch(
+                f"{_BASE_URL}/{path}",
+                json=payload,
+                headers=_headers(),
+                timeout=_TIMEOUT,
+            )
+        if r.status_code == 429 and attempt < _MAX_RETRIES:
+            await _rate_limit_sleep(r, attempt)
+            continue
+        try:
+            r.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(
+                f"GitHub API PATCH /{path} failed ({exc.response.status_code}): "
+                f"{exc.response.text[:400]}"
+            ) from exc
+        _cache_invalidate()
+        result: object = r.json()
+        return result if isinstance(result, dict) else {}
 
-    _cache_invalidate()
-    result: object = r.json()
-    return result if isinstance(result, dict) else {}
+    raise RuntimeError(
+        f"GitHub API PATCH /{path} failed after {_MAX_RETRIES} retries (429 rate limit)"
+    )
 
 
 async def _api_put(path: str, payload: dict[str, object]) -> dict[str, object]:
     """Authenticated PUT. Always invalidates the cache on success."""
-    async with httpx.AsyncClient() as client:
-        r = await client.put(
-            f"{_BASE_URL}/{path}",
-            json=payload,
-            headers=_headers(),
-            timeout=_TIMEOUT,
-        )
-    try:
-        r.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        raise RuntimeError(
-            f"GitHub API PUT /{path} failed ({exc.response.status_code}): "
-            f"{exc.response.text[:400]}"
-        ) from exc
+    for attempt in range(_MAX_RETRIES + 1):
+        async with httpx.AsyncClient() as client:
+            r = await client.put(
+                f"{_BASE_URL}/{path}",
+                json=payload,
+                headers=_headers(),
+                timeout=_TIMEOUT,
+            )
+        if r.status_code == 429 and attempt < _MAX_RETRIES:
+            await _rate_limit_sleep(r, attempt)
+            continue
+        try:
+            r.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(
+                f"GitHub API PUT /{path} failed ({exc.response.status_code}): "
+                f"{exc.response.text[:400]}"
+            ) from exc
+        _cache_invalidate()
+        result: object = r.json()
+        return result if isinstance(result, dict) else {}
 
-    _cache_invalidate()
-    result: object = r.json()
-    return result if isinstance(result, dict) else {}
+    raise RuntimeError(
+        f"GitHub API PUT /{path} failed after {_MAX_RETRIES} retries (429 rate limit)"
+    )
 
 
 async def _api_delete(path: str) -> None:
     """Authenticated DELETE. Always invalidates the cache on success."""
-    async with httpx.AsyncClient() as client:
-        r = await client.delete(
-            f"{_BASE_URL}/{path}",
-            headers=_headers(),
-            timeout=_TIMEOUT,
-        )
-    try:
-        r.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        raise RuntimeError(
-            f"GitHub API DELETE /{path} failed ({exc.response.status_code}): "
-            f"{exc.response.text[:400]}"
-        ) from exc
+    for attempt in range(_MAX_RETRIES + 1):
+        async with httpx.AsyncClient() as client:
+            r = await client.delete(
+                f"{_BASE_URL}/{path}",
+                headers=_headers(),
+                timeout=_TIMEOUT,
+            )
+        if r.status_code == 429 and attempt < _MAX_RETRIES:
+            await _rate_limit_sleep(r, attempt)
+            continue
+        try:
+            r.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(
+                f"GitHub API DELETE /{path} failed ({exc.response.status_code}): "
+                f"{exc.response.text[:400]}"
+            ) from exc
+        _cache_invalidate()
+        return
 
-    _cache_invalidate()
+    raise RuntimeError(
+        f"GitHub API DELETE /{path} failed after {_MAX_RETRIES} retries (429 rate limit)"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -911,19 +996,27 @@ async def ensure_label_exists(name: str, color: str, description: str) -> None:
         "color": color,
         "description": description,
     }
-    async with httpx.AsyncClient() as client:
-        r = await client.post(
-            f"{_BASE_URL}/repos/{repo}/labels",
-            json=payload,
-            headers=_headers(),
-            timeout=_TIMEOUT,
-        )
-
-    if r.status_code == 422:
-        # Label already exists — update it in place.
-        encoded = urllib.parse.quote(name, safe="")
-        await _api_patch(f"repos/{repo}/labels/{encoded}", payload)
-    else:
+    # Attempt to create; if 422 (already exists) update in place instead.
+    # We cannot use _api_post directly because we need to inspect the 422
+    # status before raising, so we call the underlying client once and branch.
+    for attempt in range(_MAX_RETRIES + 1):
+        async with httpx.AsyncClient() as client:
+            r = await client.post(
+                f"{_BASE_URL}/repos/{repo}/labels",
+                json=payload,
+                headers=_headers(),
+                timeout=_TIMEOUT,
+            )
+        if r.status_code == 429 and attempt < _MAX_RETRIES:
+            await _rate_limit_sleep(r, attempt)
+            continue
+        if r.status_code == 422:
+            # Label already exists — update it in place via the _api_patch helper
+            # which itself handles 429 retries.
+            encoded = urllib.parse.quote(name, safe="")
+            await _api_patch(f"repos/{repo}/labels/{encoded}", payload)
+            logger.info("✅ Label %r ensured on %s", name, repo)
+            return
         try:
             r.raise_for_status()
         except httpx.HTTPStatusError as exc:
@@ -932,8 +1025,12 @@ async def ensure_label_exists(name: str, color: str, description: str) -> None:
                 f"({exc.response.status_code}): {exc.response.text[:400]}"
             ) from exc
         _cache_invalidate()
+        logger.info("✅ Label %r ensured on %s", name, repo)
+        return
 
-    logger.info("✅ Label %r ensured on %s", name, repo)
+    raise RuntimeError(
+        f"GitHub API POST /repos/{repo}/labels failed after {_MAX_RETRIES} retries (429 rate limit)"
+    )
 
 
 async def remove_label_from_issue(issue_number: int, label: str) -> None:
@@ -956,31 +1053,39 @@ async def remove_label_from_issue(issue_number: int, label: str) -> None:
     """
     repo = settings.gh_repo
     encoded = urllib.parse.quote(label, safe="")
-    async with httpx.AsyncClient() as client:
-        r = await client.delete(
-            f"{_BASE_URL}/repos/{repo}/issues/{issue_number}/labels/{encoded}",
-            headers=_headers(),
-            timeout=_TIMEOUT,
-        )
-
-    if r.status_code == 404:
-        logger.debug(
-            "⚠️ remove_label_from_issue: label %r not on issue #%d (no-op)",
-            label,
-            issue_number,
-        )
+    # We cannot use _api_delete directly because we need to treat 404 as a
+    # no-op rather than an error.  Handle 429 retries manually here.
+    for attempt in range(_MAX_RETRIES + 1):
+        async with httpx.AsyncClient() as client:
+            r = await client.delete(
+                f"{_BASE_URL}/repos/{repo}/issues/{issue_number}/labels/{encoded}",
+                headers=_headers(),
+                timeout=_TIMEOUT,
+            )
+        if r.status_code == 429 and attempt < _MAX_RETRIES:
+            await _rate_limit_sleep(r, attempt)
+            continue
+        if r.status_code == 404:
+            logger.debug(
+                "⚠️ remove_label_from_issue: label %r not on issue #%d (no-op)",
+                label,
+                issue_number,
+            )
+            return
+        try:
+            r.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(
+                f"GitHub API DELETE label failed ({exc.response.status_code}): "
+                f"{exc.response.text[:400]}"
+            ) from exc
+        _cache_invalidate()
+        logger.info("✅ Removed %r from issue #%d", label, issue_number)
         return
 
-    try:
-        r.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        raise RuntimeError(
-            f"GitHub API DELETE label failed ({exc.response.status_code}): "
-            f"{exc.response.text[:400]}"
-        ) from exc
-
-    _cache_invalidate()
-    logger.info("✅ Removed %r from issue #%d", label, issue_number)
+    raise RuntimeError(
+        f"GitHub API DELETE label failed after {_MAX_RETRIES} retries (429 rate limit)"
+    )
 
 
 async def clear_wip_label(issue_number: int) -> None:
@@ -1143,55 +1248,128 @@ async def ensure_pull_request(
     are ignored, and a new PR will be created.
     """
     repo = settings.gh_repo
+    owner = repo.split("/")[0]
 
-    # Check for existing open PR with the same head branch
-    async with httpx.AsyncClient() as client:
-        r = await client.get(
-            f"{_BASE_URL}/repos/{repo}/pulls",
-            params={"state": "open", "head": f"{repo.split('/')[0]}:{head}"},
-            headers=_headers(),
-            timeout=_TIMEOUT,
-        )
-        try:
-            r.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            raise RuntimeError(
-                f"GitHub API GET /repos/{repo}/pulls failed "
-                f"({exc.response.status_code}): {exc.response.text[:400]}"
-            ) from exc
+    # Check for existing open PR with the same head branch via _api_get helper
+    # (which handles 429 retries and caching).
+    existing = await _api_get(
+        f"repos/{repo}/pulls",
+        {"state": "open", "head": f"{owner}:{head}"},
+        f"ensure_pull_request:check:{head}",
+    )
+    if isinstance(existing, list) and existing:
+        first = existing[0]
+        pr_number = int(first["number"]) if isinstance(first, dict) else 0
+        logger.info("✅ Found existing PR #%d for branch %r — skipping creation", pr_number, head)
+        return (pr_number, False)
 
-        prs = r.json()
-        if prs:
-            # Found existing PR
-            pr_number = prs[0]["number"]
-            logger.info("✅ Found existing PR #%d for branch %r — skipping creation", pr_number, head)
-            return (pr_number, False)
-
-    # No existing PR — create one
+    # No existing PR — create one via _api_post (handles 429 retries).
     payload: dict[str, object] = {
         "title": title,
         "body": body,
         "head": head,
         "base": base,
     }
-    async with httpx.AsyncClient() as client:
-        r = await client.post(
-            f"{_BASE_URL}/repos/{repo}/pulls",
-            json=payload,
-            headers=_headers(),
-            timeout=_TIMEOUT,
-        )
-        try:
-            r.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            raise RuntimeError(
-                f"GitHub API POST /repos/{repo}/pulls failed "
-                f"({exc.response.status_code}): {exc.response.text[:400]}"
-            ) from exc
+    pr_data = await _api_post(f"repos/{repo}/pulls", payload)
+    _pr_num = pr_data.get("number")
+    pr_number = _pr_num if isinstance(_pr_num, int) else 0
+    logger.info("✅ Created PR #%d: %s → %s", pr_number, head, base)
+    return (pr_number, True)
 
-        pr_data = r.json()
-        pr_number = pr_data["number"]
-        _cache_invalidate()
-        logger.info("✅ Created PR #%d: %s → %s", pr_number, head, base)
-        return (pr_number, True)
+
+async def create_issue(
+    title: str,
+    body: str,
+    labels: list[str] | None = None,
+    assignees: list[str] | None = None,
+) -> dict[str, object]:
+    """Create a new GitHub issue and return the API response dict.
+
+    Parameters
+    ----------
+    title:
+        Issue title.
+    body:
+        Issue body (Markdown).
+    labels:
+        Optional list of label names to apply immediately.
+    assignees:
+        Optional list of GitHub login names to assign.
+
+    Returns
+    -------
+    dict[str, object]
+        The GitHub API response for the created issue, including ``number``,
+        ``html_url``, ``state``, ``title``, and ``body``.
+
+    Raises
+    ------
+    RuntimeError
+        On any non-2xx GitHub API response.
+    """
+    repo = settings.gh_repo
+    payload: dict[str, object] = {"title": title, "body": body}
+    if labels:
+        payload["labels"] = labels
+    if assignees:
+        payload["assignees"] = assignees
+    result = await _api_post(f"repos/{repo}/issues", payload)
+    logger.info("✅ Created issue #%s: %s", result.get("number"), title)
+    return result
+
+
+async def update_issue(
+    issue_number: int,
+    *,
+    title: str | None = None,
+    body: str | None = None,
+    state: str | None = None,
+    labels: list[str] | None = None,
+    assignees: list[str] | None = None,
+) -> dict[str, object]:
+    """Update fields on an existing GitHub issue.
+
+    Only the keyword arguments that are not ``None`` are sent to the API,
+    so callers can update a single field without touching the others.
+
+    Parameters
+    ----------
+    issue_number:
+        GitHub issue number to update.
+    title:
+        New title, or ``None`` to leave unchanged.
+    body:
+        New body (Markdown), or ``None`` to leave unchanged.
+    state:
+        ``"open"`` or ``"closed"``, or ``None`` to leave unchanged.
+    labels:
+        Replacement label list, or ``None`` to leave unchanged.
+    assignees:
+        Replacement assignee list, or ``None`` to leave unchanged.
+
+    Returns
+    -------
+    dict[str, object]
+        The GitHub API response for the updated issue.
+
+    Raises
+    ------
+    RuntimeError
+        On any non-2xx GitHub API response.
+    """
+    repo = settings.gh_repo
+    payload: dict[str, object] = {}
+    if title is not None:
+        payload["title"] = title
+    if body is not None:
+        payload["body"] = body
+    if state is not None:
+        payload["state"] = state
+    if labels is not None:
+        payload["labels"] = labels
+    if assignees is not None:
+        payload["assignees"] = assignees
+    result = await _api_patch(f"repos/{repo}/issues/{issue_number}", payload)
+    logger.info("✅ Updated issue #%d", issue_number)
+    return result
 
