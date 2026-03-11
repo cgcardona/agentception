@@ -1503,14 +1503,22 @@ async def persist_pr_link_and_recompute(
     with a ``pr_url``.  The agent knows exactly which PR belongs to which issue —
     no regex, no inference, no poller cycle needed.
 
-    Writes a confidence-100 ``ACPRIssueLink`` row, then runs
-    ``_recompute_workflow_state`` so the board card moves on the next board
-    refresh (every 5 s) rather than waiting for the next poller tick.
+    Writes a confidence-100 ``ACPRIssueLink`` row and a stub ``ACPullRequest``
+    row (if none exists yet), then runs ``_recompute_workflow_state`` so the
+    board card moves on the next board refresh (every 5 s) rather than waiting
+    for the next poller tick.
+
+    The stub ``ACPullRequest`` uses empty-string placeholders for fields only
+    available from the GitHub API (title, head_ref).  The poller overwrites the
+    stub with real data on its next tick via the normal content-hash diff path.
+    The stub's only job is to satisfy ``INV-RUN-PR-1`` immediately so the
+    invariant monitor stays green between agent completion and the first poller
+    tick.
     """
     now = _now()
     try:
         async with get_session() as session:
-            existing = (
+            existing_link = (
                 await session.execute(
                     select(ACPRIssueLink).where(
                         ACPRIssueLink.repo == gh_repo,
@@ -1520,7 +1528,7 @@ async def persist_pr_link_and_recompute(
                     )
                 )
             ).scalar_one_or_none()
-            if existing is None:
+            if existing_link is None:
                 session.add(
                     ACPRIssueLink(
                         repo=gh_repo,
@@ -1534,7 +1542,43 @@ async def persist_pr_link_and_recompute(
                     )
                 )
             else:
-                existing.last_seen_at = now
+                existing_link.last_seen_at = now
+
+            # Upsert a stub ACPullRequest so INV-RUN-PR-1 is satisfied before
+            # the poller's next GitHub sync.  The stub content_hash uses empty
+            # placeholders; the poller detects the mismatch and overwrites on
+            # its next tick.
+            existing_pr = (
+                await session.execute(
+                    select(ACPullRequest).where(
+                        ACPullRequest.github_number == pr_number,
+                        ACPullRequest.repo == gh_repo,
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing_pr is None:
+                stub_head = f"feat/issue-{issue_number}"
+                stub_hash = _hash("", "open", "[]", stub_head, "dev", "")
+                session.add(
+                    ACPullRequest(
+                        github_number=pr_number,
+                        repo=gh_repo,
+                        title="",
+                        state="open",
+                        head_ref=stub_head,
+                        base_ref="dev",
+                        is_draft=False,
+                        closes_issue_number=issue_number,
+                        closes_issue_numbers_json=json.dumps([issue_number]),
+                        labels_json="[]",
+                        content_hash=stub_hash,
+                        body_hash=None,
+                        merged_at=None,
+                        first_seen_at=now,
+                        last_synced_at=now,
+                    )
+                )
+
             await session.commit()
     except Exception as exc:
         logger.warning("⚠️  persist_pr_link_and_recompute (link upsert) failed: %s", exc)
