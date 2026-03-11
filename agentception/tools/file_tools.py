@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast as _ast
 import logging
+import re as _re
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -282,6 +283,34 @@ def insert_after_in_file(
         }
 
     insert_pos = original.index(anchor) + len(anchor)
+
+    # Guard: refuse to insert immediately after a bare class/function definition
+    # header.  A header line ends with ":" and the following non-blank line is
+    # indented — inserting between them detaches the body from its header and
+    # produces a SyntaxError.  The caller must use an anchor that ends inside
+    # the body (e.g. the last method's closing line) rather than on the header.
+    _CLASS_DEF_RE = _re.compile(r"^\s*(class|def)\s+\w+")
+    anchor_end_line = original[:insert_pos].rpartition("\n")[2]
+    stripped_header = anchor_end_line.rstrip()
+    if stripped_header.endswith(":") and _CLASS_DEF_RE.match(stripped_header):
+        for _line in original[insert_pos:].splitlines():
+            if not _line.strip():
+                continue  # skip blank lines
+            if _line[0] in (" ", "\t"):
+                return {
+                    "ok": False,
+                    "error": (
+                        "insert_after_in_file: anchor ends on a class/function "
+                        "definition header whose body immediately follows. "
+                        "Inserting here would detach the body from its header "
+                        "and produce a SyntaxError. "
+                        "Use an anchor that ends inside the body — for example, "
+                        "the last line of the final method — so the new content "
+                        "is appended after the complete class/function."
+                    ),
+                }
+            break  # next non-blank line is not indented — safe to insert
+
     updated = original[:insert_pos] + new_content + original[insert_pos:]
 
     try:

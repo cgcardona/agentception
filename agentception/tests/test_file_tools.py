@@ -390,3 +390,59 @@ class TestInsertAfterInFile:
         text = p.read_text(encoding="utf-8")
         assert "def baz" in text
         assert text.index("def baz") < text.index("def bar")
+
+    # ------------------------------------------------------------------
+    # Regression: inserting after a bare class/def header must be refused
+    # because it detaches the body from its header (SyntaxError).
+    # ------------------------------------------------------------------
+
+    def test_insert_after_class_header_with_indented_body_is_refused(
+        self, tmp_path: Path
+    ) -> None:
+        """Anchor ends on `class Foo:` whose body follows — must be rejected."""
+        code = (
+            "class Foo:\n"
+            "    def method(self) -> None:\n"
+            "        pass\n"
+        )
+        p = tmp_path / "cls.py"
+        p.write_text(code, encoding="utf-8")
+        result = insert_after_in_file(p, "class Foo:", "\nclass Bar:\n    pass\n")
+        assert result["ok"] is False
+        assert "SyntaxError" in str(result["error"])
+        # File must be untouched.
+        assert p.read_text(encoding="utf-8") == code
+
+    def test_insert_after_def_header_with_indented_body_is_refused(
+        self, tmp_path: Path
+    ) -> None:
+        """Anchor ends on `def foo():` whose body follows — must be rejected."""
+        code = "def foo():\n    return 1\n"
+        p = tmp_path / "fn.py"
+        p.write_text(code, encoding="utf-8")
+        result = insert_after_in_file(p, "def foo():", "\ndef bar():\n    pass\n")
+        assert result["ok"] is False
+        assert "SyntaxError" in str(result["error"])
+        assert p.read_text(encoding="utf-8") == code
+
+    def test_insert_after_class_header_no_body_after_is_allowed(
+        self, tmp_path: Path
+    ) -> None:
+        """Anchor ends on `class Foo:` but nothing indented follows — safe to insert."""
+        code = "class Foo:\n    pass\n"
+        p = tmp_path / "ok.py"
+        p.write_text(code, encoding="utf-8")
+        # Anchor includes the whole class so the next line is not indented.
+        result = insert_after_in_file(p, "class Foo:\n    pass\n", "\nclass Bar:\n    pass\n")
+        assert result["ok"] is True
+
+    def test_insert_after_class_def_line_safe_when_next_line_not_indented(
+        self, tmp_path: Path
+    ) -> None:
+        """Header ends with ':' but next non-blank line is at column 0 — allowed."""
+        code = "class Foo: pass\nclass Bar: pass\n"
+        p = tmp_path / "oneliner.py"
+        p.write_text(code, encoding="utf-8")
+        # "class Foo: pass" ends with "pass", not ":", so guard should not fire.
+        result = insert_after_in_file(p, "class Foo: pass\n", "\n# comment\n")
+        assert result["ok"] is True
