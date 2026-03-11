@@ -1276,34 +1276,52 @@ async def _run_reviewer_warmup(
             diff_raw = diff_raw[:40_000] + "\n\n… (diff truncated at 40 000 chars)"
         sections.append(f"### Full diff\n```diff\n{diff_raw}\n```")
 
-    # ── 4. mypy ──────────────────────────────────────────────────────────────
-    mypy_raw = await _shell_capture(
-        "python3 -m mypy agentception/ 2>&1",
-        cwd=worktree_path,
-        timeout=120,
-    )
+    # ── 4. mypy — scoped to changed files only ───────────────────────────────
+    # Running `python3 -m mypy agentception/` spawns a fresh subprocess that
+    # cold-starts the full project type graph (~1-2 GB RSS on top of the
+    # existing ONNX model baseline), reliably OOM-killing the container.
+    # Use --follow-imports=silent on only the files changed in this PR.
+    changed_py_all = [
+        f for f in changed_files_raw.splitlines()
+        if f.endswith(".py") and f.startswith("agentception/")
+    ]
+    if changed_py_all:
+        mypy_targets = " ".join(changed_py_all)
+        mypy_raw = await _shell_capture(
+            f"mypy --follow-imports=silent {mypy_targets} 2>&1",
+            cwd=worktree_path,
+            timeout=60,
+        )
+    else:
+        mypy_raw = "(no Python files changed)"
     sections.append(f"### mypy\n```\n{mypy_raw or '(no output)'}\n```")
 
-    # ── 5. pytest — targeted at changed test modules ─────────────────────────
-    changed_py = [
-        f for f in changed_files_raw.splitlines()
-        if f.endswith(".py") and "/test_" not in f and f.startswith("agentception/")
+    # ── 5. pytest — targeted at changed test modules only ────────────────────
+    # Never fall back to the full agentception/tests/ suite — that runs all
+    # tests as a subprocess and adds significant memory pressure. If there are
+    # no specific test targets, skip pytest and note that in the bundle.
+    changed_src = [
+        f for f in changed_py_all
+        if "/test_" not in f
     ]
     test_targets: list[str] = []
-    for fpath in changed_py:
+    # Add any changed test files directly.
+    test_targets.extend(
+        f for f in changed_py_all if "/test_" in f
+    )
+    # Add corresponding test files for changed source modules.
+    for fpath in changed_src:
         module = Path(fpath).stem
         candidate = f"agentception/tests/test_{module}.py"
-        # Only add if the test file exists in the worktree.
-        if (worktree_path / candidate).exists():
+        if (worktree_path / candidate).exists() and candidate not in test_targets:
             test_targets.append(candidate)
 
     if test_targets:
-        pytest_cmd = f"python3 -m pytest {' '.join(test_targets)} -v 2>&1"
+        pytest_cmd = f"python3 -m pytest {' '.join(test_targets)} -v --tb=short 2>&1"
+        pytest_raw = await _shell_capture(pytest_cmd, cwd=worktree_path, timeout=120)
+        sections.append(f"### pytest\n```\n{pytest_raw or '(no output)'}\n```")
     else:
-        pytest_cmd = "python3 -m pytest agentception/tests/ -v --tb=short -q 2>&1"
-
-    pytest_raw = await _shell_capture(pytest_cmd, cwd=worktree_path, timeout=180)
-    sections.append(f"### pytest\n```\n{pytest_raw or '(no output)'}\n```")
+        sections.append("### pytest\n```\n(no test targets identified for changed files)\n```")
 
     # ── 6. GitHub issue ───────────────────────────────────────────────────────
     if github_client is not None:
