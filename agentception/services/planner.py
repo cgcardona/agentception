@@ -363,6 +363,10 @@ async def generate_execution_plan(
             user_message,
             system_prompt=_PLANNER_SYSTEM_PROMPT,
             max_tokens=16384,
+            # Force JSON output: prefilling the assistant turn with the
+            # opening of the JSON object prevents the model from writing
+            # prose reasoning before the JSON, which breaks _parse_plan_json.
+            prefill='{"operations":',
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("⚠️ planner: LLM call failed — %s", exc)
