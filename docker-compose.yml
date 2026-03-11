@@ -59,6 +59,12 @@ services:
       # git worktrees created inside the container are immediately visible to Cursor
       # agents running on the host at the same absolute path.
       - ${HOME}/.agentception/worktrees/agentception:/worktrees
+      # Persist FastEmbed / HuggingFace model files across container restarts.
+      # Without this volume the three ONNX models (jina-v2, BM25, bge-reranker)
+      # are re-downloaded from HuggingFace on every restart, adding ~50s to the
+      # first dispatch after each restart.  With the volume they are loaded from
+      # disk on first use (~5–10s) and stay warm for the lifetime of the volume.
+      - model_cache:/root/.cache/huggingface
     # Use Cloudflare DNS instead of Docker's embedded resolver.
     # Docker's embedded DNS caches whichever node it gets first, and GitHub
     # occasionally has dead nodes in rotation (e.g. 140.82.116.6) that refuse
@@ -127,6 +133,8 @@ volumes:
     name: agentception-postgres-data
   qdrant_data:
     name: agentception-qdrant-data
+  model_cache:
+    name: agentception-model-cache
 
 networks:
   agentception-net:
