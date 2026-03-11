@@ -103,6 +103,11 @@ class TestRunAgentLoop:
                 return_value=task_spec,
             ),
             patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
                 "agentception.services.agent_loop.call_anthropic_with_tools",
                 new_callable=AsyncMock,
                 return_value=_stop_response("All done."),
@@ -124,6 +129,7 @@ class TestRunAgentLoop:
         ):
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
 
             from agentception.services.agent_loop import run_agent_loop
 
@@ -155,6 +161,11 @@ class TestRunAgentLoop:
                 return_value=task_spec,
             ),
             patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
                 "agentception.services.agent_loop.call_anthropic_with_tools",
                 new_callable=AsyncMock,
                 side_effect=responses,
@@ -176,6 +187,7 @@ class TestRunAgentLoop:
         ):
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
 
             from agentception.services import agent_loop as al
 
@@ -204,6 +216,11 @@ class TestRunAgentLoop:
                 return_value=task_spec,
             ),
             patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
                 "agentception.services.agent_loop.call_anthropic_with_tools",
                 new_callable=AsyncMock,
                 side_effect=responses,
@@ -230,6 +247,7 @@ class TestRunAgentLoop:
         ):
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
 
             from agentception.services.agent_loop import run_agent_loop
 
@@ -250,6 +268,11 @@ class TestRunAgentLoop:
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
             ),
             patch(
                 "agentception.services.agent_loop.call_anthropic_with_tools",
@@ -283,6 +306,7 @@ class TestRunAgentLoop:
         ):
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
 
             from agentception.services.agent_loop import run_agent_loop
 
@@ -331,6 +355,11 @@ class TestRunAgentLoop:
                 return_value=task_spec,
             ),
             patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
                 "agentception.services.agent_loop.call_anthropic_with_tools",
                 new_callable=AsyncMock,
                 side_effect=RuntimeError("Anthropic API is down"),
@@ -357,6 +386,7 @@ class TestRunAgentLoop:
         ):
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
 
             from agentception.services.agent_loop import run_agent_loop
 
@@ -529,7 +559,9 @@ class TestEnforceTurnDelay:
         al._last_llm_call_at = time.monotonic() - 2.0
         t0 = time.monotonic()
         from agentception.services.agent_loop import _enforce_turn_delay
-        await _enforce_turn_delay()
+        with patch("agentception.services.agent_loop.settings") as mock_settings:
+            mock_settings.ac_min_turn_delay_secs = 4.0
+            await _enforce_turn_delay()
         elapsed = time.monotonic() - t0
         assert 1.5 < elapsed < 3.0  # ~2s wait, with tolerance
 
@@ -564,8 +596,10 @@ class TestEnforceTurnDelay:
         # Simulate: _record_llm_call() called just now (LLM call just completed)
         _record_llm_call()
         t0 = time.monotonic()
-        await _enforce_turn_delay()
-        # Should wait close to _MIN_TURN_DELAY_SECS, not skip due to stale timestamp
+        with patch("agentception.services.agent_loop.settings") as mock_settings:
+            mock_settings.ac_min_turn_delay_secs = 4.0
+            await _enforce_turn_delay()
+        # Should wait close to ac_min_turn_delay_secs, not skip due to stale timestamp
         elapsed = time.monotonic() - t0
         assert elapsed >= 3.0  # within 1s tolerance of the 4s target
 
@@ -857,6 +891,12 @@ class TestLoopGuard:
                 new_callable=AsyncMock,
                 return_value=None,
             ),
+            # Prevent the recon phase from hitting the real Anthropic API.
+            patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
+            ),
             patch(
                 "agentception.services.agent_loop.call_anthropic_with_tools",
                 side_effect=fake_llm,
@@ -878,6 +918,7 @@ class TestLoopGuard:
         ):
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
 
             from agentception.services import agent_loop as al
 
@@ -958,6 +999,11 @@ class TestLoopGuard:
                 return_value=None,
             ),
             patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
                 "agentception.services.agent_loop.call_anthropic_with_tools",
                 side_effect=fake_llm,
             ),
@@ -978,6 +1024,7 @@ class TestLoopGuard:
         ):
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
 
             from agentception.services import agent_loop as al
 
@@ -1041,6 +1088,11 @@ class TestLoopGuard:
                 return_value=None,
             ),
             patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
                 "agentception.services.agent_loop.call_anthropic_with_tools",
                 side_effect=fake_llm,
             ),
@@ -1061,6 +1113,7 @@ class TestLoopGuard:
         ):
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
 
             from agentception.services import agent_loop as al
 
@@ -1085,6 +1138,120 @@ class TestLoopGuard:
         assert found_absence, (
             "Symbol absence override must fire after the same query is searched twice"
         )
+
+
+# ---------------------------------------------------------------------------
+# Loop guard disabled for pr-reviewer
+# ---------------------------------------------------------------------------
+
+
+class TestLoopGuardReviewer:
+    """Loop guard must not fire for the pr-reviewer role.
+
+    Regression for the bug where the guard intercepted merge_pull_request
+    after just 2 read-only iterations, forcing the reviewer into 20+
+    confused iterations trying to work around the synthetic errors.
+
+    The reviewer workflow is legitimately read-heavy: it reads the diff,
+    the issue, and relevant code before taking a single merge/reject
+    action. Applying the code-writer guard to a reviewer makes no sense.
+    """
+
+    @pytest.mark.anyio
+    async def test_loop_guard_never_fires_for_pr_reviewer(
+        self, tmp_path: Path
+    ) -> None:
+        """Guard never fires for pr-reviewer even after many read-only iterations."""
+        from agentception.services.agent_loop import (
+            _LOOP_GUARD_THRESHOLD,
+            run_agent_loop,
+        )
+
+        worktree = tmp_path / "review-run"
+        worktree.mkdir()
+
+        # A reviewer task spec.
+        reviewer_spec = AgentTaskSpec(
+            id="review-run",
+            role="pr-reviewer",
+            tier="worker",
+            cognitive_arch="Review carefully.",
+            issue_number=42,
+            worktree=str(worktree),
+        )
+
+        # Many more read-only iterations than would trigger the guard for a developer.
+        n_reads = _LOOP_GUARD_THRESHOLD * 3
+        read_responses = [
+            _tool_response("issue_read", {"owner": "o", "repo": "r", "issueNumber": 1})
+            for _ in range(n_reads)
+        ]
+        all_responses = read_responses + [_stop_response("Review done.")]
+
+        captured_extra: list[list[dict[str, object]] | None] = []
+
+        async def fake_llm(
+            *args: object,
+            tools: list[ToolDefinition] | None = None,
+            extra_system_blocks: list[dict[str, object]] | None = None,
+            **kwargs: object,
+        ) -> ToolResponse:
+            captured_extra.append(extra_system_blocks)
+            return all_responses[len(captured_extra) - 1]
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=reviewer_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.get_run_by_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            # Patch call_anthropic so the recon phase doesn't hit the real API.
+            patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": [], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic_with_tools",
+                side_effect=fake_llm,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
+            await run_agent_loop("review-run")
+
+        # None of the captured extra_system_blocks should mention LOOP GUARD.
+        for i, blocks in enumerate(captured_extra):
+            if blocks is None:
+                continue
+            all_text = " ".join(
+                str(b.get("text", "")) for b in blocks if isinstance(b, dict)
+            )
+            assert "LOOP GUARD" not in all_text, (
+                f"Loop guard fired on iteration {i} for a pr-reviewer — "
+                "the guard must be disabled for the reviewer role."
+            )
 
 
 # ---------------------------------------------------------------------------
