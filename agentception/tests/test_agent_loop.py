@@ -1988,3 +1988,170 @@ class TestExtractExplicitFilePaths:
         )
         result = _extract_explicit_file_paths(text)
         assert result.count("agentception/routes/api/ping.py") == 1
+
+
+# ---------------------------------------------------------------------------
+# stop_reason="length" recovery
+# ---------------------------------------------------------------------------
+
+
+class TestStopReasonLengthRecovery:
+    """stop_reason='length' must not immediately cancel the run.
+
+    Two cases:
+    - With tool_calls present: dispatched normally (tool call was complete).
+    - Without tool_calls: a recovery hint is injected and the loop continues.
+    Neither case should call build_cancel_run.
+    """
+
+    @pytest.mark.anyio
+    async def test_length_with_tool_calls_continues_normally(
+        self, tmp_path: Path
+    ) -> None:
+        """stop_reason='length' with a complete tool call is treated as tool_calls."""
+        worktree = tmp_path / "run-len-tc"
+        worktree.mkdir()
+        task_spec = _make_task_spec(worktree)
+
+        length_with_tc = ToolResponse(
+            stop_reason="length",
+            content="",
+            tool_calls=[
+                ToolCall(
+                    id="call_len",
+                    type="function",
+                    function=ToolCallFunction(
+                        name="read_file", arguments='{"file_path": "foo.py"}'
+                    ),
+                )
+            ],
+        )
+        responses = [length_with_tc, _stop_response("Done after recovery.")]
+        file_result: dict[str, object] = {"ok": True, "content": "# stub", "truncated": False}
+        cancel_calls: list[str] = []
+
+        async def fake_cancel(run_id: str) -> dict[str, object]:
+            cancel_calls.append(run_id)
+            return {"ok": True}
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": [], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic_with_tools",
+                new_callable=AsyncMock,
+                side_effect=responses,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.build_cancel_run",
+                side_effect=fake_cancel,
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+            patch(
+                "agentception.services.agent_loop.persist_agent_messages_async",
+                new_callable=AsyncMock,
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
+
+            from agentception.services import agent_loop as al
+
+            with patch.object(al, "read_file", return_value=file_result):
+                await al.run_agent_loop("run-len-tc")
+
+        assert cancel_calls == [], (
+            "build_cancel_run must NOT be called when stop_reason='length' has tool_calls"
+        )
+
+    @pytest.mark.anyio
+    async def test_length_without_tool_calls_injects_recovery_hint_and_continues(
+        self, tmp_path: Path
+    ) -> None:
+        """stop_reason='length' with no tool calls injects a hint; run continues."""
+        worktree = tmp_path / "run-len-notc"
+        worktree.mkdir()
+        task_spec = _make_task_spec(worktree)
+
+        length_no_tc = ToolResponse(stop_reason="length", content="", tool_calls=[])
+        responses = [length_no_tc, _stop_response("Recovered.")]
+        cancel_calls: list[str] = []
+
+        async def fake_cancel(run_id: str) -> dict[str, object]:
+            cancel_calls.append(run_id)
+            return {"ok": True}
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": [], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic_with_tools",
+                new_callable=AsyncMock,
+                side_effect=responses,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.build_cancel_run",
+                side_effect=fake_cancel,
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+            patch(
+                "agentception.services.agent_loop.persist_agent_messages_async",
+                new_callable=AsyncMock,
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
+
+            from agentception.services import agent_loop as al
+
+            await al.run_agent_loop("run-len-notc")
+
+        assert cancel_calls == [], (
+            "build_cancel_run must NOT be called when stop_reason='length' — recovery hint is injected"
+        )
