@@ -105,6 +105,46 @@ async def test_ensure_worktree_reset_removes_stale_dir_and_branch(tmp_path: Path
     assert ("worktree", "remove") in cmd_verbs, f"Expected worktree remove in {cmd_verbs}"
     assert ("branch", "-D") in cmd_verbs, f"Expected branch -D in {cmd_verbs}"
     assert ("worktree", "add") in cmd_verbs, f"Expected worktree add in {cmd_verbs}"
+    # Remote branch must also be deleted so subsequent pushes never pick up stale commits.
+    assert ("push", "origin") in cmd_verbs, f"Expected 'git push origin --delete' in {cmd_verbs}"
+
+
+@pytest.mark.anyio
+async def test_ensure_worktree_reset_deletes_remote_branch_stale_state(tmp_path: Path) -> None:
+    """ensure_worktree reset=True deletes the remote branch before recreating.
+
+    Regression test: without this, a re-dispatched executor pushes on top of
+    the previous run's remote branch, giving the new worktree stale commits from
+    the prior run on the first git pull / checkout.
+    """
+    worktree_path = tmp_path / "issue-449"
+    worktree_path.mkdir(parents=True)
+    branch = "feat/issue-449"
+    base_ref = "origin/dev"
+
+    success_proc = AsyncMock()
+    success_proc.returncode = 0
+    success_proc.communicate.return_value = (b"", b"")
+
+    push_delete_calls: list[list[str]] = []
+
+    async def capture_proc(*args: str, **kwargs: object) -> AsyncMock:
+        if "push" in args and "--delete" in args:
+            push_delete_calls.append(list(args))
+        return success_proc
+
+    with (
+        patch("agentception.readers.git._git", new_callable=AsyncMock, return_value="  feat/issue-449"),
+        patch("agentception.readers.git.asyncio.create_subprocess_exec", side_effect=capture_proc),
+        patch("agentception.readers.git.shutil.rmtree"),
+    ):
+        await ensure_worktree(worktree_path, branch, base_ref, reset=True)
+
+    assert len(push_delete_calls) == 1, (
+        f"Expected exactly one 'git push origin --delete' call, got: {push_delete_calls}"
+    )
+    assert "--delete" in push_delete_calls[0], "Remote branch deletion must use --delete flag"
+    assert branch in push_delete_calls[0], f"Must delete branch {branch!r}, got: {push_delete_calls[0]}"
 
 
 # ---------------------------------------------------------------------------
