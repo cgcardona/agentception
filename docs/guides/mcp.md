@@ -145,7 +145,7 @@ AgentCeption exposes all three MCP endpoint types:
 | `ac://runs/{run_id}` | Metadata for one run |
 | `ac://runs/{run_id}/children` | Child runs spawned by this run |
 | `ac://runs/{run_id}/events` | Structured event log; append `?after_id=N` to paginate |
-| `ac://runs/{run_id}/task` | Raw `ac://runs/{run_id}/context` TOML text |
+| `ac://runs/{run_id}/context` | Raw task context TOML text |
 | `ac://batches/{batch_id}/tree` | All runs in a batch |
 | `ac://system/dispatcher` | Dispatcher counters and active batch_id |
 | `ac://system/health` | DB reachability and per-status counts |
@@ -153,6 +153,13 @@ AgentCeption exposes all three MCP endpoint types:
 | `ac://plan/schema` | PlanSpec JSON Schema |
 | `ac://plan/labels` | GitHub label catalogue |
 | `ac://plan/figures/{role}` | Cognitive-arch figures for a role slug |
+| `ac://arch/figures` | All cognitive-arch figures |
+| `ac://arch/archetypes` | All cognitive-arch archetypes |
+| `ac://arch/figures/{figure_id}` | One cognitive-arch figure by id |
+| `ac://arch/archetypes/{archetype_id}` | One cognitive-arch archetype by id |
+| `ac://arch/skills/{skill_id}` | One skill domain by id |
+| `ac://arch/atoms/{atom_id}` | One atom dimension by id |
+| `ac://runs/{run_id}/context` | Raw task context TOML text |
 | `ac://roles/list` | All available role slugs |
 | `ac://roles/{slug}` | Full role definition Markdown for a slug |
 
