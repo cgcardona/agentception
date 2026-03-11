@@ -34,6 +34,20 @@ services:
       # Prevent git from falling back to an interactive TTY prompt when credentials
       # are missing. Agents run non-interactively; fail fast is always correct here.
       GIT_TERMINAL_PROMPT: "0"
+      # ── ONNX Runtime thread control ──────────────────────────────────────
+      # ORT defaults to using all available CPUs for intra-op / inter-op
+      # parallelism.  On a 16-core host inside Docker Desktop (x86 emulation
+      # on Apple Silicon) this spawns ~32 OS threads per embedding call.
+      # Combined with asyncio.to_thread and the Python GIL, this causes
+      # severe scheduler contention and unpredictable memory behaviour.
+      # Capping to 2 threads per operation gives stable single-batch
+      # throughput without the thrashing.
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+      OPENBLAS_NUM_THREADS: "2"
+      # Disable HuggingFace tokenizers Rust parallelism — it spawns its own
+      # thread pool that stacks on top of ORT's, making contention worse.
+      TOKENIZERS_PARALLELISM: "false"
     volumes:
       # Mount cursor dir at same absolute path so worktree paths resolve correctly.
       - ${HOME}/.cursor:${HOME}/.cursor
