@@ -857,9 +857,14 @@ _RUNTIME_ENV_NOTE = """\
 You are running **inside the AgentCeption Docker container**, not on the host machine.
 
 - Run Python tools **directly** — do NOT prefix with `docker compose exec agentception`.
-  - ✅ `python3 -m pytest tests/`
-  - ✅ `python3 -m mypy agentception/`
+  - ✅ `python3 -m pytest agentception/tests/test_foo.py` (target specific test file)
+  - ✅ `mypy --follow-imports=silent agentception/foo.py agentception/bar.py` (changed files only)
   - ❌ `docker compose exec agentception python3 -m pytest` (wrong — you are already inside)
+  - ❌ `python3 -m mypy agentception/` (NEVER — full directory scan OOM-kills the container)
+  - ❌ `python3 -m mypy agentception/ tests/` (NEVER — same reason)
+  **mypy rule:** always use `mypy --follow-imports=silent <file1> <file2> …` on only the files
+  you modified.  Full directory scans spawn a subprocess that cold-loads the entire project
+  type graph (~1-2 GB extra RSS) on top of the loaded ONNX model weights and crash the container.
 - The repository is mounted at `/app`.  Your worktree path is provided in your
   initial message.  Read `ac://runs/{run_id}/context` for your full task context.
 - Git operations run in the worktree directory.
