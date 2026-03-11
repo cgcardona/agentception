@@ -34,7 +34,8 @@ from agentception.db.persist import (
     resume_agent_run,
     stop_agent_run,
 )
-from agentception.db.queries import get_pending_launches
+
+
 from agentception.services.spawn_child import ScopeType, SpawnChildError, Tier, spawn_child
 from agentception.services.teardown import teardown_agent_worktree
 
