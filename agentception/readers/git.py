@@ -333,9 +333,11 @@ async def ensure_worktree(
         Base ref to branch from when creating a new branch (default:
         ``"origin/dev"``).
     reset:
-        When ``True``, any existing worktree directory or local branch is torn
-        down before (re)creating from *base*.  Use for re-dispatches.  When
-        ``False`` (default), the function is fully idempotent.
+        When ``True``, any existing worktree directory, local branch, and
+        remote branch are torn down before (re)creating from *base*.  Use for
+        re-dispatches so the executor always starts from a clean ``origin/dev``
+        and never picks up commits from a prior run.  When ``False`` (default),
+        the function is fully idempotent.
 
     Returns
     -------
@@ -391,6 +393,16 @@ async def ensure_worktree(
             )
             await del_proc.communicate()
             logger.info("✅ ensure_worktree: deleted stale branch %s for reset", branch)
+
+        # Delete the remote branch so the next push starts from a clean slate.
+        # Silently ignores failure — the remote branch may not exist.
+        remote_del = await asyncio.create_subprocess_exec(
+            "git", "-C", repo, "push", "origin", "--delete", branch,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await remote_del.communicate()
+        logger.info("✅ ensure_worktree: deleted remote branch %s (if existed)", branch)
 
         # Prune stale worktree refs.
         prune_proc = await asyncio.create_subprocess_exec(
