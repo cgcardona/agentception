@@ -83,7 +83,11 @@ services:
     networks:
       - agentception-net
     command: >
-      sh -c "cd /app && alembic -c agentception/alembic.ini upgrade head && exec uvicorn agentception.app:app --host 0.0.0.0 --port 10003"
+      sh -c 'printf "nameserver 127.0.0.11\nnameserver 1.1.1.1\nnameserver 8.8.8.8\noptions ndots:0 timeout:3 attempts:1 use-vc\n" > /etc/resolv.conf &&
+      cd /app &&
+      (alembic -c agentception/alembic.ini upgrade head ||
+        (echo "[startup] alembic failed, retrying in 5s" && sleep 5 && alembic -c agentception/alembic.ini upgrade head)) &&
+      exec uvicorn agentception.app:app --host 0.0.0.0 --port 10003'
     depends_on:
       postgres:
         condition: service_healthy
