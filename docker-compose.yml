@@ -61,6 +61,11 @@ services:
       - ${HOME}/.config/gh:${HOME}/.config/gh:ro
       # Repo itself (for git operations)
       - ./:/app
+      # Linux-native node_modules — sits on top of the ./:/app bind mount so the
+      # container's esbuild/tsc binaries (ELF) are never replaced by the host's
+      # macOS binaries. Populated from the image layer on first run via Docker's
+      # volume-init copy (image content wins when the named volume is empty).
+      - node_modules:/app/node_modules
       # Agent worktrees: bind-mount the host directory into the container so that
       # git worktrees created inside the container are immediately visible to Cursor
       # agents running on the host at the same absolute path.
@@ -85,6 +90,8 @@ services:
     command: >
       sh -c 'printf "nameserver 127.0.0.11\nnameserver 1.1.1.1\nnameserver 8.8.8.8\noptions ndots:0 timeout:3 attempts:1 use-vc\n" > /etc/resolv.conf &&
       cd /app &&
+      sass --style=compressed --no-source-map agentception/static/scss/app.scss agentception/static/app.css &&
+      npm run build:js &&
       (alembic -c agentception/alembic.ini upgrade head ||
         (echo "[startup] alembic failed, retrying in 5s" && sleep 5 && alembic -c agentception/alembic.ini upgrade head)) &&
       exec uvicorn agentception.app:app --host 0.0.0.0 --port 10003'
@@ -145,6 +152,8 @@ volumes:
     name: agentception-qdrant-data
   model_cache:
     name: agentception-model-cache
+  node_modules:
+    name: agentception-node-modules
 
 networks:
   agentception-net:

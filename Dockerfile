@@ -15,8 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get update && apt-get install -y gh \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js 22.x — enables npm run type-check / npm test / npm run build:js
-# inside the container. node_modules arrive via the ./:/app bind mount at runtime.
+# Install Node.js 22.x — enables sass/esbuild builds at container startup
+# and npm run type-check / npm test inside the container.
 ARG NODE_VERSION=22
 RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
@@ -69,6 +69,12 @@ RUN ARCH=$(dpkg --print-architecture) \
     && ln -s /usr/local/dart-sass/sass /usr/local/bin/sass \
     && sass --version
 
+# Install Node.js dependencies — Linux-native binaries baked into the image.
+# A named volume (node_modules) in docker-compose preserves this layer at runtime
+# so the ./:/app bind mount cannot shadow it with macOS host binaries.
+COPY package.json package-lock.json tsconfig.json /app/
+RUN npm ci --include=dev
+
 # Install Python dependencies.
 COPY agentception/requirements.txt /app/agentception/requirements.txt
 RUN pip install --no-cache-dir -r /app/agentception/requirements.txt
@@ -80,11 +86,5 @@ COPY pyproject.toml /app/pyproject.toml
 # Install the package itself so `agentception.*` imports resolve.
 RUN pip install --no-cache-dir -e /app
 
-# Compile SCSS → CSS and TypeScript → JS at build time.
-RUN sass --style=compressed --no-source-map \
-    /app/agentception/static/scss/app.scss \
-    /app/agentception/static/app.css
-COPY package.json package-lock.json tsconfig.json /app/
-RUN cd /app && npm ci --include=dev && npm run build:js
 
 CMD ["uvicorn", "agentception.app:app", "--host", "0.0.0.0", "--port", "10003"]
