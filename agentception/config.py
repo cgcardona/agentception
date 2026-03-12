@@ -110,7 +110,10 @@ class AgentCeptionSettings(BaseSettings):
     gh_repo: str = "cgcardona/agentception"
     poll_interval_seconds: int = 30
     agent_max_iterations: int = 100
-    github_cache_seconds: int = 60
+    # TTL must be strictly less than poll_interval_seconds so every poller tick
+    # sees live GitHub data.  Default: min(poll_interval_seconds / 2, 30) = 15 s.
+    # If you change POLL_INTERVAL_SECONDS, keep GITHUB_CACHE_SECONDS < that value.
+    github_cache_seconds: int = 15
     ac_api_key: str = ""
     """Shared secret for authenticating requests to the ``/api/*`` routes.
 
