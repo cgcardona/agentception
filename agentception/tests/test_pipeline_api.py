@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Generator
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -53,7 +53,6 @@ def _make_state(
 def _make_agent(
     agent_id: str = "issue-42",
     *,
-    transcript_path: str | None = None,
     children: list[AgentNode] | None = None,
 ) -> AgentNode:
     return AgentNode(
@@ -61,7 +60,6 @@ def _make_agent(
         role="developer",
         status=AgentStatus.IMPLEMENTING,
         issue_number=42,
-        transcript_path=transcript_path,
         children=children or [],
     )
 
@@ -190,52 +188,16 @@ def test_transcript_api_returns_404_when_agent_not_found(client: TestClient) -> 
     assert "ghost-99" in response.json()["detail"]
 
 
-def test_transcript_api_returns_empty_list_when_no_transcript_path(
+def test_transcript_api_returns_empty_list(
     client: TestClient,
 ) -> None:
-    """GET /api/agents/{id}/transcript returns [] when the agent has no transcript file set."""
-    agent = _make_agent("issue-55", transcript_path=None)
+    """GET /api/agents/{id}/transcript returns [] until DB reader is wired."""
+    agent = _make_agent("issue-55")
     state = _make_state(agents=[agent])
     with patch("agentception.routes.api.pipeline.get_state", return_value=state):
         response = client.get("/api/agents/issue-55/transcript")
     assert response.status_code == 200
     assert response.json() == []
-
-
-def test_transcript_api_returns_messages(client: TestClient, tmp_path: str) -> None:
-    """GET /api/agents/{id}/transcript delegates to read_transcript_messages and returns results."""
-    messages = [
-        {"role": "user", "text": "hello"},
-        {"role": "assistant", "text": "world"},
-    ]
-    agent = _make_agent("issue-77", transcript_path="/fake/path.jsonl")
-    state = _make_state(agents=[agent])
-    mock_reader = AsyncMock(return_value=messages)
-    with (
-        patch("agentception.routes.api.pipeline.get_state", return_value=state),
-        patch("agentception.routes.api.pipeline.read_transcript_messages", mock_reader),
-    ):
-        response = client.get("/api/agents/issue-77/transcript")
-    assert response.status_code == 200
-    body = response.json()
-    assert len(body) == 2
-    assert body[0] == {"role": "user", "text": "hello"}
-    assert body[1] == {"role": "assistant", "text": "world"}
-
-
-def test_transcript_api_passes_path_to_reader(client: TestClient) -> None:
-    """GET /api/agents/{id}/transcript converts transcript_path to a Path before calling reader."""
-    from pathlib import Path
-
-    agent = _make_agent("issue-88", transcript_path="/tmp/agent.jsonl")
-    state = _make_state(agents=[agent])
-    mock_reader = AsyncMock(return_value=[])
-    with (
-        patch("agentception.routes.api.pipeline.get_state", return_value=state),
-        patch("agentception.routes.api.pipeline.read_transcript_messages", mock_reader),
-    ):
-        client.get("/api/agents/issue-88/transcript")
-    mock_reader.assert_awaited_once_with(Path("/tmp/agent.jsonl"))
 
 
 # ── _find_agent unit tests ─────────────────────────────────────────────────────

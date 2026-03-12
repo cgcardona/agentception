@@ -55,13 +55,6 @@ services:
       # search_codebase calls — sufficient for code discovery on this codebase.
       WORKTREE_INDEX_ENABLED: "false"
     volumes:
-      # Mount cursor dir at same absolute path so the transcript reader
-      # (agentception/readers/transcripts.py) can walk
-      # ~/.cursor/projects/<slug>/agent-transcripts/ to populate the transcript
-      # browser in the UI.  The same-path mount is required because repo_dir is
-      # used to derive the project slug, and that path must match what Cursor
-      # wrote on the host.
-      - ${HOME}/.cursor:${HOME}/.cursor
       # gh CLI auth (read-only)
       - ${HOME}/.config/gh:${HOME}/.config/gh:ro
       # Repo itself (for git operations)

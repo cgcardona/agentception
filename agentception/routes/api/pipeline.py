@@ -2,13 +2,11 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
 from agentception.models import AgentNode, PipelineState
 from agentception.poller import get_state
-from agentception.readers.transcripts import read_transcript_messages
 from agentception.routes.ui._shared import _find_agent
 
 logger = logging.getLogger(__name__)
@@ -54,16 +52,16 @@ async def agent_api(agent_id: str) -> AgentNode:
 
 @router.get("/agents/{agent_id}/transcript")
 async def transcript_api(agent_id: str) -> list[dict[str, str]]:
-    """Return the parsed transcript messages for a given agent.
+    """Return the transcript messages for a given agent from the database.
 
     Each element is ``{"role": "user"|"assistant", "text": "..."}``.
-    Returns an empty list when the agent has no transcript file.
+    Returns an empty list when no transcript is available.
     Raises HTTP 404 when the agent ID is not found in the current state.
+
+    Transcript storage from Postgres is not yet implemented — always returns [].
     """
     state = get_state()
     node = _find_agent(state, agent_id)
     if node is None:
         raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
-    if not node.transcript_path:
-        return []
-    return await read_transcript_messages(Path(node.transcript_path))
+    return []

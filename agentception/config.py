@@ -86,7 +86,6 @@ class AgentCeptionSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="")
 
-    cursor_projects_dir: Path = Path.home() / ".cursor/projects"
     worktrees_dir: Path = Path.home() / ".agentception/worktrees"
     host_worktrees_dir: Path = Path.home() / ".agentception/worktrees"
     """Host-side path to the worktrees directory.
