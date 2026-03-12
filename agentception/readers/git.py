@@ -440,5 +440,34 @@ async def ensure_worktree(
         raise RuntimeError(f"git worktree add failed: {err}")
 
     logger.info("✅ Created worktree %s on branch %s", worktree_path, branch)
+    _symlink_frontend_resources(worktree_path)
     return True
+
+
+def _symlink_frontend_resources(worktree_path: Path) -> None:
+    """Symlink frontend build resources from /app into the new worktree.
+
+    Agents run npm commands (type-check, test, build:js) from within the
+    worktree.  node_modules, package.json, tsconfig.json, and vitest.config.ts
+    live in /app (the main repo mount) and are gitignored, so they are never
+    present in a freshly-created worktree.  Without these symlinks agents waste
+    iterations discovering they must cd to /app before running npm commands.
+
+    The symlinks are created only when the target in /app actually exists, so
+    this is safe to call in environments where Node is not installed.
+    """
+    app_root = Path("/app")
+    resources = ["node_modules", "package.json", "package-lock.json", "tsconfig.json", "vitest.config.ts"]
+    for name in resources:
+        src = app_root / name
+        dst = worktree_path / name
+        if not src.exists():
+            continue
+        if dst.exists() or dst.is_symlink():
+            continue
+        try:
+            dst.symlink_to(src)
+            logger.debug("🔗 Symlinked %s → %s", dst, src)
+        except OSError as exc:
+            logger.warning("⚠️ Could not symlink %s → %s: %s", dst, src, exc)
 
