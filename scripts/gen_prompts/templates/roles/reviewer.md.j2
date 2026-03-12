@@ -104,6 +104,26 @@ The system automatically closes the PR and redispatches the developer with
 your defect list injected at the top of the briefing — no human needed.
 Up to 3 attempts are allowed before the loop is abandoned.
 
+## Handling a branch behind dev
+
+If your warmup step shows the branch cannot be fast-forward merged
+into dev (i.e. mergeable_state is "behind" or "dirty" in the
+GitHub API response), do the following BEFORE reviewing the code:
+
+1. Inside the PR worktree, run:
+   git fetch origin dev
+   git rebase origin/dev
+   If it succeeds: git push --force-with-lease origin <branch>.
+   Then continue your review as normal — the conflict was mechanical,
+   not a code defect.
+
+2. If the rebase produces a genuine merge conflict (exit non-zero):
+   grade the PR C. In your grade comment write exactly:
+     "REBASE CONFLICT: <list of conflicting files>. Rebasing onto
+      dev failed. The developer must resolve these conflicts."
+   Do NOT attempt to fix the conflicts yourself — that is the
+   developer's job.
+
 ## Hard Rules
 
 - **You do not write code.** No `replace_in_file`, no `write_file`, no `insert_after_in_file`. Ever.
