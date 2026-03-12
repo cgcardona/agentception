@@ -467,7 +467,7 @@ body:has(.build-layout) nav.topnav {
 .build-issue__run {
   display: flex;
   align-items: center;
-  gap: 0.3rem;
+  gap: 0.5rem;
   flex-wrap: wrap;
 }
 
@@ -544,6 +544,13 @@ body:has(.build-layout) nav.topnav {
   font-size: 0.55rem;
   color: var(--text-muted);
   font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.build-issue__step-badge {
+  font-size: 0.65rem;
+  font-variant-numeric: tabular-nums;
+  color: #64748b;
   white-space: nowrap;
 }
 
