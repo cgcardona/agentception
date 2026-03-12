@@ -96,7 +96,7 @@ async def build_github_board() -> GitHubBoard:
         get_open_issues(),
         get_open_prs(),
         get_wip_issues(),
-        get_closed_issues(limit=100),
+        get_closed_issues(),
         get_merged_prs_full(limit=100),
     )
     return GitHubBoard(
