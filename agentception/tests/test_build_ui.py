@@ -1,13 +1,15 @@
 """Tests for the Mission Control build page UI.
 
-Covers the Force resync button added to build.html (issue #649).
+Covers the Force resync button added to build.html (issue #649) and the
+inspector SSE poll interval (issue #724).
 
 Run targeted:
     pytest agentception/tests/test_build_ui.py -v
 """
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -79,4 +81,48 @@ def test_force_resync_button_present(client: TestClient) -> None:
     )
     assert "<svg" in html and 'aria-hidden="true"' in html, (
         "Force resync button must contain an inline SVG icon with aria-hidden='true'"
+    )
+
+
+@pytest.mark.asyncio
+async def test_inspector_sse_poll_interval() -> None:
+    """_inspector_sse must call asyncio.sleep(0.5) — not 2 s — on each loop iteration.
+
+    Mocks the DB query helpers so the generator can advance one iteration
+    without a real database, then asserts the sleep value is 0.5.
+    """
+    from agentception.routes.ui.build_ui import _inspector_sse
+
+    sleep_calls: list[float] = []
+
+    class _StopLoop(Exception):
+        pass
+
+    async def fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+        raise _StopLoop  # break after first iteration
+
+    with (
+        patch(
+            "agentception.routes.ui.build_ui.get_agent_events_tail",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
+        patch(
+            "agentception.routes.ui.build_ui.get_agent_thoughts_tail",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
+        patch("agentception.routes.ui.build_ui.asyncio.sleep", side_effect=fake_sleep),
+    ):
+        gen = _inspector_sse("test-run-id")
+        try:
+            async for _ in gen:
+                pass
+        except _StopLoop:
+            pass
+
+    assert sleep_calls, "asyncio.sleep was never called inside _inspector_sse"
+    assert sleep_calls[0] == 0.5, (
+        f"Expected asyncio.sleep(0.5) but got asyncio.sleep({sleep_calls[0]})"
     )
