@@ -124,7 +124,6 @@
          href="https://github.com/{{ repo }}/pull/{{ pr_num }}"
          target="_blank" rel="noopener" @click.stop>
         PR #{{ pr_num }}
-        {%- if lane == 'reviewing' %} · In Review{%- endif %}
       </a>
       {% if active_run and active_run.branch %}
       <span class="build-issue__branch">{{ active_run.branch }}</span>
@@ -132,6 +131,9 @@
     </div>
     {% endif %}
   </div>
+  {% if issue.body_excerpt %}
+  <p class="build-issue__excerpt">{{ issue.body_excerpt }}</p>
+  {% endif %}
   {% endif %}
   {# Done lane: no footer — the grayed row is the signal #}
 
