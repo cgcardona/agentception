@@ -146,6 +146,10 @@ _SEARCH_TOOL_NAMES: frozenset[str] = frozenset({
 # guard always fires eventually even on minimal budgets.
 _LOOP_GUARD_THRESHOLD: int = 2
 
+# Number of iterations remaining at which the final-stretch warning fires.
+# Once remaining <= this value, the agent is told to stop exploring and ship.
+_FINAL_STRETCH_THRESHOLD: int = 15
+
 # ---------------------------------------------------------------------------
 # Developer agent — minimal tool surface
 # ---------------------------------------------------------------------------
@@ -257,23 +261,20 @@ already committed to disk.  Your next action should be the NEXT uncompleted
 task, not a re-implementation of what is listed.
 """
 
-# ---------------------------------------------------------------------------
-# Final-stretch warning — injected when the iteration budget is nearly spent.
-# ---------------------------------------------------------------------------
-# When fewer than or equal to this many iterations remain, the agent receives
-# a prominent warning so it can wrap up rather than starting new work.
-_FINAL_STRETCH_THRESHOLD: int = 15
-
-# Text injected into extra_blocks every turn once the threshold is crossed.
-# {remaining} is replaced with the actual remaining iteration count.
-_FINAL_STRETCH_WARNING = """\
-⏳  FINAL STRETCH — {remaining} ITERATIONS REMAINING
-
-You are approaching the end of your iteration budget.  Do NOT start new
-investigations or open new files.  Finish the current task, commit, push,
-and call build_complete_run (or build_cancel_run if the task cannot be
-completed).  Every remaining iteration counts.
-"""
+# Injected on every iteration once the remaining budget falls to or below
+# _FINAL_STRETCH_THRESHOLD.  Tells the agent to stop exploring and ship.
+_FINAL_STRETCH_WARNING: str = (
+    "⚠️ FINAL STRETCH — {remaining} iterations remaining.\n\n"
+    "Stop all discovery, reading, and planning immediately.\n"
+    "You must now:\n"
+    "1. Run mypy on every file you modified.\n"
+    "2. Run pytest on the affected test modules.\n"
+    "3. Fix any errors found.\n"
+    "4. git add -A && git commit.\n"
+    "5. git push && create_pull_request && build_complete_run.\n\n"
+    "Do NOT call read_file, read_file_lines, search_text, or "
+    "search_codebase. Only write/fix/commit/push/PR tools are permitted."
+)
 
 # Injected when the agent has searched for the same query twice.
 _SYMBOL_ABSENCE_OVERRIDE = """\
@@ -597,14 +598,19 @@ async def run_agent_loop(
                     run_id, query, count,
                 )
 
-        # Final-stretch warning — injected every turn once the remaining
-        # iteration budget drops to or below _FINAL_STRETCH_THRESHOLD.
-        remaining = max_iterations - iteration
+        # Final-stretch escalation — fires on every iteration once the remaining
+        # budget falls to or below _FINAL_STRETCH_THRESHOLD.  Independent of
+        # loop_guard: both can be active simultaneously.
+        remaining: int = max_iterations - iteration
         if remaining <= _FINAL_STRETCH_THRESHOLD:
             extra_blocks.append({
                 "type": "text",
                 "text": _FINAL_STRETCH_WARNING.format(remaining=remaining),
             })
+            logger.warning(
+                "⚠️ final_stretch — run_id=%s iteration=%d remaining=%d",
+                run_id, iteration, remaining,
+            )
 
         try:
             bounded = _prune_history(_truncate_tool_results(messages))
