@@ -15,14 +15,19 @@ fields are merged into the stored JSON; omitted fields are preserved.
 
 from __future__ import annotations
 
+import datetime
+import difflib
 import json
 import logging
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict
+
+from agentception.models import FileEditEvent
 
 logger = logging.getLogger(__name__)
 
 _MEMORY_FILENAME = ".agentception/memory.json"
+_DIFF_LINE_CAP = 120
 
 
 class WorkingMemory(TypedDict, total=False):
@@ -34,8 +39,8 @@ class WorkingMemory(TypedDict, total=False):
     plan: str
     """High-level implementation plan for this session."""
 
-    files_written: list[str]
-    """Paths of files already written this session — do not re-implement these."""
+    files_written: list[FileEditEvent]
+    """File-edit events recorded this session — each carries a unified diff."""
 
     files_examined: list[str]
     """Paths of files already read or inspected — skip re-reading these."""
@@ -57,6 +62,52 @@ def _memory_path(worktree_path: Path) -> Path:
     return worktree_path / _MEMORY_FILENAME
 
 
+def _deserialize_file_edit_event(raw: object) -> FileEditEvent | None:
+    """Attempt to deserialize a raw dict into a :class:`FileEditEvent`.
+
+    Returns ``None`` when the value is not a valid dict or is missing required
+    fields, so callers can silently skip malformed entries.
+    """
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return FileEditEvent.model_validate(raw)
+    except Exception:
+        return None
+
+
+def _auto_track_file_write(path: str, before: str, after: str) -> FileEditEvent:
+    """Compute a unified diff between *before* and *after* and return a :class:`FileEditEvent`.
+
+    The diff is capped at ``_DIFF_LINE_CAP`` (120) visible lines so that large
+    rewrites do not bloat the memory JSON.  ``lines_omitted`` carries the count
+    of hidden lines so the UI can surface a "N lines omitted" notice without
+    re-computing the diff.
+
+    Pass ``before=""`` (empty string) when the file is being created for the
+    first time — this produces a creation-style diff where every line appears
+    as an addition (``+``).  Pass the previous file content as *before* for
+    edits so the diff faithfully represents what changed.
+    """
+    raw_lines = list(
+        difflib.unified_diff(
+            before.splitlines(keepends=True),
+            after.splitlines(keepends=True),
+            fromfile=f"a/{path}",
+            tofile=f"b/{path}",
+        )
+    )
+    visible = raw_lines[:_DIFF_LINE_CAP]
+    omitted = max(0, len(raw_lines) - _DIFF_LINE_CAP)
+    diff_str = "".join(visible)
+    return FileEditEvent(
+        timestamp=datetime.datetime.utcnow(),
+        path=path,
+        diff=diff_str,
+        lines_omitted=omitted,
+    )
+
+
 def read_memory(worktree_path: Path) -> WorkingMemory | None:
     """Load the agent's working memory file.
 
@@ -75,11 +126,11 @@ def read_memory(worktree_path: Path) -> WorkingMemory | None:
         if isinstance(plan, str):
             result["plan"] = plan
         files_written = raw.get("files_written")
-        if (
-            isinstance(files_written, list)
-            and all(isinstance(f, str) for f in files_written)
-        ):
-            result["files_written"] = list(files_written)
+        if isinstance(files_written, list):
+            events = [_deserialize_file_edit_event(f) for f in files_written]
+            valid_events = [e for e in events if e is not None]
+            if valid_events:
+                result["files_written"] = valid_events
         files_examined = raw.get("files_examined")
         if (
             isinstance(files_examined, list)
@@ -106,16 +157,45 @@ def read_memory(worktree_path: Path) -> WorkingMemory | None:
         return None
 
 
-def write_memory(worktree_path: Path, memory: WorkingMemory) -> None:
-    """Persist *memory* to the worktree's ``.ac/memory.json`` file.
+def _memory_to_json_safe(memory: WorkingMemory) -> dict[str, Any]:
+    """Convert a :class:`WorkingMemory` to a JSON-serialisable dict.
 
-    Creates ``.ac/`` if it does not exist yet.  Never raises — write failures
-    are logged and ignored so the agent loop is not interrupted.
+    ``FileEditEvent`` objects in ``files_written`` are serialised via
+    ``model_dump(mode="json")`` so that ``datetime`` fields become ISO-8601
+    strings rather than Python objects that ``json.dumps`` cannot handle.
+    """
+    result: dict[str, Any] = {}
+    if "plan" in memory:
+        result["plan"] = memory["plan"]
+    if "files_written" in memory:
+        result["files_written"] = [
+            e.model_dump(mode="json") for e in memory["files_written"]
+        ]
+    if "files_examined" in memory:
+        result["files_examined"] = memory["files_examined"]
+    if "findings" in memory:
+        result["findings"] = memory["findings"]
+    if "decisions" in memory:
+        result["decisions"] = memory["decisions"]
+    if "next_steps" in memory:
+        result["next_steps"] = memory["next_steps"]
+    if "blockers" in memory:
+        result["blockers"] = memory["blockers"]
+    return result
+
+
+def write_memory(worktree_path: Path, memory: WorkingMemory) -> None:
+    """Persist *memory* to the worktree's ``.agentception/memory.json`` file.
+
+    Creates ``.agentception/`` if it does not exist yet.  Never raises — write
+    failures are logged and ignored so the agent loop is not interrupted.
     """
     path = _memory_path(worktree_path)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(memory, indent=2), encoding="utf-8")
+        path.write_text(
+            json.dumps(_memory_to_json_safe(memory), indent=2), encoding="utf-8"
+        )
     except OSError as exc:
         logger.warning("⚠️ working_memory.write — error: %s", exc)
 
@@ -180,7 +260,7 @@ def render_memory(memory: WorkingMemory) -> str:
 
     files_written = memory.get("files_written")
     if files_written:
-        files_str = ", ".join(f"`{f}`" for f in files_written)
+        files_str = ", ".join(f"`{e.path}`" for e in files_written)
         lines.append(f"**Already written this session (do NOT re-implement):** {files_str}")
 
     findings = memory.get("findings")
