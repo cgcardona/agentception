@@ -2195,3 +2195,84 @@ $preset-accents: (
     &:hover { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.8); }
   }
 }
+
+// ── Activity feed container ───────────────────────────────────────────────────
+
+.build-inspector__activity {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+}
+
+// ── Thought block ─────────────────────────────────────────────────────────────
+
+.thought-block {
+  border-left: 2px solid var(--color-border-muted, #444);
+  padding: 0.25rem 0.5rem;
+
+  &__header {
+    background: none;
+    border: none;
+    color: var(--color-text-muted, #888);
+    cursor: pointer;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.25rem;
+    width: 100%;
+    text-align: left;
+    padding: 0;
+
+    &:hover { color: var(--color-text, #eee); }
+  }
+
+  &__icon { aria-hidden: attr(aria-hidden); }
+
+  &__chevron {
+    margin-left: auto;
+    transition: transform 0.2s ease;
+  }
+
+  &[aria-expanded="true"] &__chevron { transform: rotate(90deg); }
+
+  &__body {
+    font-style: italic;
+    color: var(--color-text-muted, #888);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  &--open &__body  { display: block; }
+  &--collapsed &__body { display: none; }
+}
+
+// ── File edit card ────────────────────────────────────────────────────────────
+
+.file-edit-card {
+  background: var(--color-bg-subtle, #1a1a1a);
+  border: 1px solid var(--color-border, #333);
+  border-radius: 4px;
+  overflow: hidden;
+
+  &__header {
+    font-family: monospace;
+    color: var(--color-text-muted, #888);
+    padding: 0.25rem 0.5rem;
+    border-bottom: 1px solid var(--color-border, #333);
+  }
+
+  &__diff {
+    pre {
+      font-family: monospace;
+      overflow-x: auto;
+      margin: 0;
+      padding: 0.25rem 0.5rem;
+    }
+  }
+}
+
+.diff-add     { display: block; background: rgba(0, 255, 70, 0.08); color: #7ee787; }
+.diff-remove  { display: block; background: rgba(255, 60, 60, 0.10); color: #f97583; }
+.diff-context { display: block; color: var(--color-text-muted, #888); }
+
