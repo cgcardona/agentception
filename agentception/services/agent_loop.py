@@ -45,7 +45,7 @@ from agentception.workflow.status import is_terminal
 from agentception.mcp.prompts import get_prompt
 from agentception.mcp.server import TOOLS, call_tool_async
 from agentception.mcp.types import ACToolResult
-from agentception.models import AgentTaskSpec
+from agentception.models import AgentTaskSpec, FileEditEvent
 from agentception.services.llm import (
     ToolCall,
     ToolDefinition,
@@ -378,6 +378,7 @@ async def run_agent_loop(
     run_id: str,
     *,
     max_iterations: int = _DEFAULT_MAX_ITERATIONS,
+    file_edit_queue: asyncio.Queue[FileEditEvent] | None = None,
 ) -> None:
     """Run the full agent conversation loop for *run_id*.
 
@@ -388,6 +389,9 @@ async def run_agent_loop(
     Args:
         run_id: The run identifier, used to locate the worktree and task file.
         max_iterations: Upper bound on LLM turns (prevents runaway loops).
+        file_edit_queue: Optional queue that receives a :class:`FileEditEvent`
+            after each successful file-mutating tool call.  ``None`` (the
+            default) disables SSE emission so existing callers are unaffected.
     """
     worktree_path = settings.worktrees_dir / run_id
 
@@ -730,6 +734,35 @@ async def run_agent_loop(
                         files_written[fp] = files_written.get(fp, 0) + 1
                 except (json.JSONDecodeError, AttributeError):
                     pass
+
+            # Emit file_edit SSE events for every file-mutating tool call that
+            # succeeded this iteration. Payload is the FileEditEvent appended by
+            # _auto_track_file_write — one event per file write, in order.
+            # file_edit_queue is None during unit tests that don't wire up SSE.
+            if file_edit_queue is not None:
+                mem = read_memory(worktree_path)
+                written_events: list[FileEditEvent] = (
+                    list(mem.get("files_written", [])) if mem else []
+                )
+                for tc in response["tool_calls"]:
+                    if tc["function"]["name"] not in _FILE_MUTATING_TOOL_NAMES:
+                        continue
+                    try:
+                        feq_args: dict[str, object] = json.loads(tc["function"]["arguments"])
+                        path_raw = str(
+                            feq_args.get("path", feq_args.get("file_path", ""))
+                        ).strip()
+                    except (json.JSONDecodeError, AttributeError):
+                        path_raw = ""
+                    if not path_raw:
+                        continue
+                    # Find the most recent FileEditEvent for this path.
+                    matching = [
+                        e for e in written_events
+                        if isinstance(e, FileEditEvent) and e.path == path_raw
+                    ]
+                    if matching:
+                        await file_edit_queue.put(matching[-1])
 
             # Accumulate search queries for symbol-absence detection.
             for tc in response["tool_calls"]:
@@ -1728,9 +1761,11 @@ def _session_writes_note(worktree_path: Path) -> dict[str, str]:
     """
     try:
         mem = read_memory(worktree_path)
-        written: list[str] = list(mem.get("files_written", [])) if mem else []
-        if written:
-            return {"session_writes": "Already written this session — do NOT re-implement: " + ", ".join(written)}
+        raw_written = list(mem.get("files_written", [])) if mem else []
+        # files_written entries are FileEditEvent objects after issue #679.
+        written_paths = [e.path for e in raw_written if isinstance(e, FileEditEvent)]
+        if written_paths:
+            return {"session_writes": "Already written this session — do NOT re-implement: " + ", ".join(written_paths)}
     except Exception:  # noqa: BLE001
         pass
     return {}
@@ -1743,11 +1778,19 @@ def _auto_track_file_write(rel_path: str, worktree_path: Path) -> None:
     sees this list at the top of its working memory every iteration so it cannot
     accidentally re-implement something it already wrote.
     """
+    import datetime
+
     try:
         existing = read_memory(worktree_path)
-        current: list[str] = list(existing.get("files_written", [])) if existing else []
-        if rel_path not in current:
-            current.append(rel_path)
+        current: list[FileEditEvent] = list(existing.get("files_written", [])) if existing else []
+        already_tracked = any(e.path == rel_path for e in current if isinstance(e, FileEditEvent))
+        if not already_tracked:
+            current.append(FileEditEvent(
+                timestamp=datetime.datetime.utcnow(),
+                path=rel_path,
+                diff="",
+                lines_omitted=0,
+            ))
             update = WorkingMemory(files_written=current)
             merged = merge_memory(existing, update)
             write_memory(worktree_path, merged)
