@@ -257,6 +257,24 @@ already committed to disk.  Your next action should be the NEXT uncompleted
 task, not a re-implementation of what is listed.
 """
 
+# ---------------------------------------------------------------------------
+# Final-stretch warning — injected when the iteration budget is nearly spent.
+# ---------------------------------------------------------------------------
+# When fewer than or equal to this many iterations remain, the agent receives
+# a prominent warning so it can wrap up rather than starting new work.
+_FINAL_STRETCH_THRESHOLD: int = 15
+
+# Text injected into extra_blocks every turn once the threshold is crossed.
+# {remaining} is replaced with the actual remaining iteration count.
+_FINAL_STRETCH_WARNING = """\
+⏳  FINAL STRETCH — {remaining} ITERATIONS REMAINING
+
+You are approaching the end of your iteration budget.  Do NOT start new
+investigations or open new files.  Finish the current task, commit, push,
+and call build_complete_run (or build_cancel_run if the task cannot be
+completed).  Every remaining iteration counts.
+"""
+
 # Injected when the agent has searched for the same query twice.
 _SYMBOL_ABSENCE_OVERRIDE = """\
 ⚠️  SYMBOL ABSENCE — "{query}" NOT FOUND AFTER REPEATED SEARCH
@@ -578,6 +596,15 @@ async def run_agent_loop(
                     "⚠️ symbol_absence fired — run_id=%s query=%r count=%d",
                     run_id, query, count,
                 )
+
+        # Final-stretch warning — injected every turn once the remaining
+        # iteration budget drops to or below _FINAL_STRETCH_THRESHOLD.
+        remaining = max_iterations - iteration
+        if remaining <= _FINAL_STRETCH_THRESHOLD:
+            extra_blocks.append({
+                "type": "text",
+                "text": _FINAL_STRETCH_WARNING.format(remaining=remaining),
+            })
 
         try:
             bounded = _prune_history(_truncate_tool_results(messages))
