@@ -288,6 +288,42 @@ def test_build_board_partial_shows_current_step(client: TestClient) -> None:
     assert "3 steps" not in resp.text
 
 
+def test_build_board_partial_step_badge_renders_step_text(client: TestClient) -> None:
+    """GET /build/board renders current_step inside the build-issue__step-badge element.
+
+    When current_step is "Step 7", the rendered HTML must contain "Step 7" and
+    that text must appear inside a tag with class="build-issue__step-badge".
+    """
+    with (
+        patch(
+            "agentception.routes.ui.build_ui.get_issues_grouped_by_phase",
+            new_callable=AsyncMock,
+            return_value=_mock_group(),
+        ),
+        patch(
+            "agentception.routes.ui.build_ui.get_runs_for_issue_numbers",
+            new_callable=AsyncMock,
+            return_value={82: _mock_run_dict(current_step="Step 7")},
+        ),
+        patch(
+            "agentception.routes.ui.build_ui.get_workflow_states_by_issue",
+            new_callable=AsyncMock,
+            return_value={82: {"lane": "active", "pr_number": None}},
+        ),
+    ):
+        resp = client.get("/ship/agentception/phase-1/board")
+
+    assert resp.status_code == 200
+    assert "Step 7" in resp.text
+    # "Step 7" must appear inside the step-badge element, not just anywhere in the page.
+    assert 'class="build-issue__step-badge"' in resp.text
+    badge_start = resp.text.find('class="build-issue__step-badge"')
+    badge_end = resp.text.find("</span>", badge_start)
+    assert "Step 7" in resp.text[badge_start:badge_end], (
+        "Step 7 must appear inside the build-issue__step-badge span"
+    )
+
+
 def test_build_board_partial_no_run_renders_without_error(
     client: TestClient,
 ) -> None:
