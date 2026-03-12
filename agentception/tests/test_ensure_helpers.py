@@ -186,6 +186,135 @@ async def test_concurrent_worktree_creation_does_not_race(tmp_path: Path) -> Non
     )
 
 
+@pytest.mark.anyio
+async def test_ensure_worktree_symlinks_node_modules(tmp_path: Path) -> None:
+    """ensure_worktree calls _symlink_frontend_resources after creating a new worktree.
+
+    Phase 0 added a node_modules symlink step so agents can run npm commands
+    (type-check, test, build:js) from within the worktree without having to cd
+    to the main repo root first.
+
+    Verifies:
+    - _symlink_frontend_resources is called with the worktree path after a
+      successful ``git worktree add``.
+    - The symlink is created for node_modules when the source exists in repo_root.
+    - The symlink is skipped when the destination already exists.
+    """
+    from agentception.readers.git import _symlink_frontend_resources
+    from agentception.config import settings
+
+    worktree_path = tmp_path / "issue-768"
+    branch = "feat/issue-768"
+    base_ref = "origin/dev"
+
+    mock_proc = AsyncMock()
+    mock_proc.returncode = 0
+    mock_proc.communicate.return_value = (b"", b"")
+
+    symlink_calls: list[Path] = []
+
+    def capture_symlink(path: Path) -> None:
+        symlink_calls.append(path)
+
+    with (
+        patch("agentception.readers.git._git", new_callable=AsyncMock, return_value=""),
+        patch("agentception.readers.git.asyncio.create_subprocess_exec", return_value=mock_proc),
+        patch("agentception.readers.git._symlink_frontend_resources", side_effect=capture_symlink),
+    ):
+        result = await ensure_worktree(worktree_path, branch, base_ref)
+
+    assert result is True
+    assert len(symlink_calls) == 1, (
+        f"_symlink_frontend_resources must be called exactly once; got: {symlink_calls}"
+    )
+    assert symlink_calls[0] == worktree_path, (
+        f"_symlink_frontend_resources must be called with the worktree path; "
+        f"got: {symlink_calls[0]}"
+    )
+
+
+@pytest.mark.anyio
+async def test_symlink_frontend_resources_creates_node_modules_symlink(tmp_path: Path) -> None:
+    """_symlink_frontend_resources creates a node_modules symlink in the worktree.
+
+    The symlink points from <worktree>/node_modules → <repo_root>/node_modules.
+    Uses settings.repo_dir (not a hardcoded /app) so the test is environment-agnostic.
+    """
+    from agentception.readers.git import _symlink_frontend_resources
+
+    # Create a fake repo_root with node_modules present.
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    node_modules = repo_root / "node_modules"
+    node_modules.mkdir()
+
+    worktree_path = tmp_path / "worktree"
+    worktree_path.mkdir()
+
+    with patch("agentception.readers.git.settings") as mock_settings:
+        mock_settings.repo_dir = repo_root
+
+        _symlink_frontend_resources(worktree_path)
+
+    dst = worktree_path / "node_modules"
+    assert dst.is_symlink(), "node_modules must be a symlink in the worktree"
+    assert dst.resolve() == node_modules.resolve(), (
+        f"node_modules symlink must point to repo_root/node_modules; "
+        f"got: {dst.resolve()}"
+    )
+
+
+@pytest.mark.anyio
+async def test_symlink_frontend_resources_skips_when_dst_exists(tmp_path: Path) -> None:
+    """_symlink_frontend_resources does not clobber an existing node_modules."""
+    from agentception.readers.git import _symlink_frontend_resources
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "node_modules").mkdir()
+
+    worktree_path = tmp_path / "worktree"
+    worktree_path.mkdir()
+    # Pre-existing real directory — must not be replaced with a symlink.
+    existing = worktree_path / "node_modules"
+    existing.mkdir()
+
+    with patch("agentception.readers.git.settings") as mock_settings:
+        mock_settings.repo_dir = repo_root
+
+        _symlink_frontend_resources(worktree_path)
+
+    assert existing.is_dir() and not existing.is_symlink(), (
+        "Pre-existing node_modules directory must not be replaced with a symlink"
+    )
+
+
+@pytest.mark.anyio
+async def test_symlink_frontend_resources_skips_when_worktree_is_repo_root(tmp_path: Path) -> None:
+    """_symlink_frontend_resources is a no-op when worktree_path == repo_root.
+
+    This guard prevents self-referential symlinks like
+    /app/node_modules → /app/node_modules.
+    """
+    from agentception.readers.git import _symlink_frontend_resources
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "node_modules").mkdir()
+
+    with patch("agentception.readers.git.settings") as mock_settings:
+        mock_settings.repo_dir = repo_root
+
+        # Pass the repo_root itself as the worktree — must be a no-op.
+        _symlink_frontend_resources(repo_root)
+
+    # No symlink should have been created inside repo_root pointing to itself.
+    dst = repo_root / "node_modules"
+    assert not dst.is_symlink(), (
+        "No symlink must be created when worktree_path == repo_root"
+    )
+
+
 # ---------------------------------------------------------------------------
 # _symlink_frontend_resources
 # ---------------------------------------------------------------------------
