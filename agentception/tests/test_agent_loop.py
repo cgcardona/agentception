@@ -1570,6 +1570,110 @@ class TestReviewerToolAllowlist:
 # Type-aware truncation — _build_tool_id_map + _truncate_tool_results
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Developer tool allowlist
+# ---------------------------------------------------------------------------
+
+
+class TestDeveloperToolAllowlist:
+    """Developer role must use exactly _DEVELOPER_TOOL_ALLOWLIST as its tool surface.
+
+    Every tool offered to the LLM when role='developer' must appear in
+    _DEVELOPER_TOOL_ALLOWLIST, and no tool outside that set may be offered.
+    """
+
+    @pytest.mark.anyio
+    async def test_developer_role_uses_developer_tool_allowlist(
+        self, tmp_path: Path
+    ) -> None:
+        """Tools offered to the LLM for role=developer must equal _DEVELOPER_TOOL_ALLOWLIST."""
+        from agentception.services.agent_loop import (
+            _DEVELOPER_TOOL_ALLOWLIST,
+            run_agent_loop,
+        )
+
+        worktree = tmp_path / "dev-allowlist-run"
+        worktree.mkdir()
+
+        developer_spec = AgentTaskSpec(
+            id="dev-allowlist-run",
+            role="developer",
+            tier="worker",
+            cognitive_arch="Think step by step.",
+            issue_number=42,
+            worktree=str(worktree),
+        )
+
+        captured_tools: list[list[ToolDefinition]] = []
+
+        async def fake_llm(
+            *args: object,
+            tools: list[ToolDefinition] | None = None,
+            extra_system_blocks: list[dict[str, object]] | None = None,
+            **kwargs: object,
+        ) -> ToolResponse:
+            if tools is not None:
+                captured_tools.append(tools)
+            return _stop_response("Task complete.")
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=developer_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.get_run_by_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": [], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic_with_tools",
+                side_effect=fake_llm,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
+            await run_agent_loop("dev-allowlist-run", max_iterations=100)
+
+        assert captured_tools, "fake_llm must have been called at least once"
+        offered_names = {t["function"]["name"] for t in captured_tools[0]}
+
+        # Every offered tool must appear in the allowlist — no tool outside the
+        # allowlist may be offered to a developer agent.
+        for name in offered_names:
+            assert name in _DEVELOPER_TOOL_ALLOWLIST, (
+                f"Tool {name!r} offered to developer but not in _DEVELOPER_TOOL_ALLOWLIST."
+            )
+
+        # The offered set must be non-empty — the allowlist filter must not
+        # silently drop everything.
+        assert offered_names, "Developer agent was offered zero tools — allowlist filter is broken."
+
+
+
+
 
 def test_build_tool_id_map_extracts_tool_names() -> None:
     """_build_tool_id_map should produce id → name for every tool_call in history."""
