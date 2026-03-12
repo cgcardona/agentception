@@ -187,7 +187,7 @@ async def test_concurrent_worktree_creation_does_not_race(tmp_path: Path) -> Non
 
 
 @pytest.mark.anyio
-async def test_ensure_worktree_symlinks_node_modules(tmp_path: Path) -> None:
+async def test_ensure_worktree_calls_symlink_frontend_resources(tmp_path: Path) -> None:
     """ensure_worktree calls _symlink_frontend_resources after creating a new worktree.
 
     Phase 0 added a node_modules symlink step so agents can run npm commands
@@ -197,12 +197,7 @@ async def test_ensure_worktree_symlinks_node_modules(tmp_path: Path) -> None:
     Verifies:
     - _symlink_frontend_resources is called with the worktree path after a
       successful ``git worktree add``.
-    - The symlink is created for node_modules when the source exists in repo_root.
-    - The symlink is skipped when the destination already exists.
     """
-    from agentception.readers.git import _symlink_frontend_resources
-    from agentception.config import settings
-
     worktree_path = tmp_path / "issue-768"
     branch = "feat/issue-768"
     base_ref = "origin/dev"
