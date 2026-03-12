@@ -85,6 +85,34 @@ interface TreeResponse {
 
 // ── Component definition ─────────────────────────────────────────────────────
 
+/**
+ * Render a unified diff string into syntax-coloured `<span>` elements inside
+ * the given `code` element.
+ *
+ * Each line of `diff` is wrapped in a `<span>` with one of three classes:
+ *  - `diff-add`  — lines starting with `+`
+ *  - `diff-del`  — lines starting with `-`
+ *  - `diff-ctx`  — all other lines (context, hunk headers, file headers)
+ *
+ * The `code` element's existing content is replaced on every call.
+ */
+export function renderDiffLines(code: HTMLElement, diff: string): void {
+  code.innerHTML = '';
+  for (const line of diff.split('\n')) {
+    const span = document.createElement('span');
+    if (line.startsWith('+')) {
+      span.className = 'diff-add';
+    } else if (line.startsWith('-')) {
+      span.className = 'diff-del';
+    } else {
+      span.className = 'diff-ctx';
+    }
+    span.textContent = line;
+    code.appendChild(span);
+    code.appendChild(document.createTextNode('\n'));
+  }
+}
+
 /** Render a markdown string to HTML. */
 export function renderMd(text: string): string {
   if (!text) return '';
@@ -350,3 +378,18 @@ interface AlpineMagics {
   $nextTick(callback?: () => void): Promise<void>;
   $refs: Record<string, HTMLElement | null>;
 }
+
+// ── Pre-rendered file-edit card initialisation ────────────────────────────────
+// Completed runs have `.file-edit-card[data-diff]` elements baked into the HTML
+// by the server.  This listener colours the diff and wires the collapse toggle
+// for every such card that exists when the page first loads.
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll<HTMLElement>('.file-edit-card[data-diff]').forEach(card => {
+    const header = card.querySelector<HTMLButtonElement>('.card-header');
+    const code = card.querySelector<HTMLElement>('.card-body code');
+    const diff = card.dataset['diff'] ?? '';
+    if (code) renderDiffLines(code, diff);
+    header?.addEventListener('click', () => card.classList.toggle('collapsed'));
+  });
+});
