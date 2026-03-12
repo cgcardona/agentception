@@ -195,7 +195,12 @@ async def test_rebase_conflict_returns_error_and_aborts() -> None:
         patch(
             "agentception.mcp.build_commands.asyncio.create_task",
         ) as mock_create_task,
+        patch(
+            "agentception.mcp.build_commands.Path",
+        ) as mock_path,
     ):
+        # Make Path(wt_path).exists() return True so the rebase logic runs.
+        mock_path.return_value.exists.return_value = True
         result = await build_complete_run(
             issue_number=20,
             pr_url="https://github.com/cgcardona/agentception/pull/20",
