@@ -11,36 +11,34 @@ Typical usage::
 
     from agentception.services.resync_service import resync_all_issues
 
-    result = await resync_all_issues("owner/repo")
+    result = await resync_all_issues()
     # {"open": 42, "closed": 137, "upserted": 179}
 """
 
+import asyncio
 import logging
 
+from agentception.config import settings
 from agentception.db.persist import upsert_issues
 from agentception.readers.github import get_closed_issues, get_open_issues
 
 logger = logging.getLogger(__name__)
 
 
-async def resync_all_issues(repo: str) -> dict[str, int]:
+async def resync_all_issues() -> dict[str, int]:
     """Fetch all open and up to 1 000 closed issues, then upsert them into the DB.
 
     Fetches open issues (no label filter) and up to 1 000 recently-closed
     issues from GitHub in parallel, combines them, and passes the full list to
     :func:`~agentception.db.persist.upsert_issues`.
 
+    Always uses ``settings.gh_repo`` for both the GitHub API calls and the DB
+    upsert key — there is no repo parameter so there is no risk of fetching
+    from one repo while writing under a different key.
+
     The underlying upsert is hash-diff idempotent: rows are only written when
     content has changed, so concurrent calls with identical data produce no
     extra DB writes and raise no errors.
-
-    Parameters
-    ----------
-    repo:
-        GitHub repository slug (e.g. ``"owner/repo"``).  Passed through to
-        the DB upsert so rows are scoped to the correct repo.  The GitHub
-        reader functions derive the repo from ``settings.gh_repo``; this
-        parameter is used only for the DB write.
 
     Returns
     -------
@@ -51,7 +49,7 @@ async def resync_all_issues(repo: str) -> dict[str, int]:
         - ``closed``   — number of closed issues fetched from GitHub.
         - ``upserted`` — total rows passed to the upsert (open + closed).
     """
-    import asyncio
+    repo = settings.gh_repo
 
     open_issues, closed_issues = await asyncio.gather(
         get_open_issues(),
