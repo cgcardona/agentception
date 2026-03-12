@@ -107,7 +107,7 @@ Every task follows this complete lifecycle — no step is optional:
 
 1. **Start clean.** Before touching any file, run `git status`. If `dev` is not clean, stop — restore or commit the dirty files before doing anything else.
 2. **Branch first.** `git checkout -b fix/<description>` or `git checkout -b feat/<description>` is the **first** command of every task, not an afterthought.
-3. **Stage everything before switching.** After any file-generating command (`generate.py`, `npm run build`, code generators, etc.), run `git status` and stage every modified file. Never switch branches while files are dirty — unstaged changes follow you and end up on the wrong branch.
+3. **Stage everything before switching.** After any file-generating command (`generate.py`, `docker compose exec agentception npm run build`, code generators, etc.), run `git status` and stage every modified file. Never switch branches while files are dirty — unstaged changes follow you and end up on the wrong branch.
 4. **Include all generated outputs in the same commit.** Template source changes and their regenerated outputs (`generate.py` → `.agentception/*.md`) belong in one commit on the feature branch. Never split them across branches.
 5. **`.agentception/*.md` are derived artifacts — never edit them directly.** The only correct workflow: edit the `.j2` template in `scripts/gen_prompts/templates/`, run `docker compose exec agentception python3 /app/scripts/gen_prompts/generate.py`, then commit template + regenerated output together in one commit.
 6. **Verify locally before opening the PR.** CI does not run on feature → dev PRs — local verification is the gate. Run in this exact order:
@@ -116,7 +116,7 @@ Every task follows this complete lifecycle — no step is optional:
    docker compose exec agentception python3 tools/typing_audit.py --dirs agentception/ tests/ --max-any 0  # passes
    docker compose exec agentception pytest agentception/tests/test_foo.py -v              # only test files relevant to changes — see Test Scope below
    docker compose exec agentception python3 /app/scripts/gen_prompts/generate.py --check  # no drift
-   npm run build   # only if .js or .scss files changed
+   docker compose exec agentception npm run build   # only if .js or .scss files changed
    ```
 7. **Open a pull request.** Always create a PR against `dev` — never push directly. Use the `create_pull_request` MCP tool (preferred) or `gh pr create`. Every change, no matter how small, goes through a PR.
 8. **Merge the PR immediately.** Use `merge_pull_request` MCP tool (squash merge). Do not wait for CI — it does not run on feature → dev PRs. Do not leave PRs open.
@@ -246,7 +246,7 @@ scripts/
 - **Every Python file** must have `from __future__ import annotations` as the first import, immediately after the module docstring (if present). A module docstring may precede it — no other code may. No exceptions.
 - **Type everything, 100%.** No untyped function parameters, no untyped return values. Use `list[X]`, `dict[K, V]`, `tuple[A, B]`, `X | None` — never `Optional[X]`, never bare `list` or `dict`.
 - **Mypy before tests — always, without exception.** Run `docker compose exec agentception mypy agentception/ tests/` on every Python file you create or modify before running the test suite. Fix all type errors first.
-- **Every TypeScript file** (`agentception/static/js/**/*.ts`) must pass `npm run type-check` (`tsc --noEmit`) before committing. See the TypeScript typing rules section below.
+- **Every TypeScript file** (`agentception/static/js/**/*.ts`) must pass `docker compose exec agentception npm run type-check` (`tsc --noEmit`) before committing. See the TypeScript typing rules section below.
 - **Convert `.js` → `.ts` for every file you touch.** If you open a JS file to edit it, rename it `.ts` and add types in the same commit.
 - **Editing existing files:** Only modify necessary sections. Preserve formatting, structure, and surrounding code.
 - **Creating new files:** Write complete, self-contained modules. Include imports, type hints, and docstrings.
@@ -334,7 +334,7 @@ For SSE streams, use a typed parser (e.g. `parseSseEvent<T>`) that validates the
 | E2E | `npm run test:e2e` | Playwright, all green (requires `docker compose up -d`) |
 | Full gate | `npm run test:all` | type-check + unit + E2E |
 
-Note: esbuild does **not** type-check. `npm run type-check` is the only type gate — run it before every commit. `npm test` runs the Vitest unit-test suite (jsdom, no browser required). `npm run test:e2e` runs Playwright against the live Docker server.
+Note: esbuild does **not** type-check. `docker compose exec agentception npm run type-check` is the only type gate — run it before every commit. `docker compose exec agentception npm test` runs the Vitest unit-test suite (jsdom, no browser required). `docker compose exec agentception npm run test:e2e` runs Playwright against the live Docker server.
 
 **Testing rules for TypeScript:**
 - Every exported function in a `.ts` source file must have Vitest unit tests in a sibling `__tests__/*.test.ts` file.
@@ -423,9 +423,9 @@ There is no third option. A codebase with known broken tests that everyone steps
 8. [ ] No secrets, no `print()`, no dead code, no `Any`, no bare collections, no `cast()`, no `# type: ignore` (Python)
 8a. [ ] No `any`, `object`, `{}`, untyped parameters, `as any`, or `// @ts-ignore` (TypeScript)
 8b. [ ] No legacy, no deprecated, no shims — if you touched a file with dead patterns, they are deleted in this PR
-9. [ ] If any `.ts` files changed: `npm run type-check` (zero errors), `npm test` (all green), then `npm run build:js`
+9. [ ] If any `.ts` files changed: `docker compose exec agentception npm run type-check` (zero errors), `docker compose exec agentception npm test` (all green), then `docker compose exec agentception npm run build:js`
 9a. [ ] If any `.js` source files were touched: rename to `.ts` and add types in this same commit
-9b. [ ] If any `.scss` files changed: `npm run build:css`
-9c. [ ] E2E tests pass: `npm run test:e2e` (requires `docker compose up -d`)
+9b. [ ] If any `.scss` files changed: `docker compose exec agentception npm run build:css`
+9c. [ ] E2E tests pass: `docker compose exec agentception npm run test:e2e` (requires `docker compose up -d`)
 10. [ ] If API contract changed → handoff prompt produced
 11. [ ] **Open PR and merge immediately** — do not wait for CI (it does not run on dev PRs)
