@@ -80,9 +80,11 @@ COPY pyproject.toml /app/pyproject.toml
 # Install the package itself so `agentception.*` imports resolve.
 RUN pip install --no-cache-dir -e /app
 
-# Compile SCSS → CSS at build time.
+# Compile SCSS → CSS and TypeScript → JS at build time.
 RUN sass --style=compressed --no-source-map \
     /app/agentception/static/scss/app.scss \
     /app/agentception/static/app.css
+COPY package.json package-lock.json tsconfig.json /app/
+RUN cd /app && npm ci --include=dev && npm run build:js
 
 CMD ["uvicorn", "agentception.app:app", "--host", "0.0.0.0", "--port", "10003"]

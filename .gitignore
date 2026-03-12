@@ -48,6 +48,10 @@ alembic/versions/__pycache__/
 node_modules/
 package-lock.json
 
+# Compiled frontend bundles — generated at Docker build time, never committed
+agentception/static/app.js
+agentception/static/app.css
+
 # Agent ephemeral briefing files — never committed
 # Runtime role-version ledger — written by the app server on every role commit.
 # These are runtime state, not source code. Tracking them causes dev to appear
