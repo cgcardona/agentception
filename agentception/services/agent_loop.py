@@ -231,9 +231,9 @@ _REVIEWER_TOOL_ALLOWLIST: frozenset[str] = frozenset({
     "build_cancel_run",
 })
 
-# Hard cap on reviewer iterations.  A reviewer should read, decide, and act
-# in well under 40 turns.  100 (the default) allows too many re-read loops.
-_REVIEWER_MAX_ITERATIONS = 40
+# Hard cap on reviewer iterations.  With warmup pre-loading all context,
+# a reviewer grades and acts in ≤5 iterations.  10 is a generous ceiling.
+_REVIEWER_MAX_ITERATIONS = 10
 
 # When the loop guard fires, the tool palette switches to an ALLOWLIST:
 # only write tools and a minimal set of essential non-read tools remain.
