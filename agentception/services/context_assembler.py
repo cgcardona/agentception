@@ -10,7 +10,7 @@ Replaces the LLM-based planning loop with a zero-LLM Python function that:
 3. Merges results with the Qdrant matches already computed at dispatch time.
 4. For each unique match, uses Python ``ast`` to extract the exact enclosing
    function or class scope (not just a raw 800-char chunk).
-5. Prepends the relevant import statements from each file so the executor
+5. Prepends the relevant import statements from each file so the developer
    can reason about types without reading entire files.
 
 Total elapsed time: ~300 ms (parallel Qdrant + local AST parsing, zero LLM calls).
@@ -276,20 +276,20 @@ def _scope_section(
 # ---------------------------------------------------------------------------
 
 
-async def assemble_executor_context(
+async def assemble_developer_context(
     issue_title: str,
     issue_body: str,
     worktree_path: Path,
     existing_matches: list[SearchMatch],
 ) -> str:
-    """Build a rich code context block for the executor — zero LLM calls.
+    """Build a rich code context block for the developer — zero LLM calls.
 
     Runs 3 targeted Qdrant queries in parallel based on the issue title and
     body sections, merges and deduplicates the results with *existing_matches*
     already computed at dispatch time, then extracts the exact enclosing AST
     scope body (function or class) for each unique match.
 
-    The resulting string is appended to the executor's task briefing so it
+    The resulting string is appended to the developer's task briefing so it
     starts implementation from turn 1 with precise, relevant code context —
     no file reads needed, no LLM planning loop.
 
@@ -422,3 +422,9 @@ async def assemble_executor_context(
             + "\n\n".join(qdrant_sections)
         )
     return "\n\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Backward-compatibility alias — remove once all call-sites use the new name.
+# ---------------------------------------------------------------------------
+assemble_executor_context = assemble_developer_context
