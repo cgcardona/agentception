@@ -12,7 +12,41 @@ Run targeted:
 """
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, MagicMock, patch
+
+
+def _make_mock_session(file_edit_count: int = 1, pr_number: int | None = 42) -> MagicMock:
+    """Build a mock async context-manager session that satisfies the pre-flight guards.
+
+    The pre-flight guards in build_complete_run execute two queries:
+    1. COUNT of ACAgentEvent rows with event_type in ('file_edit', 'write_file').
+    2. SELECT of ACAgentRun row to check pr_number IS NOT NULL.
+
+    This helper returns a mock session whose ``execute`` method returns the
+    appropriate scalar results in call order.
+    """
+    mock_session = MagicMock()
+
+    # First execute call → file_edit count
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = file_edit_count
+
+    # Second execute call → ACAgentRun row
+    run_row = MagicMock()
+    run_row.pr_number = pr_number
+    run_result = MagicMock()
+    run_result.scalar_one_or_none.return_value = run_row
+
+    mock_session.execute = AsyncMock(side_effect=[count_result, run_result])
+
+    from collections.abc import AsyncGenerator
+
+    @asynccontextmanager
+    async def _mock_get_session() -> AsyncGenerator[MagicMock, None]:
+        yield mock_session
+
+    return _mock_get_session  # type: ignore[return-value]
 
 
 @pytest.mark.anyio
@@ -28,6 +62,10 @@ async def test_reviewer_worktree_torn_down_after_failing_grade() -> None:
     reviewer_run_id = "reviewer-issue-42-abc123"
 
     with (
+        patch(
+            "agentception.mcp.build_commands.get_session",
+            new=_make_mock_session(file_edit_count=1, pr_number=99),
+        ),
         patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
@@ -87,6 +125,10 @@ async def test_reviewer_worktree_torn_down_after_passing_grade() -> None:
     reviewer_run_id = "reviewer-issue-55-def456"
 
     with (
+        patch(
+            "agentception.mcp.build_commands.get_session",
+            new=_make_mock_session(file_edit_count=1, pr_number=100),
+        ),
         patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
@@ -148,6 +190,10 @@ async def test_redispatch_fires_after_failing_grade() -> None:
     grade = "F"
 
     with (
+        patch(
+            "agentception.mcp.build_commands.get_session",
+            new=_make_mock_session(file_edit_count=1, pr_number=200),
+        ),
         patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
@@ -219,6 +265,10 @@ async def test_redispatch_skipped_after_passing_grade() -> None:
 
     with (
         patch(
+            "agentception.mcp.build_commands.get_session",
+            new=_make_mock_session(file_edit_count=1, pr_number=300),
+        ),
+        patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
         ),
@@ -281,6 +331,10 @@ async def test_build_complete_run_rejects_empty_grade_from_reviewer() -> None:
 
     with (
         patch(
+            "agentception.mcp.build_commands.get_session",
+            new=_make_mock_session(file_edit_count=1, pr_number=999),
+        ),
+        patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
         ),
@@ -333,6 +387,10 @@ async def test_build_complete_run_rejects_whitespace_grade_from_reviewer() -> No
     reviewer_run_id = "reviewer-issue-99-whitespace"
 
     with (
+        patch(
+            "agentception.mcp.build_commands.get_session",
+            new=_make_mock_session(file_edit_count=1, pr_number=999),
+        ),
         patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
