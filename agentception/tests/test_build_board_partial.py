@@ -194,8 +194,8 @@ def test_build_board_partial_shows_status_badge(client: TestClient) -> None:
         resp = client.get("/ship/agentception/phase-1/board")
 
     assert resp.status_code == 200
-    # The agent_status "implementing" must appear as a badge in the card.
-    assert "implementing" in resp.text
+    # The agent_status badge is suppressed for "implementing" — only stale renders a badge.
+    assert "build-issue__status" not in resp.text
 
 
 def test_build_board_partial_shows_current_step(client: TestClient) -> None:
