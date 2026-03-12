@@ -15,6 +15,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get update && apt-get install -y gh \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Install Node.js 22.x — enables npm run type-check / npm test / npm run build:js
+# inside the container. node_modules arrive via the ./:/app bind mount at runtime.
+ARG NODE_VERSION=22
+RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* \
+    && node --version \
+    && npm --version
+
 # Install the GitHub askpass helper and configure system-wide git auth.
 #
 # Git's git-receive-pack (push) and git-upload-pack (fetch/clone) endpoints
