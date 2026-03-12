@@ -33,8 +33,9 @@
       </div>
     </header>
 
+    <!-- initiatives tab nav: must remain outside #build-board swap target -->
     <div
-      id="build-initiative-tabs"
+      id="initiative-tabs-nav"
       hx-get="/ship/{{ repo_name }}/initiatives"
       hx-trigger="load, every 30s"
       hx-swap="innerHTML"
