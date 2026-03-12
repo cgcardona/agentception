@@ -298,9 +298,9 @@ async def build_complete_run(
             )
     else:
         # Non-reviewer (implementer) completed: release worktree and dispatch reviewer.
-        # Release the executor's worktree before dispatching the reviewer.
+        # Release the developer's worktree before dispatching the reviewer.
         # Git forbids the same branch in two worktrees simultaneously; if the
-        # executor's worktree still holds the branch the reviewer dispatch will
+        # developer's worktree still holds the branch the reviewer dispatch will
         # fail with "already used by worktree at …".  We only remove the
         # worktree directory and prune refs — branches are left intact because
         # the open PR still references the remote branch.

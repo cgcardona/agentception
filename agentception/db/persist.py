@@ -897,7 +897,7 @@ async def _upsert_agent_runs(
         # orphan sweep so the polling tick never flips an in-progress adhoc
         # run to "failed" just because it isn't backed by a GitHub issue.
         #
-        # Reviewer runs are also excluded: unlike executor runs (where
+        # Reviewer runs are also excluded: unlike developer runs (where
         # pr_number is set only after the PR is opened and the run is done),
         # reviewer runs have pr_number set AT DISPATCH TIME because the PR
         # already exists.  Applying the pr_number → completed heuristic to a
@@ -1072,7 +1072,7 @@ async def persist_agent_run_dispatch(
                     run_id, existing.status,
                 )
                 existing.status = "pending_launch"
-                existing.role = role  # always update — role may change (e.g. developer → executor)
+                existing.role = role  # always update — role field is persisted as-is
                 existing.spawn_mode = spawn_mode_json
                 # Reset spawned_at so the pending_launch TTL sweep (15 min window)
                 # does not immediately re-fail a re-dispatched run whose original
@@ -1844,7 +1844,7 @@ async def _write_messages(
 async def persist_execution_plan(run_id: str, plan_json: str, issue_number: int) -> None:
     """Store the serialised ExecutionPlan for *run_id*.
 
-    Called once by the planner before the executor starts.  Subsequent calls
+    Called once by the planner before the developer starts.  Subsequent calls
     for the same ``run_id`` are silently ignored (the plan is immutable).
 
     Args:
