@@ -146,6 +146,10 @@ _SEARCH_TOOL_NAMES: frozenset[str] = frozenset({
 # guard always fires eventually even on minimal budgets.
 _LOOP_GUARD_THRESHOLD: int = 2
 
+# Number of iterations remaining at which the final-stretch warning fires.
+# Once remaining <= this value, the agent is told to stop exploring and ship.
+_FINAL_STRETCH_THRESHOLD: int = 15
+
 # ---------------------------------------------------------------------------
 # Developer agent — minimal tool surface
 # ---------------------------------------------------------------------------
@@ -256,6 +260,21 @@ are relevant — do not re-read the whole file.  All writes in the list are
 already committed to disk.  Your next action should be the NEXT uncompleted
 task, not a re-implementation of what is listed.
 """
+
+# Injected on every iteration once the remaining budget falls to or below
+# _FINAL_STRETCH_THRESHOLD.  Tells the agent to stop exploring and ship.
+_FINAL_STRETCH_WARNING: str = (
+    "⚠️ FINAL STRETCH — {remaining} iterations remaining.\n\n"
+    "Stop all discovery, reading, and planning immediately.\n"
+    "You must now:\n"
+    "1. Run mypy on every file you modified.\n"
+    "2. Run pytest on the affected test modules.\n"
+    "3. Fix any errors found.\n"
+    "4. git add -A && git commit.\n"
+    "5. git push && create_pull_request && build_complete_run.\n\n"
+    "Do NOT call read_file, read_file_lines, search_text, or "
+    "search_codebase. Only write/fix/commit/push/PR tools are permitted."
+)
 
 # Injected when the agent has searched for the same query twice.
 _SYMBOL_ABSENCE_OVERRIDE = """\
@@ -578,6 +597,20 @@ async def run_agent_loop(
                     "⚠️ symbol_absence fired — run_id=%s query=%r count=%d",
                     run_id, query, count,
                 )
+
+        # Final-stretch escalation — fires on every iteration once the remaining
+        # budget falls to or below _FINAL_STRETCH_THRESHOLD.  Independent of
+        # loop_guard: both can be active simultaneously.
+        remaining: int = max_iterations - iteration
+        if remaining <= _FINAL_STRETCH_THRESHOLD:
+            extra_blocks.append({
+                "type": "text",
+                "text": _FINAL_STRETCH_WARNING.format(remaining=remaining),
+            })
+            logger.warning(
+                "⚠️ final_stretch — run_id=%s iteration=%d remaining=%d",
+                run_id, iteration, remaining,
+            )
 
         try:
             bounded = _prune_history(_truncate_tool_results(messages))
