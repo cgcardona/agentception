@@ -24,7 +24,7 @@ import logging
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from sqlalchemy import select
 from starlette.requests import Request
@@ -237,6 +237,41 @@ async def ship_redirect() -> Response:
     if initiatives:
         return RedirectResponse(url=f"/ship/{repo_name}/{initiatives[0]}", status_code=302)
     return RedirectResponse(url="/plan", status_code=302)
+
+
+# ---------------------------------------------------------------------------
+# GET /ship/{repo}/initiatives — HTMX initiative tab nav partial
+# ---------------------------------------------------------------------------
+
+
+@router.get("/ship/{repo}/initiatives", response_class=HTMLResponse)
+async def initiative_tabs_partial(
+    request: Request,
+    repo: str,
+    initiative: str = "",
+) -> HTMLResponse:
+    """Return the initiative tab nav as an HTML partial for HTMX swapping.
+
+    Validates *repo* against the configured ``settings.gh_repo`` and returns
+    404 when it does not match.  Accepts an optional ``?initiative=<slug>``
+    query parameter so the active tab can be highlighted in the rendered fragment.
+    """
+    gh_repo = settings.gh_repo
+    configured_name = gh_repo.split("/")[-1]
+    if repo != configured_name:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Repo '{repo}' is not configured in this AgentCeption instance.",
+        )
+    initiatives = await get_initiatives(gh_repo)
+    rendered = _TEMPLATES.get_template("_build_initiative_tabs.html").render(
+        {
+            "initiatives": initiatives,
+            "repo_name": repo,
+            "initiative": initiative,
+        }
+    )
+    return HTMLResponse(content=rendered, status_code=200)
 
 
 # ---------------------------------------------------------------------------
