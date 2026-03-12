@@ -420,7 +420,7 @@ def _normalize_pr(raw: dict[str, object]) -> dict[str, object]:
 # Public read API
 # ---------------------------------------------------------------------------
 
-async def get_closed_issues(limit: int = 100) -> list[dict[str, object]]:
+async def get_closed_issues(limit: int = 1000) -> list[dict[str, object]]:
     """List recently closed issues (most recent first, capped at *limit*).
 
     Used by the poller to sync closed issues into the DB so it retains a
@@ -429,9 +429,14 @@ async def get_closed_issues(limit: int = 100) -> list[dict[str, object]]:
     Parameters
     ----------
     limit:
-        Maximum number of closed issues to fetch.  Keeps API cost proportional
-        — closed issues change rarely so a small window captures all recent
-        transitions.
+        Maximum number of closed issues to fetch per poller tick.  Default is
+        1000 — large enough to capture any realistic bulk-close event (e.g. an
+        initiative completing 500 tickets at once) without unbounded API cost.
+        Scale assumption: repositories with >1000 issues closed between two
+        consecutive poller ticks will still miss the oldest ones; raise this
+        cap or add a full-resync endpoint if that becomes a real scenario.
+        Callers that pass an explicit ``limit`` override receive at most that
+        many results — the default is intentionally generous.
     """
     repo = settings.gh_repo
     cache_key = f"get_closed_issues:limit={limit}"
