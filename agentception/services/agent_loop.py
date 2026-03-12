@@ -519,7 +519,7 @@ async def run_agent_loop(
     for iteration in range(1, max_iterations + 1):
         await log_run_step(
             issue_number,
-            f"Iteration {iteration}/{max_iterations}",
+            f"Step {iteration}",
             run_id,
         )
 

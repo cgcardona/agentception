@@ -1500,7 +1500,7 @@ class TestReviewerToolAllowlist:
         async def fake_log_step(
             issue_number: int, label: str, run_id: str, **kwargs: object
         ) -> dict[str, object]:
-            if label.startswith("Iteration "):
+            if label.startswith("Step "):
                 iteration_labels.append(label)
             return {"ok": True}
 
@@ -1556,13 +1556,13 @@ class TestReviewerToolAllowlist:
             # Pass 100 — must be silently capped to _REVIEWER_MAX_ITERATIONS.
             await run_agent_loop("review-cap-run", max_iterations=100)
 
-        assert iteration_labels, "No iteration labels captured — loop did not run"
+        assert iteration_labels, "No step labels captured — loop did not run"
         last_label = iteration_labels[-1]
-        # The label format is "Iteration N/M" — extract M (the effective cap).
-        effective_cap = int(last_label.split("/")[-1])
-        assert effective_cap == _REVIEWER_MAX_ITERATIONS, (
+        # The label format is "Step N" — extract N (the last step reached).
+        last_step = int(last_label.split(" ")[-1])
+        assert last_step == _REVIEWER_MAX_ITERATIONS, (
             f"Expected reviewer cap={_REVIEWER_MAX_ITERATIONS}, "
-            f"got effective_cap={effective_cap} from label {last_label!r}"
+            f"got last_step={last_step} from label {last_label!r}"
         )
 
 
