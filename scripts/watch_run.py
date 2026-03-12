@@ -38,7 +38,7 @@ ORANGE = "\033[38;5;208m"
 _RE_RUN_STEP = re.compile(
     r"log_run_step: issue=(?P<issue>\S+) step='(?P<step>.+?)'"
 )
-_RE_ITERATION = re.compile(r"Iteration\s+(?P<n>\d+)/(?P<total>\d+)")
+_RE_ITERATION = re.compile(r"Step\s+(?P<n>\d+)")
 
 # dispatch_tool — run_id tag (agent_loop.py)
 _RE_DISPATCH_TOOL = re.compile(
@@ -109,7 +109,6 @@ _RE_WARN = re.compile(r"⚠️\s*(?P<msg>.+)")
 class _State:
     current_run_id: str | None = None
     iteration: int = 0
-    total: int = 50
     history_len: int = 0
 
 
@@ -210,7 +209,6 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
         im = _RE_ITERATION.search(step)
         if im:
             _state.iteration = int(im.group("n"))
-            _state.total = int(im.group("total"))
             # iteration markers are shown in the LLM header, suppress duplicates
             return None
         # Non-iteration step — agent wrote something meaningful
@@ -326,8 +324,7 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
     if lm:
         _state.history_len = int(lm.group("turns"))
         iteration = _state.iteration
-        total = _state.total
-        iter_tag = f"{iteration}/{total}" if iteration else "?"
+        iter_tag = str(iteration) if iteration else "?"
         model = lm.group("model").split("-")[0] + "…"  # truncate long model names
         return (
             f"\n{ts}  {MAGENTA}{BOLD}╔══ ITER {iter_tag}  [{model}]{RESET}"
