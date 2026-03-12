@@ -1,6 +1,0 @@
-# Compiled frontend bundles — always regenerate from source, never
-# text-merge. "ours" keeps the current branch's version during a
-# rebase/merge; the correct artifact is produced by npm run build.
-agentception/static/app.css     merge=ours
-agentception/static/app.css.map merge=ours
-agentception/static/app.js      merge=ours
