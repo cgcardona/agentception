@@ -67,6 +67,7 @@ class TestLogToolsAreAsyncOnly:
         "log_run_decision",
         "log_run_message",
         "log_run_error",
+        "log_run_heartbeat",
     ])
     def test_call_tool_sync_returns_error(self, name: str) -> None:
         result = call_tool(name, {"issue_number": 1, "step_name": "x", "description": "x",
@@ -299,3 +300,54 @@ class TestLogRunError:
         payload = json.loads(text)
         assert isinstance(payload, dict)
         assert payload["event"] == "error"
+
+
+# ---------------------------------------------------------------------------
+# log_run_heartbeat
+# ---------------------------------------------------------------------------
+
+import datetime
+
+
+class TestLogRunHeartbeat:
+    @pytest.mark.anyio
+    async def test_log_run_heartbeat_updates_timestamp(self) -> None:
+        """Valid run_id: persist_run_heartbeat returns a timestamp; tool returns ok=True."""
+        fixed_ts = datetime.datetime(2024, 1, 15, 12, 0, 0, tzinfo=datetime.timezone.utc)
+        with patch(
+            "agentception.mcp.log_tools.persist_run_heartbeat",
+            new_callable=AsyncMock,
+            return_value=fixed_ts,
+        ) as mock_heartbeat:
+            resp = await _dispatch("log_run_heartbeat", {"run_id": "issue-275"})
+
+        payload = _result_payload(resp)
+        assert payload["ok"] is True
+        assert payload["last_activity_at"] == fixed_ts.isoformat()
+        mock_heartbeat.assert_awaited_once_with("issue-275")
+
+    @pytest.mark.anyio
+    async def test_log_run_heartbeat_missing_run(self) -> None:
+        """Unknown run_id: persist_run_heartbeat returns None; tool returns ok=False, no raise."""
+        with patch(
+            "agentception.mcp.log_tools.persist_run_heartbeat",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            resp = await _dispatch("log_run_heartbeat", {"run_id": "bogus-run-id"})
+
+        payload = _result_payload(resp)
+        assert payload["ok"] is False
+        assert payload["error"] == "run not found"
+
+    @pytest.mark.anyio
+    async def test_log_run_heartbeat_missing_run_id_returns_error(self) -> None:
+        resp = await _dispatch("log_run_heartbeat", {})
+        result = resp.get("result")
+        assert isinstance(result, dict)
+        assert result["isError"] is True
+
+    def test_log_run_heartbeat_is_in_tools_list(self) -> None:
+        from agentception.mcp.server import list_tools
+        names = [t["name"] for t in list_tools()]
+        assert "log_run_heartbeat" in names

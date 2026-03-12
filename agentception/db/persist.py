@@ -1641,6 +1641,33 @@ async def persist_pr_link_and_recompute(
         logger.warning("⚠️  persist_pr_link_and_recompute (recompute) failed: %s", exc)
 
 
+async def persist_run_heartbeat(run_id: str) -> datetime.datetime | None:
+    """Set last_activity_at = now() for the given run.
+
+    Uses a single UPDATE … RETURNING query — does not load the full row.
+    Returns the new timestamp, or None if run_id was not found.
+    """
+    try:
+        now = _now()
+        async with get_session() as session:
+            result = await session.execute(
+                update(ACAgentRun)
+                .where(ACAgentRun.id == run_id)
+                .values(last_activity_at=now)
+                .returning(ACAgentRun.last_activity_at)
+            )
+            row = result.fetchone()
+            await session.commit()
+        if row is None:
+            return None
+        ts: datetime.datetime = row[0]
+        logger.info("✅ persist_run_heartbeat: %s last_activity_at=%s", run_id, ts)
+        return ts
+    except Exception as exc:
+        logger.warning("⚠️  persist_run_heartbeat failed: %s", exc)
+        return None
+
+
 async def persist_agent_event(
     issue_number: int,
     event_type: str,
