@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
-from agentception.readers.git import ensure_branch, ensure_worktree
+from agentception.readers.git import _symlink_frontend_resources, ensure_branch, ensure_worktree
 from agentception.readers.github import ensure_pull_request
 
 
@@ -183,6 +183,34 @@ async def test_concurrent_worktree_creation_does_not_race(tmp_path: Path) -> Non
     )
     assert _WORKTREE_ADD_SEM._value == 5, (
         f"Semaphore must be fully released after all tasks complete; value={_WORKTREE_ADD_SEM._value}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# _symlink_frontend_resources
+# ---------------------------------------------------------------------------
+
+
+def test_ensure_worktree_symlinks_node_modules(tmp_path: Path) -> None:
+    """_symlink_frontend_resources creates a node_modules symlink in the worktree.
+
+    Uses tmp_path as the worktree and tmp_path.parent as the fake repo root so
+    the self-reference guard (worktree == repo_root) does not trigger.
+    """
+    # Create a fake node_modules directory in the fake repo root.
+    fake_nm = tmp_path.parent / "fake_nm"
+    fake_nm.mkdir(exist_ok=True)
+
+    # Create a fake node_modules directory at the repo root level so src.exists() is True.
+    fake_repo_root = tmp_path.parent
+    (fake_repo_root / "node_modules").mkdir(exist_ok=True)
+
+    with patch("agentception.readers.git.settings") as mock_settings:
+        mock_settings.repo_dir = fake_repo_root
+        _symlink_frontend_resources(tmp_path)
+
+    assert (tmp_path / "node_modules").is_symlink(), (
+        "node_modules must be a symlink inside the worktree after _symlink_frontend_resources()"
     )
 
 
