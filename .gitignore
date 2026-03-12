@@ -45,6 +45,7 @@ logs/
 alembic/versions/__pycache__/
 
 # Node
+node_modules
 node_modules/
 package-lock.json
 
