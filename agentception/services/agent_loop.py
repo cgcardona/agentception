@@ -319,8 +319,8 @@ _HISTORY_TAIL: int = 14
 # ---------------------------------------------------------------------------
 
 # Minimum seconds between consecutive LLM calls.  A fixed cadence beats a
-# reactive burst-then-sleep TPM guard.  Calibrated for **Tier 3** (800K input /
-# 160K output TPM, 2K RPM): the default 1.5 s floor allows ~3 concurrent agents
+# reactive burst-then-sleep TPM guard.  Calibrated for **Tier 4** (2M input /
+# 400K output TPM, 4K RPM): the default 0.5 s floor allows ~10 concurrent agents
 # at ~1 000 output tokens per turn before the output-TPM cap is reached.
 # Tunable via the ``AC_MIN_TURN_DELAY_SECS`` env var (see config.py).
 _last_llm_call_at: float = 0.0
