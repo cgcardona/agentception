@@ -33,6 +33,7 @@ The key is read from ``settings.anthropic_api_key`` (env var
 import asyncio
 import json
 import logging
+import socket
 import ssl
 from collections.abc import AsyncGenerator
 from typing import Literal, NotRequired, TypedDict
@@ -57,14 +58,21 @@ _ANTHROPIC_VERSION = "2023-06-01"
 #   ample headroom while still bounding truly hung connections.
 _DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=10.0)
 _MAX_RETRIES = 4
-# Hard per-attempt wall-clock cap applied via asyncio.wait_for().  This guards
-# against a pathological case where the OS-level getaddrinfo() call blocks the
-# thread-pool executor indefinitely (observed as [Errno -3] Temporary failure
-# in name resolution on Docker when the embedded DNS resolver hangs).  httpx's
-# own connect=10.0 timeout is supposed to cover DNS, but it cannot cancel a
-# blocking getaddrinfo() thread that the OS refuses to interrupt.  30 s gives
-# the read phase a head-start while still bounding truly hung connections.
-_HARD_CONNECT_TIMEOUT_SECS: float = 30.0
+# Timeout for the DNS pre-flight check run before every HTTP attempt.
+# This guards against the pathological case where the OS-level getaddrinfo()
+# call blocks the thread-pool executor indefinitely (observed as
+# [Errno -3] Temporary failure in name resolution on Docker when the embedded
+# DNS resolver hangs).  httpx's own connect=10.0 timeout cannot cancel a
+# blocking getaddrinfo() thread that the OS refuses to interrupt.
+#
+# We do NOT wrap client.post() itself in asyncio.wait_for() because the read
+# phase can legitimately take up to 300 s (large Anthropic generations) — a
+# short hard cap would cancel valid responses.  Instead we pre-check DNS in an
+# asyncio-cancellable thread-pool call, fail fast if DNS is hung, and then let
+# the actual HTTP call use the full httpx timeout budget.
+_DNS_PREFLIGHT_TIMEOUT_SECS: float = 10.0
+_DNS_PREFLIGHT_HOST = "api.anthropic.com"
+_DNS_PREFLIGHT_PORT = 443
 # Minimum seconds to wait after a 429 before retrying.  Anthropic's rolling
 # TPM window does not clear in 2–4s, so the standard exponential backoff used
 # for transient errors is wrong here — it just adds more calls to the burst.
@@ -183,6 +191,35 @@ def _base_headers() -> dict[str, str]:
         "anthropic-beta": "prompt-caching-2024-07-31",
         "content-type": "application/json",
     }
+
+
+async def _dns_preflight() -> None:
+    """Pre-flight DNS resolution guard for api.anthropic.com.
+
+    Performs a getaddrinfo lookup via the thread-pool executor, wrapped in
+    asyncio.wait_for so that a hanging OS resolver is interrupted after
+    _DNS_PREFLIGHT_TIMEOUT_SECS.  Raises asyncio.TimeoutError if DNS hangs,
+    or socket.gaierror if DNS fails immediately — both are caught by the
+    network/timeout handler in the retry loop so the attempt is retried with
+    backoff.
+
+    Why separate from client.post(): wrapping the full HTTP call in
+    asyncio.wait_for at a short timeout cancels legitimate Anthropic responses
+    that take 60–120 s on large prompts.  The pre-flight isolates the
+    DNS/connect check so the read phase retains the full 300 s budget.
+    """
+    loop = asyncio.get_running_loop()
+    await asyncio.wait_for(
+        loop.run_in_executor(
+            None,
+            socket.getaddrinfo,
+            _DNS_PREFLIGHT_HOST,
+            _DNS_PREFLIGHT_PORT,
+            0,
+            socket.SOCK_STREAM,
+        ),
+        timeout=_DNS_PREFLIGHT_TIMEOUT_SECS,
+    )
 
 
 _shared_client: httpx.AsyncClient | None = None
@@ -365,13 +402,12 @@ async def call_anthropic(
 
     client = _get_client()
     last_error: Exception | None = None
+    _total_attempts = _MAX_RETRIES + 1
 
-    for attempt in range(_MAX_RETRIES + 1):
+    for attempt in range(_total_attempts):
         try:
-            resp = await asyncio.wait_for(
-                client.post(_ANTHROPIC_URL, json=payload, headers=headers),
-                timeout=_HARD_CONNECT_TIMEOUT_SECS,
-            )
+            await _dns_preflight()
+            resp = await client.post(_ANTHROPIC_URL, json=payload, headers=headers)
             resp.raise_for_status()
             break
         except httpx.HTTPStatusError as exc:
@@ -381,7 +417,7 @@ async def call_anthropic(
                 continue
             if exc.response.status_code in (500, 502, 503, 504, 529):
                 backoff = 2 ** (attempt + 1)
-                logger.warning("⚠️ LLM retry %d/%d after %ds", attempt + 1, _MAX_RETRIES, backoff)
+                logger.warning("⚠️ LLM retry %d/%d after %ds", attempt + 1, _total_attempts, backoff)
                 await asyncio.sleep(backoff)
                 continue
             logger.error(
@@ -390,13 +426,13 @@ async def call_anthropic(
                 exc.response.text,
             )
             raise
-        except (asyncio.TimeoutError, httpx.TimeoutException, httpx.NetworkError, ssl.SSLError) as exc:
+        except (asyncio.TimeoutError, httpx.TimeoutException, httpx.NetworkError, ssl.SSLError, socket.gaierror) as exc:
             last_error = exc
             backoff = 2 ** (attempt + 1)
             logger.warning(
                 "⚠️ LLM network/timeout retry %d/%d after %ds — %s",
                 attempt + 1,
-                _MAX_RETRIES,
+                _total_attempts,
                 backoff,
                 exc,
             )
@@ -494,6 +530,7 @@ async def call_anthropic_stream(
     total_thinking = 0
     total_content = 0
 
+    await _dns_preflight()
     async with _get_client().stream(
         "POST", _ANTHROPIC_URL, json=payload, headers=_base_headers()
     ) as resp:
@@ -623,13 +660,12 @@ async def call_anthropic_with_tools(
 
     client = _get_client()
     last_error: Exception | None = None
+    _total_attempts = _MAX_RETRIES + 1
 
-    for attempt in range(_MAX_RETRIES + 1):
+    for attempt in range(_total_attempts):
         try:
-            resp = await asyncio.wait_for(
-                client.post(_ANTHROPIC_URL, json=payload, headers=_base_headers()),
-                timeout=_HARD_CONNECT_TIMEOUT_SECS,
-            )
+            await _dns_preflight()
+            resp = await client.post(_ANTHROPIC_URL, json=payload, headers=_base_headers())
             resp.raise_for_status()
             break
         except httpx.HTTPStatusError as exc:
@@ -639,7 +675,7 @@ async def call_anthropic_with_tools(
                 continue
             if exc.response.status_code in (500, 502, 503, 504, 529):
                 backoff = 2 ** (attempt + 1)
-                logger.warning("⚠️ LLM retry %d/%d after %ds", attempt + 1, _MAX_RETRIES, backoff)
+                logger.warning("⚠️ LLM retry %d/%d after %ds", attempt + 1, _total_attempts, backoff)
                 await asyncio.sleep(backoff)
                 continue
             logger.error(
@@ -648,13 +684,13 @@ async def call_anthropic_with_tools(
                 exc.response.text,
             )
             raise
-        except (asyncio.TimeoutError, httpx.TimeoutException, httpx.NetworkError, ssl.SSLError) as exc:
+        except (asyncio.TimeoutError, httpx.TimeoutException, httpx.NetworkError, ssl.SSLError, socket.gaierror) as exc:
             last_error = exc
             backoff = 2 ** (attempt + 1)
             logger.warning(
                 "⚠️ LLM network/timeout retry %d/%d after %ds — %s",
                 attempt + 1,
-                _MAX_RETRIES,
+                _total_attempts,
                 backoff,
                 exc,
             )
