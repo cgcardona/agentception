@@ -128,3 +128,141 @@ async def test_reviewer_worktree_torn_down_after_passing_grade() -> None:
         f"Expected teardown task for reviewer run_id={reviewer_run_id!r}; "
         f"got task names: {task_names}"
     )
+
+
+@pytest.mark.anyio
+async def test_redispatch_fires_after_failing_grade() -> None:
+    """build_complete_run schedules auto_redispatch_after_rejection when grade is F.
+
+    Regression: a failing grade (C/D/F) from a reviewer must automatically
+    re-queue the original issue to a fresh developer worktree via
+    auto_redispatch_after_rejection.  The task must be created with the
+    correct issue_number, pr_url, reviewer_feedback, and grade.
+    """
+    from agentception.mcp.build_commands import build_complete_run
+
+    reviewer_run_id = "reviewer-issue-77-ghi789"
+    issue_number = 77
+    pr_url = "https://github.com/cgcardona/agentception/pull/200"
+    reviewer_feedback = "1. Missing type hints\n2. No tests for failure path"
+    grade = "F"
+
+    with (
+        patch(
+            "agentception.mcp.build_commands.persist_agent_event",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agentception.mcp.build_commands.complete_agent_run",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands.get_agent_run_role",
+            new_callable=AsyncMock,
+            return_value="reviewer",
+        ),
+        patch(
+            "agentception.mcp.build_commands.auto_redispatch_after_rejection",
+            new_callable=AsyncMock,
+        ) as mock_redispatch,
+        patch(
+            "agentception.mcp.build_commands.teardown_agent_worktree",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agentception.mcp.build_commands.asyncio.create_task",
+        ) as mock_create_task,
+    ):
+        result = await build_complete_run(
+            issue_number=issue_number,
+            pr_url=pr_url,
+            agent_run_id=reviewer_run_id,
+            grade=grade,
+            reviewer_feedback=reviewer_feedback,
+        )
+
+    assert result["ok"] is True
+    assert result["status"] == "completed"
+
+    # Verify that a redispatch task was scheduled.
+    task_names = [
+        c.kwargs.get("name", "") for c in mock_create_task.call_args_list
+    ]
+    assert f"auto-redispatch-{issue_number}" in task_names, (
+        f"Expected auto-redispatch task for issue #{issue_number}; "
+        f"got task names: {task_names}"
+    )
+
+    # Verify the coroutine passed to create_task was auto_redispatch_after_rejection
+    # with the correct arguments.
+    mock_redispatch.assert_called_once_with(
+        issue_number=issue_number,
+        pr_url=pr_url,
+        reviewer_feedback=reviewer_feedback,
+        grade="F",
+    )
+
+
+@pytest.mark.anyio
+async def test_redispatch_skipped_after_passing_grade() -> None:
+    """build_complete_run does NOT schedule auto_redispatch_after_rejection for grade A.
+
+    A passing grade (A or B) means the reviewer already merged the PR.
+    No developer re-dispatch should be triggered.
+    """
+    from agentception.mcp.build_commands import build_complete_run
+
+    reviewer_run_id = "reviewer-issue-88-jkl012"
+    issue_number = 88
+    pr_url = "https://github.com/cgcardona/agentception/pull/300"
+
+    with (
+        patch(
+            "agentception.mcp.build_commands.persist_agent_event",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agentception.mcp.build_commands.complete_agent_run",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands.get_agent_run_role",
+            new_callable=AsyncMock,
+            return_value="reviewer",
+        ),
+        patch(
+            "agentception.mcp.build_commands.auto_redispatch_after_rejection",
+            new_callable=AsyncMock,
+        ) as mock_redispatch,
+        patch(
+            "agentception.mcp.build_commands.teardown_agent_worktree",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agentception.mcp.build_commands.asyncio.create_task",
+        ) as mock_create_task,
+    ):
+        result = await build_complete_run(
+            issue_number=issue_number,
+            pr_url=pr_url,
+            agent_run_id=reviewer_run_id,
+            grade="A",
+            reviewer_feedback="",
+        )
+
+    assert result["ok"] is True
+    assert result["status"] == "completed"
+
+    # Verify that NO redispatch task was scheduled.
+    task_names = [
+        c.kwargs.get("name", "") for c in mock_create_task.call_args_list
+    ]
+    assert f"auto-redispatch-{issue_number}" not in task_names, (
+        f"Expected NO auto-redispatch task for grade A; "
+        f"got task names: {task_names}"
+    )
+
+    # The mock should never have been called (create_task wraps the coroutine).
+    mock_redispatch.assert_not_called()
