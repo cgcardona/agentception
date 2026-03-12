@@ -108,11 +108,11 @@ class AgentCeptionSettings(BaseSettings):
     actually read.  Set via ``HOST_REPO_DIR`` in docker-compose or .env.
     """
     gh_repo: str = "cgcardona/agentception"
-    poll_interval_seconds: int = 10
+    poll_interval_seconds: int = 5
     agent_max_iterations: int = 100
-    # TTL must be strictly less than poll_interval_seconds (currently 10) so every
+    # TTL must be strictly less than poll_interval_seconds (currently 5) so every
     # poller tick sees live GitHub data.  Keep GITHUB_CACHE_SECONDS < POLL_INTERVAL_SECONDS.
-    github_cache_seconds: int = 5
+    github_cache_seconds: int = 4
     ac_api_key: str = ""
     """Shared secret for authenticating requests to the ``/api/*`` routes.
 
