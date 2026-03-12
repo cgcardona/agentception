@@ -234,3 +234,108 @@ async def test_reviewer_run_not_mutated() -> None:
     assert len(orphan_failed_events) == 0, (
         f"Expected no orphan_failed events for reviewer, got {len(orphan_failed_events)}"
     )
+
+
+# ---------------------------------------------------------------------------
+# AC: no_autoflush prevents premature flush during multi-orphan sweep
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_no_autoflush_prevents_premature_flush_on_second_orphan() -> None:
+    """Two orphan runs in the same session must not trigger autoflush on the second SELECT.
+
+    Specification (safety property):
+        For all iterations i of the orphan sweep loop, the SELECT issued in
+        iteration i must NOT flush pending rows added in iteration i-1.
+        The authoritative flush point is session.commit() at the end of
+        persist_tick — no earlier flush is permitted.
+
+    This test simulates the race by using a fake session whose no_autoflush
+    context manager tracks entry/exit and whose scalar() call asserts that
+    no_autoflush is active.  If the production code omits the
+    ``with session.no_autoflush:`` block, the assertion fires.
+
+    Both orphan runs must be marked 'failed' with 'orphan_failed' events.
+    No SAWarning or flush-related exception must be raised.
+    """
+    import warnings
+
+    import sqlalchemy.exc
+
+    orphan1 = _make_run(status="implementing")
+    orphan2 = _make_run(status="implementing")
+
+    orphan_result_mock = MagicMock()
+    orphan_result_mock.scalars.return_value.all.return_value = [orphan1, orphan2]
+
+    ttl_sweep_result = MagicMock()
+    ttl_sweep_result.scalars.return_value.all.return_value = []
+
+    scalar_lookup = MagicMock()
+    scalar_lookup.scalar_one_or_none.return_value = None
+
+    # Track whether no_autoflush is active when scalar() is called.
+    no_autoflush_active: list[bool] = []
+    _no_autoflush_depth = [0]
+
+    class _NoAutoflushCtx:
+        """Synchronous context manager that tracks depth."""
+
+        def __enter__(self) -> "_NoAutoflushCtx":
+            _no_autoflush_depth[0] += 1
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            _no_autoflush_depth[0] -= 1
+
+    async def _scalar_side_effect(stmt: object) -> int:
+        # Record whether we are inside no_autoflush when scalar() fires.
+        no_autoflush_active.append(_no_autoflush_depth[0] > 0)
+        return 0  # no build_complete_run event — both orphans should be failed
+
+    session = MagicMock(spec=AsyncSession)
+    session.execute = AsyncMock(
+        side_effect=[scalar_lookup, orphan_result_mock, ttl_sweep_result]
+    )
+    session.scalar = AsyncMock(side_effect=_scalar_side_effect)
+    session.add = MagicMock()
+    # Attach the tracking no_autoflush context manager.
+    session.no_autoflush = _NoAutoflushCtx()
+
+    from agentception.models import AgentNode, AgentStatus
+
+    different_agent = AgentNode(
+        id="different-run-id", role="cto", status=AgentStatus.IMPLEMENTING
+    )
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", sqlalchemy.exc.SAWarning)
+        await _persist._upsert_agent_runs(session, [different_agent])
+
+    # Both orphans must be marked failed.
+    assert orphan1.status == "failed", (
+        f"orphan1.status expected 'failed', got {orphan1.status!r}"
+    )
+    assert orphan2.status == "failed", (
+        f"orphan2.status expected 'failed', got {orphan2.status!r}"
+    )
+
+    # scalar() must have been called exactly twice (once per orphan).
+    assert len(no_autoflush_active) == 2, (
+        f"Expected scalar() called 2 times, got {len(no_autoflush_active)}"
+    )
+
+    # Both calls must have been inside no_autoflush.
+    assert all(no_autoflush_active), (
+        f"scalar() was called outside no_autoflush context: {no_autoflush_active}"
+    )
+
+    # Both orphan_failed events must have been added.
+    added_objects = [call.args[0] for call in session.add.call_args_list]
+    event_rows = [o for o in added_objects if isinstance(o, ACAgentEvent)]
+    orphan_failed_events = [e for e in event_rows if e.event_type == "orphan_failed"]
+    assert len(orphan_failed_events) == 2, (
+        f"Expected 2 orphan_failed events, got {len(orphan_failed_events)}"
+    )
+

@@ -909,33 +909,39 @@ async def _upsert_agent_runs(
             and orphan.issue_number is not None
             and orphan.role != "reviewer"
         ):
-            # Use the build_complete_run event as the authoritative completion
-            # gate — not pr_number.  An agent can open a PR and then crash
-            # before calling build_complete_run; pr_number alone is not a
-            # reliable signal that the agent finished cleanly.
-            from sqlalchemy import func  # noqa: PLC0415
+            with session.no_autoflush:
+                # Use the build_complete_run event as the authoritative completion
+                # gate — not pr_number.  An agent can open a PR and then crash
+                # before calling build_complete_run; pr_number alone is not a
+                # reliable signal that the agent finished cleanly.
+                #
+                # no_autoflush prevents SQLAlchemy from flushing a pending
+                # ACAgentEvent row from the previous iteration when this SELECT
+                # fires, which would fail if the referenced ACAgentRun was
+                # concurrently re-created with the same run_id.
+                from sqlalchemy import func  # noqa: PLC0415
 
-            has_complete_event = await session.scalar(
-                select(func.count()).select_from(ACAgentEvent).where(
-                    ACAgentEvent.agent_run_id == orphan.id,
-                    ACAgentEvent.event_type == "build_complete_run",
+                has_complete_event = await session.scalar(
+                    select(func.count()).select_from(ACAgentEvent).where(
+                        ACAgentEvent.agent_run_id == orphan.id,
+                        ACAgentEvent.event_type == "build_complete_run",
+                    )
                 )
-            )
-            if has_complete_event:
-                pass  # already completed — do not mutate
-            else:
-                orphan.status = "failed"
-                orphan.last_activity_at = now
-                session.add(ACAgentEvent(
-                    agent_run_id=orphan.id,
-                    issue_number=orphan.issue_number,
-                    event_type="orphan_failed",
-                    payload=json.dumps({"reason": "worktree_gone_no_build_complete"}),
-                ))
-                logger.warning(
-                    "🧹 Orphan run %s → failed (worktree gone, no build_complete_run event)",
-                    orphan.id,
-                )
+                if has_complete_event:
+                    pass  # already completed — do not mutate
+                else:
+                    orphan.status = "failed"
+                    orphan.last_activity_at = now
+                    session.add(ACAgentEvent(
+                        agent_run_id=orphan.id,
+                        issue_number=orphan.issue_number,
+                        event_type="orphan_failed",
+                        payload=json.dumps({"reason": "worktree_gone_no_build_complete"}),
+                    ))
+                    logger.warning(
+                        "🧹 Orphan run %s → failed (worktree gone, no build_complete_run event)",
+                        orphan.id,
+                    )
 
     # Pending-launch TTL sweep: a pending_launch run that was never acknowledged
     # within 15 minutes is presumed abandoned (Dispatcher aborted before claiming
