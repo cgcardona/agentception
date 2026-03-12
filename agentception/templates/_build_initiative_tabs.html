@@ -1,0 +1,11 @@
+{# Bare fragment — no base.html.  Rendered by GET /ship/{repo}/initiatives. #}
+{% if initiatives %}
+<nav class="build-initiative-tabs" aria-label="Initiatives">
+  {% for ini in initiatives %}
+  <a class="build-initiative-tab{% if ini == initiative %} build-initiative-tab--active{% endif %}"
+     href="/ship/{{ repo_name }}/{{ ini | urlencode }}">
+    {{ ini | e }}
+  </a>
+  {% endfor %}
+</nav>
+{% endif %}

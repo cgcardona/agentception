@@ -24,7 +24,7 @@ import logging
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from sqlalchemy import select
 from starlette.requests import Request
@@ -237,6 +237,44 @@ async def ship_redirect() -> Response:
     if initiatives:
         return RedirectResponse(url=f"/ship/{repo_name}/{initiatives[0]}", status_code=302)
     return RedirectResponse(url="/plan", status_code=302)
+
+
+# ---------------------------------------------------------------------------
+# GET /ship/{repo}/initiatives — HTMX initiative tab nav partial
+# (registered before /{repo}/{initiative} so the literal "initiatives" segment
+#  is matched first and not captured as the {initiative} path parameter)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/ship/{repo}/initiatives", response_class=HTMLResponse)
+async def initiative_tabs_partial(
+    request: Request,
+    repo: str,
+    initiative: str = "",
+) -> HTMLResponse:
+    """Return the initiative tab nav as an HTML partial for HTMX swapping.
+
+    Validates that *repo* matches the configured repo slug and returns 404
+    otherwise.  Accepts an optional ``?initiative=<slug>`` query parameter so
+    the active tab can be highlighted when the partial is polled by HTMX.
+    """
+    configured_name = settings.gh_repo.split("/")[-1]
+    if repo != configured_name:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Repo '{repo}' is not configured in this AgentCeption instance.",
+        )
+    gh_repo = settings.gh_repo
+    initiatives = await get_initiatives(gh_repo)
+    return _TEMPLATES.TemplateResponse(
+        request,
+        "_build_initiative_tabs.html",
+        {
+            "initiatives": initiatives,
+            "repo_name": repo,
+            "initiative": initiative,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
