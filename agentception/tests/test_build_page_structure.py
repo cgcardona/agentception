@@ -136,3 +136,20 @@ def test_build_board_partial_has_no_load_trigger() -> None:
         "_build_board.html contains an element with hx-trigger='load'. "
         "This element would be re-inserted on every board swap, causing an infinite reload loop."
     )
+
+
+def test_build_page_has_htmx_indicator() -> None:
+    """build.html must contain an element with class 'htmx-indicator' for the resync spinner."""
+    html = _render("build.html", _BUILD_CTX)
+    assert "htmx-indicator" in html, (
+        "build.html does not contain 'htmx-indicator'. "
+        "The resync spinner must use the .htmx-indicator class so HTMX toggles it automatically."
+    )
+
+
+def test_build_page_no_hourglass_emoji() -> None:
+    """build.html must not contain any hourglass Unicode characters."""
+    html = _render("build.html", _BUILD_CTX)
+    assert "\u231b" not in html, "build.html contains U+231B ⌛ hourglass character"
+    assert "\u23f3" not in html, "build.html contains U+23F3 ⏳ hourglass character"
+    assert "hourglass" not in html.lower(), "build.html contains the string 'hourglass'"
