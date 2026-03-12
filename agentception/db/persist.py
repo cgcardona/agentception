@@ -234,6 +234,32 @@ async def _upsert_issues(
                 existing.depends_on_json = json.dumps(parsed)
 
 
+async def upsert_issues_batch(
+    issues: list[dict[str, object]],
+    repo: str,
+    active_label: str | None = None,
+) -> None:
+    """Public wrapper around ``_upsert_issues`` for use outside the poller.
+
+    Intended for the resync endpoint, which needs to upsert a batch of issues
+    fetched directly from GitHub without going through the full poller tick.
+
+    Parameters
+    ----------
+    issues:
+        Raw issue dicts as returned by ``readers.github.get_open_issues`` /
+        ``get_closed_issues``.
+    repo:
+        Full ``owner/repo`` string used as the DB partition key.
+    active_label:
+        Optional phase label to stamp on newly-inserted rows.  Pass ``None``
+        to leave the field unset (the poller will fill it on the next tick).
+    """
+    async with get_session() as session:
+        await _upsert_issues(session, issues, active_label, repo)
+        await session.commit()
+
+
 # ---------------------------------------------------------------------------
 # PRs (hash-diff upsert)
 # ---------------------------------------------------------------------------

@@ -529,6 +529,32 @@ Legacy orchestration control endpoints. Prefer MCP tools for new integrations.
 | `POST` | `/api/control/sweep` | Sweep stale runs |
 | `POST` | `/api/control/reset-build` | Full reset: remove all worktrees, clear all agent/wip, set active runs to unknown |
 | `POST` | `/api/control/trigger-poll` | Trigger an immediate GitHub poll |
+| `POST` | `/api/control/resync-issues` | Force a full re-sync of all GitHub issues into the local DB |
+
+#### `POST /api/control/resync-issues`
+
+Force a full re-sync of all GitHub issues into the local DB. Fetches every open
+and closed issue from GitHub and upserts them. Useful when the local DB has
+drifted from GitHub state (e.g. after a DB reset or a missed poller tick).
+
+| Query param | Type | Required | Description |
+|-------------|------|----------|-------------|
+| `repo` | `string` | no | Full `owner/repo` string. Defaults to the configured default repo. |
+
+**Response (200):**
+```json
+{"ok": true, "open": 42, "closed": 17, "upserted": 59}
+```
+
+**Response (503) — GitHub API unreachable:**
+```json
+{"ok": false, "error": "GitHub API GET /repos/owner/repo/issues returned 503"}
+```
+
+**Response (422) — no repo configured and none supplied:**
+```json
+{"ok": false, "error": "No repo configured. Set AC_GH_REPO in the environment or pass ?repo=owner/repo as a query parameter."}
+```
 
 ---
 
