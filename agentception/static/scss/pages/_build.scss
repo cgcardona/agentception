@@ -35,7 +35,15 @@ body:has(.build-layout) nav.topnav {
   -webkit-backdrop-filter: blur(16px) saturate(1.4);
   border-bottom: 1px solid var(--border-subtle);
   box-shadow: 0 1px 0 rgba(255,255,255,0.03), var(--shadow-sm);
-  overflow-x: clip;   // clip without creating a scroll container — preserves child scroll context
+  // Clip painted overflow without creating a scroll container so the child
+  // .build-initiative-tabs keeps its own overflow-x: auto scroll context.
+  overflow-x: clip;
+  // Bound the layout box to the viewport. Without this, main's max-width: none
+  // means the sticky bar's containing block is unbounded — the tabs expand the
+  // layout box beyond 100vw and push page content to the right.
+  width: 100%;
+  max-width: 100vw;
+  box-sizing: border-box;
 }
 
 // ── Mission Control header row ────────────────────────────────────────────────
