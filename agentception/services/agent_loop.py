@@ -232,8 +232,9 @@ _REVIEWER_TOOL_ALLOWLIST: frozenset[str] = frozenset({
 })
 
 # Hard cap on reviewer iterations.  With warmup pre-loading all context,
-# a reviewer grades and acts in ≤5 iterations.  10 is a generous ceiling.
-_REVIEWER_MAX_ITERATIONS = 10
+# a reviewer grades and acts in ≤5 iterations.  20 gives headroom for edge
+# cases where the reviewer needs to request changes and wait for context.
+_REVIEWER_MAX_ITERATIONS = 20
 
 # When the loop guard fires, the tool palette switches to an ALLOWLIST:
 # only write tools and a minimal set of essential non-read tools remain.
