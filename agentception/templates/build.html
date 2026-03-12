@@ -234,24 +234,6 @@
                 </button>
               </div>
 
-              {# ── Chat input ────────────────────────────────────────────── #}
-              <div class="build-inspector__chat-row">
-                <textarea class="build-inspector__chat-input"
-                          x-model="chatMessage"
-                          placeholder="Send a note to this agent…"
-                          rows="2"
-                          @keydown.enter.meta.prevent="sendMessage()"
-                          @keydown.ctrl.enter.prevent="sendMessage()"></textarea>
-                <button class="build-inspector__chat-send"
-                        :disabled="!chatMessage.trim() || chatSending"
-                        @click="sendMessage()">
-                  <span x-show="!chatSending">Send</span>
-                  <span x-show="chatSending">…</span>
-                </button>
-              </div>
-              <template x-if="chatError">
-                <p style="font-size:0.65rem;color:var(--danger);margin:0" x-text="chatError"></p>
-              </template>
             </div>
           </template>
 
