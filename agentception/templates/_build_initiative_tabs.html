@@ -1,0 +1,17 @@
+{# Initiative tab nav partial.
+   Variables:
+     repo_name  — short repo slug (e.g. "agentception"), used to build href values.
+     initiative — currently active initiative slug; drives the active-tab highlight.
+     initiatives — list[str] of initiative slugs; renders nothing when empty.
+   Invariant: bare HTML fragment — no <html>/<head>/<body>. Safe to include or
+   serve standalone via TemplateResponse. #}
+{% if initiatives %}
+<nav class="build-initiative-tabs" aria-label="Initiatives">
+  {% for ini in initiatives %}
+  <a class="build-initiative-tab{% if ini == initiative %} build-initiative-tab--active{% endif %}"
+     href="/ship/{{ repo_name }}/{{ ini | urlencode }}">
+    {{ ini }}
+  </a>
+  {% endfor %}
+</nav>
+{% endif %}
