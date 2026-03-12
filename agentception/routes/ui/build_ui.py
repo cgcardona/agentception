@@ -373,6 +373,7 @@ async def _inspector_sse(run_id: str) -> AsyncGenerator[str, None]:
                     "recorded_at": ev["recorded_at"],
                 }
             )
+            # Supported event_types: step_start, done, file_edit, build_complete_run, orphan_failed
             yield f"data: {payload}\n\n"
 
         thoughts = await get_agent_thoughts_tail(

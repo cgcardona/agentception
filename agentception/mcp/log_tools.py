@@ -13,6 +13,7 @@ Event type catalogue
 ``decision``    — agent made a significant architectural choice
 ``message``     — free-form informational note
 ``error``       — unrecoverable failure or crash (semantic; use before cancelling)
+``file_edit``   — a file-mutating tool call completed successfully
 
 Rules
 -----
@@ -24,6 +25,7 @@ Rules
 import logging
 
 from agentception.db.persist import persist_agent_event, persist_run_heartbeat
+from agentception.models import FileEditEvent
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +55,31 @@ async def log_run_step(
     )
     logger.info("✅ log_run_step: issue=%d step=%r", issue_number, step_name)
     return {"ok": True, "event": "step_start"}
+
+
+async def log_file_edit_event(
+    issue_number: int,
+    event: FileEditEvent,
+    agent_run_id: str | None = None,
+) -> None:
+    """Persist a file_edit agent event so the inspector SSE stream picks it up.
+
+    The payload is the FileEditEvent serialised to a dict.  The SSE generator
+    in build_ui.py forwards all event_types generically, so no change there
+    is required.
+    """
+    await persist_agent_event(
+        issue_number=issue_number,
+        event_type="file_edit",
+        payload=event.model_dump(),
+        agent_run_id=agent_run_id,
+    )
+    logger.info(
+        "✅ log_file_edit_event: issue=%d path=%r lines_omitted=%d",
+        issue_number,
+        event.path,
+        event.lines_omitted,
+    )
 
 
 async def log_run_blocker(

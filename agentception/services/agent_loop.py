@@ -40,7 +40,7 @@ from agentception.db.models import ACAgentRun
 from agentception.db.queries import get_run_by_id
 from agentception.db.persist import accumulate_token_usage, persist_agent_messages_async
 from agentception.mcp.build_commands import build_cancel_run, build_complete_run
-from agentception.mcp.log_tools import log_run_error, log_run_step
+from agentception.mcp.log_tools import log_run_error, log_run_step, log_file_edit_event
 from agentception.workflow.status import is_terminal
 from agentception.mcp.prompts import get_prompt
 from agentception.mcp.server import TOOLS, call_tool_async
@@ -378,7 +378,6 @@ async def run_agent_loop(
     run_id: str,
     *,
     max_iterations: int = _DEFAULT_MAX_ITERATIONS,
-    file_edit_queue: asyncio.Queue[FileEditEvent] | None = None,
 ) -> None:
     """Run the full agent conversation loop for *run_id*.
 
@@ -389,9 +388,6 @@ async def run_agent_loop(
     Args:
         run_id: The run identifier, used to locate the worktree and task file.
         max_iterations: Upper bound on LLM turns (prevents runaway loops).
-        file_edit_queue: Optional queue that receives a :class:`FileEditEvent`
-            after each successful file-mutating tool call.  ``None`` (the
-            default) disables SSE emission so existing callers are unaffected.
     """
     worktree_path = settings.worktrees_dir / run_id
 
@@ -735,42 +731,42 @@ async def run_agent_loop(
                 except (json.JSONDecodeError, AttributeError):
                     pass
 
-            # Emit file_edit SSE events for every file-mutating tool call that
-            # succeeded this iteration. Payload is the FileEditEvent appended by
-            # _auto_track_file_write — one event per file write, in order.
-            # file_edit_queue is None during unit tests that don't wire up SSE.
-            if file_edit_queue is not None:
-                mem = read_memory(worktree_path)
-                written_events: list[FileEditEvent] = (
-                    list(mem.get("files_written", [])) if mem else []
-                )
-                for tc in response["tool_calls"]:
-                    if tc["function"]["name"] not in _FILE_MUTATING_TOOL_NAMES:
-                        continue
-                    try:
-                        feq_args: dict[str, object] = json.loads(tc["function"]["arguments"])
-                        path_raw = str(
-                            feq_args.get("path", feq_args.get("file_path", ""))
-                        ).strip()
-                    except (json.JSONDecodeError, AttributeError):
-                        path_raw = ""
-                    if not path_raw:
-                        continue
-                    # Find the most recent FileEditEvent for this path.
-                    matching = [
-                        e for e in written_events
-                        if isinstance(e, FileEditEvent) and e.path == path_raw
-                    ]
-                    if matching:
-                        await file_edit_queue.put(matching[-1])
+            # Emit file_edit events to the DB so the inspector SSE stream picks
+            # them up. One event per file write, in tool-call order.
+            # event_type: "file_edit" | payload: FileEditEvent.model_dump()
+            mem = read_memory(worktree_path)
+            raw_written: object = mem.get("files_written", []) if mem else []
+            written_events: list[FileEditEvent] = (
+                [e for e in raw_written if isinstance(e, FileEditEvent)]
+                if isinstance(raw_written, list) else []
+            )
+            for tc in response["tool_calls"]:
+                if tc["function"]["name"] not in _FILE_MUTATING_TOOL_NAMES:
+                    continue
+                try:
+                    tc_args: dict[str, object] = json.loads(tc["function"]["arguments"])
+                    path_raw = str(
+                        tc_args.get("path", tc_args.get("file_path", ""))
+                    ).strip()
+                except (json.JSONDecodeError, AttributeError):
+                    path_raw = ""
+                if not path_raw:
+                    continue
+                matching = [e for e in written_events if e.path == path_raw]
+                if matching:
+                    await log_file_edit_event(
+                        issue_number,
+                        matching[-1],
+                        agent_run_id=run_id,
+                    )
 
             # Accumulate search queries for symbol-absence detection.
             for tc in response["tool_calls"]:
                 if tc["function"]["name"] not in _SEARCH_TOOL_NAMES:
                     continue
                 try:
-                    tc_args: dict[str, object] = json.loads(tc["function"]["arguments"])
-                    raw_query = tc_args.get("query", tc_args.get("pattern", ""))
+                    search_args: dict[str, object] = json.loads(tc["function"]["arguments"])
+                    raw_query = search_args.get("query", search_args.get("pattern", ""))
                     query_str = str(raw_query).strip()[:100]
                     if query_str:
                         search_query_counts[query_str] = (
