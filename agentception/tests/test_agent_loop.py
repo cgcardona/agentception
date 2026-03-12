@@ -2495,3 +2495,332 @@ class TestFileEditQueue:
 
         mock_log_edit.assert_not_awaited()
 
+
+# ---------------------------------------------------------------------------
+# Final-stretch warning injection
+# ---------------------------------------------------------------------------
+
+
+class TestFinalStretchWarning:
+    """Final-stretch warning must be injected into extra_blocks near budget end.
+
+    Once ``remaining <= _FINAL_STRETCH_THRESHOLD`` the loop appends
+    ``_FINAL_STRETCH_WARNING.format(remaining=remaining)`` to ``extra_blocks``
+    on every subsequent iteration.  Before the threshold is crossed the warning
+    must be absent.
+    """
+
+    @pytest.mark.anyio
+    async def test_final_stretch_warning_injected_near_budget_end(
+        self, tmp_path: Path
+    ) -> None:
+        """Warning appears on every iteration where remaining <= threshold."""
+        from agentception.services.agent_loop import (
+            _FINAL_STRETCH_THRESHOLD,
+            _FINAL_STRETCH_WARNING,
+            run_agent_loop,
+        )
+
+        worktree = tmp_path / "test-run-final-stretch"
+        worktree.mkdir()
+        task_spec = _make_task_spec(worktree)
+
+        # max_iterations=20 means:
+        #   iteration 1  → remaining=19
+        #   ...
+        #   iteration 5  → remaining=15  (== threshold, fires if condition is <=)
+        #   iteration 6  → remaining=14  (< threshold, definitely fires)
+        #   ...
+        # We run enough no-op iterations to cross the threshold, then stop.
+        # Use read_file calls so the loop guard doesn't interfere (threshold=2
+        # for max_iterations=20, so we need a write to reset it periodically).
+        # Simplest: emit a write_file on iteration 1 to reset the guard counter,
+        # then read-only calls until the loop ends naturally via _stop_response.
+        max_iter = 20
+
+        # Build a response sequence:
+        #   iteration 1: write_file (resets guard counter)
+        #   iterations 2..19: read_file (no-ops that advance the counter)
+        #   iteration 20: stop
+        # This gives us 20 LLM calls total, covering all threshold crossings.
+        write_resp = _tool_response(
+            "write_file", {"path": "agentception/stub.py", "content": "# stub"}
+        )
+        read_resp = _tool_response("read_file", {"path": "agentception/models.py"})
+        stop_resp = _stop_response("Done.")
+
+        all_responses: list[ToolResponse] = (
+            [write_resp]
+            + [read_resp] * (max_iter - 2)
+            + [stop_resp]
+        )
+
+        captured_extra: list[list[dict[str, object]] | None] = []
+
+        async def fake_llm(
+            *args: object,
+            extra_system_blocks: list[dict[str, object]] | None = None,
+            **kwargs: object,
+        ) -> ToolResponse:
+            captured_extra.append(extra_system_blocks)
+            idx = len(captured_extra) - 1
+            return all_responses[idx]
+
+        file_result: dict[str, object] = {
+            "ok": True,
+            "content": "# stub",
+            "truncated": False,
+        }
+        write_result: dict[str, object] = {"ok": True}
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.get_run_by_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": [], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic_with_tools",
+                side_effect=fake_llm,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
+
+            from agentception.services import agent_loop as al
+
+            with (
+                patch.object(al, "read_file", return_value=file_result),
+                patch.object(al, "write_file", return_value=write_result),
+            ):
+                await run_agent_loop("test-run-final-stretch", max_iterations=max_iter)
+
+        assert len(captured_extra) == max_iter, (
+            f"Expected {max_iter} LLM calls, got {len(captured_extra)}"
+        )
+
+        def _has_final_stretch_warning(
+            blocks: list[dict[str, object]] | None,
+        ) -> bool:
+            if blocks is None:
+                return False
+            return any(
+                "_FINAL_STRETCH" in str(b.get("text", ""))
+                or "remaining" in str(b.get("text", "")).lower()
+                and "iteration" in str(b.get("text", "")).lower()
+                for b in blocks
+                if isinstance(b, dict)
+            )
+
+        def _warning_text_for_iteration(iteration: int) -> str:
+            remaining = max_iter - iteration
+            return _FINAL_STRETCH_WARNING.format(remaining=remaining)
+
+        def _blocks_contain_text(
+            blocks: list[dict[str, object]] | None, text: str
+        ) -> bool:
+            if blocks is None:
+                return False
+            return any(
+                text in str(b.get("text", ""))
+                for b in blocks
+                if isinstance(b, dict)
+            )
+
+        # Verify warning is absent before the threshold is crossed.
+        # iteration i (1-indexed) → remaining = max_iter - i
+        # Warning fires when remaining <= _FINAL_STRETCH_THRESHOLD.
+        for iteration in range(1, max_iter + 1):
+            remaining = max_iter - iteration
+            blocks = captured_extra[iteration - 1]
+            expected_warning = _FINAL_STRETCH_WARNING.format(remaining=remaining)
+            if remaining <= _FINAL_STRETCH_THRESHOLD:
+                assert _blocks_contain_text(blocks, expected_warning), (
+                    f"Expected final-stretch warning at iteration {iteration} "
+                    f"(remaining={remaining} <= threshold={_FINAL_STRETCH_THRESHOLD}), "
+                    f"but it was absent. blocks={blocks}"
+                )
+            else:
+                # Warning must NOT appear before the threshold.
+                # Check that no block contains the final-stretch warning text.
+                # We check for the specific formatted string to avoid false positives.
+                assert not _blocks_contain_text(blocks, expected_warning), (
+                    f"Final-stretch warning must NOT appear at iteration {iteration} "
+                    f"(remaining={remaining} > threshold={_FINAL_STRETCH_THRESHOLD})"
+                )
+
+    @pytest.mark.anyio
+    async def test_final_stretch_and_loop_guard_fire_simultaneously(
+        self, tmp_path: Path
+    ) -> None:
+        """Both loop-guard and final-stretch warning appear in the same extra_blocks.
+
+        Configure a scenario where iterations_since_write >= loop_guard_threshold
+        AND remaining <= _FINAL_STRETCH_THRESHOLD are both true at the same
+        iteration.  Both the LOOP GUARD text and the final-stretch warning text
+        must appear in extra_blocks for that call.
+        """
+        from agentception.services.agent_loop import (
+            _FINAL_STRETCH_THRESHOLD,
+            _FINAL_STRETCH_WARNING,
+            run_agent_loop,
+        )
+
+        worktree = tmp_path / "test-run-both-guards"
+        worktree.mkdir()
+        task_spec = _make_task_spec(worktree)
+
+        # max_iterations=20 → loop_guard_threshold = max(2, 20//10) = 2.
+        # To trigger both guards simultaneously:
+        #   - Do a write on iteration 1 (resets guard counter).
+        #   - Then do read-only calls until we cross _FINAL_STRETCH_THRESHOLD.
+        #   - The loop guard fires when iterations_since_write >= 2 AND
+        #     iteration > 2.  After the write on iteration 1, the guard fires
+        #     on iteration 4 (iterations_since_write=2, iteration=4 > 2).
+        #   - _FINAL_STRETCH_THRESHOLD=15 means remaining<=15, i.e. iteration>=5.
+        #   - So both fire simultaneously starting at iteration 5.
+        max_iter = 20
+
+        write_resp = _tool_response(
+            "write_file", {"path": "agentception/stub2.py", "content": "# stub"}
+        )
+        read_resp = _tool_response("read_file", {"path": "agentception/models.py"})
+        stop_resp = _stop_response("Done.")
+
+        all_responses: list[ToolResponse] = (
+            [write_resp]
+            + [read_resp] * (max_iter - 2)
+            + [stop_resp]
+        )
+
+        captured_extra: list[list[dict[str, object]] | None] = []
+
+        async def fake_llm(
+            *args: object,
+            extra_system_blocks: list[dict[str, object]] | None = None,
+            **kwargs: object,
+        ) -> ToolResponse:
+            captured_extra.append(extra_system_blocks)
+            idx = len(captured_extra) - 1
+            return all_responses[idx]
+
+        file_result: dict[str, object] = {
+            "ok": True,
+            "content": "# stub",
+            "truncated": False,
+        }
+        write_result: dict[str, object] = {"ok": True}
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.get_run_by_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": [], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic_with_tools",
+                side_effect=fake_llm,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
+
+            from agentception.services import agent_loop as al
+
+            with (
+                patch.object(al, "read_file", return_value=file_result),
+                patch.object(al, "write_file", return_value=write_result),
+            ):
+                await run_agent_loop("test-run-both-guards", max_iterations=max_iter)
+
+        assert len(captured_extra) == max_iter, (
+            f"Expected {max_iter} LLM calls, got {len(captured_extra)}"
+        )
+
+        # Find an iteration where both guards should fire simultaneously.
+        # Loop guard fires when iteration > 2 AND iterations_since_write >= 2.
+        # After write on iteration 1, iterations_since_write increments each turn:
+        #   iteration 2: iterations_since_write=1 (no guard yet)
+        #   iteration 3: iterations_since_write=2, iteration=3 > 2 → guard fires
+        # Final-stretch fires when remaining <= _FINAL_STRETCH_THRESHOLD:
+        #   remaining = max_iter - iteration <= _FINAL_STRETCH_THRESHOLD
+        #   → iteration >= max_iter - _FINAL_STRETCH_THRESHOLD
+        #   → iteration >= 20 - 15 = 5
+        # Both fire simultaneously starting at iteration max(3, 5) = 5.
+        first_simultaneous = max(3, max_iter - _FINAL_STRETCH_THRESHOLD)
+
+        # Verify that at the first simultaneous iteration, both texts appear.
+        idx = first_simultaneous - 1  # 0-indexed
+        blocks = captured_extra[idx]
+        assert blocks is not None, (
+            f"extra_blocks must not be None at iteration {first_simultaneous}"
+        )
+        all_text = " ".join(
+            str(b.get("text", "")) for b in blocks if isinstance(b, dict)
+        )
+        assert "LOOP GUARD" in all_text, (
+            f"Loop-guard text must appear at iteration {first_simultaneous} "
+            f"(iterations_since_write >= 2 and iteration > 2). "
+            f"all_text={all_text!r}"
+        )
+        remaining_at_simultaneous = max_iter - first_simultaneous
+        expected_warning = _FINAL_STRETCH_WARNING.format(
+            remaining=remaining_at_simultaneous
+        )
+        assert expected_warning in all_text, (
+            f"Final-stretch warning must appear at iteration {first_simultaneous} "
+            f"(remaining={remaining_at_simultaneous} <= {_FINAL_STRETCH_THRESHOLD}). "
+            f"all_text={all_text!r}"
+        )
