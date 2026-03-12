@@ -388,5 +388,5 @@ def test_agent_max_iterations_default() -> None:
 
 def test_ac_min_turn_delay_secs_default() -> None:
     s = AgentCeptionSettings()
-    assert s.ac_min_turn_delay_secs == 1.5
+    assert s.ac_min_turn_delay_secs == 0.5
 

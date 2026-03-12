@@ -146,14 +146,14 @@ class AgentCeptionSettings(BaseSettings):
     tools are unavailable in the agent loop.
     """
     ac_task_runner: TaskRunnerChoice = TaskRunnerChoice.anthropic
-    ac_min_turn_delay_secs: float = 1.5
+    ac_min_turn_delay_secs: float = 0.5
     """Minimum seconds between consecutive LLM calls in the agent loop.
 
     Proactive pacing guard that keeps token consumption under the Anthropic
-    rate limit ceiling.  Calibrated for **Tier 3** (800K input / 160K output
-    TPM, 2K RPM): 1.5 s allows up to ~3 concurrent agents at ~1 000 output
-    tokens per turn before the output-TPM cap is reached.  Lower this further
-    if running fewer concurrent agents; raise it when running many in parallel.
+    rate limit ceiling.  Calibrated for **Tier 4** (2M input / 400K output
+    TPM, 4K RPM): 0.5 s allows up to ~10 concurrent agents at ~1 000 output
+    tokens per turn before the output-TPM cap is reached.  Raise this value
+    if observing 429 rate-limit errors in the logs.
 
     Set via ``AC_MIN_TURN_DELAY_SECS`` env var.
     """
