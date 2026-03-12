@@ -20,7 +20,7 @@ import difflib
 import json
 import logging
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import TypedDict
 
 from agentception.models import FileEditEvent
 
@@ -28,6 +28,36 @@ logger = logging.getLogger(__name__)
 
 _MEMORY_FILENAME = ".agentception/memory.json"
 _DIFF_LINE_CAP = 120
+
+
+class FileEditEventJSON(TypedDict):
+    """JSON-safe representation of a :class:`~agentception.models.FileEditEvent`.
+
+    Produced by ``FileEditEvent.model_dump(mode="json")``: all fields are
+    plain Python scalars so the dict can be passed directly to ``json.dumps``.
+    """
+
+    timestamp: str
+    path: str
+    diff: str
+    lines_omitted: int
+
+
+class WorkingMemoryJSON(TypedDict, total=False):
+    """JSON-serialisable mirror of :class:`WorkingMemory`.
+
+    Identical shape to :class:`WorkingMemory` except ``files_written`` holds
+    :class:`FileEditEventJSON` dicts instead of live :class:`FileEditEvent`
+    Pydantic objects.  Returned by :func:`_memory_to_json_safe`.
+    """
+
+    plan: str
+    files_written: list[FileEditEventJSON]
+    files_examined: list[str]
+    findings: dict[str, str]
+    decisions: list[str]
+    next_steps: list[str]
+    blockers: list[str]
 
 
 class WorkingMemory(TypedDict, total=False):
@@ -157,19 +187,25 @@ def read_memory(worktree_path: Path) -> WorkingMemory | None:
         return None
 
 
-def _memory_to_json_safe(memory: WorkingMemory) -> dict[str, Any]:
+def _memory_to_json_safe(memory: WorkingMemory) -> WorkingMemoryJSON:
     """Convert a :class:`WorkingMemory` to a JSON-serialisable dict.
 
     ``FileEditEvent`` objects in ``files_written`` are serialised via
     ``model_dump(mode="json")`` so that ``datetime`` fields become ISO-8601
     strings rather than Python objects that ``json.dumps`` cannot handle.
     """
-    result: dict[str, Any] = {}
+    result: WorkingMemoryJSON = {}
     if "plan" in memory:
         result["plan"] = memory["plan"]
     if "files_written" in memory:
         result["files_written"] = [
-            e.model_dump(mode="json") for e in memory["files_written"]
+            FileEditEventJSON(
+                timestamp=e.timestamp.isoformat(),
+                path=e.path,
+                diff=e.diff,
+                lines_omitted=e.lines_omitted,
+            )
+            for e in memory["files_written"]
         ]
     if "files_examined" in memory:
         result["files_examined"] = memory["files_examined"]

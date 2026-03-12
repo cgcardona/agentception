@@ -51,4 +51,4 @@ def test_file_edit_event_frozen_raises_on_mutation() -> None:
     """Mutating a frozen FileEditEvent raises TypeError (Pydantic frozen model)."""
     event = _make_event()
     with pytest.raises((ValidationError, TypeError)):
-        event.path = "other/path.py"  # type: ignore[misc]
+        setattr(event, "path", "other/path.py")

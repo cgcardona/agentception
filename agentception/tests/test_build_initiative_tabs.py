@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import AbstractContextManager
+from types import TracebackType
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -71,7 +72,7 @@ def test_initiatives_endpoint_unknown_repo_returns_404(client: TestClient) -> No
 # Integration tests — full page GET /ship/{repo}/{initiative}
 # ---------------------------------------------------------------------------
 
-def _patch_build_page(initiatives: list[str]) -> AbstractContextManager[MagicMock]:
+def _patch_build_page(initiatives: list[str]) -> AbstractContextManager[None]:
     """Patch all DB calls needed to render the full build page."""
     from contextlib import ExitStack
     from unittest.mock import AsyncMock, patch
@@ -79,7 +80,7 @@ def _patch_build_page(initiatives: list[str]) -> AbstractContextManager[MagicMoc
     # We need a context manager that applies multiple patches at once.
     # Use a helper class so callers can use it as a `with` statement.
     class _MultiPatch:
-        def __enter__(self) -> "_MultiPatch":
+        def __enter__(self) -> None:
             self._stack = ExitStack()
             self._stack.enter_context(
                 patch(
@@ -117,12 +118,17 @@ def _patch_build_page(initiatives: list[str]) -> AbstractContextManager[MagicMoc
                     new=AsyncMock(return_value=[]),
                 )
             )
-            return self
+            return None
 
-        def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
-            self._stack.__exit__(exc_type, exc_val, exc_tb)  # type: ignore[arg-type]
+        def __exit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc_val: BaseException | None,
+            exc_tb: TracebackType | None,
+        ) -> None:
+            self._stack.__exit__(exc_type, exc_val, exc_tb)
 
-    return _MultiPatch()  # type: ignore[return-value]
+    return _MultiPatch()
 
 
 def test_full_page_has_htmx_polling_div(client: TestClient) -> None:

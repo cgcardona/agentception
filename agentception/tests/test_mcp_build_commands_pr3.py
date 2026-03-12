@@ -369,6 +369,7 @@ async def test_build_complete_run_reviewer_does_not_redispatch_reviewer() -> Non
                 "issue_number": 449,
                 "pr_url": "https://github.com/owner/repo/pull/553",
                 "agent_run_id": "issue-449",
+                "grade": "A",
             },
         )
 

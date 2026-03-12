@@ -256,6 +256,10 @@ async def test_orphan_missing_build_complete_marked_failed() -> None:
     session = MagicMock(spec=AsyncSession)
     session.execute = AsyncMock(side_effect=[scalar, orphan_result, ttl_result])
     session.add = MagicMock()
+    # The orphan sweep calls session.scalar() to check for an existing
+    # build_complete_run event.  Return 0 to indicate no such event exists,
+    # so the sweep proceeds to mark the orphan as failed.
+    session.scalar = AsyncMock(return_value=0)
 
     # Pass a different agent so the orphan is never in live_ids.
     live_agent = AgentNode(
