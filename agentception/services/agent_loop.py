@@ -179,27 +179,6 @@ _DEVELOPER_TOOL_ALLOWLIST: frozenset[str] = frozenset({
 })
 
 # ---------------------------------------------------------------------------
-# Executor agent — the most restricted tool surface in the system
-# ---------------------------------------------------------------------------
-# The executor receives an immutable ExecutionPlan and applies it mechanically.
-# It cannot read files (all parameters are pre-supplied in the plan) and
-# cannot call any bookkeeping or discovery tools.  The only permitted
-# actions are writes, shell execution, PR creation, and run completion.
-_EXECUTOR_TOOL_ALLOWLIST: frozenset[str] = frozenset({
-    # Write tools — the only file operations the executor may call.
-    "replace_in_file",
-    "insert_after_in_file",
-    "write_file",
-    # Shell — for git add/commit/push, mypy, pytest.
-    "run_command",
-    # Completion — the only ways to end the loop.
-    "build_complete_run",
-    "build_cancel_run",
-    # PR — required to submit work.
-    "create_pull_request",
-})
-
-# ---------------------------------------------------------------------------
 # Reviewer agent — read-only surface for gatekeeping PRs
 # ---------------------------------------------------------------------------
 # The reviewer inspects a diff, reads files for context, runs mypy/pytest,
@@ -418,19 +397,9 @@ async def run_agent_loop(
     all_tool_defs = _build_tool_definitions(extra_tools=github_tools)
 
     # Developer agents use a minimal tool surface — only coding tools.
-    # Executor agents use an even more restricted surface — no reads at all.
     # Reviewer agents get a read-and-GitHub-only surface — no file writes.
     # All other roles (planner, etc.) get the full tool catalogue.
-    if task.role == "executor":
-        tool_defs = [
-            t for t in all_tool_defs
-            if t["function"]["name"] in _EXECUTOR_TOOL_ALLOWLIST
-        ]
-        logger.info(
-            "✅ agent_loop: executor tool surface — %d tools (of %d total stripped to allowlist)",
-            len(tool_defs), len(all_tool_defs),
-        )
-    elif task.role == "developer":
+    if task.role == "developer":
         tool_defs = [
             t for t in all_tool_defs
             if t["function"]["name"] in _DEVELOPER_TOOL_ALLOWLIST
@@ -469,12 +438,12 @@ async def run_agent_loop(
 
     # Pre-loop context injection — role-specific, runs before iteration 1.
     #
-    # executor  → skip entirely (ExecutionPlan supplies all context)
+    # developer → skip recon (task briefing supplies all context)
     # reviewer  → deterministic warmup: diff + mypy + pytest + issue pre-computed
     #             and injected so the reviewer needs 0 discovery tool calls
     # all other → LLM-driven recon (reads/searches the agent requests)
-    if task.role == "executor":
-        pass  # no recon needed
+    if task.role == "developer":
+        pass  # no recon needed — task briefing supplies all context
     elif task.role == "reviewer":
         _gh_repo_raw = task.gh_repo or settings.gh_repo
         _gh_repo = str(_gh_repo_raw) if isinstance(_gh_repo_raw, str) else ""
@@ -501,7 +470,7 @@ async def run_agent_loop(
     # The iteration ceiling (100) is the backstop for runaway reviewers.
     loop_guard_enabled: bool = task.role != "reviewer"
     # Scale the guard threshold with the iteration budget so a 10-iteration
-    # executor (threshold=2) gets tighter enforcement than a 100-iteration
+    # developer (threshold=2) gets tighter enforcement than a 100-iteration
     # developer working through a large file (threshold=10).  Floor at 2 so
     # the guard always fires eventually, even on minimal budgets.
     loop_guard_threshold: int = max(2, max_iterations // 10)
