@@ -3,8 +3,9 @@ from __future__ import annotations
 """Unit tests for agentception.services.tree_sitter_scope.
 
 Covers:
-- get_enclosing_scope: Python, TypeScript, Go, unsupported extension, syntax error.
-- get_imports: Python, TypeScript, unsupported extension.
+- get_enclosing_scope: Python, TypeScript, Go, HTML/Jinja2, unsupported extension,
+  syntax error.
+- get_imports: Python, TypeScript, HTML (no imports), unsupported extension.
 """
 
 import textwrap
@@ -69,11 +70,46 @@ def test_go_scope_extracts_function() -> None:
     assert end >= 4
 
 
+def test_html_scope_extracts_element() -> None:
+    """HTML source; target line inside a div; scope spans the element."""
+    source = textwrap.dedent("""\
+        <html>
+        <body>
+          <div class="container">
+            <p>hello world</p>
+          </div>
+        </body>
+        </html>
+    """)
+    # Line 4 is the <p> element inside the div; expect some enclosing element scope.
+    start, end, name = get_enclosing_scope(source, ".html", 4)
+    assert start <= 4
+    assert end >= 4
+    assert isinstance(name, str) and len(name) > 0
+
+
+def test_j2_extension_uses_html_grammar() -> None:
+    """Jinja2 templates (.j2) are parsed as HTML and return a valid scope."""
+    source = textwrap.dedent("""\
+        {% extends "base.html" %}
+        {% block content %}
+        <div class="page">
+          <h1>{{ title }}</h1>
+        </div>
+        {% endblock %}
+    """)
+    # Line 4 is the <h1> tag; parser should not raise even for Jinja2 syntax.
+    start, end, name = get_enclosing_scope(source, ".j2", 4)
+    assert start <= 4
+    assert end >= 4
+    assert isinstance(name, str) and len(name) > 0
+
+
 def test_unsupported_extension_falls_back() -> None:
-    """Unsupported extension returns ±20-line window with name starting 'line '."""
-    source = "\n".join(f"<p>line {i}</p>" for i in range(1, 60))
+    """Truly unsupported extension returns ±20-line window with name starting 'line '."""
+    source = "\n".join(f"line {i}" for i in range(1, 60))
     target = 30
-    start, end, name = get_enclosing_scope(source, ".html", target)
+    start, end, name = get_enclosing_scope(source, ".xyz", target)
     assert start <= target
     assert end >= target
     assert end - start <= 41  # ±20 window = at most 41 lines
@@ -126,8 +162,15 @@ def test_get_imports_typescript() -> None:
     assert "path" in result
 
 
-def test_get_imports_unsupported_returns_empty() -> None:
-    """Unsupported extension returns empty string."""
+def test_get_imports_html_returns_empty() -> None:
+    """HTML has no import concept — get_imports returns empty string by design."""
     source = "<html><body>hello</body></html>"
     result = get_imports(source, ".html")
+    assert result == ""
+
+
+def test_get_imports_unsupported_returns_empty() -> None:
+    """Truly unsupported extension returns empty string."""
+    source = "SELECT * FROM users;"
+    result = get_imports(source, ".sql")
     assert result == ""

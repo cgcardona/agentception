@@ -67,6 +67,7 @@ def _make_dispatch() -> dict[str, _LangConfig]:
     import tree_sitter_rust
     import tree_sitter_java
     import tree_sitter_ruby
+    import tree_sitter_html
 
     py_cfg = _LangConfig(
         grammar=tree_sitter_python.language,
@@ -121,6 +122,11 @@ def _make_dispatch() -> dict[str, _LangConfig]:
         scope_types=frozenset({"method", "singleton_method", "class"}),
         import_types=frozenset(),
     )
+    html_cfg = _LangConfig(
+        grammar=tree_sitter_html.language,
+        scope_types=frozenset({"element", "script_element", "style_element"}),
+        import_types=frozenset(),
+    )
 
     return {
         ".py": py_cfg,
@@ -132,6 +138,8 @@ def _make_dispatch() -> dict[str, _LangConfig]:
         ".rs": rs_cfg,
         ".java": java_cfg,
         ".rb": rb_cfg,
+        ".html": html_cfg,
+        ".j2": html_cfg,
     }
 
 
