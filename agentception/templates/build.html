@@ -38,8 +38,15 @@
           hx-target="#resync-result"
           hx-swap="innerHTML"
           hx-indicator="#resync-indicator"
-          title="Force a full GitHub issue sync without restarting the server"
-        >🔃 Force resync</button>
+          title="Force resync"
+          aria-label="Force resync"
+        ><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"
+             width="16" height="16" fill="none"
+             stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
+             stroke-linejoin="round" aria-hidden="true">
+          <path d="M13.5 8A5.5 5.5 0 1 1 10 3.07"/>
+          <polyline points="10 1 10 4 13 4"/>
+        </svg></button>
         <span id="resync-indicator" class="htmx-indicator" aria-hidden="true">⏳</span>
         <div id="resync-result" class="build-header__resync-result"></div>
       </div>

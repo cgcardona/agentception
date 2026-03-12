@@ -71,3 +71,12 @@ def test_force_resync_button_present(client: TestClient) -> None:
     assert 'id="resync-result"' in html, (
         "A div with id='resync-result' must exist to receive the HTMX swap"
     )
+    assert 'aria-label="Force resync"' in html, (
+        "Force resync button must have aria-label='Force resync' for accessibility"
+    )
+    assert 'class="build-header__resync-btn"' in html, (
+        "Force resync button must carry the build-header__resync-btn CSS class"
+    )
+    assert "<svg" in html and 'aria-hidden="true"' in html, (
+        "Force resync button must contain an inline SVG icon with aria-hidden='true'"
+    )
