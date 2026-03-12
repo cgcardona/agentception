@@ -445,21 +445,32 @@ async def ensure_worktree(
 
 
 def _symlink_frontend_resources(worktree_path: Path) -> None:
-    """Symlink frontend build resources from /app into the new worktree.
+    """Symlink frontend build resources from the main repo into the new worktree.
 
     Agents run npm commands (type-check, test, build:js) from within the
     worktree.  node_modules, package.json, tsconfig.json, and vitest.config.ts
-    live in /app (the main repo mount) and are gitignored, so they are never
-    present in a freshly-created worktree.  Without these symlinks agents waste
-    iterations discovering they must cd to /app before running npm commands.
+    live in the main repo root and are gitignored, so they are never present in
+    a freshly-created worktree.  Without these symlinks agents waste iterations
+    discovering they must cd to the main repo before running npm commands.
 
-    The symlinks are created only when the target in /app actually exists, so
-    this is safe to call in environments where Node is not installed.
+    Uses settings.repo_dir (not a hardcoded /app) so the path is correct in
+    every environment, including tests that override REPO_DIR.
+
+    Symlinks are created only when the target in the main repo actually exists,
+    and are skipped when the destination already exists (real file, real
+    directory, or existing symlink) to avoid clobbering and circular links.
     """
-    app_root = Path("/app")
+    repo_root = settings.repo_dir.resolve()
+
+    # Guard: never symlink if the worktree IS the main repo — that would create
+    # self-referential links (e.g. /app/node_modules → /app/node_modules).
+    if worktree_path.resolve() == repo_root:
+        logger.warning("⚠️ _symlink_frontend_resources: worktree_path == repo_root (%s) — skipping", repo_root)
+        return
+
     resources = ["node_modules", "package.json", "package-lock.json", "tsconfig.json", "vitest.config.ts"]
     for name in resources:
-        src = app_root / name
+        src = repo_root / name
         dst = worktree_path / name
         if not src.exists():
             continue
