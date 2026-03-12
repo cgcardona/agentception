@@ -30,6 +30,18 @@
           Design org →
         </button>
         <span class="build-header__live" title="Board refreshes every 5 s">● LIVE</span>
+
+        {# ── Force resync ─────────────────────────────────────────────── #}
+        <button
+          class="build-header__resync-btn"
+          hx-post="/api/control/resync-issues"
+          hx-target="#resync-result"
+          hx-swap="innerHTML"
+          hx-indicator="#resync-indicator"
+          title="Force a full GitHub issue sync without restarting the server"
+        >🔃 Force resync</button>
+        <span id="resync-indicator" class="htmx-indicator" aria-hidden="true">⏳</span>
+        <div id="resync-result" class="build-header__resync-result"></div>
       </div>
     </header>
 
