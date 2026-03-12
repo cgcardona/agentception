@@ -368,7 +368,7 @@ async def call_anthropic(
             if exc.response.status_code == 429:
                 await _rate_limit_sleep(exc.response, attempt)
                 continue
-            if exc.response.status_code in (500, 502, 503, 504):
+            if exc.response.status_code in (500, 502, 503, 504, 529):
                 backoff = 2 ** (attempt + 1)
                 logger.warning("⚠️ LLM retry %d/%d after %ds", attempt + 1, _MAX_RETRIES, backoff)
                 await asyncio.sleep(backoff)
@@ -619,7 +619,7 @@ async def call_anthropic_with_tools(
             if exc.response.status_code == 429:
                 await _rate_limit_sleep(exc.response, attempt)
                 continue
-            if exc.response.status_code in (500, 502, 503, 504):
+            if exc.response.status_code in (500, 502, 503, 504, 529):
                 backoff = 2 ** (attempt + 1)
                 logger.warning("⚠️ LLM retry %d/%d after %ds", attempt + 1, _MAX_RETRIES, backoff)
                 await asyncio.sleep(backoff)
