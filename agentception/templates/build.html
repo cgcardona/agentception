@@ -194,6 +194,7 @@
           </template>
 
           {# structured events timeline #}
+          <div id="activity-feed" class="build-inspector__activity" role="log" aria-live="polite" aria-label="Agent activity"></div>
           <div class="build-inspector__timeline" x-show="events.length > 0">
             <h4 class="build-inspector__section-label">Timeline</h4>
             <ul class="build-timeline">
@@ -209,18 +210,6 @@
                 </li>
               </template>
             </ul>
-          </div>
-
-          {# raw chain-of-thought #}
-          <div class="build-inspector__cot" x-show="thoughts.length > 0">
-            <h4 class="build-inspector__section-label">Chain of thought</h4>
-            <div class="build-cot" x-ref="cotScroll">
-              <template x-for="(t, idx) in thoughts" :key="idx">
-                <p class="build-cot__entry"
-                   :class="'build-cot__entry--' + t.role"
-                   x-text="t.content"></p>
-              </template>
-            </div>
           </div>
 
           <template x-if="activeIssue.run && ['implementing','reviewing','stale','pending_launch'].includes(activeIssue.run.agent_status) && !streamOpen">
