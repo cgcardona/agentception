@@ -8,16 +8,16 @@ Replaces the LLM-based planning loop with a zero-LLM Python function that:
    symbols, file paths, gap descriptions) rather than using raw body slices.
 2. Runs up to 5 targeted Qdrant queries in parallel.
 3. Merges results with the Qdrant matches already computed at dispatch time.
-4. For each unique match, uses Python ``ast`` to extract the exact enclosing
-   function or class scope (not just a raw 800-char chunk).
+4. For each unique match, uses tree-sitter (via ``tree_sitter_scope``) to
+   extract the exact enclosing function or class scope for Python, TypeScript,
+   Go, Rust, Java, JavaScript, and Ruby — not just a raw 800-char chunk.
 5. Prepends the relevant import statements from each file so the developer
    can reason about types without reading entire files.
 
-Total elapsed time: ~300 ms (parallel Qdrant + local AST parsing, zero LLM calls).
+Total elapsed time: ~300 ms (parallel Qdrant + local tree-sitter parsing, zero LLM calls).
 Compare with the old LLM planner loop: 30–90 s, 8–16 turns, 1–2 API calls.
 """
 
-import ast as _ast
 import asyncio
 import logging
 import re
@@ -158,69 +158,6 @@ def _read_named_file(worktree_path: Path, rel_path: str) -> tuple[str, str]:
     return (rel_path, text)
 
 
-# ---------------------------------------------------------------------------
-# Pure-Python AST helpers (no I/O — safe to call in asyncio.to_thread)
-# ---------------------------------------------------------------------------
-
-
-def _ast_imports(source: str) -> str:
-    """Return all import/from-import lines from *source* (deduplicated, ordered).
-
-    Skips files with syntax errors (returns ``""``).
-    """
-    try:
-        tree = _ast.parse(source)
-    except SyntaxError:
-        return ""
-    lines = source.splitlines(keepends=True)
-    seen: set[str] = set()
-    result: list[str] = []
-    for node in _ast.walk(tree):
-        if isinstance(node, (_ast.Import, _ast.ImportFrom)):
-            node_end = node.end_lineno or node.lineno
-            for i in range(node.lineno - 1, node_end):
-                if i < len(lines):
-                    line = lines[i]
-                    if line not in seen:
-                        seen.add(line)
-                        result.append(line)
-    return "".join(result)
-
-
-def _ast_enclosing_scope(
-    source: str,
-    target_line: int,
-) -> tuple[int, int, str]:
-    """Return ``(start_line, end_line, name)`` of the innermost scope containing *target_line*.
-
-    Lines are 1-indexed.  Falls back to a ±20-line window around *target_line*
-    when no enclosing function or class is found (e.g. module-level code).
-    """
-    try:
-        tree = _ast.parse(source)
-    except SyntaxError:
-        n = target_line
-        return (max(1, n - 20), n + 20, f"line {n}")
-
-    best: _ast.FunctionDef | _ast.AsyncFunctionDef | _ast.ClassDef | None = None
-    best_span: int = 0
-    for node in _ast.walk(tree):
-        if not isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef, _ast.ClassDef)):
-            continue
-        end = node.end_lineno or node.lineno
-        if not (node.lineno <= target_line <= end):
-            continue
-        span = end - node.lineno
-        if best is None or span < best_span:
-            best = node
-            best_span = span
-
-    if best is None:
-        n = target_line
-        return (max(1, n - 20), n + 20, f"line {n}")
-    return (best.lineno, best.end_lineno or best.lineno, best.name)
-
-
 def _scope_section(
     worktree_path: Path,
     file_rel: str,
@@ -237,6 +174,8 @@ def _scope_section(
         *code_block* contains fenced code blocks ready to embed in the briefing.
         Returns ``("", "")`` on any I/O or parse failure — callers skip empty pairs.
     """
+    from agentception.services.tree_sitter_scope import get_enclosing_scope, get_imports
+
     path = worktree_path / file_rel
     if not path.exists():
         return ("", "")
@@ -245,30 +184,38 @@ def _scope_section(
     except OSError:
         return ("", "")
 
-    if not file_rel.endswith(".py"):
-        src_lines = source.splitlines(keepends=True)
-        start = max(0, target_line - 20)
-        end = min(len(src_lines), target_line + 20)
-        body = "".join(src_lines[start:end])[:_MAX_SCOPE_CHARS]
-        return (
-            f"`{file_rel}` (line {target_line})",
-            f"```\n{body}\n```",
-        )
-
+    file_ext = Path(file_rel).suffix
     src_lines = source.splitlines(keepends=True)
-    start_line, end_line, scope_name = _ast_enclosing_scope(source, target_line)
+    start_line, end_line, scope_name = get_enclosing_scope(source, file_ext, target_line)
     scope_body = "".join(src_lines[start_line - 1 : end_line])[:_MAX_SCOPE_CHARS]
-    imports = _ast_imports(source)
+    imports = get_imports(source, file_ext)
+
+    # Choose a language hint for the fenced code block.
+    _EXT_TO_LANG: dict[str, str] = {
+        ".py": "python",
+        ".ts": "typescript",
+        ".tsx": "typescript",
+        ".js": "javascript",
+        ".jsx": "javascript",
+        ".go": "go",
+        ".rs": "rust",
+        ".java": "java",
+        ".rb": "ruby",
+    }
+    lang = _EXT_TO_LANG.get(file_ext, "")
 
     parts: list[str] = []
     if imports:
-        parts.append(f"```python\n{imports}\n```")
-    parts.append(f"```python\n{scope_body}\n```")
+        parts.append(f"```{lang}\n{imports}\n```")
+    parts.append(f"```{lang}\n{scope_body}\n```")
 
-    return (
-        f"`{file_rel}` — `{scope_name}`",
-        "\n\n".join(parts),
-    )
+    # Use "— `name`" suffix when we found a real scope; plain "(line N)" otherwise.
+    if scope_name.startswith("line "):
+        label = f"`{file_rel}` ({scope_name})"
+    else:
+        label = f"`{file_rel}` — `{scope_name}`"
+
+    return (label, "\n\n".join(parts))
 
 
 # ---------------------------------------------------------------------------
