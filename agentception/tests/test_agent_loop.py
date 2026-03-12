@@ -2155,3 +2155,190 @@ class TestStopReasonLengthRecovery:
         assert cancel_calls == [], (
             "build_cancel_run must NOT be called when stop_reason='length' — recovery hint is injected"
         )
+
+
+# ---------------------------------------------------------------------------
+# FileEditEvent SSE queue tests
+# ---------------------------------------------------------------------------
+
+
+class TestFileEditQueue:
+    """run_agent_loop emits FileEditEvent items on file_edit_queue after writes.
+
+    The queue is optional (defaults to None) so all existing callers are
+    unaffected.  When supplied, one event is put per successful file-mutating
+    tool call whose path matches a FileEditEvent in working memory.
+    """
+
+    @pytest.mark.anyio
+    async def test_file_edit_queue_receives_event(self, tmp_path: Path) -> None:
+        """A replace_in_file call puts a FileEditEvent on the queue."""
+        import asyncio
+        import datetime
+
+        from agentception.models import FileEditEvent
+        from agentception.services.agent_loop import run_agent_loop
+
+        worktree = tmp_path / "run-feq-write"
+        worktree.mkdir()
+        task_spec = _make_task_spec(worktree)
+
+        written_path = "agentception/models.py"
+        fake_event = FileEditEvent(
+            timestamp=datetime.datetime(2024, 1, 1, 0, 0, 0),
+            path=written_path,
+            diff="--- a/agentception/models.py\n+++ b/agentception/models.py\n@@ -1 +1 @@\n-old\n+new\n",
+            lines_omitted=0,
+        )
+
+        responses = [
+            _tool_response("replace_in_file", {
+                "path": written_path,
+                "old_string": "old",
+                "new_string": "new",
+            }),
+            _stop_response("Done."),
+        ]
+
+        fake_memory = {"files_written": [fake_event]}
+
+        queue: asyncio.Queue[FileEditEvent] = asyncio.Queue()
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": [], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic_with_tools",
+                new_callable=AsyncMock,
+                side_effect=responses,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+            patch(
+                "agentception.services.agent_loop.get_run_by_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "agentception.services.agent_loop.read_memory",
+                return_value=fake_memory,
+            ),
+            patch(
+                "agentception.services.agent_loop.replace_in_file",
+                return_value={"ok": True, "result": "replaced"},
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
+
+            await run_agent_loop("run-feq-write", file_edit_queue=queue)
+
+        assert not queue.empty(), "Expected one FileEditEvent on the queue"
+        event = queue.get_nowait()
+        assert isinstance(event, FileEditEvent)
+        assert event.path == written_path
+
+    @pytest.mark.anyio
+    async def test_file_edit_queue_not_emitted_for_read(self, tmp_path: Path) -> None:
+        """A read_file call does NOT put anything on the queue."""
+        import asyncio
+        import datetime
+
+        from agentception.models import FileEditEvent
+        from agentception.services.agent_loop import run_agent_loop
+
+        worktree = tmp_path / "run-feq-read"
+        worktree.mkdir()
+        task_spec = _make_task_spec(worktree)
+
+        fake_event = FileEditEvent(
+            timestamp=datetime.datetime(2024, 1, 1, 0, 0, 0),
+            path="agentception/models.py",
+            diff="",
+            lines_omitted=0,
+        )
+
+        responses = [
+            _tool_response("read_file", {"path": "agentception/models.py"}),
+            _stop_response("Done."),
+        ]
+
+        fake_memory = {"files_written": [fake_event]}
+
+        queue: asyncio.Queue[FileEditEvent] = asyncio.Queue()
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": [], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic_with_tools",
+                new_callable=AsyncMock,
+                side_effect=responses,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+            patch(
+                "agentception.services.agent_loop.get_run_by_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "agentception.services.agent_loop.read_memory",
+                return_value=fake_memory,
+            ),
+            patch(
+                "agentception.services.agent_loop.read_file",
+                return_value={"ok": True, "content": "# stub", "truncated": False},
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
+
+            await run_agent_loop("run-feq-read", file_edit_queue=queue)
+
+        assert queue.empty(), "Queue must be empty — read_file is not a file-mutating tool"
+
