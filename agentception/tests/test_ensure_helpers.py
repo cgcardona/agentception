@@ -151,6 +151,69 @@ async def test_ensure_worktree_reset_deletes_remote_branch_stale_state(tmp_path:
 # ensure_branch
 # ---------------------------------------------------------------------------
 
+@pytest.mark.anyio
+async def test_dispatch_redispatch_cleans_stale_worktree(tmp_path: Path) -> None:
+    """Regression: redispatch tears down a stale worktree before recreating it.
+
+    When an agent crashes mid-run, its worktree directory is left on disk in a
+    broken state (the .git pointer becomes a dangling reference).  On the next
+    dispatch for the same issue, ensure_worktree must call
+    ``git worktree remove --force`` before ``git worktree add`` so the new agent
+    always starts from a clean ``origin/dev`` base.
+
+    This test mocks a pre-existing worktree directory and asserts that
+    ``git worktree remove --force`` is called before ``git worktree add``.
+    """
+    worktree_path = tmp_path / "issue-731"
+    worktree_path.mkdir(parents=True)  # simulate stale dir left by crashed agent
+    branch = "feat/issue-731"
+    base_ref = "origin/dev"
+
+    success_proc = AsyncMock()
+    success_proc.returncode = 0
+    success_proc.communicate.return_value = (b"", b"")
+
+    call_order: list[tuple[str, str]] = []
+
+    async def capture_proc(*args: str, **kwargs: object) -> AsyncMock:
+        # Record (verb, subcommand) pairs for ordering assertions.
+        if len(args) >= 5:
+            call_order.append((args[3], args[4]))
+        return success_proc
+
+    with (
+        patch("agentception.readers.git._git", new_callable=AsyncMock, return_value="  feat/issue-731"),
+        patch("agentception.readers.git.asyncio.create_subprocess_exec", side_effect=capture_proc),
+        patch("agentception.readers.git.shutil.rmtree"),
+    ):
+        result = await ensure_worktree(worktree_path, branch, base_ref, reset=True)
+
+    assert result is True, "ensure_worktree must return True when recreating a stale worktree"
+
+    # Verify the teardown sequence: remove must precede add.
+    assert ("worktree", "remove") in call_order, (
+        f"git worktree remove --force must be called for stale dir; got: {call_order}"
+    )
+    assert ("worktree", "add") in call_order, (
+        f"git worktree add must be called after teardown; got: {call_order}"
+    )
+    remove_idx = call_order.index(("worktree", "remove"))
+    add_idx = call_order.index(("worktree", "add"))
+    assert remove_idx < add_idx, (
+        f"git worktree remove must precede git worktree add; order was: {call_order}"
+    )
+
+    # Remote branch must also be deleted so the new branch starts from a clean base.
+    assert ("push", "origin") in call_order, (
+        f"git push origin --delete must be called to clean remote branch; got: {call_order}"
+    )
+    push_idx = call_order.index(("push", "origin"))
+    assert push_idx < add_idx, (
+        f"Remote branch deletion must precede git worktree add; order was: {call_order}"
+    )
+
+
+
 
 @pytest.mark.anyio
 async def test_ensure_branch_creates_new_branch() -> None:
