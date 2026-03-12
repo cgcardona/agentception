@@ -241,6 +241,20 @@ The container volume-mounts `~/.config/gh` read-only. Run `gh auth login` on the
 
 ---
 
+## Initial setup
+
+### Git merge driver for compiled assets
+
+Run once after cloning:
+
+```bash
+git config merge.ours.driver true
+```
+
+This prevents Git from text-merging compiled frontend bundles (app.css, app.css.map, app.js). Always run `npm run build` after a merge or rebase to regenerate the correct artifacts.
+
+---
+
 ## Step N — Cursor MCP setup (one-time)
 
 AgentCeption exposes its planning and dispatch tools over MCP. Cursor must be configured to connect to it and, ideally, to run those tools without prompting you on every call.
