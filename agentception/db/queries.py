@@ -2634,24 +2634,41 @@ class TerminalRunRow(TypedDict):
 async def get_terminal_runs_with_worktrees() -> list[TerminalRunRow]:
     """Return terminal runs whose worktree directory still exists on disk.
 
-    Terminal statuses are ``done`` and ``stale`` — both mean the agent has
-    finished and the worktree should have been cleaned up.  This query powers
-    the worktree reaper that runs on startup and periodically so that orphaned
-    worktrees from crashed agents are eventually removed without any agent
-    cooperation.
+    Terminal statuses are ``completed``, ``failed``, ``cancelled``, and
+    ``stopped`` — all mean the agent has finished and the worktree should have
+    been cleaned up.  This query powers the worktree reaper that runs on
+    startup and periodically so that orphaned worktrees from crashed agents are
+    eventually removed without any agent cooperation.
 
     Only rows with a non-null ``worktree_path`` are returned; the reaper
     filters further to paths that actually exist on disk before calling
-    ``teardown_agent_worktree``.
+    ``release_worktree``.
+
+    **Important:** worktree paths that are currently held by an *active* run
+    are excluded.  Without this guard, re-dispatching the same issue creates a
+    new run at the same path (e.g. ``/worktrees/issue-276``), but the old
+    terminal row still references that path.  The reaper would then find the
+    directory, match it to the terminal row, and delete it — killing the live
+    agent's workspace.
 
     Returns an empty list on any DB error so the reaper degrades gracefully.
     """
+    # Subquery: worktree paths currently held by a live (non-terminal) run.
+    active_paths_sq = (
+        select(ACAgentRun.worktree_path)
+        .where(
+            ACAgentRun.status.in_(list(_LIVE_STATUSES)),
+            ACAgentRun.worktree_path.isnot(None),
+        )
+        .scalar_subquery()
+    )
     try:
         async with get_session() as session:
             result = await session.execute(
                 select(ACAgentRun.id, ACAgentRun.worktree_path, ACAgentRun.branch).where(
                     ACAgentRun.status.in_(["completed", "failed", "cancelled", "stopped"]),
                     ACAgentRun.worktree_path.isnot(None),
+                    ACAgentRun.worktree_path.not_in(active_paths_sq),
                 )
             )
             rows = result.all()
