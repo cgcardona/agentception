@@ -373,6 +373,11 @@ async def call_anthropic(
                 logger.warning("⚠️ LLM retry %d/%d after %ds", attempt + 1, _MAX_RETRIES, backoff)
                 await asyncio.sleep(backoff)
                 continue
+            logger.error(
+                "❌ Anthropic API %d — body: %s",
+                exc.response.status_code,
+                exc.response.text,
+            )
             raise
         except (httpx.TimeoutException, httpx.NetworkError, ssl.SSLError) as exc:
             last_error = exc
@@ -619,6 +624,11 @@ async def call_anthropic_with_tools(
                 logger.warning("⚠️ LLM retry %d/%d after %ds", attempt + 1, _MAX_RETRIES, backoff)
                 await asyncio.sleep(backoff)
                 continue
+            logger.error(
+                "❌ Anthropic API %d — body: %s",
+                exc.response.status_code,
+                exc.response.text,
+            )
             raise
         except (httpx.TimeoutException, httpx.NetworkError, ssl.SSLError) as exc:
             last_error = exc
