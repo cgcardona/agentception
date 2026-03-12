@@ -48,9 +48,10 @@
           <polyline points="10 1 10 4 13 4"/>
         </svg></button>
         <span id="resync-indicator" class="htmx-indicator" aria-hidden="true">⏳</span>
-        <div id="resync-result" class="build-header__resync-result"></div>
       </div>
     </header>
+    {# resync-result sits outside <header> so injected content appears below the header row #}
+    <div id="resync-result" class="build-header__resync-result"></div>
 
     <!-- initiatives tab nav: must remain outside #build-board swap target -->
     <div
