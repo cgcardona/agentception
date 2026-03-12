@@ -2163,17 +2163,15 @@ class TestStopReasonLengthRecovery:
 
 
 class TestFileEditQueue:
-    """run_agent_loop emits FileEditEvent items on file_edit_queue after writes.
+    """run_agent_loop calls log_file_edit_event after file-mutating tool calls.
 
-    The queue is optional (defaults to None) so all existing callers are
-    unaffected.  When supplied, one event is put per successful file-mutating
-    tool call whose path matches a FileEditEvent in working memory.
+    File edit events are written directly to the DB via log_file_edit_event
+    so the inspector SSE stream picks them up generically.  No queue is involved.
     """
 
     @pytest.mark.anyio
-    async def test_file_edit_queue_receives_event(self, tmp_path: Path) -> None:
-        """A replace_in_file call puts a FileEditEvent on the queue."""
-        import asyncio
+    async def test_file_edit_event_logged_after_write(self, tmp_path: Path) -> None:
+        """A replace_in_file call triggers log_file_edit_event with the matching event."""
         import datetime
 
         from agentception.models import FileEditEvent
@@ -2202,8 +2200,6 @@ class TestFileEditQueue:
 
         fake_memory = {"files_written": [fake_event]}
 
-        queue: asyncio.Queue[FileEditEvent] = asyncio.Queue()
-
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
@@ -2232,6 +2228,10 @@ class TestFileEditQueue:
                 return_value={"ok": True},
             ),
             patch(
+                "agentception.services.agent_loop.log_file_edit_event",
+                new_callable=AsyncMock,
+            ) as mock_log_edit,
+            patch(
                 "agentception.services.agent_loop.GitHubMCPClient",
                 return_value=_mock_github_client(),
             ),
@@ -2253,17 +2253,15 @@ class TestFileEditQueue:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
 
-            await run_agent_loop("run-feq-write", file_edit_queue=queue)
+            await run_agent_loop("run-feq-write")
 
-        assert not queue.empty(), "Expected one FileEditEvent on the queue"
-        event = queue.get_nowait()
-        assert isinstance(event, FileEditEvent)
-        assert event.path == written_path
+        mock_log_edit.assert_awaited_once()
+        call_args = mock_log_edit.call_args
+        assert call_args.args[1].path == written_path
 
     @pytest.mark.anyio
-    async def test_file_edit_queue_not_emitted_for_read(self, tmp_path: Path) -> None:
-        """A read_file call does NOT put anything on the queue."""
-        import asyncio
+    async def test_file_edit_event_not_logged_for_read(self, tmp_path: Path) -> None:
+        """A read_file call does NOT trigger log_file_edit_event."""
         import datetime
 
         from agentception.models import FileEditEvent
@@ -2287,8 +2285,6 @@ class TestFileEditQueue:
 
         fake_memory = {"files_written": [fake_event]}
 
-        queue: asyncio.Queue[FileEditEvent] = asyncio.Queue()
-
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
@@ -2317,6 +2313,10 @@ class TestFileEditQueue:
                 return_value={"ok": True},
             ),
             patch(
+                "agentception.services.agent_loop.log_file_edit_event",
+                new_callable=AsyncMock,
+            ) as mock_log_edit,
+            patch(
                 "agentception.services.agent_loop.GitHubMCPClient",
                 return_value=_mock_github_client(),
             ),
@@ -2338,7 +2338,7 @@ class TestFileEditQueue:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
 
-            await run_agent_loop("run-feq-read", file_edit_queue=queue)
+            await run_agent_loop("run-feq-read")
 
-        assert queue.empty(), "Queue must be empty — read_file is not a file-mutating tool"
+        mock_log_edit.assert_not_awaited()
 
