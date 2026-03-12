@@ -55,8 +55,8 @@
     <a class="build-issue__number" href="{{ issue.url }}" target="_blank" rel="noopener" @click.stop>
       #{{ issue.number }}
     </a>
-    {# Role label pill — shown in TODO and Active #}
-    {% if lane in ('todo', 'active') %}
+    {# Role label pill — shown in TODO lane only #}
+    {% if lane == 'todo' %}
     {% set lns = namespace(role_label=none) %}
     {% for lbl in issue.labels %}
       {% if lns.role_label is none and lbl != initiative and "/" not in lbl and not lbl.startswith('phase-') %}
@@ -97,7 +97,6 @@
   {% if lane == 'active' and active_run %}
   <div class="build-issue__footer">
     <div class="build-issue__run">
-      <span class="build-issue__role">{{ active_run.role | replace('-', ' ') | title }}</span>
       <span class="build-issue__status build-issue__status--{{ active_run.agent_status }}">
         {%- if active_run.agent_status == 'stale' %}⚠ stale{%- else %}{{ active_run.agent_status }}{%- endif %}
       </span>
@@ -109,6 +108,9 @@
     <div class="build-issue__progress">
       <span class="build-issue__step-count">{{ active_run.steps_completed }} steps</span>
     </div>
+    {% endif %}
+    {% if issue.body_excerpt %}
+    <p class="build-issue__excerpt">{{ issue.body_excerpt }}</p>
     {% endif %}
   </div>
 
