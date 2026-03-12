@@ -1884,12 +1884,28 @@ async def _dispatch_single_tool(
     name = tool_call["function"]["name"]
     args_str = tool_call["function"]["arguments"]
 
-    logger.info("✅ dispatch_tool — run_id=%s tool=%s", run_id, name)
-
     try:
         args: dict[str, object] = json.loads(args_str)
     except json.JSONDecodeError as exc:
         return {"ok": False, "error": f"Invalid tool arguments (JSON parse error): {exc}"}
+
+    # Log tool name + the single most useful arg so watch_run.py can show
+    # what was searched / read / written without needing a second log line.
+    _KEY_ARG: dict[str, str] = {
+        "search_codebase": "query",
+        "search_text": "pattern",
+        "read_file": "path",
+        "read_file_lines": "path",
+        "write_file": "path",
+        "replace_in_file": "path",
+        "insert_after_in_file": "path",
+        "create_directory": "path",
+        "list_directory": "path",
+    }
+    _key = _KEY_ARG.get(name)
+    _val = args.get(_key) if _key else None
+    _arg_tag = f" {_key}={str(_val)!r}" if isinstance(_val, str) else ""
+    logger.info("✅ dispatch_tool — run_id=%s tool=%s%s", run_id, name, _arg_tag)
 
     if name in _LOCAL_TOOL_NAMES:
         return await _dispatch_local_tool(name, args, worktree_path)
