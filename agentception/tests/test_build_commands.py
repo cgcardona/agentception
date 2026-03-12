@@ -266,3 +266,110 @@ async def test_redispatch_skipped_after_passing_grade() -> None:
 
     # The mock should never have been called (create_task wraps the coroutine).
     mock_redispatch.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_build_complete_run_rejects_empty_grade_from_reviewer() -> None:
+    """build_complete_run returns an error dict when reviewer passes grade=''.
+
+    Regression: an empty grade must be caught before merge/redispatch logic
+    runs so the LLM sees a structured error and can retry with a valid grade.
+    """
+    from agentception.mcp.build_commands import build_complete_run
+
+    reviewer_run_id = "reviewer-issue-99-empty"
+
+    with (
+        patch(
+            "agentception.mcp.build_commands.persist_agent_event",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agentception.mcp.build_commands.complete_agent_run",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands.get_agent_run_role",
+            new_callable=AsyncMock,
+            return_value="reviewer",
+        ),
+        patch(
+            "agentception.mcp.build_commands.auto_redispatch_after_rejection",
+            new_callable=AsyncMock,
+        ) as mock_redispatch,
+        patch(
+            "agentception.mcp.build_commands.teardown_agent_worktree",
+            new_callable=AsyncMock,
+        ) as mock_teardown,
+        patch(
+            "agentception.mcp.build_commands.asyncio.create_task",
+        ) as mock_create_task,
+    ):
+        result = await build_complete_run(
+            issue_number=99,
+            pr_url="https://github.com/cgcardona/agentception/pull/999",
+            agent_run_id=reviewer_run_id,
+            grade="",
+            reviewer_feedback="",
+        )
+
+    assert "error" in result
+    assert "A, B, C, D, F" in str(result["error"])
+    mock_redispatch.assert_not_called()
+    mock_teardown.assert_not_called()
+    mock_create_task.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_build_complete_run_rejects_whitespace_grade_from_reviewer() -> None:
+    """build_complete_run returns an error dict when reviewer passes grade='   '.
+
+    Whitespace-only input must be caught after normalisation (strip + upper)
+    the same way an empty string is caught.
+    """
+    from agentception.mcp.build_commands import build_complete_run
+
+    reviewer_run_id = "reviewer-issue-99-whitespace"
+
+    with (
+        patch(
+            "agentception.mcp.build_commands.persist_agent_event",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agentception.mcp.build_commands.complete_agent_run",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands.get_agent_run_role",
+            new_callable=AsyncMock,
+            return_value="reviewer",
+        ),
+        patch(
+            "agentception.mcp.build_commands.auto_redispatch_after_rejection",
+            new_callable=AsyncMock,
+        ) as mock_redispatch,
+        patch(
+            "agentception.mcp.build_commands.teardown_agent_worktree",
+            new_callable=AsyncMock,
+        ) as mock_teardown,
+        patch(
+            "agentception.mcp.build_commands.asyncio.create_task",
+        ) as mock_create_task,
+    ):
+        result = await build_complete_run(
+            issue_number=99,
+            pr_url="https://github.com/cgcardona/agentception/pull/999",
+            agent_run_id=reviewer_run_id,
+            grade="   ",
+            reviewer_feedback="",
+        )
+
+    assert "error" in result
+    assert "A, B, C, D, F" in str(result["error"])
+    mock_redispatch.assert_not_called()
+    mock_teardown.assert_not_called()
+    mock_create_task.assert_not_called()
+

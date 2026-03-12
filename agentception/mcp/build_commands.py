@@ -245,8 +245,18 @@ async def build_complete_run(
     # redispatch a corrected developer run.
     caller_role = await get_agent_run_role(agent_run_id) if agent_run_id else None
     if caller_role == "reviewer":
+        VALID_REVIEWER_GRADES: frozenset[str] = frozenset({"A", "B", "C", "D", "F"})
         _FAILING_GRADES: frozenset[str] = frozenset({"C", "D", "F"})
         normalised_grade = grade.strip().upper()
+        # Reviewer must commit to a valid grade before merge/redispatch logic runs.
+        if normalised_grade not in VALID_REVIEWER_GRADES:
+            return {
+                "error": (
+                    f"Invalid grade {normalised_grade!r}. "
+                    "Reviewer must supply one of: A, B, C, D, F. "
+                    "Call build_complete_run again with a valid grade."
+                )
+            }
         if normalised_grade in _FAILING_GRADES:
             logger.info(
                 "ℹ️ build_complete_run: reviewer rejected (grade=%r) — "
