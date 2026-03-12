@@ -24,10 +24,52 @@ from sqlalchemy import func, select
 
 from agentception.db.engine import get_session
 from agentception.db.models import ACAgentMessage, ACAgentRun
+from agentception.db.queries import get_file_edit_events
+from agentception.models import FileEditEvent
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/runs", tags=["runs"])
+
+
+# ---------------------------------------------------------------------------
+# GET /api/runs/{run_id}/memory — file-edit history for the inspector panel
+# ---------------------------------------------------------------------------
+
+
+class MemoryResponse(BaseModel):
+    """Response for GET /api/runs/{run_id}/memory.
+
+    ``files_written`` is the ordered list of file-edit events recorded by the
+    agent during its run, each carrying a unified diff for inspector rendering.
+    """
+
+    files_written: list[FileEditEvent]
+
+
+@router.get("/{run_id}/memory", response_model=MemoryResponse)
+async def get_run_memory(run_id: str) -> MemoryResponse:
+    """Return file-edit history for a run.
+
+    Queries ``ACAgentEvent`` rows with ``event_type='file_edit'`` for the
+    given run.  Returns HTTP 404 when the run does not exist in the ``runs``
+    table.
+    """
+    try:
+        async with get_session() as session:
+            run_exists = await session.scalar(
+                select(func.count()).select_from(ACAgentRun).where(ACAgentRun.id == run_id)
+            )
+        if not run_exists:
+            raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("❌ get_run_memory run-check failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to check run existence") from exc
+
+    events = await get_file_edit_events(run_id)
+    return MemoryResponse(files_written=events)
 
 
 # ---------------------------------------------------------------------------

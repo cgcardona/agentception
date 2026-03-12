@@ -485,6 +485,9 @@ class AgentThoughtRow(TypedDict):
 
 logger = logging.getLogger(__name__)
 
+# Imported here to avoid a circular import at module top-level.
+from agentception.models import FileEditEvent  # noqa: E402
+
 
 # ---------------------------------------------------------------------------
 # Board issues — replaces live gh CLI call in the overview sidebar
@@ -3003,3 +3006,46 @@ async def load_execution_plan(run_id: str) -> str | None:
             "⚠️  load_execution_plan DB query failed (non-fatal): %s", exc
         )
         return None
+
+# ---------------------------------------------------------------------------
+# File-edit events — inspector panel memory surface
+# ---------------------------------------------------------------------------
+
+
+async def get_file_edit_events(run_id: str) -> list[FileEditEvent]:
+    """Return all file-edit events for *run_id* from ``agent_events``.
+
+    Queries ``ACAgentEvent`` rows where ``agent_run_id = run_id`` AND
+    ``event_type = 'file_edit'``, then deserializes each row's ``payload``
+    JSON field as a :class:`~agentception.models.FileEditEvent`.  Rows whose
+    payload cannot be deserialized are silently skipped.  Falls back to ``[]``
+    on DB error (non-fatal).
+    """
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentEvent)
+                .where(
+                    ACAgentEvent.agent_run_id == run_id,
+                    ACAgentEvent.event_type == "file_edit",
+                )
+                .order_by(ACAgentEvent.id)
+            )
+            rows = result.scalars().all()
+
+        events: list[FileEditEvent] = []
+        for row in rows:
+            try:
+                payload = json.loads(row.payload or "{}")
+                events.append(FileEditEvent(**payload))
+            except Exception as parse_exc:
+                logger.warning(
+                    "⚠️  get_file_edit_events: skipping unparseable payload id=%d: %s",
+                    row.id,
+                    parse_exc,
+                )
+        return events
+    except Exception as exc:
+        logger.warning("⚠️  get_file_edit_events DB query failed (non-fatal): %s", exc)
+        return []
+
