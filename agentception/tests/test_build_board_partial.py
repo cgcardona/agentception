@@ -195,8 +195,8 @@ def test_build_board_partial_shows_status_badge(client: TestClient) -> None:
         resp = client.get("/ship/agentception/phase-1/board")
 
     assert resp.status_code == 200
-    # The agent_status badge is suppressed for "implementing" — only stale renders a badge.
-    assert "build-issue__status" not in resp.text
+    # The status badge is always rendered; for "implementing" it shows the status text.
+    assert "build-issue__status--implementing" in resp.text
 
 
 def test_build_board_partial_reviewing_suppresses_status_badge(client: TestClient) -> None:
@@ -225,7 +225,8 @@ def test_build_board_partial_reviewing_suppresses_status_badge(client: TestClien
         resp = client.get("/ship/agentception/phase-1/board")
 
     assert resp.status_code == 200
-    assert "build-issue__status" not in resp.text
+    # The status badge is always rendered; for "reviewing" it shows the status text.
+    assert "build-issue__status--reviewing" in resp.text
 
 
 def test_build_board_partial_stale_renders_status_badge(client: TestClient) -> None:
@@ -282,7 +283,9 @@ def test_build_board_partial_shows_current_step(client: TestClient) -> None:
 
     assert resp.status_code == 200
     assert "Running mypy checks" in resp.text
-    assert "3 steps" in resp.text
+    assert "build-issue__step-badge" in resp.text
+    # steps_completed counter is removed from the template
+    assert "3 steps" not in resp.text
 
 
 def test_build_board_partial_no_run_renders_without_error(
