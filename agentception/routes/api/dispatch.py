@@ -79,7 +79,7 @@ from agentception.db.queries import get_label_context
 from agentception.services.agent_loop import run_agent_loop
 from agentception.services.code_indexer import SearchMatch, search_codebase
 from agentception.services.cognitive_arch import _resolve_cognitive_arch
-from agentception.services.context_assembler import assemble_executor_context
+from agentception.services.context_assembler import assemble_developer_context
 from agentception.services.run_factory import _configure_worktree_auth, _index_worktree
 from agentception.services.working_memory import WorkingMemory, write_memory
 from agentception.services.spawn_child import (
@@ -719,7 +719,7 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
 
     try:
         # reset=True for implementers: if a stale worktree/branch exists from a
-        # prior run, tear it down first so the executor always starts from a
+        # prior run, tear it down first so the developer always starts from a
         # clean origin/dev.  Reviewers use reset=False — they reuse the branch
         # the implementer already pushed.
         await ensure_worktree(Path(worktree_path), branch, worktree_base, reset=not is_reviewer)
@@ -845,13 +845,13 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
     # ---------------------------------------------------------------------------
     # Run the deterministic context assembler at dispatch time (zero LLM calls,
     # ~300 ms) to pre-extract exact function/class scope bodies relevant to the
-    # issue.  The result is appended to task_description so the executor starts
+    # issue.  The result is appended to task_description so the developer starts
     # from turn 1 with precise code context — no file reads, no discovery loop.
     # ---------------------------------------------------------------------------
     effective_role = req.role
     if req.role == "developer" and task_description and effective_issue_body:
         try:
-            assembled = await assemble_executor_context(
+            assembled = await assemble_developer_context(
                 issue_title=req.issue_title or "",
                 issue_body=effective_issue_body,
                 worktree_path=Path(worktree_path),
