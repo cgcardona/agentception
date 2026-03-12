@@ -25,6 +25,13 @@ from agentception.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Semaphore that limits concurrent ``git worktree add`` calls.
+# git serialises writes to .git/config via a lockfile; racing more than
+# one add at a time causes "could not lock config file" failures.
+# 5 concurrent slots give ~2-3 new worktrees/second — enough for
+# hundreds of dispatches per minute.
+_WORKTREE_ADD_SEM: asyncio.Semaphore = asyncio.Semaphore(5)
+
 # Matches any branch created by AgentCeption:
 #   agent/*  — dispatcher-created top-level worktree branches
 #   ac/*     — pipeline branches (engineer, coordinator, reviewer)
@@ -358,86 +365,93 @@ async def ensure_worktree(
     """
     repo = str(settings.repo_dir)
 
-    dir_exists = worktree_path.exists()
-
     # Fast path: directory exists and no reset requested — fully idempotent.
-    if dir_exists and not reset:
+    # Check outside the semaphore to avoid unnecessary contention.
+    if worktree_path.exists() and not reset:
         logger.debug("Worktree %s already exists — skipping creation", worktree_path)
         return False
 
-    existing_branch = await _git(["branch", "--list", branch])
-    branch_exists = bool(existing_branch.strip())
+    async with _WORKTREE_ADD_SEM:
+        dir_exists = worktree_path.exists()
 
-    # -----------------------------------------------------------------------
-    # Reset path: tear down whatever exists so we start clean from base.
-    # -----------------------------------------------------------------------
-    if reset and (dir_exists or branch_exists):
-        if dir_exists:
-            # Remove the worktree linkage and the directory.
-            rm_proc = await asyncio.create_subprocess_exec(
-                "git", "-C", repo, "worktree", "remove", "--force", str(worktree_path),
+        # Re-check inside the lock — another coroutine may have created it.
+        if dir_exists and not reset:
+            logger.debug("Worktree %s already exists — skipping creation", worktree_path)
+            return False
+
+        existing_branch = await _git(["branch", "--list", branch])
+        branch_exists = bool(existing_branch.strip())
+
+        # -----------------------------------------------------------------------
+        # Reset path: tear down whatever exists so we start clean from base.
+        # -----------------------------------------------------------------------
+        if reset and (dir_exists or branch_exists):
+            if dir_exists:
+                # Remove the worktree linkage and the directory.
+                rm_proc = await asyncio.create_subprocess_exec(
+                    "git", "-C", repo, "worktree", "remove", "--force", str(worktree_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await rm_proc.communicate()
+                # If git worktree remove left the dir, wipe it.
+                if worktree_path.exists():
+                    shutil.rmtree(worktree_path, ignore_errors=True)
+                logger.info("✅ ensure_worktree: removed stale worktree %s for reset", worktree_path)
+
+            if branch_exists:
+                del_proc = await asyncio.create_subprocess_exec(
+                    "git", "-C", repo, "branch", "-D", branch,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await del_proc.communicate()
+                logger.info("✅ ensure_worktree: deleted stale branch %s for reset", branch)
+
+            # Delete the remote branch so the next push starts from a clean slate.
+            # Silently ignores failure — the remote branch may not exist.
+            remote_del = await asyncio.create_subprocess_exec(
+                "git", "-C", repo, "push", "origin", "--delete", branch,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            await rm_proc.communicate()
-            # If git worktree remove left the dir, wipe it.
-            if worktree_path.exists():
-                shutil.rmtree(worktree_path, ignore_errors=True)
-            logger.info("✅ ensure_worktree: removed stale worktree %s for reset", worktree_path)
+            await remote_del.communicate()
+            logger.info("✅ ensure_worktree: deleted remote branch %s (if existed)", branch)
+
+            # Prune stale worktree refs.
+            prune_proc = await asyncio.create_subprocess_exec(
+                "git", "-C", repo, "worktree", "prune",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await prune_proc.communicate()
+
+            dir_exists = False
+            branch_exists = False
+
+        worktree_path.parent.mkdir(parents=True, exist_ok=True)
 
         if branch_exists:
-            del_proc = await asyncio.create_subprocess_exec(
-                "git", "-C", repo, "branch", "-D", branch,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await del_proc.communicate()
-            logger.info("✅ ensure_worktree: deleted stale branch %s for reset", branch)
+            # Branch exists but worktree dir does not — reattach without -b.
+            cmd = ["git", "-C", repo, "worktree", "add", str(worktree_path), branch]
+        else:
+            # Neither exists — create branch and worktree together from base.
+            cmd = ["git", "-C", repo, "worktree", "add", "-b", branch, str(worktree_path), base]
 
-        # Delete the remote branch so the next push starts from a clean slate.
-        # Silently ignores failure — the remote branch may not exist.
-        remote_del = await asyncio.create_subprocess_exec(
-            "git", "-C", repo, "push", "origin", "--delete", branch,
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        await remote_del.communicate()
-        logger.info("✅ ensure_worktree: deleted remote branch %s (if existed)", branch)
+        stdout, stderr = await proc.communicate()
 
-        # Prune stale worktree refs.
-        prune_proc = await asyncio.create_subprocess_exec(
-            "git", "-C", repo, "worktree", "prune",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        await prune_proc.communicate()
-
-        dir_exists = False
-        branch_exists = False
-
-    worktree_path.parent.mkdir(parents=True, exist_ok=True)
-
-    if branch_exists:
-        # Branch exists but worktree dir does not — reattach without -b.
-        cmd = ["git", "-C", repo, "worktree", "add", str(worktree_path), branch]
-    else:
-        # Neither exists — create branch and worktree together from base.
-        cmd = ["git", "-C", repo, "worktree", "add", "-b", branch, str(worktree_path), base]
-
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await proc.communicate()
-
-    if proc.returncode != 0:
-        err = stderr.decode().strip()
-        # If the error is "already exists", treat as idempotent success
-        if "already exists" in err.lower():
-            logger.debug("Worktree %s already exists (detected via error) — skipping", worktree_path)
-            return False
-        raise RuntimeError(f"git worktree add failed: {err}")
+        if proc.returncode != 0:
+            err = stderr.decode().strip()
+            # If the error is "already exists", treat as idempotent success
+            if "already exists" in err.lower():
+                logger.debug("Worktree %s already exists (detected via error) — skipping", worktree_path)
+                return False
+            raise RuntimeError(f"git worktree add failed: {err}")
 
     logger.info("✅ Created worktree %s on branch %s", worktree_path, branch)
     _symlink_frontend_resources(worktree_path)

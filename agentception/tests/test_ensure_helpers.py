@@ -147,6 +147,45 @@ async def test_ensure_worktree_reset_deletes_remote_branch_stale_state(tmp_path:
     assert branch in push_delete_calls[0], f"Must delete branch {branch!r}, got: {push_delete_calls[0]}"
 
 
+@pytest.mark.anyio
+async def test_concurrent_worktree_creation_does_not_race(tmp_path: Path) -> None:
+    """10 concurrent ensure_worktree() calls all succeed without racing.
+
+    Regression test for: concurrent ``git worktree add`` calls race on
+    ``.git/config.lock``, causing "could not lock config file" failures when
+    3+ agents are dispatched within the same second.
+
+    Safety property: no caller ever sees a RuntimeError due to lock contention.
+    Liveness property: all 10 callers eventually return True.
+    Semaphore invariant: _WORKTREE_ADD_SEM._value == 5 after all tasks complete,
+    confirming no slot was leaked.
+    """
+    from agentception.readers.git import _WORKTREE_ADD_SEM
+
+    mock_proc = AsyncMock()
+    mock_proc.returncode = 0
+    mock_proc.communicate.return_value = (b"", b"")
+
+    with (
+        patch("agentception.readers.git._git", new_callable=AsyncMock, return_value=""),
+        patch("agentception.readers.git.asyncio.create_subprocess_exec", return_value=mock_proc),
+        patch("agentception.readers.git._symlink_frontend_resources"),
+    ):
+        results = await asyncio.gather(
+            *[
+                ensure_worktree(tmp_path / f"issue-{i}", f"feat/issue-{i}", "origin/dev")
+                for i in range(10)
+            ]
+        )
+
+    assert all(r is True for r in results), (
+        f"All 10 concurrent ensure_worktree calls must return True; got: {results}"
+    )
+    assert _WORKTREE_ADD_SEM._value == 5, (
+        f"Semaphore must be fully released after all tasks complete; value={_WORKTREE_ADD_SEM._value}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # ensure_branch
 # ---------------------------------------------------------------------------
