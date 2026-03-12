@@ -41,8 +41,10 @@ _RE_RUN_STEP = re.compile(
 _RE_ITERATION = re.compile(r"Step\s+(?P<n>\d+)")
 
 # dispatch_tool — run_id tag (agent_loop.py)
+# Optional trailing: key='value' (e.g. query='…', path='…', pattern='…')
 _RE_DISPATCH_TOOL = re.compile(
     r"dispatch_tool — run_id=(?P<run_id>\S+) tool=(?P<tool>\S+)"
+    r"(?:\s+\S+=(?P<arg>'[^']*'|\"[^\"]*\"|[^'\"\s]+))?"
 )
 
 # file_tools result lines (agentception.tools.file_tools)
@@ -110,6 +112,7 @@ class _State:
     current_run_id: str | None = None
     iteration: int = 0
     history_len: int = 0
+    pending_arg: str = ""  # key arg from last dispatch_tool, used by result-line renderers
 
 
 _state = _State()
@@ -238,18 +241,30 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
             return None
         _state.current_run_id = rid
         tool_name = dtm.group("tool")
+        raw_arg = dtm.group("arg") or ""
+        # Strip surrounding quotes from the captured arg value
+        arg_val = raw_arg.strip("'\"") if raw_arg else ""
+        # Truncate long values (e.g. long search queries) for display
+        if len(arg_val) > 90:
+            arg_val = arg_val[:90] + "…"
+        arg_suffix = f"  {GREY}{arg_val}{RESET}" if arg_val else ""
+
         if tool_name in _RESULT_LINE_TOOLS:
-            return None  # wait for the file_tools result line
+            # File-tool result lines already show path — store arg for them
+            # to use, but suppress the dispatch line itself.
+            _state.pending_arg = arg_val
+            return None
         if tool_name in _DISPATCH_ONLY_TOOLS:
-            return f"{ts}  {BLUE}{_tool_icon('read_file_lines')} {tool_name}{RESET}"
+            path = _shorten_path(arg_val) if arg_val else tool_name
+            return f"{ts}  {BLUE}{_tool_icon('read_file_lines')} read{RESET}  {WHITE}{path}{RESET}"
         if tool_name in ("search_codebase", "search_text"):
-            return f"{ts}  {BLUE}🔍 {tool_name}{RESET}"
+            return f"{ts}  {BLUE}🔍 {tool_name}{RESET}{arg_suffix}"
         if tool_name in ("log_run_step", "git_commit_and_push", "run_command"):
             return None  # rendered via dedicated patterns below
         # GitHub MCP tools and anything else — show immediately
         if any(gh in tool_name for gh in ("pull_request", "issue_", "create_branch", "list_branch", "get_me", "search_")):
-            return f"{ts}  {CYAN}🐙 {tool_name}{RESET}"
-        return f"{ts}  {BLUE}{_tool_icon(tool_name)} {tool_name}{RESET}"
+            return f"{ts}  {CYAN}🐙 {tool_name}{RESET}{arg_suffix}"
+        return f"{ts}  {BLUE}{_tool_icon(tool_name)} {tool_name}{RESET}{arg_suffix}"
 
     # ── file_tools result lines (rendered independently of dispatch) ───────────
 
