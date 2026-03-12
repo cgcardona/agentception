@@ -1214,39 +1214,6 @@ $_sw-gap: 0.5rem;
   min-width: 0;
 }
 
-// ── Inspector chat box ────────────────────────────────────────────────────────
-
-.build-inspector__chat {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.625rem 0.875rem;
-  border-top: 1px solid var(--border-subtle);
-  flex-shrink: 0;
-}
-
-
-.build-inspector__agent-actions {
-  display: flex;
-  gap: 0.375rem;
-}
-
-.build-inspector__stop-btn {
-  flex: 1;
-  padding: 0.3rem 0.5rem;
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: var(--danger);
-  background: var(--danger-dim);
-  border: 1px solid var(--danger-border);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: background 0.15s;
-
-  &:hover { background: rgba(244, 63, 94, 0.18); }
-  &:disabled { opacity: 0.4; cursor: default; }
-}
-
 // ── Agent hierarchy tier badge ────────────────────────────────────────────────
 
 .build-issue__tier {
