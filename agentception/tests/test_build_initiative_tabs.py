@@ -1,7 +1,8 @@
 """Tests for GET /ship/{repo}/initiatives — initiative tab nav partial."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from contextlib import AbstractContextManager
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -18,7 +19,7 @@ def client() -> TestClient:
     return TestClient(app, raise_server_exceptions=True)
 
 
-def _patch_initiatives(initiatives: list[str]):
+def _patch_initiatives(initiatives: list[str]) -> AbstractContextManager[MagicMock]:
     """Patch get_initiatives in the build_ui module to return *initiatives*."""
     return patch(
         "agentception.routes.ui.build_ui.get_initiatives",
