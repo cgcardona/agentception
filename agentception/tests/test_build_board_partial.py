@@ -9,8 +9,9 @@ Coverage:
 - _compute_agent_status() keeps active status for recent activity
 - _compute_agent_status() handles None last_activity_at safely
 - get_runs_for_issue_numbers() returns empty dict for empty input
-- build board partial (GET /build/board) includes status badge text for a
-  mocked run in "implementing" state
+- build board partial (GET /build/board) suppresses status badge for
+  "implementing" and "reviewing" active-lane cards
+- build board partial renders ⚠ stale badge for "stale" active-lane cards
 - build board partial renders without error for a card with no agent run
 - _get_step_data_for_runs() returns empty dict for empty input
 
@@ -196,6 +197,64 @@ def test_build_board_partial_shows_status_badge(client: TestClient) -> None:
     assert resp.status_code == 200
     # The agent_status badge is suppressed for "implementing" — only stale renders a badge.
     assert "build-issue__status" not in resp.text
+
+
+def test_build_board_partial_reviewing_suppresses_status_badge(client: TestClient) -> None:
+    """GET /build/board must NOT render a status badge for a 'reviewing' active-lane card.
+
+    The template suppresses the badge for both 'implementing' and 'reviewing'
+    statuses — only 'stale' renders a visible badge.
+    """
+    with (
+        patch(
+            "agentception.routes.ui.build_ui.get_issues_grouped_by_phase",
+            new_callable=AsyncMock,
+            return_value=_mock_group(),
+        ),
+        patch(
+            "agentception.routes.ui.build_ui.get_runs_for_issue_numbers",
+            new_callable=AsyncMock,
+            return_value={82: _mock_run_dict(agent_status="reviewing", status="reviewing")},
+        ),
+        patch(
+            "agentception.routes.ui.build_ui.get_workflow_states_by_issue",
+            new_callable=AsyncMock,
+            return_value={82: {"lane": "active", "pr_number": None}},
+        ),
+    ):
+        resp = client.get("/ship/agentception/phase-1/board")
+
+    assert resp.status_code == 200
+    assert "build-issue__status" not in resp.text
+
+
+def test_build_board_partial_stale_renders_status_badge(client: TestClient) -> None:
+    """GET /build/board must render the ⚠ stale badge for a 'stale' active-lane card.
+
+    The template only renders a status badge when agent_status is 'stale'.
+    """
+    with (
+        patch(
+            "agentception.routes.ui.build_ui.get_issues_grouped_by_phase",
+            new_callable=AsyncMock,
+            return_value=_mock_group(),
+        ),
+        patch(
+            "agentception.routes.ui.build_ui.get_runs_for_issue_numbers",
+            new_callable=AsyncMock,
+            return_value={82: _mock_run_dict(agent_status="stale", status="stale")},
+        ),
+        patch(
+            "agentception.routes.ui.build_ui.get_workflow_states_by_issue",
+            new_callable=AsyncMock,
+            return_value={82: {"lane": "active", "pr_number": None}},
+        ),
+    ):
+        resp = client.get("/ship/agentception/phase-1/board")
+
+    assert resp.status_code == 200
+    assert "build-issue__status--stale" in resp.text
+    assert "⚠ stale" in resp.text
 
 
 def test_build_board_partial_shows_current_step(client: TestClient) -> None:
