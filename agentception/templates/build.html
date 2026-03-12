@@ -36,7 +36,7 @@
     <!-- initiatives tab nav: must remain outside #build-board swap target -->
     <div
       id="initiative-tabs-nav"
-      hx-get="/ship/{{ repo_name }}/initiatives"
+      hx-get="/api/ship/{{ repo_name }}/initiative-tabs"
       hx-trigger="load, every 30s"
       hx-swap="innerHTML"
       hx-vals='{"initiative": "{{ initiative }}"}'

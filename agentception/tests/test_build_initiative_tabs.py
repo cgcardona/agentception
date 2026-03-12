@@ -1,4 +1,4 @@
-"""Tests for GET /ship/{repo}/initiatives — initiative tab nav partial."""
+"""Tests for GET /api/ship/{repo}/initiative-tabs — initiative tab nav partial."""
 from __future__ import annotations
 
 from contextlib import AbstractContextManager
@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from agentception.app import app
 
 _REPO = "agentception"
-_URL = f"/ship/{_REPO}/initiatives"
+_URL = f"/api/ship/{_REPO}/initiative-tabs"
 _INITIATIVES = ["mcp-audit-remediation", "auth-rewrite", "ac-plan"]
 
 
@@ -28,7 +28,7 @@ def _patch_initiatives(initiatives: list[str]) -> AbstractContextManager[MagicMo
 
 
 def test_initiatives_endpoint_200(client: TestClient) -> None:
-    """GET /ship/{repo}/initiatives returns HTTP 200 with text/html content-type."""
+    """GET /api/ship/{repo}/initiative-tabs returns HTTP 200 with text/html content-type."""
     with _patch_initiatives(_INITIATIVES):
         response = client.get(_URL)
 
@@ -60,9 +60,9 @@ def test_initiatives_endpoint_marks_active_tab(client: TestClient) -> None:
 
 
 def test_initiatives_endpoint_unknown_repo_returns_404(client: TestClient) -> None:
-    """GET /ship/nonexistent-repo/initiatives returns HTTP 404."""
+    """GET /api/ship/nonexistent-repo/initiative-tabs returns HTTP 404."""
     with _patch_initiatives(_INITIATIVES):
-        response = client.get("/ship/nonexistent-repo/initiatives")
+        response = client.get("/api/ship/nonexistent-repo/initiative-tabs")
 
     assert response.status_code == 404
 
@@ -141,7 +141,7 @@ def test_full_page_has_htmx_polling_div(client: TestClient) -> None:
     body = response.text
 
     assert 'hx-get=' in body
-    assert '/initiatives' in body
+    assert '/initiative-tabs' in body
     assert 'hx-trigger=' in body
     assert 'every 30s' in body
     assert 'hx-swap=' in body

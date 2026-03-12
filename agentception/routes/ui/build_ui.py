@@ -240,17 +240,25 @@ async def ship_redirect() -> Response:
 
 
 # ---------------------------------------------------------------------------
-# GET /ship/{repo}/initiatives — HTMX initiative tab nav partial
+# GET /api/ship/{repo}/initiative-tabs — HTMX initiative tab nav partial
+# ---------------------------------------------------------------------------
+# NOTE: must NOT live under /ship/{repo}/* because Starlette matches the
+# parametric route /ship/{repo}/{initiative} before literal segments at the
+# same depth, so /ship/{repo}/initiatives would silently serve the full page.
 # ---------------------------------------------------------------------------
 
 
-@router.get("/ship/{repo}/initiatives", response_class=HTMLResponse)
+@router.get("/api/ship/{repo}/initiative-tabs", response_class=HTMLResponse)
 async def initiative_tabs_partial(
     request: Request,
     repo: str,
     initiative: str = "",
 ) -> HTMLResponse:
     """Return the initiative tab nav as an HTML partial for HTMX swapping.
+
+    Registered under ``/api/ship/`` (not ``/ship/``) to avoid the Starlette
+    route-ordering conflict where ``/ship/{repo}/{initiative}`` would shadow
+    ``/ship/{repo}/initiatives`` regardless of registration order.
 
     Validates *repo* against the configured ``settings.gh_repo`` and returns
     404 when it does not match.  Accepts an optional ``?initiative=<slug>``
