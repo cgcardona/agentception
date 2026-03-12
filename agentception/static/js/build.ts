@@ -12,6 +12,8 @@
  */
 
 import { marked } from 'marked';
+import { attachFileEditHandler } from './file_edit_card';
+import { attachThoughtHandler } from './thought_block';
 
 // ── Domain types ─────────────────────────────────────────────────────────────
 
@@ -253,6 +255,8 @@ export function buildPage() {
       this._closeStream();
       const src = new EventSource(`/ship/runs/${encodeURIComponent(runId)}/stream`);
       this._evtSource = src;
+      attachFileEditHandler(src);
+      attachThoughtHandler(src);
       this.streamOpen = true;
 
       src.onmessage = (e: MessageEvent<string>) => {
