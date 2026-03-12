@@ -748,6 +748,55 @@ class TestLLMSSLRetry:
 
 
 # ---------------------------------------------------------------------------
+    @pytest.mark.anyio
+    async def test_llm_retries_on_529_overloaded(self) -> None:
+        """call_anthropic_with_tools retries on HTTP 529 (overloaded_error) and succeeds."""
+        import httpx
+
+        from agentception.services.llm import call_anthropic_with_tools
+
+        call_count = 0
+
+        async def _flaky_post(
+            url: str, *, json: object, headers: dict[str, str]
+        ) -> httpx.Response:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                resp = httpx.Response(529, json={"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}})
+                resp.request = httpx.Request("POST", url)
+                return resp
+            resp_data = {
+                "content": [{"type": "text", "text": "recovered"}],
+                "stop_reason": "end_turn",
+                "usage": {
+                    "input_tokens": 10,
+                    "output_tokens": 5,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                },
+            }
+            resp = httpx.Response(200, json=resp_data)
+            resp.request = httpx.Request("POST", url)
+            return resp
+
+        mock_client = MagicMock()
+        mock_client.post = _flaky_post
+
+        with patch(
+            "agentception.services.llm._get_client", return_value=mock_client
+        ), patch("agentception.services.llm.asyncio.sleep", new_callable=AsyncMock):
+            result = await call_anthropic_with_tools(
+                messages=self._MESSAGES,
+                system="sys",
+                tools=self._TOOLS,
+            )
+
+        assert result["content"] == "recovered"
+        assert call_count == 2
+
+
+# ---------------------------------------------------------------------------
 # Regression: loop exits when run is already in a terminal state
 # ---------------------------------------------------------------------------
 
