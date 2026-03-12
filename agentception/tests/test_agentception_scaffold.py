@@ -49,8 +49,8 @@ def test_settings_loads_defaults() -> None:
     """
     s = AgentCeptionSettings()
     assert s.gh_repo == "cgcardona/agentception"
-    assert s.poll_interval_seconds == 10
-    assert s.github_cache_seconds == 5
+    assert s.poll_interval_seconds == 5
+    assert s.github_cache_seconds == 4
     assert isinstance(s.worktrees_dir, __import__("pathlib").Path)
     assert str(s.worktrees_dir) != ""
 

@@ -70,9 +70,8 @@ def _cache_set(key: str, value: JsonValue) -> None:
     """Store *value* in the cache with a TTL of ``github_cache_seconds``.
 
     Invariant: TTL < poll_interval_seconds so every poller tick receives fresh
-    data from GitHub.  Default TTL is min(poll_interval_seconds / 2, 30) = 15 s
-    against the default 30 s poll interval.  If you raise the poll interval,
-    keep GITHUB_CACHE_SECONDS strictly below it.
+    data from GitHub.  Default TTL is 4 s against the default 5 s poll interval.
+    If you raise the poll interval, keep GITHUB_CACHE_SECONDS strictly below it.
     """
     expires_at = time.monotonic() + settings.github_cache_seconds
     _cache[key] = (value, expires_at)
