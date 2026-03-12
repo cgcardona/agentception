@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import datetime
 import logging
-from pathlib import Path
 from typing import TypedDict
 
 from fastapi import APIRouter
@@ -25,7 +24,6 @@ from agentception.db.queries import (
 from agentception.models import AgentNode, PipelineState, VALID_ROLES
 from agentception.poller import get_state
 from agentception.readers.pipeline_config import read_pipeline_config
-from agentception.readers.transcripts import read_transcript_messages
 from ._shared import (
     _TEMPLATES,
     _CATEGORY_ORDER,
@@ -510,8 +508,6 @@ async def agent_transcript_partial(request: Request, agent_id: str) -> Response:
             logger.debug("DB agent run lookup skipped for transcript partial: %s", exc)
 
     messages: list[dict[str, str]] = []
-    if node and node.transcript_path:
-        messages = await read_transcript_messages(Path(node.transcript_path))
 
     if not messages and db_messages:
         messages = [
@@ -606,12 +602,8 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
             worktree_path=db_run.get("worktree_path"),
         )
 
-    # Filesystem transcript takes priority — it's the live Cursor session.
+    # Messages come from DB; filesystem transcript reading is removed.
     messages: list[dict[str, str]] = []
-    if node and node.transcript_path:
-        messages = await read_transcript_messages(Path(node.transcript_path))
-
-    # Fall back to DB messages when the filesystem transcript is absent or empty.
     if not messages and db_messages:
         messages = [
             {"role": str(m.get("role", "")), "content": str(m.get("content", ""))}

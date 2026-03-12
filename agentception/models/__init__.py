@@ -85,8 +85,8 @@ class AgentStatus(str, Enum):
 class AgentNode(BaseModel):
     """A single agent in the pipeline tree.
 
-    Represents one Cursor/Claude agent instance that is either actively working
-    or has completed its assigned task. Children are spawned sub-agents.
+    Represents one agent instance that is either actively working or has
+    completed its assigned task. Children are spawned sub-agents.
 
     ``tier`` is the behavioral execution tier:
     - ``"coordinator"`` — surveys its scope and spawns children; any coordinator
@@ -110,7 +110,6 @@ class AgentNode(BaseModel):
     branch: str | None = None
     batch_id: str | None = None
     worktree_path: str | None = None
-    transcript_path: str | None = None
     message_count: int = 0
     last_activity_mtime: float = 0.0
     children: list[AgentNode] = []
