@@ -996,8 +996,15 @@ async def call_tool_async(
             )
         summary = arguments.get("summary", "")
         run_id = arguments.get("agent_run_id")
+        grade = arguments.get("grade", "")
+        reviewer_feedback = arguments.get("reviewer_feedback", "")
         result = await build_complete_run(
-            issue_num, pr_url, str(summary), str(run_id) if run_id else None
+            issue_num,
+            pr_url,
+            str(summary),
+            str(run_id) if run_id else None,
+            str(grade),
+            str(reviewer_feedback),
         )
         return ACToolResult(
             content=[ACToolContent(type="text", text=_tool_result_to_text(result))],

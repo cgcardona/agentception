@@ -26,7 +26,7 @@ class _StubRequest:
     url = _URL()
 
 
-def _render(template_name: str, ctx: dict) -> str:  # type: ignore[type-arg]
+def _render(template_name: str, ctx: dict[str, object]) -> str:
     """Render a Jinja2 template with a minimal stub context."""
     from urllib.parse import quote
     import json
@@ -96,7 +96,7 @@ def _has_load_trigger(html: str) -> bool:
 # Minimal stub context for build.html
 # ---------------------------------------------------------------------------
 
-_BUILD_CTX: dict = {  # type: ignore[type-arg]
+_BUILD_CTX: dict[str, object] = {
     "repo": "cgcardona/agentception",
     "repo_name": "agentception",
     "initiative": "test-initiative",
