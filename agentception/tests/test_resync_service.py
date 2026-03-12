@@ -29,9 +29,14 @@ async def test_resync_all_issues_returns_counts() -> None:
             new_callable=AsyncMock,
             return_value=8,
         ),
+        patch(
+            "agentception.services.resync_service.settings",
+        ) as mock_settings,
     ):
+        mock_settings.gh_repo = "owner/repo"
+
         from agentception.services.resync_service import resync_all_issues
 
-        result = await resync_all_issues("owner/repo")
+        result = await resync_all_issues()
 
     assert result == {"open": 5, "closed": 3, "upserted": 8}

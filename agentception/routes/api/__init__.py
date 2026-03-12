@@ -27,6 +27,7 @@ from .mcp import router as _mcp
 from .pipeline import router as _pipeline
 from .plan import router as _plan
 from .presets import router as _presets
+from .resync import router as _resync
 from .telemetry import router as _telemetry
 from .wizard import router as _wizard
 from .worktrees import router as _worktrees
@@ -39,6 +40,7 @@ router.include_router(_runs)
 router.include_router(_ship_api)
 router.include_router(_pipeline)
 router.include_router(_control)
+router.include_router(_resync)
 router.include_router(_config)
 router.include_router(_health)
 router.include_router(_version)

@@ -529,6 +529,28 @@ Legacy orchestration control endpoints. Prefer MCP tools for new integrations.
 | `POST` | `/api/control/sweep` | Sweep stale runs |
 | `POST` | `/api/control/reset-build` | Full reset: remove all worktrees, clear all agent/wip, set active runs to unknown |
 | `POST` | `/api/control/trigger-poll` | Trigger an immediate GitHub poll |
+| `POST` | `/api/control/resync-issues` | Force a full open+closed issue sync from GitHub |
+
+#### `POST /api/control/resync-issues`
+
+Forces an immediate, complete sync of all open issues and up to 1 000 recently-closed issues from the configured GitHub repository (`GH_REPO`). Useful for Mission Control and operator tooling to refresh the DB without restarting the server or waiting for the next poller tick.
+
+No request body is required. The repository is always taken from `settings.gh_repo` (`GH_REPO` env var).
+
+**Response (200 — success):**
+```json
+{"ok": true, "open": 42, "closed": 137, "upserted": 179}
+```
+
+**Response (422 — no repo configured):**
+```json
+{"ok": false, "error": "No repository configured. Set GH_REPO in the environment."}
+```
+
+**Response (503 — GitHub API error):**
+```json
+{"ok": false, "error": "<error message from GitHub>"}
+```
 
 ---
 
