@@ -456,3 +456,97 @@ async def test_assemble_executor_context_named_files_not_duplicated_in_qdrant(
 
     # File content appears once (in Pre-loaded Files), not again in Qdrant section.
     assert result.count("my_func") == 1
+
+
+# ---------------------------------------------------------------------------
+# assemble_executor_context — multi-language Tree-sitter integration
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_context_assembler_ts_scope(tmp_path: Path) -> None:
+    """Tree-sitter extracts the TypeScript function name from a .ts file."""
+    src = textwrap.dedent("""\
+        function greetUser(name: string): string {
+          return `Hello, ${name}`;
+        }
+    """)
+    (tmp_path / "greet.ts").write_text(src)
+
+    # Hit on the return line (line 2) inside greetUser.
+    match = _make_match("greet.ts", start_line=2, end_line=2)
+
+    with patch(
+        "agentception.services.context_assembler.search_codebase",
+        new_callable=AsyncMock,
+        return_value=[],
+    ):
+        result = await assemble_executor_context(
+            issue_title="Fix greeting",
+            issue_body="Fix the greetUser function.",
+            worktree_path=tmp_path,
+            existing_matches=[match],
+        )
+
+    assert "greetUser" in result
+
+
+@pytest.mark.anyio
+async def test_context_assembler_go_scope(tmp_path: Path) -> None:
+    """Tree-sitter extracts the Go function name from a .go file."""
+    src = textwrap.dedent("""\
+        package main
+
+        func ProcessOrder(id int) error {
+          return nil
+        }
+    """)
+    (tmp_path / "orders.go").write_text(src)
+
+    # Hit on the return nil line (line 4) inside ProcessOrder.
+    match = _make_match("orders.go", start_line=4, end_line=4)
+
+    with patch(
+        "agentception.services.context_assembler.search_codebase",
+        new_callable=AsyncMock,
+        return_value=[],
+    ):
+        result = await assemble_executor_context(
+            issue_title="Fix order processing",
+            issue_body="Fix the ProcessOrder function.",
+            worktree_path=tmp_path,
+            existing_matches=[match],
+        )
+
+    assert "ProcessOrder" in result
+
+
+@pytest.mark.anyio
+async def test_context_assembler_unsupported_extension_does_not_crash(
+    tmp_path: Path,
+) -> None:
+    """assemble_executor_context does not raise for unsupported file extensions."""
+    src = textwrap.dedent("""\
+        service: web
+        image: nginx:latest
+        ports:
+          - "80:80"
+    """)
+    (tmp_path / "config.yaml").write_text(src)
+
+    match = _make_match("config.yaml", start_line=2, end_line=2)
+
+    with patch(
+        "agentception.services.context_assembler.search_codebase",
+        new_callable=AsyncMock,
+        return_value=[],
+    ):
+        result = await assemble_executor_context(
+            issue_title="Update config",
+            issue_body="Update the YAML config.",
+            worktree_path=tmp_path,
+            existing_matches=[match],
+        )
+
+    assert result != ""
+
