@@ -97,18 +97,13 @@
   {% if lane == 'active' and active_run %}
   <div class="build-issue__footer">
     <div class="build-issue__run">
-      {% if active_run.agent_status == 'stale' %}
-      <span class="build-issue__status build-issue__status--stale">⚠ stale</span>
+      <span class="build-issue__status build-issue__status--{{ active_run.agent_status }}">
+        {%- if active_run.agent_status == 'stale' %}⚠ stale{%- else %}{{ active_run.agent_status }}{%- endif %}
+      </span>
+      {% if active_run.current_step %}
+      <span class="build-issue__step-badge">{{ active_run.current_step }}</span>
       {% endif %}
     </div>
-    {% if active_run.current_step %}
-    <p class="build-issue__step">{{ active_run.current_step }}</p>
-    {% endif %}
-    {% if active_run.steps_completed > 1 %}
-    <div class="build-issue__progress">
-      <span class="build-issue__step-count">{{ active_run.steps_completed }} steps</span>
-    </div>
-    {% endif %}
     {% if issue.body_excerpt %}
     <p class="build-issue__excerpt">{{ issue.body_excerpt }}</p>
     {% endif %}
