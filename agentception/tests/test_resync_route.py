@@ -79,3 +79,85 @@ async def test_resync_issues_returns_422_when_no_repo_configured() -> None:
     body = response.json()
     assert body["ok"] is False
     assert "GH_REPO" in body["error"]
+
+
+@pytest.mark.anyio
+async def test_resync_htmx_success() -> None:
+    """POST with HX-Request: true returns HTTP 200 with an empty body."""
+    from agentception.app import app
+
+    with (
+        patch(
+            "agentception.routes.api.resync.settings",
+        ) as mock_settings,
+        patch(
+            "agentception.routes.api.resync.resync_all_issues",
+            new_callable=AsyncMock,
+            return_value={"open": 5, "closed": 168, "upserted": 173},
+        ),
+    ):
+        mock_settings.gh_repo = "owner/repo"
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(
+                "/api/control/resync-issues",
+                headers={"HX-Request": "true"},
+            )
+
+    assert response.status_code == 200
+    assert response.text == ""
+
+
+@pytest.mark.anyio
+async def test_resync_htmx_failure() -> None:
+    """POST with HX-Request: true when service raises returns HTTP 503 with resync-error span."""
+    from agentception.app import app
+
+    with (
+        patch(
+            "agentception.routes.api.resync.settings",
+        ) as mock_settings,
+        patch(
+            "agentception.routes.api.resync.resync_all_issues",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("GitHub API unavailable"),
+        ),
+    ):
+        mock_settings.gh_repo = "owner/repo"
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(
+                "/api/control/resync-issues",
+                headers={"HX-Request": "true"},
+            )
+
+    assert response.status_code == 503
+    assert "resync-error" in response.text
+
+
+@pytest.mark.anyio
+async def test_resync_direct_api_json_preserved() -> None:
+    """POST without HX-Request returns Content-Type: application/json with all four keys."""
+    from agentception.app import app
+
+    with (
+        patch(
+            "agentception.routes.api.resync.settings",
+        ) as mock_settings,
+        patch(
+            "agentception.routes.api.resync.resync_all_issues",
+            new_callable=AsyncMock,
+            return_value={"open": 5, "closed": 168, "upserted": 173},
+        ),
+    ):
+        mock_settings.gh_repo = "owner/repo"
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post("/api/control/resync-issues")
+
+    assert "application/json" in response.headers["content-type"]
+    body = response.json()
+    assert "ok" in body
+    assert "open" in body
+    assert "closed" in body
+    assert "upserted" in body
