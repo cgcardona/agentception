@@ -272,6 +272,20 @@ async def build_complete_run(
                 grade,
                 agent_run_id,
             )
+
+        # Always tear down the reviewer's own worktree regardless of grade.
+        # Leaving the reviewer worktree on disk blocks re-dispatch of the same
+        # issue because git worktree add refuses to check out a branch that is
+        # already active in another worktree.
+        if agent_run_id:
+            asyncio.create_task(
+                teardown_agent_worktree(agent_run_id),
+                name=f"teardown-{agent_run_id}",
+            )
+            logger.info(
+                "🧹 build_complete_run: reviewer worktree teardown queued for run_id=%r",
+                agent_run_id,
+            )
     else:
         # Non-reviewer (implementer) completed: release worktree and dispatch reviewer.
         # Release the executor's worktree before dispatching the reviewer.
