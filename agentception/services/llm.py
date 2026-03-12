@@ -530,7 +530,7 @@ async def call_anthropic_with_tools(
     tools: list[ToolDefinition],
     model: str = _MODEL,
     temperature: float = 0.0,
-    max_tokens: int = 16384,
+    max_tokens: int = 32000,
     extra_system_blocks: list[dict[str, object]] | None = None,
 ) -> ToolResponse:
     """Call Claude via the Anthropic API with tool-use support.
@@ -551,7 +551,8 @@ async def call_anthropic_with_tools(
         tools: OpenAI-format tool definitions the model may call.
         model: Anthropic model ID.
         temperature: Sampling temperature.  Defaults to 0 for determinism.
-        max_tokens: Maximum tokens the model may emit per turn.
+        max_tokens: Maximum tokens the model may emit per turn.  32 000 is safe
+            at Tier 4 (400K output TPM) with up to 10 concurrent agents.
         extra_system_blocks: Additional Anthropic content blocks appended
             after the cached system prompt block.  Used to inject dynamic
             context (e.g. working memory) without invalidating the cache.
