@@ -332,7 +332,7 @@ def _build_ac_file_sections(
             # File doesn't exist — show the parent directory listing so the
             # agent knows the naming convention (e.g. Alembic migration numbers).
             parent = full_path.parent
-            if parent.exists():
+            if parent.is_dir():
                 siblings = sorted(p.name for p in parent.iterdir() if p.is_file())
                 if siblings:
                     listing = "\n".join(siblings[-8:])
