@@ -106,7 +106,7 @@ export function attachThoughtHandler(source: EventSource): void {
     }
   }
 
-  source.onmessage = (evt: MessageEvent<string>) => {
+  source.addEventListener("message", (evt: MessageEvent<string>) => {
     let msg: SseMessage;
     try {
       msg = JSON.parse(evt.data) as SseMessage;
@@ -134,7 +134,7 @@ export function attachThoughtHandler(source: EventSource): void {
         closeActive();
       }
     }
-  };
+  });
 
   source.addEventListener("error", () => closeActive());
 }

@@ -1,16 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { attachThoughtHandler } from "../thought_block";
 
-function makeSource(): EventSource {
-  return {
-    onmessage: null,
-    addEventListener: vi.fn(),
-  } as unknown as EventSource;
+function makeSource(): EventTarget & EventSource {
+  return new EventTarget() as EventTarget & EventSource;
 }
 
-function dispatch(src: EventSource, data: object): void {
-  const handler = (src as unknown as { onmessage: ((e: MessageEvent<string>) => void) | null }).onmessage;
-  if (handler) handler(new MessageEvent("message", { data: JSON.stringify(data) }));
+function dispatch(src: EventTarget, data: object): void {
+  src.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(data) }));
 }
 
 describe("attachThoughtHandler", () => {
