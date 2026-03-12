@@ -82,6 +82,9 @@ def _make_session_no_agents(existing_run: ACAgentRun) -> MagicMock:
 
     session = MagicMock(spec=AsyncSession)
     session.execute = AsyncMock(side_effect=[orphan_result, ttl_result])
+    # scalar() is called once per orphan to count build_complete_run events.
+    # Return 0 — no build_complete_run event present.
+    session.scalar = AsyncMock(return_value=0)
     session.add = MagicMock()
     return session
 
@@ -128,10 +131,11 @@ async def test_reviewer_not_orphaned_when_missing_from_live_ids() -> None:
 
 @pytest.mark.anyio
 async def test_executor_still_orphaned_when_missing_from_live_ids() -> None:
-    """Orphan sweep must still mark a non-reviewer run as completed.
+    """Orphan sweep must still mark a non-reviewer run as failed when no build_complete_run event.
 
     The reviewer exclusion must not accidentally protect executor/developer
-    runs — their orphan → completed transition must still work.
+    runs — their orphan → failed transition must still work when there is no
+    build_complete_run event (even if pr_number is set).
     """
     from agentception.db.persist import _upsert_agent_runs  # noqa: PLC0415
 
@@ -140,9 +144,9 @@ async def test_executor_still_orphaned_when_missing_from_live_ids() -> None:
 
     await _upsert_agent_runs(session, agents=[])
 
-    assert executor_run.status == "completed", (
+    assert executor_run.status == "failed", (
         f"Executor run was NOT orphaned: status={executor_run.status!r}. "
-        "Orphan sweep must still complete non-reviewer runs with a pr_number."
+        "Orphan sweep must mark non-reviewer runs as failed when no build_complete_run event."
     )
 
 

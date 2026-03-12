@@ -213,12 +213,12 @@ async def test_pr_number_advanced_when_poller_sees_one() -> None:
 
 @pytest.mark.anyio
 async def test_orphan_with_pr_number_set_to_done() -> None:
-    """Kanban regression: worktree removed, PR exists — card should land in PR Open lane.
+    """Orphan sweep uses build_complete_run event — not pr_number — as the completion gate.
 
-    When the engineer's worktree disappears the orphan sweep sets status to
-    'done' (not 'unknown') when pr_number is set.  'done' agent_status + a
-    pr_number causes the template to route the card to the PR Open bucket,
-    keeping it visible.  'unknown' would collapse it back to the todo lane.
+    An agent can open a PR and then crash before calling build_complete_run.
+    pr_number alone is not a reliable signal that the agent finished cleanly.
+    When the worktree is gone and there is no build_complete_run event the run
+    must be marked failed regardless of whether pr_number is set.
     """
     orphan = _make_run(status="reviewing")
     orphan.pr_number = 77
@@ -235,6 +235,9 @@ async def test_orphan_with_pr_number_set_to_done() -> None:
     session = MagicMock(spec=AsyncSession)
     # Call 1: per-agent row lookup; call 2: orphan sweep; call 3: TTL sweep.
     session.execute = AsyncMock(side_effect=[scalar, orphan_result_mock, ttl_sweep_result])
+    # session.scalar() is called once per orphan to count build_complete_run events.
+    # Return 0 — no build_complete_run event present.
+    session.scalar = AsyncMock(return_value=0)
     session.add = MagicMock()
 
     # Pass an agent with a DIFFERENT id so the orphan is never in live_ids.
@@ -242,14 +245,15 @@ async def test_orphan_with_pr_number_set_to_done() -> None:
 
     await _persist._upsert_agent_runs(session, [different_agent])
 
-    assert orphan.status == "completed", (
-        "Orphan with open PR must be set to 'completed' so the Kanban card lands in PR Open"
+    assert orphan.status == "failed", (
+        "Orphan with no build_complete_run event must be set to 'failed' "
+        "even when pr_number is set — pr_number is not a reliable completion signal"
     )
 
 
 @pytest.mark.anyio
 async def test_orphan_without_pr_number_flipped_to_failed() -> None:
-    """Worktrees removed with no open PR should become failed (normal cleanup)."""
+    """Worktrees removed with no build_complete_run event should become failed."""
     orphan = _make_run(status="implementing")
     orphan.pr_number = None
     orphan_result_mock = MagicMock()
@@ -264,6 +268,8 @@ async def test_orphan_without_pr_number_flipped_to_failed() -> None:
     session = MagicMock(spec=AsyncSession)
     # Call 1: per-agent row lookup; call 2: orphan sweep; call 3: TTL sweep.
     session.execute = AsyncMock(side_effect=[scalar, orphan_result_mock, ttl_sweep_result])
+    # session.scalar() counts build_complete_run events — return 0 (none present).
+    session.scalar = AsyncMock(return_value=0)
     session.add = MagicMock()
 
     different_agent = AgentNode(id="different-run-id", role="cto", status=AgentStatus.IMPLEMENTING)
@@ -271,7 +277,7 @@ async def test_orphan_without_pr_number_flipped_to_failed() -> None:
     await _persist._upsert_agent_runs(session, [different_agent])
 
     assert orphan.status == "failed", (
-        "Orphan without PR should be flipped to failed for cleanup"
+        "Orphan without build_complete_run event should be flipped to failed for cleanup"
     )
 
 

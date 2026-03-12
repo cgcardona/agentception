@@ -876,22 +876,33 @@ async def _upsert_agent_runs(
             and orphan.issue_number is not None
             and orphan.role != "reviewer"
         ):
-            if orphan.pr_number is not None:
-                # Executor completed — PR exists but the agent is done working.
-                # "done" puts the card in the "PR Open" lane (any status with
-                # pr_number except "reviewing"), which is correct: the PR is
-                # open awaiting human or reviewer-agent action, not being
-                # actively reviewed yet.
-                orphan.status = "completed"
+            # Use the build_complete_run event as the authoritative completion
+            # gate — not pr_number.  An agent can open a PR and then crash
+            # before calling build_complete_run; pr_number alone is not a
+            # reliable signal that the agent finished cleanly.
+            from sqlalchemy import func  # noqa: PLC0415
+
+            has_complete_event = await session.scalar(
+                select(func.count()).select_from(ACAgentEvent).where(
+                    ACAgentEvent.agent_run_id == orphan.id,
+                    ACAgentEvent.event_type == "build_complete_run",
+                )
+            )
+            if has_complete_event:
+                pass  # already completed — do not mutate
             else:
                 orphan.status = "failed"
-            orphan.last_activity_at = now
-            logger.debug(
-                "🧹 Orphan run %s → %s (pr_number=%s)",
-                orphan.id,
-                orphan.status,
-                orphan.pr_number,
-            )
+                orphan.last_activity_at = now
+                session.add(ACAgentEvent(
+                    agent_run_id=orphan.id,
+                    issue_number=orphan.issue_number,
+                    event_type="orphan_failed",
+                    payload=json.dumps({"reason": "worktree_gone_no_build_complete"}),
+                ))
+                logger.warning(
+                    "🧹 Orphan run %s → failed (worktree gone, no build_complete_run event)",
+                    orphan.id,
+                )
 
     # Pending-launch TTL sweep: a pending_launch run that was never acknowledged
     # within 15 minutes is presumed abandoned (Dispatcher aborted before claiming
@@ -1126,6 +1137,9 @@ async def complete_agent_run(run_id: str) -> bool:
     Called by ``build_complete_run`` MCP tool after the agent has opened a PR
     and all work is done.  Only succeeds from ``implementing`` state.
 
+    Also inserts an ``ACAgentEvent`` row with ``event_type = 'build_complete_run'``
+    so the orphan sweep can distinguish a clean completion from a crash.
+
     Returns ``True`` on success, ``False`` if the run was not found or was not
     in a valid source state.
     """
@@ -1140,6 +1154,11 @@ async def complete_agent_run(run_id: str) -> bool:
             run.status = "completed"
             run.last_activity_at = _now()
             run.completed_at = _now()
+            session.add(ACAgentEvent(
+                agent_run_id=run_id,
+                event_type="build_complete_run",
+                payload="{}",
+            ))
             await session.commit()
         logger.info("✅ complete_agent_run: %s → completed", run_id)
         return True
