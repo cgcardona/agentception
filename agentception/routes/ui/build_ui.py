@@ -349,7 +349,8 @@ async def _inspector_sse(run_id: str) -> AsyncGenerator[str, None]:
     """Yield SSE events for the inspector panel.
 
     Interleaves structured MCP events (``ac_agent_events``) and raw thinking
-    messages (``ac_agent_messages``) in near-real-time.  Polls DB every 2 s.
+    messages (``ac_agent_messages``) in near-real-time.  Polls DB every 0.5 s
+    for near-real-time thought delivery.
 
     Event shapes::
 
@@ -395,7 +396,7 @@ async def _inspector_sse(run_id: str) -> AsyncGenerator[str, None]:
         if ping_counter % 10 == 0:
             yield 'data: {"t":"ping"}\n\n'
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(0.5)
 
 
 @router.get("/ship/runs/{run_id}/tree", response_class=Response, response_model=None)
