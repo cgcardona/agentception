@@ -30,6 +30,28 @@ _SERVICE_URL = "http://localhost:10003/api/dispatch/issue"
 _REVIEWER_DELAY_SECS: float = 5.0
 
 
+def extract_pr_number(pr_url: str) -> int | None:
+    """Extract the integer PR number from a GitHub PR URL.
+
+    Returns ``None`` and logs a structured warning when *pr_url* is empty or
+    does not contain a recognisable ``/pull/<digits>`` segment.  Never raises.
+
+    Args:
+        pr_url: Full GitHub PR URL, e.g.
+            ``https://github.com/owner/repo/pull/537``.
+            An empty string or any URL that does not match the pattern causes
+            a structured warning log and a ``None`` return — no exception.
+    """
+    if not pr_url:
+        logger.warning("auto_reviewer: pr_url is empty, skipping dispatch")
+        return None
+    match = re.search(r"/pull/(\d+)$", pr_url)
+    if not match:
+        logger.warning("auto_reviewer: cannot parse PR number from %r", pr_url)
+        return None
+    return int(match.group(1))
+
+
 async def auto_dispatch_reviewer(
     issue_number: int,
     pr_url: str,
@@ -47,15 +69,9 @@ async def auto_dispatch_reviewer(
         pr_branch: Branch the implementer pushed.  Defaults to
             ``feat/issue-{issue_number}`` when omitted.
     """
-    pr_match = _PR_URL_RE.search(pr_url)
-    if not pr_match:
-        logger.error(
-            "❌ auto_reviewer: cannot parse PR number from %r — reviewer not dispatched",
-            pr_url,
-        )
+    pr_number = extract_pr_number(pr_url)
+    if pr_number is None:
         return
-
-    pr_number = int(pr_match.group(1))
     branch = pr_branch or f"feat/issue-{issue_number}"
 
     # Small delay so GitHub has time to register the pushed branch before the
