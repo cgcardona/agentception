@@ -287,6 +287,7 @@ async def build_page(
 ) -> Response:
     """Render the Mission Control Ship page scoped to *repo/initiative*."""
     gh_repo = settings.gh_repo
+    repo_name = gh_repo.split("/")[-1]
     initiatives = await get_initiatives(gh_repo)
     enriched_groups, total_issues, open_issues = await _build_enriched_groups(gh_repo, initiative)
     return _TEMPLATES.TemplateResponse(
@@ -294,6 +295,7 @@ async def build_page(
         "build.html",
         {
             "repo": gh_repo,
+            "repo_name": repo_name,
             "initiative": initiative,
             "initiatives": initiatives,
             "groups": enriched_groups,

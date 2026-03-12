@@ -33,16 +33,15 @@
       </div>
     </header>
 
-    {% if initiatives %}
-    <nav class="build-initiative-tabs" aria-label="Initiatives">
-      {% for ini in initiatives %}
-      <a class="build-initiative-tab{% if ini == initiative %} build-initiative-tab--active{% endif %}"
-         href="/ship/{{ repo_name }}/{{ ini | urlencode }}">
-        {{ ini }}
-      </a>
-      {% endfor %}
-    </nav>
-    {% endif %}
+    <div
+      id="build-initiative-tabs"
+      hx-get="/ship/{{ repo_name }}/initiatives"
+      hx-trigger="load, every 30s"
+      hx-swap="innerHTML"
+      hx-vals='{"initiative": "{{ initiative }}"}'
+    >
+      {% include "_build_initiative_tabs.html" %}
+    </div>
   </div>
 
   {# ── two-column layout: board + inspector ─────────────────────────────── #}
