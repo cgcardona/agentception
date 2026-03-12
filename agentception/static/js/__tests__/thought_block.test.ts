@@ -1,0 +1,56 @@
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { attachThoughtHandler } from "../thought_block";
+
+function makeSource(): EventSource {
+  return {
+    onmessage: null,
+    addEventListener: vi.fn(),
+  } as unknown as EventSource;
+}
+
+function dispatch(src: EventSource, data: object): void {
+  const handler = (src as unknown as { onmessage: ((e: MessageEvent<string>) => void) | null }).onmessage;
+  if (handler) handler(new MessageEvent("message", { data: JSON.stringify(data) }));
+}
+
+describe("attachThoughtHandler", () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="activity-feed"></div>';
+  });
+
+  it("test_renders_thought_text", () => {
+    const src = makeSource();
+    attachThoughtHandler(src);
+    dispatch(src, { t: "thought", role: "thinking", content: "hello", recorded_at: "" });
+    const text = document.querySelector(".thought-block__body")?.textContent;
+    expect(text).toBe("hello");
+  });
+
+  it("test_thought_icon_present_after_collapse", () => {
+    const src = makeSource();
+    attachThoughtHandler(src);
+    dispatch(src, { t: "thought", role: "thinking", content: "thinking...", recorded_at: "" });
+    dispatch(src, { t: "event", event_type: "step_start", payload: { step: "Step 2" }, recorded_at: "" });
+    const icon = document.querySelector(".thought-block__icon");
+    expect(icon?.textContent).toBe("◈");
+  });
+
+  it("test_second_step_opens_new_block", () => {
+    const src = makeSource();
+    attachThoughtHandler(src);
+    dispatch(src, { t: "thought", role: "thinking", content: "block1", recorded_at: "" });
+    dispatch(src, { t: "event", event_type: "step_start", payload: { step: "Step 2" }, recorded_at: "" });
+    dispatch(src, { t: "thought", role: "thinking", content: "block2", recorded_at: "" });
+    const blocks = document.querySelectorAll(".thought-block");
+    expect(blocks.length).toBe(2);
+  });
+
+  it("test_collapsed_block_has_aria_expanded_false", () => {
+    const src = makeSource();
+    attachThoughtHandler(src);
+    dispatch(src, { t: "thought", role: "thinking", content: "x", recorded_at: "" });
+    dispatch(src, { t: "event", event_type: "step_start", payload: { step: "Step 2" }, recorded_at: "" });
+    const btn = document.querySelector(".thought-block__header");
+    expect(btn?.getAttribute("aria-expanded")).toBe("false");
+  });
+});
