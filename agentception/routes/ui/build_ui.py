@@ -42,6 +42,7 @@ from agentception.db.queries import (
     RunTreeNodeRow,
     get_agent_events_tail,
     get_agent_thoughts_tail,
+    get_file_edit_events,
     get_initiatives,
     get_issues_grouped_by_phase,
     get_latest_active_batch_id,
@@ -397,6 +398,53 @@ async def _inspector_sse(run_id: str) -> AsyncGenerator[str, None]:
             yield 'data: {"t":"ping"}\n\n'
 
         await asyncio.sleep(0.5)
+
+
+# ---------------------------------------------------------------------------
+# GET /ship/runs/{run_id}/inspector — pre-rendered inspector panel partial
+# ---------------------------------------------------------------------------
+
+#: Statuses that indicate a run has finished and the SSE stream is closed.
+_TERMINAL_STATUSES: frozenset[str] = frozenset({"done", "error", "cancelled", "failed"})
+
+
+@router.get("/ship/runs/{run_id}/inspector", response_class=HTMLResponse)
+async def inspector_partial(request: Request, run_id: str) -> HTMLResponse:
+    """Return the inspector panel HTML partial for *run_id*.
+
+    For completed runs (status in ``_TERMINAL_STATUSES``) the response
+    includes pre-rendered ``file-edit-card`` divs so the user can see the
+    file-edit history even though the SSE stream is closed.  For active runs
+    the ``memory_events`` list is empty and the SSE stream appends cards live.
+
+    Args:
+        run_id: The agent run id (e.g. ``issue-938``).
+
+    Returns:
+        HTML partial rendered from ``_inspector.html``.
+    """
+    run_status: str | None = None
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun.status).where(ACAgentRun.id == run_id)
+            )
+            run_status = result.scalar_one_or_none()
+    except Exception:
+        run_status = None
+
+    run_is_active = run_status not in _TERMINAL_STATUSES
+    memory_events = [] if run_is_active else await get_file_edit_events(run_id)
+
+    return _TEMPLATES.TemplateResponse(
+        request,
+        "_inspector.html",
+        {
+            "run_id": run_id,
+            "run_is_active": run_is_active,
+            "memory_events": memory_events,
+        },
+    )
 
 
 @router.get("/ship/runs/{run_id}/tree", response_class=Response, response_model=None)

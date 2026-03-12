@@ -252,3 +252,115 @@ async def test_sse_stream_emits_file_edit_event_after_str_replace() -> None:
     )
     assert validated.diff == fake_diff, "FileEditEvent.diff must match the original diff"
     assert validated.lines_omitted == 0, "lines_omitted must be 0 for a short diff"
+
+
+# ---------------------------------------------------------------------------
+# Inspector partial: pre-rendered file-edit-card divs for completed runs
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_completed_run_prerendered_cards() -> None:
+    """Inspector partial renders file-edit-card divs for completed runs.
+
+    A run with status ``"done"`` is a terminal run — the SSE stream is closed.
+    The inspector partial must pre-render one ``file-edit-card`` div per
+    ``FileEditEvent`` returned by ``get_file_edit_events``.
+    """
+    import datetime
+
+    from agentception.models import FileEditEvent
+    from agentception.routes.ui.build_ui import inspector_partial
+    from starlette.requests import Request as StarletteRequest
+    from starlette.testclient import TestClient
+
+    known_path = "agentception/models.py"
+    fake_event = FileEditEvent(
+        timestamp=datetime.datetime(2024, 6, 1, 12, 0, 0, tzinfo=datetime.timezone.utc),
+        path=known_path,
+        diff="--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n",
+        lines_omitted=0,
+    )
+
+    with (
+        patch(
+            "agentception.routes.ui.build_ui.get_session",
+        ) as mock_get_session,
+        patch(
+            "agentception.routes.ui.build_ui.get_file_edit_events",
+            new_callable=AsyncMock,
+            return_value=[fake_event],
+        ),
+    ):
+        # Simulate a DB session that returns status="done"
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = "done"
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        from agentception.app import app
+
+        with TestClient(app) as tc:
+            response = tc.get("/ship/runs/issue-999/inspector")
+
+    assert response.status_code == 200
+    html = response.text
+    assert 'class="file-edit-card' in html, (
+        "Inspector partial must render file-edit-card divs for completed runs"
+    )
+    assert known_path in html, (
+        f"Inspector partial must include the file path {known_path!r} in the rendered card"
+    )
+
+
+@pytest.mark.asyncio
+async def test_active_run_no_prerendered_cards() -> None:
+    """Inspector partial does NOT render file-edit-card divs for active runs.
+
+    A run with status ``"implementing"`` is active — the SSE stream is open
+    and will append cards live.  The inspector partial must not pre-render any
+    ``file-edit-card`` divs so the live stream is the single source of truth.
+    """
+    import datetime
+
+    from agentception.models import FileEditEvent
+
+    known_path = "agentception/models.py"
+    fake_event = FileEditEvent(
+        timestamp=datetime.datetime(2024, 6, 1, 12, 0, 0, tzinfo=datetime.timezone.utc),
+        path=known_path,
+        diff="--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n",
+        lines_omitted=0,
+    )
+
+    with (
+        patch(
+            "agentception.routes.ui.build_ui.get_session",
+        ) as mock_get_session,
+        patch(
+            "agentception.routes.ui.build_ui.get_file_edit_events",
+            new_callable=AsyncMock,
+            return_value=[fake_event],
+        ),
+    ):
+        # Simulate a DB session that returns status="implementing"
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = "implementing"
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        from agentception.app import app
+
+        with TestClient(app) as tc:
+            response = tc.get("/ship/runs/issue-999/inspector")
+
+    assert response.status_code == 200
+    html = response.text
+    assert 'class="file-edit-card' not in html, (
+        "Inspector partial must NOT render file-edit-card divs for active runs"
+    )
+
