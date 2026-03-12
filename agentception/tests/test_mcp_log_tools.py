@@ -351,3 +351,41 @@ class TestLogRunHeartbeat:
         from agentception.mcp.server import list_tools
         names = [t["name"] for t in list_tools()]
         assert "log_run_heartbeat" in names
+
+
+# ---------------------------------------------------------------------------
+# log_file_edit_event — datetime serialisation
+# ---------------------------------------------------------------------------
+
+
+class TestLogFileEditEvent:
+    @pytest.mark.anyio
+    async def test_datetime_timestamp_serialised_to_string(self) -> None:
+        """model_dump(mode='json') must convert datetime → str before persist_agent_event."""
+        from agentception.mcp.log_tools import log_file_edit_event
+        from agentception.models import FileEditEvent
+
+        fixed_ts = datetime.datetime(2024, 6, 1, 10, 30, 0, tzinfo=datetime.timezone.utc)
+        event = FileEditEvent(
+            path="agentception/foo.py",
+            diff="--- a/foo.py\n+++ b/foo.py\n@@ -1 +1 @@\n-old\n+new\n",
+            lines_omitted=0,
+            timestamp=fixed_ts,
+        )
+
+        with patch(
+            "agentception.mcp.log_tools.persist_agent_event",
+            new_callable=AsyncMock,
+        ) as mock_persist:
+            await log_file_edit_event(issue_number=42, event=event, agent_run_id="issue-42")
+
+        mock_persist.assert_awaited_once()
+        call_kwargs = mock_persist.call_args.kwargs
+        assert call_kwargs["event_type"] == "file_edit"
+        payload = call_kwargs["payload"]
+        # timestamp must be a string, not a datetime — json.dumps would raise otherwise
+        assert isinstance(payload["timestamp"], str), (
+            "payload['timestamp'] must be a str (ISO 8601), not a datetime object"
+        )
+        # Verify it round-trips correctly
+        assert datetime.datetime.fromisoformat(payload["timestamp"]) == fixed_ts

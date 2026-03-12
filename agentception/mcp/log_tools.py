@@ -71,7 +71,7 @@ async def log_file_edit_event(
     await persist_agent_event(
         issue_number=issue_number,
         event_type="file_edit",
-        payload=event.model_dump(),
+        payload=event.model_dump(mode="json"),
         agent_run_id=agent_run_id,
     )
     logger.info(
