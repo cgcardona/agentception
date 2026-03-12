@@ -451,6 +451,11 @@ async def test_build_complete_run_releases_worktree_before_reviewer() -> None:
             return_value={"worktree_path": "/worktrees/issue-99", "branch": "feat/issue-99"},
         ),
         patch(
+            "agentception.mcp.build_commands._rebase_and_push_worktree",
+            new_callable=AsyncMock,
+            return_value=None,  # None = success
+        ) as mock_rebase,
+        patch(
             "agentception.mcp.build_commands.release_worktree",
             new_callable=AsyncMock,
         ) as mock_release,
@@ -469,8 +474,11 @@ async def test_build_complete_run_releases_worktree_before_reviewer() -> None:
             },
         )
 
+    from agentception.config import settings as _settings
+
     assert json.loads(result["content"][0]["text"])["ok"] is True
+    mock_rebase.assert_awaited_once_with("/worktrees/issue-99", "issue-99")
     mock_release.assert_awaited_once_with(
         worktree_path="/worktrees/issue-99",
-        repo_dir=str(__import__("agentception.config", fromlist=["settings"]).settings.repo_dir),
+        repo_dir=str(_settings.repo_dir),
     )

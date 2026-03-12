@@ -45,6 +45,72 @@ from agentception.services.teardown import release_worktree, teardown_agent_work
 logger = logging.getLogger(__name__)
 
 
+async def _rebase_and_push_worktree(wt_path: str, agent_run_id: str | None) -> dict[str, object] | None:
+    """Rebase the worktree branch onto origin/dev and force-push.
+
+    Returns ``None`` on success, or a structured error dict on rebase conflict
+    that the caller should return immediately to the agent.
+
+    Extracted into its own function so tests can mock it cleanly without
+    spawning real git subprocesses against non-existent paths.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        "git", "fetch", "origin", "dev",
+        cwd=wt_path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await proc.communicate()
+
+    proc = await asyncio.create_subprocess_exec(
+        "git", "rebase", "origin/dev",
+        cwd=wt_path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+
+    if proc.returncode != 0:
+        abort_proc = await asyncio.create_subprocess_exec(
+            "git", "rebase", "--abort",
+            cwd=wt_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await abort_proc.communicate()
+        logger.error(
+            "❌ _rebase_and_push_worktree: rebase onto origin/dev failed for run_id=%r — %s",
+            agent_run_id,
+            stderr.decode(errors="replace").strip(),
+        )
+        return {
+            "status": "error",
+            "reason": "rebase_conflict",
+            "message": (
+                "Rebase onto origin/dev failed. "
+                "Resolve the conflicts manually and call build_complete_run again."
+            ),
+        }
+
+    branch_proc = await asyncio.create_subprocess_exec(
+        "git", "rev-parse", "--abbrev-ref", "HEAD",
+        cwd=wt_path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    branch_stdout, _ = await branch_proc.communicate()
+    branch_name = branch_stdout.decode().strip()
+
+    proc = await asyncio.create_subprocess_exec(
+        "git", "push", "--force-with-lease", "origin", branch_name,
+        cwd=wt_path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await proc.communicate()
+    return None
+
+
 async def build_claim_run(run_id: str) -> dict[str, object]:
     """Atomically claim a pending run before spawning its Task agent.
 
@@ -308,62 +374,10 @@ async def build_complete_run(
             teardown_info = await get_agent_run_teardown(agent_run_id)
             wt_path = teardown_info.get("worktree_path") if teardown_info else None
             if wt_path is not None:
-                # Ensure branch is up-to-date with dev before dispatching reviewer
-                proc = await asyncio.create_subprocess_exec(
-                    "git", "fetch", "origin", "dev",
-                    cwd=wt_path,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                await proc.communicate()
-
-                proc = await asyncio.create_subprocess_exec(
-                    "git", "rebase", "origin/dev",
-                    cwd=wt_path,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                stdout, stderr = await proc.communicate()
-
-                if proc.returncode != 0:
-                    abort_proc = await asyncio.create_subprocess_exec(
-                        "git", "rebase", "--abort",
-                        cwd=wt_path,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                    )
-                    await abort_proc.communicate()
-                    logger.error(
-                        "❌ build_complete_run: rebase onto origin/dev failed for run_id=%r — %s",
-                        agent_run_id,
-                        stderr.decode(errors="replace").strip(),
-                    )
-                    return {
-                        "status": "error",
-                        "reason": "rebase_conflict",
-                        "message": (
-                            "Rebase onto origin/dev failed. "
-                            "Resolve the conflicts manually and call build_complete_run again."
-                        ),
-                    }
-
-                # Rebase succeeded — force-push the updated branch.
-                branch_proc = await asyncio.create_subprocess_exec(
-                    "git", "rev-parse", "--abbrev-ref", "HEAD",
-                    cwd=wt_path,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                branch_stdout, _ = await branch_proc.communicate()
-                branch_name = branch_stdout.decode().strip()
-
-                proc = await asyncio.create_subprocess_exec(
-                    "git", "push", "--force-with-lease", "origin", branch_name,
-                    cwd=wt_path,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                await proc.communicate()
+                # Rebase onto dev and force-push before dispatching reviewer.
+                rebase_error = await _rebase_and_push_worktree(wt_path, agent_run_id)
+                if rebase_error is not None:
+                    return rebase_error
 
                 await release_worktree(
                     worktree_path=wt_path,
