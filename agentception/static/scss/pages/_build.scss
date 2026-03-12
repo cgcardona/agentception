@@ -127,6 +127,41 @@ body:has(.build-layout) nav.topnav {
   }
 }
 
+// ── Force resync icon button ───────────────────────────────────────────────
+.build-header__resync-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid var(--border-default);
+  cursor: pointer;
+  color: var(--text-secondary);
+  opacity: 0.75;
+  transition: opacity 0.15s ease;
+
+  &:hover,
+  &:focus-visible {
+    opacity: 1;
+  }
+
+  &:active {
+    opacity: 0.6;
+  }
+
+  &.htmx-request svg {
+    animation: build-resync-spin 1s linear infinite;
+  }
+}
+
+@keyframes build-resync-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
 // ── Initiative tab strip ──────────────────────────────────────────────────────
 
 .build-initiative-tabs {
