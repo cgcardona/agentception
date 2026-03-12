@@ -234,6 +234,39 @@ async def _upsert_issues(
                 existing.depends_on_json = json.dumps(parsed)
 
 
+async def upsert_issues(
+    issues: list[dict[str, object]],
+    active_label: str | None,
+    repo: str,
+) -> int:
+    """Public entry point for upserting a batch of issues outside a poller tick.
+
+    Opens its own DB session, delegates to :func:`_upsert_issues`, commits,
+    and returns the number of issues passed to the upsert.  The underlying
+    upsert is hash-diff idempotent — rows are only written when content has
+    changed — so concurrent calls with identical data are safe.
+
+    Parameters
+    ----------
+    issues:
+        Raw GitHub issue dicts (same shape as the poller feed).
+    active_label:
+        Current pipeline phase label, or ``None`` when called outside a tick.
+    repo:
+        GitHub repository slug (e.g. ``"owner/repo"``).
+
+    Returns
+    -------
+    int
+        Total number of issues passed to the upsert (not the number of rows
+        actually written — the hash-diff logic may skip unchanged rows).
+    """
+    async with get_session() as session:
+        await _upsert_issues(session, issues, active_label, repo)
+        await session.commit()
+    return len(issues)
+
+
 # ---------------------------------------------------------------------------
 # PRs (hash-diff upsert)
 # ---------------------------------------------------------------------------
