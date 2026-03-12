@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -1275,3 +1275,23 @@ class ExecutionPlan(BaseModel):
         if not v:
             raise ValueError("ExecutionPlan must contain at least one operation")
         return v
+
+
+class FileEditEvent(BaseModel):
+    """A single file-edit event carrying a unified diff for inspector-panel rendering.
+
+    Immutable by design — once emitted, the diff payload must not change.
+    ``lines_omitted`` is 0 when the diff fits within 120 visible lines; it
+    carries the count of hidden lines when the diff is truncated so the UI
+    can surface a "N lines omitted" notice without re-computing the diff.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    timestamp: datetime.datetime
+    path: str
+    """Relative path in the worktree, e.g. ``agentception/models/__init__.py``."""
+    diff: str
+    """Unified diff string, at most 120 visible lines."""
+    lines_omitted: int = 0
+    """Count of hidden lines when the diff exceeds 120 visible lines; 0 otherwise."""
