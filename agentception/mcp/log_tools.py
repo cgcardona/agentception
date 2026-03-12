@@ -23,7 +23,7 @@ Rules
 
 import logging
 
-from agentception.db.persist import persist_agent_event
+from agentception.db.persist import persist_agent_event, persist_run_heartbeat
 
 logger = logging.getLogger(__name__)
 
@@ -178,3 +178,35 @@ async def log_run_error(
     )
     logger.error("❌ log_run_error: issue=%d — %s", issue_number, error)
     return {"ok": True, "event": "error"}
+
+
+async def log_run_heartbeat(run_id: str) -> dict[str, object]:
+    """Update last_activity_at for the given run to prove liveness.
+
+    Call this every 2–5 minutes while the agent is active so the stale
+    detector can distinguish a slow-but-alive agent from a crashed one.
+    This tool never changes run state — it only touches last_activity_at.
+
+    Best-effort: DB failures are caught, logged at WARNING, and returned as
+    ``{"ok": False, "error": ...}`` — this tool never raises.
+
+    Args:
+        run_id: The agent run ID (e.g. "issue-275").
+
+    Returns:
+        ``{"ok": True, "last_activity_at": "<iso8601>"}`` on success.
+        ``{"ok": False, "error": "run not found"}`` when run_id is unknown.
+        ``{"ok": False, "error": "<exc>"}`` on DB failure.
+    """
+    try:
+        ts = await persist_run_heartbeat(run_id)
+    except Exception as exc:
+        logger.warning("⚠️ log_run_heartbeat: unexpected error for run_id=%r — %s", run_id, exc)
+        return {"ok": False, "error": str(exc)}
+
+    if ts is None:
+        logger.warning("⚠️ log_run_heartbeat: run not found — run_id=%r", run_id)
+        return {"ok": False, "error": "run not found"}
+
+    logger.info("✅ log_run_heartbeat: run_id=%r last_activity_at=%s", run_id, ts.isoformat())
+    return {"ok": True, "last_activity_at": ts.isoformat()}

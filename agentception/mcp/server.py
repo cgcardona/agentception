@@ -51,6 +51,7 @@ from agentception.mcp.log_tools import (
     log_run_blocker,
     log_run_decision,
     log_run_error,
+    log_run_heartbeat,
     log_run_message,
     log_run_step,
 )
@@ -604,6 +605,29 @@ TOOLS: list[ACToolDef] = [
             "additionalProperties": False,
         },
     ),
+    ACToolDef(
+        name="log_run_heartbeat",
+        description=(
+            "Update last_activity_at for the given run to prove liveness. "
+            "Call this every 2–5 minutes while the agent is active so the stale "
+            "detector can distinguish a slow-but-alive agent from a crashed one. "
+            "Never changes run state — only touches last_activity_at. "
+            "Non-blocking on DB failure: returns {ok: false, error: ...} instead of raising. "
+            "Returns {ok: true, last_activity_at: '<iso8601>'} on success, "
+            "or {ok: false, error: 'run not found'} for an unknown run_id."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "run_id": {
+                    "type": "string",
+                    "description": "The agent run ID to heartbeat (e.g. 'issue-275').",
+                },
+            },
+            "required": ["run_id"],
+            "additionalProperties": False,
+        },
+    ),
     # ── GitHub tools — post comments ──────────────────────────────────────────
     ACToolDef(
         name="github_add_comment",
@@ -829,6 +853,7 @@ def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
         "log_run_decision",
         "log_run_message",
         "log_run_error",
+        "log_run_heartbeat",
         # GitHub tools
         "github_add_label",
         "github_remove_label",
@@ -1131,6 +1156,19 @@ async def call_tool_async(
         return ACToolResult(
             content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
             isError=False,
+        )
+
+    if name == "log_run_heartbeat":
+        run_id_hb = arguments.get("run_id")
+        if not isinstance(run_id_hb, str) or not run_id_hb:
+            return ACToolResult(
+                content=[ACToolContent(type="text", text='{"error":"log_run_heartbeat requires a non-empty run_id string"}')],
+                isError=True,
+            )
+        result = await log_run_heartbeat(run_id_hb)
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
+            isError=not bool(result.get("ok", False)),
         )
 
     # ── GitHub tools ─────────────────────────────────────────────────────────
