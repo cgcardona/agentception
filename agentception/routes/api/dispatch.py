@@ -248,9 +248,39 @@ def _build_ac_file_sections(
     naming convention and can write the new file without any discovery reads.
     """
     symbols: set[str] = issue_symbols or set()
+    # Compiled-artifact extensions that must never be injected into context.
+    _BLOCKED_EXTENSIONS: frozenset[str] = frozenset({".js", ".css", ".map"})
+    # Maximum file size (bytes) allowed for AC pre-loading.
+    _AC_FILE_MAX_BYTES: int = 51_200  # 50 KB
+
     sections: list[str] = []
     for rel_path in file_paths:
         full_path = worktree_path / rel_path
+
+        # Guard 2: skip compiled bundles to avoid injecting minified JS/CSS.
+        candidate_name = Path(rel_path).name
+        candidate_suffix = Path(rel_path).suffix
+        if candidate_suffix in _BLOCKED_EXTENSIONS or candidate_name.endswith(".min.js"):
+            logger.warning(
+                "⚠️ AC pre-loader: skipping %s — compiled artifact (extension blocked)",
+                rel_path,
+            )
+            continue
+
+        # Guard 1: skip files that exceed the 50 KB size limit.
+        if full_path.exists() and full_path.is_file():
+            try:
+                file_size = full_path.stat().st_size
+            except OSError:
+                file_size = 0
+            if file_size > _AC_FILE_MAX_BYTES:
+                logger.warning(
+                    "⚠️ AC pre-loader: skipping %s — file too large (%d bytes > 50 KB limit)",
+                    rel_path,
+                    file_size,
+                )
+                continue
+
         if full_path.exists() and full_path.is_file():
             try:
                 raw_lines = full_path.read_text(encoding="utf-8").splitlines()
