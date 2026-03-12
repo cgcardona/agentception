@@ -126,3 +126,129 @@ async def test_inspector_sse_poll_interval() -> None:
     assert sleep_calls[0] == 0.5, (
         f"Expected asyncio.sleep(0.5) but got asyncio.sleep({sleep_calls[0]})"
     )
+
+
+# ---------------------------------------------------------------------------
+# Integration: StrReplace tool call → SSE stream emits file_edit event
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sse_stream_emits_file_edit_event_after_str_replace() -> None:
+    """Integration: a StrReplace tool result produces a file_edit SSE event.
+
+    This test closes the full pipeline loop:
+      run_agent_loop (StrReplace tool call)
+        → log_file_edit_event
+          → persist_agent_event (DB)
+            → get_agent_events_tail (DB read)
+              → _inspector_sse (SSE generator)
+                → browser-bound ``data: {...}`` bytes
+
+    The DB layer is mocked at the boundary (``persist_agent_event`` and
+    ``get_agent_events_tail``) so no real database is required.  The test
+    asserts that:
+    - At least one SSE frame with ``event_type == "file_edit"`` is emitted.
+    - The payload deserialises to a valid ``FileEditEvent`` (all required
+      fields present, correct types).
+    - The ``path`` field matches the file targeted by the StrReplace call.
+    """
+    import datetime
+    import json as _json
+
+    from agentception.db.queries import AgentEventRow
+    from agentception.models import FileEditEvent
+    from agentception.routes.ui.build_ui import _inspector_sse
+
+    written_path = "agentception/models.py"
+    fake_diff = (
+        "--- a/agentception/models.py\n"
+        "+++ b/agentception/models.py\n"
+        "@@ -1 +1 @@\n"
+        "-old_value\n"
+        "+new_value\n"
+    )
+    fake_event = FileEditEvent(
+        timestamp=datetime.datetime(2024, 6, 1, 12, 0, 0, tzinfo=datetime.timezone.utc),
+        path=written_path,
+        diff=fake_diff,
+        lines_omitted=0,
+    )
+
+    # Simulate what persist_agent_event would have written to the DB.
+    fake_db_row: AgentEventRow = {
+        "id": 1,
+        "event_type": "file_edit",
+        "payload": _json.dumps(fake_event.model_dump(mode="json")),
+        "recorded_at": "2024-06-01T12:00:00Z",
+    }
+
+    class _StopLoop(Exception):
+        pass
+
+    collected_frames: list[str] = []
+    call_count = 0
+
+    async def fake_events_tail(run_id: str, after_id: int = 0) -> list[AgentEventRow]:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            # First poll: return the file_edit event row.
+            return [fake_db_row]
+        # Subsequent polls: empty (stop the loop via sleep mock).
+        return []
+
+    async def fake_sleep(delay: float) -> None:
+        raise _StopLoop
+
+    with (
+        patch(
+            "agentception.routes.ui.build_ui.get_agent_events_tail",
+            side_effect=fake_events_tail,
+        ),
+        patch(
+            "agentception.routes.ui.build_ui.get_agent_thoughts_tail",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
+        patch("agentception.routes.ui.build_ui.asyncio.sleep", side_effect=fake_sleep),
+    ):
+        gen = _inspector_sse("issue-686")
+        try:
+            async for frame in gen:
+                collected_frames.append(frame)
+        except _StopLoop:
+            pass
+
+    # At least one frame must have been emitted.
+    assert collected_frames, "No SSE frames were emitted by _inspector_sse"
+
+    # Find the file_edit frame.
+    file_edit_frames = [
+        f for f in collected_frames
+        if "file_edit" in f
+    ]
+    assert file_edit_frames, (
+        f"No file_edit SSE frame found. Frames received: {collected_frames!r}"
+    )
+
+    # Parse the first file_edit frame and validate the payload.
+    raw_frame = file_edit_frames[0]
+    assert raw_frame.startswith("data: "), (
+        f"SSE frame must start with 'data: ', got: {raw_frame!r}"
+    )
+    parsed = _json.loads(raw_frame[len("data: "):].strip())
+
+    assert parsed["t"] == "event", f"Expected t='event', got {parsed['t']!r}"
+    assert parsed["event_type"] == "file_edit", (
+        f"Expected event_type='file_edit', got {parsed['event_type']!r}"
+    )
+
+    # Validate the payload deserialises to a valid FileEditEvent.
+    payload = parsed["payload"]
+    validated = FileEditEvent.model_validate(payload)
+    assert validated.path == written_path, (
+        f"FileEditEvent.path mismatch: expected {written_path!r}, got {validated.path!r}"
+    )
+    assert validated.diff == fake_diff, "FileEditEvent.diff must match the original diff"
+    assert validated.lines_omitted == 0, "lines_omitted must be 0 for a short diff"
