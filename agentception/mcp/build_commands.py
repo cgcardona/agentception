@@ -24,6 +24,7 @@ Rules
 
 import asyncio
 import logging
+from pathlib import Path
 
 from agentception.db.persist import (
     acknowledge_agent_run,
@@ -53,7 +54,19 @@ async def _rebase_and_push_worktree(wt_path: str, agent_run_id: str | None) -> d
 
     Extracted into its own function so tests can mock it cleanly without
     spawning real git subprocesses against non-existent paths.
+
+    If the worktree directory no longer exists (e.g. the agent called
+    build_complete_run explicitly as a tool and the loop's stop-path
+    calls it again as a safety net) the function skips the rebase and
+    returns ``None`` — the branch was already pushed by the first call.
     """
+    if not Path(wt_path).exists():
+        logger.info(
+            "ℹ️  _rebase_and_push_worktree: worktree %r already removed — skipping rebase",
+            wt_path,
+        )
+        return None
+
     proc = await asyncio.create_subprocess_exec(
         "git", "fetch", "origin", "dev",
         cwd=wt_path,
