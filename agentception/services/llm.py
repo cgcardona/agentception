@@ -70,7 +70,7 @@ _MAX_RETRIES = 4
 # short hard cap would cancel valid responses.  Instead we pre-check DNS in an
 # asyncio-cancellable thread-pool call, fail fast if DNS is hung, and then let
 # the actual HTTP call use the full httpx timeout budget.
-_DNS_PREFLIGHT_TIMEOUT_SECS: float = 10.0
+_DNS_PREFLIGHT_TIMEOUT_SECS: float = 15.0
 _DNS_PREFLIGHT_HOST = "api.anthropic.com"
 _DNS_PREFLIGHT_PORT = 443
 # Minimum seconds to wait after a 429 before retrying.  Anthropic's rolling
