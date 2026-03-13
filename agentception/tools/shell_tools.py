@@ -99,6 +99,16 @@ _MYPY_OOM_ERROR = (
     "Only list the files YOU modified — not entire directories."
 )
 
+# Commands that run grep (direct or in a pipeline). Blocked so the agent uses
+# the search_text tool (ripgrep) instead — structured output and .gitignore-aware.
+_GREP_CMD_RE: re.Pattern[str] = re.compile(r"(^|\|)\s*grep\b", re.IGNORECASE)
+
+_GREP_BLOCKED_MESSAGE = (
+    "run_command(grep) is not allowed. Use the search_text tool instead: "
+    "it uses ripgrep, respects .gitignore, and returns file names and line numbers. "
+    "Call search_text(pattern=..., directory=...) for codebase search."
+)
+
 
 def _check_oom_risk(command: str) -> tuple[bool, str]:
     """Return *(safe, reason)* for commands that are not destructive but are
@@ -151,6 +161,10 @@ async def run_command(
     if not safe:
         logger.warning("⚠️ run_command blocked — %s", reason)
         return {"ok": False, "error": reason}
+
+    if _GREP_CMD_RE.search(command.strip()):
+        logger.warning("⚠️ run_command blocked — grep; use search_text")
+        return {"ok": False, "error": _GREP_BLOCKED_MESSAGE}
 
     cwd_path = Path(cwd) if cwd else None
     logger.info("✅ run_command — %s (cwd=%s)", shlex.quote(command), cwd_path)

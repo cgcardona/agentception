@@ -46,10 +46,13 @@ _RE_RUN_STEP = re.compile(
 _RE_ITERATION = re.compile(r"Step\s+(?P<n>\d+)")
 
 # dispatch_tool — run_id tag (agent_loop.py)
-# Optional trailing: key='value' (e.g. query='…', path='…', pattern='…')
+# Optional trailing: key=value pairs (path='…', lines=1-50, pattern='…', directory='…')
 _RE_DISPATCH_TOOL = re.compile(
-    r"dispatch_tool — run_id=(?P<run_id>\S+) tool=(?P<tool>\S+)"
-    r"(?:\s+\S+=(?P<arg>'[^']*'|\"[^\"]*\"|[^'\"\s]+))?"
+    r"dispatch_tool — run_id=(?P<run_id>\S+) tool=(?P<tool>\S+)(?P<args_suffix>.*)"
+)
+# Parse key=value from args_suffix; value may be quoted or unquoted.
+_RE_DISPATCH_ARG = re.compile(
+    r"\s+(\w+)=(?:'([^']*)'|\"([^\"]*)\"|(\S+))"
 )
 
 # file_tools result lines (agentception.tools.file_tools)
@@ -273,25 +276,55 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
         _last_run_id[0] = rid
         st = _get_state(rid)
         tool_name = dtm.group("tool")
-        raw_arg = dtm.group("arg") or ""
-        arg_val = raw_arg.strip("'\"") if raw_arg else ""
-        if len(arg_val) > 90:
-            arg_val = arg_val[:90] + "…"
-        arg_suffix = f"  {GREY}{arg_val}{RESET}" if arg_val else ""
+        args_suffix = dtm.group("args_suffix") or ""
+        # Parse key=value pairs from args_suffix for rich display.
+        parsed: dict[str, str] = {}
+        for m in _RE_DISPATCH_ARG.finditer(args_suffix):
+            key = m.group(1)
+            val = m.group(2) or m.group(3) or m.group(4) or ""
+            parsed[key] = val
         tag = _run_tag(rid, run_id_filter)
 
         if tool_name in _RESULT_LINE_TOOLS:
-            st.pending_arg = arg_val
+            st.pending_arg = parsed.get("path", "")
+            if tool_name == "read_file_lines":
+                path = parsed.get("path", "")
+                lines = parsed.get("lines", "")
+                if path or lines:
+                    path_short = _shorten_path(path) if path else "?"
+                    line_info = f"  {GREY}lines {lines}{RESET}" if lines else ""
+                    return (
+                        f"{ts}  {tag}{BLUE}{_tool_icon('read_file_lines')} read{RESET}  "
+                        f"{WHITE}{path_short}{RESET}{line_info}"
+                    )
             return None
         if tool_name in _DISPATCH_ONLY_TOOLS:
-            path = _shorten_path(arg_val) if arg_val else tool_name
-            return f"{ts}  {tag}{BLUE}{_tool_icon('read_file_lines')} read{RESET}  {WHITE}{path}{RESET}"
+            path = parsed.get("path", "")
+            path_short = _shorten_path(path) if path else tool_name
+            return f"{ts}  {tag}{BLUE}{_tool_icon('read_file_lines')} read{RESET}  {WHITE}{path_short}{RESET}"
         if tool_name in ("search_codebase", "search_text"):
-            return f"{ts}  {tag}{BLUE}🔍 {tool_name}{RESET}{arg_suffix}"
+            pattern = parsed.get("pattern") or parsed.get("query", "")
+            directory = parsed.get("directory", "")
+            if len(pattern) > 60:
+                pattern = pattern[:60] + "…"
+            parts = [f"{ts}  {tag}{BLUE}🔍 {tool_name}{RESET}"]
+            if pattern:
+                parts.append(f"  {GREY}pattern={pattern!r}{RESET}")
+            if directory and directory != ".":
+                parts.append(f"  {GREY}dir={directory}{RESET}")
+            return "".join(parts)
         if tool_name in ("log_run_step", "git_commit_and_push", "run_command"):
             return None  # rendered via dedicated patterns below
         if any(gh in tool_name for gh in ("pull_request", "issue_", "create_branch", "list_branch", "get_me", "search_")):
+            arg_val = parsed.get("path") or parsed.get("query", "") or ""
+            if len(arg_val) > 90:
+                arg_val = arg_val[:90] + "…"
+            arg_suffix = f"  {GREY}{arg_val}{RESET}" if arg_val else ""
             return f"{ts}  {tag}{CYAN}🐙 {tool_name}{RESET}{arg_suffix}"
+        arg_val = parsed.get("path") or parsed.get("query", "") or ""
+        if len(arg_val) > 90:
+            arg_val = arg_val[:90] + "…"
+        arg_suffix = f"  {GREY}{arg_val}{RESET}" if arg_val else ""
         return f"{ts}  {tag}{BLUE}{_tool_icon(tool_name)} {tool_name}{RESET}{arg_suffix}"
 
     # ── file_tools result lines ────────────────────────────────────────────────
@@ -619,6 +652,10 @@ def main() -> None:
                     elif (mr := _RE_LLM_RETRY.search(line)):
                         s.last_llm_call_ts = now
                         s.llm_retry_count = int(mr.group("n"))
+                    # Run failed (LLM error, cancel, etc.) — stop heartbeat "waiting" for this run.
+                    elif "log_run_error" in line or "agent_loop LLM error" in line:
+                        s.last_llm_call_ts = 0.0
+                        s.llm_retry_count = 0
                 print(out, flush=True)
     except KeyboardInterrupt:
         print(f"\n{GREY}stopped.{RESET}", flush=True)
