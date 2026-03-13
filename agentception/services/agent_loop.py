@@ -38,6 +38,11 @@ from agentception.config import settings
 from agentception.db.engine import get_session
 from agentception.db.models import ACAgentRun
 from agentception.db.queries import get_run_by_id
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from agentception.db.activity_events import (
+    persist_activity_event,
+)
 from agentception.db.persist import accumulate_token_usage, persist_agent_messages_async
 from agentception.mcp.build_commands import build_cancel_run, build_complete_run
 from agentception.mcp.log_tools import log_run_error, log_run_step, log_file_edit_event
@@ -395,7 +400,10 @@ _CONTEXT_PRESSURE_THRESHOLD: int = 100_000  # warn threshold (used in a later is
 _last_llm_call_at: float = 0.0
 
 
-async def _enforce_turn_delay() -> None:
+async def _enforce_turn_delay(
+    session: AsyncSession,
+    run_id: str,
+) -> None:
     """Sleep until settings.ac_min_turn_delay_secs has elapsed since the last LLM call.
 
     The timestamp is updated by the caller *after* call_anthropic_with_tools
@@ -408,6 +416,10 @@ async def _enforce_turn_delay() -> None:
     wait = min_delay - elapsed
     if wait > 0.0:
         logger.info("⏳ agent_loop: inter-turn delay — sleeping %.1fs", wait)
+        persist_activity_event(
+            session, run_id, "delay", {"secs": wait}
+        )  # docs/reference/activity-events.md
+        await session.flush()
         await asyncio.sleep(wait)
 
 
@@ -607,284 +619,291 @@ async def run_agent_loop(
         # call_anthropic_with_tools returns (including any retry backoff), so
         # the full _MIN_TURN_DELAY_SECS gap is always preserved between the end
         # of one LLM interaction and the start of the next.
-        await _enforce_turn_delay()
+        # Session scoped to this iteration for activity-event persists (issue 940).
+        async with get_session() as session:
+            await _enforce_turn_delay(session, run_id)
 
-        # Read working memory and render it as a secondary system block.
-        # This is injected fresh every turn OUTSIDE the prunable history so
-        # the agent always has its scratch-pad regardless of how many turns
-        # have been pruned.  The main system-prompt cache is not invalidated
-        # because the working memory is a separate, un-cached block.
-        memory = read_memory(worktree_path)
-        extra_blocks: list[dict[str, object]] = []
-        if memory:
-            extra_blocks.append({"type": "text", "text": render_memory(memory)})
-
-        # Write journal — injected outside the prunable history window so the
-        # agent always knows which files it has already modified.  Without this,
-        # once the history is pruned to _HISTORY_TAIL messages the agent loses
-        # evidence of its own writes and loops re-implementing the same code.
-        if files_written:
-            entries = "\n".join(
-                f"  • {path} ({count} write{'s' if count > 1 else ''})"
-                for path, count in sorted(files_written.items())
-            )
-            extra_blocks.append({
-                "type": "text",
-                "text": _WRITE_JOURNAL_HEADER.format(entries=entries),
-            })
-
-        # Loop-guard enforcement — fires when the agent has not written any code
-        # for loop_guard_threshold consecutive iterations (scaled to max_iterations).
-        #
-        # The tool list is intentionally kept CONSTANT across all iterations
-        # (no narrowing when guard fires).  Changing the tool list busts
-        # Anthropic's prompt cache on the tool-catalogue block, turning every
-        # guarded turn from a cheap cache-read into a full cache-write.
-        # Enforcement is via interception only: calls to non-write tools during
-        # guard mode are rejected with a synthetic error.
-        #
-        # Instead, interception alone enforces the guard: the model is sent the
-        # full tool list, but any call to a non-permitted tool during guard mode
-        # is caught AFTER the LLM response and returned as a synthetic error.
-        # The model sees the error, understands it cannot read, and calls a
-        # write tool on the next turn — same behavioural outcome, no cache bust.
-        guard_active = (
-            loop_guard_enabled
-            and iteration > loop_guard_threshold
-            and iterations_since_write >= loop_guard_threshold
-        )
-        # Always pass the full (constant) tool list so the cache key is stable.
-        active_tool_defs: list[ToolDefinition] = tool_defs
-        # One turn before guard fires: nudge the model to call a write tool in this response.
-        if (
-            loop_guard_enabled
-            and not guard_active
-            and iteration > 0
-            and iterations_since_write == loop_guard_threshold - 1
-        ):
-            extra_blocks.append({"type": "text", "text": _LOOP_GUARD_PREEMPTIVE_NUDGE})
-            logger.info(
-                "ℹ️ loop_guard preemptive nudge — run_id=%s iteration=%d iterations_since_write=%d",
-                run_id, iteration, iterations_since_write,
-            )
-        if guard_active:
-            override_text = _LOOP_GUARD_OVERRIDE.format(n=iterations_since_write)
-            extra_blocks.append({"type": "text", "text": override_text})
-            logger.warning(
-                "⚠️ loop_guard fired — run_id=%s iteration=%d iterations_since_write=%d"
-                " (interception-only, tool list unchanged for cache stability)",
-                run_id, iteration, iterations_since_write,
-            )
-
-        # Symbol-absence injection — fires once per repeated search query.
-        for query, count in search_query_counts.items():
-            if count >= 2 and query not in symbol_absence_injected:
-                absence_text = _SYMBOL_ABSENCE_OVERRIDE.format(query=query)
-                extra_blocks.append({"type": "text", "text": absence_text})
-                symbol_absence_injected.add(query)
-                logger.warning(
-                    "⚠️ symbol_absence fired — run_id=%s query=%r count=%d",
-                    run_id, query, count,
+            # Read working memory and render it as a secondary system block.
+            # This is injected fresh every turn OUTSIDE the prunable history so
+            # the agent always has its scratch-pad regardless of how many turns
+            # have been pruned.  The main system-prompt cache is not invalidated
+            # because the working memory is a separate, un-cached block.
+            memory = read_memory(worktree_path)
+            extra_blocks: list[dict[str, object]] = []
+            if memory:
+                extra_blocks.append({"type": "text", "text": render_memory(memory)})
+    
+            # Write journal — injected outside the prunable history window so the
+            # agent always knows which files it has already modified.  Without this,
+            # once the history is pruned to _HISTORY_TAIL messages the agent loses
+            # evidence of its own writes and loops re-implementing the same code.
+            if files_written:
+                entries = "\n".join(
+                    f"  • {path} ({count} write{'s' if count > 1 else ''})"
+                    for path, count in sorted(files_written.items())
                 )
-
-        # Final-stretch escalation — fires on every iteration once the remaining
-        # budget falls to or below _FINAL_STRETCH_THRESHOLD.  Independent of
-        # loop_guard: both can be active simultaneously.
-        remaining: int = max_iterations - iteration
-        if remaining <= _FINAL_STRETCH_THRESHOLD:
-            extra_blocks.append({
-                "type": "text",
-                "text": _FINAL_STRETCH_WARNING.format(remaining=remaining),
-            })
-            logger.warning(
-                "⚠️ final_stretch — run_id=%s iteration=%d remaining=%d",
-                run_id, iteration, remaining,
+                extra_blocks.append({
+                    "type": "text",
+                    "text": _WRITE_JOURNAL_HEADER.format(entries=entries),
+                })
+    
+            # Loop-guard enforcement — fires when the agent has not written any code
+            # for loop_guard_threshold consecutive iterations (scaled to max_iterations).
+            #
+            # The tool list is intentionally kept CONSTANT across all iterations
+            # (no narrowing when guard fires).  Changing the tool list busts
+            # Anthropic's prompt cache on the tool-catalogue block, turning every
+            # guarded turn from a cheap cache-read into a full cache-write.
+            # Enforcement is via interception only: calls to non-write tools during
+            # guard mode are rejected with a synthetic error.
+            #
+            # Instead, interception alone enforces the guard: the model is sent the
+            # full tool list, but any call to a non-permitted tool during guard mode
+            # is caught AFTER the LLM response and returned as a synthetic error.
+            # The model sees the error, understands it cannot read, and calls a
+            # write tool on the next turn — same behavioural outcome, no cache bust.
+            guard_active = (
+                loop_guard_enabled
+                and iteration > loop_guard_threshold
+                and iterations_since_write >= loop_guard_threshold
             )
-
-        # Context-pressure warning — fires on every iteration where the previous
-        # turn consumed more than _CONTEXT_PRESSURE_THRESHOLD input tokens.
-        # last_input_tokens is 0 on the first iteration (before any LLM call),
-        # so the condition is naturally False and the warning is never shown then.
-        if last_input_tokens > _CONTEXT_PRESSURE_THRESHOLD:
-            tokens_k = last_input_tokens // 1000
-            remaining_k = max(0, (200_000 - last_input_tokens) // 1000)
-            extra_blocks.append({
-                "type": "text",
-                "text": _CONTEXT_PRESSURE_WARNING.format(
-                    tokens_k=tokens_k, remaining_k=remaining_k
+            # Always pass the full (constant) tool list so the cache key is stable.
+            active_tool_defs: list[ToolDefinition] = tool_defs
+            # One turn before guard fires: nudge the model to call a write tool in this response.
+            if (
+                loop_guard_enabled
+                and not guard_active
+                and iteration > 0
+                and iterations_since_write == loop_guard_threshold - 1
+            ):
+                extra_blocks.append({"type": "text", "text": _LOOP_GUARD_PREEMPTIVE_NUDGE})
+                logger.info(
+                    "ℹ️ loop_guard preemptive nudge — run_id=%s iteration=%d iterations_since_write=%d",
+                    run_id, iteration, iterations_since_write,
+                )
+            if guard_active:
+                override_text = _LOOP_GUARD_OVERRIDE.format(n=iterations_since_write)
+                extra_blocks.append({"type": "text", "text": override_text})
+                logger.warning(
+                    "⚠️ loop_guard fired — run_id=%s iteration=%d iterations_since_write=%d"
+                    " (interception-only, tool list unchanged for cache stability)",
+                    run_id, iteration, iterations_since_write,
+                )
+    
+            # Symbol-absence injection — fires once per repeated search query.
+            for query, count in search_query_counts.items():
+                if count >= 2 and query not in symbol_absence_injected:
+                    absence_text = _SYMBOL_ABSENCE_OVERRIDE.format(query=query)
+                    extra_blocks.append({"type": "text", "text": absence_text})
+                    symbol_absence_injected.add(query)
+                    logger.warning(
+                        "⚠️ symbol_absence fired — run_id=%s query=%r count=%d",
+                        run_id, query, count,
+                    )
+    
+            # Final-stretch escalation — fires on every iteration once the remaining
+            # budget falls to or below _FINAL_STRETCH_THRESHOLD.  Independent of
+            # loop_guard: both can be active simultaneously.
+            remaining: int = max_iterations - iteration
+            if remaining <= _FINAL_STRETCH_THRESHOLD:
+                extra_blocks.append({
+                    "type": "text",
+                    "text": _FINAL_STRETCH_WARNING.format(remaining=remaining),
+                })
+                logger.warning(
+                    "⚠️ final_stretch — run_id=%s iteration=%d remaining=%d",
+                    run_id, iteration, remaining,
+                )
+    
+            # Context-pressure warning — fires on every iteration where the previous
+            # turn consumed more than _CONTEXT_PRESSURE_THRESHOLD input tokens.
+            # last_input_tokens is 0 on the first iteration (before any LLM call),
+            # so the condition is naturally False and the warning is never shown then.
+            if last_input_tokens > _CONTEXT_PRESSURE_THRESHOLD:
+                tokens_k = last_input_tokens // 1000
+                remaining_k = max(0, (200_000 - last_input_tokens) // 1000)
+                extra_blocks.append({
+                    "type": "text",
+                    "text": _CONTEXT_PRESSURE_WARNING.format(
+                        tokens_k=tokens_k, remaining_k=remaining_k
+                    ),
+                })
+                logger.warning(
+                    "⚠️ context_pressure — run_id=%s iter=%d input_tokens=%d",
+                    run_id,
+                    iteration,
+                    last_input_tokens,
+                )
+    
+            # Pytest hard-stop escalation — fires every iteration after pytest
+            # exits 0.  Independent of loop_guard and final_stretch.  Not applied
+            # to reviewers (whose workflow is intentionally read-heavy).
+            _pytest_clean_iter = pytest_clean_since
+            pytest_stop_active: bool = (
+                _pytest_clean_iter is not None and task.role != "reviewer"
+            )
+            if pytest_stop_active and _pytest_clean_iter is not None:
+                extra_blocks.append({
+                    "type": "text",
+                    "text": _PYTEST_STOP_OVERRIDE.format(iteration=_pytest_clean_iter),
+                })
+                logger.warning(
+                    "⚠️ pytest_stop active — run_id=%s current_iter=%d armed_at=%d",
+                    run_id, iteration, _pytest_clean_iter,
+                )
+    
+            try:
+                bounded = await _prune_history(_truncate_tool_results(messages), last_input_tokens=last_input_tokens)
+                _active_model = _HAIKU_MODEL if task.role == "reviewer" else _MODEL
+                response: ToolResponse = await call_anthropic_with_tools(
+                    bounded,
+                    system=system_prompt,
+                    tools=active_tool_defs,
+                    model=_active_model,
+                    extra_system_blocks=extra_blocks or None,
+                    session=session,
+                    run_id=run_id,
+                    iteration=iteration,
+                )
+            except Exception as exc:
+                _record_llm_call()  # stamp even on error so next delay is measured correctly
+                logger.exception("❌ agent_loop LLM error on iteration %d", iteration)
+                await github_client.close()
+                await log_run_error(issue_number, f"LLM error: {exc}", run_id)
+                await build_cancel_run(run_id)
+                return
+    
+            _record_llm_call()  # stamp after successful response — this is the reference point for the next delay
+    
+            # Track real input tokens so _prune_history can apply the token-budget
+            # path on the *next* iteration if the context is growing too large.
+            last_input_tokens = int(response.get("input_tokens", 0) or 0)
+    
+            # Accumulate real token counts for cost tracking.  Fire-and-forget so
+            # a DB hiccup never interrupts the agent loop.
+            asyncio.create_task(
+                accumulate_token_usage(
+                    run_id=run_id,
+                    input_tokens=response.get("input_tokens", 0),
+                    output_tokens=response.get("output_tokens", 0),
+                    cache_write_tokens=response.get("cache_creation_input_tokens", 0),
+                    cache_read_tokens=response.get("cache_read_input_tokens", 0),
                 ),
-            })
-            logger.warning(
-                "⚠️ context_pressure — run_id=%s iter=%d input_tokens=%d",
-                run_id,
+                name=f"token-accum-{run_id}-{iteration}",
+            )
+    
+            last_input_tokens = response.get("input_tokens", 0)
+            logger.info(
+                "📊 context: iter=%d input_tokens=%d output_tokens=%d cache_hit=%d",
                 iteration,
                 last_input_tokens,
+                response.get("output_tokens", 0),
+                response.get("cache_read_input_tokens", 0),
             )
-
-        # Pytest hard-stop escalation — fires every iteration after pytest
-        # exits 0.  Independent of loop_guard and final_stretch.  Not applied
-        # to reviewers (whose workflow is intentionally read-heavy).
-        _pytest_clean_iter = pytest_clean_since
-        pytest_stop_active: bool = (
-            _pytest_clean_iter is not None and task.role != "reviewer"
-        )
-        if pytest_stop_active and _pytest_clean_iter is not None:
-            extra_blocks.append({
-                "type": "text",
-                "text": _PYTEST_STOP_OVERRIDE.format(iteration=_pytest_clean_iter),
-            })
-            logger.warning(
-                "⚠️ pytest_stop active — run_id=%s current_iter=%d armed_at=%d",
-                run_id, iteration, _pytest_clean_iter,
-            )
-
-        try:
-            bounded = await _prune_history(_truncate_tool_results(messages), last_input_tokens=last_input_tokens)
-            _active_model = _HAIKU_MODEL if task.role == "reviewer" else _MODEL
-            response: ToolResponse = await call_anthropic_with_tools(
-                bounded,
-                system=system_prompt,
-                tools=active_tool_defs,
-                model=_active_model,
-                extra_system_blocks=extra_blocks or None,
-            )
-        except Exception as exc:
-            _record_llm_call()  # stamp even on error so next delay is measured correctly
-            logger.exception("❌ agent_loop LLM error on iteration %d", iteration)
-            await github_client.close()
-            await log_run_error(issue_number, f"LLM error: {exc}", run_id)
-            await build_cancel_run(run_id)
-            return
-
-        _record_llm_call()  # stamp after successful response — this is the reference point for the next delay
-
-        # Track real input tokens so _prune_history can apply the token-budget
-        # path on the *next* iteration if the context is growing too large.
-        last_input_tokens = int(response.get("input_tokens", 0) or 0)
-
-        # Accumulate real token counts for cost tracking.  Fire-and-forget so
-        # a DB hiccup never interrupts the agent loop.
-        asyncio.create_task(
-            accumulate_token_usage(
-                run_id=run_id,
-                input_tokens=response.get("input_tokens", 0),
-                output_tokens=response.get("output_tokens", 0),
-                cache_write_tokens=response.get("cache_creation_input_tokens", 0),
-                cache_read_tokens=response.get("cache_read_input_tokens", 0),
-            ),
-            name=f"token-accum-{run_id}-{iteration}",
-        )
-
-        last_input_tokens = response.get("input_tokens", 0)
-        logger.info(
-            "📊 context: iter=%d input_tokens=%d output_tokens=%d cache_hit=%d",
-            iteration,
-            last_input_tokens,
-            response.get("output_tokens", 0),
-            response.get("cache_read_input_tokens", 0),
-        )
-
-        # Append assistant message to history before persisting so the full
-        # conversation (including the new assistant reply) is written to DB.
-        # persist_agent_messages_async is fire-and-forget via asyncio.create_task.
-        assistant_msg: dict[str, object] = {"role": "assistant", "content": response["content"]}
-        if response["tool_calls"]:
-            assistant_msg["tool_calls"] = list(response["tool_calls"])
-        messages.append(assistant_msg)
-
-        await persist_agent_messages_async(run_id, messages)
-
-        if response["stop_reason"] == "stop":
-            logger.info("✅ agent_loop complete — run_id=%s iterations=%d", run_id, iteration)
-            await github_client.close()
-            await build_complete_run(
-                issue_number=issue_number,
-                pr_url="",
-                summary=response["content"][:500] if response["content"] else "Agent completed.",
-                agent_run_id=run_id,
-            )
-            return
-
-        if response["stop_reason"] in ("tool_calls", "length") and response["tool_calls"]:
-            # During guard mode: intercept read-only tool calls and return
-            # synthetic error results BEFORE dispatching.  The model "remembers"
-            # tools from prior iterations and may call them even when they are
-            # absent from active_tool_defs — returning an error forces it to
-            # acknowledge the constraint and switch to a write tool.
-            tc_to_dispatch: list[ToolCall] = []
-            synthetic_errors: list[dict[str, object]] = []
-            if guard_active:
-                for tc in response["tool_calls"]:
-                    tc_name = tc["function"]["name"]
-                    if tc_name not in _GUARD_PERMITTED_TOOL_NAMES:
-                        synthetic_errors.append({
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": json.dumps({
-                                "ok": False,
-                                "error": (
-                                    f"GUARD MODE: '{tc_name}' is unavailable. "
-                                    f"You have not written code for "
-                                    f"{iterations_since_write} iterations. "
-                                    "Call write_file or replace_in_file to "
-                                    "implement code; that will restore all tools "
-                                    "including run_command and read_file."
-                                ),
-                            }),
-                        })
-                    else:
-                        tc_to_dispatch.append(tc)
-                if synthetic_errors:
-                    logger.warning(
-                        "⚠️ loop_guard intercepted %d read call(s) — run_id=%s",
-                        len(synthetic_errors), run_id,
-                    )
-            else:
-                tc_to_dispatch = list(response["tool_calls"])
-
-            # Pass 2: pytest hard-stop interception (independent of loop guard).
-            # Any read/search tool that made it past Pass 1 is blocked here when
-            # pytest_stop_active.  This runs on tc_to_dispatch (not the full list)
-            # so guard-intercepted tools are not double-counted.
-            if pytest_stop_active:
-                unblocked: list[ToolCall] = []
-                for tc in tc_to_dispatch:
-                    tc_name = tc["function"]["name"]
-                    if tc_name in _PYTEST_STOP_BLOCKED_TOOLS:
-                        synthetic_errors.append({
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": json.dumps({
-                                "ok": False,
-                                "error": (
-                                    f"HARD STOP: pytest exited 0 on iteration "
-                                    f"{pytest_clean_since}. Reading, searching, "
-                                    "and diagnostics are locked. Commit via "
-                                    "run_command (git add/commit/push) or "
-                                    "git_commit_and_push if available, then "
-                                    "create_pull_request and build_complete_run."
-                                ),
-                            }),
-                        })
-                    else:
-                        unblocked.append(tc)
-                if len(unblocked) < len(tc_to_dispatch):
-                    logger.warning(
-                        "⚠️ pytest_stop intercepted %d tool call(s) — run_id=%s iteration=%d",
-                        len(tc_to_dispatch) - len(unblocked), run_id, iteration,
-                    )
-                tc_to_dispatch = unblocked
-
-            tool_results: list[dict[str, object]] = []
-            if tc_to_dispatch:
-                tool_results = await _dispatch_tool_calls(
-                    tc_to_dispatch,
-                    worktree_path,
-                    run_id,
-                    github_client=github_client,
-                    github_tool_names=github_tool_names,
+    
+            # Append assistant message to history before persisting so the full
+            # conversation (including the new assistant reply) is written to DB.
+            # persist_agent_messages_async is fire-and-forget via asyncio.create_task.
+            assistant_msg: dict[str, object] = {"role": "assistant", "content": response["content"]}
+            if response["tool_calls"]:
+                assistant_msg["tool_calls"] = list(response["tool_calls"])
+            messages.append(assistant_msg)
+    
+            await persist_agent_messages_async(run_id, messages)
+    
+            if response["stop_reason"] == "stop":
+                logger.info("✅ agent_loop complete — run_id=%s iterations=%d", run_id, iteration)
+                await github_client.close()
+                await build_complete_run(
+                    issue_number=issue_number,
+                    pr_url="",
+                    summary=response["content"][:500] if response["content"] else "Agent completed.",
+                    agent_run_id=run_id,
                 )
-            messages.extend(synthetic_errors + tool_results)
+                return
+    
+            if response["stop_reason"] in ("tool_calls", "length") and response["tool_calls"]:
+                # During guard mode: intercept read-only tool calls and return
+                # synthetic error results BEFORE dispatching.  The model "remembers"
+                # tools from prior iterations and may call them even when they are
+                # absent from active_tool_defs — returning an error forces it to
+                # acknowledge the constraint and switch to a write tool.
+                tc_to_dispatch: list[ToolCall] = []
+                synthetic_errors: list[dict[str, object]] = []
+                if guard_active:
+                    for tc in response["tool_calls"]:
+                        tc_name = tc["function"]["name"]
+                        if tc_name not in _GUARD_PERMITTED_TOOL_NAMES:
+                            synthetic_errors.append({
+                                "role": "tool",
+                                "tool_call_id": tc["id"],
+                                "content": json.dumps({
+                                    "ok": False,
+                                    "error": (
+                                        f"GUARD MODE: '{tc_name}' is unavailable. "
+                                        f"You have not written code for "
+                                        f"{iterations_since_write} iterations. "
+                                        "Call write_file or replace_in_file to "
+                                        "implement code; that will restore all tools "
+                                        "including run_command and read_file."
+                                    ),
+                                }),
+                            })
+                        else:
+                            tc_to_dispatch.append(tc)
+                    if synthetic_errors:
+                        logger.warning(
+                            "⚠️ loop_guard intercepted %d read call(s) — run_id=%s",
+                            len(synthetic_errors), run_id,
+                        )
+                else:
+                    tc_to_dispatch = list(response["tool_calls"])
+    
+                # Pass 2: pytest hard-stop interception (independent of loop guard).
+                # Any read/search tool that made it past Pass 1 is blocked here when
+                # pytest_stop_active.  This runs on tc_to_dispatch (not the full list)
+                # so guard-intercepted tools are not double-counted.
+                if pytest_stop_active:
+                    unblocked: list[ToolCall] = []
+                    for tc in tc_to_dispatch:
+                        tc_name = tc["function"]["name"]
+                        if tc_name in _PYTEST_STOP_BLOCKED_TOOLS:
+                            synthetic_errors.append({
+                                "role": "tool",
+                                "tool_call_id": tc["id"],
+                                "content": json.dumps({
+                                    "ok": False,
+                                    "error": (
+                                        f"HARD STOP: pytest exited 0 on iteration "
+                                        f"{pytest_clean_since}. Reading, searching, "
+                                        "and diagnostics are locked. Commit via "
+                                        "run_command (git add/commit/push) or "
+                                        "git_commit_and_push if available, then "
+                                        "create_pull_request and build_complete_run."
+                                    ),
+                                }),
+                            })
+                        else:
+                            unblocked.append(tc)
+                    if len(unblocked) < len(tc_to_dispatch):
+                        logger.warning(
+                            "⚠️ pytest_stop intercepted %d tool call(s) — run_id=%s iteration=%d",
+                            len(tc_to_dispatch) - len(unblocked), run_id, iteration,
+                        )
+                    tc_to_dispatch = unblocked
+    
+                tool_results: list[dict[str, object]] = []
+                if tc_to_dispatch:
+                    tool_results = await _dispatch_tool_calls(
+                        tc_to_dispatch,
+                        worktree_path,
+                        run_id,
+                        session=session,
+                        github_client=github_client,
+                        github_tool_names=github_tool_names,
+                    )
+                messages.extend(synthetic_errors + tool_results)
+            await session.commit()
 
             # Loop-guard bookkeeping: track writes and repeated searches.
             tool_names_this_iter: set[str] = {
@@ -1005,7 +1024,7 @@ async def run_agent_loop(
                 )
                 pytest_clean_since = None
 
-            continue
+                continue
 
         # stop_reason="length" with no tool calls means the response was
         # genuinely truncated mid-generation — nothing actionable was produced.
@@ -2106,6 +2125,7 @@ async def _dispatch_tool_calls(
     worktree_path: Path,
     run_id: str,
     *,
+    session: AsyncSession | None = None,
     github_client: GitHubMCPClient | None = None,
     github_tool_names: frozenset[str] = frozenset(),
 ) -> list[dict[str, object]]:
@@ -2138,6 +2158,7 @@ async def _dispatch_tool_calls(
                 tc,
                 worktree_path,
                 run_id,
+                session=session,
                 github_client=github_client,
                 github_tool_names=github_tool_names,
             )
@@ -2179,6 +2200,7 @@ async def _dispatch_single_tool(
     worktree_path: Path,
     run_id: str,
     *,
+    session: AsyncSession | None = None,
     github_client: GitHubMCPClient | None = None,
     github_tool_names: frozenset[str] = frozenset(),
 ) -> dict[str, object]:
@@ -2221,6 +2243,12 @@ async def _dispatch_single_tool(
     else:
         _arg_tag = f" {_key}={str(_val)!r}" if isinstance(_val, str) else ""
     logger.info("✅ dispatch_tool — run_id=%s tool=%s%s", run_id, name, _arg_tag)
+    if session is not None:
+        persist_activity_event(
+            session, run_id, "tool_invoked",
+            {"tool_name": name, "arg_preview": str(args)[:120]},
+        )
+        await session.flush()
 
     if name in _LOCAL_TOOL_NAMES:
         return await _dispatch_local_tool(name, args, worktree_path)

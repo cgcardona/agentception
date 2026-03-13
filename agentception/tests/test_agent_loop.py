@@ -527,7 +527,9 @@ class TestDispatchToolCalls:
             type="function",
             function=ToolCallFunction(name="read_file", arguments="not-valid-json"),
         )
-        result = await _dispatch_single_tool(bad_tc, tmp_path, "run-1")
+        result = await _dispatch_single_tool(
+            bad_tc, tmp_path, "run-1", session=None
+        )
         assert result["ok"] is False
         assert "json" in str(result["error"]).lower()
 
@@ -548,7 +550,10 @@ class TestEnforceTurnDelay:
         al._last_llm_call_at = 0.0  # simulate never called
         t0 = time.monotonic()
         from agentception.services.agent_loop import _enforce_turn_delay
-        await _enforce_turn_delay()
+        mock_session = AsyncMock()
+        mock_session.flush = AsyncMock()
+        mock_session.add = MagicMock()  # persist_activity_event calls add() synchronously
+        await _enforce_turn_delay(mock_session, "run-1")
         assert time.monotonic() - t0 < 1.0
 
     @pytest.mark.anyio
@@ -559,9 +564,12 @@ class TestEnforceTurnDelay:
         al._last_llm_call_at = time.monotonic() - 2.0
         t0 = time.monotonic()
         from agentception.services.agent_loop import _enforce_turn_delay
+        mock_session = AsyncMock()
+        mock_session.flush = AsyncMock()
+        mock_session.add = MagicMock()  # persist_activity_event calls add() synchronously
         with patch("agentception.services.agent_loop.settings") as mock_settings:
             mock_settings.ac_min_turn_delay_secs = 4.0
-            await _enforce_turn_delay()
+            await _enforce_turn_delay(mock_session, "run-1")
         elapsed = time.monotonic() - t0
         assert 1.5 < elapsed < 3.0  # ~2s wait, with tolerance
 
@@ -573,7 +581,10 @@ class TestEnforceTurnDelay:
         al._last_llm_call_at = time.monotonic() - 15.0
         t0 = time.monotonic()
         from agentception.services.agent_loop import _enforce_turn_delay
-        await _enforce_turn_delay()
+        mock_session = AsyncMock()
+        mock_session.flush = AsyncMock()
+        mock_session.add = MagicMock()  # persist_activity_event calls add() synchronously
+        await _enforce_turn_delay(mock_session, "run-1")
         assert time.monotonic() - t0 < 1.0
 
     def test_record_llm_call_updates_timestamp(self) -> None:
@@ -596,9 +607,12 @@ class TestEnforceTurnDelay:
         # Simulate: _record_llm_call() called just now (LLM call just completed)
         _record_llm_call()
         t0 = time.monotonic()
+        mock_session = AsyncMock()
+        mock_session.flush = AsyncMock()
+        mock_session.add = MagicMock()  # persist_activity_event calls add() synchronously
         with patch("agentception.services.agent_loop.settings") as mock_settings:
             mock_settings.ac_min_turn_delay_secs = 4.0
-            await _enforce_turn_delay()
+            await _enforce_turn_delay(mock_session, "run-1")
         # Should wait close to ac_min_turn_delay_secs, not skip due to stale timestamp
         elapsed = time.monotonic() - t0
         assert elapsed >= 3.0  # within 1s tolerance of the 4s target
