@@ -1098,6 +1098,111 @@ class TestLoopGuard:
             )
 
     @pytest.mark.anyio
+    async def test_preemptive_nudge_injected_one_turn_before_loop_guard(
+        self, tmp_path: Path
+    ) -> None:
+        """Preemptive nudge appears when iterations_since_write == threshold - 1.
+
+        One turn before the loop guard fires we inject a nudge telling the model
+        to call a write tool in this response. The nudge must not contain
+        'LOOP GUARD' (that string is reserved for the full guard override).
+        """
+        from agentception.services.agent_loop import (
+            _LOOP_GUARD_THRESHOLD,
+            run_agent_loop,
+        )
+
+        worktree = tmp_path / "test-run-preemptive"
+        worktree.mkdir()
+        task_spec = _make_task_spec(worktree)
+
+        # With threshold=2: after 1 read we have iterations_since_write=1.
+        # The next request (index 1) gets the preemptive nudge. Then we return
+        # another read so the run continues; then write + stop.
+        nudge_turn_index = 1
+        all_responses = (
+            [_tool_response("read_file", {"path": "agentception/models.py"})]
+            + [_tool_response("read_file", {"path": "agentception/other.py"})]
+            + [_tool_response("write_file", {"path": "agentception/new.py", "content": "# x"})]
+            + [_stop_response("Done.")]
+        )
+
+        captured_extra: list[list[dict[str, object]] | None] = []
+
+        async def fake_llm(
+            *args: object,
+            extra_system_blocks: list[dict[str, object]] | None = None,
+            **kwargs: object,
+        ) -> ToolResponse:
+            captured_extra.append(extra_system_blocks)
+            return all_responses[len(captured_extra) - 1]
+
+        file_result: dict[str, object] = {"ok": True, "content": "# stub", "truncated": False}
+        write_result: dict[str, object] = {"ok": True}
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.get_run_by_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic_with_tools",
+                side_effect=fake_llm,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
+
+            from agentception.services import agent_loop as al
+
+            with (
+                patch.object(al, "read_file", return_value=file_result),
+                patch.object(al, "write_file", return_value=write_result),
+            ):
+                await run_agent_loop("test-run-preemptive", max_iterations=20)
+
+        assert len(captured_extra) > nudge_turn_index, "Expected at least 2 LLM requests"
+        blocks = captured_extra[nudge_turn_index]
+        assert blocks is not None
+        all_text = " ".join(
+            str(b["text"]) for b in blocks if isinstance(b.get("text"), str)
+        )
+        assert "ONE TURN BEFORE READ-ONLY LOCK" in all_text, (
+            "Preemptive nudge must be injected one turn before guard fires"
+        )
+        assert "Issue a write tool call now" in all_text
+        assert "LOOP GUARD" not in all_text, (
+            "Preemptive nudge must not contain LOOP GUARD (reserved for full override)"
+        )
+
+    @pytest.mark.anyio
     async def test_symbol_absence_injects_override_on_repeated_search(
         self, tmp_path: Path
     ) -> None:
