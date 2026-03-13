@@ -10,6 +10,7 @@ Covers:
 
 import importlib
 import json
+from collections.abc import Generator
 
 import pytest
 from sqlalchemy import create_engine
@@ -30,7 +31,7 @@ from agentception.db.models import ACAgentEvent
 
 
 @pytest.fixture()
-def db_session() -> Session:
+def db_session() -> Generator[Session, None, None]:
     """Yield a synchronous SQLite in-memory session with all tables created."""
     engine = create_engine("sqlite:///:memory:", echo=False)
     # Create only the tables we need — avoids FK issues with missing tables.
