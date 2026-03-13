@@ -751,6 +751,17 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
             "reviewer" if is_reviewer else "continuation-developer",
         )
     else:
+        # Fetch dev so origin/dev reflects the latest merged PRs before we branch.
+        # Without this the container's ref tracker may lag behind GitHub by one or
+        # more commits, causing the worktree to start from a stale tip and the
+        # agent's push to diverge from origin/dev immediately.
+        _dev_fetch = await asyncio.create_subprocess_exec(
+            "git", "fetch", "origin", "dev",
+            cwd=str(settings.repo_dir),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await _dev_fetch.communicate()
         worktree_base = "origin/dev"
 
     try:
