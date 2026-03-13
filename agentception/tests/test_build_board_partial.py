@@ -174,7 +174,7 @@ async def test_get_runs_for_issue_numbers_empty_input() -> None:
 
 
 def test_build_board_partial_shows_status_badge(client: TestClient) -> None:
-    """GET /build/board includes the agent_status badge text in HTML."""
+    """GET /build/board suppresses the status badge for 'implementing' active-lane cards."""
     with (
         patch(
             "agentception.routes.ui.build_ui.get_issues_grouped_by_phase",
@@ -195,8 +195,8 @@ def test_build_board_partial_shows_status_badge(client: TestClient) -> None:
         resp = client.get("/ship/agentception/phase-1/board")
 
     assert resp.status_code == 200
-    # The status badge is always rendered; for "implementing" it shows the status text.
-    assert "build-issue__status--implementing" in resp.text
+    # The status badge is suppressed for 'implementing' — the Active lane position is signal enough.
+    assert "build-issue__status--implementing" not in resp.text
 
 
 def test_build_board_partial_reviewing_suppresses_status_badge(client: TestClient) -> None:
@@ -225,8 +225,8 @@ def test_build_board_partial_reviewing_suppresses_status_badge(client: TestClien
         resp = client.get("/ship/agentception/phase-1/board")
 
     assert resp.status_code == 200
-    # The status badge is always rendered; for "reviewing" it shows the status text.
-    assert "build-issue__status--reviewing" in resp.text
+    # The status badge is suppressed for 'reviewing' — the Active lane position is signal enough.
+    assert "build-issue__status--reviewing" not in resp.text
 
 
 def test_build_board_partial_stale_renders_status_badge(client: TestClient) -> None:
@@ -256,6 +256,32 @@ def test_build_board_partial_stale_renders_status_badge(client: TestClient) -> N
     assert resp.status_code == 200
     assert "build-issue__status--stale" in resp.text
     assert "⚠ stale" in resp.text
+
+
+def test_pending_launch_badge_visible_in_active_lane(client: TestClient) -> None:
+    """GET /build/board must render the pending_launch badge in the active lane."""
+    with (
+        patch(
+            "agentception.routes.ui.build_ui.get_issues_grouped_by_phase",
+            new_callable=AsyncMock,
+            return_value=_mock_group(),
+        ),
+        patch(
+            "agentception.routes.ui.build_ui.get_runs_for_issue_numbers",
+            new_callable=AsyncMock,
+            return_value={82: _mock_run_dict(agent_status="pending_launch", status="pending_launch")},
+        ),
+        patch(
+            "agentception.routes.ui.build_ui.get_workflow_states_by_issue",
+            new_callable=AsyncMock,
+            return_value={82: {"lane": "active", "pr_number": None}},
+        ),
+    ):
+        resp = client.get("/ship/agentception/phase-1/board")
+
+    assert resp.status_code == 200
+    assert "build-issue__status--pending_launch" in resp.text
+    assert "pending_launch" in resp.text
 
 
 def test_build_board_partial_shows_current_step(client: TestClient) -> None:
