@@ -481,6 +481,7 @@ class AgentThoughtRow(TypedDict):
     seq: int
     role: str
     content: str
+    tool_name: str  # empty string when absent
     recorded_at: str
 
 logger = logging.getLogger(__name__)
@@ -2529,7 +2530,7 @@ async def get_initiative_summary(
 async def get_agent_thoughts_tail(
     run_id: str,
     after_seq: int = -1,
-    roles: tuple[str, ...] = ("thinking", "assistant"),
+    roles: tuple[str, ...] = ("thinking", "assistant", "tool_call", "tool_result"),
 ) -> list[AgentThoughtRow]:
     """Return transcript messages for *run_id* with ``sequence_index > after_seq``.
 
@@ -2555,6 +2556,7 @@ async def get_agent_thoughts_tail(
                 seq=row.sequence_index,
                 role=row.role,
                 content=row.content or "",
+                tool_name=row.tool_name or "",
                 recorded_at=row.recorded_at.isoformat(),
             )
             for row in rows
