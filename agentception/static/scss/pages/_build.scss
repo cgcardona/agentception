@@ -2,6 +2,7 @@
 // Barrel: each partial owns its rule block. Edit the partial, not this file.
 // Cascade order must match the original monolithic _build.scss.
 
+@use 'activity-feed';
 @use 'inspector-layout';
 @use 'thought-block';
 @use 'file-edit-card';
