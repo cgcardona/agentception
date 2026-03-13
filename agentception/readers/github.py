@@ -812,6 +812,50 @@ async def get_issue(number: int) -> dict[str, object]:
     }
 
 
+async def is_branch_merged_into(branch: str, base: str = "dev") -> bool:
+    """Return ``True`` when *branch* has been fully merged into *base*.
+
+    Uses the GitHub compare API (``GET /repos/{owner}/{repo}/compare/{base}...{head}``).
+    The response ``"status"`` field is:
+
+    - ``"identical"`` — the branches point to the same commit (already merged).
+    - ``"behind"``    — *head* is behind *base*, meaning all commits from *head*
+      are already in *base* (merged).
+    - ``"ahead"``     — *head* has commits not in *base* (not yet merged).
+    - ``"diverged"``  — branches have diverged (not merged).
+
+    Parameters
+    ----------
+    branch:
+        The head branch name to check (e.g. ``"feat/issue-822"``).
+    base:
+        The base branch to compare against (default ``"dev"``).
+
+    Returns
+    -------
+    bool
+        ``True`` if *branch* is merged into *base*, ``False`` otherwise.
+
+    Raises
+    ------
+    RuntimeError
+        On any non-2xx GitHub API response.
+    """
+    repo = settings.gh_repo
+    encoded_base = urllib.parse.quote(base, safe="")
+    encoded_head = urllib.parse.quote(branch, safe="")
+    cache_key = f"is_branch_merged_into:{base}:{branch}"
+    result = await _api_get(
+        f"repos/{repo}/compare/{encoded_base}...{encoded_head}",
+        {},
+        cache_key,
+    )
+    if not isinstance(result, dict):
+        return False
+    status: object = result.get("status")
+    return status in ("identical", "behind")
+
+
 async def get_repo_labels(limit: int = 100) -> list[dict[str, object]]:
     """Return all labels defined in the repository.
 
