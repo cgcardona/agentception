@@ -24,12 +24,9 @@ Rules
 
 import asyncio
 import logging
+import re
 from pathlib import Path
 
-from sqlalchemy import func, select
-
-from agentception.db.engine import get_session
-from agentception.db.models import ACAgentEvent, ACAgentRun
 from agentception.db.persist import (
     acknowledge_agent_run,
     block_agent_run,
@@ -268,35 +265,21 @@ async def build_spawn_child_run(
     }
 
 
-async def _has_file_edit_events(run_id: str) -> bool:
-    """Return True if at least one file_edit or write_file event exists for the run.
+# Matches https://github.com/<owner>/<repo>/pull/<number>
+# Used to validate the pr_url argument before accepting build_complete_run.
+_GITHUB_PR_URL_RE: re.Pattern[str] = re.compile(
+    r"https://github\.com/[^/]+/[^/]+/pull/\d+"
+)
 
-    Used as a pre-flight guard inside build_complete_run to prevent agents from
-    signalling completion before writing any code.
+
+def _is_valid_pr_url(pr_url: str) -> bool:
+    """Return True if pr_url looks like a valid GitHub pull-request URL.
+
+    Validates the *argument* passed to build_complete_run rather than doing a
+    DB lookup.  The PR number is only written to ACAgentRun after this function
+    succeeds, so any DB-based check would always return False — a deadlock.
     """
-    async with get_session() as session:
-        result = await session.execute(
-            select(func.count(ACAgentEvent.id)).where(
-                ACAgentEvent.agent_run_id == run_id,
-                ACAgentEvent.event_type.in_(["file_edit", "write_file"]),
-            )
-        )
-        count: int = result.scalar_one()
-    return count > 0
-
-
-async def _has_pr_recorded(run_id: str) -> bool:
-    """Return True if a PR number has been recorded on the run row.
-
-    Used as a pre-flight guard inside build_complete_run to prevent agents from
-    signalling completion before opening a pull request.
-    """
-    async with get_session() as session:
-        result = await session.execute(
-            select(ACAgentRun.pr_number).where(ACAgentRun.id == run_id)
-        )
-        row = result.one_or_none()
-    return row is not None and row[0] is not None
+    return bool(_GITHUB_PR_URL_RE.search(pr_url))
 
 
 async def build_complete_run(
@@ -334,28 +317,21 @@ async def build_complete_run(
     Returns:
         ``{"ok": True, "event": "done", "status": "completed"}``
     """
-    # --- Pre-flight guards ---
-    # These invariants must hold before any side-effectful completion logic runs.
-    # We return a structured error dict (not an exception) so the MCP framework
-    # serialises it back to the agent as a normal tool response the agent can
-    # act on — retry after completing the missing step.
-    if agent_run_id:
-        if not await _has_file_edit_events(agent_run_id):
-            return {
-                "ok": False,
-                "error": (
-                    "build_complete_run refused: no file edits recorded for this run. "
-                    "Write and commit your changes first."
-                ),
-            }
-        if not await _has_pr_recorded(agent_run_id):
-            return {
-                "ok": False,
-                "error": (
-                    "build_complete_run refused: no PR found. "
-                    "Create and push a branch, then open a pull request first."
-                ),
-            }
+    # --- Pre-flight guard: pr_url must be a valid GitHub pull-request URL ---
+    # We validate the argument directly rather than doing a DB lookup.
+    # The PR number is written to ACAgentRun.pr_number by persist_agent_event
+    # (called later in this function), so any DB check would always return False
+    # for a developer that just opened a PR — a deadlock that caused agents to
+    # loop to 100 iterations trying to satisfy a guard they could never pass.
+    if not _is_valid_pr_url(pr_url):
+        return {
+            "ok": False,
+            "error": (
+                "build_complete_run refused: pr_url must be a valid GitHub pull-request URL "
+                f"(e.g. https://github.com/owner/repo/pull/123). Got: {pr_url!r}. "
+                "Call create_pull_request first, then pass the returned URL here."
+            ),
+        }
     # -------------------------
 
     await persist_agent_event(

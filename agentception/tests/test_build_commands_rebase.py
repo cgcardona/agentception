@@ -79,16 +79,6 @@ async def test_rebase_succeeds_force_pushes_and_dispatches_reviewer() -> None:
 
     with (
         patch(
-            "agentception.mcp.build_commands._has_file_edit_events",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
-        patch(
-            "agentception.mcp.build_commands._has_pr_recorded",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
-        patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
         ),
@@ -172,16 +162,6 @@ async def test_rebase_conflict_returns_error_and_aborts() -> None:
 
     with (
         patch(
-            "agentception.mcp.build_commands._has_file_edit_events",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
-        patch(
-            "agentception.mcp.build_commands._has_pr_recorded",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
-        patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
         ),
@@ -260,16 +240,6 @@ async def test_no_worktree_path_skips_rebase_and_dispatches_reviewer() -> None:
 
     with (
         patch(
-            "agentception.mcp.build_commands._has_file_edit_events",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
-        patch(
-            "agentception.mcp.build_commands._has_pr_recorded",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
-        patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
         ),
@@ -337,16 +307,6 @@ async def test_rebase_succeeds_with_empty_worktree_path_dict() -> None:
     agent_run_id = "dev-issue-40-null-wt"
 
     with (
-        patch(
-            "agentception.mcp.build_commands._has_file_edit_events",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
-        patch(
-            "agentception.mcp.build_commands._has_pr_recorded",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
         patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
