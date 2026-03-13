@@ -177,6 +177,9 @@ class ACAgentRun(Base):
     total_cache_read_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     """Cumulative tokens read from Anthropic's prompt cache (Turns 2-N)."""
 
+    prompt_variant: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    """Prompt variant tag for A/B testing (e.g. ``streamlined``). NULL = control."""
+
     spawned_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
