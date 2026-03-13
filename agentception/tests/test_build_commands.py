@@ -447,3 +447,123 @@ async def test_build_complete_run_rejects_whitespace_grade_from_reviewer() -> No
     mock_redispatch.assert_not_called()
     mock_teardown.assert_not_called()
     mock_create_task.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_done_event_payload_includes_grade_for_reviewer() -> None:
+    """Reviewer done-event payload must include grade and reviewer_feedback."""
+    from agentception.mcp.build_commands import build_complete_run
+
+    captured_payload: dict[str, str] = {}
+
+    async def _capture_persist(
+        *,
+        issue_number: int,
+        event_type: str,
+        payload: dict[str, str],
+        agent_run_id: str | None = None,
+    ) -> None:
+        if event_type == "done":
+            captured_payload.update(payload)
+
+    with (
+        patch(
+            "agentception.mcp.build_commands._has_file_edit_events",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands._has_pr_recorded",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands.persist_agent_event",
+            side_effect=_capture_persist,
+        ),
+        patch(
+            "agentception.mcp.build_commands.complete_agent_run",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands.get_agent_run_role",
+            new_callable=AsyncMock,
+            return_value="reviewer",
+        ),
+        patch(
+            "agentception.mcp.build_commands.auto_redispatch_after_rejection",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agentception.mcp.build_commands.teardown_agent_worktree",
+            new_callable=AsyncMock,
+        ),
+        patch("agentception.mcp.build_commands.asyncio.create_task"),
+    ):
+        await build_complete_run(
+            issue_number=42,
+            pr_url="https://github.com/cgcardona/agentception/pull/99",
+            agent_run_id="review-issue-42-abc",
+            grade="b",                          # lower-case — must be normalised
+            reviewer_feedback="Looks good overall.",
+        )
+
+    assert captured_payload.get("grade") == "B"
+    assert captured_payload.get("reviewer_feedback") == "Looks good overall."
+    assert "pr_url" in captured_payload
+
+
+@pytest.mark.anyio
+async def test_done_event_payload_excludes_grade_for_developer() -> None:
+    """Developer done-event payload must NOT contain grade or reviewer_feedback."""
+    from agentception.mcp.build_commands import build_complete_run
+
+    captured_payload: dict[str, str] = {}
+
+    async def _capture_persist(
+        *,
+        issue_number: int,
+        event_type: str,
+        payload: dict[str, str],
+        agent_run_id: str | None = None,
+    ) -> None:
+        if event_type == "done":
+            captured_payload.update(payload)
+
+    with (
+        patch(
+            "agentception.mcp.build_commands._has_file_edit_events",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands._has_pr_recorded",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands.persist_agent_event",
+            side_effect=_capture_persist,
+        ),
+        patch(
+            "agentception.mcp.build_commands.complete_agent_run",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands.get_agent_run_role",
+            new_callable=AsyncMock,
+            return_value="developer",
+        ),
+    ):
+        await build_complete_run(
+            issue_number=99,
+            pr_url="https://github.com/cgcardona/agentception/pull/200",
+            agent_run_id="issue-99-xyz",
+        )
+
+    assert "grade" not in captured_payload
+    assert "reviewer_feedback" not in captured_payload
+    assert "pr_url" in captured_payload
+
