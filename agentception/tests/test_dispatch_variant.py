@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -14,9 +13,9 @@ async def test_dispatch_passes_prompt_variant_to_task_spec(tmp_path: Path) -> No
     """POST /api/dispatch/issue with prompt_variant passes it to persist_agent_run_dispatch."""
     from agentception.routes.api.dispatch import dispatch_agent, DispatchRequest
 
-    captured_kwargs: list[dict[str, Any]] = []
+    captured_kwargs: list[dict[str, str | int | None | bool]] = []
 
-    async def mock_persist(**kwargs):  # type: ignore[no-untyped-def]
+    async def mock_persist(**kwargs: str | int | None | bool) -> None:
         captured_kwargs.append(kwargs)
 
     async def mock_ensure_worktree(path: Path, branch: str, base: str = "origin/dev", reset: bool = False) -> bool:
@@ -58,9 +57,9 @@ async def test_dispatch_prompt_variant_defaults_to_none(tmp_path: Path) -> None:
     """POST /api/dispatch/issue without prompt_variant passes None to persist_agent_run_dispatch."""
     from agentception.routes.api.dispatch import dispatch_agent, DispatchRequest
 
-    captured_kwargs: list[dict[str, Any]] = []
+    captured_kwargs: list[dict[str, str | int | None | bool]] = []
 
-    async def mock_persist(**kwargs):  # type: ignore[no-untyped-def]
+    async def mock_persist(**kwargs: str | int | None | bool) -> None:
         captured_kwargs.append(kwargs)
 
     async def mock_ensure_worktree(path: Path, branch: str, base: str = "origin/dev", reset: bool = False) -> bool:
