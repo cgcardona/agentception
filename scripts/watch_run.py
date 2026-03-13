@@ -244,13 +244,18 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
     # ── log_run_step — agent's self-reported progress ─────────────────────────
     sm = _RE_RUN_STEP.search(msg)
     if sm:
-        issue_id = sm.group("issue")
+        # log_run_step logs a bare issue number (e.g. "854") but _last_run_id[0]
+        # holds the full run_id (e.g. "issue-854") set by the preceding
+        # dispatch_tool line.  Use _last_run_id[0] so both share the same key.
+        rid = _last_run_id[0]
+        if run_id_filter and rid != run_id_filter:
+            return None
         step = sm.group("step")
         im = _RE_ITERATION.search(step)
         if im:
-            _get_state(issue_id).iteration = int(im.group("n"))
+            _get_state(rid).iteration = int(im.group("n"))
             return None  # shown in the LLM ITER header
-        tag = _run_tag(issue_id, run_id_filter)
+        tag = _run_tag(rid, run_id_filter)
         return f"{ts}  {tag}{CYAN}{BOLD}📋 {step}{RESET}"
 
     # ── dispatch_tool ──────────────────────────────────────────────────────────
