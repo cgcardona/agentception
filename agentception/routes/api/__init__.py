@@ -26,6 +26,7 @@ from .issues import router as _issues
 from .mcp import router as _mcp
 from .pipeline import router as _pipeline
 from .plan import router as _plan
+from .metrics import router as _metrics
 from .presets import router as _presets
 from .resync import router as _resync
 from .telemetry import router as _telemetry
@@ -52,3 +53,4 @@ router.include_router(_issues)
 router.include_router(_wizard)
 router.include_router(_plan)
 router.include_router(_presets)
+router.include_router(_metrics)
