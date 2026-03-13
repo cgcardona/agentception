@@ -17,13 +17,14 @@ from agentception.db.queries.types import (
 
 logger = logging.getLogger(__name__)
 
-async def get_agent_events_tail(
+async def get_all_events_tail(
     run_id: str,
     after_id: int = 0,
 ) -> list[AgentEventRow]:
-    """Return MCP-reported events for *run_id* with ``id > after_id``.
+    """Return all agent events for *run_id* with ``id > after_id``, ordered by id ASC.
 
-    Used by the inspector SSE stream to incrementally push new events.
+    Includes every event_type (step_start, done, file_edit, activity, etc.).
+    Used by the inspector SSE stream to push events in chronological order.
     Falls back to ``[]`` on DB error.
     """
     try:
@@ -48,8 +49,20 @@ async def get_agent_events_tail(
             for row in rows
         ]
     except Exception as exc:
-        logger.warning("⚠️  get_agent_events_tail DB query failed (non-fatal): %s", exc)
+        logger.warning("⚠️  get_all_events_tail DB query failed (non-fatal): %s", exc)
         return []
+
+
+async def get_agent_events_tail(
+    run_id: str,
+    after_id: int = 0,
+) -> list[AgentEventRow]:
+    """Return MCP-reported events for *run_id* with ``id > after_id``.
+
+    Alias for get_all_events_tail. Used by the inspector SSE stream.
+    Falls back to ``[]`` on DB error.
+    """
+    return await get_all_events_tail(run_id, after_id)
 
 
 async def get_file_edit_events(run_id: str) -> list[FileEditEvent]:

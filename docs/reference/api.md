@@ -53,6 +53,18 @@ URLs are semantic: each path segment narrows the resource.
 | `GET` | `/ship/{initiative}/board` | HTMX board partial (polled every 5 s) |
 | `GET` | `/ship/runs/{run_id}/stream` | SSE stream for an agent run's events |
 
+#### `GET /ship/runs/{run_id}/stream` (SSE — inspector)
+
+Streams all agent events and thoughts for the given run in chronological order. Each `data:` line is a JSON object. The `t` field discriminates the message type:
+
+- **`t: "event"`** — Structured run events (step_start, done, file_edit, build_complete_run, orphan_failed). Shape: `{"t": "event", "event_type": "<type>", "payload": {...}, "recorded_at": "<ISO8601>", "id": <int>}`.
+- **`t: "activity"`** — Activity feed events (shell commands, file reads/writes, LLM usage, GitHub tool calls, etc.). Shape: `{"t": "activity", "subtype": "<subtype>", "payload": {...}, "recorded_at": "<ISO8601>", "id": <int>}`. Activity subtypes: `tool_invoked`, `llm_iter`, `llm_usage`, `llm_reply`, `llm_done`, `shell_start`, `shell_done`, `file_read`, `file_replaced`, `file_inserted`, `file_written`, `git_push`, `github_tool`, `delay`, `error`.
+- **`t: "thought"`** — Thinking/assistant message. Shape: `{"t": "thought", "role": "...", "content": "...", "recorded_at": "..."}`.
+- **`t: "tool_call"`** / **`t: "tool_result"`** — Tool invocation and result previews (same shape as before, with `recorded_at`).
+- **`t: "ping"`** — Keepalive (no payload).
+
+Events and thoughts are merged by `recorded_at` so the client sees the same order as `watch_run.py`. The cursor advances by `id` (events) and `seq` (thoughts); no event is delivered twice.
+
 ### Agents
 
 | Method | Path | Description |
