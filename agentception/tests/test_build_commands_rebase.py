@@ -26,6 +26,7 @@ Run targeted:
 """
 
 import asyncio
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -281,11 +282,16 @@ async def test_no_worktree_path_skips_rebase_and_dispatches_reviewer() -> None:
 
     assert result == {"ok": True, "event": "done", "status": "completed"}
 
-    # No subprocess calls should have been made (rebase skipped).
+    # No subprocess calls should have been made (rebase skipped; derived path does not exist).
     mock_subprocess.assert_not_called()
 
-    # release_worktree must NOT have been called (nothing to release).
-    mock_release.assert_not_awaited()
+    # release_worktree is called with the derived path so the reviewer dispatch can succeed
+    # (branch not still held by a worktree). Idempotent when path is already gone.
+    mock_release.assert_awaited_once()
+    from agentception.config import settings
+    expected_wt = str(Path(settings.worktrees_dir) / agent_run_id)
+    call_kw = mock_release.await_args[1]
+    assert call_kw["worktree_path"] == expected_wt
 
     # auto-reviewer task must still be scheduled.
     task_names = [c.kwargs.get("name", "") for c in mock_create_task.call_args_list]
@@ -349,9 +355,14 @@ async def test_rebase_succeeds_with_empty_worktree_path_dict() -> None:
 
     assert result == {"ok": True, "event": "done", "status": "completed"}
 
-    # No subprocess calls — rebase was skipped.
+    # No subprocess calls — rebase was skipped (derived path does not exist).
     mock_subprocess.assert_not_called()
-    mock_release.assert_not_awaited()
+    # release_worktree called with derived path so reviewer dispatch can succeed.
+    mock_release.assert_awaited_once()
+    from agentception.config import settings
+    expected_wt = str(Path(settings.worktrees_dir) / agent_run_id)
+    call_kw = mock_release.await_args[1]
+    assert call_kw["worktree_path"] == expected_wt
 
     # Reviewer still dispatched.
     task_names = [c.kwargs.get("name", "") for c in mock_create_task.call_args_list]
