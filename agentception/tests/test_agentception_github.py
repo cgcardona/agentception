@@ -721,13 +721,18 @@ async def test_update_issue_patches_only_provided_fields() -> None:
 
 
 @pytest.mark.anyio
-async def test_ensure_label_exists_updates_on_422() -> None:
-    """ensure_label_exists() must PATCH the label when the POST returns 422 (already exists)."""
+async def test_ensure_label_exists_updates_on_422_already_exists() -> None:
+    """ensure_label_exists() must PATCH when the POST returns 422 with already_exists code."""
     from agentception.readers.github import ensure_label_exists
 
-    # POST returns 422 (label exists); PATCH succeeds.
-    resp_422 = _mock_response(None, 422)
+    # POST returns 422 with "already_exists" error code; PATCH succeeds.
+    already_exists_body = {
+        "message": "Validation Failed",
+        "errors": [{"resource": "Label", "code": "already_exists", "field": "name"}],
+    }
+    resp_422 = _mock_response(already_exists_body, 422)
     resp_422.raise_for_status = MagicMock()  # 422 is handled before raise_for_status
+    resp_422.text = ""
     resp_200_patch = _mock_response({"name": "approved"}, 200)
 
     post_client = MagicMock()
@@ -749,4 +754,35 @@ async def test_ensure_label_exists_updates_on_422() -> None:
     # POST was attempted once, then PATCH was called to update.
     assert post_client.post.call_count == 1
     assert patch_client.patch.call_count == 1
+
+
+@pytest.mark.anyio
+async def test_ensure_label_exists_raises_on_422_validation_error() -> None:
+    """ensure_label_exists() must raise RuntimeError when POST 422 is a real validation error.
+
+    GitHub returns 422 both for 'already exists' and for genuine validation
+    failures (e.g. label name too long).  Only the 'already_exists' code
+    should trigger the PATCH fallback — other 422 bodies must surface as errors
+    rather than silently attempting a PATCH that will always 404.
+    """
+    from agentception.readers.github import ensure_label_exists
+
+    validation_error_body = {
+        "message": "Validation Failed",
+        "errors": [{"resource": "Label", "code": "invalid", "field": "name"}],
+    }
+    resp_422 = MagicMock()
+    resp_422.status_code = 422
+    resp_422.json.return_value = validation_error_body
+    resp_422.text = '{"message": "Validation Failed", "errors": [{"code": "invalid"}]}'
+    resp_422.raise_for_status = MagicMock()
+
+    client = MagicMock()
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=False)
+    client.post = AsyncMock(return_value=resp_422)
+
+    with patch("agentception.readers.github.httpx.AsyncClient", return_value=client):
+        with pytest.raises(RuntimeError, match="422"):
+            await ensure_label_exists("x" * 60, "2ea44f", "Too long")
 

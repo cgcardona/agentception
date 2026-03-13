@@ -1065,6 +1065,21 @@ async def ensure_label_exists(name: str, color: str, description: str) -> None:
             await _rate_limit_sleep(r, attempt)
             continue
         if r.status_code == 422:
+            # GitHub returns 422 both for "already exists" and for genuine
+            # validation errors (e.g. label name too long).  Only treat it as
+            # "already exists" when the response body confirms this via the
+            # "already_exists" error code; otherwise surface the real error.
+            body: object = r.json()
+            errors: object = body.get("errors", []) if isinstance(body, dict) else []
+            is_already_exists = isinstance(errors, list) and any(
+                isinstance(e, dict) and e.get("code") == "already_exists"
+                for e in errors
+            )
+            if not is_already_exists:
+                raise RuntimeError(
+                    f"GitHub API POST /repos/{repo}/labels failed (422): "
+                    f"{r.text[:400]}"
+                )
             # Label already exists — update it in place via the _api_patch helper
             # which itself handles 429 retries.
             encoded = urllib.parse.quote(name, safe="")
