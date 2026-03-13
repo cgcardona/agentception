@@ -304,3 +304,11 @@ The `generate.py` script renders every `.j2` file in `scripts/gen_prompts/templa
 3. Run `sync_labels.sh` to create the new labels in GitHub.
 
 4. Use the Plan page to generate a PlanSpec for the new initiative, then file issues. The `initiative_phases` rows written at filing time are the canonical phase order for the board — `config.yaml` phases drive the agent prompts, not the board display order.
+
+---
+
+## Environment Variable Reference
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `STALE_RUN_THRESHOLD_MINUTES` | `int` | `10` | Minutes of inactivity before an implementing run is checked for reconciliation. |

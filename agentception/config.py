@@ -108,6 +108,15 @@ class AgentCeptionSettings(BaseSettings):
     """
     gh_repo: str = "cgcardona/agentception"
     poll_interval_seconds: int = 5
+    stale_run_threshold_minutes: int = 10
+    """Minutes of inactivity before an implementing run is a reconciliation candidate.
+
+    Set via ``STALE_RUN_THRESHOLD_MINUTES`` env var.  Runs whose
+    ``last_activity_at`` is older than this value are checked against GitHub
+    and transitioned to ``completed`` if their issue is closed or PR is merged.
+    Defaults to 10 minutes.  Raise this value if agents are being incorrectly
+    marked stale during slow operations.
+    """
     agent_max_iterations: int = 100
     # TTL must be strictly less than poll_interval_seconds (currently 5) so every
     # poller tick sees live GitHub data.  Keep GITHUB_CACHE_SECONDS < POLL_INTERVAL_SECONDS.

@@ -22,6 +22,8 @@ import time
 from pathlib import Path
 
 from agentception.config import settings
+from agentception.reconcile import reconcile_stale_runs
+from agentception.db.engine import get_session
 from agentception.intelligence.guards import detect_out_of_order_prs, detect_stale_claims
 from agentception.db.queries import RunContextRow, list_active_runs
 from agentception.models import AgentNode, AgentStatus, BoardIssue, PipelineState, PlanDraftEvent, StaleClaim, StalledAgentEvent
@@ -779,6 +781,23 @@ async def polling_loop() -> None:
         try:
             await tick()
             _rate_limit_backoff = 0  # reset on success
+            try:
+                async with get_session() as _reconcile_session:
+                    _reconciled = await reconcile_stale_runs(
+                        _reconcile_session,
+                        stale_threshold_minutes=settings.stale_run_threshold_minutes,
+                    )
+                if _reconciled:
+                    logger.info(
+                        "[poller] reconciled %d stale run(s): %s",
+                        len(_reconciled),
+                        _reconciled,
+                    )
+            except Exception as _reconcile_exc:
+                logger.error(
+                    "❌ [poller] reconcile_stale_runs failed: %s",
+                    _reconcile_exc,
+                )
             await asyncio.sleep(settings.poll_interval_seconds)
         except asyncio.CancelledError:
             logger.info("✅ Polling loop stopped cleanly")
