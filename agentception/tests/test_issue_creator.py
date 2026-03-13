@@ -28,6 +28,7 @@ from agentception.readers.issue_creator import (
     IssueEvent,
     LabelEvent,
     StartEvent,
+    _scoped_label,
     _embed_cognitive_arch,
     _embed_phase_gate,
     _embed_skills,
@@ -741,3 +742,29 @@ async def test_file_issues_body_edit_failure_is_non_fatal() -> None:
     # Body edit failure must not abort the stream — done event must still arrive.
     done_events = [e for e in events if e["t"] == "done"]
     assert done_events, "done event must be emitted even when body edit fails"
+
+
+# ── _scoped_label truncation ──────────────────────────────────────────────────
+
+
+def test_scoped_label_short_names_unchanged() -> None:
+    """Short initiative+phase combinations are returned verbatim."""
+    assert _scoped_label("ac-build", "phase-0") == "ac-build/phase-0"
+
+
+def test_scoped_label_truncates_to_50_chars() -> None:
+    """Labels longer than 50 characters are truncated to exactly 50.
+
+    Regression test: GitHub rejects label names > 50 chars with 422.
+    e.g. 'context-window-management/2-checkpoint-summarisation' is 52 chars.
+    """
+    result = _scoped_label("context-window-management", "2-checkpoint-summarisation")
+    assert len(result) == 50
+    assert result == "context-window-management/2-checkpoint-summarisati"
+
+
+def test_scoped_label_always_contains_separator() -> None:
+    """The '/' separator is always present in the returned label."""
+    result = _scoped_label("a" * 30, "b" * 30)
+    assert "/" in result
+    assert len(result) == 50
