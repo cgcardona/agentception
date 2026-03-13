@@ -39,8 +39,10 @@ from collections.abc import AsyncGenerator
 from typing import Literal, NotRequired, TypedDict
 
 import httpx
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from agentception.config import settings
+from agentception.db.activity_events import persist_activity_event
 
 logger = logging.getLogger(__name__)
 
@@ -621,6 +623,9 @@ async def call_anthropic_with_tools(
     temperature: float = 0.0,
     max_tokens: int = 32000,
     extra_system_blocks: list[dict[str, object]] | None = None,
+    session: AsyncSession | None = None,
+    run_id: str | None = None,
+    iteration: int = 0,
 ) -> ToolResponse:
     """Call Claude via the Anthropic API with tool-use support.
 
@@ -687,6 +692,14 @@ async def call_anthropic_with_tools(
         len(messages),
         len(tools),
     )
+    if session is not None and run_id is not None:
+        persist_activity_event(
+            session,
+            run_id,
+            "llm_iter",
+            {"iteration": iteration, "model": model, "turns": len(messages)},
+        )
+        await session.flush()
 
     client = _get_client()
     last_error: Exception | None = None
@@ -796,6 +809,18 @@ async def call_anthropic_with_tools(
             cache_creation_tokens,
             cache_read_tokens,
         )
+        if session is not None and run_id is not None:
+            persist_activity_event(
+                session,
+                run_id,
+                "llm_usage",
+                {
+                    "input_tokens": input_tokens,
+                    "cache_write": cache_creation_tokens,
+                    "cache_read": cache_read_tokens,
+                },
+            )
+            await session.flush()
 
     content = "".join(text_parts)
 
@@ -805,6 +830,14 @@ async def call_anthropic_with_tools(
     if content.strip():
         snippet = content.replace("\n", " ").strip()
         logger.info("✅ LLM reply — chars=%d text=%s", len(content), snippet)
+        if session is not None and run_id is not None:
+            persist_activity_event(
+                session,
+                run_id,
+                "llm_reply",
+                {"chars": len(content), "text_preview": content[:200]},
+            )
+            await session.flush()
 
     logger.info(
         "✅ LLM tool-use done — stop_reason=%s content_chars=%d tool_calls=%d",
@@ -812,6 +845,15 @@ async def call_anthropic_with_tools(
         len(content),
         len(tool_calls),
     )
+    if session is not None and run_id is not None:
+        persist_activity_event(
+            session,
+            run_id,
+            "llm_done",
+            {"stop_reason": stop_reason, "tool_call_count": len(tool_calls)},
+        )
+        await session.flush()
+
     return ToolResponse(
         stop_reason=stop_reason,
         content=content,

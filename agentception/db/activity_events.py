@@ -28,7 +28,9 @@ fields documented in ``docs/reference/activity-events.md``.
 import datetime
 import json
 import logging
+from typing import Union
 
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from agentception.db.models import ACAgentEvent
@@ -252,7 +254,7 @@ SUBTYPE_TYPEDDICT_NAMES: dict[str, str] = {
 
 
 def persist_activity_event(
-    session: Session,
+    session: Union[Session, AsyncSession],
     run_id: str,
     subtype: str,
     payload: dict[str, object],
@@ -264,8 +266,9 @@ def persist_activity_event(
     registry to understand what they are reading.
 
     Args:
-        session: An open SQLAlchemy ``Session`` (sync).  The caller is
-            responsible for committing or flushing after this call.
+        session: An open SQLAlchemy ``Session`` or ``AsyncSession``.  The
+            caller is responsible for flushing/committing after this call
+            (for AsyncSession: ``await session.flush()``).
         run_id: The ``ACAgentRun.id`` this event belongs to.
         subtype: One of the strings in ``ACTIVITY_SUBTYPES``.
         payload: Subtype-specific fields (see TypedDicts above).  Must be
