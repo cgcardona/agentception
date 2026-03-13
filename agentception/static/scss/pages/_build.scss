@@ -2224,3 +2224,44 @@ $preset-accents: (
   line-height: 1.5;
 }
 
+// ── Tool call card ────────────────────────────────────────────────────────────
+
+.tool-call-card {
+  border-left: 2px solid #4a9eff;
+  padding: 0.2rem 0.5rem;
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+
+  &__icon { flex-shrink: 0; }
+
+  &__name {
+    font-family: monospace;
+    font-weight: 600;
+    color: var(--color-text, #eee);
+  }
+
+  &__args {
+    font-family: monospace;
+    font-size: 0.85em;
+    color: var(--color-text-muted, #888);
+    word-break: break-all;
+  }
+
+  &__result {
+    flex-basis: 100%;
+    font-family: monospace;
+    font-size: 0.82em;
+    color: var(--color-text-muted, #888);
+    padding-left: 1.4rem;
+    word-break: break-word;
+  }
+
+  &--result-only {
+    border-left-color: var(--color-border-muted, #444);
+  }
+}
+
+

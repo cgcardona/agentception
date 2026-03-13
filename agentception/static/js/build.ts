@@ -14,6 +14,7 @@
 import { marked } from 'marked';
 import { attachFileEditHandler } from './file_edit_card';
 import { attachThoughtHandler } from './thought_block';
+import { attachToolCallHandler } from './tool_call_card';
 
 // ── Domain types ─────────────────────────────────────────────────────────────
 
@@ -257,6 +258,7 @@ export function buildPage() {
       this._evtSource = src;
       attachFileEditHandler(src);
       attachThoughtHandler(src);
+      attachToolCallHandler(src);
       this.streamOpen = true;
 
       src.onmessage = (e: MessageEvent<string>) => {
