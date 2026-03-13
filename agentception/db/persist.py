@@ -1370,6 +1370,24 @@ async def update_agent_status(run_id: str, status: str) -> bool:
         return False
 
 
+async def clear_run_worktree_path(run_id: str) -> bool:
+    """Set worktree_path to None for *run_id* so the reaper stops re-finding it.
+
+    Called by the worktree reaper after successfully releasing a worktree dir.
+    Returns True on success, False if run not found or DB error.
+    """
+    try:
+        async with get_session() as session:
+            await session.execute(
+                update(ACAgentRun).where(ACAgentRun.id == run_id).values(worktree_path=None)
+            )
+            await session.commit()
+        return True
+    except Exception as exc:
+        logger.warning("⚠️  clear_run_worktree_path failed for %s: %s", run_id, exc)
+        return False
+
+
 async def accumulate_token_usage(
     run_id: str,
     input_tokens: int,

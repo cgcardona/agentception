@@ -21,7 +21,7 @@ from agentception.services.run_factory import _WORKTREE_COLLECTION_PREFIX
 logger = logging.getLogger(__name__)
 
 
-async def release_worktree(worktree_path: str, repo_dir: str) -> None:
+async def release_worktree(worktree_path: str, repo_dir: str) -> bool:
     """Remove the worktree directory and prune stale refs — branches untouched.
 
     Used by :func:`build_complete_run` immediately before dispatching the PR
@@ -31,6 +31,9 @@ async def release_worktree(worktree_path: str, repo_dir: str) -> None:
     here because the open PR still references the remote branch.
 
     Safe to call even if the worktree dir no longer exists (idempotent).
+
+    Returns True if the worktree was removed or was already gone; False if
+    ``git worktree remove`` failed (caller may retry or clear DB anyway).
     """
     repo = repo_dir
     if Path(worktree_path).exists():
@@ -47,6 +50,13 @@ async def release_worktree(worktree_path: str, repo_dir: str) -> None:
                 "⚠️  release_worktree: worktree remove failed: %s",
                 stderr.decode().strip(),
             )
+            prune_proc = await asyncio.create_subprocess_exec(
+                "git", "-C", repo, "worktree", "prune",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await prune_proc.communicate()
+            return False
     else:
         logger.info("ℹ️  release_worktree: %s already gone — skipping", worktree_path)
 
@@ -56,6 +66,7 @@ async def release_worktree(worktree_path: str, repo_dir: str) -> None:
         stderr=asyncio.subprocess.PIPE,
     )
     await prune_proc.communicate()
+    return True  # removed or already gone
 
 
 async def teardown_agent_worktree(run_id: str) -> None:
