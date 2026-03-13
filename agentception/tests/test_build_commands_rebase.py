@@ -290,7 +290,9 @@ async def test_no_worktree_path_skips_rebase_and_dispatches_reviewer() -> None:
     mock_release.assert_awaited_once()
     from agentception.config import settings
     expected_wt = str(Path(settings.worktrees_dir) / agent_run_id)
-    call_kw = mock_release.await_args[1]
+    await_args = mock_release.await_args
+    assert await_args is not None
+    call_kw = await_args[1]
     assert call_kw["worktree_path"] == expected_wt
 
     # auto-reviewer task must still be scheduled.
@@ -361,7 +363,9 @@ async def test_rebase_succeeds_with_empty_worktree_path_dict() -> None:
     mock_release.assert_awaited_once()
     from agentception.config import settings
     expected_wt = str(Path(settings.worktrees_dir) / agent_run_id)
-    call_kw = mock_release.await_args[1]
+    await_args = mock_release.await_args
+    assert await_args is not None
+    call_kw = await_args[1]
     assert call_kw["worktree_path"] == expected_wt
 
     # Reviewer still dispatched.

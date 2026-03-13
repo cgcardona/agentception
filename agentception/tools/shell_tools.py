@@ -26,6 +26,10 @@ import re
 import shlex
 from pathlib import Path
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from agentception.db import activity_events
+
 logger = logging.getLogger(__name__)
 
 # Maximum captured output per stream to prevent memory exhaustion.
@@ -138,6 +142,8 @@ async def run_command(
     cwd: str | Path | None = None,
     *,
     timeout: int = _DEFAULT_TIMEOUT,
+    run_id: str | None = None,
+    session: AsyncSession | None = None,
 ) -> dict[str, object]:
     """Execute *command* in a subprocess and return structured output.
 
@@ -168,6 +174,21 @@ async def run_command(
 
     cwd_path = Path(cwd) if cwd else None
     logger.info("✅ run_command — %s (cwd=%s)", shlex.quote(command), cwd_path)
+    # activity event — see docs/reference/activity-events.md
+    if run_id and session is not None:
+        try:
+            activity_events.persist_activity_event(
+                session,
+                run_id,
+                "shell_start",
+                {
+                    "cmd_preview": command[:200],
+                    "cwd": str(cwd_path) if cwd_path else "",
+                },
+            )
+            await session.flush()
+        except Exception as exc:
+            logger.warning("⚠️ persist shell_start failed: %s", exc)
 
     try:
         proc = await asyncio.create_subprocess_shell(
@@ -209,6 +230,23 @@ async def run_command(
         len(stdout),
         len(stderr),
     )
+    # activity event — see docs/reference/activity-events.md
+    if run_id and session is not None:
+        try:
+            activity_events.persist_activity_event(
+                session,
+                run_id,
+                "shell_done",
+                {
+                    "exit_code": exit_code,
+                    "stdout_bytes": len(raw_out),
+                    "stderr_bytes": len(raw_err),
+                },
+            )
+            await session.flush()
+        except Exception as exc:
+            logger.warning("⚠️ persist shell_done failed: %s", exc)
+
     return {
         "ok": True,
         "stdout": stdout,
@@ -240,6 +278,8 @@ async def git_commit_and_push(
     worktree_path: Path,
     *,
     base: str = "origin/dev",
+    run_id: str | None = None,
+    session: AsyncSession | None = None,
 ) -> dict[str, object]:
     """Create a branch, stage files, commit, and push in one atomic call.
 
@@ -314,4 +354,17 @@ async def git_commit_and_push(
     sha = sha.strip() if code == 0 else "(unknown)"
 
     logger.info("✅ git_commit_and_push — pushed %s → origin/%s", sha[:12], branch)
+    # activity event — see docs/reference/activity-events.md
+    if run_id and session is not None:
+        try:
+            activity_events.persist_activity_event(
+                session,
+                run_id,
+                "git_push",
+                {"branch": branch},
+            )
+            await session.flush()
+        except Exception as exc:
+            logger.warning("⚠️ persist git_push failed: %s", exc)
+
     return {"ok": True, "branch": branch, "sha": sha, "stdout": push_out}
