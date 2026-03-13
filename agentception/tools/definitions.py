@@ -209,8 +209,9 @@ FILE_TOOL_DEFS: list[ToolDefinition] = [
             name="search_text",
             description=(
                 "Search for a regex or literal pattern in files using ripgrep. "
+                "PREFER this over run_command(grep/ripgrep) for searching the codebase — "
+                "it uses ripgrep, respects .gitignore, and returns structured matches. "
                 "Returns matching lines with file names and line numbers. "
-                "Respects .gitignore. "
                 "Relative paths are resolved from the worktree root."
             ),
             parameters={
@@ -250,7 +251,8 @@ SHELL_TOOL_DEF: ToolDefinition = ToolDefinition(
             "so run Python tools directly (python3, pytest, mypy) without "
             "'docker compose exec agentception'. "
             "The default working directory is the worktree root. "
-            "Dangerous operations (rm -rf /, sudo, shutdown, …) are blocked."
+            "Dangerous operations (rm -rf /, sudo, shutdown, …) are blocked. "
+            "For searching the codebase for a string or regex, use search_text instead of grep."
         ),
         parameters={
             "type": "object",
