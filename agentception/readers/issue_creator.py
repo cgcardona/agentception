@@ -36,6 +36,7 @@ from agentception.config import settings as _cfg
 from agentception.db.persist import persist_initiative_phases, persist_issue_depends_on
 from agentception.models import PlanIssue, PlanSpec
 from agentception.readers.github import add_label_to_issue, ensure_label_exists
+from agentception.readers.plan_enricher import enrich_plan_with_codebase_context
 
 logger = logging.getLogger(__name__)
 
@@ -314,6 +315,10 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
     The generator never raises; errors are yielded as ``FilingErrorEvent``
     and iteration stops.
     """
+    try:
+        spec = await enrich_plan_with_codebase_context(spec)
+    except Exception as exc:
+        logger.warning("⚠️ plan enrichment failed: %s", exc)
     repo = _cfg.gh_repo
     batch_id = f"batch-{uuid.uuid4().hex[:12]}"
     total_issues = sum(len(p.issues) for p in spec.phases)
