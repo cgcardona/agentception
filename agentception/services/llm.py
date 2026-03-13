@@ -80,6 +80,39 @@ _DNS_PREFLIGHT_PORT = 443
 _RATE_LIMIT_BACKOFF_SECS: float = 20.0
 
 
+def _log_http_error(exc: httpx.HTTPStatusError) -> None:
+    """Log a non-retryable Anthropic HTTP error with an actionable message.
+
+    Detects billing errors (credit balance exhausted) and surfaces them with
+    a direct remediation hint so operators immediately know what to fix without
+    having to parse the raw JSON body.  All other 4xx/5xx errors fall through
+    to the generic body dump.
+    """
+    status = exc.response.status_code
+    try:
+        body: object = exc.response.json()
+    except Exception:
+        body = exc.response.text
+
+    if isinstance(body, dict):
+        error_block: object = body.get("error", {})
+        if isinstance(error_block, dict):
+            msg: object = error_block.get("message", "")
+            if isinstance(msg, str) and "credit balance" in msg.lower():
+                logger.error(
+                    "❌ Anthropic billing error (HTTP %d): credit balance exhausted — "
+                    "add funds at https://console.anthropic.com/settings/billing",
+                    status,
+                )
+                return
+
+    logger.error(
+        "❌ Anthropic API %d — body: %s",
+        status,
+        exc.response.text,
+    )
+
+
 async def _rate_limit_sleep(response: httpx.Response, attempt: int) -> None:
     """Sleep the appropriate amount after a 429 response.
 
@@ -420,11 +453,7 @@ async def call_anthropic(
                 logger.warning("⚠️ LLM retry %d/%d after %ds", attempt + 1, _total_attempts, backoff)
                 await asyncio.sleep(backoff)
                 continue
-            logger.error(
-                "❌ Anthropic API %d — body: %s",
-                exc.response.status_code,
-                exc.response.text,
-            )
+            _log_http_error(exc)
             raise
         except (asyncio.TimeoutError, httpx.TimeoutException, httpx.NetworkError, ssl.SSLError, socket.gaierror) as exc:
             last_error = exc
@@ -678,11 +707,7 @@ async def call_anthropic_with_tools(
                 logger.warning("⚠️ LLM retry %d/%d after %ds", attempt + 1, _total_attempts, backoff)
                 await asyncio.sleep(backoff)
                 continue
-            logger.error(
-                "❌ Anthropic API %d — body: %s",
-                exc.response.status_code,
-                exc.response.text,
-            )
+            _log_http_error(exc)
             raise
         except (asyncio.TimeoutError, httpx.TimeoutException, httpx.NetworkError, ssl.SSLError, socket.gaierror) as exc:
             last_error = exc
