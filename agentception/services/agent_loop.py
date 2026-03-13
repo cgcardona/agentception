@@ -714,7 +714,7 @@ async def run_agent_loop(
             )
 
         try:
-            bounded = _prune_history(_truncate_tool_results(messages), last_input_tokens=last_input_tokens)
+            bounded = await _prune_history(_truncate_tool_results(messages), last_input_tokens=last_input_tokens)
             _active_model = _HAIKU_MODEL if task.role == "reviewer" else _MODEL
             response: ToolResponse = await call_anthropic_with_tools(
                 bounded,
@@ -1885,7 +1885,30 @@ def _truncate_tool_results(
     return out
 
 
-def _prune_history(
+async def _summarise_history(
+    dropped_messages: list[dict[str, object]],
+) -> str:
+    """Summarise dropped messages via a single non-streaming LLM call.
+
+    Returns a bullet-point summary string, or "" on any failure.
+    """
+    try:
+        payload = json.dumps(dropped_messages, indent=0)[-20_000:]
+        return await call_anthropic(
+            payload,
+            system_prompt=(
+                "You are a concise summariser. Summarise the agent's actions "
+                "and findings so far in bullet points. Focus on files modified, "
+                "errors fixed, and decisions made. Maximum 800 tokens."
+            ),
+            max_tokens=1000,
+        )
+    except Exception:
+        logger.warning("_summarise_history failed — falling back to plain prune")
+        return ""
+
+
+async def _prune_history(
     messages: list[dict[str, object]],
     *,
     last_input_tokens: int = 0,
@@ -1929,11 +1952,20 @@ def _prune_history(
     # Token-budget path: only entered when the LLM reported > _MAX_INPUT_TOKEN_ESTIMATE
     # input tokens last turn.  Uses a character-count heuristic (4 chars ≈ 1 token).
     if last_input_tokens > _MAX_INPUT_TOKEN_ESTIMATE:
-        prunable = messages[:1] + list(tail)  # work on a copy; messages[0] is anchored
+        prunable = list(messages)  # work on a copy; messages[0] is anchored
         estimated = sum(len(json.dumps(m)) // 4 for m in prunable)
+        dropped: list[dict[str, object]] = []
         while estimated > _MAX_INPUT_TOKEN_ESTIMATE and len(prunable) > _HISTORY_TAIL + 1:
-            dropped = prunable.pop(1)  # index 0 = task briefing, always kept
-            estimated -= len(json.dumps(dropped)) // 4
+            msg = prunable.pop(1)  # index 0 = task briefing, always kept
+            dropped.append(msg)
+            estimated -= len(json.dumps(msg)) // 4
+        if len(dropped) > 4:
+            summary = await _summarise_history(dropped)
+            if summary:
+                prunable.insert(1, {
+                    "role": "user",
+                    "content": f"[Context checkpoint]\n{summary}",
+                })
         logger.warning(
             "⚠️ context prune: estimated %d tokens exceeds threshold — pruned to %d messages",
             estimated,
