@@ -46,6 +46,20 @@ logger = logging.getLogger(__name__)
 # and any slug convention receives a distinct, deterministic GitHub label color.
 _PHASE_PALETTE: list[str] = ["B60205", "E4E669", "0075CA", "CFD3D7"]
 _INITIATIVE_COLOR = "7057FF"
+# GitHub enforces a 50-character ceiling on label names.
+_GITHUB_LABEL_MAX_LEN = 50
+
+
+def _scoped_label(initiative: str, phase_label: str) -> str:
+    """Return ``initiative/phase_label`` truncated to the GitHub label limit.
+
+    GitHub rejects label names longer than 50 characters with a 422 validation
+    error.  We truncate the combined string rather than either component alone
+    so that the separator ``/`` is always preserved and the result is still
+    human-readable.
+    """
+    full = f"{initiative}/{phase_label}"
+    return full[:_GITHUB_LABEL_MAX_LEN]
 
 
 # ── Event types streamed to the browser ───────────────────────────────────
@@ -212,7 +226,7 @@ async def _bootstrap_labels(spec: PlanSpec) -> None:
     ]
     for idx, phase in enumerate(spec.phases):
         color = _PHASE_PALETTE[idx % len(_PHASE_PALETTE)]
-        scoped_label = f"{spec.initiative}/{phase.label}"
+        scoped_label = _scoped_label(spec.initiative, phase.label)
         # GitHub caps label descriptions at 100 characters.
         desc = phase.description
         if len(desc) > 100:
@@ -326,11 +340,11 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
     for phase_idx, phase in enumerate(spec.phases):
         # Phase 0 is immediately workable; all later phases are phase-gated.
         gate_label = "pipeline/active" if phase_idx == 0 else "pipeline/gated"
-        labels = [spec.initiative, f"{spec.initiative}/{phase.label}", gate_label]
+        labels = [spec.initiative, _scoped_label(spec.initiative, phase.label), gate_label]
         # For phase 1+ embed the blocking phase label into the issue body so
         # agents reading the ticket immediately know what must complete first.
         prev_phase_label = (
-            f"{spec.initiative}/{spec.phases[phase_idx - 1].label}"
+            _scoped_label(spec.initiative, spec.phases[phase_idx - 1].label)
             if phase_idx > 0
             else None
         )
