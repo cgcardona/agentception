@@ -334,10 +334,18 @@ async def build_complete_run(
         }
     # -------------------------
 
+    # ── Determine caller role before persisting so the done-event payload
+    # can include grade/feedback for reviewer runs.
+    caller_role = await get_agent_run_role(agent_run_id) if agent_run_id else None
+    _done_payload: dict[str, object] = {"pr_url": pr_url, "summary": summary}
+    if caller_role == "reviewer":
+        _done_payload["grade"] = grade.strip().upper()
+        _done_payload["reviewer_feedback"] = reviewer_feedback
+
     await persist_agent_event(
         issue_number=issue_number,
         event_type="done",
-        payload={"pr_url": pr_url, "summary": summary},
+        payload=_done_payload,
         agent_run_id=agent_run_id,
     )
 
@@ -357,11 +365,10 @@ async def build_complete_run(
 
     # Reviewer path: grade determines whether to merge (handled by reviewer) or
     # redispatch a corrected developer run.
-    caller_role = await get_agent_run_role(agent_run_id) if agent_run_id else None
     if caller_role == "reviewer":
         VALID_REVIEWER_GRADES: frozenset[str] = frozenset({"A", "B", "C", "D", "F"})
         _FAILING_GRADES: frozenset[str] = frozenset({"C", "D", "F"})
-        normalised_grade = grade.strip().upper()
+        normalised_grade = str(_done_payload["grade"])
         # Reviewer must commit to a valid grade before merge/redispatch logic runs.
         if normalised_grade not in VALID_REVIEWER_GRADES:
             return {
