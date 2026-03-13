@@ -603,6 +603,72 @@ No request body is required. The repository is always taken from `settings.gh_re
 
 ---
 
+### Metrics — `/api/metrics/*`
+
+Read-only endpoints that expose daily KPI snapshots from the database.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/metrics/daily` | KPI snapshot for a single calendar day |
+| `GET` | `/api/metrics/daily/range` | KPI snapshots for a date range (max 30 days) |
+
+#### `GET /api/metrics/daily`
+
+Returns a `DailyMetricsResponse` for the requested date.
+
+| Query param | Type | Required | Description |
+|-------------|------|----------|-------------|
+| `date` | `string` | no | ISO date `YYYY-MM-DD`. Defaults to today (UTC). |
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| `200` | Success — `DailyMetricsResponse` object |
+| `400` | `date` is not a valid ISO date |
+
+**Response schema — `DailyMetricsResponse`:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `date` | `string` | ISO date string (`YYYY-MM-DD`) |
+| `issues_closed` | `integer` | Issues closed on this date |
+| `prs_merged` | `integer` | PRs merged on this date |
+| `reviewer_runs` | `integer` | Reviewer agent runs on this date |
+| `grade_a_count` | `integer` | Grade-A reviewer outcomes |
+| `grade_b_count` | `integer` | Grade-B reviewer outcomes |
+| `grade_c_count` | `integer` | Grade-C reviewer outcomes |
+| `grade_d_count` | `integer` | Grade-D reviewer outcomes |
+| `grade_f_count` | `integer` | Grade-F reviewer outcomes |
+| `first_pass_rate` | `float` | (grade_a + grade_b) / reviewer_runs |
+| `rework_rate` | `float` | Developer runs with attempt_number > 0 / total developer runs |
+| `avg_iterations` | `float` | Mean step count per completed developer run |
+| `max_iter_hit_count` | `integer` | Completed developer runs that hit the 19-step limit |
+| `avg_cycle_time_seconds` | `float` | Mean cycle time in seconds for completed developer runs |
+| `cost_usd` | `float` | Total token cost for the day in USD |
+| `cost_per_issue_usd` | `float` | cost_usd / max(issues_closed, 1) |
+| `redispatch_count` | `integer` | Runs (any role) with attempt_number > 0 |
+| `auto_merge_rate` | `float` | Reviewer runs with grade A or B / reviewer_runs |
+
+#### `GET /api/metrics/daily/range`
+
+Returns a list of `DailyMetricsResponse` objects for every day in `[start, end]`, sorted ascending.
+
+| Query param | Type | Required | Description |
+|-------------|------|----------|-------------|
+| `start` | `string` | yes | Start date `YYYY-MM-DD`, inclusive |
+| `end` | `string` | yes | End date `YYYY-MM-DD`, inclusive |
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| `200` | Success — `list[DailyMetricsResponse]` sorted ascending |
+| `400` | Either date is malformed, or `end` is before `start` |
+| `422` | Range exceeds 30 days |
+
+---
+
 ### Org Chart — `/api/org/*`
 
 | Method | Path | Description |
