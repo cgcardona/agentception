@@ -97,7 +97,7 @@ from agentception.mcp.types import (
 logger = logging.getLogger(__name__)
 
 #: MCP protocol version this server implements.
-_MCP_PROTOCOL_VERSION = "2024-11-05"
+_MCP_PROTOCOL_VERSION = "2025-03-26"
 
 #: Server identity advertised in the ``initialize`` response.
 class _ServerInfo(TypedDict):

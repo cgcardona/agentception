@@ -261,7 +261,7 @@ async def test_initialize_declares_resources_capability() -> None:
         "jsonrpc": "2.0",
         "id": 0,
         "method": "initialize",
-        "params": {"protocolVersion": "2024-11-05", "capabilities": {}},
+        "params": {"protocolVersion": "2025-03-26", "capabilities": {}},
     })
     result = _rpc_result(resp)
     caps = result["capabilities"]
