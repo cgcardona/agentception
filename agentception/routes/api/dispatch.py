@@ -501,6 +501,9 @@ class DispatchRequest(BaseModel):
     set this when dispatching a brand-new developer run.
     """
 
+    prompt_variant: str | None = None
+    """Prompt variant for A/B testing (e.g. ``streamlined``). None = default role file."""
+
 
 class DispatchResponse(BaseModel):
     """Successful dispatch response.
@@ -997,6 +1000,7 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
         gh_repo=settings.gh_repo,
         task_description=task_description,
         pr_number=req.pr_number,
+        prompt_variant=req.prompt_variant,
     )
 
     # Transition pending_launch → implementing and fire the agent loop.
