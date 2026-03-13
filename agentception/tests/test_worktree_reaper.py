@@ -142,3 +142,73 @@ async def test_reaper_counts_multiple_released_dirs(tmp_path: Path) -> None:
 
     assert count == 2
     assert mock_release.await_count == 2
+
+
+@pytest.mark.anyio
+async def test_reaper_clears_db_only_when_release_succeeds(tmp_path: Path) -> None:
+    """Reaper clears worktree_path in DB only after release_worktree returns True."""
+    fake_worktree = tmp_path / "issue-101"
+    fake_worktree.mkdir()
+
+    with (
+        patch(
+            "agentception.services.worktree_reaper.get_terminal_runs_with_worktrees",
+            new_callable=AsyncMock,
+            return_value=[{"id": "issue-101", "worktree_path": str(fake_worktree), "branch": "feat/issue-101"}],
+        ),
+        patch(
+            "agentception.services.worktree_reaper.release_worktree",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.services.worktree_reaper.clear_run_worktree_path",
+            new_callable=AsyncMock,
+        ) as mock_clear,
+        patch(
+            "agentception.services.worktree_reaper.settings",
+            new_callable=MagicMock,
+            repo_dir="/app",
+        ),
+    ):
+        from agentception.services.worktree_reaper import reap_stale_worktrees
+
+        count = await reap_stale_worktrees()
+
+    assert count == 1
+    mock_clear.assert_awaited_once_with("issue-101")
+
+
+@pytest.mark.anyio
+async def test_reaper_does_not_clear_db_when_release_fails(tmp_path: Path) -> None:
+    """Reaper does not clear worktree_path when release_worktree returns False."""
+    fake_worktree = tmp_path / "issue-102"
+    fake_worktree.mkdir()
+
+    with (
+        patch(
+            "agentception.services.worktree_reaper.get_terminal_runs_with_worktrees",
+            new_callable=AsyncMock,
+            return_value=[{"id": "issue-102", "worktree_path": str(fake_worktree), "branch": "feat/issue-102"}],
+        ),
+        patch(
+            "agentception.services.worktree_reaper.release_worktree",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+        patch(
+            "agentception.services.worktree_reaper.clear_run_worktree_path",
+            new_callable=AsyncMock,
+        ) as mock_clear,
+        patch(
+            "agentception.services.worktree_reaper.settings",
+            new_callable=MagicMock,
+            repo_dir="/app",
+        ),
+    ):
+        from agentception.services.worktree_reaper import reap_stale_worktrees
+
+        count = await reap_stale_worktrees()
+
+    assert count == 0
+    mock_clear.assert_not_called()
