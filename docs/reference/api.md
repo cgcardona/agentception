@@ -159,6 +159,46 @@ Validate an edited PlanSpec YAML before filing.
 
 ---
 
+#### Plan enrichment
+
+After `POST /api/plan/validate` succeeds and before `POST /api/plan/file-issues` is called, the server runs an enrichment pass over every `PlanIssue` in the spec. Enrichment is automatic and transparent — callers do not need to trigger it explicitly.
+
+**Purpose:** Grounds each issue in the real codebase so dispatched developer agents have concrete file/line targets and do not waste iterations searching.
+
+**Codebase location search:** For each issue, `search_codebase(issue.title, n_results=5)` is called against the Qdrant semantic index. The top matches are appended to `issue.body` as a `## Relevant codebase locations` section:
+
+```
+## Relevant codebase locations
+- agentception/readers/plan_enricher.py lines 45-58 — _enrich_issue
+- agentception/services/code_indexer.py lines 12-34 — search_codebase
+```
+
+**Symbol extraction:** Each chunk's leading comment lines are scanned for `# def <name>` or `# class <name>` patterns. The first match is used as the human-readable label; the file path is the fallback when no symbol is found.
+
+**File-contention serialization:** After all issues are enriched, pairs of issues within the same phase whose search-result file sets overlap are detected. The lexicographically smaller issue ID is appended to the larger ID's `depends_on` list, serializing agents that would otherwise race to edit the same files.
+
+Before enrichment:
+```yaml
+issues:
+  - id: p0-001
+    depends_on: []
+  - id: p0-002
+    depends_on: []
+```
+
+After enrichment (both issues matched `agentception/config.py`):
+```yaml
+issues:
+  - id: p0-001
+    depends_on: []
+  - id: p0-002
+    depends_on: [p0-001]   # injected automatically
+```
+
+**Best-effort guarantee:** Individual enrichment failures are caught and logged; they never block issue filing. If the Qdrant index is empty or unavailable, issue bodies are filed as-is.
+
+---
+
 #### `POST /api/plan/file-issues`
 
 File all issues from a validated PlanSpec YAML. Creates GitHub issues, phase labels, and `initiative_phases` DB rows.
