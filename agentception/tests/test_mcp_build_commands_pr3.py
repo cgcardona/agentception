@@ -361,6 +361,11 @@ async def test_build_complete_run_reviewer_does_not_redispatch_reviewer() -> Non
             "agentception.mcp.build_commands.auto_dispatch_reviewer",
             new_callable=AsyncMock,
         ) as mock_dispatch,
+        patch(
+            "agentception.mcp.build_commands._is_pr_merged",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
         patch("asyncio.create_task"),
     ):
         result = await call_tool_async(

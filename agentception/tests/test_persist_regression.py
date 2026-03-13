@@ -194,7 +194,7 @@ async def test_get_initiatives_excludes_closed() -> None:
     # "mcp-audit-remediation/0-foundation" — all issues are closed.
     issues = _issue_rows([])
 
-    with patch("agentception.db.queries.get_session", _mock_two_query_session(phases, issues)):
+    with patch("agentception.db.queries.board.get_session", _mock_two_query_session(phases, issues)):
         result = await get_initiatives("owner/repo")
 
     assert result == [], (
