@@ -318,6 +318,19 @@ _FINAL_STRETCH_WARNING: str = (
     "search_codebase. Only write/fix/commit/push/PR tools are permitted."
 )
 
+# Injected on every iteration where last_input_tokens exceeds
+# _CONTEXT_PRESSURE_THRESHOLD.  Tells the agent the context window is filling
+# and to avoid expensive reads that accelerate truncation.
+_CONTEXT_PRESSURE_WARNING: str = (
+    "⚠️ CONTEXT PRESSURE — {tokens_k}K input tokens consumed this turn.\n\n"
+    "The context window is filling. To avoid truncation:\n"
+    "- Do NOT read large files. Read only specific line ranges.\n"
+    "- Do NOT repeat searches you have already run.\n"
+    "- Prefer replace_in_file over write_file (smaller diffs).\n"
+    "- Complete your remaining work and call build_complete_run soon.\n"
+    "Remaining context budget: approximately {remaining_k}K tokens."
+)
+
 # Injected when the agent has searched for the same query twice.
 _SYMBOL_ABSENCE_OVERRIDE = """\
 ⚠️  SYMBOL ABSENCE — "{query}" NOT FOUND AFTER REPEATED SEARCH
@@ -661,6 +674,26 @@ async def run_agent_loop(
             logger.warning(
                 "⚠️ final_stretch — run_id=%s iteration=%d remaining=%d",
                 run_id, iteration, remaining,
+            )
+
+        # Context-pressure warning — fires on every iteration where the previous
+        # turn consumed more than _CONTEXT_PRESSURE_THRESHOLD input tokens.
+        # last_input_tokens is 0 on the first iteration (before any LLM call),
+        # so the condition is naturally False and the warning is never shown then.
+        if last_input_tokens > _CONTEXT_PRESSURE_THRESHOLD:
+            tokens_k = last_input_tokens // 1000
+            remaining_k = max(0, (200_000 - last_input_tokens) // 1000)
+            extra_blocks.append({
+                "type": "text",
+                "text": _CONTEXT_PRESSURE_WARNING.format(
+                    tokens_k=tokens_k, remaining_k=remaining_k
+                ),
+            })
+            logger.warning(
+                "⚠️ context_pressure — run_id=%s iter=%d input_tokens=%d",
+                run_id,
+                iteration,
+                last_input_tokens,
             )
 
         # Pytest hard-stop escalation — fires every iteration after pytest
