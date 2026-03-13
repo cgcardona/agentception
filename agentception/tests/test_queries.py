@@ -70,9 +70,9 @@ async def test_get_daily_metrics_returns_zeros_on_db_error() -> None:
 
     today = datetime.date(2025, 1, 15)
 
-    # Patch get_session to raise so the except branch is exercised.
+    # Patch get_session where it is locally bound in the metrics submodule.
     with patch(
-        "agentception.db.queries.get_session",
+        "agentception.db.queries.metrics.get_session",
         side_effect=Exception("no db"),
     ):
         result = await get_daily_metrics(today)

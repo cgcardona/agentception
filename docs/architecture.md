@@ -264,6 +264,50 @@ The `TaskRunner` protocol (`agentception/services/task_runner.py`) defines a run
 
 ---
 
+## Query module structure
+
+`agentception/db/queries/` is a Python package. All existing call-sites use
+`from agentception.db.queries import X` and continue to work through the
+re-exporting `__init__.py`. The package is split into focused submodules to
+eliminate parallel-agent merge conflicts on the former 3250-line monolith.
+
+| File | Domain ownership |
+|------|-----------------|
+| `types.py` | All `TypedDict` return-value shapes shared across the package. No query logic. |
+| `board.py` | Board issues, initiative phases, label state, wave summaries, workflow states, and grouped-phase views. |
+| `runs.py` | Agent run lifecycle — run rows, active runs, run detail, tree traversal, teardown, and execution plan loading. |
+| `messages.py` | Agent thought stream queries (`get_agent_thoughts_tail`). |
+| `events.py` | Agent event tail queries and file-edit event hydration. |
+| `metrics.py` | Daily metrics, run status counts, throughput, and cost calculation. |
+
+`__init__.py` re-exports every public symbol (and a small set of test-required
+private helpers) using the `import X as X` pattern so that mypy's strict
+re-export checks are satisfied.
+
+All six files carry `merge=union` in `.gitattributes` to prevent spurious
+conflicts when parallel agents append to different domain files simultaneously.
+
+---
+
+## SCSS partial structure
+
+`agentception/static/scss/pages/_build.scss` is a barrel file that imports six
+focused partials in cascade order. Edit the partial — never the barrel.
+
+| Partial | Rule ownership |
+|---------|---------------|
+| `_inspector-layout.scss` | Inspector chrome, toolbar, header, sidebar layout, and general OD structural rules. |
+| `_thought-block.scss` | `.thought-block` collapsible sections for LLM reasoning display. |
+| `_file-edit-card.scss` | `.file-edit-card` diff viewer cards including `.diff-add`, `.diff-remove`, `.diff-context`. |
+| `_assistant-bubble.scss` | `.assistant-bubble` prose message bubbles. |
+| `_tool-call-card.scss` | `.tool-call-card` expandable tool-call detail cards. |
+| `_event-card.scss` | `.event-card` generic SSE event cards in the event log. |
+
+All six partials carry `merge=union` in `.gitattributes` for the same
+parallel-agent conflict-reduction reason as the query submodules.
+
+---
+
 ## Further Reading
 
 - [Plan Spec format](plan-spec.md)
