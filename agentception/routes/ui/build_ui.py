@@ -345,6 +345,16 @@ async def build_board_partial(
 # GET /ship/runs/{run_id}/stream — SSE inspector stream
 # ---------------------------------------------------------------------------
 
+_FILE_EDIT_TOOL_NAMES: frozenset[str] = frozenset(
+    {"write_file", "replace_in_file", "create_file"}
+)
+
+
+def _preview(text: str) -> str:
+    """Collapse newlines and truncate to 120 chars (including the ellipsis)."""
+    flat = " ".join(text.split())
+    return flat[:119] + "…" if len(flat) > 119 else flat
+
 
 async def _inspector_sse(run_id: str) -> AsyncGenerator[str, None]:
     """Yield SSE events for the inspector panel.
@@ -383,14 +393,37 @@ async def _inspector_sse(run_id: str) -> AsyncGenerator[str, None]:
         )
         for thought in thoughts:
             last_thought_seq = max(last_thought_seq, int(thought["seq"]))
-            payload = json.dumps(
-                {
-                    "t": "thought",
-                    "role": thought["role"],
-                    "content": thought["content"],
-                    "recorded_at": thought["recorded_at"],
-                }
-            )
+            role = thought["role"]
+            if role == "tool_call":
+                payload = json.dumps(
+                    {
+                        "t": "tool_call",
+                        "tool_name": thought["tool_name"],
+                        "args_preview": _preview(thought["content"]),
+                        "recorded_at": thought["recorded_at"],
+                    }
+                )
+            elif role == "tool_result":
+                tool_name = thought["tool_name"]
+                if tool_name in _FILE_EDIT_TOOL_NAMES:
+                    continue  # file-edit results already have their own rendering path
+                payload = json.dumps(
+                    {
+                        "t": "tool_result",
+                        "tool_name": tool_name,
+                        "result_preview": _preview(thought["content"]),
+                        "recorded_at": thought["recorded_at"],
+                    }
+                )
+            else:
+                payload = json.dumps(
+                    {
+                        "t": "thought",
+                        "role": role,
+                        "content": thought["content"],
+                        "recorded_at": thought["recorded_at"],
+                    }
+                )
             yield f"data: {payload}\n\n"
 
         ping_counter += 1
