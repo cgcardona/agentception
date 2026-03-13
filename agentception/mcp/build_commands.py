@@ -26,6 +26,8 @@ import logging
 import re
 from pathlib import Path
 
+import httpx
+
 from agentception.db.persist import (
     acknowledge_agent_run,
     block_agent_run,
@@ -160,6 +162,40 @@ async def build_claim_run(run_id: str) -> dict[str, object]:
 _GITHUB_PR_URL_RE: re.Pattern[str] = re.compile(
     r"https://github\.com/[^/]+/[^/]+/pull/\d+"
 )
+
+
+async def _is_pr_merged(pr_url: str) -> bool:
+    """Return True if the GitHub PR at *pr_url* has been merged.
+
+    Parses the owner, repo, and PR number from the URL and calls the GitHub
+    REST API.  Returns False on any network or auth error so the caller can
+    decide whether to treat the failure as a hard block or a soft warning.
+    """
+    m = re.search(
+        r"github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<number>\d+)",
+        pr_url,
+    )
+    if not m:
+        return False
+    owner, repo, number = m.group("owner"), m.group("repo"), m.group("number")
+    token = settings.github_token
+    headers: dict[str, str] = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"https://api.github.com/repos/{owner}/{repo}/pulls/{number}/merge",
+                headers=headers,
+            )
+        # 204 = merged; 404 = not merged; anything else = uncertain
+        return resp.status_code == 204
+    except Exception:
+        logger.warning("⚠️ _is_pr_merged: GitHub API call failed for %r — assuming not merged", pr_url)
+        return False
 
 
 def _is_valid_pr_url(pr_url: str) -> bool:
@@ -306,8 +342,27 @@ async def build_complete_run(
                 name=f"auto-redispatch-{issue_number}",
             )
         else:
-            # Grade A or B: reviewer already merged — full teardown (delete branch too,
-            # since it is now merged into dev).
+            # Grade A or B: reviewer should have already merged the PR.  Verify
+            # before scheduling teardown — teardown deletes the remote branch,
+            # which causes GitHub to auto-close any open PR pointing to it.  If
+            # the PR is not yet merged, refusing here forces the reviewer to
+            # actually call merge_pull_request before completion is recorded.
+            pr_is_merged = await _is_pr_merged(pr_url)
+            if not pr_is_merged:
+                logger.warning(
+                    "⚠️ build_complete_run: reviewer called with grade=%r but PR %r "
+                    "is not merged — refusing completion to prevent branch deletion",
+                    grade,
+                    pr_url,
+                )
+                return {
+                    "ok": False,
+                    "error": (
+                        f"PR {pr_url!r} has not been merged. "
+                        "Call merge_pull_request first, then call build_complete_run again. "
+                        "Completing without a merge would delete the branch and close the PR."
+                    ),
+                }
             logger.info(
                 "ℹ️ build_complete_run: reviewer approved (grade=%r) — "
                 "scheduling full worktree teardown for run_id=%r",

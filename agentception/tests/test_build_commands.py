@@ -123,6 +123,11 @@ async def test_reviewer_worktree_torn_down_after_passing_grade() -> None:
         patch(
             "agentception.mcp.build_commands.asyncio.create_task",
         ) as mock_create_task,
+        patch(
+            "agentception.mcp.build_commands._is_pr_merged",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
     ):
         result = await build_complete_run(
             issue_number=55,
@@ -273,6 +278,11 @@ async def test_redispatch_skipped_after_passing_grade() -> None:
         patch(
             "agentception.mcp.build_commands.asyncio.create_task",
         ) as mock_create_task,
+        patch(
+            "agentception.mcp.build_commands._is_pr_merged",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
     ):
         result = await build_complete_run(
             issue_number=issue_number,
@@ -526,6 +536,11 @@ async def test_done_event_payload_includes_grade_for_reviewer() -> None:
             new_callable=AsyncMock,
         ),
         patch("agentception.mcp.build_commands.asyncio.create_task"),
+        patch(
+            "agentception.mcp.build_commands._is_pr_merged",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
     ):
         await build_complete_run(
             issue_number=42,
@@ -582,4 +597,120 @@ async def test_done_event_payload_excludes_grade_for_developer() -> None:
     assert "grade" not in captured_payload
     assert "reviewer_feedback" not in captured_payload
     assert "pr_url" in captured_payload
+
+
+# ---------------------------------------------------------------------------
+# Regression: reviewer must not trigger teardown when PR is not yet merged
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_build_complete_run_blocks_grade_a_when_pr_not_merged() -> None:
+    """build_complete_run must refuse a grade-A completion when the PR is not merged.
+
+    Regression for the bug where a reviewer called build_complete_run(grade="A")
+    after merge_pull_request failed (branch behind dev).  The server accepted the
+    completion, scheduled teardown_agent_worktree, which deleted the remote branch,
+    which caused GitHub to auto-close the unmerged PR.
+
+    After this fix, build_complete_run returns an error when _is_pr_merged is False,
+    forcing the reviewer to merge first.
+    """
+    from agentception.mcp.build_commands import build_complete_run
+
+    reviewer_run_id = "reviewer-issue-99-unmerged"
+
+    with (
+        patch(
+            "agentception.mcp.build_commands.persist_agent_event",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agentception.mcp.build_commands.complete_agent_run",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands.get_agent_run_role",
+            new_callable=AsyncMock,
+            return_value="reviewer",
+        ),
+        patch(
+            "agentception.mcp.build_commands._is_pr_merged",
+            new_callable=AsyncMock,
+            return_value=False,  # PR has NOT been merged
+        ),
+        patch(
+            "agentception.mcp.build_commands.asyncio.create_task",
+        ) as mock_create_task,
+    ):
+        result = await build_complete_run(
+            issue_number=99,
+            pr_url="https://github.com/cgcardona/agentception/pull/500",
+            agent_run_id=reviewer_run_id,
+            grade="A",
+            reviewer_feedback="",
+        )
+
+    assert result.get("ok") is False, "Expected error when PR is not merged"
+    assert "not been merged" in str(result.get("error", "")).lower(), (
+        f"Error message should mention unmerged PR; got: {result.get('error')}"
+    )
+    # Teardown must NOT have been scheduled — that would delete the branch.
+    mock_create_task.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_build_complete_run_allows_grade_a_when_pr_merged() -> None:
+    """build_complete_run proceeds normally for grade-A when the PR is confirmed merged.
+
+    Complement to the unmerged-PR regression test: when _is_pr_merged returns True,
+    the completion is accepted and teardown is scheduled as normal.
+    """
+    from agentception.mcp.build_commands import build_complete_run
+
+    reviewer_run_id = "reviewer-issue-55-merged"
+
+    with (
+        patch(
+            "agentception.mcp.build_commands.persist_agent_event",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agentception.mcp.build_commands.complete_agent_run",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands.get_agent_run_role",
+            new_callable=AsyncMock,
+            return_value="reviewer",
+        ),
+        patch(
+            "agentception.mcp.build_commands._is_pr_merged",
+            new_callable=AsyncMock,
+            return_value=True,  # PR has been merged
+        ),
+        patch(
+            "agentception.mcp.build_commands.teardown_agent_worktree",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agentception.mcp.build_commands.asyncio.create_task",
+        ) as mock_create_task,
+    ):
+        result = await build_complete_run(
+            issue_number=55,
+            pr_url="https://github.com/cgcardona/agentception/pull/501",
+            agent_run_id=reviewer_run_id,
+            grade="A",
+            reviewer_feedback="",
+        )
+
+    assert result.get("ok") is True
+    assert result.get("status") == "completed"
+    task_names = [c.kwargs.get("name", "") for c in mock_create_task.call_args_list]
+    assert f"teardown-{reviewer_run_id}" in task_names, (
+        f"Teardown must be scheduled when PR is merged; got: {task_names}"
+    )
 
