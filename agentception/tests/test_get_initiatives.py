@@ -84,7 +84,7 @@ async def test_get_initiatives_returns_filed_with_open_issues() -> None:
     phases = _phase_rows([("auth-rewrite", _utc(100))])
     issues = _issue_rows([["auth-rewrite", "auth-rewrite/0-foundation"]])
 
-    with patch("agentception.db.queries.get_session", _mock_two_query_session(phases, issues)):
+    with patch("agentception.db.queries.board.get_session", _mock_two_query_session(phases, issues)):
         result = await get_initiatives("owner/repo")
 
     assert result == ["auth-rewrite"]
@@ -97,7 +97,7 @@ async def test_get_initiatives_excludes_when_all_issues_closed() -> None:
     # No open issues with an auth-rewrite/ prefix.
     issues = _issue_rows([])
 
-    with patch("agentception.db.queries.get_session", _mock_two_query_session(phases, issues)):
+    with patch("agentception.db.queries.board.get_session", _mock_two_query_session(phases, issues)):
         result = await get_initiatives("owner/repo")
 
     assert result == []
@@ -110,7 +110,7 @@ async def test_get_initiatives_excludes_when_no_scoped_phase_label() -> None:
     # Issue carries the initiative label but no scoped phase label — won't show on board.
     issues = _issue_rows([["auth-rewrite"]])
 
-    with patch("agentception.db.queries.get_session", _mock_two_query_session(phases, issues)):
+    with patch("agentception.db.queries.board.get_session", _mock_two_query_session(phases, issues)):
         result = await get_initiatives("owner/repo")
 
     assert result == []
@@ -122,7 +122,7 @@ async def test_get_initiatives_not_in_phases_never_appears() -> None:
     phases = _phase_rows([])  # nothing filed
     issues = _issue_rows([["mystery-initiative", "mystery-initiative/0-first"]])
 
-    with patch("agentception.db.queries.get_session", _mock_two_query_session(phases, issues)):
+    with patch("agentception.db.queries.board.get_session", _mock_two_query_session(phases, issues)):
         result = await get_initiatives("owner/repo")
 
     assert result == []
@@ -142,7 +142,7 @@ async def test_get_initiatives_ordered_most_recently_filed_first() -> None:
         ["ac-workflow", "ac-workflow/0-scaffold"],
     ])
 
-    with patch("agentception.db.queries.get_session", _mock_two_query_session(phases, issues)):
+    with patch("agentception.db.queries.board.get_session", _mock_two_query_session(phases, issues)):
         result = await get_initiatives("owner/repo")
 
     assert result == ["ac-plan", "ac-build", "ac-workflow"]
@@ -161,7 +161,7 @@ async def test_get_initiatives_mixed_open_and_closed() -> None:
         # ac-done has no open issues (all closed, not in this list).
     ])
 
-    with patch("agentception.db.queries.get_session", _mock_two_query_session(phases, issues)):
+    with patch("agentception.db.queries.board.get_session", _mock_two_query_session(phases, issues)):
         result = await get_initiatives("owner/repo")
 
     assert result == ["ac-plan"]
@@ -174,7 +174,7 @@ async def test_get_initiatives_empty_phases_returns_empty() -> None:
     phases = _phase_rows([])
     issues = _issue_rows([["any-label", "any-label/0-phase"]])
 
-    with patch("agentception.db.queries.get_session", _mock_two_query_session(phases, issues)):
+    with patch("agentception.db.queries.board.get_session", _mock_two_query_session(phases, issues)):
         result = await get_initiatives("owner/repo")
 
     assert result == []
@@ -187,7 +187,7 @@ async def test_get_initiatives_db_error_returns_empty() -> None:
     ctx_mock.__aenter__ = AsyncMock(side_effect=RuntimeError("DB unavailable"))
     ctx_mock.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("agentception.db.queries.get_session", return_value=ctx_mock):
+    with patch("agentception.db.queries.board.get_session", return_value=ctx_mock):
         result = await get_initiatives("owner/repo")
 
     assert result == []
