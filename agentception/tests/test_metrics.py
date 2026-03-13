@@ -134,7 +134,7 @@ def test_metrics_api_endpoint_returns_today() -> None:
 
 
 def test_metrics_api_range_endpoint() -> None:
-    """GET /api/metrics/daily/range returns one entry per day, ascending."""
+    """GET /api/metrics/daily/range returns one entry per day, sorted ascending."""
     mock = AsyncMock(
         side_effect=[
             _zero_metrics("2025-01-01"),
@@ -144,9 +144,7 @@ def test_metrics_api_range_endpoint() -> None:
     )
 
     with patch(_MOCK_PATH, new=mock):
-        response = client.get(
-            "/api/metrics/daily/range?start=2025-01-01&end=2025-01-03"
-        )
+        response = client.get("/api/metrics/daily/range?start=2025-01-01&end=2025-01-03")
 
     assert response.status_code == 200
     items = response.json()

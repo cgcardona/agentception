@@ -1,24 +1,29 @@
-"""API routes: GET /api/metrics/daily and GET /api/metrics/daily/range.
-
-Thin handlers — all DB logic lives in ``agentception.db.queries.get_daily_metrics``.
-"""
 from __future__ import annotations
+
+"""Metrics API endpoints — daily KPI snapshots.
+
+Exposes ``get_daily_metrics()`` from ``agentception.db.queries`` over HTTP so
+dashboards and external tooling can consume daily performance data without
+direct DB access.
+"""
 
 import datetime
 import logging
 
-from fastapi import APIRouter
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, ConfigDict
 
-from agentception.db.queries import DailyMetrics, get_daily_metrics
+from agentception.db.queries import get_daily_metrics
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["metrics"])
+router = APIRouter()
 
 
 class DailyMetricsResponse(BaseModel):
-    """Serialisable daily KPI snapshot returned by the metrics endpoints."""
+    """KPI snapshot for a single calendar day."""
+
+    model_config = ConfigDict(frozen=True)
 
     date: str
     issues_closed: int
@@ -39,46 +44,66 @@ class DailyMetricsResponse(BaseModel):
     redispatch_count: int
     auto_merge_rate: float
 
-    @classmethod
-    def from_daily_metrics(cls, m: DailyMetrics) -> DailyMetricsResponse:
-        """Construct a response model from a DailyMetrics TypedDict."""
-        return cls(**m)
+
+def _parse_iso_date(date_str: str) -> datetime.date:
+    """Parse an ISO-8601 date string, raising HTTP 400 on failure."""
+    try:
+        return datetime.date.fromisoformat(date_str)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid date '{date_str}'. Expected ISO format YYYY-MM-DD.",
+        )
 
 
 @router.get("/metrics/daily", response_model=DailyMetricsResponse)
 async def get_metrics_daily(
-    date: str | None = None,
+    date: str | None = Query(default=None, description="ISO date (YYYY-MM-DD). Defaults to today."),
 ) -> DailyMetricsResponse:
     """Return the KPI snapshot for a single calendar day.
 
-    Query parameter ``date`` must be an ISO date string (``YYYY-MM-DD``).
-    Defaults to today (UTC) when omitted.
+    When *date* is omitted the current UTC date is used.
     """
     if date is None:
         target = datetime.date.today()
     else:
-        target = datetime.date.fromisoformat(date)
-    metrics: DailyMetrics = await get_daily_metrics(target)
-    return DailyMetricsResponse.from_daily_metrics(metrics)
+        target = _parse_iso_date(date)
+
+    metrics = await get_daily_metrics(target)
+    return DailyMetricsResponse(**metrics)
 
 
 @router.get("/metrics/daily/range", response_model=list[DailyMetricsResponse])
 async def get_metrics_daily_range(
-    start: str,
-    end: str,
+    start: str = Query(description="Start date (YYYY-MM-DD), inclusive."),
+    end: str = Query(description="End date (YYYY-MM-DD), inclusive."),
 ) -> list[DailyMetricsResponse]:
-    """Return KPI snapshots for every day in the inclusive range [start, end].
+    """Return KPI snapshots for every day in [start, end], sorted ascending.
 
-    Both ``start`` and ``end`` must be ISO date strings (``YYYY-MM-DD``).
-    Results are returned in ascending date order.
+    Returns HTTP 400 when end < start or either date is malformed.
+    Returns HTTP 422 when the range exceeds 30 days.
     """
-    start_date = datetime.date.fromisoformat(start)
-    end_date = datetime.date.fromisoformat(end)
+    start_date = _parse_iso_date(start)
+    end_date = _parse_iso_date(end)
+
+    if end_date < start_date:
+        raise HTTPException(
+            status_code=400,
+            detail=f"end ({end}) must not be before start ({start}).",
+        )
+
+    span = (end_date - start_date).days
+    if span > 30:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Range of {span} days exceeds the 30-day maximum.",
+        )
 
     results: list[DailyMetricsResponse] = []
     current = start_date
     while current <= end_date:
-        metrics: DailyMetrics = await get_daily_metrics(current)
-        results.append(DailyMetricsResponse.from_daily_metrics(metrics))
+        metrics = await get_daily_metrics(current)
+        results.append(DailyMetricsResponse(**metrics))
         current += datetime.timedelta(days=1)
+
     return results
