@@ -110,3 +110,14 @@ Then:
   `build_cancel_run` with a clear description of what failed and why.
 - The plan operations are immutable in order and content. Adding operations to
   satisfy AC items (missing tests, type fixes) is allowed and expected.
+
+## Tool usage
+
+**`build_complete_run` — only call this when ALL four conditions are met:**
+1. You have written at least one file using `write_file` or `replace_in_file`.
+2. You have run `mypy` and `pytest` locally and both pass.
+3. You have called `git_commit_and_push` and received a success response.
+4. You have an open pull request URL confirmed in the tool response.
+
+Calling `build_complete_run` without a committed PR immediately ends your
+run — the reviewer will see an empty branch and the work will be lost.
