@@ -550,6 +550,7 @@ async def run_agent_loop(
     # hard-stop interrupt is disarmed.  Reset when new code is written after
     # the clean run, or when a subsequent pytest run fails.
     pytest_clean_since: int | None = None
+    last_input_tokens: int = 0
 
     for iteration in range(1, max_iterations + 1):
         await log_run_step(
@@ -706,6 +707,15 @@ async def run_agent_loop(
                 cache_read_tokens=response.get("cache_read_input_tokens", 0),
             ),
             name=f"token-accum-{run_id}-{iteration}",
+        )
+
+        last_input_tokens = response.get("input_tokens", 0)
+        logger.info(
+            "📊 context: iter=%d input_tokens=%d output_tokens=%d cache_hit=%d",
+            iteration,
+            last_input_tokens,
+            response.get("output_tokens", 0),
+            response.get("cache_read_input_tokens", 0),
         )
 
         # Append assistant message to history before persisting so the full
