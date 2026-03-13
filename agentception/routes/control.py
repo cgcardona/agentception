@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Control-plane routes for the AgentCeption dashboard.
 
-These endpoints perform destructive agent operations (kill, future: pause/spawn).
+These endpoints perform destructive agent operations (kill).
 Each operation is idempotent: calling it on a slug that no longer exists returns
 404 rather than erroring, so UI retries are safe.
 
@@ -16,7 +16,6 @@ Why a separate router?
 import asyncio
 import json
 import logging
-from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
@@ -28,23 +27,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/control", tags=["control"])
 
 
-def _parse_issue_number(worktree: Path) -> int | None:
-    """Read .agent-task in ``worktree`` and return the ISSUE_NUMBER value, or None.
+async def _resolve_issue_number(slug: str) -> int | None:
+    """Return the issue number for the worktree *slug* via a DB lookup.
 
-    Parses only KEY=value lines — never evaluates them. Returns ``None`` when
-    the file is absent, unreadable, or contains no ISSUE_NUMBER key.
+    Queries ``ac_agent_runs`` by ``worktree_path`` to find the associated
+    issue number from the DB row.  Returns ``None``
+    when the run is not found or the DB is unavailable.
     """
-    task_file = worktree / ".agent-task"
-    if not task_file.exists():
+    from agentception.db.queries import get_run_by_worktree_path
+
+    worktree_path = str(settings.worktrees_dir / slug)
+    row = await get_run_by_worktree_path(worktree_path)
+    if row is None:
         return None
-    try:
-        for line in task_file.read_text(encoding="utf-8").splitlines():
-            if line.startswith("ISSUE_NUMBER="):
-                raw = line.split("=", 1)[1].strip()
-                return int(raw) if raw.isdigit() else None
-    except OSError:
-        logger.warning("⚠️ Could not read .agent-task at %s", task_file)
-    return None
+    return row.get("issue_number")
 
 
 async def _run(cmd: list[str]) -> tuple[int, str, str]:
@@ -65,7 +61,7 @@ async def _run(cmd: list[str]) -> tuple[int, str, str]:
 
 @router.post("/kill/{slug}")
 async def kill_agent(slug: str) -> JSONResponse:
-    """Force-remove an agent worktree and clear the ``agent:wip`` GitHub label.
+    """Force-remove an agent worktree and clear the ``agent/wip`` GitHub label.
 
     Slug is the bare directory name under ``settings.worktrees_dir``, e.g.
     ``issue-553`` or ``pr-607``.
@@ -73,8 +69,8 @@ async def kill_agent(slug: str) -> JSONResponse:
     Steps:
     1. Verify the worktree directory exists (404 if not).
     2. ``git worktree remove --force <path>`` — detaches and removes the directory.
-    3. Parse ``.agent-task`` for ``ISSUE_NUMBER`` and clear ``agent:wip`` on that
-       issue via ``gh issue edit``.
+    3. Look up the run in the DB by worktree path and clear ``agent/wip`` on the
+       associated issue via ``gh issue edit``.
     4. ``git worktree prune`` — cleans up stale refs in the main repo.
 
     Returns ``{"killed": slug}`` on success. Any individual step failure is
@@ -85,12 +81,9 @@ async def kill_agent(slug: str) -> JSONResponse:
     if not worktree.exists():
         raise HTTPException(status_code=404, detail=f"Worktree '{slug}' not found")
 
-    issue_number = _parse_issue_number(worktree)
+    issue_number = await _resolve_issue_number(slug)
 
     # Step 1: force-remove the worktree.
-    # git worktree remove only works when the metadata in .git/worktrees/ is
-    # intact. If it fails (e.g. metadata was already cleaned from the host
-    # side), fall back to a direct rm -rf so the directory is always gone.
     repo_dir = str(settings.repo_dir)
     rc, stdout, stderr = await _run(
         ["git", "-C", repo_dir, "worktree", "remove", "--force", str(worktree)]
@@ -100,13 +93,13 @@ async def kill_agent(slug: str) -> JSONResponse:
         if worktree.exists():
             import shutil as _shutil
             try:
-                await asyncio.get_event_loop().run_in_executor(None, _shutil.rmtree, str(worktree))
+                await asyncio.get_running_loop().run_in_executor(None, _shutil.rmtree, str(worktree))
                 logger.info("✅ rm -rf fallback removed %s", worktree)
             except OSError as rm_err:
                 logger.warning("⚠️ rm -rf fallback failed for %s: %s", worktree, rm_err)
 
-    # Step 2: clear agent:wip on the related issue (best-effort).
-    if issue_number is not None:
+    # Step 2: clear agent/wip on the related issue (best-effort).
+    if issue_number is not None and issue_number > 0:
         gh_rc, _, gh_err = await _run(
             [
                 "gh",
@@ -116,15 +109,15 @@ async def kill_agent(slug: str) -> JSONResponse:
                 "--repo",
                 settings.gh_repo,
                 "--remove-label",
-                "agent:wip",
+                "agent/wip",
             ]
         )
         if gh_rc != 0:
             logger.warning("⚠️ gh issue edit exited %d: %s", gh_rc, gh_err.strip())
         else:
-            logger.info("✅ Cleared agent:wip from issue #%d", issue_number)
+            logger.info("✅ Cleared agent/wip from issue #%d", issue_number)
     else:
-        logger.warning("⚠️ No ISSUE_NUMBER in .agent-task for worktree '%s'", slug)
+        logger.info("ℹ️ No DB run found for worktree '%s' — skipping label cleanup", slug)
 
     # Step 3: prune stale worktree refs.
     prune_rc, _, prune_err = await _run(["git", "-C", repo_dir, "worktree", "prune"])

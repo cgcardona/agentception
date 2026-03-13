@@ -22,14 +22,14 @@ async def dag_page(request: Request) -> HTMLResponse:
 
     Fetches all open issues, parses their dependency declarations, and renders
     an interactive SVG graph using D3.js (loaded from CDN).  Nodes are coloured
-    by ``agentception/*`` phase label; the ``agent:wip`` issues are highlighted
+    by ``agentception/*`` phase label; the ``agent/wip`` issues are highlighted
     with a green stroke; closed nodes are rendered at 50% opacity.
 
     Enriches each node with:
     - ``blocking_count``: how many other issues depend on this one (fan-in).
     - ``depth``: topological level (0 = no dependencies, N = deepest blocker).
 
-    Callers who need the raw DAG data should use ``GET /api/dag`` instead.
+    Callers who need the raw DAG data should use ``GET /api/intelligence/dag`` instead.
     """
     dag: DependencyDAG = await build_dag()
     phase_labels: list[str] = []

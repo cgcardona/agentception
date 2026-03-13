@@ -164,8 +164,8 @@ Current atomic domains:
 | `d3` | Force-directed graphs, SVG, D3 selections |
 | `monaco` | In-browser code editor CDN integration |
 | `devops` | Docker, Compose, Nginx, CI/CD |
-| `midi` | MIDI pipeline, GM programs, Muse protocol integration |
-| `llm` | LLM calls, embeddings, RAG, OpenRouter |
+| `midi` | MIDI pipeline, GM programs, music generation |
+| `llm` | LLM calls, embeddings, RAG, Anthropic API |
 
 
 ---
@@ -368,33 +368,23 @@ COGNITIVE_ARCH=dijkstra
 
 ## Integration with the Agent Pipeline
 
-### `.agent-task` file
+### Task context (DB-backed RunContextRow)
 
-The engineering-manager or QA-manager writes `COGNITIVE_ARCH` to `.agent-task`
-at spawn time. Leaf agents read it at startup.
-
-```bash
-# .agent-task (written by engineering-manager)
-ISSUE=671
-WORKTREE="/path/to/worktree"
-ROLE_FILE="$HOME/.cursor/roles/python-developer.md"
-ISSUE_LABEL="agentception/2-telemetry"
-SPAWN_MODE=direct
-COGNITIVE_ARCH=lovelace:htmx:jinja2:alpine   # ← new multi-skill format
-```
+The dispatch layer persists `COGNITIVE_ARCH` to the DB context row (`RunContextRow.cognitive_arch`)
+at spawn time. Leaf agents read it from `ac://runs/{run_id}/context` at startup.
 
 ### Prompt injection flow
 
-At agent startup (STEP 0.5 of `PARALLEL_ISSUE_TO_PR.md`):
+At agent startup (STEP 0 of the role template):
 
 ```bash
-COGNITIVE_ARCH=$(grep '^COGNITIVE_ARCH=' .agent-task | cut -d= -f2)
+COGNITIVE_ARCH="<from RunContextRow.cognitive_arch via ac://runs/{run_id}/context>"
 ARCH_CONTEXT=$(python3 "$REPO/scripts/gen_prompts/resolve_arch.py" \
   "$COGNITIVE_ARCH" --mode implementer)
 echo "$ARCH_CONTEXT"
 ```
 
-For reviewers (`pr-reviewer.md`), pass `--mode reviewer` to load skill-specific
+For reviewers (`reviewer.md`), pass `--mode reviewer` to load skill-specific
 review checklists instead of implementer fragments.
 
 ### `resolve_arch.py`
@@ -430,9 +420,9 @@ Located at `scripts/gen_prompts/team.yaml`. Defines:
 `generate.py` reads `team.yaml` at generation time and validates that every
 referenced figure, archetype, and skill file exists on disk.
 
-### Selection heuristics for engineering-manager
+### Selection heuristics for engineering coordinator
 
-The engineering-manager runs the heuristics from `team.yaml` against the issue
+The engineering coordinator runs the heuristics from `team.yaml` against the issue
 body to auto-select `COGNITIVE_ARCH`. First-match wins.
 
 | Signal | Suggested architecture |
@@ -528,9 +518,8 @@ scripts/gen_prompts/
    `resolve_arch.py` script is deterministic. No network calls, no LLM
    generation at spawn time.
 
-5. **Observable.** The engineering-manager logs which architecture it selected
-   and why. The `.agent-task` file is committed to the worktree for post-hoc
-   analysis.
+5. **Observable.** The engineering coordinator logs which architecture it selected
+   and why. The DB context row is the canonical record for post-hoc analysis.
 
 6. **Escapable.** `COGNITIVE_ARCH=none` disables injection entirely, falling
    back to the raw role file. No agent is forced into a cognitive mode.
@@ -559,7 +548,7 @@ scripts/gen_prompts/
 
 - **Domain-specific figures**: `einstein_audio` — Einstein's cognition applied
   to audio/music theory. Figures can have domain variants that inherit from the base.
-- **Dynamic selection**: The engineering-manager calls a lightweight classifier
+- **Dynamic selection**: The engineering coordinator calls a lightweight classifier
   to select the best architecture for an issue, logged to AgentCeption for
   A/B testing and convergence measurement.
 - **User-defined figures**: A `custom_figures/` directory alongside the

@@ -45,8 +45,7 @@ async def worktrees_page(request: Request) -> HTMLResponse:
 async def worktree_detail_partial(request: Request, slug: str) -> HTMLResponse:
     """HTMX partial: on-demand detail panel for a single worktree.
 
-    Returns commits ahead of origin/dev, a diff stat, and the raw
-    .agent-task file content — all rendered server-side.
+    Returns commits ahead of origin/dev and a diff stat, rendered server-side.
     """
     from agentception.readers.git import get_worktree_detail
 

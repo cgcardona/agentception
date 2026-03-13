@@ -12,35 +12,14 @@ python3 scripts/gen_prompts/resolve_arch.py "feynman:python"
 python3 scripts/gen_prompts/resolve_arch.py "ritchie:devops" --mode implementer
 python3 scripts/gen_prompts/resolve_arch.py "knuth:python" --mode reviewer
 python3 scripts/gen_prompts/resolve_arch.py "dijkstra:postgresql:python" --fingerprint \
-  --role python-developer --session abc123 --batch batch-01
+  --role developer --session abc123 --batch batch-01
 ```
 
 Output is ready-to-read Markdown. Consumed by agent kickoff prompts.
 
-## gen_cognitive_arch_tasks.py
-
-Generates `.agent-task` files from a list of figure batches for cognitive
-architecture enrichment work.
-
-```bash
-# Generate task files (default output: /tmp/cog-arch-tasks/)
-python3 scripts/gen_cognitive_arch_tasks.py generate
-
-# Specify repo path and output directory
-python3 scripts/gen_cognitive_arch_tasks.py generate \
-  --repo /path/to/agentception --out-dir ~/.agentception/tasks
-
-# Clean up completed task files and record to DB (requires DATABASE_URL)
-DATABASE_URL=postgresql://... python3 scripts/gen_cognitive_arch_tasks.py cleanup \
-  --tasks-dir ~/.agentception/tasks --repo /path/to/agentception
-```
-
-Requires `DATABASE_URL` env var when recording task completions to the
-AgentCeption Postgres instance.
-
 ## gen_prompts/generate.py
 
-Regenerates all `.cursor/roles/*.md` and `.cursor/PARALLEL_*.md` files from
+Regenerates all `.agentception/roles/*.md` and `.agentception/agent-*.md` files from
 `config.yaml` and the Jinja2 templates in `scripts/gen_prompts/templates/`.
 
 ```bash
@@ -76,7 +55,7 @@ Top-level support files:
 | `scripts/gen_prompts/role-taxonomy.yaml` | Maps issue keywords to recommended cognitive architectures |
 | `scripts/gen_prompts/team.yaml` | Skill keyword routing for automatic skill-domain selection |
 | `scripts/gen_prompts/sync_labels.sh` | Auto-generated; run once to sync GitHub labels |
-| `scripts/gen_prompts/templates/` | Jinja2 templates for all `.cursor/` prompt files |
+| `scripts/gen_prompts/templates/` | Jinja2 templates for all `.agentception/` prompt files |
 
 ## Architecture string format
 

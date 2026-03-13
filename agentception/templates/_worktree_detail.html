@@ -1,6 +1,6 @@
 {#
   HTMX partial — rendered into the expandable body of a sandbox branch.
-  Receives: slug, found, branch, commits (list[{sha, message}]), diff_stat, task_content
+  Receives: slug, found, branch, commits (list[{sha, message}]), diff_stat
 #}
 {% if not found %}
 <p class="env-detail-empty">Sandbox not found.</p>
@@ -41,14 +41,6 @@
 <div class="env-diff-section">
   <h3 class="env-detail-heading">Changed Files</h3>
   <pre class="env-diff-stat">{{ diff_stat }}</pre>
-</div>
-{% endif %}
-
-{# ── Agent task ──────────────────────────────────────────────────────────── #}
-{% if task_content %}
-<div class="env-task-section">
-  <h3 class="env-detail-heading">Agent Task</h3>
-  <pre class="env-task-file">{{ task_content }}</pre>
 </div>
 {% endif %}
 

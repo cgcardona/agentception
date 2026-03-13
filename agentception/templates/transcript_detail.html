@@ -25,12 +25,11 @@
       {# Role badge #}
       {% set role_class = {
         'cto': 'badge--orange',
-        'engineering-vp': 'badge--blue',
+        'engineering-coordinator': 'badge--blue',
         'engineering-coordinator': 'badge--blue', 'qa-coordinator': 'badge--teal',
-        'qa-vp': 'badge--purple',
+        'qa-coordinator': 'badge--purple',
         'python-developer': 'badge--green',
         'pr-reviewer': 'badge--teal',
-        'muse-specialist': 'badge--pink',
         'database-architect': 'badge--yellow',
         'unknown': 'badge--gray',
       }.get(transcript.role, 'badge--gray') %}
@@ -138,7 +137,7 @@
       <h3 class="sidebar-card__title">Linked Issues</h3>
       <div class="sidebar-card__body">
         {% for n in transcript.linked_issues %}
-        <a href="/issues/{{ n }}" class="sidebar-issue-link">#{{ n }}</a>
+        <a href="/issues/{{ repo_name }}/{{ n }}" class="sidebar-issue-link">#{{ n }}</a>
         {% endfor %}
       </div>
     </div>
@@ -167,12 +166,11 @@
         {% for sa in transcript.subagents %}
         {% set sa_role_class = {
           'cto': 'badge--orange',
-          'engineering-vp': 'badge--blue',
+          'engineering-coordinator': 'badge--blue',
           'engineering-coordinator': 'badge--blue', 'qa-coordinator': 'badge--teal',
-          'qa-vp': 'badge--purple',
+          'qa-coordinator': 'badge--purple',
           'python-developer': 'badge--green',
           'pr-reviewer': 'badge--teal',
-          'muse-specialist': 'badge--pink',
           'database-architect': 'badge--yellow',
           'unknown': 'badge--gray',
         }.get(sa.role, 'badge--gray') %}

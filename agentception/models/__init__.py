@@ -7,12 +7,15 @@ routes, and the frontend templates. Keep them flat — no nested Pydantic
 models that reference external services.
 """
 
+import datetime
 import logging
+import re
 from enum import Enum
 from pathlib import Path
+from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -64,20 +67,39 @@ VALID_ROLES: frozenset[str] = _load_valid_roles()
 
 
 class AgentStatus(str, Enum):
-    """Lifecycle state of a single pipeline agent, derived from filesystem + GitHub signals."""
+    """Lifecycle state of a single pipeline agent, derived from filesystem + GitHub signals.
 
+    Mirror of :class:`agentception.workflow.status.AgentStatus` — kept in sync.
+    """
+
+    PENDING_LAUNCH = "pending_launch"
     IMPLEMENTING = "implementing"
+    BLOCKED = "blocked"
     REVIEWING = "reviewing"
-    DONE = "done"
-    STALE = "stale"
-    UNKNOWN = "unknown"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    STOPPED = "stopped"
+    FAILED = "failed"
 
 
 class AgentNode(BaseModel):
     """A single agent in the pipeline tree.
 
-    Represents one Cursor/Claude agent instance that is either actively working
-    or has completed its assigned task. Children are spawned sub-agents.
+    Represents one agent instance that is either actively working or has
+    completed its assigned task. Children are spawned sub-agents.
+
+    ``tier`` is the behavioral execution tier:
+    - ``"coordinator"`` — surveys its scope and spawns children; any coordinator
+                          can be the tree root.
+    - ``"worker"``      — claims one unit of work (issue or PR) and executes it.
+
+    ``org_domain`` is the organisational slot for UI hierarchy visualisation —
+    ``"c-suite"``, ``"engineering"``, or ``"qa"``.  A chain-spawned PR reviewer
+    that was seeded by an engineering worker will have ``tier="worker"`` and
+    ``org_domain="qa"`` so the board places it under the QA column rather than
+    under its physical parent.
+
+    ``parent_run_id`` is the run_id of the agent that physically spawned this one.
     """
 
     id: str
@@ -88,15 +110,17 @@ class AgentNode(BaseModel):
     branch: str | None = None
     batch_id: str | None = None
     worktree_path: str | None = None
-    transcript_path: str | None = None
     message_count: int = 0
     last_activity_mtime: float = 0.0
     children: list[AgentNode] = []
     cognitive_arch: str | None = None
+    tier: str | None = None
+    org_domain: str | None = None
+    parent_run_id: str | None = None
 
 
 class StaleClaim(BaseModel):
-    """A GitHub issue with ``agent:wip`` label but no corresponding local worktree.
+    """A GitHub issue with ``agent/wip`` label but no corresponding local worktree.
 
     Produced by :func:`~agentception.intelligence.guards.detect_stale_claims`
     and included in :class:`PipelineState` so the dashboard can surface a
@@ -126,6 +150,45 @@ class BoardIssue(BaseModel):
     last_synced_at: str | None = None
 
 
+class PlanDraftEvent(BaseModel):
+    """A single plan-draft lifecycle event emitted by the poller.
+
+    Carried in ``PipelineState.plan_draft_events`` so SSE subscribers receive
+    exactly-once delivery: the poller adds the event on the tick it is first
+    detected and deduplicates via an in-memory set so subsequent ticks carry
+    an empty list for the same draft.
+
+    ``event`` is one of ``"plan_draft_ready"`` or ``"plan_draft_timeout"``.
+    ``yaml_text`` is the raw YAML written by the Cursor agent (filled for
+    ``plan_draft_ready``, empty string for ``plan_draft_timeout``).
+    ``output_path`` is the absolute path of the expected output file.
+    """
+
+    event: str
+    draft_id: str
+    yaml_text: str = ""
+    output_path: str
+
+
+class StalledAgentEvent(BaseModel):
+    """Structured record of a stalled agent emitted by the poller on every tick.
+
+    Carried in ``PipelineState.stalled_agents`` and broadcast via the existing
+    SSE stream so the dashboard can surface a Stalled badge and a re-dispatch
+    button without polling.
+
+    Primary stall signal is ``last_activity_at`` (DB heartbeat).  A secondary
+    signal — ``worktree_last_commit_time()`` — is used only for advisory
+    "active but not committing" warnings; it does NOT promote to STALLED alone.
+    """
+
+    run_id: str
+    issue_number: int
+    worktree_path: str
+    last_activity_at: str  # ISO-format UTC timestamp from the DB row
+    stalled_for_minutes: int
+
+
 class PipelineState(BaseModel):
     """Snapshot of the entire AgentCeption pipeline at a point in time.
 
@@ -142,6 +205,10 @@ class PipelineState(BaseModel):
     ``merged_prs_count`` — PRs merged in the last 24 hours.
     ``stale_branches`` — local git branch names that match feat/issue-N but
     have no corresponding live worktree (leftover from failed/manual runs).
+
+    ``plan_draft_events`` carries new plan-draft lifecycle events for this
+    tick only.  The poller deduplicates across ticks via an in-memory set,
+    so a given draft_id appears at most once in the SSE stream.
     """
 
     active_label: str | None
@@ -156,6 +223,9 @@ class PipelineState(BaseModel):
     merged_prs_count: int = 0
     stale_branches: list[str] = []
     pending_approval: list[dict[str, object]] = []
+    plan_draft_events: list[PlanDraftEvent] = []
+    loop_guard_triggered: list[str] = []
+    stalled_agents: list[StalledAgentEvent] = []
 
     @classmethod
     def empty(cls) -> PipelineState:
@@ -180,34 +250,107 @@ class PipelineState(BaseModel):
             merged_prs_count=0,
             stale_branches=[],
             pending_approval=[],
+            plan_draft_events=[],
+            stalled_agents=[],
         )
 
 
-class TaskFile(BaseModel):
-    """Parsed content of a ``.agent-task`` file from a worktree.
+class IssueSub(BaseModel):
+    """One issue in a coordinator's dispatch queue.
 
-    Every field maps 1-to-1 with a ``KEY=value`` line in the task file.
-    Unknown keys are silently ignored. All fields are optional to ensure
-    graceful handling of missing or malformed task files.
+    Coordinator agents receive a list of these; each becomes one worktree and
+    one leaf agent. All fields except ``branch`` and ``file_ownership`` are
+    required in the spec; we allow optional for lenient parsing.
     """
 
+    number: int
+    title: str = ""
+    role: str = ""
+    cognitive_arch: str = ""
+    depends_on: list[int] = []
+    file_ownership: list[str] = []
+    branch: str | None = None
+
+
+class PRSub(BaseModel):
+    """One PR in a QA coordinator's review queue.
+
+    QA coordinator agents receive a list of these; each is one PR to review
+    with merge order and grade threshold. All fields except ``closes_issues``
+    are required in the spec; we allow optional for lenient parsing.
+    """
+
+    number: int
+    title: str = ""
+    branch: str = ""
+    role: str = ""
+    cognitive_arch: str = ""
+    grade_threshold: str = ""
+    merge_order: int = 0
+    closes_issues: list[int] = []
+
+
+class AgentTaskSpec(BaseModel):
+    """In-memory representation of all task context for one agent run.
+
+    Populated exclusively from the ``ACAgentRun`` DB row.  All fields are
+    optional; the DB row is the single source of truth.
+    """
+
+    # Core identity
     task: str | None = None
+    id: str | None = None
+    attempt_n: int = 0
+    is_resumed: bool = False
+    # Agent configuration
+    role: str | None = None
+    tier: str | None = None
+    """Behavioral execution tier: coordinator | worker."""
+    org_domain: str | None = None
+    """Organisational slot for UI hierarchy: c-suite | engineering | qa."""
+    cognitive_arch: str | None = None
+    # Repository
     gh_repo: str | None = None
+    base: str | None = None
+    # Pipeline lineage
+    batch_id: str | None = None
+    parent_run_id: str | None = None
+    coord_fingerprint: str | None = None
+    """run_id of the coordinator that spawned this run."""
+    spawn_mode: str | None = None
+    # Target
     issue_number: int | None = None
     pr_number: int | None = None
-    branch: str | None = None
-    worktree: str | None = None
-    role: str | None = None
-    base: str | None = None
-    batch_id: str | None = None
     closes_issues: list[int] = []
+    # Worktree
+    worktree: str | None = None
+    branch: str | None = None
+    # Ad-hoc runs
+    task_description: str | None = None
+    """Inline task description for ad-hoc runs (POST /api/runs/adhoc)."""
+    # Planning pipeline — coordinator/conductor extended fields
+    draft_id: str | None = None
+    output_path: str | None = None
+    output_format: str | None = None
+    domain: str | None = None
+    issue_queue: list[IssueSub] = []
+    pr_queue: list[PRSub] = []
+    # Extended tracking (coordinator-dispatch fields, not persisted to DB)
+    depends_on: list[int] = []
     spawn_sub_agents: bool = False
-    spawn_mode: str | None = None
-    merge_after: str | None = None
-    attempt_n: int = 0
-    required_output: str | None = None
+    wave: str | None = None
+    vp_fingerprint: str | None = None
+    session_id: str | None = None
     on_block: str | None = None
-    cognitive_arch: str | None = None
+    required_output: str | None = None
+    file_ownership: list[str] = []
+    files_changed: list[str] = []
+    grade_threshold: str | None = None
+    has_migration: bool = False
+    merge_after: str | None = None
+    linked_pr: int | None = None
+
+
 
 
 class AbModeConfig(BaseModel):
@@ -220,7 +363,7 @@ class AbModeConfig(BaseModel):
     can be compared with everything else held constant.
 
     ``variant_a_file`` and ``variant_b_file`` are paths relative to the
-    repository root (e.g. ``.cursor/roles/python-developer.md``).
+    repository root (e.g. ``.agentception/roles/developer.md``).
     """
 
     enabled: bool = False
@@ -236,179 +379,71 @@ class ProjectConfig(BaseModel):
     The ``active_project`` field in :class:`PipelineConfig` selects which
     project the AgentCeption dashboard currently targets.
 
-    ``worktrees_dir`` supports ``~`` expansion (e.g. ``~/.agentception/worktrees/agentception``).
+    ``repo_dir`` and ``worktrees_dir`` are optional.  When absent, the values
+    from the environment (``REPO_DIR``, ``WORKTREES_DIR``) are used unchanged.
+    Set them only when targeting a *different* repository than the one the
+    service was started against — e.g. in a multi-repo setup.
+    ``worktrees_dir`` supports ``~`` expansion.
+
     ``cursor_project_id`` is the Cursor project slug used to locate transcript files.
     """
 
     name: str
     gh_repo: str
-    repo_dir: str
-    worktrees_dir: str
+    repo_dir: str | None = None
+    worktrees_dir: str | None = None
     cursor_project_id: str | None = None
-    active_labels_order: list[str] = []
 
 
 class PipelineConfig(BaseModel):
     """Validated shape of ``.agentception/pipeline-config.json``.
 
-    This is the single source of truth for pipeline allocation.  The CTO and
-    Engineering VP role files read this model at the start of every loop/seed
-    cycle.  The ``PUT /api/config`` route validates incoming bodies against
-    this schema before persisting them to disk.
+    This is the single source of truth for pipeline allocation.  Coordinator
+    role files read this model at the start of every loop/seed cycle.  The
+    ``PUT /api/config`` route validates incoming bodies against this schema
+    before persisting them to disk.
 
     ``projects`` lists all configured projects; ``active_project`` is the name
     of the currently active one.  When ``active_project`` is set, the dashboard
     targets the corresponding project's ``gh_repo``, ``repo_dir``, and
     ``worktrees_dir`` instead of the defaults in :class:`AgentCeptionSettings`.
+
+    Allocation fields:
+      ``coordinator_limits`` — max concurrent instances per coordinator role slug.
+      ``pool_size``          — number of leaf agents per coordinator instance.
     """
 
-    max_eng_vps: int = Field(gt=0, description="Maximum number of engineering VPs")
-    max_qa_vps: int = Field(gt=0, description="Maximum number of QA VPs")
-    pool_size_per_vp: int = Field(gt=0, description="Pool size per VP")
-    active_labels_order: list[str]
+    coordinator_limits: dict[str, int] = Field(
+        default={"engineering-coordinator": 1, "qa-coordinator": 1},
+        description="Max concurrent instances per coordinator role slug.",
+    )
+    pool_size: int = Field(default=4, gt=0, description="Leaf agents per coordinator.")
+    active_labels_order: list[str] = Field(
+        default=[],
+        description=(
+            "Ordered list of scoped phase labels (e.g. 'ac-build/phase-0') used by the "
+            "poller to auto-advance the active phase.  Empty disables auto-advance."
+        ),
+    )
     ab_mode: AbModeConfig = AbModeConfig()
     projects: list[ProjectConfig] = []
     active_project: str | None = None
     approval_required_labels: list[str] = ["db-schema", "security", "api-contract"]
-
-
-class SpawnRequest(BaseModel):
-    """Request body for ``POST /api/control/spawn``.
-
-    Callers provide the issue number they want an agent to tackle and an
-    optional role override. The endpoint verifies the issue is open and
-    unclaimed before creating the worktree.
-    """
-
-    issue_number: int
-    role: str = "python-developer"
-
-    @field_validator("role")
-    @classmethod
-    def validate_role(cls, v: str) -> str:
-        """Reject unknown roles early so errors surface at the boundary, not in git."""
-        if v not in VALID_ROLES:
-            raise ValueError(f"role must be one of {sorted(VALID_ROLES)}, got {v!r}")
-        return v
-
-
-class SpawnResult(BaseModel):
-    """Response for a successful ``POST /api/control/spawn``.
-
-    Contains enough information for the user (or a future automation layer)
-    to launch a Cursor Task pointed at the new worktree.
-    ``agent_task`` is the raw text of the ``.agent-task`` file that was
-    written — callers can display it or pass it directly to the Task tool.
-
-    ``worktree`` is the container-side path (``/worktrees/issue-N``).
-    ``host_worktree`` is the equivalent host-side path the user can open in
-    AgentCeption (``~/.agentception/worktrees/agentception/issue-N``).
-    ``spawned_at`` is an ISO-8601 UTC timestamp indicating when the worktree
-    was created (included for display in the HTML success panel).
-    """
-
-    spawned: int
-    worktree: str
-    host_worktree: str
-    branch: str
-    agent_task: str
-    spawned_at: str = ""
-
-
-class SpawnConductorRequest(BaseModel):
-    """Request body for ``POST /api/control/spawn-conductor``.
-
-    ``phases`` is a non-empty list of phase label strings to run the conductor
-    against.  ``org`` optionally scopes the conductor to a specific org name
-    (passed through to the ``.agent-task`` file; leave ``None`` for the default).
-    """
-
-    phases: list[str]
-    org: str | None = None
-
-
-class SpawnConductorResult(BaseModel):
-    """Response for a successful ``POST /api/control/spawn-conductor``.
-
-    ``wave_id`` is the auto-generated conductor ID (e.g. ``conductor-20260303-142201``).
-    ``host_worktree`` is the path the user should open in Cursor to activate the agent.
-    ``agent_task`` is the raw ``.agent-task`` content written to disk.
-    """
-
-    wave_id: str
-    worktree: str
-    host_worktree: str
-    branch: str
-    agent_task: str
-
-
-class SpawnCoordinatorRequest(BaseModel):
-    """Request body for ``POST /api/control/spawn-coordinator``.
-
-    ``plan_text`` is the user's raw unstructured text — feature ideas, bug
-    descriptions, or any free-form list of work items.  The coordinator agent
-    reads this field from its ``.agent-task`` file and runs the Phase Planner
-    step in ``parallel-bugs-to-issues.md``, producing labelled GitHub issues.
-
-    ``label_prefix`` optionally scopes the generated phase labels to a named
-    initiative (e.g. ``"q2-rewrite"`` → labels like ``phase-1/q2-rewrite``).
-    Leave blank for the default label scheme.
-    """
-
-    plan_text: str
-    label_prefix: str = ""
-
-
-class SpawnCoordinatorResult(BaseModel):
-    """Response for a successful ``POST /api/control/spawn-coordinator``.
-
-    ``slug`` is the worktree directory name (e.g. ``brain-dump-20260301-143022``).
-    ``host_worktree`` is the path the user should open in Cursor to activate
-    the coordinator agent.  ``agent_task`` is the raw ``.agent-task`` content
-    written to disk — useful for display and debugging.
-    """
-
-    slug: str
-    worktree: str
-    host_worktree: str
-    branch: str
-    agent_task: str
-
-
-class PlanRequest(BaseModel):
-    """Request body for ``POST /api/brain-dump/plan``.
-
-    ``dump`` is the raw brain-dump text submitted by the user.  The Phase
-    Planner analyses it and groups work items into sequenced phases without
-    creating any GitHub resources.
-    """
-
-    dump: str
-
-
-class PhasePreview(BaseModel):
-    """A single phase in the brain-dump plan preview.
-
-    Each phase groups related work items that can be implemented in parallel.
-    ``depends_on`` lists the labels of phases that must complete before this
-    one can start — the UI renders these as dependency arrows.
-    """
-
-    label: str
-    description: str
-    estimated_issue_count: int
-    depends_on: list[str] = []
-
-
-class PlanResult(BaseModel):
-    """Response for ``POST /api/brain-dump/plan``.
-
-    ``phases`` is ordered: index 0 is the earliest phase (foundation),
-    later entries depend on earlier ones.  The UI shows these as a phase
-    card deck before asking the user to confirm and fire the coordinator.
-    """
-
-    phases: list[PhasePreview]
+    #: Label removed from to_phase issues when advancing a phase gate.
+    phase_advance_blocked_label: str = "pipeline/gated"
+    #: Label added to to_phase issues when they become eligible for dispatch.
+    phase_advance_active_label: str = "pipeline/active"
+    #: Maximum message_count before an agent is flagged as looping.
+    max_attempts: int = Field(default=3, gt=0, description="Max message_count before loop guard triggers.")
+    #: Minutes of DB-heartbeat silence before an agent is promoted to STALLED.
+    stall_threshold_minutes: int = Field(
+        default=30,
+        gt=0,
+        description=(
+            "Minutes of silence on last_activity_at before a worker agent is promoted "
+            "to STALLED.  Override with AC_PIPELINE_STALL_THRESHOLD_MINUTES env var."
+        ),
+    )
 
 
 class SwitchProjectRequest(BaseModel):
@@ -692,7 +727,7 @@ class TemplateManifest(BaseModel):
 
 
 class TemplateConflict(BaseModel):
-    """A single file that already exists in the target repo's ``.cursor/`` directory.
+    """A single file that already exists in the target repo's ``.agentception/`` directory.
 
     Surfaced by the import endpoint before any file is overwritten so the
     caller can decide whether to proceed.
@@ -779,21 +814,43 @@ class PlanIssue(BaseModel):
     of other issues — this avoids silent breakage when titles are edited in
     the review editor.  ``title`` is the issue title; ``body`` is the
     Markdown description.
+
+    ``skills`` is an optional list of skill domain IDs (matching filenames in
+    ``scripts/gen_prompts/cognitive_archetypes/skill_domains/``) that the LLM
+    planner populates at plan time.  These flow through to ``_resolve_cognitive_arch``
+    at agent spawn time as the authoritative ``skills_hint``, replacing the
+    fragile keyword-extraction fallback with planner-provided signal.
+
+    ``cognitive_arch`` is the fully-resolved arch string (``figure:skill1[:skill2]``)
+    assigned by the LLM planner in Phase 1A and optionally edited by the user in
+    Phase 1B.  When non-empty, it is embedded in the GitHub issue body as an
+    ``<!-- ac:cognitive_arch: ... -->`` comment so that the dispatch layer can read
+    it directly — no heuristics required.
     """
 
     id: str
     title: str
     body: str
     depends_on: list[str] = []  # issue IDs, not titles
+    skills: list[str] = []  # skill domain IDs from the cognitive arch catalog
+    cognitive_arch: str = ""  # resolved arch string: "figure:skill1[:skill2]"
+
+
+_PHASE_LABEL_RE = re.compile(r"^[0-9]+-[a-z0-9][a-z0-9-]*$")
 
 
 class PlanPhase(BaseModel):
     """A sequenced phase grouping related issues in a PlanSpec.
 
-    ``label`` is a short slug used as the GitHub phase label (e.g.
-    ``"0-foundation"``).  ``description`` is a one-sentence human summary.
-    ``depends_on`` lists labels of phases that must complete before this one
-    starts.  ``issues`` is the ordered list of issues to create.
+    ``label`` must follow the ``{N}-{slug}`` convention — a numeric prefix
+    (the 0-based phase index) followed by a kebab-case semantic descriptor,
+    e.g. ``"0-foundation"``, ``"1-api-layer"``, ``"2-ui"``.  This format
+    makes lexicographic sort a correct ordering fallback while also being
+    human-readable as a GitHub label suffix.
+
+    ``description`` is a one-sentence summary of the phase's gate criterion.
+    ``depends_on`` lists sibling phase labels that must complete first.
+    ``issues`` is the ordered list of issues to create in this phase.
 
     Raises ``ValueError`` if ``issues`` is empty — a phase with no issues
     cannot advance the pipeline.
@@ -803,6 +860,18 @@ class PlanPhase(BaseModel):
     description: str
     depends_on: list[str] = []
     issues: list[PlanIssue]
+
+    @field_validator("label")
+    @classmethod
+    def label_must_follow_n_slug_convention(cls, v: str) -> str:
+        """Enforce the {N}-{slug} label format: digits, hyphen, kebab-case slug."""
+        if not _PHASE_LABEL_RE.match(v):
+            raise ValueError(
+                f"Phase label {v!r} must match '{_PHASE_LABEL_RE.pattern}' "
+                f"(e.g. '0-foundation', '1-api-layer'). "
+                f"The numeric prefix must equal the phase's 0-based list position."
+            )
+        return v
 
     @field_validator("issues")
     @classmethod
@@ -820,6 +889,13 @@ class PlanSpec(BaseModel):
     ``phases`` is an ordered list of :class:`PlanPhase` objects; index 0 is the
     foundation phase that has no dependencies.
 
+    ``coordinator_arch`` maps orchestration role slugs to resolved arch strings
+    (``figure:skill1[:skill2]``).  The LLM planner populates this in Phase 1A;
+    the user may edit it in the Phase 1B YAML editor before submitting.  Keys
+    are role slugs from ``role-taxonomy.yaml`` — e.g. ``"cto"``,
+    ``"engineering-coordinator"``, ``"qa-coordinator"``.  New coordinator types
+    require no schema changes — just new keys.
+
     Invariants enforced at construction time:
     - ``phases`` must be non-empty.
     - Phase ``depends_on`` labels must all reference labels that appear
@@ -833,6 +909,14 @@ class PlanSpec(BaseModel):
 
     initiative: str
     phases: list[PlanPhase]
+    coordinator_arch: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Maps orchestration role slugs to resolved arch strings "
+            "(figure:skill1[:skill2]).  Keys: cto, engineering-coordinator, "
+            "qa-coordinator, etc.  Populated by the LLM planner in Phase 1A."
+        ),
+    )
 
     @field_validator("phases")
     @classmethod
@@ -898,27 +982,36 @@ class PlanSpec(BaseModel):
         Uses PyYAML ``safe_dump`` with ``default_flow_style=False`` and
         ``sort_keys=False`` so the output preserves insertion order and omits
         Pydantic-internal fields.
+
+        ``coordinator_arch`` is included only when non-empty so that minimal
+        plans produced without Phase 1A planner output remain compact.
+        Per-issue ``cognitive_arch`` and ``skills`` are always included when
+        non-empty so users can inspect and edit them in the Phase 1B editor.
         """
         data: dict[str, object] = {
             "initiative": self.initiative,
-            "phases": [
-                {
-                    "label": phase.label,
-                    "description": phase.description,
-                    "depends_on": phase.depends_on,
-                    "issues": [
-                        {
-                            "id": issue.id,
-                            "title": issue.title,
-                            "body": issue.body,
-                            "depends_on": issue.depends_on,
-                        }
-                        for issue in phase.issues
-                    ],
-                }
-                for phase in self.phases
-            ],
         }
+        if self.coordinator_arch:
+            data["coordinator_arch"] = dict(self.coordinator_arch)
+        data["phases"] = [
+            {
+                "label": phase.label,
+                "description": phase.description,
+                "depends_on": phase.depends_on,
+                "issues": [
+                    {
+                        "id": issue.id,
+                        "title": issue.title,
+                        "body": issue.body,
+                        "depends_on": issue.depends_on,
+                        **({"skills": issue.skills} if issue.skills else {}),
+                        **({"cognitive_arch": issue.cognitive_arch} if issue.cognitive_arch else {}),
+                    }
+                    for issue in phase.issues
+                ],
+            }
+            for phase in self.phases
+        ]
         return yaml.safe_dump(data, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
     @classmethod
@@ -1098,3 +1191,106 @@ class EnrichedManifest(BaseModel):
         self.estimated_waves = max(wave_depths.values(), default=1)
 
         return self
+
+
+# ---------------------------------------------------------------------------
+# Execution Plan — planner / executor two-stage architecture
+# ---------------------------------------------------------------------------
+
+
+class PlanOperation(BaseModel):
+    """A single atomic file operation produced by the planner agent.
+
+    Each operation maps 1-to-1 to a tool call the executor agent will make.
+    The planner must supply all parameters the executor needs — the executor
+    cannot read files to fill in missing values.
+
+    Tool semantics:
+    - ``replace_in_file``: replace ``old_string`` with ``new_string`` in ``file``.
+    - ``insert_after_in_file``: insert ``text`` immediately after the line
+      matching ``after`` in ``file``.
+    - ``write_file``: create or overwrite ``file`` with ``content``.
+    """
+
+    tool: Literal["replace_in_file", "insert_after_in_file", "write_file"]
+    file: str
+    """Relative path from worktree root, e.g. ``agentception/config.py``."""
+
+    # replace_in_file
+    old_string: str | None = None
+    new_string: str | None = None
+
+    # insert_after_in_file
+    after: str | None = None
+    text: str | None = None
+
+    # write_file
+    content: str | None = None
+
+    @model_validator(mode="after")
+    def validate_required_params(self) -> "PlanOperation":
+        """Ensure each tool has its required parameters."""
+        if self.tool == "replace_in_file":
+            if self.old_string is None or self.new_string is None:
+                raise ValueError(
+                    "replace_in_file requires old_string and new_string"
+                )
+        elif self.tool == "insert_after_in_file":
+            if self.after is None or self.text is None:
+                raise ValueError(
+                    "insert_after_in_file requires after and text"
+                )
+        elif self.tool == "write_file":
+            if self.content is None:
+                raise ValueError("write_file requires content")
+        return self
+
+
+class ExecutionPlan(BaseModel):
+    """Immutable ordered list of file operations for implementing a single GitHub issue.
+
+    Produced by the planner agent before the executor agent starts.  The plan
+    is stored in the ``execution_plans`` DB table keyed by ``run_id`` and
+    injected verbatim into the executor's task briefing.
+
+    The executor must apply operations in order and may not modify, skip, or
+    supplement them.  If an operation fails the executor calls
+    ``build_cancel_run`` rather than attempting a workaround.
+    """
+
+    run_id: str
+    issue_number: int
+    operations: list[PlanOperation]
+    created_at: datetime.datetime = Field(
+        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
+    )
+
+    @field_validator("operations")
+    @classmethod
+    def operations_must_be_non_empty(
+        cls, v: list[PlanOperation]
+    ) -> list[PlanOperation]:
+        """A plan with no operations cannot produce a PR."""
+        if not v:
+            raise ValueError("ExecutionPlan must contain at least one operation")
+        return v
+
+
+class FileEditEvent(BaseModel):
+    """A single file-edit event carrying a unified diff for inspector-panel rendering.
+
+    Immutable by design — once emitted, the diff payload must not change.
+    ``lines_omitted`` is 0 when the diff fits within 120 visible lines; it
+    carries the count of hidden lines when the diff is truncated so the UI
+    can surface a "N lines omitted" notice without re-computing the diff.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    timestamp: datetime.datetime
+    path: str
+    """Relative path in the worktree, e.g. ``agentception/models/__init__.py``."""
+    diff: str
+    """Unified diff string, at most 120 visible lines."""
+    lines_omitted: int = 0
+    """Count of hidden lines when the diff exceeds 120 visible lines; 0 otherwise."""

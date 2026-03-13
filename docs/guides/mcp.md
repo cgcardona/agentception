@@ -1,10 +1,78 @@
-# AgentCeption — Cursor MCP Integration
+# AgentCeption — MCP Integration
 
-AgentCeption exposes an MCP (Model Context Protocol) server so Cursor and Claude can invoke AgentCeption tools directly from the editor.
+AgentCeption exposes a best-in-class MCP (Model Context Protocol) server so Cursor, Claude, and any MCP-aware client can invoke tools, read resources, and fetch prompts directly.
 
-## How it works
+## The two interfaces — HTTP and MCP
 
-The MCP server runs inside the AgentCeption Docker container. Cursor communicates with it over stdio, via `docker compose exec -T agentception python -m agentception.mcp.stdio_server`.
+We believe every production AI application needs both:
+
+| Interface | Who uses it | How |
+|-----------|-------------|-----|
+| **HTTP REST** | Humans via browser, CI/CD scripts, integration tests | `GET`/`POST` to `/api/*` |
+| **MCP** | AI agents (Cursor, Claude, custom loops) | JSON-RPC 2.0 over stdio or HTTP |
+
+AgentCeption implements both. The HTTP REST API is the service backbone; the MCP server is the agent interface on top of it. The two are complementary — the same planning pipeline, issue graph, and agent dispatch are accessible through both surfaces.
+
+## Transports
+
+Two transports are available — both speak the same JSON-RPC 2.0 protocol:
+
+| Transport | Entry point | Best for |
+|-----------|-------------|----------|
+| **stdio** | `docker compose exec -T agentception python -m agentception.mcp.stdio_server` | Cursor IDE sessions |
+| **HTTP** | `POST http://localhost:10003/api/mcp` | Web agents, CI/CD, curl, Anthropic remote MCP |
+
+The HTTP transport follows the [MCP 2025-03-26 Streamable HTTP spec](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports/): single or batch JSON-RPC request bodies, JSON responses. Notifications (requests without `id`) return `202 Accepted`.
+
+## Security
+
+See the full [Security Guide](security.md) for threat model, TLS configuration, and Qdrant security.
+
+**Quick summary:**
+
+| Transport | Protection |
+|-----------|-----------|
+| stdio | No network socket; communicates over Docker exec pipe — safe by default |
+| HTTP (`/api/mcp`) | Protected by `ApiKeyMiddleware` when `AC_API_KEY` is set |
+
+When `AC_API_KEY` is configured, Cursor's HTTP MCP client must include the key:
+
+```json
+{
+  "mcpServers": {
+    "agentception": {
+      "url": "http://localhost:10003/api/mcp",
+      "headers": {
+        "Authorization": "Bearer your-generated-key-here"
+      }
+    }
+  }
+}
+```
+
+LLM calls from AgentCeption to Anthropic always use HTTPS — there is no plaintext LLM traffic.
+
+## stdio configuration (`~/.cursor/mcp.json`)
+
+Add an `agentception` entry to your `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "agentception": {
+      "command": "docker",
+      "args": [
+        "compose", "-f", "AGENTCEPTION_REPO_ROOT/docker-compose.yml",
+        "exec", "-T", "agentception",
+        "python", "-m", "agentception.mcp.stdio_server"
+      ],
+      "cwd": "AGENTCEPTION_REPO_ROOT"
+    }
+  }
+}
+```
+
+Replace `AGENTCEPTION_REPO_ROOT` with the absolute path to your local clone.
 
 ## `~/.cursor/mcp.json` configuration
 
@@ -58,6 +126,104 @@ If you also run other MCP servers (e.g. a music composition backend), add them a
 - AgentCeption containers must be running: `docker compose up -d`
 - Verify the MCP server responds: `docker compose exec agentception python -m agentception.mcp.stdio_server`
 
-## Available MCP tools
+## Three kinds of MCP endpoints
 
-See `agentception/mcp/server.py` and `agentception/mcp/build_tools.py` for the full list of registered tools. Cursor's MCP panel will enumerate them automatically once the server entry is in `mcp.json`.
+AgentCeption exposes all three MCP endpoint types:
+
+| Kind | Purpose | How to call |
+|------|---------|-------------|
+| **Tools** | Actions with side effects (mutate state, post comments, start agents) | `CallMcpTool(server="user-agentception", toolName=..., arguments={...})` |
+| **Resources** | Pure reads — stateless, cacheable, side-effect-free | `FetchMcpResource(server="user-agentception", uri="ac://...")` |
+| **Prompts** | Agent role files and briefing templates | `prompts/get(name="role/python-developer")` or `prompts/list` |
+
+### Resource URI catalogue
+
+| URI | What it returns |
+|-----|----------------|
+| `ac://runs/active` | All live runs (pending_launch, implementing, reviewing, blocked) |
+| `ac://runs/pending` | Runs queued for Dispatcher launch |
+| `ac://runs/{run_id}` | Metadata for one run |
+| `ac://runs/{run_id}/children` | Child runs spawned by this run |
+| `ac://runs/{run_id}/events` | Structured event log; append `?after_id=N` to paginate |
+| `ac://runs/{run_id}/context` | Raw task context TOML text for one run |
+| `ac://batches/{batch_id}/tree` | All runs in a batch |
+| `ac://system/dispatcher` | Dispatcher counters and active batch_id |
+| `ac://system/health` | DB reachability and per-status counts |
+| `ac://system/config` | Pipeline label config (canonical label names) |
+| `ac://plan/schema` | PlanSpec JSON Schema |
+| `ac://plan/labels` | GitHub label catalogue |
+| `ac://plan/figures/{role}` | Cognitive-arch figures for a role slug |
+| `ac://arch/figures` | All cognitive architecture figures |
+| `ac://arch/archetypes` | All cognitive architecture archetypes |
+| `ac://arch/figures/{figure_id}` | One cognitive architecture figure by ID |
+| `ac://arch/archetypes/{archetype_id}` | One cognitive architecture archetype by ID |
+| `ac://arch/skills/{skill_id}` | One skill domain by ID |
+| `ac://arch/atoms/{atom_id}` | One cognitive atom dimension by ID |
+| `ac://roles/list` | All available role slugs |
+| `ac://roles/{slug}` | Full role definition Markdown for a slug |
+
+### Prompt catalogue
+
+`prompts/list` returns every compiled role and agent prompt.  `prompts/get(name=...)` returns the full Markdown content as a `user` message.
+
+Naming conventions:
+- `role/<slug>` — role definition (e.g. `role/python-developer`, `role/cto`)
+- `agent/<name>` — agent prompt (e.g. `agent/dispatcher`, `agent/engineer`, `agent/reviewer`)
+
+## MCP Auto-Approval
+
+Auto-approval is tiered by risk — resources (all reads) and observability tools are
+auto-approved; tools that reach outside the service boundary (filing GitHub issues,
+starting agents, advancing phase gates) always require an explicit human confirmation.
+
+```json
+{
+  "mcpServers": {
+    "agentception": {
+      "url": "http://localhost:10003/api/mcp",
+      "autoApprove": [
+        "plan_validate_spec",
+        "plan_validate_manifest",
+        "log_run_step",
+        "log_run_blocker",
+        "log_run_decision",
+        "log_run_message",
+        "log_run_error"
+      ]
+    }
+  }
+}
+```
+
+### Approval tiers
+
+| Tier | Endpoints | Rationale |
+|------|-----------|-----------|
+| **Auto — resources** | All `ac://` URIs | Pure reads — no external effects, always safe. |
+| **Auto — prompts** | All `role/*` and `agent/*` | Static file reads — no effects. |
+| **Auto — tools** | `plan_validate_spec`, `plan_validate_manifest` | In-memory validation only. |
+| **Auto — tools** | `log_run_step`, `log_run_blocker`, `log_run_decision`, `log_run_message`, `log_run_error` | Append-only DB writes — no external effects. |
+| **Prompt** | `build_claim_run`, `build_complete_run`, `build_cancel_run`, `build_stop_run`, `build_block_run`, `build_resume_run` | Pipeline state transitions in the DB — recoverable but worth confirming. |
+| **Prompt** | `github_add_label`, `github_remove_label`, `github_claim_issue`, `github_unclaim_issue`, `github_add_comment` | External GitHub API mutations. |
+| **Always prompt** | `build_spawn_child`, `plan_advance_phase`, `build_spawn_child_run`, `build_teardown_worktree` | Create real GitHub issues, git worktrees, and live agents — irreversible side effects. |
+
+**What this means for you:**
+
+- Resource reads (`FetchMcpResource`), prompt fetches, and observability tool calls happen without interruption.
+- `build_spawn_child` and `plan_advance_phase` always show a Cursor confirmation dialog — a mis-fire creates real GitHub issues and running agent processes that are hard to undo.
+- The HTTP endpoint is available at `http://localhost:10003/api/mcp` once containers are running.
+
+## Available tools, resources, and prompts
+
+| Module | What it registers |
+|--------|-------------------|
+| `agentception/mcp/server.py` | Tool catalogue (`TOOLS`), `list_prompts()`, all JSON-RPC handlers |
+| `agentception/mcp/resources.py` | Resource + template catalogue, `read_resource()` dispatcher |
+| `agentception/mcp/prompts.py` | Prompt catalogue, `get_prompt()` dispatcher |
+
+Cursor's MCP panel enumerates all three automatically once the server entry is in `mcp.json`.
+
+## Related guides
+
+- [Cursor-Free Agent Loop](agent-loop.md) — run agents without Cursor, using the MCP HTTP transport as the tool execution bridge
+- [Security Guide](security.md) — API key auth, TLS, denylist, and threat model

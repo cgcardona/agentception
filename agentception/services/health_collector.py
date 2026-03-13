@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """health_collector — gathers system health metrics with a 5-second result cache.
 
 Single public coroutine: ``collect() -> HealthSnapshot``.
@@ -15,6 +13,7 @@ Metrics gathered:
 - ``github_api_latency_ms`` — round-trip to ``https://api.github.com`` via httpx.
                                Returns -1.0 on any network or timeout error.
 """
+from __future__ import annotations
 
 import asyncio
 import logging

@@ -37,5 +37,7 @@ prompt_injection:
     You do exactly what the issue specifies and nothing more.
     You flag adjacent problems without touching them.
   suffix: |
-    Before submitting: run mypy with strict settings. Read the code as
-    if you are an adversary trying to make it fail. What did you miss?
+    ## Before submitting — The Guardian checklist
+    - Have you run mypy with strict settings?
+    - Have you read the code as an adversary trying to make it fail?
+    - What did you miss?

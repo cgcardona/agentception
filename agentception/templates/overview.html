@@ -157,7 +157,7 @@
         </div>
       </template>
       <a
-        :href="'/cognitive-arch/' + encodeURIComponent({{ v }}.cognitive_arch)"
+        :href="'/cognitive-arch/' + ({{ v }}.cognitive_arch || '').replace(/:/g, '-')"
         class="card-arch-panel__link"
         @click.stop
       >View Architecture →</a>
@@ -203,7 +203,7 @@
     {% if not simplified %}
     <a
       x-show="{{ v }}.cognitive_arch"
-      :href="'/cognitive-arch/' + encodeURIComponent({{ v }}.cognitive_arch)"
+      :href="'/cognitive-arch/' + ({{ v }}.cognitive_arch || '').replace(/:/g, '-')"
       class="btn btn-sm btn-secondary"
       @click.stop
       x-text="parseArch({{ v }}.cognitive_arch).emoji + ' Architecture'"
@@ -578,6 +578,22 @@
       <span class="summary-label" x-text="sweeping ? 'Sweeping…' : 'Stale'"></span>
       <span class="summary-value" x-text="(state.stale_branches || []).length"></span>
     </div>
+    <div
+      class="summary-item"
+      :class="(state.loop_guard_triggered || []).length > 0 ? 'summary-item--warn' : 'summary-item--dim'"
+      :title="(state.loop_guard_triggered || []).length > 0 ? 'Loop guard triggered for: ' + (state.loop_guard_triggered || []).join(', ') : ''"
+    >
+      <span class="summary-label">Loop Guard</span>
+      <span class="summary-value" x-text="(state.loop_guard_triggered || []).length"></span>
+    </div>
+    <div
+      class="summary-item"
+      :class="(state.stalled_agents || []).length > 0 ? 'summary-item--warn' : 'summary-item--dim'"
+      :title="(state.stalled_agents || []).length > 0 ? '⏸ Stalled: ' + (state.stalled_agents || []).map(a => 'issue #' + a.issue_number).join(', ') : 'No stalled agents'"
+    >
+      <span class="summary-label">⏸ Stalled</span>
+      <span class="summary-value" x-text="(state.stalled_agents || []).length"></span>
+    </div>
     <div class="summary-item">
       <span class="summary-label">Msgs</span>
       <span class="summary-value summary-value--accent" x-text="totalMsgCount()"></span>
@@ -586,7 +602,7 @@
     <div
       class="poller-right"
       id="pipeline-control"
-      x-data="pipelineControl({{ poller_paused | tojson }})"
+      x-data='pipelineControl({{ poller_paused | tojson }})'
     >
       <div class="poller-polled">
         <span class="poller-polled__label">Polled</span>

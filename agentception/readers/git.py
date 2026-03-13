@@ -17,6 +17,7 @@ Public API:
 import asyncio
 import logging
 import re
+import shutil
 import time
 from pathlib import Path
 
@@ -24,9 +25,17 @@ from agentception.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Matches any branch created by AgentCeption: feat/issue-N or feat/brain-dump-*
-_AGENT_BRANCH_RE = re.compile(r"^feat/(issue-\d+|brain-dump-.+)$")
-_ISSUE_N_RE = re.compile(r"^feat/issue-(\d+)$")
+# Semaphore that limits concurrent ``git worktree add`` calls.
+# git serialises writes to .git/config via a lockfile; racing more than
+# one add at a time causes "could not lock config file" failures.
+# 5 concurrent slots give ~2-3 new worktrees/second — enough for
+# hundreds of dispatches per minute.
+_WORKTREE_ADD_SEM: asyncio.Semaphore = asyncio.Semaphore(5)
+
+# Matches any branch created by AgentCeption:
+#   agent/*  — dispatcher-created top-level worktree branches
+#   ac/*     — pipeline branches (engineer, coordinator, reviewer)
+_AGENT_BRANCH_RE = re.compile(r"^(agent/.+|ac/.+)$")
 
 
 async def _git(args: list[str]) -> str:
@@ -71,10 +80,9 @@ async def list_git_worktrees() -> list[dict[str, object]]:
     - ``head_sha``        — full SHA of HEAD commit
     - ``head_message``    — subject line of HEAD commit
     - ``is_main``         — True for the primary (repo-root) worktree
-    - ``is_agent_branch`` — True when branch matches ``feat/issue-N`` or ``feat/brain-dump-*``
+    - ``is_agent_branch`` — True when branch matches agent/* or ac/* patterns
     - ``issue_number``    — int when branch is ``feat/issue-N``, else None
     - ``locked``          — True when git has locked the worktree from auto-prune
-    - ``task_mtime_str``  — relative age of ``.agent-task`` file, or empty string
     """
     raw = await _git(["worktree", "list", "--porcelain"])
     worktrees: list[dict[str, object]] = []
@@ -92,7 +100,6 @@ async def list_git_worktrees() -> list[dict[str, object]]:
                 "is_agent_branch": False,
                 "issue_number": None,
                 "locked": False,
-                "task_mtime_str": "",
             }
         elif line.startswith("HEAD "):
             current["head_sha"] = line[len("HEAD "):]
@@ -102,9 +109,6 @@ async def list_git_worktrees() -> list[dict[str, object]]:
                 branch = branch[len("refs/heads/"):]
             current["branch"] = branch
             current["is_agent_branch"] = bool(_AGENT_BRANCH_RE.match(branch))
-            m = _ISSUE_N_RE.match(branch)
-            if m:
-                current["issue_number"] = int(m.group(1))
         elif line == "bare":
             current["bare"] = True
         elif line.startswith("locked"):
@@ -117,17 +121,11 @@ async def list_git_worktrees() -> list[dict[str, object]]:
     if worktrees:
         worktrees[0]["is_main"] = True
 
-    # Fetch HEAD commit message and task file mtime for each worktree.
+    # Fetch HEAD commit message for each worktree.
     for wt in worktrees:
         sha = str(wt.get("head_sha", ""))
         if sha:
             wt["head_message"] = await _git(["log", "-1", "--format=%s", sha])
-        # Report how long ago the agent last updated its task file.
-        task_file = Path(str(wt["path"])) / ".agent-task"
-        try:
-            wt["task_mtime_str"] = _relative_time(task_file.stat().st_mtime)
-        except OSError:
-            wt["task_mtime_str"] = ""
 
     return worktrees
 
@@ -136,16 +134,15 @@ async def get_worktree_detail(slug: str) -> dict[str, object]:
     """Fetch on-demand detail for a single worktree.
 
     Returns a dict with:
-    - ``commits``      — list of ``{sha, message}`` for commits on branch not in origin/dev
-    - ``diff_stat``    — output of ``git diff --stat origin/dev...{branch}``
-    - ``task_content`` — raw text of the ``.agent-task`` file, or empty string
-    - ``branch``       — branch name for this worktree
-    - ``found``        — False when no worktree with that slug exists
+    - ``commits``   — list of ``{sha, message}`` for commits on branch not in origin/dev
+    - ``diff_stat`` — output of ``git diff --stat origin/dev...{branch}``
+    - ``branch``    — branch name for this worktree
+    - ``found``     — False when no worktree with that slug exists
     """
     worktrees = await list_git_worktrees()
     wt = next((w for w in worktrees if str(w.get("slug", "")) == slug), None)
     if wt is None:
-        return {"found": False, "commits": [], "diff_stat": "", "task_content": "", "branch": ""}
+        return {"found": False, "commits": [], "diff_stat": "", "branch": ""}
 
     branch = str(wt.get("branch", ""))
 
@@ -162,20 +159,11 @@ async def get_worktree_detail(slug: str) -> dict[str, object]:
     # Diff stat vs the merge-base with origin/dev (triple-dot = symmetric difference).
     diff_stat = await _git(["diff", "--stat", f"origin/dev...{branch}"])
 
-    # Task file — the agent's instructions.
-    task_content = ""
-    task_file = Path(str(wt["path"])) / ".agent-task"
-    try:
-        task_content = task_file.read_text(encoding="utf-8")
-    except OSError:
-        pass
-
     return {
         "found": True,
         "branch": branch,
         "commits": commits,
         "diff_stat": diff_stat,
-        "task_content": task_content,
     }
 
 
@@ -224,6 +212,33 @@ async def list_git_branches() -> list[dict[str, object]]:
     return branches
 
 
+async def worktree_last_commit_time(worktree_path: Path) -> float:
+    """Return the UNIX timestamp of the most recent commit in the worktree.
+
+    Used for stuck-agent detection: if this value has not advanced in a
+    configurable number of minutes, the agent is likely hung and should be
+    flagged in the dashboard. Returns 0.0 when the worktree has no commits
+    or git is unavailable.
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "log",
+            "-1",
+            "--format=%ct",
+            cwd=str(worktree_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        if proc.returncode != 0 or not stdout.strip():
+            return 0.0
+        return float(stdout.strip())
+    except (OSError, ValueError) as exc:
+        logger.debug("⚠️  worktree_last_commit_time(%s) error: %s", worktree_path, exc)
+        return 0.0
+
+
 async def list_git_stash() -> list[dict[str, object]]:
     """Return stash entries.
 
@@ -245,3 +260,239 @@ async def list_git_stash() -> list[dict[str, object]]:
         entries.append({"ref": ref, "branch": branch, "message": description})
 
     return entries
+
+
+async def ensure_branch(branch: str, base: str = "origin/dev") -> bool:
+    """Create a git branch only if it does not already exist.
+
+    Parameters
+    ----------
+    branch:
+        Branch name to create (e.g. ``"feat/issue-123"``).
+    base:
+        Base ref to branch from (default: ``"origin/dev"``).
+
+    Returns
+    -------
+    bool
+        ``True`` if the branch was created, ``False`` if it already existed.
+
+    Raises
+    ------
+    RuntimeError
+        If ``git branch`` fails for any reason other than the branch already
+        existing.
+    """
+    # Check if branch already exists
+    existing = await _git(["branch", "--list", branch])
+    if existing.strip():
+        logger.debug("Branch %r already exists — skipping creation", branch)
+        return False
+
+    # Create the branch
+    repo = str(settings.repo_dir)
+    cmd = ["git", "-C", repo, "branch", branch, base]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+
+    if proc.returncode != 0:
+        err = stderr.decode().strip()
+        raise RuntimeError(f"git branch {branch} {base} failed: {err}")
+
+    logger.info("✅ Created branch %r from %s", branch, base)
+    return True
+
+
+async def ensure_worktree(
+    worktree_path: Path,
+    branch: str,
+    base: str = "origin/dev",
+    reset: bool = False,
+) -> bool:
+    """Create git worktree, optionally resetting any stale state first.
+
+    Handles four cases:
+
+    1. Both worktree dir and branch exist, ``reset=False`` — no-op, fully
+       idempotent.  Returns ``False``.
+    2. Both worktree dir and branch exist, ``reset=True`` — tear down the
+       existing worktree and branch, then recreate fresh from *base*.  Returns
+       ``True``.  Use this for re-dispatches so the executor always starts from
+       a clean ``origin/dev`` and never duplicates prior commits.
+    3. Branch exists but worktree dir does not, ``reset=False`` — reattach
+       without ``-b``.  Returns ``True``.
+    4. Branch exists but worktree dir does not, ``reset=True`` — delete the
+       stale branch first, then create fresh from *base*.  Returns ``True``.
+    5. Neither exists — ``git worktree add -b <branch> <path> <base>``.
+       Returns ``True``.
+
+    Parameters
+    ----------
+    worktree_path:
+        Absolute path where the worktree should be created.
+    branch:
+        Branch name for the worktree (e.g. ``"feat/issue-123"``).
+    base:
+        Base ref to branch from when creating a new branch (default:
+        ``"origin/dev"``).
+    reset:
+        When ``True``, any existing worktree directory, local branch, and
+        remote branch are torn down before (re)creating from *base*.  Use for
+        re-dispatches so the executor always starts from a clean ``origin/dev``
+        and never picks up commits from a prior run.  When ``False`` (default),
+        the function is fully idempotent.
+
+    Returns
+    -------
+    bool
+        ``True`` if the worktree was created (or recreated), ``False`` if it
+        already existed and ``reset=False``.
+
+    Raises
+    ------
+    RuntimeError
+        If ``git worktree add`` fails for any reason other than the worktree
+        already existing.
+
+    Notes
+    -----
+    This function does NOT configure worktree auth. Callers must still call
+    ``_configure_worktree_auth()`` separately after this returns ``True``.
+    """
+    repo = str(settings.repo_dir)
+
+    # Fast path: directory exists and no reset requested — fully idempotent.
+    # Check outside the semaphore to avoid unnecessary contention.
+    if worktree_path.exists() and not reset:
+        logger.debug("Worktree %s already exists — skipping creation", worktree_path)
+        return False
+
+    async with _WORKTREE_ADD_SEM:
+        dir_exists = worktree_path.exists()
+
+        # Re-check inside the lock — another coroutine may have created it.
+        if dir_exists and not reset:
+            logger.debug("Worktree %s already exists — skipping creation", worktree_path)
+            return False
+
+        existing_branch = await _git(["branch", "--list", branch])
+        branch_exists = bool(existing_branch.strip())
+
+        # -----------------------------------------------------------------------
+        # Reset path: tear down whatever exists so we start clean from base.
+        # -----------------------------------------------------------------------
+        if reset and (dir_exists or branch_exists):
+            if dir_exists:
+                # Remove the worktree linkage and the directory.
+                rm_proc = await asyncio.create_subprocess_exec(
+                    "git", "-C", repo, "worktree", "remove", "--force", str(worktree_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await rm_proc.communicate()
+                # If git worktree remove left the dir, wipe it.
+                if worktree_path.exists():
+                    shutil.rmtree(worktree_path, ignore_errors=True)
+                logger.info("✅ ensure_worktree: removed stale worktree %s for reset", worktree_path)
+
+            if branch_exists:
+                del_proc = await asyncio.create_subprocess_exec(
+                    "git", "-C", repo, "branch", "-D", branch,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await del_proc.communicate()
+                logger.info("✅ ensure_worktree: deleted stale branch %s for reset", branch)
+
+            # Delete the remote branch so the next push starts from a clean slate.
+            # Silently ignores failure — the remote branch may not exist.
+            remote_del = await asyncio.create_subprocess_exec(
+                "git", "-C", repo, "push", "origin", "--delete", branch,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await remote_del.communicate()
+            logger.info("✅ ensure_worktree: deleted remote branch %s (if existed)", branch)
+
+            # Prune stale worktree refs.
+            prune_proc = await asyncio.create_subprocess_exec(
+                "git", "-C", repo, "worktree", "prune",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await prune_proc.communicate()
+
+            dir_exists = False
+            branch_exists = False
+
+        worktree_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if branch_exists:
+            # Branch exists but worktree dir does not — reattach without -b.
+            cmd = ["git", "-C", repo, "worktree", "add", str(worktree_path), branch]
+        else:
+            # Neither exists — create branch and worktree together from base.
+            cmd = ["git", "-C", repo, "worktree", "add", "-b", branch, str(worktree_path), base]
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+
+        if proc.returncode != 0:
+            err = stderr.decode().strip()
+            # If the error is "already exists", treat as idempotent success
+            if "already exists" in err.lower():
+                logger.debug("Worktree %s already exists (detected via error) — skipping", worktree_path)
+                return False
+            raise RuntimeError(f"git worktree add failed: {err}")
+
+    logger.info("✅ Created worktree %s on branch %s", worktree_path, branch)
+    _symlink_frontend_resources(worktree_path)
+    return True
+
+
+def _symlink_frontend_resources(worktree_path: Path) -> None:
+    """Symlink frontend build resources from the main repo into the new worktree.
+
+    Agents run npm commands (type-check, test, build:js) from within the
+    worktree.  node_modules, package.json, tsconfig.json, and vitest.config.ts
+    live in the main repo root and are gitignored, so they are never present in
+    a freshly-created worktree.  Without these symlinks agents waste iterations
+    discovering they must cd to the main repo before running npm commands.
+
+    Uses settings.repo_dir (not a hardcoded /app) so the path is correct in
+    every environment, including tests that override REPO_DIR.
+
+    Symlinks are created only when the target in the main repo actually exists,
+    and are skipped when the destination already exists (real file, real
+    directory, or existing symlink) to avoid clobbering and circular links.
+    """
+    repo_root = settings.repo_dir.resolve()
+
+    # Guard: never symlink if the worktree IS the main repo — that would create
+    # self-referential links (e.g. /app/node_modules → /app/node_modules).
+    if worktree_path.resolve() == repo_root:
+        logger.warning("⚠️ _symlink_frontend_resources: worktree_path == repo_root (%s) — skipping", repo_root)
+        return
+
+    resources = ["node_modules", "package.json", "package-lock.json", "tsconfig.json", "vitest.config.ts"]
+    for name in resources:
+        src = repo_root / name
+        dst = worktree_path / name
+        if not src.exists():
+            continue
+        if dst.exists() or dst.is_symlink():
+            continue
+        try:
+            dst.symlink_to(src)
+            logger.debug("🔗 Symlinked %s → %s", dst, src)
+        except OSError as exc:
+            logger.warning("⚠️ Could not symlink %s → %s: %s", dst, src, exc)
+

@@ -21,7 +21,7 @@ from fastapi.testclient import TestClient
 from agentception.app import app
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def client() -> Generator[TestClient, None, None]:
     """Synchronous test client that handles lifespan correctly."""
     with TestClient(app) as c:
@@ -46,10 +46,6 @@ def test_kill_response_has_hx_trigger_toast(client: TestClient, tmp_path: Path) 
     """POST /api/control/kill/{slug} on a live worktree returns HX-Trigger with toast key."""
     worktree = tmp_path / "issue-999"
     worktree.mkdir()
-    (worktree / ".agent-task").write_text(
-        "WORKFLOW=issue-to-pr\nISSUE_NUMBER=999\nGH_REPO=cgcardona/agentception\n",
-        encoding="utf-8",
-    )
 
     async def fake_run(cmd: list[str]) -> tuple[int, str, str]:
         return 0, "", ""

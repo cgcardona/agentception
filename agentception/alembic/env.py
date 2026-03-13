@@ -45,7 +45,7 @@ def run_migrations_offline() -> None:
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
         compare_server_default=True,
-        version_table="alembic_version_ac",
+        version_table="alembic_version",
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -58,8 +58,8 @@ def _do_run_migrations(connection: Connection) -> None:
         compare_type=True,
         compare_server_default=True,
         # Separate version table so AgentCeption migrations don't collide with
-        # Separate alembic_version table avoids conflicts with other services.
-        version_table="alembic_version_ac",
+        # Standard alembic_version table.
+        version_table="alembic_version",
     )
     with context.begin_transaction():
         context.run_migrations()

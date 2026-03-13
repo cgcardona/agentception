@@ -1,7 +1,7 @@
 # Skill Domain: ML / AI / LLM Engineering
 id: llm
 display_name: "LLM Engineering"
-description: "LLM APIs, prompt engineering, RAG pipelines, embedding models, and evaluation via OpenRouter."
+description: "LLM APIs, prompt engineering, RAG pipelines, embedding models, and evaluation via the Anthropic API."
 
 prompt_fragment: |
   ## Skill Domain: LLM Engineering

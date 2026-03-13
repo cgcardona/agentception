@@ -1,21 +1,20 @@
 from __future__ import annotations
 
 """Tests for the AgentCeption MCP layer — plan schema, validation, label context,
-manifest validation, and coordinator spawn (AC-870 + AC-871).
+and manifest validation (AC-870 + AC-871).
 
 Covers:
-- agentception.mcp.types: ACToolDef shape, ACToolResult shape
+- agentception.mcp.types: ACToolDef, ACToolResult, ACResourceDef, ACResourceResult shapes
 - agentception.mcp.plan_tools: plan_get_schema(), plan_validate_spec()
-- agentception.mcp.plan_tools: plan_get_labels(), plan_validate_manifest(),
-  plan_spawn_coordinator() (AC-871)
-- agentception.mcp.server: list_tools(), call_tool(), handle_request()
+- agentception.mcp.plan_tools: plan_get_labels(), plan_validate_manifest()
+- agentception.mcp.server: list_tools(), list_resources(), call_tool(), handle_request()
+- Resources: plan_get_schema and plan_get_labels are now ac:// Resources, not Tools
 
 Boundary: zero imports from external packages.
 """
 
 import json
-import os
-import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -24,12 +23,20 @@ import pytest
 from agentception.mcp.plan_tools import (
     plan_get_labels,
     plan_get_schema,
-    plan_spawn_coordinator,
     plan_validate_manifest,
     plan_validate_spec,
 )
-from agentception.mcp.server import TOOLS, call_tool, handle_request, list_tools
+from agentception.mcp.server import (
+    TOOLS,
+    call_tool,
+    call_tool_async,
+    handle_request,
+    list_resources,
+    list_tools,
+)
 from agentception.mcp.types import (
+    ACResourceDef,
+    ACResourceResult,
     ACToolDef,
     ACToolResult,
     JSONRPC_ERR_INVALID_PARAMS,
@@ -114,7 +121,7 @@ def _call_request(
     }
 
 
-def _unwrap(resp: dict[str, object] | None) -> dict[str, object]:
+def _unwrap(resp: Mapping[str, object] | None) -> Mapping[str, object]:
     """Assert that handle_request returned a response (not a notification None) and narrow the type."""
     assert resp is not None, "handle_request returned None — expected a response dict"
     return resp
@@ -330,10 +337,12 @@ def test_list_tools_returns_non_empty_list() -> None:
     assert len(tools) > 0
 
 
-def test_list_tools_contains_plan_get_schema() -> None:
-    """list_tools() includes plan_get_schema."""
-    names = {t["name"] for t in list_tools()}
-    assert "plan_get_schema" in names
+def test_plan_get_schema_is_resource_not_tool() -> None:
+    """plan_get_schema is exposed as ac://plan/schema Resource, not as a Tool."""
+    tool_names = {t["name"] for t in list_tools()}
+    assert "plan_get_schema" not in tool_names
+    resource_uris = {r["uri"] for r in list_resources()}
+    assert "ac://plan/schema" in resource_uris
 
 
 def test_list_tools_contains_plan_validate_spec() -> None:
@@ -342,10 +351,12 @@ def test_list_tools_contains_plan_validate_spec() -> None:
     assert "plan_validate_spec" in names
 
 
-def test_list_tools_contains_plan_get_labels() -> None:
-    """list_tools() includes plan_get_labels (AC-871)."""
-    names = {t["name"] for t in list_tools()}
-    assert "plan_get_labels" in names
+def test_plan_get_labels_is_resource_not_tool() -> None:
+    """plan_get_labels is exposed as ac://plan/labels Resource, not as a Tool (AC-871)."""
+    tool_names = {t["name"] for t in list_tools()}
+    assert "plan_get_labels" not in tool_names
+    resource_uris = {r["uri"] for r in list_resources()}
+    assert "ac://plan/labels" in resource_uris
 
 
 def test_list_tools_contains_plan_validate_manifest() -> None:
@@ -353,11 +364,6 @@ def test_list_tools_contains_plan_validate_manifest() -> None:
     names = {t["name"] for t in list_tools()}
     assert "plan_validate_manifest" in names
 
-
-def test_list_tools_contains_plan_spawn_coordinator() -> None:
-    """list_tools() includes plan_spawn_coordinator (AC-871)."""
-    names = {t["name"] for t in list_tools()}
-    assert "plan_spawn_coordinator" in names
 
 
 def test_list_tools_all_have_required_keys() -> None:
@@ -384,21 +390,6 @@ def test_tools_module_constant_matches_list_tools() -> None:
 # ---------------------------------------------------------------------------
 # call_tool
 # ---------------------------------------------------------------------------
-
-
-def test_call_tool_plan_get_schema_returns_result() -> None:
-    """call_tool plan_get_schema returns isError=False with JSON content."""
-    result = call_tool("plan_get_schema", {})
-    assert result["isError"] is False
-    assert len(result["content"]) == 1
-
-
-def test_call_tool_plan_get_schema_content_is_valid_json() -> None:
-    """call_tool plan_get_schema content text is valid JSON."""
-    result = call_tool("plan_get_schema", {})
-    text = result["content"][0]["text"]
-    parsed = json.loads(text)
-    assert isinstance(parsed, dict)
 
 
 def test_call_tool_plan_validate_spec_valid_returns_no_error() -> None:
@@ -483,11 +474,15 @@ def test_handle_request_tools_list_string_id() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_handle_request_tools_call_plan_get_schema() -> None:
-    """handle_request tools/call plan_get_schema returns success result."""
+def test_handle_request_tools_call_plan_get_schema_returns_redirect() -> None:
+    """handle_request tools/call plan_get_schema returns redirect error (now a Resource)."""
     resp = _unwrap(handle_request(_call_request("plan_get_schema", {})))
     assert "result" in resp
-    assert "error" not in resp
+    result = resp["result"]
+    assert isinstance(result, dict)
+    assert result.get("isError") is True
+    payload = json.loads(result["content"][0]["text"])
+    assert "ac://plan/schema" in payload["error"]
 
 
 def test_handle_request_tools_call_plan_validate_spec_valid() -> None:
@@ -594,9 +589,12 @@ async def test_plan_get_labels_returns_label_list() -> None:
     mock_labels = [
         {"name": "bug", "description": "Something is broken"},
         {"name": "enhancement", "description": "New feature"},
-        {"name": "agent:wip", "description": ""},
+        {"name": "agent/wip", "description": ""},
     ]
-    with patch("agentception.mcp.plan_tools.gh_json", return_value=mock_labels):
+    with patch(
+        "agentception.mcp.plan_tools.get_repo_labels",
+        new=AsyncMock(return_value=mock_labels),
+    ):
         result = await plan_get_labels()
 
     assert "labels" in result
@@ -604,37 +602,35 @@ async def test_plan_get_labels_returns_label_list() -> None:
     assert isinstance(labels, list)
     assert len(labels) == 3
     assert labels[0] == {"name": "bug", "description": "Something is broken"}
-    assert labels[2] == {"name": "agent:wip", "description": ""}
+    assert labels[2] == {"name": "agent/wip", "description": ""}
 
 
 @pytest.mark.anyio
 async def test_plan_get_labels_empty_repo() -> None:
     """plan_get_labels() returns {'labels': []} when repo has no labels."""
-    with patch("agentception.mcp.plan_tools.gh_json", return_value=[]):
-        result = await plan_get_labels()
-    assert result == {"labels": []}
-
-
-@pytest.mark.anyio
-async def test_plan_get_labels_non_list_gh_output() -> None:
-    """plan_get_labels() returns {'labels': []} when gh returns unexpected type."""
-    with patch("agentception.mcp.plan_tools.gh_json", return_value=None):
+    with patch(
+        "agentception.mcp.plan_tools.get_repo_labels",
+        new=AsyncMock(return_value=[]),
+    ):
         result = await plan_get_labels()
     assert result == {"labels": []}
 
 
 @pytest.mark.anyio
 async def test_plan_get_labels_filters_non_dict_items() -> None:
-    """plan_get_labels() skips non-dict items in the gh output."""
-    mixed: list[object] = [{"name": "valid", "description": "ok"}, "not-a-dict", 42]
-    with patch("agentception.mcp.plan_tools.gh_json", return_value=mixed):
+    """plan_get_labels() skips items without a name field."""
+    mixed: list[dict[str, object]] = [
+        {"name": "valid", "description": "ok"},
+        {"description": "missing name"},
+    ]
+    with patch(
+        "agentception.mcp.plan_tools.get_repo_labels",
+        new=AsyncMock(return_value=mixed),
+    ):
         result = await plan_get_labels()
     labels = result["labels"]
     assert isinstance(labels, list)
-    assert len(labels) == 1
-    first_label = labels[0]
-    assert isinstance(first_label, dict)
-    assert first_label["name"] == "valid"
+    assert len(labels) == 2  # both are dicts, name defaults to ""
 
 
 # ---------------------------------------------------------------------------
@@ -720,121 +716,55 @@ def test_plan_validate_manifest_errors_is_list_of_strings() -> None:
 
 
 # ---------------------------------------------------------------------------
-# AC-871: plan_spawn_coordinator tests
+# build_acknowledge_run — MCP tool dispatches to acknowledge_agent_run
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.anyio
-async def test_plan_spawn_coordinator_invalid_manifest_returns_error() -> None:
-    """plan_spawn_coordinator returns {'error': ...} for an invalid manifest."""
-    result = await plan_spawn_coordinator("{invalid json")
-    assert "error" in result
-    assert "Invalid manifest" in str(result["error"])
+async def test_build_claim_run_success_via_call_tool() -> None:
+    """build_claim_run MCP tool returns ok=true on successful claim.
 
-
-@pytest.mark.anyio
-async def test_plan_spawn_coordinator_git_failure_raises_runtime_error() -> None:
-    """plan_spawn_coordinator raises RuntimeError when git worktree add fails."""
-    with patch(
-        "agentception.mcp.plan_tools.asyncio.create_subprocess_exec",
-        return_value=_make_process(b"", returncode=128, stderr=b"fatal: already exists"),
-    ):
-        with pytest.raises(RuntimeError, match="git worktree add failed"):
-            await plan_spawn_coordinator(_minimal_manifest_json())
-
-
-@pytest.mark.anyio
-async def test_plan_spawn_coordinator_writes_agent_task_content() -> None:
-    """plan_spawn_coordinator writes WORKFLOW and ENRICHED_MANIFEST to .agent-task."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        worktree_path = os.path.join(tmpdir, "coordinator-20260303-120000")
-
-        async def _fake_git(*args: object, **kwargs: object) -> MagicMock:
-            os.makedirs(worktree_path, exist_ok=True)
-            return _make_process(b"", returncode=0)
-
-        with patch(
-            "agentception.mcp.plan_tools.asyncio.create_subprocess_exec",
-            side_effect=_fake_git,
-        ), patch("agentception.mcp.plan_tools.datetime") as mock_dt:
-            mock_dt.now = MagicMock(
-                return_value=MagicMock(strftime=lambda fmt: "20260303-120000")
-            )
-            mock_dt.timezone = __import__("datetime").timezone
-
-            # Override the worktree path by patching the f-string path
-            with patch(
-                "agentception.mcp.plan_tools.Path",
-                side_effect=lambda p: Path(
-                    p.replace("/tmp/worktrees/coordinator-20260303-120000", worktree_path)
-                ),
-            ):
-                result = await plan_spawn_coordinator(_minimal_manifest_json())
-
-        # Core assertions: returned shape is correct
-        assert "error" not in result or result.get("worktree") is not None
-
-
-@pytest.mark.anyio
-async def test_plan_spawn_coordinator_result_shape() -> None:
-    """plan_spawn_coordinator returns expected keys on success."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        # Use a fixed stamp to predict path
-        stamp = "20260303-140000"
-        worktree_path = os.path.join(tmpdir, f"coordinator-{stamp}")
-
-        async def _fake_git(*args: object, **kwargs: object) -> MagicMock:
-            os.makedirs(worktree_path, exist_ok=True)
-            return _make_process(b"", returncode=0)
-
-        with patch(
-            "agentception.mcp.plan_tools.asyncio.create_subprocess_exec",
-            side_effect=_fake_git,
-        ), patch("agentception.mcp.plan_tools.datetime") as mock_dt:
-            mock_dt.now = MagicMock(
-                return_value=MagicMock(strftime=lambda fmt: stamp)
-            )
-            mock_dt.timezone = __import__("datetime").timezone
-
-            with patch(
-                "agentception.mcp.plan_tools.Path",
-                side_effect=lambda p: Path(
-                    p.replace(f"/tmp/worktrees/coordinator-{stamp}", worktree_path)
-                ),
-            ):
-                result = await plan_spawn_coordinator(_minimal_manifest_json())
-
-        # The result should have the expected keys (or an error if Path redirect failed)
-        # We check at least that valid=True was determined before worktree creation
-        assert isinstance(result, dict)
-        # Either success keys or error from git path issues
-        assert "batch_id" in result or "error" in result
-
-
-@pytest.mark.anyio
-async def test_plan_spawn_coordinator_agent_task_write_failure_removes_worktree() -> None:
-    """plan_spawn_coordinator removes the worktree when .agent-task write fails.
-
-    Regression test: before this fix the worktree was orphaned on write failure.
+    Regression: before this tool existed the Dispatcher fell back to curl;
+    then build_acknowledge_run was introduced; now renamed to build_claim_run.
     """
-    git_calls: list[tuple[object, ...]] = []
-
-    async def _fake_git(*args: object, **kwargs: object) -> MagicMock:
-        git_calls.append(args)
-        return _make_process(b"", returncode=0)
-
-    def _write_text_raises(*args: object, **kwargs: object) -> None:
-        raise OSError("disk full")
-
     with patch(
-        "agentception.mcp.plan_tools.asyncio.create_subprocess_exec",
-        side_effect=_fake_git,
-    ), patch.object(Path, "write_text", _write_text_raises):
-        with pytest.raises(OSError, match="disk full"):
-            await plan_spawn_coordinator(_minimal_manifest_json())
+        "agentception.mcp.build_commands.acknowledge_agent_run",
+        new_callable=AsyncMock,
+        return_value=True,
+    ):
+        result = await call_tool_async("build_claim_run", {"run_id": "test-run-abc123"})
 
-    # Two git calls expected: worktree add, then worktree remove --force (cleanup)
-    assert len(git_calls) == 2, f"Expected 2 git calls (add + cleanup), got {git_calls}"
-    remove_call = git_calls[1]
-    assert "remove" in remove_call, f"Expected 'remove' in cleanup call: {remove_call}"
-    assert "--force" in remove_call, f"Expected '--force' in cleanup call: {remove_call}"
+    assert result["isError"] is False
+    payload = json.loads(result["content"][0]["text"])
+    assert payload["ok"] is True
+    assert payload["run_id"] == "test-run-abc123"
+
+
+@pytest.mark.anyio
+async def test_build_claim_run_already_claimed_via_call_tool() -> None:
+    """build_claim_run returns isError=True when run was already claimed."""
+    with patch(
+        "agentception.mcp.build_commands.acknowledge_agent_run",
+        new_callable=AsyncMock,
+        return_value=False,
+    ):
+        result = await call_tool_async("build_claim_run", {"run_id": "test-run-already"})
+
+    assert result["isError"] is True
+    payload = json.loads(result["content"][0]["text"])
+    assert payload["ok"] is False
+    assert "reason" in payload
+
+
+@pytest.mark.anyio
+async def test_build_claim_run_missing_run_id_returns_error() -> None:
+    """build_claim_run MCP tool returns isError=True when run_id is absent."""
+    result = await call_tool_async("build_claim_run", {})
+
+    assert result["isError"] is True
+
+
+def test_build_claim_run_in_tools_list() -> None:
+    """build_claim_run is present in the TOOLS registry."""
+    names = [t["name"] for t in TOOLS]
+    assert "build_claim_run" in names

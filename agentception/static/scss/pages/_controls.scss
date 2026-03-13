@@ -126,6 +126,25 @@
 .htmx-request .controls-spinner,
 .controls-spinner.htmx-indicator { opacity: 1; }
 
+/* ── Global htmx-indicator SVG spinner ───────────────────────── */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.htmx-indicator {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+
+  svg {
+    animation: spin 0.7s linear infinite;
+  }
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+  opacity: 1;
+}
+
 /* ── Kill form ───────────────────────────────────────────────── */
 .controls-kill-form {
   display: flex;

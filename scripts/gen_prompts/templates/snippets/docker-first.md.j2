@@ -1,0 +1,24 @@
+## ⛔ DOCKER-FIRST — NON-NEGOTIABLE
+
+**NEVER run `python`, `python3`, `mypy`, or `pytest` directly on the host.**
+Every command that touches Python must go through Docker:
+
+```bash
+# CORRECT — always use worktree-scoped paths
+cd "$REPO" && docker compose exec agentception sh -c \
+  "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/ /worktrees/$WTNAME/tests/"
+cd "$REPO" && docker compose exec agentception sh -c \
+  "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
+
+# WRONG — runs mypy on main repo code, not your feature branch changes
+cd "$REPO" && docker compose exec agentception mypy agentception/ tests/
+
+# WRONG — will fail with "No module named mypy" (you are on the host)
+python3 -m mypy ...
+mypy ...
+pytest ...
+```
+
+If you see "No module named X", you are on the host. Stop. Use `docker compose exec`.
+
+---

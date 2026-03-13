@@ -20,7 +20,7 @@ Set these in **Settings → Secrets and variables → Actions** for `cgcardona/a
 |--------|-------------|-------------|
 | `DB_PASSWORD` | All jobs | Postgres password. Any random string works for CI (the database is ephemeral). Example: `openssl rand -hex 16` |
 | `GH_REPO` | smoke, test | The GitHub repo the instance manages. Defaults to `cgcardona/agentception`. |
-| `OPENROUTER_API_KEY` | smoke | OpenRouter key for Phase 1A planning. Can be empty for the smoke test (health endpoint doesn't require it). |
+| `ANTHROPIC_API_KEY` | smoke | Anthropic API key for Phase 1A planning and agent execution. Can be empty for the smoke test (health endpoint doesn't require it). |
 | `GITHUB_TOKEN` | smoke | GitHub PAT with `repo` + `issues` scope. Can be empty for smoke-only runs. |
 
 > **Note:** `DB_PASSWORD` is the only secret required for CI to pass today. The others are needed

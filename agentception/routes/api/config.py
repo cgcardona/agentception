@@ -17,7 +17,7 @@ router = APIRouter()
 async def get_config() -> PipelineConfig:
     """Return the current pipeline allocation configuration.
 
-    Reads ``.cursor/pipeline-config.json`` from disk on every call so that
+    Reads ``.agentception/pipeline-config.json`` from disk on every call so that
     manual edits to the file are reflected immediately without a service restart.
     Falls back to compiled-in defaults when the file does not exist.
     """

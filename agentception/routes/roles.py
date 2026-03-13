@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Role file reader/writer API for the Role Studio editor (AC-301/303).
 
-Exposes all managed ``.cursor/roles/*.md`` and ``.cursor/PARALLEL_*.md`` files
+Exposes all managed ``.agentception/roles/*.md`` files
 through a REST API so the Role Studio UI (AC-302/303) can list, read, update,
 diff, commit, and inspect git history for each file without direct filesystem access.
 
@@ -67,33 +67,37 @@ _MANAGED_FILES: dict[str, str] = {
     "cdo": ".agentception/roles/cdo.md",
     "cmo": ".agentception/roles/cmo.md",
     "coo": ".agentception/roles/coo.md",
-    # ── Coordinator Level ─────────────────────────────────────────────────
+    # ── Coordinators (tree nodes — delegate to sub-coordinators or workers) ──
+    "coordinator": ".agentception/roles/coordinator.md",
     "engineering-coordinator": ".agentception/roles/engineering-coordinator.md",
     "qa-coordinator": ".agentception/roles/qa-coordinator.md",
-    "vp-product": ".agentception/roles/vp-product.md",
-    "vp-design": ".agentception/roles/vp-design.md",
-    "vp-data": ".agentception/roles/vp-data.md",
-    "vp-security": ".agentception/roles/vp-security.md",
-    "vp-infrastructure": ".agentception/roles/vp-infrastructure.md",
-    "vp-mobile": ".agentception/roles/vp-mobile.md",
-    "vp-platform": ".agentception/roles/vp-platform.md",
-    "vp-ml": ".agentception/roles/vp-ml.md",
-    # ── Workers / leaf agents ─────────────────────────────────────────────
-    "python-developer": ".agentception/roles/python-developer.md",
+    "product-coordinator": ".agentception/roles/product-coordinator.md",
+    "design-coordinator": ".agentception/roles/design-coordinator.md",
+    "data-coordinator": ".agentception/roles/data-coordinator.md",
+    "security-coordinator": ".agentception/roles/security-coordinator.md",
+    "infrastructure-coordinator": ".agentception/roles/infrastructure-coordinator.md",
+    "mobile-coordinator": ".agentception/roles/mobile-coordinator.md",
+    "platform-coordinator": ".agentception/roles/platform-coordinator.md",
+    "ml-coordinator": ".agentception/roles/ml-coordinator.md",
+    # ── Workers (leaf agents — produce artifacts directly) ─────────────────
+    # All developer variants collapsed into a single role; language/framework
+    # specialisation is supplied by cognitive architecture at dispatch time.
+    "developer": ".agentception/roles/developer.md",
     "database-architect": ".agentception/roles/database-architect.md",
-    "pr-reviewer": ".agentception/roles/pr-reviewer.md",
-    "frontend-developer": ".agentception/roles/frontend-developer.md",
-    "full-stack-developer": ".agentception/roles/full-stack-developer.md",
-    "mobile-developer": ".agentception/roles/mobile-developer.md",
-    "systems-programmer": ".agentception/roles/systems-programmer.md",
+    "reviewer": ".agentception/roles/reviewer.md",
     "ml-engineer": ".agentception/roles/ml-engineer.md",
+    "ml-researcher": ".agentception/roles/ml-researcher.md",
     "data-engineer": ".agentception/roles/data-engineer.md",
+    "data-scientist": ".agentception/roles/data-scientist.md",
     "devops-engineer": ".agentception/roles/devops-engineer.md",
     "security-engineer": ".agentception/roles/security-engineer.md",
+    "site-reliability-engineer": ".agentception/roles/site-reliability-engineer.md",
     "test-engineer": ".agentception/roles/test-engineer.md",
     "architect": ".agentception/roles/architect.md",
-    "api-developer": ".agentception/roles/api-developer.md",
     "technical-writer": ".agentception/roles/technical-writer.md",
+    "content-writer": ".agentception/roles/content-writer.md",
+    "legal-analyst": ".agentception/roles/legal-analyst.md",
+    "ops-analyst": ".agentception/roles/ops-analyst.md",
 }
 
 
@@ -213,7 +217,7 @@ async def get_taxonomy() -> TaxonomyResponse:
     The GUI uses this to render the hierarchy browser (C-Suite → VP → Workers)
     and to filter compatible figures/skills when composing a cognitive architecture.
     Each role includes a live ``file_exists`` flag indicating whether the
-    corresponding ``.cursor/roles/<slug>.md`` file has been authored.
+    corresponding ``.agentception/roles/<slug>.md`` file has been authored.
     """
     if not _TAXONOMY_FILE.exists():
         raise HTTPException(status_code=503, detail="role-taxonomy.yaml not found")
@@ -225,7 +229,7 @@ async def get_taxonomy() -> TaxonomyResponse:
         roles: list[TaxonomyRole] = []
         for raw_role in raw_level.get("roles", []):
             slug = str(raw_role.get("slug", ""))
-            rel_path = _MANAGED_FILES.get(slug, f".cursor/roles/{slug}.md")
+            rel_path = _MANAGED_FILES.get(slug, f".agentception/roles/{slug}.md")
             file_exists = (settings.repo_dir / rel_path).exists()
             roles.append(
                 TaxonomyRole(
@@ -432,7 +436,7 @@ def resolve_cognitive_arch(cognitive_arch_str: str | None) -> dict[str, object]:
                 result["archetype_emoji"] = _ARCHETYPE_EMOJI.get(archetype, "🤖")
                 result["description"] = str(raw.get("description", "")).strip()
                 result["overrides"] = overrides
-                result["prompt_prefix"] = prefix.strip()[:600]
+                result["prompt_prefix"] = prefix.strip()
                 result["is_named_figure"] = True
         except Exception:
             logger.warning("⚠️ Failed to load figure YAML for: %s", figure_id)

@@ -1,0 +1,27 @@
+{# Inspector panel partial — rendered server-side for a specific run.
+   Loaded via HTMX when the user selects an issue card.
+#}
+<!DOCTYPE html>
+<html>
+<body>
+<div id="activity-feed">
+  {# SSE handles live runs; this block covers completed runs only.
+     For active runs the client appends file-edit-card divs via the SSE stream.
+     For completed runs the SSE stream is closed, so we pre-render the cards here. #}
+  {% if not run_is_active %}
+    {% for event in memory_events %}
+      <div class="file-edit-card collapsed"
+           data-diff="{{ event.diff | e }}"
+           data-path="{{ event.path | e }}"
+           data-lines-omitted="{{ event.lines_omitted }}">
+        <button class="card-header">{{ event.path }}</button>
+        <pre class="card-body"><code></code></pre>
+        {% if event.lines_omitted > 0 %}
+          <p class="diff-omitted">… {{ event.lines_omitted }} more lines not shown</p>
+        {% endif %}
+      </div>
+    {% endfor %}
+  {% endif %}
+</div>
+</body>
+</html>

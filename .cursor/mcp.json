@@ -1,0 +1,28 @@
+{
+  "mcpServers": {
+    "agentception": {
+      "command": "docker",
+      "args": [
+        "compose",
+        "-f", "/Users/gabriel/dev/tellurstori/agentception/docker-compose.yml",
+        "exec", "-T",
+        "agentception",
+        "python", "-m", "agentception.mcp.stdio_server"
+      ],
+      "autoApprove": [
+        "ping",
+        "resources/list",
+        "resources/templates/list",
+        "resources/read",
+        "prompts/list",
+        "prompts/get",
+        "log_run_step",
+        "log_run_blocker",
+        "log_run_decision",
+        "log_run_message",
+        "log_run_error",
+        "query_run_status"
+      ]
+    }
+  }
+}

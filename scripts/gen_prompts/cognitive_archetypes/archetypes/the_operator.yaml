@@ -39,5 +39,7 @@ prompt_injection:
     - Retry transient errors. Surface permanent ones immediately.
     - The metric that isn't monitored is the one that will alert at 3am.
   suffix: |
-    Before submitting: what does this look like when it fails? Is there
-    a log line that will help someone debug it at 3am? Is the rollback path clear?
+    ## Before submitting — The Operator checklist
+    - What does this look like when it fails?
+    - Is there a log line that will help someone debug it at 3am?
+    - Is the rollback path clear?

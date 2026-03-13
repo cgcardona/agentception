@@ -127,12 +127,11 @@
           <td>
             {% set role_class = {
               'cto': 'badge--orange',
-              'engineering-vp': 'badge--blue',
+              'engineering-coordinator': 'badge--blue',
               'engineering-coordinator': 'badge--blue', 'qa-coordinator': 'badge--teal',
-              'qa-vp': 'badge--purple',
+              'qa-coordinator': 'badge--purple',
               'python-developer': 'badge--green',
               'pr-reviewer': 'badge--teal',
-              'muse-specialist': 'badge--pink',
               'database-architect': 'badge--yellow',
               'unknown': 'badge--gray',
             }.get(t.role, 'badge--gray') %}
@@ -166,7 +165,7 @@
           {# Linked issues #}
           <td class="transcript-issues-cell">
             {% for n in (t.linked_issues or [])[:3] %}
-            <a href="/issues/{{ n }}" @click.stop class="issue-link">#{{ n }}</a>{% if not loop.last %} {% endif %}
+                <a href="/issues/{{ repo_name }}/{{ n }}" @click.stop class="issue-link">#{{ n }}</a>{% if not loop.last %} {% endif %}
             {% endfor %}
             {% if (t.linked_issues | length) > 3 %}
             <span class="text-muted">+{{ (t.linked_issues | length) - 3 }}</span>

@@ -1,0 +1,15 @@
+#!/bin/sh
+# Git askpass helper for GitHub token authentication.
+#
+# Git's git-receive-pack (push) and git-upload-pack (fetch/clone) endpoints
+# only accept HTTP Basic auth — not Bearer tokens. This script is called by
+# git when it needs credentials for an HTTPS remote; it returns the PAT as
+# the password with "x-access-token" as the username, which GitHub accepts
+# for all git protocol operations.
+#
+# Set via: git config --system core.askPass /usr/local/bin/github-askpass
+# Ensure:  GIT_TERMINAL_PROMPT=0 (prevents git from falling back to a TTY)
+case "$1" in
+  Username*) echo "x-access-token" ;;
+  Password*) echo "$GITHUB_TOKEN" ;;
+esac

@@ -1,29 +1,10 @@
-from __future__ import annotations
-
-"""API routes: POST /api/plan/draft and POST /api/plan/launch.
-
-POST /api/plan/draft
---------------------
-Input:  PlanDraftRequest(text: str)  — non-empty, non-whitespace plan text
-Output: PlanDraftResponse            — draft_id (uuid4), task_file path,
-                                       output_path, status='pending'
-
-Side effects
-------------
-1. ``git worktree add <worktrees_dir>/plan-draft-<draft_id>`` is executed
-   (awaited; it is fast and must succeed before we write the task file).
-   The worktree is created under ``settings.worktrees_dir`` — the canonical
-   Docker-mounted path (``/worktrees`` in-container, ``~/.agentception/worktrees/agentception``
-   on the host) — so mypy/pytest can reference it via ``/worktrees/<name>``
-   inside the container without path mismatches.
-2. A ``.agent-task`` file is written to the new worktree using the K=V format
-   that is compatible with the future TOML migration (issue #888).
+"""API routes: POST /api/plan/launch.
 
 POST /api/plan/launch
 ---------------------
 Input:  PlanLaunchRequest(yaml_text: str)  — YAML-encoded EnrichedManifest
-Output: PlanLaunchResponse                 — worktree, branch, agent_task_path,
-                                             batch_id from the coordinator spawn
+Output: PlanLaunchResponse                 — run_id, worktree, host_worktree,
+                                             branch, batch_id from the coordinator spawn
 
 Steps:
 1. Parse yaml_text → dict (422 on YAML syntax error).
@@ -32,142 +13,26 @@ Steps:
    phases depend only on earlier phases, which prevents phase-level cycles).
 3. Detect issue-level cycles in the title-based depends_on graph (422 with
    a human-readable cycle description).
-4. Call plan_spawn_coordinator(manifest_json) — fire-and-forget style.
+4. Call spawn_child() to create a coordinator worktree backed by the DB.
 5. Return PlanLaunchResponse immediately.
 
 Boundary: zero imports from external packages.
 """
+from __future__ import annotations
 
-import asyncio
-import json
 import logging
-import uuid
 
 import yaml
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 
 from agentception.config import settings
-from agentception.mcp.plan_tools import plan_spawn_coordinator
 from agentception.models import EnrichedManifest, EnrichedPhase
+from agentception.services.spawn_child import SpawnChildError, spawn_child
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/plan", tags=["plan"])
-
-
-class PlanDraftRequest(BaseModel):
-    """Request body for POST /api/plan/draft.
-
-    ``text`` is the raw plan text submitted by the user.
-    Empty or whitespace-only strings are rejected at validation time (422).
-    """
-
-    text: str
-
-    @field_validator("text")
-    @classmethod
-    def text_must_not_be_blank(cls, v: str) -> str:
-        """Reject empty or whitespace-only plan text before the handler runs."""
-        if not v or not v.strip():
-            raise ValueError("text must not be empty or whitespace-only")
-        return v
-
-
-class PlanDraftResponse(BaseModel):
-    """Response returned immediately after dispatching the plan draft.
-
-    The caller should poll or subscribe for progress; this endpoint is
-    intentionally fire-and-forget from the HTTP perspective.
-
-    ``output_path`` is the absolute path of the YAML file the Cursor agent will
-    write when it completes — not the worktree directory.  The AgentCeption
-    poller watches this path and emits a ``task_output_ready`` SSE event when
-    the file appears.
-    """
-
-    draft_id: str
-    task_file: str
-    output_path: str
-    status: str = "pending"
-
-
-@router.post("/draft")
-async def post_plan_draft(request: PlanDraftRequest) -> PlanDraftResponse:
-    """Accept plan text, create a git worktree, and write an .agent-task file.
-
-    Steps:
-    1. Generate a uuid4 draft_id.
-    2. Run ``git worktree add <worktrees_dir>/plan-draft-<draft_id>`` off origin/dev.
-       Uses the canonical ``settings.worktrees_dir`` so the path is visible inside
-       Docker at ``/worktrees/plan-draft-<draft_id>`` — never ``/tmp/``.
-    3. Write a K=V .agent-task to that path so a Cursor agent can pick it up.
-    4. Return PlanDraftResponse immediately.
-
-    Returns 422 if text is empty/whitespace (validated by PlanDraftRequest).
-    Returns 500 if the git worktree add subprocess fails.
-    """
-    draft_id = str(uuid.uuid4())
-    slug = f"plan-draft-{draft_id}"
-    branch = f"feat/{slug}"
-    worktree_path = settings.worktrees_dir / slug
-    host_worktree_path = settings.host_worktrees_dir / slug
-    task_file_path = worktree_path / ".agent-task"
-    # The output file is where the Cursor agent writes the finished PlanSpec YAML.
-    # The AgentCeption poller watches *this file* (not the directory) and emits
-    # ``task_output_ready`` when it appears on disk.
-    output_file_path = host_worktree_path / ".plan-output.yaml"
-
-    logger.info("✅ Plan draft %s — creating worktree at %s", draft_id, worktree_path)
-
-    repo_dir = str(settings.repo_dir)
-    proc = await asyncio.create_subprocess_exec(
-        "git", "-C", repo_dir,
-        "worktree", "add", "-b", branch,
-        str(worktree_path), "origin/dev",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    _, stderr = await proc.communicate()
-
-    if proc.returncode != 0:
-        err = stderr.decode().strip()
-        logger.error("❌ git worktree add failed for draft %s: %s", draft_id, err)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to create worktree for draft {draft_id}: {err}",
-        )
-
-    logger.info("✅ Worktree created — writing .agent-task for draft %s", draft_id)
-
-    # Ensure the directory exists. ``git worktree add`` creates it, but we
-    # mkdir with exist_ok=True so that the write is safe even if the caller
-    # mocked the subprocess in tests.
-    worktree_path.mkdir(parents=True, exist_ok=True)
-
-    task_content = (
-        f"WORKFLOW=plan-spec\n"
-        f"DRAFT_ID={draft_id}\n"
-        # OUTPUT_PATH must be a file path (not the directory) so the AgentCeption
-        # poller can watch for the file's appearance and emit task_output_ready.
-        f"OUTPUT_PATH={output_file_path}\n"
-        f"STATUS=pending\n"
-        # Guide the Cursor agent: call plan_get_schema() first to get the PlanSpec
-        # TOML schema, then produce valid TOML matching that schema.
-        f"mcp_tools_hint=call plan_get_schema() to get the PlanSpec TOML schema first\n"
-        f"output_schema=plan_get_schema\n"
-        f"plan_draft.text={request.text}\n"
-    )
-    task_file_path.write_text(task_content, encoding="utf-8")
-
-    logger.info("✅ .agent-task written for draft %s", draft_id)
-
-    return PlanDraftResponse(
-        draft_id=draft_id,
-        task_file=str(task_file_path),
-        output_path=str(output_file_path),
-        status="pending",
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -179,10 +44,9 @@ class PlanLaunchRequest(BaseModel):
     """Request body for POST /api/plan/launch.
 
     ``yaml_text`` is the YAML-encoded :class:`~agentception.models.EnrichedManifest`
-    produced by the Cursor agent after processing a brain dump.  It must
-    validate against :class:`~agentception.models.EnrichedManifest`; any YAML
-    syntax error or schema mismatch returns 422 before the coordinator is
-    contacted.
+    produced by the Plan UI editor after the user reviews the LLM-generated plan.
+    It must validate against :class:`~agentception.models.EnrichedManifest`; any YAML
+    syntax error or schema mismatch returns 422 before the coordinator is spawned.
     """
 
     yaml_text: str
@@ -191,13 +55,13 @@ class PlanLaunchRequest(BaseModel):
 class PlanLaunchResponse(BaseModel):
     """Response returned after the coordinator worktree has been spawned.
 
-    Fields mirror the return value of
-    :func:`agentception.mcp.plan_tools.plan_spawn_coordinator`.
+    All task context is DB-backed — the coordinator reads its briefing via the
+    ``task/briefing`` MCP prompt and ``ac://runs/{run_id}/context`` resource.
     """
 
+    run_id: str
     worktree: str
-    branch: str
-    agent_task_path: str
+    host_worktree: str
     batch_id: str
 
 
@@ -261,8 +125,8 @@ async def post_plan_launch(request: PlanLaunchRequest) -> PlanLaunchResponse:
        (422 on field or phase-DAG errors).
     3. Run issue-level cycle detection on the title-based ``depends_on`` graph
        (422 if an issue cycle is found).
-    4. Await :func:`agentception.mcp.plan_tools.plan_spawn_coordinator` with
-       the manifest serialised as JSON.
+    4. Spawn a coordinator using :func:`~agentception.services.spawn_child.spawn_child`
+       scoped to the manifest's label prefix.  All task context is persisted to the DB.
     5. Return :class:`PlanLaunchResponse` immediately.
 
     Returns:
@@ -294,27 +158,34 @@ async def post_plan_launch(request: PlanLaunchRequest) -> PlanLaunchResponse:
         logger.warning("⚠️ /api/plan/launch — DAG cycle in issues: %s", cycle)
         raise HTTPException(status_code=422, detail=cycle)
 
-    manifest_json: str = json.dumps(manifest.model_dump())
+    # Scope the coordinator to the manifest's initiative name.
+    scope_value = manifest.initiative.strip() if manifest.initiative else "plan"
 
     try:
-        result = await plan_spawn_coordinator(manifest_json)
-    except Exception as exc:
+        result = await spawn_child(
+            parent_run_id="",
+            role="coordinator",
+            tier="coordinator",
+            org_domain="engineering",
+            scope_type="label",
+            scope_value=scope_value,
+            gh_repo=settings.gh_repo,
+        )
+    except SpawnChildError as exc:
         logger.error("❌ /api/plan/launch — coordinator spawn failed: %s", exc)
         raise HTTPException(
             status_code=500,
             detail=f"Coordinator spawn failed: {exc}",
         )
 
-    if "error" in result:
-        raise HTTPException(status_code=422, detail=str(result["error"]))
-
     logger.info(
-        "✅ /api/plan/launch — coordinator spawned; worktree=%s", result.get("worktree")
+        "✅ /api/plan/launch — coordinator spawned; run_id=%s worktree=%s",
+        result.run_id, result.worktree_path,
     )
 
     return PlanLaunchResponse(
-        worktree=str(result["worktree"]),
-        branch=str(result["branch"]),
-        agent_task_path=str(result["agent_task_path"]),
-        batch_id=str(result["batch_id"]),
+        run_id=result.run_id,
+        worktree=result.worktree_path,
+        host_worktree=result.host_worktree_path,
+        batch_id=result.run_id,
     )

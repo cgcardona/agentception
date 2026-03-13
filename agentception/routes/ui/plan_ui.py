@@ -1,14 +1,15 @@
-from __future__ import annotations
-
 """UI routes: Plan page and its API endpoints.
 
 Endpoints
 ---------
-POST /api/plan/preview                   — Step 1.A: brain dump → PlanSpec YAML (SSE stream)
-POST /api/plan/validate                  — Validate (possibly edited) YAML against PlanSpec
-GET  /plan                               — full page
-GET  /plan/recent-runs                   — HTMX partial (sidebar refresh)
-GET  /api/plan/{run_id}/plan-text        — return original plan text for re-run
+POST /api/plan/preview                                    — Step 1.A: brain dump → PlanSpec YAML (SSE stream)
+POST /api/plan/validate                                   — Validate (possibly edited) YAML against PlanSpec schema
+POST /api/plan/file-issues                                — Step 1.B: file GitHub issues from a PlanSpec YAML (SSE)
+GET  /plan                                                — full page (Alpine state machine)
+GET  /plan/recent-runs                                    — HTMX partial (sidebar refresh)
+GET  /plan/{org}/{repo}/{initiative}                      — redirect to latest batch for this initiative
+GET  /plan/{org}/{repo}/{initiative}/{batch_id}           — shareable, server-rendered initiative overview
+GET  /api/plan/{run_id}/plan-text                         — return original plan text for re-run
 
 Streaming protocol (POST /api/plan/preview)
 -------------------------------------------
@@ -22,22 +23,29 @@ on a ``data:`` line followed by ``\\n\\n``.  Event shapes::
     {"t": "error", "detail": "<message>"}       -- stream failed
 
 The browser accumulates ``chunk`` texts, shows them live, then on ``done``
-loads the canonical validated YAML into the Monaco editor.
+loads the canonical validated YAML into the CodeMirror 6 editor.
 """
+
+from __future__ import annotations
 
 import json
 import logging
 from collections.abc import AsyncGenerator
+from typing import TYPE_CHECKING, Literal, TypedDict
+
+import re
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from starlette.requests import Request
 
-from agentception.readers.phase_planner import plan_phases
 from agentception.readers.llm_phase_planner import _strip_fences
-from agentception.services.llm import call_openrouter_stream
+from agentception.services.llm import LLMChunk, call_anthropic_stream
 from ._shared import _TEMPLATES
+
+if TYPE_CHECKING:
+    from agentception.readers.issue_creator import IssueFileEvent
 
 logger = logging.getLogger(__name__)
 
@@ -46,15 +54,6 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 # Plan page — static data (defined once, passed to Jinja)
 # ---------------------------------------------------------------------------
-
-_PLAN_FUNNEL_STAGES = [
-    {"icon": "🧠", "label": "Plan",    "desc": "Your raw input"},
-    {"icon": "📋", "label": "Analyze", "desc": "Classify items"},
-    {"icon": "🗂️", "label": "Phase",   "desc": "Group by dependency"},
-    {"icon": "🏷️", "label": "Label",   "desc": "Create GitHub labels"},
-    {"icon": "📝", "label": "Issues",  "desc": "File structured tickets"},
-    {"icon": "🤖", "label": "Agents",  "desc": "Dispatch to engineers"},
-]
 
 _PLAN_SEEDS = [
     {
@@ -78,25 +77,78 @@ _PLAN_SEEDS = [
     {
         "label": "💡 Feature ideas",
         "text": (
-            "- Let users star/pin their favourite agents\n"
-            "- Add Slack notifications for PR merges\n"
-            "- Dark mode across the entire dashboard\n"
-            "- Export pipeline config as a shareable template"
+            "- Add dark mode across the entire dashboard\n"
+            "- Show a live activity feed of recent events on the home page\n"
+            "- Let users customize notification preferences per project\n"
+            "- Export any report as a shareable link with a public read-only view"
         ),
     },
     {
         "label": "🏗️ Tech debt",
         "text": (
-            "- Replace legacy jQuery with Alpine across all pages\n"
-            "- Remove the deprecated v1 API endpoints\n"
-            "- Add mypy strict mode to the agentception module\n"
-            "- Consolidate duplicate GitHub fetch helpers"
+            "- Consolidate duplicate GitHub fetch helpers into a single client\n"
+            "- Add missing type coverage to the remaining untyped modules\n"
+            "- Extract business logic out of route handlers into services\n"
+            "- Replace inline SQL strings with typed SQLAlchemy queries"
         ),
     },
 ]
 
 
-def _normalize_plan_dict(raw: object) -> object:
+# ---------------------------------------------------------------------------
+# Named types — sidebar entries and SSE event shapes
+# ---------------------------------------------------------------------------
+
+
+class _RecentPlanEntry(TypedDict):
+    """One entry in the recent-runs sidebar, built from a plan worktree."""
+
+    slug: str
+    label_prefix: str
+    preview: str
+    ts: str
+    batch_id: str
+    item_count: str
+
+
+class _ChunkEvent(TypedDict):
+    """Streaming YAML token from the LLM (Step 1.A preview stream)."""
+
+    t: Literal["chunk"]
+    text: str
+
+
+class _PreviewDoneEvent(TypedDict):
+    """Emitted once when the LLM stream completes and PlanSpec validation passes."""
+
+    t: Literal["done"]
+    yaml: str
+    initiative: str
+    phase_count: int
+    issue_count: int
+
+
+class _PreviewErrorEvent(TypedDict):
+    """Emitted when the preview stream encounters a fatal error."""
+
+    t: Literal["error"]
+    detail: str
+
+
+#: Union of all event shapes produced by the Step 1.A preview stream.
+type _PreviewSseEvent = _ChunkEvent | _PreviewDoneEvent | _PreviewErrorEvent
+
+#: Recursive type covering every value ``yaml.safe_load`` can return.
+#: Python 3.12 recursive ``type`` aliases make this possible without Any.
+type _YamlNode = str | int | float | bool | None | list[_YamlNode] | dict[str, _YamlNode]
+
+
+# ---------------------------------------------------------------------------
+# YAML normalisation shim
+# ---------------------------------------------------------------------------
+
+
+def _normalize_plan_dict(raw: _YamlNode) -> _YamlNode:
     """Coerce alternative YAML shapes into the canonical PlanSpec mapping.
 
     Claude occasionally returns a top-level dict keyed by the initiative slug
@@ -144,12 +196,12 @@ def _normalize_plan_dict(raw: object) -> object:
         return raw
 
     # Convert {phase-0: {description, depends_on, issues}, ...} → list of phase dicts.
-    phases: list[dict[str, object]] = []
+    phases: list[_YamlNode] = []
     for phase_label in sorted(body.keys()):
         phase_body = body[phase_label]
         if not isinstance(phase_body, dict):
             continue
-        phase_entry: dict[str, object] = {"label": phase_label}
+        phase_entry: dict[str, _YamlNode] = {"label": phase_label}
         phase_entry.update(phase_body)
         phases.append(phase_entry)
 
@@ -160,80 +212,40 @@ def _normalize_plan_dict(raw: object) -> object:
     return {"initiative": initiative_slug, "phases": phases}
 
 
-def _parse_task_fields(content: str) -> dict[str, str]:
-    """Parse key=value lines from the structured header of a ``.agent-task`` file.
+async def _build_recent_plans() -> list[_RecentPlanEntry]:
+    """Return metadata for the 6 most recent coordinator plan runs from the DB.
 
-    Only processes lines before the first blank line or ``PLAN_DUMP:`` marker so
-    that multi-line plan text is never misinterpreted as a key=value pair.
-    """
-    fields: dict[str, str] = {}
-    for line in content.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped == "PLAN_DUMP:":
-            break
-        if "=" in stripped:
-            key, _, val = stripped.partition("=")
-            fields[key.strip()] = val.strip()
-    return fields
-
-
-def _count_plan_items(plan_text: str) -> int:
-    """Count non-empty lines in a PLAN_DUMP block as a proxy for item count."""
-    return sum(1 for ln in plan_text.splitlines() if ln.strip())
-
-
-async def _build_recent_plans() -> list[dict[str, str]]:
-    """Scan the worktrees directory and return metadata for the 6 most recent plan runs.
-
+    Queries ``ac_agent_runs`` for coordinator-tier runs ordered by spawn time.
     Each entry contains: slug, label_prefix, preview, ts, batch_id, item_count.
-    ``item_count`` is a line-count heuristic over the PLAN_DUMP block (not a live
-    GitHub issue count) so no network call is needed on the hot render path.
+    Returns an empty list when the DB is unavailable — the plan page degrades
+    gracefully to showing no recent runs.
     """
-    from agentception.config import settings as _cfg
+    from agentception.db.queries import get_agent_run_history
 
-    recent_plans: list[dict[str, str]] = []
-    worktrees_dir = _cfg.worktrees_dir
+    recent_plans: list[_RecentPlanEntry] = []
     try:
-        if worktrees_dir.exists():
-            candidates = sorted(
-                (d for d in worktrees_dir.iterdir() if d.is_dir() and d.name.startswith("plan-")),
-                key=lambda p: p.stat().st_mtime,
-                reverse=True,
-            )
-            for d in candidates[:6]:
-                label_prefix = ""
-                preview = ""
-                batch_id = d.name
-                item_count = "—"
-                task_file = d / ".agent-task"
-                if task_file.exists():
-                    try:
-                        content = task_file.read_text(encoding="utf-8")
-                        fields = _parse_task_fields(content)
-                        label_prefix = fields.get("LABEL_PREFIX", "")
-                        batch_id = fields.get("BATCH_ID", d.name)
-                        if "PLAN_DUMP:" in content:
-                            plan_part = content.split("PLAN_DUMP:", 1)[1].strip()
-                            first = next((ln.strip() for ln in plan_part.splitlines() if ln.strip()), "")
-                            preview = first[:90]
-                            count = _count_plan_items(plan_part)
-                            item_count = str(count) if count else "—"
-                    except OSError:
-                        pass
-                ts_raw = d.name[len("plan-"):]
-                try:
-                    ts_fmt = f"{ts_raw[:4]}-{ts_raw[4:6]}-{ts_raw[6:8]} {ts_raw[9:11]}:{ts_raw[11:13]}"
-                except Exception:
-                    ts_fmt = ts_raw
-                recent_plans.append({
-                    "slug": d.name,
-                    "label_prefix": label_prefix,
-                    "preview": preview,
-                    "ts": ts_fmt,
-                    "batch_id": batch_id,
-                    "item_count": item_count,
-                })
-    except OSError:
+        rows = await get_agent_run_history(limit=6, status=None)
+        coordinator_rows = [r for r in rows if r.get("tier") == "coordinator"][:6]
+        for row in coordinator_rows:
+            run_id = str(row.get("id", ""))
+            batch_id = str(row.get("batch_id") or run_id)
+            # Derive label_prefix from the batch_id (format: label-<slug>-<stamp>-<hex>).
+            label_prefix = ""
+            if batch_id.startswith("label-"):
+                parts = batch_id.split("-", 2)
+                if len(parts) >= 2:
+                    label_prefix = parts[1]
+            spawned_at = str(row.get("spawned_at", ""))
+            ts_fmt = spawned_at[:16].replace("T", " ") if spawned_at else ""
+            recent_plans.append(_RecentPlanEntry(
+                slug=run_id,
+                label_prefix=label_prefix,
+                preview="",
+                ts=ts_fmt,
+                batch_id=batch_id,
+                item_count="—",
+            ))
+    except Exception:
         pass
     return recent_plans
 
@@ -254,7 +266,7 @@ class PlanDraftYamlResponse(BaseModel):
     """Response from ``POST /api/plan/preview`` (Step 1.A).
 
     ``yaml`` is a valid PlanSpec YAML string ready to be loaded into the
-    Monaco editor.  ``initiative`` is extracted for the UI to display.
+    CodeMirror 6 editor.  ``initiative`` is extracted for the UI to display.
     ``phase_count`` and ``issue_count`` are convenience totals.
     """
 
@@ -264,8 +276,8 @@ class PlanDraftYamlResponse(BaseModel):
     issue_count: int
 
 
-def _sse(obj: dict[str, object]) -> str:
-    """Format a dict as a single SSE data line."""
+def _sse(obj: "_PreviewSseEvent | IssueFileEvent") -> str:
+    """Serialise a named SSE event TypedDict as a single ``data:`` line."""
     return f"data: {json.dumps(obj)}\n\n"
 
 
@@ -276,13 +288,11 @@ async def plan_preview(body: PlanDraftRequest) -> StreamingResponse:
     Returns ``text/event-stream``.  Each event is a JSON object on a ``data:``
     line.  See module docstring for the full event shape reference.
 
-    When ``OPENROUTER_API_KEY`` is set the LLM path streams tokens in real
-    time so the browser can show progress.  When the key is absent the heuristic
-    fallback emits a single ``done`` event immediately.
+    Requires ``ANTHROPIC_API_KEY`` to be configured — returns HTTP 503 if absent.
     """
     from agentception.config import settings as _cfg
     from agentception.models import PlanSpec
-    from agentception.readers.llm_phase_planner import _YAML_SYSTEM_PROMPT
+    from agentception.readers.llm_phase_planner import _build_yaml_system_prompt
 
     dump = body.dump.strip()
     if not dump:
@@ -309,18 +319,18 @@ async def plan_preview(body: PlanDraftRequest) -> StreamingResponse:
         """
         accumulated = ""
         try:
-            async for llm_chunk in call_openrouter_stream(
+            chunk: LLMChunk
+            async for chunk in call_anthropic_stream(
                 augmented_dump,
-                system_prompt=_YAML_SYSTEM_PROMPT,
+                system_prompt=_build_yaml_system_prompt(),
                 temperature=0.2,
                 max_tokens=8192,
             ):
-                if llm_chunk["type"] == "thinking":
+                if chunk["type"] == "thinking":
                     pass  # discard — never sent to browser
                 else:
-                    # "content" chunks are the YAML output
-                    accumulated += llm_chunk["text"]
-                    yield _sse({"t": "chunk", "text": llm_chunk["text"]})
+                    accumulated += chunk["text"]
+                    yield _sse(_ChunkEvent(t="chunk", text=chunk["text"]))
 
             # Validate and canonicalise the full output.
             yaml_str = _strip_fences(accumulated)
@@ -328,19 +338,19 @@ async def plan_preview(body: PlanDraftRequest) -> StreamingResponse:
             # Detect prose response: yaml.safe_load returns a str (not a dict)
             # when the model outputs conversational text instead of YAML.
             import yaml as _yaml_mod
-            parsed: object = _yaml_mod.safe_load(yaml_str) if yaml_str.strip() else None
+            parsed: _YamlNode = _yaml_mod.safe_load(yaml_str) if yaml_str.strip() else None
             if not isinstance(parsed, dict):
                 logger.warning(
                     "⚠️ LLM returned prose instead of YAML (first 200 chars): %s",
                     accumulated[:200],
                 )
-                yield _sse({
-                    "t": "error",
-                    "detail": (
+                yield _sse(_PreviewErrorEvent(
+                    t="error",
+                    detail=(
                         "Your input was too short or vague for the model to plan. "
                         "Add more detail — describe actual bugs, features, or tech debt you want tackled."
                     ),
-                })
+                ))
                 return
 
             # Normalise alternative YAML structures Claude occasionally produces.
@@ -355,52 +365,24 @@ async def plan_preview(body: PlanDraftRequest) -> StreamingResponse:
                 "✅ Plan stream done: initiative=%s phases=%d issues=%d",
                 spec.initiative, len(spec.phases), total,
             )
-            yield _sse({
-                "t": "done",
-                "yaml": canonical,
-                "initiative": spec.initiative,
-                "phase_count": len(spec.phases),
-                "issue_count": total,
-            })
+            yield _sse(_PreviewDoneEvent(
+                t="done",
+                yaml=canonical,
+                initiative=spec.initiative,
+                phase_count=len(spec.phases),
+                issue_count=total,
+            ))
         except Exception as exc:
             logger.error("❌ Plan stream error: %s | accumulated (200): %s", exc, accumulated[:200])
-            yield _sse({"t": "error", "detail": str(exc)})
+            yield _sse(_PreviewErrorEvent(t="error", detail=str(exc)))
 
-    async def _heuristic_stream() -> AsyncGenerator[str, None]:
-        """Emit a single ``done`` event from the keyword heuristic (no LLM)."""
-        try:
-            result = plan_phases(dump)
-        except ValueError as exc:
-            yield _sse({"t": "error", "detail": str(exc)})
-            return
+    if not _cfg.anthropic_api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="ANTHROPIC_API_KEY is not configured. Set it to use the Plan step.",
+        )
 
-        initiative = body.label_prefix or "plan"
-        phase_lines = [f"initiative: {initiative}", "phases:"]
-        prev_labels: list[str] = []
-        total = 0
-        for ph in result.phases:
-            phase_lines.append(f"  - label: {ph.label}")
-            phase_lines.append(f'    description: "{ph.description}"')
-            deps = "[" + ", ".join(prev_labels) + "]" if prev_labels else "[]"
-            phase_lines.append(f"    depends_on: {deps}")
-            phase_lines.append("    issues:")
-            phase_lines.append(f'      - title: "{ph.description}"')
-            phase_lines.append(f'        body: "Implement: {ph.description}"')
-            phase_lines.append("        depends_on: []")
-            prev_labels.append(ph.label)
-            total += 1
-
-        yaml_str = "\n".join(phase_lines) + "\n"
-        yield _sse({
-            "t": "done",
-            "yaml": yaml_str,
-            "initiative": initiative,
-            "phase_count": len(result.phases),
-            "issue_count": total,
-        })
-
-    generator = _llm_stream() if _cfg.openrouter_api_key else _heuristic_stream()
-    return StreamingResponse(generator, media_type="text/event-stream")
+    return StreamingResponse(_llm_stream(), media_type="text/event-stream")
 
 
 class PlanValidateRequest(BaseModel):
@@ -423,7 +405,7 @@ class PlanValidateResponse(BaseModel):
 async def plan_validate(body: PlanValidateRequest) -> PlanValidateResponse:
     """Validate a (possibly edited) PlanSpec YAML against the schema.
 
-    Called by the Monaco editor's ``onDidChangeModelContent`` handler
+    Called by the CodeMirror 6 editor's ``EditorView.updateListener``
     (debounced at 600 ms) so the user sees immediate feedback while editing.
 
     Returns HTTP 200 with ``valid: false`` and a ``detail`` message on schema
@@ -465,7 +447,7 @@ class PlanFileIssuesRequest(BaseModel):
 async def plan_file_issues(body: PlanFileIssuesRequest) -> StreamingResponse:
     """Step 1.B — file GitHub issues directly from a PlanSpec YAML via SSE.
 
-    Accepts the (possibly edited) YAML from the CodeMirror editor, validates it
+    Accepts the (possibly edited) YAML from the CodeMirror 6 editor, validates it
     against PlanSpec, ensures the required GitHub labels exist, then creates all
     issues using the ``gh`` CLI — no agents, no LLM calls, no worktrees.
 
@@ -501,7 +483,7 @@ async def plan_file_issues(body: PlanFileIssuesRequest) -> StreamingResponse:
 
     async def _stream() -> AsyncGenerator[str, None]:
         async for event in file_issues(spec):
-            yield _sse(dict(event))  # TypedDict → plain dict for _sse
+            yield _sse(event)
 
     return StreamingResponse(_stream(), media_type="text/event-stream")
 
@@ -519,7 +501,6 @@ async def plan_page(request: Request) -> HTMLResponse:
         {
             "recent_plans": recent_plans,
             "gh_repo": _cfg.gh_repo,
-            "funnel_stages": _PLAN_FUNNEL_STAGES,
             "seeds": _PLAN_SEEDS,
         },
     )
@@ -542,6 +523,119 @@ async def plan_recent_runs(request: Request) -> HTMLResponse:
     )
 
 
+_INITIATIVE_SLUG_RE: re.Pattern[str] = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+_BATCH_ID_RE: re.Pattern[str] = re.compile(r"^batch-[0-9a-f]+$")
+_REPO_NAME_RE: re.Pattern[str] = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")
+
+
+def _validate_path_params(
+    repo: str,
+    initiative: str,
+    batch_id: str | None = None,
+) -> None:
+    """Raise HTTP 400 when any URL segment fails its format check."""
+    if not _REPO_NAME_RE.match(repo):
+        raise HTTPException(status_code=400, detail="Invalid repo slug.")
+    if not _INITIATIVE_SLUG_RE.match(initiative):
+        raise HTTPException(status_code=400, detail="Invalid initiative slug.")
+    if batch_id is not None and not _BATCH_ID_RE.match(batch_id):
+        raise HTTPException(status_code=400, detail="Invalid batch_id format.")
+
+
+def _resolve_gh_repo(repo: str) -> str:
+    """Reconstruct the full ``org/repo`` string from a bare repo name.
+
+    The URL scheme uses only the bare repo name (e.g. ``agentception``) to
+    keep URLs short.  This helper looks up the configured ``settings.gh_repo``
+    and returns the full qualified name (e.g. ``cgcardona/agentception``).
+
+    Raises HTTP 404 when the repo name does not match the configured repo,
+    preventing enumeration of arbitrary GitHub repos.
+    """
+    from agentception.config import settings as _cfg
+
+    configured_name = _cfg.gh_repo.split("/")[-1]
+    if repo != configured_name:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Repo '{repo}' is not configured in this AgentCeption instance.",
+        )
+    return _cfg.gh_repo
+
+
+@router.get("/plan/{repo}/{initiative}", response_model=None)
+async def plan_initiative_redirect(
+    repo: str,
+    initiative: str,
+) -> Response:
+    """Redirect to the most recent batch for this initiative.
+
+    ``GET /plan/{repo}/{initiative}`` is the human-friendly URL that always
+    points to the latest filing.  It resolves to the canonical
+    ``/plan/{repo}/{initiative}/{batch_id}`` form by querying the DB.
+
+    Returns 400 on invalid slug, 404 when no batches exist.
+    """
+    from agentception.db.queries import get_initiative_batches
+
+    _validate_path_params(repo, initiative)
+    gh_repo = _resolve_gh_repo(repo)
+    batches = await get_initiative_batches(gh_repo, initiative)
+    if not batches:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Initiative '{initiative}' not found in '{gh_repo}'. Has Phase 1B been run?",
+        )
+    latest = batches[0]
+    return RedirectResponse(url=f"/plan/{repo}/{initiative}/{latest}", status_code=302)
+
+
+@router.get("/plan/{repo}/{initiative}/{batch_id}", response_class=HTMLResponse)
+async def plan_initiative_page(
+    request: Request,
+    repo: str,
+    initiative: str,
+    batch_id: str,
+) -> HTMLResponse:
+    """Shareable, server-rendered overview of one filing batch.
+
+    Reachable directly (e.g. when a teammate follows a shared link) or via
+    ``history.pushState`` in ``plan.ts`` immediately after Phase 1B completes.
+    Renders the same visual as the Alpine done-state as a static Jinja2 template
+    — no JavaScript required.
+
+    Returns 400 on invalid slugs, 404 when the (repo, initiative, batch_id)
+    triple has no rows in ``initiative_phases``.
+    """
+    import datetime as _dt
+
+    from agentception.db.queries import get_initiative_summary
+
+    _validate_path_params(repo, initiative, batch_id)
+    gh_repo = _resolve_gh_repo(repo)
+
+    summary = await get_initiative_summary(gh_repo, initiative, batch_id)
+    if summary is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Batch '{batch_id}' for '{initiative}' in '{gh_repo}' not found.",
+        )
+
+    filed_at_display: str | None = None
+    if summary["filed_at"]:
+        filed_dt = _dt.datetime.fromisoformat(summary["filed_at"])
+        filed_at_display = filed_dt.strftime("%-d %b %Y")
+
+    return _TEMPLATES.TemplateResponse(
+        request,
+        "plan_initiative.html",
+        {
+            "summary": summary,
+            "filed_at_display": filed_at_display,
+        },
+    )
+
+
 @router.get("/api/plan/{run_id}/plan-text")
 async def plan_run_text(run_id: str) -> JSONResponse:
     """Return the original PLAN_DUMP text for a given run slug.
@@ -561,27 +655,17 @@ async def plan_run_text(run_id: str) -> JSONResponse:
     HTTP 400
         When ``run_id`` contains illegal characters or does not start with
         ``plan-``.
-    HTTP 404
-        When the worktree directory or ``.agent-task`` file does not exist, or
-        the file contains no ``PLAN_DUMP:`` section.
+    HTTP 410
+        Plan text is no longer stored on disk.  Re-run is not supported for
+        historical plan runs created before the DB-backed context migration.
     """
-    from agentception.config import settings as _cfg
-
     if not run_id.startswith("plan-") or "/" in run_id or ".." in run_id:
         raise HTTPException(status_code=400, detail="Invalid run_id format.")
 
-    task_file = _cfg.worktrees_dir / run_id / ".agent-task"
-    if not task_file.exists():
-        raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found.")
-
-    try:
-        content = task_file.read_text(encoding="utf-8")
-    except OSError as exc:
-        logger.warning("⚠️ Could not read .agent-task for run %s: %s", run_id, exc)
-        raise HTTPException(status_code=404, detail="Could not read task file.") from exc
-
-    if "PLAN_DUMP:" not in content:
-        raise HTTPException(status_code=404, detail="No PLAN_DUMP section in task file.")
-
-    plan_text = content.split("PLAN_DUMP:", 1)[1].strip()
-    return JSONResponse({"plan_text": plan_text})
+    raise HTTPException(
+        status_code=410,
+        detail=(
+            "Re-run is not available for this plan run.  "
+            "Plan text is no longer stored on disk — paste your plan text directly."
+        ),
+    )

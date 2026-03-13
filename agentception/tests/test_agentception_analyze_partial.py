@@ -19,7 +19,7 @@ from agentception.app import app
 from agentception.intelligence.analyzer import IssueAnalysis
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def client() -> Generator[TestClient, None, None]:
     """Synchronous test client with full lifespan."""
     with TestClient(app) as c:
@@ -32,7 +32,7 @@ def _make_analysis(
     parallelism: str = "safe",
     conflict_risk: str = "none",
     modifies_files: list[str] | None = None,
-    recommended_role: str = "python-developer",
+    recommended_role: str = "developer",
     recommended_merge_after: int | None = None,
 ) -> IssueAnalysis:
     """Build a minimal IssueAnalysis for testing."""
@@ -134,7 +134,7 @@ def test_analysis_partial_shows_merge_after(client: TestClient) -> None:
 
 def test_analysis_partial_shows_role(client: TestClient) -> None:
     """Partial must render the recommended role as a role chip."""
-    analysis = _make_analysis(number=606, recommended_role="python-developer")
+    analysis = _make_analysis(number=606, recommended_role="developer")
     with patch(
         "agentception.routes.ui.overview.analyze_issue",
         new=AsyncMock(return_value=analysis),
@@ -142,7 +142,7 @@ def test_analysis_partial_shows_role(client: TestClient) -> None:
         response = client.post("/api/analyze/issue/606/partial")
     assert response.status_code == 200
     assert "role-chip" in response.text
-    assert "python-developer" in response.text
+    assert "developer" in response.text
 
 
 def test_analysis_partial_shows_database_architect_role(client: TestClient) -> None:
@@ -242,7 +242,7 @@ def test_overview_shows_analyze_button_for_unclaimed_issues(client: TestClient) 
     from agentception.models import BoardIssue, PipelineState
 
     state = PipelineState(
-        active_label="ac-ui/0-critical-bugs",
+        active_label="phase/0",
         issues_open=1,
         prs_open=0,
         agents=[],
@@ -250,7 +250,7 @@ def test_overview_shows_analyze_button_for_unclaimed_issues(client: TestClient) 
         polled_at=0.0,
     )
     with patch("agentception.routes.ui.overview.get_state", return_value=state):
-        response = client.get("/")
+        response = client.get("/overview")
 
     assert response.status_code == 200
     html = response.text
@@ -273,7 +273,7 @@ def test_overview_hides_analyze_button_for_claimed_issues(client: TestClient) ->
     # board_issues is empty — claimed issues are filtered before reaching state.
     state = PipelineState.empty()
     with patch("agentception.routes.ui.overview.get_state", return_value=state):
-        response = client.get("/")
+        response = client.get("/overview")
 
     assert response.status_code == 200
     # Issue 99 must not appear in board_issues — it was claimed and filtered out.

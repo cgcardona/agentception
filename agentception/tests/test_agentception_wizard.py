@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Tests for the wizard stepper endpoint (issue #834).
 
 Covers:
@@ -18,21 +16,24 @@ network, no filesystem side-effects, no DB required.
 Run targeted:
     pytest agentception/tests/test_agentception_wizard.py -v
 """
+from __future__ import annotations
 
 import datetime
 import json
 from collections.abc import Generator
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from agentception.app import app
+from agentception.routes.api.wizard import _has_workflow_label, _read_active_org
 
 _UTC = datetime.timezone.utc
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def client() -> Generator[TestClient, None, None]:
     """Synchronous test client with full app lifespan."""
     with TestClient(app) as c:
@@ -329,9 +330,9 @@ def test_wizard_state_returns_html_for_htmx(client: TestClient) -> None:
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
     assert "wizard-stepper" in resp.text
-    assert "Brain Dump" in resp.text
-    assert "Org Chart" in resp.text
-    assert "Launch Wave" in resp.text
+    assert "Plan" in resp.text
+    assert "Build" in resp.text
+    assert "Ship" in resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -380,3 +381,216 @@ def _mock_db_session(wave: MagicMock | None) -> MagicMock:
     mock_session.__aenter__ = AsyncMock(return_value=mock_session)
     mock_session.__aexit__ = AsyncMock(return_value=False)
     return mock_session
+
+
+def _mock_db_error() -> MagicMock:
+    """Build an async context-manager that raises RuntimeError on execute."""
+    mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(side_effect=RuntimeError("db offline"))
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=False)
+    return mock_session
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: _has_workflow_label
+# ---------------------------------------------------------------------------
+
+
+def test_has_workflow_label_string_match() -> None:
+    """String label that starts with ac-workflow/ is matched."""
+    issue: dict[str, object] = {"labels": ["ac-workflow/1-scaffold", "bug"]}
+    assert _has_workflow_label(issue) is True
+
+
+def test_has_workflow_label_dict_match() -> None:
+    """Dict label with matching name is matched (GitHub API shape)."""
+    issue: dict[str, object] = {"labels": [{"name": "ac-workflow/2-core"}, {"name": "bug"}]}
+    assert _has_workflow_label(issue) is True
+
+
+def test_has_workflow_label_no_match_string() -> None:
+    """String labels that do not start with ac-workflow/ are not matched."""
+    issue: dict[str, object] = {"labels": ["bug", "enhancement"]}
+    assert _has_workflow_label(issue) is False
+
+
+def test_has_workflow_label_no_match_dict() -> None:
+    """Dict labels whose name does not start with ac-workflow/ are not matched."""
+    issue: dict[str, object] = {"labels": [{"name": "bug"}, {"name": "feature"}]}
+    assert _has_workflow_label(issue) is False
+
+
+def test_has_workflow_label_empty_list() -> None:
+    """Empty labels list returns False."""
+    issue: dict[str, object] = {"labels": []}
+    assert _has_workflow_label(issue) is False
+
+
+def test_has_workflow_label_missing_key() -> None:
+    """Issue without a 'labels' key returns False."""
+    assert _has_workflow_label({}) is False
+
+
+def test_has_workflow_label_non_list_labels() -> None:
+    """labels value that is not a list (e.g. None or a string) returns False."""
+    assert _has_workflow_label({"labels": None}) is False
+    assert _has_workflow_label({"labels": "ac-workflow/x"}) is False
+
+
+def test_has_workflow_label_dict_without_name_key() -> None:
+    """Dict label missing the 'name' key is skipped, not matched."""
+    issue: dict[str, object] = {"labels": [{"title": "ac-workflow/x"}]}
+    assert _has_workflow_label(issue) is False
+
+
+def test_has_workflow_label_mixed_list() -> None:
+    """A mix of non-matching dicts and a matching string is handled correctly."""
+    issue: dict[str, object] = {"labels": [{"name": "bug"}, "ac-workflow/0-triage"]}
+    assert _has_workflow_label(issue) is True
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: _read_active_org
+# ---------------------------------------------------------------------------
+
+
+def test_read_active_org_returns_none_when_file_missing(tmp_path: Path) -> None:
+    """Returns None when pipeline-config.json does not exist."""
+    with patch("agentception.routes.api.wizard._PIPELINE_CONFIG_PATH", tmp_path / "missing.json"):
+        result = _read_active_org()
+    assert result is None
+
+
+def test_read_active_org_returns_org_name(tmp_path: Path) -> None:
+    """Returns active_org string when the file is valid."""
+    cfg = tmp_path / "pipeline-config.json"
+    cfg.write_text(json.dumps({"active_org": "small-team"}), encoding="utf-8")
+    with patch("agentception.routes.api.wizard._PIPELINE_CONFIG_PATH", cfg):
+        result = _read_active_org()
+    assert result == "small-team"
+
+
+def test_read_active_org_returns_none_when_key_absent(tmp_path: Path) -> None:
+    """Returns None when the file exists but has no active_org key."""
+    cfg = tmp_path / "pipeline-config.json"
+    cfg.write_text(json.dumps({"other_key": "value"}), encoding="utf-8")
+    with patch("agentception.routes.api.wizard._PIPELINE_CONFIG_PATH", cfg):
+        result = _read_active_org()
+    assert result is None
+
+
+def test_read_active_org_returns_none_when_active_org_null(tmp_path: Path) -> None:
+    """Returns None when active_org is JSON null."""
+    cfg = tmp_path / "pipeline-config.json"
+    cfg.write_text(json.dumps({"active_org": None}), encoding="utf-8")
+    with patch("agentception.routes.api.wizard._PIPELINE_CONFIG_PATH", cfg):
+        result = _read_active_org()
+    assert result is None
+
+
+def test_read_active_org_returns_none_when_active_org_empty_string(tmp_path: Path) -> None:
+    """Returns None when active_org is an empty string (treated as unset)."""
+    cfg = tmp_path / "pipeline-config.json"
+    cfg.write_text(json.dumps({"active_org": ""}), encoding="utf-8")
+    with patch("agentception.routes.api.wizard._PIPELINE_CONFIG_PATH", cfg):
+        result = _read_active_org()
+    assert result is None
+
+
+def test_read_active_org_returns_none_on_invalid_json(tmp_path: Path) -> None:
+    """Returns None (no crash) when the file contains invalid JSON."""
+    cfg = tmp_path / "pipeline-config.json"
+    cfg.write_text("not-valid-json{{}", encoding="utf-8")
+    with patch("agentception.routes.api.wizard._PIPELINE_CONFIG_PATH", cfg):
+        result = _read_active_org()
+    assert result is None
+
+
+def test_read_active_org_returns_none_when_root_is_not_dict(tmp_path: Path) -> None:
+    """Returns None when the JSON root is not a dict (e.g. a list)."""
+    cfg = tmp_path / "pipeline-config.json"
+    cfg.write_text(json.dumps([{"active_org": "x"}]), encoding="utf-8")
+    with patch("agentception.routes.api.wizard._PIPELINE_CONFIG_PATH", cfg):
+        result = _read_active_org()
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Error resilience: step 2 and step 3
+# ---------------------------------------------------------------------------
+
+
+def test_wizard_state_step2_graceful_on_read_error(client: TestClient) -> None:
+    """Step 2 defaults to incomplete when _read_active_org raises unexpectedly."""
+    with (
+        patch(
+            "agentception.routes.api.wizard.get_open_issues",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "agentception.routes.api.wizard._read_active_org",
+            side_effect=OSError("permission denied"),
+        ),
+        patch(
+            "agentception.routes.api.wizard.get_session",
+            return_value=_mock_db_session(wave=None),
+        ),
+    ):
+        resp = client.get("/api/wizard/state")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["step2"]["complete"] is False
+
+
+def test_wizard_state_step3_graceful_on_db_error(client: TestClient) -> None:
+    """Step 3 defaults to inactive when the DB query raises."""
+    with (
+        patch(
+            "agentception.routes.api.wizard.get_open_issues",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "agentception.routes.api.wizard._read_active_org",
+            return_value=None,
+        ),
+        patch(
+            "agentception.routes.api.wizard.get_session",
+            return_value=_mock_db_error(),
+        ),
+    ):
+        resp = client.get("/api/wizard/state")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["step3"]["active"] is False
+
+
+# ---------------------------------------------------------------------------
+# Edge cases: step 1 with no issues at all
+# ---------------------------------------------------------------------------
+
+
+def test_wizard_state_step1_incomplete_when_issue_list_empty(client: TestClient) -> None:
+    """Step 1 is incomplete when GitHub returns an empty issue list."""
+    with (
+        patch(
+            "agentception.routes.api.wizard.get_open_issues",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "agentception.routes.api.wizard._read_active_org",
+            return_value=None,
+        ),
+        patch(
+            "agentception.routes.api.wizard.get_session",
+            return_value=_mock_db_session(wave=None),
+        ),
+    ):
+        resp = client.get("/api/wizard/state")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["step1"]["complete"] is False
+    assert data["step1"]["summary"] == "No workflow issues yet"

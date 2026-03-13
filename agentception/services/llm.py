@@ -1,35 +1,42 @@
 from __future__ import annotations
 
-"""Async OpenRouter client for AgentCeption's direct LLM calls.
+"""Async Anthropic client for AgentCeption's direct LLM calls.
 
-Patterns and implementation standards for the LLM client:
-  - Provider routing lock (Anthropic direct, no Bedrock/Vertex fallback)
-  - Extended reasoning via payload["reasoning"] — yields thinking deltas
-    separately from content deltas so the UI can display them differently
-  - Exponential backoff retry on 429/5xx/timeout
-  - Persistent httpx.AsyncClient (re-used across requests, not recreated per call)
+All three public entry points target the Anthropic Messages API directly
+(https://api.anthropic.com/v1/messages).  Prompt caching (cache_control:
+ephemeral on the system prompt) is active; confirmed working on
+claude-sonnet-4-6, giving ~90% input-token discount on turns 2-N.
 
-Two public entry points:
+Three public entry points:
 
-``call_openrouter(user_prompt, ...)``
-    Waits for the full completion and returns the text.  No retry for now on
-    the non-streaming path (used only for MCP tools where latency matters less).
+``call_anthropic(user_prompt, ...)``
+    Waits for the full completion and returns the text.  Used by the Phase
+    Planner and MCP tools where a single-turn, non-streaming response suffices.
 
-``call_openrouter_stream(user_prompt, ...)``
-    AsyncGenerator that yields dicts as SSE-ready events:
-      {"type": "thinking", "text": "..."}  -- reasoning token (chain of thought)
+``call_anthropic_stream(user_prompt, ...)``
+    AsyncGenerator that yields :class:`LLMChunk` dicts as SSE-ready events:
+      {"type": "thinking", "text": "..."}  -- extended-thinking token
       {"type": "content",  "text": "..."}  -- output token (the actual YAML)
     Callers map these to their own SSE event format.
 
-The key is read from ``settings.openrouter_api_key`` (env var
-``OPENROUTER_API_KEY``).  A missing key raises ``RuntimeError``.
+``call_anthropic_with_tools(messages, ...)``
+    Multi-turn tool-use call.  Accepts an OpenAI-format message history and
+    a list of OpenAI-format tool definitions; converts both to Anthropic wire
+    format internally so the caller (agent_loop) does not need to change.
+    Returns a :class:`ToolResponse` with the model's text, any tool calls,
+    and the stop reason.
+
+The key is read from ``settings.anthropic_api_key`` (env var
+``ANTHROPIC_API_KEY``).  A missing key raises ``RuntimeError``.
 """
 
 import asyncio
 import json
 import logging
+import socket
+import ssl
 from collections.abc import AsyncGenerator
-from typing import TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 import httpx
 
@@ -37,41 +44,217 @@ from agentception.config import settings
 
 logger = logging.getLogger(__name__)
 
-_OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-_MODEL = "anthropic/claude-sonnet-4.6"
-_DEFAULT_TIMEOUT = 120.0
-_MAX_RETRIES = 2
+_ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+_MODEL = "claude-sonnet-4-6"
+_OPUS_MODEL = "claude-opus-4-6"
+_HAIKU_MODEL = "claude-haiku-4-5"
+_ANTHROPIC_VERSION = "2023-06-01"
+# Per-phase timeouts for Anthropic API calls.
+# connect/write: generous but bounded — API should accept the request quickly.
+# read: 300s (5 minutes).  With large agent contexts (50–80k+ tokens across
+#   many iterations), Anthropic can take well over 90 seconds before sending
+#   the first byte of a response — the server processes the full prompt before
+#   beginning to stream.  90s was too aggressive and caused repeated
+#   ReadTimeout → retries → run cancellation on large generations.  300s gives
+#   ample headroom while still bounding truly hung connections.
+_DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=10.0)
+_MAX_RETRIES = 4
+# Timeout for the DNS pre-flight check run before every HTTP attempt.
+# This guards against the pathological case where the OS-level getaddrinfo()
+# call blocks the thread-pool executor indefinitely (observed as
+# [Errno -3] Temporary failure in name resolution on Docker when the embedded
+# DNS resolver hangs).  httpx's own connect=10.0 timeout cannot cancel a
+# blocking getaddrinfo() thread that the OS refuses to interrupt.
+#
+# We do NOT wrap client.post() itself in asyncio.wait_for() because the read
+# phase can legitimately take up to 300 s (large Anthropic generations) — a
+# short hard cap would cancel valid responses.  Instead we pre-check DNS in an
+# asyncio-cancellable thread-pool call, fail fast if DNS is hung, and then let
+# the actual HTTP call use the full httpx timeout budget.
+_DNS_PREFLIGHT_TIMEOUT_SECS: float = 15.0
+_DNS_PREFLIGHT_HOST = "api.anthropic.com"
+_DNS_PREFLIGHT_PORT = 443
+# Minimum seconds to wait after a 429 before retrying.  Anthropic's rolling
+# TPM window does not clear in 2–4s, so the standard exponential backoff used
+# for transient errors is wrong here — it just adds more calls to the burst.
+# We read the Retry-After header when present; otherwise this is the floor.
+_RATE_LIMIT_BACKOFF_SECS: float = 20.0
 
-# Both Claude 4.x models support reasoning and caching via Anthropic direct.
-_REASONING_MODELS = {"anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6"}
+
+def _log_http_error(exc: httpx.HTTPStatusError) -> None:
+    """Log a non-retryable Anthropic HTTP error with an actionable message.
+
+    Detects billing errors (credit balance exhausted) and surfaces them with
+    a direct remediation hint so operators immediately know what to fix without
+    having to parse the raw JSON body.  All other 4xx/5xx errors fall through
+    to the generic body dump.
+    """
+    status = exc.response.status_code
+    try:
+        body: object = exc.response.json()
+    except Exception:
+        body = exc.response.text
+
+    if isinstance(body, dict):
+        error_block: object = body.get("error", {})
+        if isinstance(error_block, dict):
+            msg: object = error_block.get("message", "")
+            if isinstance(msg, str) and "credit balance" in msg.lower():
+                logger.error(
+                    "❌ Anthropic billing error (HTTP %d): credit balance exhausted — "
+                    "add funds at https://console.anthropic.com/settings/billing",
+                    status,
+                )
+                return
+
+    logger.error(
+        "❌ Anthropic API %d — body: %s",
+        status,
+        exc.response.text,
+    )
+
+
+async def _rate_limit_sleep(response: httpx.Response, attempt: int) -> None:
+    """Sleep the appropriate amount after a 429 response.
+
+    Reads the ``Retry-After`` header from the response when present; otherwise
+    uses an exponentially growing backoff starting at ``_RATE_LIMIT_BACKOFF_SECS``.
+    """
+    retry_after_raw = response.headers.get("retry-after", "")
+    try:
+        wait = max(float(retry_after_raw), _RATE_LIMIT_BACKOFF_SECS)
+    except (ValueError, TypeError):
+        wait = _RATE_LIMIT_BACKOFF_SECS * (2.0**attempt)
+    logger.warning(
+        "⚠️ LLM rate-limited (429) retry %d/%d — sleeping %.0fs (Retry-After=%r)",
+        attempt + 1,
+        _MAX_RETRIES,
+        wait,
+        retry_after_raw or "not set",
+    )
+    await asyncio.sleep(wait)
 
 
 class LLMChunk(TypedDict):
-    """A single event yielded by ``call_openrouter_stream``."""
+    """A single event yielded by ``call_anthropic_stream``."""
 
-    type: str   # "thinking" | "content"
+    type: Literal["thinking", "content"]
     text: str
 
 
-def _base_headers() -> dict[str, str]:
-    """Build the shared HTTP headers for every OpenRouter request."""
-    api_key = settings.openrouter_api_key
-    if not api_key:
+# ---------------------------------------------------------------------------
+# Tool-use types — public interface unchanged; internal wire format differs
+# ---------------------------------------------------------------------------
+
+
+class ToolFunction(TypedDict):
+    """Function spec inside an OpenAI-format tool definition."""
+
+    name: str
+    description: str
+    parameters: dict[str, object]
+
+
+class ToolDefinition(TypedDict):
+    """OpenAI-format tool definition passed in by callers."""
+
+    type: Literal["function"]
+    function: ToolFunction
+
+
+class ToolCallFunction(TypedDict):
+    """Function call detail inside a tool_call response block."""
+
+    name: str
+    arguments: str  # JSON-encoded argument dict
+
+
+class ToolCall(TypedDict):
+    """A single tool invocation returned by the model."""
+
+    id: str
+    type: Literal["function"]
+    function: ToolCallFunction
+
+
+class ToolResponse(TypedDict):
+    """Return value from ``call_anthropic_with_tools``.
+
+    ``input_tokens`` covers all tokens billed this turn (including cached
+    reads at their discounted rate).  ``cache_creation_input_tokens`` and
+    ``cache_read_input_tokens`` are non-zero only when prompt caching is
+    active; they are used by the debug script and telemetry to confirm cache
+    hits and quantify the per-turn discount.
+    """
+
+    stop_reason: str  # "stop" | "tool_calls" | "length"
+    content: str  # text output (empty when stop_reason is "tool_calls")
+    tool_calls: list[ToolCall]  # empty when stop_reason is "stop"
+    input_tokens: NotRequired[int]  # total input tokens consumed this turn
+    output_tokens: NotRequired[int]  # tokens generated by the model this turn
+    cache_creation_input_tokens: NotRequired[int]  # tokens written to cache (Turn 1)
+    cache_read_input_tokens: NotRequired[int]  # tokens read from cache (Turns 2-N)
+
+
+# ---------------------------------------------------------------------------
+# HTTP client helpers
+# ---------------------------------------------------------------------------
+
+
+def _api_key() -> str:
+    key = settings.anthropic_api_key
+    if not key:
         raise RuntimeError(
-            "OPENROUTER_API_KEY is not configured -- "
-            "set it in .env and restart the agentception service."
+            "ANTHROPIC_API_KEY is not configured — "
+            "set it in .env and restart the agentception service.  "
+            "Obtain a key at https://console.anthropic.com → API Keys."
         )
+    return key
+
+
+def _base_headers() -> dict[str, str]:
+    """Build the HTTP headers required by every Anthropic API request.
+
+    ``anthropic-beta: prompt-caching-2024-07-31`` is required to enable
+    ``cache_control`` on both the system prompt and the tool catalogue.
+    Without this header, cache_control blocks are silently ignored.
+    """
     return {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://agentception.local",
-        "X-Title": "AgentCeption",
+        "x-api-key": _api_key(),
+        "anthropic-version": _ANTHROPIC_VERSION,
+        "anthropic-beta": "prompt-caching-2024-07-31",
+        "content-type": "application/json",
     }
 
 
-# ---------------------------------------------------------------------------
-# Persistent client (re-used across requests for connection pooling)
-# ---------------------------------------------------------------------------
+async def _dns_preflight() -> None:
+    """Pre-flight DNS resolution guard for api.anthropic.com.
+
+    Performs a getaddrinfo lookup via the thread-pool executor, wrapped in
+    asyncio.wait_for so that a hanging OS resolver is interrupted after
+    _DNS_PREFLIGHT_TIMEOUT_SECS.  Raises asyncio.TimeoutError if DNS hangs,
+    or socket.gaierror if DNS fails immediately — both are caught by the
+    network/timeout handler in the retry loop so the attempt is retried with
+    backoff.
+
+    Why separate from client.post(): wrapping the full HTTP call in
+    asyncio.wait_for at a short timeout cancels legitimate Anthropic responses
+    that take 60–120 s on large prompts.  The pre-flight isolates the
+    DNS/connect check so the read phase retains the full 300 s budget.
+    """
+    loop = asyncio.get_running_loop()
+    await asyncio.wait_for(
+        loop.run_in_executor(
+            None,
+            socket.getaddrinfo,
+            _DNS_PREFLIGHT_HOST,
+            _DNS_PREFLIGHT_PORT,
+            0,
+            socket.SOCK_STREAM,
+        ),
+        timeout=_DNS_PREFLIGHT_TIMEOUT_SECS,
+    )
+
 
 _shared_client: httpx.AsyncClient | None = None
 
@@ -80,173 +263,310 @@ def _get_client() -> httpx.AsyncClient:
     """Return the module-level shared client, creating it on first call."""
     global _shared_client
     if _shared_client is None or _shared_client.is_closed:
-        _shared_client = httpx.AsyncClient(
-            timeout=_DEFAULT_TIMEOUT,
-            headers=_base_headers(),
-        )
+        _shared_client = httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT)
     return _shared_client
 
 
 # ---------------------------------------------------------------------------
-# Non-streaming call (used by MCP tools and validate endpoint)
+# Format converters — OpenAI ↔ Anthropic
 # ---------------------------------------------------------------------------
 
 
-async def call_openrouter(
+def _tools_to_anthropic(tools: list[ToolDefinition]) -> list[dict[str, object]]:
+    """Convert OpenAI-format tool definitions to Anthropic's input_schema format.
+
+    The last tool in the converted list receives ``cache_control: ephemeral`` so
+    Anthropic caches the entire tool catalogue after turn 1.  Without this, every
+    turn pays full input-token price for all tool schemas — with 40+ GitHub MCP
+    tools included that is easily 8–15K tokens per turn.  Caching cuts it to the
+    cache-read rate (~10% of normal cost) from turn 2 onward.
+
+    This is the server-side answer to "on-demand tool discovery": tools are
+    loaded once, cached, and referenced cheaply on every subsequent turn.
+    """
+    result: list[dict[str, object]] = []
+    for tool in tools:
+        fn = tool["function"]
+        result.append(
+            {
+                "name": fn["name"],
+                "description": fn.get("description", ""),
+                "input_schema": fn["parameters"],
+            }
+        )
+    # Mark the last tool as the cache boundary so the full list is cached.
+    if result:
+        result[-1] = {**result[-1], "cache_control": {"type": "ephemeral"}}
+    return result
+
+
+def _messages_to_anthropic(
+    messages: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Convert OpenAI-format message history to Anthropic Messages format.
+
+    Key differences handled here:
+    - ``role: "tool"`` messages (tool results) become ``role: "user"`` messages
+      containing ``tool_result`` content blocks.  Consecutive tool-result
+      messages are collapsed into a single user turn (Anthropic requires it).
+    - ``role: "assistant"`` messages with ``tool_calls`` become assistant
+      messages whose ``content`` is an array of ``tool_use`` blocks.
+    """
+    out: list[dict[str, object]] = []
+    i = 0
+    while i < len(messages):
+        msg = messages[i]
+        role: object = msg.get("role", "")
+
+        if role == "user":
+            raw = msg.get("content", "")
+            out.append({"role": "user", "content": raw})
+            i += 1
+
+        elif role == "assistant":
+            blocks: list[dict[str, object]] = []
+            text = msg.get("content") or ""
+            if isinstance(text, str) and text:
+                blocks.append({"type": "text", "text": text})
+
+            raw_calls = msg.get("tool_calls") or []
+            if isinstance(raw_calls, list):
+                for tc in raw_calls:
+                    if not isinstance(tc, dict):
+                        continue
+                    fn = tc.get("function")
+                    if not isinstance(fn, dict):
+                        continue
+                    args_raw = fn.get("arguments", "{}")
+                    try:
+                        args: object = (
+                            json.loads(args_raw)
+                            if isinstance(args_raw, str)
+                            else args_raw
+                        )
+                    except json.JSONDecodeError:
+                        args = {}
+                    blocks.append(
+                        {
+                            "type": "tool_use",
+                            "id": tc.get("id", ""),
+                            "name": fn.get("name", ""),
+                            "input": args,
+                        }
+                    )
+            # Anthropic requires non-empty content; send empty string if no blocks.
+            out.append(
+                {"role": "assistant", "content": blocks if blocks else ""}
+            )
+            i += 1
+
+        elif role == "tool":
+            # Collapse consecutive tool-result messages into one user turn.
+            results: list[dict[str, object]] = []
+            while i < len(messages) and messages[i].get("role") == "tool":
+                tr = messages[i]
+                results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tr.get("tool_call_id", ""),
+                        "content": str(tr.get("content", "")),
+                    }
+                )
+                i += 1
+            out.append({"role": "user", "content": results})
+
+        else:
+            i += 1
+
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Non-streaming call — simple prompt → text completion
+# ---------------------------------------------------------------------------
+
+
+async def call_anthropic(
     user_prompt: str,
     *,
     system_prompt: str | None = None,
     temperature: float = 0.2,
     max_tokens: int = 4096,
+    json_schema: dict[str, object] | None = None,
 ) -> str:
-    """Call Claude Sonnet via OpenRouter and return the full text response.
+    """Call Claude via the Anthropic API and return the full text response.
 
     Args:
         user_prompt: The user-turn message.
         system_prompt: Optional system-turn message.
         temperature: Sampling temperature (0.0--1.0).
         max_tokens: Maximum tokens in the completion.
+        json_schema: When set, enables Anthropic's Structured Outputs beta and
+            constrains the model to emit JSON matching this schema.  The
+            response text will be valid JSON — no prose, no markdown fences.
+            Requires the ``structured-outputs-2025-11-13`` beta header.
 
     Returns:
-        The raw text string of the model's first completion choice.
+        The raw text string of the model's response.
 
     Raises:
-        RuntimeError: When ``OPENROUTER_API_KEY`` is not set.
+        RuntimeError: When ``ANTHROPIC_API_KEY`` is not set.
         httpx.HTTPStatusError: On non-2xx responses after retries.
         httpx.TimeoutException: When the request exceeds ``_DEFAULT_TIMEOUT``.
     """
-    messages: list[dict[str, str]] = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": user_prompt})
-
     payload: dict[str, object] = {
         "model": _MODEL,
-        "messages": messages,
-        "temperature": temperature,
         "max_tokens": max_tokens,
-        "stream": False,
-        # Lock to direct Anthropic — avoids Bedrock/Vertex variants that may
-        # behave differently with caching / reasoning params.
-        "provider": {"order": ["anthropic"], "allow_fallbacks": False},
+        "temperature": temperature,
+        "messages": [{"role": "user", "content": user_prompt}],
     }
+    if system_prompt:
+        payload["system"] = system_prompt
+    if json_schema is not None:
+        payload["output_format"] = {"type": "json_schema", "schema": json_schema}
+
+    headers = dict(_base_headers())
+    if json_schema is not None:
+        # Add the structured-outputs beta alongside the existing prompt-caching beta.
+        headers["anthropic-beta"] = (
+            headers.get("anthropic-beta", "") + ",structured-outputs-2025-11-13"
+        )
 
     logger.info("✅ LLM call — model=%s prompt_chars=%d", _MODEL, len(user_prompt))
 
     client = _get_client()
     last_error: Exception | None = None
+    _total_attempts = _MAX_RETRIES + 1
 
-    for attempt in range(_MAX_RETRIES + 1):
-        if attempt > 0:
-            backoff = 2 ** attempt
-            logger.warning("⚠️ LLM retry %d/%d after %ds", attempt, _MAX_RETRIES, backoff)
-            await asyncio.sleep(backoff)
+    for attempt in range(_total_attempts):
         try:
-            resp = await client.post(_OPENROUTER_URL, json=payload)
+            await _dns_preflight()
+            resp = await client.post(_ANTHROPIC_URL, json=payload, headers=headers)
             resp.raise_for_status()
             break
         except httpx.HTTPStatusError as exc:
             last_error = exc
-            if exc.response.status_code in (429, 500, 502, 503, 504):
+            if exc.response.status_code == 429:
+                await _rate_limit_sleep(exc.response, attempt)
                 continue
+            if exc.response.status_code in (500, 502, 503, 504, 529):
+                backoff = 2 ** (attempt + 1)
+                logger.warning("⚠️ LLM retry %d/%d after %ds", attempt + 1, _total_attempts, backoff)
+                await asyncio.sleep(backoff)
+                continue
+            _log_http_error(exc)
             raise
-        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        except (asyncio.TimeoutError, httpx.TimeoutException, httpx.NetworkError, ssl.SSLError, socket.gaierror) as exc:
             last_error = exc
+            backoff = 2 ** (attempt + 1)
+            logger.warning(
+                "⚠️ LLM network/timeout retry %d/%d after %ds — %s",
+                attempt + 1,
+                _total_attempts,
+                backoff,
+                exc,
+            )
+            await asyncio.sleep(backoff)
             continue
     else:
         raise last_error or RuntimeError("LLM request failed after retries")
 
     data: object = resp.json()
     if not isinstance(data, dict):
-        raise ValueError(f"Unexpected OpenRouter response type: {type(data)}")
-    choices: object = data.get("choices")
-    if not isinstance(choices, list) or not choices:
-        raise ValueError(f"OpenRouter returned no choices: {data}")
-    first: object = choices[0]
-    if not isinstance(first, dict):
-        raise ValueError(f"Unexpected choice format: {first}")
-    message: object = first.get("message")
-    if not isinstance(message, dict):
-        raise ValueError(f"Unexpected message format: {first}")
-    content: object = message.get("content", "")
-    if not isinstance(content, str):
-        raise ValueError(f"Unexpected content type: {type(content)}")
+        raise ValueError(f"Unexpected Anthropic response type: {type(data)}")
 
-    logger.info("✅ LLM response — %d chars", len(content))
-    return content
+    content_blocks: object = data.get("content", [])
+    if not isinstance(content_blocks, list):
+        raise ValueError(f"Anthropic returned unexpected content: {data}")
+
+    text_parts: list[str] = []
+    for block in content_blocks:
+        if isinstance(block, dict) and block.get("type") == "text":
+            text = block.get("text", "")
+            if isinstance(text, str):
+                text_parts.append(text)
+
+    result = "".join(text_parts)
+    logger.info("✅ LLM response — %d chars", len(result))
+    return result
 
 
 # ---------------------------------------------------------------------------
-# Streaming call with extended reasoning
+# Streaming call with extended thinking
 # ---------------------------------------------------------------------------
 
 
-async def call_openrouter_stream(
+async def call_anthropic_stream(
     user_prompt: str,
     *,
     system_prompt: str | None = None,
-    temperature: float = 0.2,
-    max_tokens: int = 4096,
+    temperature: float = 1.0,
+    max_tokens: int = 16000,
     reasoning_fraction: float = 0.35,
 ) -> AsyncGenerator[LLMChunk, None]:
-    """Stream chunks from Claude Sonnet with extended reasoning enabled.
+    """Stream chunks from Claude with extended thinking enabled.
 
     Yields :class:`LLMChunk` dicts with ``type`` set to:
 
     ``"thinking"``
-        Reasoning token from ``delta.reasoning_details`` (chain of thought).
-        Shown in the UI as dim/muted text before the YAML appears.
+        Extended-thinking token (chain of thought before the answer).
+        Shown in the UI as dim/muted text.
 
     ``"content"``
-        Output token from ``delta.content`` (the actual YAML being written).
+        Output token (the actual YAML being written).
         Shown as bright green code text.
 
-    Provider lock, reasoning budget, and retry logic below.
+    Note: Anthropic requires ``temperature=1`` when extended thinking is
+    enabled.  The ``temperature`` parameter is accepted for API compatibility
+    but overridden to 1.0 internally when a thinking budget is active.
 
     Args:
         user_prompt: The user-turn message.
         system_prompt: Optional system-turn message.
-        temperature: Sampling temperature.
-        max_tokens: Maximum total tokens (reasoning + output).
-        reasoning_fraction: Fraction of ``max_tokens`` reserved for reasoning
-            (default 0.35 → ~1400 tokens of thinking on a 4096 budget).
+        temperature: Ignored when thinking is enabled (must be 1.0 per Anthropic).
+        max_tokens: Maximum total tokens (thinking + output).
+        reasoning_fraction: Fraction of ``max_tokens`` reserved for thinking.
 
     Raises:
         RuntimeError: Missing API key.
-        httpx.HTTPStatusError: Non-2xx from OpenRouter after retries.
+        httpx.HTTPStatusError: Non-2xx after retries.
         httpx.TimeoutException: Request timeout.
     """
-    messages: list[dict[str, str]] = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": user_prompt})
+    thinking_budget = max(int(max_tokens * reasoning_fraction), 1024)
 
-    reasoning_budget = max(int(max_tokens * reasoning_fraction), 1024)
+    messages: list[dict[str, object]] = [
+        {"role": "user", "content": user_prompt}
+    ]
 
     payload: dict[str, object] = {
         "model": _MODEL,
-        "messages": messages,
-        "temperature": temperature,
         "max_tokens": max_tokens,
+        # temperature must be 1 when extended thinking is active (Anthropic requirement).
+        "temperature": 1.0,
+        "thinking": {"type": "enabled", "budget_tokens": thinking_budget},
+        "messages": messages,
         "stream": True,
-        # Lock to direct Anthropic (same rationale as non-streaming path).
-        "provider": {"order": ["anthropic"], "allow_fallbacks": False},
     }
-
-    if _MODEL in _REASONING_MODELS:
-        payload["reasoning"] = {"max_tokens": reasoning_budget}
-        logger.info("🧠 Reasoning enabled — budget=%d tokens", reasoning_budget)
+    if system_prompt:
+        payload["system"] = system_prompt
 
     logger.info(
-        "✅ LLM stream start — model=%s prompt_chars=%d reasoning=%d",
-        _MODEL, len(user_prompt), reasoning_budget,
+        "✅ LLM stream start — model=%s prompt_chars=%d thinking_budget=%d",
+        _MODEL,
+        len(user_prompt),
+        thinking_budget,
     )
 
     total_thinking = 0
     total_content = 0
 
-    async with _get_client().stream("POST", _OPENROUTER_URL, json=payload) as resp:
+    await _dns_preflight()
+    async with _get_client().stream(
+        "POST", _ANTHROPIC_URL, json=payload, headers=_base_headers()
+    ) as resp:
         resp.raise_for_status()
+        # Anthropic SSE: each line is "data: {json}" or an event header.
+        # content_block_delta carries {"type": "thinking_delta"|"text_delta", ...}
         async for line in resp.aiter_lines():
             if not line.startswith("data: "):
                 continue
@@ -254,42 +574,250 @@ async def call_openrouter_stream(
             if raw == "[DONE]":
                 break
             try:
-                chunk: object = json.loads(raw)
-                if not isinstance(chunk, dict):
+                event: object = json.loads(raw)
+                if not isinstance(event, dict):
                     continue
-                choices: object = chunk.get("choices")
-                if not isinstance(choices, list) or not choices:
+                if event.get("type") != "content_block_delta":
                     continue
-                choice: object = choices[0]
-                if not isinstance(choice, dict):
-                    continue
-                delta: object = choice.get("delta")
+                delta: object = event.get("delta")
                 if not isinstance(delta, dict):
                     continue
 
-                # Reasoning tokens — chain of thought from Anthropic via OR.
-                # Both delta.reasoning (string) and delta.reasoning_details (array)
-                # are present; use only the structured array to avoid double-emit
-                # (streaming response pattern).
-                for detail in delta.get("reasoning_details") or []:
-                    if not isinstance(detail, dict):
-                        continue
-                    if detail.get("type") == "reasoning.text":
-                        text: object = detail.get("text", "")
-                        if isinstance(text, str) and text:
-                            total_thinking += len(text)
-                            yield LLMChunk(type="thinking", text=text)
+                delta_type: object = delta.get("type")
 
-                # Output content tokens.
-                content_text: object = delta.get("content", "")
-                if isinstance(content_text, str) and content_text:
-                    total_content += len(content_text)
-                    yield LLMChunk(type="content", text=content_text)
+                if delta_type == "thinking_delta":
+                    thinking: object = delta.get("thinking", "")
+                    if isinstance(thinking, str) and thinking:
+                        total_thinking += len(thinking)
+                        yield LLMChunk(type="thinking", text=thinking)
+
+                elif delta_type == "text_delta":
+                    text: object = delta.get("text", "")
+                    if isinstance(text, str) and text:
+                        total_content += len(text)
+                        yield LLMChunk(type="content", text=text)
 
             except (json.JSONDecodeError, KeyError, IndexError, AttributeError):
                 continue
 
     logger.info(
         "✅ LLM stream done — thinking=%d chars content=%d chars",
-        total_thinking, total_content,
+        total_thinking,
+        total_content,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Multi-turn tool-use call — used by the agent loop
+# ---------------------------------------------------------------------------
+
+
+async def call_anthropic_with_tools(
+    messages: list[dict[str, object]],
+    *,
+    system: str,
+    tools: list[ToolDefinition],
+    model: str = _MODEL,
+    temperature: float = 0.0,
+    max_tokens: int = 32000,
+    extra_system_blocks: list[dict[str, object]] | None = None,
+) -> ToolResponse:
+    """Call Claude via the Anthropic API with tool-use support.
+
+    Accepts and returns OpenAI-format data structures so the caller
+    (agent_loop) does not need to change.  The conversion to Anthropic's
+    wire format — content-block arrays, tool_use/tool_result blocks,
+    input_schema instead of parameters — happens internally.
+
+    Prompt caching is applied to both the system prompt and the tool catalogue
+    (cache_control: ephemeral on each).  Turn 1 writes both caches; turns 2-N
+    read them at ~10% of normal input cost.  With 40+ GitHub MCP tools included,
+    tool-list caching alone saves 8–15K tokens per turn.
+
+    Args:
+        messages: OpenAI-format conversation history (user/assistant/tool).
+        system: System prompt prepended to every request (cached).
+        tools: OpenAI-format tool definitions the model may call.
+        model: Anthropic model ID.
+        temperature: Sampling temperature.  Defaults to 0 for determinism.
+        max_tokens: Maximum tokens the model may emit per turn.  32 000 is safe
+            at Tier 4 (400K output TPM) with up to 10 concurrent agents.
+        extra_system_blocks: Additional Anthropic content blocks appended
+            after the cached system prompt block.  Used to inject dynamic
+            context (e.g. working memory) without invalidating the cache.
+
+    Returns:
+        :class:`ToolResponse` with ``stop_reason``, ``content``, and a
+        (possibly empty) list of ``tool_calls`` to dispatch.
+
+    Raises:
+        RuntimeError: Missing API key or unrecoverable HTTP failure.
+        httpx.HTTPStatusError: Non-2xx after retries.
+    """
+    anthropic_tools = _tools_to_anthropic(tools)
+    anthropic_messages = _messages_to_anthropic(messages)
+
+    # System prompt as a cacheable content-block array.
+    # cache_control: ephemeral → 5-minute TTL; charged at ~10% on cache hits.
+    # extra_system_blocks (e.g. working memory) are appended WITHOUT cache_control
+    # so they are re-evaluated fresh every turn without busting the main cache.
+    system_block: list[dict[str, object]] = [
+        {
+            "type": "text",
+            "text": system,
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+    if extra_system_blocks:
+        system_block.extend(extra_system_blocks)
+
+    payload: dict[str, object] = {
+        "model": model,
+        "system": system_block,
+        "messages": anthropic_messages,
+        "tools": anthropic_tools,
+        "tool_choice": {"type": "auto"},
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+
+    logger.info(
+        "✅ LLM tool-use call — model=%s turns=%d tools=%d",
+        model,
+        len(messages),
+        len(tools),
+    )
+
+    client = _get_client()
+    last_error: Exception | None = None
+    _total_attempts = _MAX_RETRIES + 1
+
+    for attempt in range(_total_attempts):
+        try:
+            await _dns_preflight()
+            resp = await client.post(_ANTHROPIC_URL, json=payload, headers=_base_headers())
+            resp.raise_for_status()
+            break
+        except httpx.HTTPStatusError as exc:
+            last_error = exc
+            if exc.response.status_code == 429:
+                await _rate_limit_sleep(exc.response, attempt)
+                continue
+            if exc.response.status_code in (500, 502, 503, 504, 529):
+                backoff = 2 ** (attempt + 1)
+                logger.warning("⚠️ LLM retry %d/%d after %ds", attempt + 1, _total_attempts, backoff)
+                await asyncio.sleep(backoff)
+                continue
+            _log_http_error(exc)
+            raise
+        except (asyncio.TimeoutError, httpx.TimeoutException, httpx.NetworkError, ssl.SSLError, socket.gaierror) as exc:
+            last_error = exc
+            backoff = 2 ** (attempt + 1)
+            logger.warning(
+                "⚠️ LLM network/timeout retry %d/%d after %ds — %s",
+                attempt + 1,
+                _total_attempts,
+                backoff,
+                exc,
+            )
+            await asyncio.sleep(backoff)
+            continue
+    else:
+        raise last_error or RuntimeError("LLM tool-use request failed after retries")
+
+    data: object = resp.json()
+    if not isinstance(data, dict):
+        raise ValueError(f"Unexpected Anthropic response type: {type(data)}")
+
+    # Map Anthropic stop reasons to the internal convention the agent loop expects.
+    # Anthropic: "tool_use" | "end_turn" | "max_tokens"
+    # Internal:  "tool_calls" | "stop"   | "length"
+    raw_stop: object = data.get("stop_reason", "end_turn")
+    if raw_stop == "tool_use":
+        stop_reason = "tool_calls"
+    elif raw_stop == "max_tokens":
+        stop_reason = "length"
+    else:
+        stop_reason = "stop"
+
+    content_blocks: object = data.get("content", [])
+    if not isinstance(content_blocks, list):
+        content_blocks = []
+
+    text_parts: list[str] = []
+    tool_calls: list[ToolCall] = []
+
+    for block in content_blocks:
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("type")
+        if btype == "text":
+            t = block.get("text", "")
+            if isinstance(t, str):
+                text_parts.append(t)
+        elif btype == "tool_use":
+            tool_input: object = block.get("input", {})
+            # Convert input dict back to JSON string (OpenAI ToolCallFunction expects it).
+            args_str = (
+                json.dumps(tool_input)
+                if isinstance(tool_input, dict)
+                else "{}"
+            )
+            tool_calls.append(
+                ToolCall(
+                    id=str(block.get("id", "")),
+                    type="function",
+                    function=ToolCallFunction(
+                        name=str(block.get("name", "")),
+                        arguments=args_str,
+                    ),
+                )
+            )
+
+    # Extract token counts — used for rate-limit accounting and cost tracking.
+    usage: object = data.get("usage", {})
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_creation_tokens: int = 0
+    cache_read_tokens: int = 0
+    if isinstance(usage, dict):
+        raw_input = usage.get("input_tokens", 0)
+        input_tokens = int(raw_input) if isinstance(raw_input, int) else 0
+        raw_output = usage.get("output_tokens", 0)
+        output_tokens = int(raw_output) if isinstance(raw_output, int) else 0
+        raw_write = usage.get("cache_creation_input_tokens", 0)
+        cache_creation_tokens = int(raw_write) if isinstance(raw_write, int) else 0
+        raw_read = usage.get("cache_read_input_tokens", 0)
+        cache_read_tokens = int(raw_read) if isinstance(raw_read, int) else 0
+        logger.info(
+            "✅ LLM usage — input=%d output=%d cache_written=%d cache_read=%d",
+            input_tokens,
+            output_tokens,
+            cache_creation_tokens,
+            cache_read_tokens,
+        )
+
+    content = "".join(text_parts)
+
+    # Log the agent's full text reply so watch_run.py can display the complete
+    # chain of thought.  Newlines are collapsed to spaces so the entry stays on
+    # one log line (the log aggregator splits on newlines).
+    if content.strip():
+        snippet = content.replace("\n", " ").strip()
+        logger.info("✅ LLM reply — chars=%d text=%s", len(content), snippet)
+
+    logger.info(
+        "✅ LLM tool-use done — stop_reason=%s content_chars=%d tool_calls=%d",
+        stop_reason,
+        len(content),
+        len(tool_calls),
+    )
+    return ToolResponse(
+        stop_reason=stop_reason,
+        content=content,
+        tool_calls=tool_calls,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_creation_input_tokens=cache_creation_tokens,
+        cache_read_input_tokens=cache_read_tokens,
     )

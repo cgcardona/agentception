@@ -1,0 +1,4 @@
+# Append-only SCSS files — agents always add new rule blocks at the end.
+# merge=union includes lines from both sides rather than conflicting, which
+# eliminates spurious merge conflicts when multiple agents land in parallel.
+agentception/static/scss/pages/_build.scss merge=union

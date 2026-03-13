@@ -26,7 +26,7 @@ from agentception.models import PipelineConfig
 from agentception.readers.pipeline_config import _DEFAULTS
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def client() -> Generator[TestClient, None, None]:
     """Synchronous test client with full lifespan."""
     with TestClient(app) as c:
@@ -36,9 +36,8 @@ def client() -> Generator[TestClient, None, None]:
 _DEFAULT_CONFIG = PipelineConfig.model_validate(_DEFAULTS)
 
 _CUSTOM_CONFIG = PipelineConfig(
-    max_eng_vps=3,
-    max_qa_vps=2,
-    pool_size_per_vp=6,
+    coordinator_limits={"engineering-coordinator": 3, "qa-coordinator": 2},
+    pool_size=6,
     active_labels_order=[
         "agentception/0-scaffold",
         "agentception/1-controls",
@@ -94,19 +93,18 @@ def test_config_page_shows_current_values(client: TestClient) -> None:
     body = response.text
     # The page must invoke configPanel via x-data (function defined in app.js).
     assert "configPanel(" in body
-    # Sliders must be present.
-    assert 'id="slider-eng-vps"' in body
-    assert 'id="slider-qa-vps"' in body
+    # Pool size slider must be present.
     assert 'id="slider-pool-size"' in body
+    # Dynamic coordinator sliders are rendered via Alpine x-for — verify the template element.
+    assert "coordinator_limits" in body
     # Label editor must be present.
     assert "label-list" in body
     # Save button must be present.
     assert "btn-save-config" in body
     # SSR hydration — custom config values must appear in the initial JS state
     # so the page reflects current settings before Alpine.js fetches the API.
-    assert '"max_eng_vps": 3' in body
-    assert '"max_qa_vps": 2' in body
-    assert '"pool_size_per_vp": 6' in body
+    assert '"coordinator_limits"' in body
+    assert '"pool_size"' in body
 
 
 def test_config_page_contains_api_put_endpoint(client: TestClient) -> None:
@@ -125,7 +123,12 @@ def test_config_page_contains_api_put_endpoint(client: TestClient) -> None:
 
 
 def test_config_page_nav_link_active(client: TestClient) -> None:
-    """GET /config marks the Config nav link as active in the base template."""
+    """GET /config renders with the primary nav (Plan/Build/Ship) from the base template.
+
+    The Config nav link was moved to secondary nav (currently hidden) in favour of the
+    1-2-3 Plan → Build → Ship primary flow. The test verifies the primary nav is
+    rendered and the page loads successfully.
+    """
     with patch(
         "agentception.routes.ui.config.read_pipeline_config",
         new_callable=AsyncMock,
@@ -134,9 +137,10 @@ def test_config_page_nav_link_active(client: TestClient) -> None:
         response = client.get("/config")
 
     body = response.text
-    # The base template uses request.url.path.startswith('/config') to set 'active'
-    # on the nav link — verify the rendered output includes the nav entry.
-    assert 'href="/config"' in body
+    assert response.status_code == 200
+    # Primary nav links (Plan → Ship) must be present in the base template.
+    assert 'href="/plan"' in body
+    assert 'href="/ship"' in body
 
 
 # ---------------------------------------------------------------------------
@@ -147,9 +151,8 @@ def test_config_page_nav_link_active(client: TestClient) -> None:
 def test_config_save_calls_put_api_valid_payload(client: TestClient) -> None:
     """PUT /api/config validates a correct payload and returns the saved config."""
     payload = {
-        "max_eng_vps": 2,
-        "max_qa_vps": 1,
-        "pool_size_per_vp": 5,
+        "coordinator_limits": {"engineering-coordinator": 2, "qa-coordinator": 1},
+        "pool_size": 5,
         "active_labels_order": ["agentception/0-scaffold", "agentception/1-controls"],
     }
     saved = PipelineConfig.model_validate(payload)
@@ -162,23 +165,29 @@ def test_config_save_calls_put_api_valid_payload(client: TestClient) -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["max_eng_vps"] == 2
-    assert body["pool_size_per_vp"] == 5
+    assert body["coordinator_limits"] == {"engineering-coordinator": 2, "qa-coordinator": 1}
+    assert body["pool_size"] == 5
     assert body["active_labels_order"] == ["agentception/0-scaffold", "agentception/1-controls"]
 
 
 def test_config_save_calls_put_api_rejects_bad_payload(client: TestClient) -> None:
-    """PUT /api/config returns 422 when required fields are missing."""
-    response = client.put("/api/config", json={"max_eng_vps": 2})
+    """PUT /api/config returns 422 when the body cannot be parsed as PipelineConfig.
+
+    coordinator_limits is a dict[str, int]; sending a string value triggers a 422.
+    (pool_size and active_labels_order have defaults and are not required.)
+    """
+    response = client.put(
+        "/api/config",
+        json={"coordinator_limits": "not-a-dict", "pool_size": 4, "active_labels_order": []},
+    )
     assert response.status_code == 422
 
 
 def test_config_save_calls_put_api_slider_ranges(client: TestClient) -> None:
     """PUT /api/config accepts integer values matching slider ranges (1-4 for VPs, 1-8 pool)."""
     payload = {
-        "max_eng_vps": 4,
-        "max_qa_vps": 4,
-        "pool_size_per_vp": 8,
+        "coordinator_limits": {"engineering-coordinator": 4, "qa-coordinator": 4},
+        "pool_size": 8,
         "active_labels_order": [],
     }
     saved = PipelineConfig.model_validate(payload)
@@ -190,8 +199,8 @@ def test_config_save_calls_put_api_slider_ranges(client: TestClient) -> None:
         response = client.put("/api/config", json=payload)
 
     assert response.status_code == 200
-    assert response.json()["max_eng_vps"] == 4
-    assert response.json()["pool_size_per_vp"] == 8
+    assert response.json()["coordinator_limits"] == {"engineering-coordinator": 4, "qa-coordinator": 4}
+    assert response.json()["pool_size"] == 8
 
 
 # ---------------------------------------------------------------------------

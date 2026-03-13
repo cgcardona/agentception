@@ -4,6 +4,34 @@ This document defines how AI agents operate in this repository. It applies to al
 
 ---
 
+## Kill before you fix — absolute rule
+
+**Every dispatched agent that is failing costs real money every second it runs. Kill it before doing anything else.**
+
+When a dispatched agent is looping, producing wrong output, or failing repeatedly:
+
+1. **Kill it first** — before reading logs, before branching, before writing a single line of fix code:
+   ```bash
+   docker compose exec agentception python3 -c "
+   import asyncio
+   from agentception.db.engine import init_db, get_session
+   from sqlalchemy import update
+   from agentception.db.models import ACAgentRun
+   async def main():
+       await init_db()
+       async with get_session() as s:
+           await s.execute(update(ACAgentRun).where(ACAgentRun.id == 'issue-NNN').values(status='cancelled'))
+           await s.commit()
+   asyncio.run(main())
+   "
+   ```
+2. **Confirm the loop stopped** — tail the logs and verify `agent_loop: run … is already in terminal state 'cancelled'`.
+3. **Then** diagnose, fix, branch, commit, restart, re-fire.
+
+Never leave a failing agent running while iterating on a fix. Each LLM turn costs money regardless of whether the agent makes progress.
+
+---
+
 ## Agent Role
 
 You are a **senior implementation agent** maintaining a long-lived, evolving multi-agent orchestration system.
@@ -17,6 +45,21 @@ You do NOT:
 - Redesign architecture unless explicitly requested.
 - Introduce new dependencies without justification and user approval.
 - Make changes that break the API contract (SSE events, tool schemas, endpoint signatures) without a handoff.
+- **Work directly on `dev` or `main`. Ever.** See Branch Discipline below.
+
+---
+
+## No legacy. No deprecated. No exceptions.
+
+This is the single most repeated rule in this codebase. Every agent must internalize it before writing a single line.
+
+- **Delete on sight.** When you touch a file and find dead code, a deprecated API shape, a backward-compatibility shim, or a legacy fallback — delete it in the same commit. Do not defer it.
+- **No fallback paths for old API shapes.** The current shape is the only shape. If a naming convention, field, or endpoint changed, every trace of the old one is deleted — not aliased, not conditionally supported.
+- **No "legacy" or "deprecated" annotations.** Code marked `# deprecated` or `# legacy — do not use` should be deleted, not annotated. A comment is not a substitute for deletion.
+- **No version shims.** No `if old_format: ... else: new_format`. Enforce the current shape everywhere.
+- **No dead constants, dead regexes, dead fields.** A regex that can never match is deleted. A model field never read is deleted. A route never called is deleted.
+
+When you remove something, remove it completely: the implementation, the tests for the old shape, the docs that describe it, and any config that references it.
 
 ---
 
@@ -47,6 +90,65 @@ When facing ambiguity:
 3. **Choose correct over simple** — when they diverge, choose correct.
 4. **Document assumptions** — if you assumed something, say it.
 5. **Ask** — when in doubt, ask the user rather than guessing.
+
+---
+
+## Branch Discipline — Absolute Rule
+
+**`dev` and `main` are read-only for all agents and all Cursor sessions. Every piece of work — one line or a thousand — happens on a branch or in a worktree.**
+
+### AgentCeption pipeline (worktree)
+
+All agent work runs inside a git worktree created from `origin/dev` at dispatch time. The PR is opened from the worktree branch. The main repo's `dev` branch is never modified by an agent. When the agent finishes, it removes its own worktree.
+
+### Cursor / interactive sessions (feature branch)
+
+Every task follows this complete lifecycle — no step is optional:
+
+1. **Start clean.** Before touching any file, run `git status`. If `dev` is not clean, stop — restore or commit the dirty files before doing anything else.
+2. **Branch first.** `git checkout -b fix/<description>` or `git checkout -b feat/<description>` is the **first** command of every task, not an afterthought.
+3. **Stage everything before switching.** After any file-generating command (`generate.py`, `docker compose exec agentception npm run build`, code generators, etc.), run `git status` and stage every modified file. Never switch branches while files are dirty — unstaged changes follow you and end up on the wrong branch.
+4. **Include all generated outputs in the same commit.** Template source changes and their regenerated outputs (`generate.py` → `.agentception/*.md`) belong in one commit on the feature branch. Never split them across branches.
+5. **`.agentception/*.md` are derived artifacts — never edit them directly.** The only correct workflow: edit the `.j2` template in `scripts/gen_prompts/templates/`, run `docker compose exec agentception python3 /app/scripts/gen_prompts/generate.py`, then commit template + regenerated output together in one commit.
+6. **Verify locally before opening the PR.** CI does not run on feature → dev PRs — local verification is the gate. Run in this exact order:
+   ```bash
+   docker compose exec agentception mypy agentception/ tests/                              # zero errors
+   docker compose exec agentception python3 tools/typing_audit.py --dirs agentception/ tests/ --max-any 0  # passes
+   docker compose exec agentception pytest agentception/tests/test_foo.py -v              # only test files relevant to changes — see Test Scope below
+   docker compose exec agentception python3 /app/scripts/gen_prompts/generate.py --check  # no drift
+   docker compose exec agentception npm run build   # only if .js or .scss files changed
+   ```
+7. **Open a pull request.** Always create a PR against `dev` — never push directly. Use the `create_pull_request` MCP tool (preferred) or `gh pr create`. Every change, no matter how small, goes through a PR.
+8. **Merge the PR immediately.** Use `merge_pull_request` MCP tool (squash merge). Do not wait for CI — it does not run on feature → dev PRs. Do not leave PRs open.
+9. **Delete the remote branch.** The `merge_pull_request` MCP tool does this automatically with `deleteBranch: true`; if using `gh`, run `git push origin --delete <branch>`.
+10. **Delete the local branch.** `git checkout dev && git branch -D <branch>`.
+11. **Pull dev.** `git pull origin dev` — confirm `git status` shows `nothing to commit, working tree clean` before starting the next task.
+
+### Complete task teardown sequence
+
+Run these commands in order at the end of every task:
+
+```bash
+# 1. Merge the PR (via MCP tool or gh)
+# 2. Return to dev and clean up
+git checkout dev
+git pull origin dev
+git branch -D <feature-branch>           # delete local branch
+git push origin --delete <feature-branch> # delete remote branch (if not auto-deleted)
+git status                               # must be clean
+```
+
+### Enforcement protocol
+
+| Checkpoint | Command | Expected result |
+|-----------|---------|-----------------|
+| Before creating a branch | `git status` | `nothing to commit, working tree clean` |
+| After any file-modifying command | `git status` | Stage or restore every modified file immediately |
+| After switching to a branch | `git status` | Only files you intentionally changed are modified |
+| Before opening PR | `mypy` + `typing_audit` + `pytest` + `generate.py --check` | All pass locally |
+| After task complete | PR created, merged immediately, branch deleted locally and remotely | `git status` on `dev` is clean |
+
+Carrying dirty state from `dev` into a feature branch, then committing only some of the dirty files, is the root cause of every "uncommitted changes on dev" incident. The protocol above prevents it.
 
 ---
 
@@ -81,6 +183,29 @@ When your changes affect another agent's domain, produce a **handoff prompt** de
 ### Suggested Next Steps
 - [Specific tasks for the receiving agent]
 ```
+
+---
+
+## GitHub interactions — MCP first
+
+The `user-github` MCP server (officially maintained by GitHub) is available in every Cursor session. **Always prefer MCP tools over `gh` CLI for GitHub operations.** MCP calls are typed, structured, and composable; `gh` is a last resort for operations not yet covered by the server.
+
+| Operation | MCP tool |
+|-----------|----------|
+| Read an issue | `issue_read` |
+| Create / edit an issue | `issue_write` |
+| Add an issue comment | `add_issue_comment` |
+| List issues | `list_issues` |
+| Search issues / PRs | `search_issues`, `search_pull_requests` |
+| Read a PR | `pull_request_read` |
+| Create a PR | `create_pull_request` |
+| Update / merge a PR | `update_pull_request`, `merge_pull_request` |
+| Create / submit a review | `pull_request_review_write` |
+| List / create branches | `list_branches`, `create_branch` |
+| Get current user | `get_me` |
+| Search code | `search_code` |
+
+Only fall back to `gh` CLI when the MCP server does not cover the required operation (e.g. `gh worktree`, `gh auth`).
 
 ---
 
@@ -121,9 +246,11 @@ scripts/
 - **Every Python file** must have `from __future__ import annotations` as the first import, immediately after the module docstring (if present). A module docstring may precede it — no other code may. No exceptions.
 - **Type everything, 100%.** No untyped function parameters, no untyped return values. Use `list[X]`, `dict[K, V]`, `tuple[A, B]`, `X | None` — never `Optional[X]`, never bare `list` or `dict`.
 - **Mypy before tests — always, without exception.** Run `docker compose exec agentception mypy agentception/ tests/` on every Python file you create or modify before running the test suite. Fix all type errors first.
+- **Every TypeScript file** (`agentception/static/js/**/*.ts`) must pass `docker compose exec agentception npm run type-check` (`tsc --noEmit`) before committing. See the TypeScript typing rules section below.
+- **Convert `.js` → `.ts` for every file you touch.** If you open a JS file to edit it, rename it `.ts` and add types in the same commit.
 - **Editing existing files:** Only modify necessary sections. Preserve formatting, structure, and surrounding code.
 - **Creating new files:** Write complete, self-contained modules. Include imports, type hints, and docstrings.
-- **Before finishing any task:** Confirm types pass (mypy), tests pass (all four levels), imports resolve, no orphaned code.
+- **Before finishing any task:** Confirm types pass (mypy + tsc), tests pass (all four levels), imports resolve, no orphaned code.
 
 ### Typing — zero-tolerance rules
 
@@ -147,13 +274,73 @@ This codebase is read and modified by humans and agents alike. Strong, explicit 
 
 **The `# type: ignore` rule:** there is no valid reason to use it in application code. If mypy flags something, it has found a real problem. The solution is always to fix the type, not to suppress the error. If a third-party library produces an unfixable typing gap, wrap it in a thin, fully-typed adapter and document why.
 
-### Mypy enforcement chain
+### Mypy enforcement chain (Python)
 
 | Layer | Command | Threshold |
 |-------|---------|-----------|
 | Local | `docker compose exec agentception mypy agentception/ tests/` | strict, 0 errors |
 | Typing ceiling | `python tools/typing_audit.py --dirs agentception/ tests/ --max-any 0` | blocks commit |
 | CI | `python -m mypy agentception/` | blocks PR merge |
+
+### TypeScript — zero-tolerance typing rules
+
+Frontend source files under `agentception/static/js/` are TypeScript (`.ts`). The same discipline that applies to Python with mypy applies here with `tsc`. `tsconfig.json` enforces `strict: true` — every error is real and must be fixed, never silenced.
+
+**Type inference is correct and encouraged for local variables.** Do not add redundant annotations where TypeScript can infer the type exactly:
+
+```typescript
+const count = 0;              // ✅ inferred as number — no annotation needed
+const names = ['a', 'b'];    // ✅ inferred as string[]
+```
+
+**Always annotate explicitly:**
+- Every function parameter — inference does not apply to parameters
+- Exported function return types
+- Variables initialised to `null`, `undefined`, or `[]` / `{}` (inference gives `null`, `never[]`, `{}`)
+- Any network or storage boundary (`fetch` response, `localStorage`, `JSON.parse`)
+- The `this` context of an Alpine component
+
+**Banned — no exceptions:**
+
+| What | Why banned | Use instead |
+|------|------------|-------------|
+| `any` | Collapses type safety for all callers | A specific type, `unknown`, or a discriminated union |
+| `object` | Structureless — equivalent to `any` | The actual interface or a constrained type |
+| `{}` (as a type) | Accepts almost everything | A named `interface` or `type` |
+| `Function` | No parameter or return info | An explicit signature `(x: T) => U` |
+| Untyped parameters | Cannot be inferred | Always annotate: `fn(x: string): void` |
+| `as any` | Silences all downstream errors | Fix the root cause; narrow from `unknown` |
+| `// @ts-ignore` | A lie in the source | Fix the error; use `// @ts-expect-error` only with a justification comment |
+| `Record<string, unknown>` for known keys | Structured data treated as dynamic | A named `interface` with the known fields |
+| Unexplained `!` (non-null assertion) | Masks a potential crash | Add a runtime guard, or document why null is impossible |
+
+**The known-keys rule (mirrors Python):** `Map<K, V>` and `Record<K, V>` are correct when any key is valid at runtime. If you know the keys at write time, define a named `interface`. A `Record<string, unknown>` whose keys are always `"total"`, `"issues"`, and `"batch_id"` is an `interface` waiting to be written.
+
+**Network and storage boundaries:** `JSON.parse` returns `unknown`. `Response.json()` returns `any` in the DOM lib. At every network or storage boundary, assert to a named interface and explain why:
+
+```typescript
+const data = await resp.json() as ValidateResponse;   // server contract
+```
+
+For SSE streams, use a typed parser (e.g. `parseSseEvent<T>`) that validates the discriminator field before asserting the union type. `as T` inside business logic is always a red flag — fix the upstream function instead.
+
+**TypeScript enforcement chain:**
+
+| Layer | Command | Threshold |
+|-------|---------|-----------|
+| Local type check | `npm run type-check` | `tsc --noEmit`, 0 errors |
+| Unit tests | `npm test` | Vitest, all green |
+| Build | `npm run build:js` | esbuild bundles (no type-checking) |
+| E2E | `npm run test:e2e` | Playwright, all green (requires `docker compose up -d`) |
+| Full gate | `npm run test:all` | type-check + unit + E2E |
+
+Note: esbuild does **not** type-check. `docker compose exec agentception npm run type-check` is the only type gate — run it before every commit. `docker compose exec agentception npm test` runs the Vitest unit-test suite (jsdom, no browser required). `docker compose exec agentception npm run test:e2e` runs Playwright against the live Docker server.
+
+**Testing rules for TypeScript:**
+- Every exported function in a `.ts` source file must have Vitest unit tests in a sibling `__tests__/*.test.ts` file.
+- Mock module-level dependencies at the top of the test file with `vi.mock(...)` (Vitest auto-hoists these above imports).
+- SSE endpoints are intercepted in E2E tests via `page.route()`; pure computation endpoints hit the real server for genuine confidence.
+- Never open a PR with a known failing unit or E2E test.
 
 ### Jinja2 + Alpine.js / HTMX: always single-quote attributes containing `tojson`
 
@@ -187,6 +374,25 @@ Every change must be covered at the appropriate level. Omitting a level requires
 | **Regression** | Reproduces a specific bug before the fix | Every bug fix — named `test_<what_broke>_<fixed_behavior>` |
 | **E2E** | Full request/response or full pipeline run | Any user-facing flow (planning pipeline, issue creation, agent dispatch) |
 
+### Test scope — targeted runs, not full suite
+
+**For every feature or fix commit:** run only the test files that cover the changed source files.
+
+| Changed source | Run test file |
+|----------------|---------------|
+| `agentception/config.py` | `tests/test_config.py` |
+| `agentception/services/planner.py` | `tests/test_execution_plan.py` |
+| `agentception/routes/api/dispatch.py` | `tests/test_build.py` |
+| `agentception/readers/git.py` | `tests/test_ensure_helpers.py` |
+| `agentception/db/persist.py` | `tests/test_persist.py` |
+
+When a change touches multiple modules, pass all relevant test files to a single `pytest` call. The full suite (`agentception/tests/ -v`) is reserved for two situations only:
+
+1. **`dev → main` release merges** — full regression gate before tagging a version.
+2. **Periodic health audits** — run deliberately, not automatically on every commit.
+
+Never run the full suite as a reflex. It costs 3–4 minutes per run and signals nothing that targeted tests don't already catch during normal development.
+
 ### Agents own all broken tests — not just theirs
 
 If you run the test suite and see a failing test — regardless of whether your change caused it — you are responsible for fixing it before your PR merges. "This was already broken" is not an acceptable response. You have two options:
@@ -200,18 +406,26 @@ There is no third option. A codebase with known broken tests that everyone steps
 
 ## Verification Checklist
 
-Before considering work complete, run in this order (mypy first so type fixes don't force a re-run of tests):
+**Run locally before opening a PR — in this exact order.** CI does not run on feature → dev PRs; this checklist is the gate.
 
-> **Dev bind mounts are active.** Your host file edits are instantly visible inside the container — do NOT rebuild for code changes. Only rebuild when `requirements.txt`, `Dockerfile`, or `entrypoint.sh` change.
+> **Dev bind mounts are active.** `docker-compose.override.yml` bind-mounts `agentception/`, `tests/`, `scripts/`, and `pyproject.toml` into the container. Host file edits are **instantly visible on disk** inside the container — but **uvicorn auto-reload is intentionally disabled** (auto-reload would kill in-flight agent runs on every file save). This means:
+> - **Python source change** → `docker compose restart agentception` (no rebuild — the bind mount already delivered the new file; restart makes uvicorn load it).
+> - **`requirements.txt`, `Dockerfile`, or `entrypoint.sh` change** → `docker compose build agentception && docker compose up -d agentception` (full image rebuild required — these files are baked into the image layer, not bind-mounted).
 
+0. [ ] Confirm you are on a feature branch or inside a worktree — **never on `dev` or `main`**
 1. [ ] `docker compose exec agentception mypy agentception/ tests/` — clean, zero errors
-2. [ ] `python tools/typing_audit.py --dirs agentception/ tests/ --max-any 0` — passes
-3. [ ] Unit tests pass: `docker compose exec agentception pytest tests/unit/ -v`
-4. [ ] Integration tests pass: `docker compose exec agentception pytest tests/integration/ -v`
-5. [ ] E2E tests pass (if applicable): `docker compose exec agentception pytest tests/e2e/ -v`
-6. [ ] Regression test added if this is a bug fix
-7. [ ] Zero broken tests in the full suite — fix any you find, not just yours
-8. [ ] Affected docs updated
-9. [ ] No secrets, no `print()`, no dead code, no `Any`, no bare collections, no `cast()`, no `# type: ignore`
-10. [ ] JS/CSS bundles rebuilt if static source changed (`npm run build`)
-11. [ ] If API contract changed → handoff prompt produced
+2. [ ] `docker compose exec agentception python3 tools/typing_audit.py --dirs agentception/ tests/ --max-any 0` — passes
+3. [ ] `docker compose exec agentception pytest <test files relevant to changes> -v` — pass only the test files covering changed source. Full suite (`agentception/tests/ -v`) only before `dev → main` release merges or on periodic audits.
+4. [ ] Regression test added if this is a bug fix (named `test_<what_broke>_<fixed_behavior>`)
+5. [ ] `docker compose exec agentception python3 /app/scripts/gen_prompts/generate.py --check` — no drift (run without `--check` first if you edited `.j2` templates, then re-run with `--check`)
+6. [ ] Zero broken tests — fix any you find, not just yours
+7. [ ] Affected docs updated in the same commit
+8. [ ] No secrets, no `print()`, no dead code, no `Any`, no bare collections, no `cast()`, no `# type: ignore` (Python)
+8a. [ ] No `any`, `object`, `{}`, untyped parameters, `as any`, or `// @ts-ignore` (TypeScript)
+8b. [ ] No legacy, no deprecated, no shims — if you touched a file with dead patterns, they are deleted in this PR
+9. [ ] If any `.ts` files changed: `docker compose exec agentception npm run type-check` (zero errors), `docker compose exec agentception npm test` (all green), then `docker compose exec agentception npm run build:js`
+9a. [ ] If any `.js` source files were touched: rename to `.ts` and add types in this same commit
+9b. [ ] If any `.scss` files changed: `docker compose exec agentception npm run build:css`
+9c. [ ] E2E tests pass: `docker compose exec agentception npm run test:e2e` (requires `docker compose up -d`)
+10. [ ] If API contract changed → handoff prompt produced
+11. [ ] **Open PR and merge immediately** — do not wait for CI (it does not run on dev PRs)

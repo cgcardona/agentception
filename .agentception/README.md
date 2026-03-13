@@ -7,28 +7,33 @@ Runtime configuration directory for the AgentCeption orchestration system.
 ```
 .agentception/
 ├── roles/                          — Agent role definition files (markdown). Each file defines a
-│                                     cognitive architecture: decision hierarchy, quality bar, and
-│                                     embedded kickoff prompts used by the Dispatcher.
-├── prompts/                        — Prompt templates used by the dispatch pipeline.
-├── dispatcher.md                   — The AgentCeption Dispatcher agent prompt (drains the pending
-│                                     launch queue and assigns issues to role-matched agents).
-├── agent-task-spec.md              — Full spec for `.agent-task` files: fields, validation rules,
-│                                     and lifecycle.
-├── agent-command-policy.md         — Policy for which shell commands agents may run, with
-│                                     justifications.
-├── cognitive-arch-enrichment-spec.md — Spec for enriching issue bodies with cognitive-arch tags.
-├── conflict-rules.md               — Rules for detecting and resolving agent-task conflicts.
-├── multi-tier-agent-architecture.md — Full spec for the multi-tier agent tree (tiers, scopes,
-│                                     GitHub query strategy).
-├── pipeline-config.json            — Active project configuration (gh_repo, repo_dir,
-│                                     worktrees_dir, active_project). Read at startup by
-│                                     agentception/config.py to apply project-specific path
-│                                     overrides.
-├── pipeline-howto.md               — Operator guide: how to configure and operate the pipeline.
-├── stress-test-agent-kickoff.md    — Kickoff prompt template for stress-test agents.
-├── stress-test-parallelism.md      — Protocol for parallel stress-test runs.
+│                                     coordinator or worker: decision hierarchy, quality bar, and
+│                                     embedded kickoff prompts. All files are generated from
+│                                     scripts/gen_prompts/templates/roles/*.md.j2 — never edit
+│                                     the .md files directly; edit the .j2 source instead.
+├── agent-engineer.md               — Engineering worker agent prompt (implement a GitHub issue).
+├── agent-reviewer.md               — PR reviewer agent prompt (review and merge a pull request).
+├── agent-conductor.md              — Agent conductor prompt (coordinate multi-step workflows).
+├── agent-command-policy.md         — Policy for which shell commands agents may run.
+├── agent-task-spec.md              — DB-backed RunContextRow field reference for agents.
+├── cognitive-arch-enrichment-spec.md — Spec for enriching issues with cognitive-arch tags.
+├── conflict-rules.md               — Rules for detecting and resolving concurrent agent conflicts.
+├── pipeline-config.json            — Active project configuration (gh_repo, pool_size,
+│                                     coordinator_limits, approval gates, etc.).
+├── pipeline-howto.md               — Operator guide: phase-gate, dependency, and label conventions.
 └── README.md                       — This file.
 ```
+
+## Role taxonomy
+
+Roles fall into two categories that map to tree nodes and leaf nodes:
+
+| Category | Description | Examples |
+|----------|-------------|---------|
+| **Coordinator** | Receives delegated scope, delegates to sub-coordinators or workers | `engineering-coordinator`, `cto`, `ceo` |
+| **Worker** | Performs leaf-level work, produces an artifact | `developer`, `reviewer`, `content-writer` |
+
+All roles in `roles/` are served over MCP as `role/<slug>` prompts and included in template archives. C-suite roles (`ceo`, `cto`, etc.) are coordinators at the top of the tree.
 
 ## Path resolution
 
@@ -76,3 +81,10 @@ The live runtime copy that persists across restarts lives at
 `$HOME/.agentception` on the developer's machine. The repo copy here is the
 version-controlled source of truth; Docker bind-mounts it so changes are
 visible inside the container without a rebuild.
+
+## Editing roles
+
+1. Edit the `.j2` source in `scripts/gen_prompts/templates/roles/`
+2. Run `docker compose exec agentception python3 /app/scripts/gen_prompts/generate.py`
+3. Commit both the template and the regenerated `.md` together
+4. Run `generate.py --check` before opening a PR to confirm no drift

@@ -35,7 +35,7 @@ docker-compose.override.yml
 
 # OS
 .DS_Store
-Thumbs.db
+*.db
 
 # Logs
 *.log
@@ -44,5 +44,19 @@ logs/
 # Alembic
 alembic/versions/__pycache__/
 
+# Node
+node_modules
+node_modules/
+package-lock.json
+
+# Compiled frontend bundles — generated at Docker build time, never committed
+agentception/static/app.js
+agentception/static/app.css
+
 # Agent ephemeral briefing files — never committed
-.agent-task
+# Runtime role-version ledger — written by the app server on every role commit.
+# These are runtime state, not source code. Tracking them causes dev to appear
+# dirty after every agent run. The DB is the canonical state store; these files
+# are local caches for the running container / active worktree.
+.agentception/role-versions.json
+.agentception/memory.json

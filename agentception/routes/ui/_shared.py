@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Shared helpers, constants, and the Jinja2 template singleton for all UI routes.
 
 This module is the single source of truth for:
@@ -8,9 +6,11 @@ This module is the single source of truth for:
 - ``_find_agent`` / ``_issue_is_claimed``: also re-exported from the package
   ``__init__`` so that api.py imports keep working without circular dependencies.
 """
+from __future__ import annotations
 
 import datetime
 import logging
+import os
 from pathlib import Path
 
 from fastapi.templating import Jinja2Templates
@@ -28,25 +28,13 @@ _TEMPLATES = Jinja2Templates(directory=str(_HERE.parent.parent / "templates"))
 # Roles not listed here fall into the "Other" catch-all category, which
 # appears last so newly-added taxonomy roles are always visible in the form.
 _ROLE_CATEGORY_MAP: dict[str, tuple[str, int]] = {
-    # Backend
-    "python-developer":         ("Backend", 0),
-    "api-developer":            ("Backend", 1),
-    "database-architect":       ("Backend", 2),
-    "systems-programmer":       ("Backend", 3),
-    "go-developer":             ("Backend", 4),
-    "rails-developer":          ("Backend", 5),
-    # Frontend
-    "frontend-developer":       ("Frontend", 0),
-    "mobile-developer":         ("Frontend", 1),
-    "full-stack-developer":     ("Frontend", 2),
-    "typescript-developer":     ("Frontend", 3),
-    "react-developer":          ("Frontend", 4),
-    # Mobile
-    "ios-developer":            ("Mobile", 0),
-    "android-developer":        ("Mobile", 1),
+    # Engineering — language/framework comes from cognitive architecture, not role slug
+    "developer":                ("Engineering", 0),
+    "database-architect":       ("Engineering", 1),
+    "architect":                ("Engineering", 2),
     # Quality
     "test-engineer":            ("Quality", 0),
-    "pr-reviewer":              ("Quality", 1),
+    "reviewer":              ("Quality", 1),
     "technical-writer":         ("Quality", 2),
     # Infrastructure
     "devops-engineer":          ("Infrastructure", 0),
@@ -57,21 +45,16 @@ _ROLE_CATEGORY_MAP: dict[str, tuple[str, int]] = {
     "data-engineer":            ("Data / AI", 1),
     "ml-researcher":            ("Data / AI", 2),
     "data-scientist":           ("Data / AI", 3),
-    # Systems
-    "rust-developer":           ("Systems", 0),
-    # Architecture
-    "architect":                ("Architecture", 0),
 }
 
 _CATEGORY_ORDER: list[str] = [
-    "Backend", "Frontend", "Mobile", "Quality", "Infrastructure",
-    "Data / AI", "Systems", "Architecture", "Other",
+    "Engineering", "Quality", "Infrastructure", "Data / AI", "Other",
 ]
 
 
 def _timestamp_to_date(ts: float) -> str:
     try:
-        return datetime.datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d")
+        return datetime.datetime.fromtimestamp(ts, tz=datetime.UTC).strftime("%Y-%m-%d")
     except Exception:
         return "—"
 
@@ -105,11 +88,19 @@ def _md_to_html(text: str) -> str:
 
 
 def _parse_iso(s: object) -> datetime.datetime | None:
-    """Parse an ISO-8601 datetime string, returning None on failure."""
+    """Parse an ISO-8601 datetime string, returning a UTC-aware datetime or None.
+
+    Python 3.11+ ``fromisoformat`` handles the trailing ``Z`` natively.
+    Naive results (no timezone in the string) are stamped as UTC because all
+    timestamps in this codebase are stored and transmitted as UTC.
+    """
     if not isinstance(s, str):
         return None
     try:
-        return datetime.datetime.fromisoformat(s.rstrip("Z"))
+        dt = datetime.datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=datetime.UTC)
+        return dt
     except ValueError:
         return None
 
@@ -125,19 +116,40 @@ def _fmt_duration(seconds: float) -> str:
     return f"{h}h {m}m"
 
 
+_ROLE_ACRONYMS: frozenset[str] = frozenset({"cto", "vp", "qa", "coo", "cfo", "cpo", "ciso"})
+
+
+def _fmt_role(role: str) -> str:
+    """Format a role slug for display.
+
+    Known acronyms (cto, vp, qa …) are uppercased; all other parts are
+    title-cased.  Hyphens become spaces.
+
+    Examples::
+
+        "cto"                   → "CTO"
+        "vp-engineering"        → "VP Engineering"
+        "developer"             → "Developer"
+    """
+    return " ".join(
+        p.upper() if p.lower() in _ROLE_ACRONYMS else p.title()
+        for p in role.split("-")
+    )
+
+
 def _fmt_elapsed(spawned_iso: object) -> str:
     """Return a human-readable elapsed time string from an ISO spawn timestamp to now."""
     dt = _parse_iso(spawned_iso)
     if dt is None:
         return ""
-    delta = datetime.datetime.utcnow() - dt
+    delta = datetime.datetime.now(datetime.UTC) - dt
     return _fmt_duration(max(0.0, delta.total_seconds()))
 
 
 def _format_ts(ts: float) -> str:
     """Format a UNIX timestamp as a short UTC datetime string for the telemetry table."""
     try:
-        return datetime.datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+        return datetime.datetime.fromtimestamp(ts, tz=datetime.UTC).strftime("%Y-%m-%d %H:%M")
     except (OSError, OverflowError, ValueError):
         return "—"
 
@@ -149,12 +161,11 @@ def _format_number(n: int) -> str:
 
 def _dirname(path: str) -> str:
     """Return the parent directory of a path string (equivalent to os.path.dirname)."""
-    import os
     return os.path.dirname(path)
 
 
 def _issue_is_claimed(iss: dict[str, object]) -> bool:
-    """Return True when an issue carries the ``agent:wip`` label.
+    """Return True when an issue carries the ``agent/wip`` label.
 
     Handles both list-of-strings and list-of-label-objects shapes so the
     helper works correctly regardless of which GitHub reader format is used.
@@ -163,11 +174,11 @@ def _issue_is_claimed(iss: dict[str, object]) -> bool:
     if not isinstance(raw, list):
         return False
     for lbl in raw:
-        if isinstance(lbl, str) and lbl == "agent:wip":
+        if isinstance(lbl, str) and lbl == "agent/wip":
             return True
         if isinstance(lbl, dict):
             name = lbl.get("name")
-            if name == "agent:wip":
+            if name == "agent/wip":
                 return True
     return False
 
@@ -200,5 +211,8 @@ _TEMPLATES.env.filters["markdown"] = _md_to_html
 _TEMPLATES.env.filters["format_ts"] = _format_ts
 _TEMPLATES.env.filters["format_number"] = _format_number
 _TEMPLATES.env.filters["dirname"] = _dirname
+_TEMPLATES.env.filters["fmt_role"] = _fmt_role
 _TEMPLATES.env.globals["gh_repo"] = _settings.gh_repo
 _TEMPLATES.env.globals["gh_base_url"] = f"https://github.com/{_settings.gh_repo}"
+# Bare repo name (without org prefix) used to build RESTful URL paths.
+_TEMPLATES.env.globals["repo_name"] = _settings.gh_repo.split("/")[-1]

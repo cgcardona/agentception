@@ -15,21 +15,21 @@ This guide covers day-to-day development mechanics inside the containerised Agen
 | `scripts/` | `/app/scripts/` | Helper scripts |
 | `pyproject.toml` | `/app/pyproject.toml` | Project metadata |
 
-**The critical implication:** saving a `.py` file on your host is immediately visible to the running process inside the container. The FastAPI dev server (Uvicorn with `--reload`) picks up the change and restarts automatically — **no image rebuild required**.
+**The critical implication:** saving a `.py` file on your host is immediately visible inside the container — the bind mount is live. However, **Uvicorn `--reload` is intentionally disabled** (`docker-compose.override.yml`). Auto-reload kills all in-flight asyncio background tasks (agent runs) on every file save; with source directories bind-mounted, any file write by an agent worker would trigger a reload and silently kill that agent mid-run. The trade-off: you must manually restart the container after merging code changes.
 
-### When you do and do not need to rebuild
+### When you do and do not need to rebuild or restart
 
 | Change type | Action required |
 |-------------|----------------|
-| Edit any `.py` file | None — bind mount + auto-reload handles it |
-| Edit any Jinja2 template (`.html`) | None — bind mount handles it |
+| Edit any `.py` file | **`docker compose restart agentception`** — bind mount exposes the new source, restart loads it |
+| Edit any Jinja2 template (`.html`) | None — Jinja2 renders templates from disk at request time; no restart needed |
 | Edit any `.scss` source file | Run `npm run build:css` then reload the browser |
-| Edit any `.js` source file under `static/js/` | Run `npm run build:js` then reload the browser |
+| Edit any `.ts` source file under `static/js/` | Run `npm run type-check && npm run build:js` then reload the browser |
 | Add or remove a Python dependency (`requirements.txt`) | `docker compose build agentception && docker compose up -d agentception` |
 | Change `Dockerfile` or `entrypoint.sh` | `docker compose build agentception && docker compose up -d agentception` |
 | Change `pyproject.toml` metadata only | None — live-mounted |
 
-**Rule of thumb:** if it touches the filesystem layer baked into the image (`Dockerfile`, `entrypoint.sh`, installed packages), rebuild. If it touches source code or templates, just save.
+**Rule of thumb:** if it touches the filesystem layer baked into the image (`Dockerfile`, `entrypoint.sh`, installed packages), rebuild. If it touches Python source, restart. If it touches templates only, just save.
 
 ---
 

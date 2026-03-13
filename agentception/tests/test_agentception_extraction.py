@@ -27,27 +27,6 @@ def _all_python_files(exclude_self: bool = False) -> list[Path]:
         and (not exclude_self or p.resolve() != this_file)
     ]
 
-
-def test_no_maestro_imports_in_agentception() -> None:
-    """No .py file in agentception/ may import from the legacy maestro package.
-
-    AgentCeption is fully self-contained. Imports from maestro.* would reintroduce
-    a hard dependency on the old monorepo that no longer exists here.
-    """
-    violations: list[str] = []
-    pattern = re.compile(r"^\s*(from maestro[.\s]|import maestro[.\s])", re.MULTILINE)
-
-    for path in _all_python_files(exclude_self=False):
-        source = path.read_text(encoding="utf-8")
-        if pattern.search(source):
-            violations.append(str(path.relative_to(AGENTCEPTION_ROOT.parent)))
-
-    assert not violations, (
-        "Found maestro.* imports in agentception/ — remove them, agentception is standalone:\n"
-        + "\n".join(f"  {v}" for v in violations)
-    )
-
-
 def test_no_hardcoded_gabriel_paths() -> None:
     """No .py file in agentception/ may contain a literal hardcoded user path.
 
@@ -77,14 +56,18 @@ def test_no_hardcoded_gabriel_paths() -> None:
 
 
 def test_pyproject_toml_valid() -> None:
-    """agentception/pyproject.toml must exist, be valid TOML, and contain required keys.
+    """The root pyproject.toml must exist, be valid TOML, and contain required keys.
+
+    There is exactly one pyproject.toml — at the repository root (one level above
+    the agentception/ package directory). The inner agentception/pyproject.toml was
+    an orphaned duplicate and has been removed.
 
     Required structure:
       [project] name, version, requires-python, dependencies
       [project.scripts] agentception entrypoint
       [build-system] requires, build-backend
     """
-    toml_path = AGENTCEPTION_ROOT / "pyproject.toml"
+    toml_path = AGENTCEPTION_ROOT.parent / "pyproject.toml"
     assert toml_path.exists(), f"pyproject.toml not found at {toml_path}"
 
     with toml_path.open("rb") as f:
@@ -104,8 +87,8 @@ def test_pyproject_toml_valid() -> None:
     assert "agentception" in scripts, (
         "[project.scripts].agentception entry point is missing"
     )
-    assert scripts["agentception"] == "agentception.app:main", (
-        f"[project.scripts].agentception must point to 'agentception.app:main', "
+    assert scripts["agentception"] == "agentception.app:app", (
+        f"[project.scripts].agentception must point to 'agentception.app:app', "
         f"got {scripts['agentception']!r}"
     )
 

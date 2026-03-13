@@ -22,8 +22,11 @@ import time
 from pathlib import Path
 
 from agentception.config import settings
+from agentception.reconcile import reconcile_stale_runs
+from agentception.db.engine import get_session
 from agentception.intelligence.guards import detect_out_of_order_prs, detect_stale_claims
-from agentception.models import AgentNode, AgentStatus, BoardIssue, PipelineState, StaleClaim, TaskFile
+from agentception.db.queries import RunContextRow, list_active_runs
+from agentception.models import AgentNode, AgentStatus, BoardIssue, PipelineState, PlanDraftEvent, StaleClaim, StalledAgentEvent
 from agentception.readers.github import (
     get_active_label,
     get_closed_issues,
@@ -32,12 +35,13 @@ from agentception.readers.github import (
     get_open_prs,
     get_wip_issues,
 )
-from agentception.readers.worktrees import list_active_worktrees, worktree_last_commit_time
+from agentception.readers.git import worktree_last_commit_time
 
 logger = logging.getLogger(__name__)
 
-# Agents whose most-recent commit is older than this threshold are flagged.
-_STUCK_THRESHOLD_SECONDS: int = 30 * 60  # 30 minutes
+# Default fallback used when PipelineConfig cannot be read.  The live value
+# comes from PipelineConfig.stall_threshold_minutes at tick time.
+_DEFAULT_STALL_THRESHOLD_SECONDS: int = 30 * 60
 
 # ---------------------------------------------------------------------------
 # Shared state — module-level singletons, mutated only by tick()
@@ -45,6 +49,12 @@ _STUCK_THRESHOLD_SECONDS: int = 30 * 60  # 30 minutes
 
 _state: PipelineState | None = None
 _subscribers: list[asyncio.Queue[PipelineState]] = []
+
+# In-memory deduplication for auto phase-advance transitions.
+# Each entry is (initiative, from_phase, to_phase) and is added only after a
+# successful plan_advance_phase call.  This prevents repeated GitHub API calls
+# on every tick for transitions that have already been applied.
+_auto_advanced: set[tuple[str, str, str]] = set()
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +98,7 @@ async def build_github_board() -> GitHubBoard:
         get_open_issues(),
         get_open_prs(),
         get_wip_issues(),
-        get_closed_issues(limit=100),
+        get_closed_issues(),
         get_merged_prs_full(limit=100),
     )
     return GitHubBoard(
@@ -107,62 +117,61 @@ async def build_github_board() -> GitHubBoard:
 
 
 async def merge_agents(
-    worktrees: list[TaskFile],
+    active_runs: list[RunContextRow],
     github: GitHubBoard,
 ) -> list[AgentNode]:
-    """Build an ``AgentNode`` list by correlating worktree task files with GitHub.
+    """Build an ``AgentNode`` list by correlating DB run rows with GitHub.
 
     Status derivation rules (applied in priority order):
-    1. Worktree branch matches an open PR ``headRefName`` → REVIEWING
-    2. Worktree issue number appears in ``agent:wip`` issues → IMPLEMENTING
-    3. ``WORKFLOW=bugs-to-issues`` (coordinator/brain-dump) → IMPLEMENTING
-       These agents have no issue number or PR; they are actively planning.
+    1. Run branch matches an open PR ``headRefName`` → REVIEWING
+    2. Run has an issue_number → IMPLEMENTING
+    3. Run is a coordinator (tier == coordinator, no issue/PR) → IMPLEMENTING
     4. Otherwise → UNKNOWN
     """
-    # Index open PRs by branch name for O(1) lookup.
-    pr_branches: set[str] = {
-        str(pr["headRefName"])
-        for pr in github.open_prs
-        if isinstance(pr.get("headRefName"), str)
-    }
-
-    # Index WIP issue numbers for O(1) lookup.
-    wip_issue_numbers: set[int] = set()
-    for issue in github.wip_issues:
-        num = issue.get("number")
-        if isinstance(num, int):
-            wip_issue_numbers.add(num)
+    pr_branch_to_number: dict[str, int] = {}
+    for pr in github.open_prs:
+        head = pr.get("headRefName")
+        number = pr.get("number")
+        if isinstance(head, str) and isinstance(number, int):
+            pr_branch_to_number[head] = number
 
     nodes: list[AgentNode] = []
-    for tf in worktrees:
-        branch = tf.branch or ""
-        if branch and branch in pr_branches:
+    for run in active_runs:
+        branch = run["branch"] or ""
+        gh_pr_number: int | None = pr_branch_to_number.get(branch) if branch else None
+        if branch and gh_pr_number is not None:
             status = AgentStatus.REVIEWING
-        elif tf.issue_number is not None and tf.issue_number in wip_issue_numbers:
+        elif run["issue_number"] is not None:
             status = AgentStatus.IMPLEMENTING
-        elif tf.task == "bugs-to-issues":
-            # Coordinator (brain-dump) agents have no GitHub issue or PR until
-            # sub-agents start filing them.  Treat them as IMPLEMENTING so they
-            # show as active rather than confusingly UNKNOWN.
+        elif run["tier"] == "coordinator":
+            # Coordinator agents may have no issue/PR during planning.
             status = AgentStatus.IMPLEMENTING
         else:
-            status = AgentStatus.UNKNOWN
+            # Ad-hoc runs (issue_number is None, not a coordinator) are
+            # managed by their asyncio task lifecycle, not by GitHub signals.
+            # Treat them as IMPLEMENTING so the poller never stamps FAILED
+            # onto a live adhoc run that simply has no associated issue.
+            status = AgentStatus.IMPLEMENTING
 
-        # Agent ID is the worktree basename (e.g. "issue-732"). This is the
-        # canonical identifier used in URLs, DB PKs, and API responses.
+        worktree = run["worktree_path"]
         node_id = (
-            Path(tf.worktree).name if tf.worktree else None
-        ) or (f"issue-{tf.issue_number}" if tf.issue_number else None) or "unknown"
+            Path(worktree).name if worktree else None
+        ) or (f"issue-{run['issue_number']}" if run["issue_number"] else None) or run["run_id"]
+        resolved_pr_number = gh_pr_number if gh_pr_number is not None else run["pr_number"]
         nodes.append(
             AgentNode(
                 id=node_id,
-                role=tf.role or "unknown",
+                role=run["role"] or "unknown",
                 status=status,
-                issue_number=tf.issue_number,
-                branch=tf.branch,
-                batch_id=tf.batch_id,
-                worktree_path=tf.worktree,
-                cognitive_arch=tf.cognitive_arch,
+                issue_number=run["issue_number"],
+                pr_number=resolved_pr_number,
+                branch=run["branch"],
+                batch_id=run["batch_id"],
+                worktree_path=worktree,
+                cognitive_arch=run["cognitive_arch"],
+                tier=run["tier"],
+                org_domain=run["org_domain"],
+                parent_run_id=run["parent_run_id"],
             )
         )
 
@@ -175,26 +184,32 @@ async def merge_agents(
 
 
 async def detect_alerts(
-    worktrees: list[TaskFile],
+    active_runs: list[RunContextRow],
     github: GitHubBoard,
-) -> tuple[list[str], list[StaleClaim]]:
-    """Detect pipeline problems and return human-readable alert strings plus structured stale claims.
+    stall_threshold_seconds: int = _DEFAULT_STALL_THRESHOLD_SECONDS,
+) -> tuple[list[str], list[StaleClaim], list[StalledAgentEvent]]:
+    """Detect pipeline problems and return alerts, stale claims, and stalled-agent events.
 
     Three alert classes:
-    1. **Stale claim** — an ``agent:wip`` issue has no live worktree.
+    1. **Stale claim** — an ``agent/wip`` issue has no live worktree.
     2. **Out-of-order PR** — an open PR's labels include an agentception phase
        that no longer matches the currently active phase.
-    3. **Stuck agent** — the most-recent commit in a worktree is > 30 min old.
+    3. **Stalled agent** — two-signal detection:
+       - *Primary (DB heartbeat):* ``last_activity_at`` is older than
+         ``stall_threshold_seconds``.  Promotes the run to ``AgentStatus.STALLED``
+         and emits a ``StalledAgentEvent``.
+       - *Secondary (git commit):* ``worktree_last_commit_time()`` is older than
+         the threshold while ``last_activity_at`` is still fresh.  Surfaces an
+         advisory warning only — no STALLED promotion.
 
-    Returns a tuple of (alert strings, stale_claims).  Alert strings include a
-    human-readable summary of each stale claim; ``stale_claims`` provides the
-    structured data used by the UI "Clear Label" action.
+    Returns ``(alerts, stale_claims, stalled_agents)``.
     """
     alerts: list[str] = []
+    stalled_agents: list[StalledAgentEvent] = []
     now = time.time()
 
-    # ── Alert 1: agent:wip issue with no matching worktree ─────────────────
-    # Self-heal: automatically clear the agent:wip label when there is no live
+    # ── Alert 1: agent/wip issue with no matching worktree ─────────────────
+    # Self-heal: automatically clear the agent/wip label when there is no live
     # worktree for the issue.  The worktree is the source of truth — if it is
     # gone, the claim is orphaned and can be safely released so the issue
     # becomes available for re-spawn.
@@ -207,7 +222,7 @@ async def detect_alerts(
         alerts.append(f"Stale claim on #{claim.issue_number}")
         try:
             await clear_wip_label(claim.issue_number)
-            logger.info("✅ Auto-healed stale claim: removed agent:wip from #%d", claim.issue_number)
+            logger.info("✅ Auto-healed stale claim: removed agent/wip from #%d", claim.issue_number)
         except Exception as exc:
             logger.warning("⚠️  Auto-heal failed for #%d: %s", claim.issue_number, exc)
 
@@ -231,31 +246,104 @@ async def detect_alerts(
                     alerts.append(f"Out-of-order PR #{pr_num}")
                 break  # one alert per PR is enough
 
-    # ── Alert 3: worktree last commit > 30 min ago (async path) ────────────
-    # Skip coordinator (brain-dump) worktrees — they have no commits of their
-    # own; all work happens in sub-agent worktrees they spawn.  Applying the
-    # stuck check to them would always fire immediately.
-    #
-    # Also skip worktrees whose .agent-task file is newer than the threshold —
-    # a freshly spawned worktree has no agent activity yet and is not stuck.
-    for tf in worktrees:
-        if tf.worktree is None:
+    # ── Alert 3: two-signal stall detection ────────────────────────────────
+    # Skip coordinator runs — they have no commits of their own.
+    # Skip freshly-spawned runs — a brand-new worktree has no activity yet.
+    import datetime as _dt
+    for run in active_runs:
+        worktree = run["worktree_path"]
+        if worktree is None:
             continue
-        if tf.task == "bugs-to-issues":
+        if run["tier"] == "coordinator":
             continue
-        path = Path(tf.worktree)
+        path = Path(worktree)
         if not path.exists():
             continue
-        # Skip if the worktree was created (task file written) within the threshold.
-        task_file = path / ".agent-task"
-        if task_file.exists():
-            task_mtime = task_file.stat().st_mtime
-            if (now - task_mtime) < _STUCK_THRESHOLD_SECONDS:
+
+        # Skip if spawned within the threshold window.
+        spawned_at_str = run["spawned_at"]
+        try:
+            spawned_ts = _dt.datetime.fromisoformat(spawned_at_str).timestamp()
+            if (now - spawned_ts) < stall_threshold_seconds:
                 continue
-        last_commit = await worktree_last_commit_time(path)
-        if last_commit > 0.0 and (now - last_commit) > _STUCK_THRESHOLD_SECONDS:
-            label = f"issue #{tf.issue_number}" if tf.issue_number else path.name
+        except (ValueError, OSError):
+            pass
+
+        issue_num: int = run["issue_number"] or 0
+        label = f"issue #{issue_num}" if issue_num else path.name
+        run_id = run["run_id"]
+
+        # ── Primary signal: DB heartbeat (last_activity_at) ────────────────
+        # Agents update last_activity_at on every LLM turn; silence here means
+        # the LLM loop itself has stalled — promote to STALLED immediately.
+        last_activity_raw = run.get("last_activity_at")
+        heartbeat_cold = False
+        last_activity_iso = ""
+        stalled_for_minutes = 0
+
+        if last_activity_raw is not None:
+            try:
+                last_activity_ts = _dt.datetime.fromisoformat(str(last_activity_raw)).timestamp()
+                silence_seconds = now - last_activity_ts
+                if silence_seconds > stall_threshold_seconds:
+                    heartbeat_cold = True
+                    stalled_for_minutes = int(silence_seconds / 60)
+                    last_activity_iso = str(last_activity_raw)
+            except (ValueError, OSError):
+                pass
+        else:
+            # No heartbeat recorded yet; agent has been running past threshold —
+            # treat as cold heartbeat (agent may have crashed before first turn).
+            heartbeat_cold = True
+            last_activity_iso = ""
+            # spawned_ts was already parsed above; reparse defensively.
+            try:
+                spawned_ts_fallback = _dt.datetime.fromisoformat(spawned_at_str).timestamp()
+                stalled_for_minutes = int((now - spawned_ts_fallback) / 60)
+            except (ValueError, OSError):
+                stalled_for_minutes = 0
+
+        if heartbeat_cold:
             alerts.append(f"Possible stuck agent on {label}")
+
+            from agentception.db.persist import update_agent_status  # noqa: PLC0415
+            from agentception.workflow.status import AgentStatus  # noqa: PLC0415
+            await update_agent_status(run_id, AgentStatus.STALLED)
+
+            stale_claims.append(StaleClaim(
+                issue_number=issue_num,
+                issue_title=label,
+                worktree_path=str(path),
+            ))
+
+            stalled_agents.append(StalledAgentEvent(
+                run_id=run_id,
+                issue_number=issue_num,
+                worktree_path=str(path),
+                last_activity_at=last_activity_iso,
+                stalled_for_minutes=stalled_for_minutes,
+            ))
+
+            logger.warning(
+                "⚠️  agent_stalled — run_id=%s issue=%s stalled_for=%dm (DB heartbeat cold)",
+                run_id,
+                label,
+                stalled_for_minutes,
+            )
+            continue  # Primary signal fired — skip secondary check for this run.
+
+        # ── Secondary signal: git commit age (advisory only) ───────────────
+        # Agent is turning (heartbeat warm) but hasn't committed in a while.
+        # Surface a soft warning; do NOT promote to STALLED.
+        last_commit = await worktree_last_commit_time(path)
+        if last_commit > 0.0 and (now - last_commit) > stall_threshold_seconds:
+            advisory_minutes = int((now - last_commit) / 60)
+            logger.warning(
+                "⚠️  agent_active_no_commit — run_id=%s issue=%s no_commit_for=%dm (heartbeat warm)",
+                run_id,
+                label,
+                advisory_minutes,
+            )
 
     # ── Alert 4: structured out-of-order PR violations (linked-issue check) ─
     # Complements Alert 2: while Alert 2 checks the PR's own labels, this
@@ -271,7 +359,7 @@ async def detect_alerts(
     except Exception as exc:
         logger.warning("⚠️  detect_out_of_order_prs failed: %s", exc)
 
-    return alerts, stale_claims
+    return alerts, stale_claims, stalled_agents
 
 
 # ---------------------------------------------------------------------------
@@ -328,11 +416,13 @@ async def broadcast(state: PipelineState) -> None:
 # ---------------------------------------------------------------------------
 
 
+
+
 async def _build_board_issues(
     active_label: str | None,
     gh_repo: str,
 ) -> list[BoardIssue]:
-    """Query ``ac_issues`` for unclaimed issues in the active phase.
+    """Query ``issues`` for unclaimed issues in the active phase.
 
     Called after ``persist_tick`` so the DB already has the freshest data.
     Returns ``[]`` on any error — poller continues without board data.
@@ -361,6 +451,165 @@ async def _build_board_issues(
         return []
 
 
+async def _auto_advance_phases(repo: str) -> None:
+    """Automatically remove the ``pipeline/gated`` label and add ``pipeline/active`` when a phase gate opens.
+
+    Called on every tick after ``persist_tick`` and ``reseed_missing_initiative_phases``.
+    Reads the DB-computed phase completion state, finds any phases whose
+    dependencies are now all closed, and calls ``plan_advance_phase`` for each
+    newly unlocked transition.
+
+    Uses ``_auto_advanced`` (a module-level set of
+    ``(initiative, from_phase, to_phase)`` tuples) to deduplicate — a
+    transition that has already succeeded is never retried within the same
+    process run.  Failures are logged at WARNING level and retried on the
+    next tick.
+    """
+    from agentception.db.queries import get_initiatives, get_issues_grouped_by_phase
+    from agentception.mcp.plan_advance_phase import plan_advance_phase
+
+    try:
+        initiatives = await get_initiatives(repo)
+    except Exception as exc:
+        logger.debug("⚠️  _auto_advance_phases: get_initiatives failed: %s", exc)
+        return
+
+    for initiative in initiatives:
+        try:
+            phases = await get_issues_grouped_by_phase(repo, initiative)
+        except Exception as exc:
+            logger.debug(
+                "⚠️  _auto_advance_phases: get_issues_grouped_by_phase(%s) failed: %s",
+                initiative,
+                exc,
+            )
+            continue
+
+        complete_set: set[str] = {p["label"] for p in phases if p["complete"]}
+
+        for phase in phases:
+            # Only consider phases that have dependencies and are not yet done.
+            if phase["complete"] or not phase["depends_on"]:
+                continue
+
+            # Check whether all dependencies are now complete in the DB.
+            if not all(dep in complete_set for dep in phase["depends_on"]):
+                continue
+
+            # All deps complete — fire plan_advance_phase for each dep→phase pair.
+            for dep_label in phase["depends_on"]:
+                key = (initiative, dep_label, phase["label"])
+                if key in _auto_advanced:
+                    continue  # already applied this tick-cycle
+                try:
+                    result = await plan_advance_phase(initiative, dep_label, phase["label"])
+                    if result.get("advanced") is True:
+                        _auto_advanced.add(key)
+                        logger.info(
+                            "✅ auto-advance: %s %r → %r (%s issue(s) unlocked)",
+                            initiative,
+                            dep_label,
+                            phase["label"],
+                            result.get("unlocked_count", 0),
+                        )
+                    else:
+                        # from_phase not yet fully closed on GitHub (DB ahead of GH).
+                        logger.debug(
+                            "⚠️  auto-advance: %s %r → %r gate not yet open on GitHub: %s",
+                            initiative,
+                            dep_label,
+                            phase["label"],
+                            result.get("open_issues", []),
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "⚠️  auto-advance: %s %r → %r failed: %s",
+                        initiative,
+                        dep_label,
+                        phase["label"],
+                        exc,
+                    )
+
+
+async def _auto_unblock_deps(repo: str) -> None:
+    """Remove ``blocked/deps`` from issues whose all ticket-level deps have closed.
+
+    Called on every tick after ``_auto_advance_phases``.  For each open issue
+    that still carries the ``blocked/deps`` label, checks whether every issue
+    in its ``depends_on_json`` list is now ``closed`` in the DB.  If so,
+    removes the label so the engineering coordinator will pick it up on the
+    next dispatch.
+
+    DB is the source of truth here — the poller has already written the latest
+    GitHub state into ``ACIssue.state`` before this function runs.
+    """
+    from agentception.db.queries import get_blocked_deps_open_issues, get_closed_issue_numbers
+    from agentception.readers.github import remove_label_from_issue
+
+    try:
+        candidates = await get_blocked_deps_open_issues(repo)
+        if not candidates:
+            return
+        closed = await get_closed_issue_numbers(repo)
+        for row in candidates:
+            if all(dep in closed for dep in row["dep_numbers"]):
+                try:
+                    await remove_label_from_issue(row["github_number"], "blocked/deps")
+                    logger.info(
+                        "✅ _auto_unblock_deps: #%d all deps closed — removed blocked/deps",
+                        row["github_number"],
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "⚠️  _auto_unblock_deps: could not remove label from #%d: %s",
+                        row["github_number"],
+                        exc,
+                    )
+    except Exception as exc:
+        logger.warning("⚠️  _auto_unblock_deps: failed: %s", exc)
+
+
+async def _stamp_missing_blocked_deps(repo: str) -> None:
+    """Re-apply ``blocked/deps`` to issues whose deps are recorded but the label is absent.
+
+    This is the server-side safety net for a silent failure mode in
+    ``file_issues``: if ``add_label_to_issue`` threw a ``RuntimeError`` that was
+    caught by the (now-fixed) shared try/except, the body was edited but the
+    label was never applied.  On the next poller tick this function detects the
+    gap — ``depends_on_json`` non-empty but ``blocked/deps`` missing — and
+    re-stamps the label provided at least one dep is still open.
+
+    Called on every tick immediately before ``_auto_unblock_deps`` so the
+    unblock pass always operates on a correct label set.
+    """
+    from agentception.db.queries import get_closed_issue_numbers, get_issues_missing_blocked_deps
+    from agentception.readers.github import add_label_to_issue
+
+    try:
+        candidates = await get_issues_missing_blocked_deps(repo)
+        if not candidates:
+            return
+        closed = await get_closed_issue_numbers(repo)
+        for row in candidates:
+            if all(dep in closed for dep in row["dep_numbers"]):
+                continue  # All deps already closed — no need to block
+            try:
+                await add_label_to_issue(row["github_number"], "blocked/deps")
+                logger.info(
+                    "✅ _stamp_missing_blocked_deps: re-stamped blocked/deps on #%d (deps: %s)",
+                    row["github_number"],
+                    row["dep_numbers"],
+                )
+            except Exception as exc:
+                logger.warning(
+                    "⚠️  _stamp_missing_blocked_deps: could not stamp #%d: %s",
+                    row["github_number"],
+                    exc,
+                )
+    except Exception as exc:
+        logger.warning("⚠️  _stamp_missing_blocked_deps: failed: %s", exc)
+
+
 async def tick() -> PipelineState:
     """Execute a single polling cycle: collect → merge → detect → persist → enrich → broadcast.
 
@@ -382,15 +631,46 @@ async def tick() -> PipelineState:
     # via the GUI takes effect within one polling interval — no restart needed.
     settings.reload()
 
-    worktrees = await list_active_worktrees()
+    active_runs = await list_active_runs()
     github = await build_github_board()
-    agents = await merge_agents(worktrees, github)
-    alerts, stale_claims = await detect_alerts(worktrees, github)
+    agents = await merge_agents(active_runs, github)
+    plan_draft_events: list[PlanDraftEvent] = []
+
+    # ── Read PipelineConfig once — drives loop guard and stall thresholds ──
+    loop_guard_triggered: list[str] = []
+    stall_threshold_seconds = _DEFAULT_STALL_THRESHOLD_SECONDS
+    try:
+        from agentception.readers.pipeline_config import read_pipeline_config
+        config = await read_pipeline_config()
+        max_attempts = config.max_attempts
+        stall_threshold_seconds = config.stall_threshold_minutes * 60
+        for run in active_runs:
+            msg_count_raw = run.get("message_count", 0)
+            msg_count = int(msg_count_raw) if isinstance(msg_count_raw, (int, float)) else 0
+            if msg_count > max_attempts:
+                run_id = run["run_id"]
+                issue_num = run.get("issue_number")
+                label = f"issue #{issue_num}" if issue_num else run_id
+                loop_guard_triggered.append(label)
+                logger.warning(
+                    "⚠️  agent_loop_guard_triggered — run_id=%s issue=%s message_count=%d max_attempts=%d",
+                    run_id,
+                    label,
+                    msg_count,
+                    max_attempts,
+                )
+    except Exception as exc:
+        logger.warning("⚠️  Loop guard / config read failed (non-fatal): %s", exc)
+
+    # ── Detect stale claims / stalled agents / out-of-order PRs ────────────
+    alerts, stale_claims, stalled_agents = await detect_alerts(
+        active_runs, github, stall_threshold_seconds
+    )
 
     # ── Persist raw tick data to Postgres ────────────────────────────────────
     # Non-blocking: a DB outage cannot crash the poller or stall the SSE stream.
     try:
-        from agentception.db.persist import persist_tick
+        from agentception.db.persist import persist_tick, reseed_missing_initiative_phases
         await persist_tick(
             state=PipelineState(
                 active_label=github.active_label,
@@ -401,6 +681,9 @@ async def tick() -> PipelineState:
                 stale_claims=stale_claims,
                 board_issues=[],
                 polled_at=time.time(),
+                plan_draft_events=plan_draft_events,
+                loop_guard_triggered=loop_guard_triggered,
+                stalled_agents=stalled_agents,
             ),
             open_issues=github.open_issues,
             open_prs=github.open_prs,
@@ -408,6 +691,19 @@ async def tick() -> PipelineState:
             merged_prs=github.merged_prs,
             gh_repo=settings.gh_repo,
         )
+        # Re-seed initiative_phases from issue labels if the table is empty
+        # (e.g. after a DB reset).  Idempotent: skips initiatives that already
+        # have stored phase metadata.  Initiative slugs are derived from the
+        # scoped labels on the issues themselves — no config file needed.
+        await reseed_missing_initiative_phases(settings.gh_repo)
+        # Auto-unblock next-phase issues whenever a phase gate closes.
+        await _auto_advance_phases(settings.gh_repo)
+        # Re-stamp blocked/deps on issues whose label was lost (e.g. silent
+        # API failure during file_issues).  Must run before _auto_unblock_deps so
+        # the unblock pass always sees a correct label set.
+        await _stamp_missing_blocked_deps(settings.gh_repo)
+        # Auto-remove blocked/deps label when all ticket-level deps have closed.
+        await _auto_unblock_deps(settings.gh_repo)
     except Exception as exc:
         logger.warning("⚠️  DB persist skipped (non-fatal): %s", exc)
 
@@ -452,6 +748,9 @@ async def tick() -> PipelineState:
         closed_issues_count=closed_issues_count,
         merged_prs_count=merged_prs_count,
         stale_branches=stale_branches,
+        plan_draft_events=plan_draft_events,
+        loop_guard_triggered=loop_guard_triggered,
+        stalled_agents=stalled_agents,
     )
     _state = state
 
@@ -465,7 +764,15 @@ async def polling_loop() -> None:
     Designed to be launched as an ``asyncio.Task`` from the FastAPI lifespan.
     Errors inside a single tick are logged and swallowed so one bad GitHub
     response cannot kill the entire dashboard.
+
+    Rate-limit backoff: when GitHub returns a rate-limit error we back off
+    exponentially (60 s → 120 s → 240 s, capped at 300 s) rather than
+    hammering the API on every loop iteration.
     """
+    _RATE_LIMIT_BACKOFF_INITIAL: int = 60
+    _RATE_LIMIT_BACKOFF_MAX: int = 300
+    _rate_limit_backoff: int = 0  # 0 = not in backoff
+
     logger.info(
         "✅ AgentCeption polling loop started (interval=%ds)",
         settings.poll_interval_seconds,
@@ -473,9 +780,42 @@ async def polling_loop() -> None:
     while True:
         try:
             await tick()
+            _rate_limit_backoff = 0  # reset on success
+            try:
+                async with get_session() as _reconcile_session:
+                    _reconciled = await reconcile_stale_runs(
+                        _reconcile_session,
+                        stale_threshold_minutes=settings.stale_run_threshold_minutes,
+                    )
+                if _reconciled:
+                    logger.info(
+                        "[poller] reconciled %d stale run(s): %s",
+                        len(_reconciled),
+                        _reconciled,
+                    )
+            except Exception as _reconcile_exc:
+                logger.error(
+                    "❌ [poller] reconcile_stale_runs failed: %s",
+                    _reconcile_exc,
+                )
             await asyncio.sleep(settings.poll_interval_seconds)
         except asyncio.CancelledError:
             logger.info("✅ Polling loop stopped cleanly")
             return
         except Exception as exc:
-            logger.warning("⚠️  Polling loop error: %s", exc)
+            exc_str = str(exc).lower()
+            if "rate limit" in exc_str or "rate_limit" in exc_str:
+                if _rate_limit_backoff == 0:
+                    _rate_limit_backoff = _RATE_LIMIT_BACKOFF_INITIAL
+                else:
+                    _rate_limit_backoff = min(
+                        _rate_limit_backoff * 2, _RATE_LIMIT_BACKOFF_MAX
+                    )
+                logger.warning(
+                    "⚠️  GitHub rate limit hit — backing off %ds before retry",
+                    _rate_limit_backoff,
+                )
+                await asyncio.sleep(_rate_limit_backoff)
+            else:
+                logger.warning("⚠️  Polling loop error: %s", exc)
+                await asyncio.sleep(settings.poll_interval_seconds)

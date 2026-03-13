@@ -109,12 +109,22 @@ html, body {
   background: var(--bg-void);
   color: var(--text-primary);
   font-family: var(--font-sans);
-  font-size: 15px;
+  font-size: 16.5px;
   line-height: 1.55;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+
+body {
+  /* Constrain body to viewport width so child scroll containers (e.g. the
+     kanban board) work correctly.  overflow-x: clip is unlike hidden: it
+     clips without creating a new scroll container, so children that have
+     their own overflow-x: auto keep their internal scroll context instead of
+     being clipped at the body boundary. */
+  max-width: 100vw;
+  overflow-x: clip;
 }
 
 a {
@@ -142,6 +152,7 @@ code {
 
 .layout {
   display: grid;
+  /* nav / main */
   grid-template-rows: auto 1fr;
   min-height: 100vh;
 }

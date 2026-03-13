@@ -10,7 +10,7 @@ Every step was executed against a freshly cloned copy of the repo with no prior 
 | Docker Desktop (or Docker Engine + Compose v2) | ≥ 24 | `docker compose version` to check |
 | `git` | any | |
 | A GitHub Personal Access Token | — | `repo` + `issues` scope — [create one here](https://github.com/settings/tokens) |
-| An [OpenRouter](https://openrouter.ai/keys) API key | — | Required for Phase 1A planning |
+| An [Anthropic](https://console.anthropic.com/) API key | — | Required for Phase 1A planning and agent execution |
 
 ---
 
@@ -36,12 +36,17 @@ Open `.env` and fill in the required values:
 | `DB_PASSWORD` | **Yes** | Postgres password. No default — the compose file requires it explicitly. | Generate with `openssl rand -hex 16` |
 | `GH_REPO` | **Yes** | The `owner/repo` this AgentCeption instance orchestrates. | Your GitHub repo |
 | `GITHUB_TOKEN` | Optional | GitHub PAT with `repo` + `issues` scope. If you have `~/.config/gh` configured (via `gh auth login`), the container volume-mounts it and you can leave this blank. | [github.com/settings/tokens](https://github.com/settings/tokens) |
-| `OPENROUTER_API_KEY` | Optional | OpenRouter API key. Required for Phase 1A LLM planning. Without it the service starts, but the planner falls back to a keyword classifier. | [openrouter.ai/keys](https://openrouter.ai/keys) |
+| `ANTHROPIC_API_KEY` | Optional | Anthropic API key. Required for Phase 1A LLM planning and the agent loop. Without it the service starts, but planning and agent execution are unavailable. | [console.anthropic.com](https://console.anthropic.com/) |
+| `AC_API_KEY` | Optional | Shared secret for authenticating all `/api/*` requests. Leave empty for local-only deployments. Required when exposing the service on a shared server or the public internet. | Generate with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"` |
+| `QDRANT_URL` | Optional | Internal Qdrant REST endpoint. | Default: `http://agentception-qdrant:6333` |
+| `QDRANT_COLLECTION` | Optional | Qdrant collection for code vectors. | Default: `code` |
 | `HOST_WORKTREES_DIR` | Optional | Host path where agent git worktrees are created. Use an absolute path (no `~` — compose doesn't expand it). | Default: `~/.agentception/worktrees` |
 | `WORKTREES_DIR` | Optional | Container-internal path that maps to `HOST_WORKTREES_DIR`. Add a matching volume in `docker-compose.override.yml` if you change this. | Default: `/worktrees` |
+| `HOST_REPO_DIR` | Optional | Absolute path to the repo on the host. Persisted to the DB context row so agents can resolve role files. Override in .env when the repo is outside the default Docker mount. | Default: unset |
 | `REPO_DIR` | Optional | Absolute path to the cloned agentception repo on the host. Used for git operations inside the container. | Default: `/app` (the container working directory) |
 | `PORT` | Optional | Port the FastAPI app listens on. | Default: `10003` |
 | `LOG_LEVEL` | Optional | Log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`. | Default: `INFO` |
+| `AC_PIPELINE_STALL_THRESHOLD_MINUTES` | Optional | Minutes of DB-heartbeat silence before a worker agent is promoted to `STALLED`. Stored in `PipelineConfig.stall_threshold_minutes`; also settable via `pipeline-config.json`. | Default: `30` |
 
 Minimal `.env` that works for a basic smoke test (no LLM features):
 
@@ -92,6 +97,11 @@ All three should show `running` (postgres and agentception will also show `healt
 
 ## Step 5 — Run database migrations
 
+> **Automatic:** `docker compose up` now runs `alembic upgrade head` before
+> starting the server, so migrations are applied automatically on every
+> container start.  You only need to run this manually when working outside
+> Compose (e.g. in CI or a bare Python environment).
+
 ```bash
 docker compose exec agentception alembic -c agentception/alembic.ini upgrade head
 ```
@@ -127,7 +137,42 @@ Both should return HTTP 200.
 
 ---
 
-## Step 7 — Configure Cursor MCP (optional)
+## Step 7 — Index the codebase for semantic search (optional)
+
+The Cursor-free agent loop uses a Qdrant vector index to give agents `@Codebase`-style semantic search without Cursor. Trigger indexing with a single API call:
+
+```bash
+curl -X POST http://localhost:10003/api/system/index-codebase
+# → {"ok": true, "message": "Codebase indexing started in the background."}
+```
+
+Indexing runs in the background. The first run downloads the FastEmbed model (`BAAI/bge-small-en-v1.5`, ~130 MB) from HuggingFace; subsequent runs are cached and complete in seconds. Watch progress in the container logs:
+
+```bash
+docker compose logs -f agentception | grep code_indexer
+```
+
+Verify the index is populated:
+
+```bash
+curl "http://localhost:10003/api/system/search?q=anthropic+api+key&n=3"
+# → {"ok": true, "query": "anthropic api key", "n_results": 3, "matches": [...]}
+```
+
+Re-index after significant code changes (e.g. after merging a large PR).
+
+If `AC_API_KEY` is set, include it:
+
+```bash
+curl -X POST http://localhost:10003/api/system/index-codebase \
+  -H "Authorization: Bearer your-key"
+```
+
+See the [Cursor-Free Agent Loop guide](agent-loop.md) for full documentation.
+
+---
+
+## Step 8 — Configure Cursor MCP (optional)
 
 To use AgentCeption tools from Cursor, add to `~/.cursor/mcp.json`:
 
@@ -193,3 +238,97 @@ The app is still starting. Wait ~15 seconds and refresh. Check logs with `docker
 **`gh` CLI commands fail inside the container**
 
 The container volume-mounts `~/.config/gh` read-only. Run `gh auth login` on the host first, then restart the container.
+
+---
+
+## Initial setup
+
+### Git merge driver for compiled assets
+
+Run once after cloning:
+
+```bash
+git config merge.ours.driver true
+```
+
+This prevents Git from text-merging compiled frontend bundles (app.css, app.css.map, app.js). Always run `npm run build` after a merge or rebase to regenerate the correct artifacts.
+
+---
+
+## Step N — Cursor MCP setup (one-time)
+
+AgentCeption exposes its planning and dispatch tools over MCP. Cursor must be configured to connect to it and, ideally, to run those tools without prompting you on every call.
+
+### Connecting Cursor to AgentCeption
+
+Add the following to your `~/.cursor/mcp.json` (create the file if it does not exist):
+
+```json
+{
+  "mcpServers": {
+    "agentception": {
+      "command": "docker",
+      "args": [
+        "compose",
+        "-f", "/absolute/path/to/agentception/docker-compose.yml",
+        "exec", "-T",
+        "agentception",
+        "python", "-m", "agentception.mcp.stdio_server"
+      ]
+    }
+  }
+}
+```
+
+Replace `/absolute/path/to/agentception` with the actual path to your clone.
+
+### Allowlisting MCP tools (first run)
+
+The first time the AgentCeption Dispatcher runs it will call several MCP tools. Cursor will prompt you to approve each one. For each prompt, click **"Allowlist MCP Tool"** — not just "Run". This records the tool in Cursor's internal allowlist so future calls from any agent session run without prompting.
+
+You only need to do this once per tool, per machine. The tools that will appear are:
+
+- `build_get_pending_launches`
+- `build_acknowledge`
+- `build_report_step`
+- `build_report_blocker`
+- `build_report_decision`
+- `build_report_done`
+- `build_spawn_child`
+- `plan_advance_phase`
+
+After the first dispatcher run, all subsequent runs should be fully automatic.
+
+### If prompts keep appearing after allowlisting (Cursor bug)
+
+Some Cursor versions have a bug where the MCP allowlist UI does not persist correctly. This is tracked at [Cursor forum #135594](https://forum.cursor.com/t/mcp-allowlist-doesnt-work-also-cant-be-edited/135594). The root cause is a set of flags (`yoloMcpToolsDisabled`, `shouldAutoContinueToolCall`) stored in Cursor's internal SQLite database that can be set to disable MCP auto-run without any visible UI toggle.
+
+If clicking "Allowlist MCP Tool" does not stop the prompts after a Cursor restart, run this script **with Cursor fully quit**:
+
+```bash
+#!/usr/bin/env bash
+# cursor-mcp-autorun-fix.sh — patches Cursor's internal DB to enable MCP auto-run.
+# Safe to run: backs up each database file before modifying it.
+# Source: https://forum.cursor.com/t/mcp-allowlist-doesnt-work-also-cant-be-edited/135594
+set -euo pipefail
+ROOT="$HOME/Library/Application Support/Cursor"  # macOS path
+STAMP=$(date +%Y%m%d-%H%M%S)
+KEY='src.vs.platform.reactivestorage.browser.reactiveStorageServiceImpl.persistentStorage.applicationUser'
+find "$ROOT/User" -type f -name state.vscdb -print0 2>/dev/null | while IFS= read -r -d '' DB; do
+  cp "$DB" "$DB.bak.$STAMP" || true
+  /usr/bin/sqlite3 "$DB" "PRAGMA busy_timeout=5000; BEGIN;
+    UPDATE ItemTable SET value=json_set(value,
+      '$.composerState.shouldAutoContinueToolCall', 1,
+      '$.composerState.yoloMcpToolsDisabled', 0,
+      '$.composerState.isAutoApplyEnabled', 1,
+      '$.composerState.modes4[0].autoRun', 1,
+      '$.composerState.modes4[0].fullAutoRun', 1
+    ) WHERE key='$KEY' AND json_valid(value);
+    COMMIT;"
+done
+echo "Done. Restart Cursor."
+```
+
+This script sets `yoloMcpToolsDisabled=false` and `shouldAutoContinueToolCall=true` so that Cursor respects the allowlist you built via the UI. It does not expose any new capabilities — it simply makes the allowlist button work as documented by Cursor.
+
+After running it, restart Cursor and re-run the dispatcher. The prompts should be gone.

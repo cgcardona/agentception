@@ -1,10 +1,9 @@
-from __future__ import annotations
-
 """HealthSnapshot — canonical shape for AgentCeption system health data.
 
 Every downstream component (health_collector, /api/health/detailed endpoint,
 dashboard poller, and tests) imports from here. Change this contract carefully.
 """
+from __future__ import annotations
 
 from pydantic import BaseModel, Field
 

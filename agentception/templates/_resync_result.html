@@ -1,0 +1,21 @@
+{#
+  Inline result fragment — swapped into #resync-result after
+  POST /api/control/resync-issues completes.  Returned as raw HTML
+  (Content-Type: text/html) when the request carries Accept: text/html.
+
+  Context variables:
+  - ok       bool   — True on success, False on error
+  - open     int    — count of open issues upserted (success only)
+  - closed   int    — count of closed issues upserted (success only)
+  - upserted int    — total issues written to DB (success only)
+  - error    str    — error message (failure only)
+#}
+{% if ok %}
+<span class="controls-resync-ok">
+  ✅ Synced — {{ open }} open · {{ closed }} closed · {{ upserted }} upserted
+</span>
+{% else %}
+<span class="controls-resync-error">
+  ⚠️ {{ error | e }}
+</span>
+{% endif %}

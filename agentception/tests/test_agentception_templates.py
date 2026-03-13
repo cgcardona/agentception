@@ -37,16 +37,14 @@ client = TestClient(app)
 
 
 def _make_repo(tmp_path: Path) -> Path:
-    """Create a minimal fake repo with managed .cursor/ files."""
+    """Create a minimal fake repo with managed .agentception/ files."""
     ac = tmp_path / ".agentception"
     ac.mkdir(parents=True, exist_ok=True)
     roles = ac / "roles"
     roles.mkdir(parents=True, exist_ok=True)
-    (roles / "python-developer.md").write_text("# Python Developer", encoding="utf-8")
-    prompts = ac / "prompts"
-    prompts.mkdir(parents=True, exist_ok=True)
-    (prompts / "parallel-issue-to-pr.md").write_text("# Parallel", encoding="utf-8")
-    (ac / "pipeline-config.json").write_text('{"max_eng_vps": 1}', encoding="utf-8")
+    (roles / "developer.md").write_text("# Python Developer", encoding="utf-8")
+    (ac / "agent-engineer.md").write_text("# Parallel", encoding="utf-8")
+    (ac / "pipeline-config.json").write_text('{"coordinator_limits": {"engineering-coordinator": 1, "qa-coordinator": 1}, "pool_size": 4}', encoding="utf-8")
     (ac / "agent-command-policy.md").write_text("# Policy", encoding="utf-8")
     return tmp_path
 
@@ -96,8 +94,8 @@ def test_export_includes_all_managed_files(tmp_path: Path) -> None:
     with tarfile.open(fileobj=buf, mode="r:gz") as tar:
         names = tar.getnames()
 
-    assert ".agentception/roles/python-developer.md" in names
-    assert ".agentception/prompts/parallel-issue-to-pr.md" in names
+    assert ".agentception/roles/developer.md" in names
+    assert ".agentception/agent-engineer.md" in names
     assert ".agentception/pipeline-config.json" in names
     assert ".agentception/agent-command-policy.md" in names
 
@@ -165,7 +163,7 @@ def test_import_extracts_to_target(tmp_path: Path) -> None:
 
     assert len(result.extracted) > 0
     assert (target_repo / ".agentception" / "pipeline-config.json").is_file()
-    assert (target_repo / ".agentception" / "roles" / "python-developer.md").is_file()
+    assert (target_repo / ".agentception" / "roles" / "developer.md").is_file()
 
 
 def test_import_detects_conflicts(tmp_path: Path) -> None:
@@ -186,7 +184,7 @@ def test_import_detects_conflicts(tmp_path: Path) -> None:
     target_ac = target_repo / ".agentception"
     target_ac.mkdir(parents=True)
     existing = target_ac / "pipeline-config.json"
-    existing.write_text('{"max_eng_vps": 99}', encoding="utf-8")
+    existing.write_text('{"coordinator_limits": {"engineering-coordinator": 99, "qa-coordinator": 1}, "pool_size": 4}', encoding="utf-8")
 
     result = import_template(archive_bytes, str(target_repo))
 
