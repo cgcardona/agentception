@@ -2824,3 +2824,123 @@ class TestFinalStretchWarning:
             f"(remaining={remaining_at_simultaneous} <= {_FINAL_STRETCH_THRESHOLD}). "
             f"all_text={all_text!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Model selection tests (issue-879)
+# ---------------------------------------------------------------------------
+
+
+class TestModelSelection:
+    """call_anthropic_with_tools must receive model=haiku for reviewer, sonnet otherwise."""
+
+    @pytest.mark.anyio
+    async def test_reviewer_uses_haiku_model(self, tmp_path: Path) -> None:
+        """When task.role == 'reviewer', call_anthropic_with_tools gets model='claude-haiku-4-5'."""
+        worktree = tmp_path / "test-run-1"
+        worktree.mkdir()
+        task_spec = _make_task_spec(worktree)
+        # Override role to reviewer
+        task_spec = task_spec.model_copy(update={"role": "reviewer"})
+
+        mock_llm = AsyncMock(return_value=_stop_response("Review done."))
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": [], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic_with_tools",
+                mock_llm,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
+
+            from agentception.services.agent_loop import run_agent_loop
+
+            await run_agent_loop("test-run-1")
+
+        assert mock_llm.called, "call_anthropic_with_tools was never invoked"
+        _, kwargs = mock_llm.call_args
+        assert kwargs.get("model") == "claude-haiku-4-5", (
+            f"Expected model='claude-haiku-4-5' for reviewer, got {kwargs.get('model')!r}"
+        )
+
+    @pytest.mark.anyio
+    async def test_developer_uses_sonnet_model(self, tmp_path: Path) -> None:
+        """When task.role == 'developer', call_anthropic_with_tools gets model='claude-sonnet-4-6'."""
+        worktree = tmp_path / "test-run-1"
+        worktree.mkdir()
+        task_spec = _make_task_spec(worktree)  # role defaults to "developer"
+
+        mock_llm = AsyncMock(return_value=_stop_response("Dev done."))
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": [], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic_with_tools",
+                mock_llm,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
+
+            from agentception.services.agent_loop import run_agent_loop
+
+            await run_agent_loop("test-run-1")
+
+        assert mock_llm.called, "call_anthropic_with_tools was never invoked"
+        _, kwargs = mock_llm.call_args
+        assert kwargs.get("model") == "claude-sonnet-4-6", (
+            f"Expected model='claude-sonnet-4-6' for developer, got {kwargs.get('model')!r}"
+        )
+
