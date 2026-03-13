@@ -12,10 +12,11 @@
  */
 
 import { marked } from 'marked';
+import { attachActivityFeedHandler } from './activity_feed';
+import { attachEventCardHandler } from './event_card';
 import { attachFileEditHandler } from './file_edit_card';
 import { attachThoughtHandler } from './thought_block';
 import { attachToolCallHandler } from './tool_call_card';
-import { attachEventCardHandler } from './event_card';
 
 // ── Domain types ─────────────────────────────────────────────────────────────
 
@@ -246,6 +247,7 @@ export function buildPage() {
       attachThoughtHandler(src);
       attachToolCallHandler(src);
       attachEventCardHandler(src);
+      attachActivityFeedHandler(src);
       this.streamOpen = true;
 
       src.onerror = () => {
