@@ -408,10 +408,10 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
         st.history_len = int(lm.group("turns"))
         iteration = st.iteration
         iter_tag = str(iteration) if iteration else "?"
-        model = lm.group("model").split("-")[0] + "…"
+        short_id = rid.replace("issue-", "#").replace("review-", "rv-")
         tag = _run_tag(rid, run_id_filter)
         return (
-            f"\n{ts}  {tag}{MAGENTA}{BOLD}╔══ ITER {iter_tag}  [{model}]{RESET}"
+            f"\n{ts}  {tag}{MAGENTA}{BOLD}╔══ ITER {iter_tag}  [{short_id}]{RESET}"
         )
 
     # ── LLM token usage ───────────────────────────────────────────────────────
