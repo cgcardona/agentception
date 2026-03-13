@@ -29,16 +29,6 @@ async def test_reviewer_worktree_torn_down_after_failing_grade() -> None:
 
     with (
         patch(
-            "agentception.mcp.build_commands._has_file_edit_events",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
-        patch(
-            "agentception.mcp.build_commands._has_pr_recorded",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
-        patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
         ),
@@ -97,16 +87,6 @@ async def test_reviewer_worktree_torn_down_after_passing_grade() -> None:
     reviewer_run_id = "reviewer-issue-55-def456"
 
     with (
-        patch(
-            "agentception.mcp.build_commands._has_file_edit_events",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
-        patch(
-            "agentception.mcp.build_commands._has_pr_recorded",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
         patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
@@ -168,16 +148,6 @@ async def test_redispatch_fires_after_failing_grade() -> None:
     grade = "F"
 
     with (
-        patch(
-            "agentception.mcp.build_commands._has_file_edit_events",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
-        patch(
-            "agentception.mcp.build_commands._has_pr_recorded",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
         patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
@@ -249,16 +219,6 @@ async def test_redispatch_skipped_after_passing_grade() -> None:
 
     with (
         patch(
-            "agentception.mcp.build_commands._has_file_edit_events",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
-        patch(
-            "agentception.mcp.build_commands._has_pr_recorded",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
-        patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
         ),
@@ -321,16 +281,6 @@ async def test_build_complete_run_rejects_empty_grade_from_reviewer() -> None:
 
     with (
         patch(
-            "agentception.mcp.build_commands._has_file_edit_events",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
-        patch(
-            "agentception.mcp.build_commands._has_pr_recorded",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
-        patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
         ),
@@ -372,103 +322,46 @@ async def test_build_complete_run_rejects_empty_grade_from_reviewer() -> None:
 
 
 @pytest.mark.anyio
-async def test_build_complete_run_refused_no_file_edits() -> None:
-    """build_complete_run returns a refusal dict when no file_edit/write_file events exist.
+async def test_build_complete_run_refused_invalid_pr_url() -> None:
+    """build_complete_run refuses when pr_url is not a valid GitHub PR URL.
 
-    Pre-flight guard: prevents agents from signalling completion before writing any code.
-    The guard must fire before any side-effectful completion logic runs.
+    Regression: the previous DB-based _has_pr_recorded guard was a deadlock —
+    ACAgentRun.pr_number is only set by persist_agent_event(done), which runs
+    *inside* build_complete_run after the guard, so the guard always returned
+    False and agents looped to 100 iterations.
+
+    The replacement guard validates the pr_url argument directly: if it looks
+    like https://github.com/<owner>/<repo>/pull/<number> the agent has a PR.
+    persist_agent_event must not be called on a refused run.
     """
     from agentception.mcp.build_commands import build_complete_run
 
-    run_id = "issue-999-no-edits"
-
-    with (
-        patch(
-            "agentception.mcp.build_commands._has_file_edit_events",
-            new_callable=AsyncMock,
-            return_value=False,
-        ),
-        patch(
-            "agentception.mcp.build_commands._has_pr_recorded",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
-        patch(
-            "agentception.mcp.build_commands.persist_agent_event",
-            new_callable=AsyncMock,
-        ) as mock_persist,
-    ):
+    with patch(
+        "agentception.mcp.build_commands.persist_agent_event",
+        new_callable=AsyncMock,
+    ) as mock_persist:
         result = await build_complete_run(
             issue_number=999,
-            pr_url="https://github.com/cgcardona/agentception/pull/1",
-            agent_run_id=run_id,
+            pr_url="",
+            agent_run_id="issue-999-no-pr",
         )
 
     assert result["ok"] is False
-    assert "no file edits recorded" in str(result["error"])
+    assert "pr_url" in str(result["error"]).lower()
+    assert "create_pull_request" in str(result["error"])
     mock_persist.assert_not_called()
 
 
 @pytest.mark.anyio
-async def test_build_complete_run_refused_no_pr() -> None:
-    """build_complete_run returns a refusal dict when pr_number is not recorded on the run.
+async def test_build_complete_run_accepted_with_valid_pr_url() -> None:
+    """build_complete_run proceeds when pr_url is a valid GitHub PR URL.
 
-    Pre-flight guard: file-edit events exist but no PR has been created yet.
-    The guard must fire before any side-effectful completion logic runs.
+    Ensures the URL guard passes for a well-formed URL so the completion
+    path (persist_agent_event) is reached.
     """
     from agentception.mcp.build_commands import build_complete_run
 
-    run_id = "issue-998-no-pr"
-
     with (
-        patch(
-            "agentception.mcp.build_commands._has_file_edit_events",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
-        patch(
-            "agentception.mcp.build_commands._has_pr_recorded",
-            new_callable=AsyncMock,
-            return_value=False,
-        ),
-        patch(
-            "agentception.mcp.build_commands.persist_agent_event",
-            new_callable=AsyncMock,
-        ) as mock_persist,
-    ):
-        result = await build_complete_run(
-            issue_number=998,
-            pr_url="https://github.com/cgcardona/agentception/pull/2",
-            agent_run_id=run_id,
-        )
-
-    assert result["ok"] is False
-    assert "no PR found" in str(result["error"])
-    mock_persist.assert_not_called()
-
-
-@pytest.mark.anyio
-async def test_build_complete_run_allowed_when_checks_pass() -> None:
-    """build_complete_run proceeds to completion logic when both pre-flight checks pass.
-
-    With file-edit events recorded and a PR number on the run, the handler must
-    reach the existing completion path (persist_agent_event is called).
-    """
-    from agentception.mcp.build_commands import build_complete_run
-
-    run_id = "issue-997-all-good"
-
-    with (
-        patch(
-            "agentception.mcp.build_commands._has_file_edit_events",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
-        patch(
-            "agentception.mcp.build_commands._has_pr_recorded",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
         patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
@@ -495,7 +388,7 @@ async def test_build_complete_run_allowed_when_checks_pass() -> None:
         result = await build_complete_run(
             issue_number=997,
             pr_url="https://github.com/cgcardona/agentception/pull/3",
-            agent_run_id=run_id,
+            agent_run_id="issue-997-all-good",
         )
 
     assert result["ok"] is True
@@ -515,16 +408,6 @@ async def test_build_complete_run_rejects_whitespace_grade_from_reviewer() -> No
     reviewer_run_id = "reviewer-issue-99-whitespace"
 
     with (
-        patch(
-            "agentception.mcp.build_commands._has_file_edit_events",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
-        patch(
-            "agentception.mcp.build_commands._has_pr_recorded",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
         patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
