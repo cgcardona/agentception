@@ -15,6 +15,7 @@ import { marked } from 'marked';
 import { attachFileEditHandler } from './file_edit_card';
 import { attachThoughtHandler } from './thought_block';
 import { attachToolCallHandler } from './tool_call_card';
+import { attachEventCardHandler } from './event_card';
 
 // ── Domain types ─────────────────────────────────────────────────────────────
 
@@ -62,18 +63,6 @@ interface TreeTierGroup {
 
 interface ApiErrorBody {
   detail?: string;
-}
-
-interface SseMessage {
-  t: 'ping' | 'event' | 'thought';
-  event_type?: string;
-  payload?: Record<string, string>;
-  role?: string;
-  content?: string;
-}
-
-interface SseEvent extends SseMessage {
-  id: number;
 }
 
 interface SseThought {
@@ -127,7 +116,6 @@ export function buildPage() {
   return {
     // ── inspector state ──────────────────────────────────────────────────
     activeIssue: null as ActiveIssue | null,
-    events: [] as SseEvent[],
     thoughts: [] as SseThought[],
     streamOpen: false,
     _evtSource: null as EventSource | null,
@@ -186,7 +174,6 @@ export function buildPage() {
       if (this.activeIssue?.number === issue.number) return;
       this._closeStream();
       this.activeIssue = issue;
-      this.events = [];
       this.thoughts = [];
       if (issue.run) {
         this._openStream(issue.run.id);
@@ -198,7 +185,6 @@ export function buildPage() {
       this._closeStream();
       this._stopTreePoll();
       this.activeIssue = null;
-      this.events = [];
       this.thoughts = [];
       this.chatMessage = '';
       this.chatError = null;
@@ -259,30 +245,8 @@ export function buildPage() {
       attachFileEditHandler(src);
       attachThoughtHandler(src);
       attachToolCallHandler(src);
+      attachEventCardHandler(src);
       this.streamOpen = true;
-
-      src.onmessage = (e: MessageEvent<string>) => {
-        let msg: SseMessage;
-        try {
-          msg = JSON.parse(e.data) as SseMessage;
-        } catch {
-          return;
-        }
-
-        if (msg.t === 'ping') return;
-
-        if (msg.t === 'event') {
-          this.events.push({ ...msg, id: Date.now() + Math.random() });
-        } else if (msg.t === 'thought') {
-          const last = this.thoughts[this.thoughts.length - 1];
-          if (last && last.role === msg.role) {
-            last.content += '\n' + (msg.content ?? '');
-          } else {
-            this.thoughts.push({ role: msg.role ?? '', content: msg.content ?? '' });
-          }
-          this._scrollCot();
-        }
-      };
 
       src.onerror = () => {
         this.streamOpen = false;
@@ -348,27 +312,6 @@ export function buildPage() {
         });
       } catch {
         return iso;
-      }
-    },
-
-    eventIcon(eventType: string): string {
-      const icons: Record<string, string> = {
-        step_start: '▶',
-        blocker:    '🚧',
-        decision:   '💡',
-        done:       '✅',
-      };
-      return icons[eventType] ?? '•';
-    },
-
-    eventDetail(ev: SseEvent): string {
-      const p = ev.payload ?? {};
-      switch (ev.event_type) {
-        case 'step_start': return p['step'] ?? '';
-        case 'blocker':    return p['description'] ?? '';
-        case 'decision':   return `${p['decision'] ?? ''} — ${p['rationale'] ?? ''}`;
-        case 'done':       return p['summary'] ?? p['pr_url'] ?? '';
-        default:           return JSON.stringify(p);
       }
     },
 
