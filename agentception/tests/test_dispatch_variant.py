@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -13,7 +14,7 @@ async def test_dispatch_passes_prompt_variant_to_task_spec(tmp_path: Path) -> No
     """POST /api/dispatch/issue with prompt_variant passes it to persist_agent_run_dispatch."""
     from agentception.routes.api.dispatch import dispatch_agent, DispatchRequest
 
-    captured_kwargs: list[dict] = []
+    captured_kwargs: list[dict[str, Any]] = []
 
     async def mock_persist(**kwargs):  # type: ignore[no-untyped-def]
         captured_kwargs.append(kwargs)
@@ -57,7 +58,7 @@ async def test_dispatch_prompt_variant_defaults_to_none(tmp_path: Path) -> None:
     """POST /api/dispatch/issue without prompt_variant passes None to persist_agent_run_dispatch."""
     from agentception.routes.api.dispatch import dispatch_agent, DispatchRequest
 
-    captured_kwargs: list[dict] = []
+    captured_kwargs: list[dict[str, Any]] = []
 
     async def mock_persist(**kwargs):  # type: ignore[no-untyped-def]
         captured_kwargs.append(kwargs)
