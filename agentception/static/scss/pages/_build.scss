@@ -3,6 +3,7 @@
 // Cascade order must match the original monolithic _build.scss.
 
 @use 'activity-feed';
+@use 'ab_metrics';
 @use 'inspector-layout';
 @use 'thought-block';
 @use 'file-edit-card';
