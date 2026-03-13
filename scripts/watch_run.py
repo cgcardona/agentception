@@ -9,7 +9,8 @@ Pipes `docker compose logs agentception --follow` and renders only the lines
 relevant to <run_id> in a clean, colour-coded terminal format.
 
 If no run_id is given, shows ALL agent activity (useful during dispatch to see
-what just started).
+what just started).  Each line is prefixed with a short run-id tag so you can
+tell agents apart when multiple are running in parallel.
 """
 from __future__ import annotations
 
@@ -17,6 +18,7 @@ import re
 import subprocess
 import sys
 import textwrap
+from collections import defaultdict
 from datetime import datetime
 
 # ── ANSI colours ──────────────────────────────────────────────────────────────
@@ -32,6 +34,9 @@ CYAN = "\033[96m"
 WHITE = "\033[97m"
 GREY = "\033[90m"
 ORANGE = "\033[38;5;208m"
+
+# Colour rotation for run-id prefixes when watching multiple agents at once.
+_RUN_COLOURS = [CYAN, MAGENTA, YELLOW, GREEN, ORANGE, BLUE, WHITE]
 
 # ── Patterns ───────────────────────────────────────────────────────────────────
 
@@ -106,20 +111,48 @@ _RE_ERROR = re.compile(r"❌\s+(?P<msg>.+)")
 _RE_WARN = re.compile(r"⚠️\s*(?P<msg>.+)")
 
 
-# ── Mutable state across log lines ────────────────────────────────────────────
+# ── Per-run state ─────────────────────────────────────────────────────────────
+# Each key is a run_id string.  Using a plain class keeps the type clean while
+# defaultdict ensures the entry exists the first time any run_id is seen.
 
-class _State:
-    current_run_id: str | None = None
+class _RunState:
     iteration: int = 0
     history_len: int = 0
-    pending_arg: str = ""  # key arg from last dispatch_tool, used by result-line renderers
+    pending_arg: str = ""      # key arg from last dispatch_tool
+    colour_idx: int = 0        # index into _RUN_COLOURS for this run's prefix
 
 
-_state = _State()
+# Assign colours round-robin as new run_ids are seen.
+_run_states: dict[str, _RunState] = {}
+_next_colour_idx: list[int] = [0]   # list so inner func can mutate it
+
+
+def _get_state(run_id: str) -> _RunState:
+    if run_id not in _run_states:
+        state = _RunState()
+        state.colour_idx = _next_colour_idx[0] % len(_RUN_COLOURS)
+        _next_colour_idx[0] += 1
+        _run_states[run_id] = state
+    return _run_states[run_id]
+
+
+# The last run_id seen in a dispatch_tool line — used by file_tools result
+# lines which don't carry a run_id in their message.
+_last_run_id: list[str] = [""]
 
 
 def _ts() -> str:
     return GREY + datetime.now().strftime("%H:%M:%S") + RESET
+
+
+def _run_tag(run_id: str, run_id_filter: str | None) -> str:
+    """Return a coloured short run-id prefix when watching multiple runs."""
+    if run_id_filter:
+        return ""   # single-run mode — no prefix needed
+    st = _get_state(run_id)
+    colour = _RUN_COLOURS[st.colour_idx]
+    short = run_id.replace("issue-", "#").replace("review-", "rv-")
+    return f"{colour}[{short}]{RESET} "
 
 
 def _shorten_path(path: str) -> str:
@@ -177,11 +210,12 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
         rid = dm.group("run_id")
         if run_id_filter and rid != run_id_filter:
             return None
+        tag = _run_tag(rid, run_id_filter)
         role = dm.group("role")
         arch = dm.group("arch")
         ctx = dm.group("ctx")
         return (
-            f"\n{ts}  {GREEN}{BOLD}🚀 LAUNCHED  {rid}{RESET}\n"
+            f"\n{ts}  {tag}{GREEN}{BOLD}🚀 LAUNCHED  {rid}{RESET}\n"
             f"       {GREY}role={role}  arch={arch}  context_files={ctx}{RESET}"
         )
 
@@ -192,7 +226,8 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
         if run_id_filter and rid != run_id_filter:
             return None
         tools = rsm.group("tools")
-        return f"{ts}  {GREY}    loop ready — {tools} tools available{RESET}"
+        tag = _run_tag(rid, run_id_filter)
+        return f"{ts}  {tag}{GREY}    loop ready — {tools} tools available{RESET}"
 
     # ── Worktree index complete ────────────────────────────────────────────────
     wim = _RE_WORKTREE_INDEXED.search(msg)
@@ -200,37 +235,28 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
         rid = wim.group("run_id")
         if run_id_filter and rid != run_id_filter:
             return None
+        tag = _run_tag(rid, run_id_filter)
         return (
-            f"{ts}  {GREY}    🗂  worktree index ready — "
+            f"{ts}  {tag}{GREY}    🗂  worktree index ready — "
             f"{wim.group('files')} files / {wim.group('chunks')} chunks{RESET}"
         )
 
     # ── log_run_step — agent's self-reported progress ─────────────────────────
     sm = _RE_RUN_STEP.search(msg)
     if sm:
+        issue_id = sm.group("issue")
         step = sm.group("step")
         im = _RE_ITERATION.search(step)
         if im:
-            _state.iteration = int(im.group("n"))
-            # iteration markers are shown in the LLM header, suppress duplicates
-            return None
-        # Non-iteration step — agent wrote something meaningful
-        return f"{ts}  {CYAN}{BOLD}📋 {step}{RESET}"
+            _get_state(issue_id).iteration = int(im.group("n"))
+            return None  # shown in the LLM ITER header
+        tag = _run_tag(issue_id, run_id_filter)
+        return f"{ts}  {tag}{CYAN}{BOLD}📋 {step}{RESET}"
 
     # ── dispatch_tool ──────────────────────────────────────────────────────────
-    # Tools split into two groups:
-    #   A) Tools that emit a separate result line from agentception.tools.*
-    #      → suppress dispatch line, render the result line below.
-    #   B) Tools with no result line (search_codebase, search_text, GitHub tools,
-    #      log_run_step, git_commit_and_push)
-    #      → render at dispatch time immediately.
-    # Tools whose result line comes from agentception.tools.file_tools —
-    # suppress the dispatch line, render only when the result line arrives.
     _RESULT_LINE_TOOLS = frozenset({
         "read_file_lines", "replace_in_file", "insert_after_in_file", "write_file",
     })
-    # Tools whose result line comes from a different module or doesn't exist —
-    # render at dispatch time only.
     _DISPATCH_ONLY_TOOLS = frozenset({
         "read_file", "list_directory", "create_directory",
     })
@@ -239,171 +265,230 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
         rid = dtm.group("run_id")
         if run_id_filter and rid != run_id_filter:
             return None
-        _state.current_run_id = rid
+        _last_run_id[0] = rid
+        st = _get_state(rid)
         tool_name = dtm.group("tool")
         raw_arg = dtm.group("arg") or ""
-        # Strip surrounding quotes from the captured arg value
         arg_val = raw_arg.strip("'\"") if raw_arg else ""
-        # Truncate long values (e.g. long search queries) for display
         if len(arg_val) > 90:
             arg_val = arg_val[:90] + "…"
         arg_suffix = f"  {GREY}{arg_val}{RESET}" if arg_val else ""
+        tag = _run_tag(rid, run_id_filter)
 
         if tool_name in _RESULT_LINE_TOOLS:
-            # File-tool result lines already show path — store arg for them
-            # to use, but suppress the dispatch line itself.
-            _state.pending_arg = arg_val
+            st.pending_arg = arg_val
             return None
         if tool_name in _DISPATCH_ONLY_TOOLS:
             path = _shorten_path(arg_val) if arg_val else tool_name
-            return f"{ts}  {BLUE}{_tool_icon('read_file_lines')} read{RESET}  {WHITE}{path}{RESET}"
+            return f"{ts}  {tag}{BLUE}{_tool_icon('read_file_lines')} read{RESET}  {WHITE}{path}{RESET}"
         if tool_name in ("search_codebase", "search_text"):
-            return f"{ts}  {BLUE}🔍 {tool_name}{RESET}{arg_suffix}"
+            return f"{ts}  {tag}{BLUE}🔍 {tool_name}{RESET}{arg_suffix}"
         if tool_name in ("log_run_step", "git_commit_and_push", "run_command"):
             return None  # rendered via dedicated patterns below
-        # GitHub MCP tools and anything else — show immediately
         if any(gh in tool_name for gh in ("pull_request", "issue_", "create_branch", "list_branch", "get_me", "search_")):
-            return f"{ts}  {CYAN}🐙 {tool_name}{RESET}{arg_suffix}"
-        return f"{ts}  {BLUE}{_tool_icon(tool_name)} {tool_name}{RESET}{arg_suffix}"
+            return f"{ts}  {tag}{CYAN}🐙 {tool_name}{RESET}{arg_suffix}"
+        return f"{ts}  {tag}{BLUE}{_tool_icon(tool_name)} {tool_name}{RESET}{arg_suffix}"
 
-    # ── file_tools result lines (rendered independently of dispatch) ───────────
+    # ── file_tools result lines ────────────────────────────────────────────────
+    # These don't carry run_id — use the last seen run_id from dispatch_tool.
 
     rfm = _RE_READ_FILE.search(msg)
     if rfm and "file_tools" in module:
+        rid = _last_run_id[0]
+        if run_id_filter and rid != run_id_filter:
+            return None
         path = _shorten_path(rfm.group("path"))
         start, end, total = rfm.group("start"), rfm.group("end"), rfm.group("total")
+        tag = _run_tag(rid, run_id_filter)
         return (
-            f"{ts}  {BLUE}{_tool_icon('read_file_lines')} read{RESET}  "
+            f"{ts}  {tag}{BLUE}{_tool_icon('read_file_lines')} read{RESET}  "
             f"{WHITE}{path}{RESET}  {GREY}lines {start}–{end} / {total}{RESET}"
         )
 
     rpm = _RE_REPLACE.search(msg)
     if rpm and "file_tools" in module:
+        rid = _last_run_id[0]
+        if run_id_filter and rid != run_id_filter:
+            return None
         path = _shorten_path(rpm.group("path"))
         count = rpm.group("count")
+        tag = _run_tag(rid, run_id_filter)
         return (
-            f"{ts}  {GREEN}{_tool_icon('replace_in_file')} replaced{RESET}  "
+            f"{ts}  {tag}{GREEN}{_tool_icon('replace_in_file')} replaced{RESET}  "
             f"{WHITE}{path}{RESET}  {GREY}({count} replacement{'s' if count != '1' else ''}){RESET}"
         )
 
     inm = _RE_INSERT.search(msg)
     if inm and "file_tools" in module:
+        rid = _last_run_id[0]
+        if run_id_filter and rid != run_id_filter:
+            return None
         path = _shorten_path(inm.group("path"))
+        tag = _run_tag(rid, run_id_filter)
         return (
-            f"{ts}  {GREEN}{_tool_icon('insert_after_in_file')} inserted{RESET}  "
+            f"{ts}  {tag}{GREEN}{_tool_icon('insert_after_in_file')} inserted{RESET}  "
             f"{WHITE}{path}{RESET}"
         )
 
     wfm = _RE_WRITE.search(msg)
     if wfm and "file_tools" in module:
+        rid = _last_run_id[0]
+        if run_id_filter and rid != run_id_filter:
+            return None
         path = _shorten_path(wfm.group("path"))
         byte_tag = f"  {GREY}({wfm.group('bytes')} bytes){RESET}" if wfm.group("bytes") else ""
+        tag = _run_tag(rid, run_id_filter)
         return (
-            f"{ts}  {GREEN}{_tool_icon('write_file')} wrote{RESET}  "
+            f"{ts}  {tag}{GREEN}{_tool_icon('write_file')} wrote{RESET}  "
             f"{WHITE}{path}{RESET}{byte_tag}"
         )
 
     # ── shell command ──────────────────────────────────────────────────────────
     scmd = _RE_SHELL_CMD.search(msg)
     if scmd:
+        rid = _last_run_id[0]
+        if run_id_filter and rid != run_id_filter:
+            return None
         cmd = _shorten_cmd(scmd.group("cmd"))
-        return f"{ts}  {ORANGE}{_tool_icon('run_command')} ${RESET}  {WHITE}{cmd}{RESET}"
+        tag = _run_tag(rid, run_id_filter)
+        return f"{ts}  {tag}{ORANGE}{_tool_icon('run_command')} ${RESET}  {WHITE}{cmd}{RESET}"
 
     sdm = _RE_SHELL_DONE.search(msg)
     if sdm:
+        rid = _last_run_id[0]
+        if run_id_filter and rid != run_id_filter:
+            return None
         exit_code = int(sdm.group("exit"))
         stdout_bytes = _fmt_number(sdm.group("stdout"))
+        tag = _run_tag(rid, run_id_filter)
         if exit_code == 0:
-            return f"{ts}  {GREEN}   ✅ exit=0{RESET}  {GREY}({stdout_bytes} bytes out){RESET}"
+            return f"{ts}  {tag}{GREEN}   ✅ exit=0{RESET}  {GREY}({stdout_bytes} bytes out){RESET}"
         else:
-            return f"{ts}  {RED}   ❌ exit={exit_code}{RESET}  {GREY}({stdout_bytes} bytes out){RESET}"
+            return f"{ts}  {tag}{RED}   ❌ exit={exit_code}{RESET}  {GREY}({stdout_bytes} bytes out){RESET}"
 
     # ── git commit/push ────────────────────────────────────────────────────────
     gcm = _RE_GIT_COMMIT.search(msg)
     if gcm:
+        rid = _last_run_id[0]
+        if run_id_filter and rid != run_id_filter:
+            return None
         branch = gcm.group("branch")
-        return f"{ts}  {GREEN}{BOLD}📦 git push → {branch}{RESET}"
+        tag = _run_tag(rid, run_id_filter)
+        return f"{ts}  {tag}{GREEN}{BOLD}📦 git push → {branch}{RESET}"
 
     # ── GitHub MCP tool ────────────────────────────────────────────────────────
     ghm = _RE_GITHUB_TOOL.search(msg)
     if ghm:
-        return f"{ts}  {CYAN}🐙 github/{ghm.group('tool')}{RESET}"
+        rid = _last_run_id[0]
+        if run_id_filter and rid != run_id_filter:
+            return None
+        tag = _run_tag(rid, run_id_filter)
+        return f"{ts}  {tag}{CYAN}🐙 github/{ghm.group('tool')}{RESET}"
 
-    # catch-all: any GitHub MCP call visible in logs
     if "github_mcp" in msg or "create_pull_request" in msg or "merge_pull_request" in msg:
+        rid = _last_run_id[0]
+        if run_id_filter and rid != run_id_filter:
+            return None
+        tag = _run_tag(rid, run_id_filter)
         short = msg[:120] + "…" if len(msg) > 120 else msg
-        return f"{ts}  {CYAN}🐙 {short}{RESET}"
+        return f"{ts}  {tag}{CYAN}🐙 {short}{RESET}"
 
     # ── LLM turn header ────────────────────────────────────────────────────────
     lm = _RE_LLM_CALL.search(msg)
     if lm:
-        _state.history_len = int(lm.group("turns"))
-        iteration = _state.iteration
+        rid = _last_run_id[0]
+        if run_id_filter and rid != run_id_filter:
+            return None
+        st = _get_state(rid)
+        st.history_len = int(lm.group("turns"))
+        iteration = st.iteration
         iter_tag = str(iteration) if iteration else "?"
-        model = lm.group("model").split("-")[0] + "…"  # truncate long model names
+        model = lm.group("model").split("-")[0] + "…"
+        tag = _run_tag(rid, run_id_filter)
         return (
-            f"\n{ts}  {MAGENTA}{BOLD}╔══ ITER {iter_tag}  [{model}]{RESET}"
+            f"\n{ts}  {tag}{MAGENTA}{BOLD}╔══ ITER {iter_tag}  [{model}]{RESET}"
         )
 
     # ── LLM token usage ───────────────────────────────────────────────────────
     um = _RE_LLM_USAGE.search(msg)
     if um:
+        rid = _last_run_id[0]
+        if run_id_filter and rid != run_id_filter:
+            return None
+        st = _get_state(rid)
         inp = _fmt_number(um.group("input"))
         cw = _fmt_number(um.group("cw"))
         cr = _fmt_number(um.group("cr"))
-        hist = _state.history_len
+        hist = st.history_len
         cr_int = int(um.group("cr"))
-        # Colour cache_read green when it's high (good caching), yellow when low
         cr_col = GREEN if cr_int > 10_000 else YELLOW if cr_int > 0 else GREY
+        tag = _run_tag(rid, run_id_filter)
         return (
-            f"{ts}  {GREY}    in={inp}  cache_write={cw}  "
+            f"{ts}  {tag}{GREY}    in={inp}  cache_write={cw}  "
             f"{cr_col}cache_read={cr}{RESET}  {GREY}history={hist}msgs{RESET}"
         )
 
-    # ── agent text reply (before tool calls or at end_turn) ────────────────────
+    # ── agent text reply ───────────────────────────────────────────────────────
     rlm = _RE_LLM_REPLY.search(msg)
     if rlm:
+        rid = _last_run_id[0]
+        if run_id_filter and rid != run_id_filter:
+            return None
         chars = int(rlm.group("chars"))
         text = rlm.group("text").strip()
-        # Wrap the full chain of thought across multiple lines so nothing is
-        # hidden.  The first line gets the 💬 prefix; continuation lines are
-        # indented to align with the text.
-        prefix = f"{ts}  {GREY}💬 ({chars:,}ch) "
-        indent = " " * (len(ts) + 2 + 4 + len(f"({chars:,}ch) "))
+        tag = _run_tag(rid, run_id_filter)
+        prefix = f"{ts}  {tag}{GREY}💬 ({chars:,}ch) "
+        indent = " " * (len(ts) + 2 + len(tag.replace(RESET, "").replace(CYAN, "").replace(MAGENTA, "").replace(YELLOW, "").replace(GREEN, "").replace(ORANGE, "").replace(BLUE, "").replace(WHITE, "")) + 4 + len(f"({chars:,}ch) "))
         wrapped = textwrap.wrap(text, width=120, subsequent_indent=indent)
         return (prefix + "\n".join(wrapped) + RESET) if wrapped else ""
 
     # ── LLM done / stop reason ─────────────────────────────────────────────────
     ldm = _RE_LLM_DONE.search(msg)
     if ldm:
+        rid = _last_run_id[0]
+        if run_id_filter and rid != run_id_filter:
+            return None
         reason = ldm.group("reason")
         calls = ldm.group("calls")
         if reason == "end_turn":
-            tag = f"{GREEN}end_turn{RESET}"
+            tag_str = f"{GREEN}end_turn{RESET}"
         elif reason.startswith("tool_calls"):
             n = int(calls)
-            tag = f"{CYAN}→ {n} tool call{'s' if n != 1 else ''}{RESET}"
+            tag_str = f"{CYAN}→ {n} tool call{'s' if n != 1 else ''}{RESET}"
         else:
-            tag = f"{YELLOW}{reason}{RESET}"
-        return f"{ts}  {MAGENTA}╚══ {tag}{RESET}"
+            tag_str = f"{YELLOW}{reason}{RESET}"
+        tag = _run_tag(rid, run_id_filter)
+        return f"{ts}  {tag}{MAGENTA}╚══ {tag_str}{RESET}"
 
     # ── inter-turn pacing ─────────────────────────────────────────────────────
     dlm = _RE_DELAY.search(msg)
     if dlm:
+        rid = _last_run_id[0]
+        if run_id_filter and rid != run_id_filter:
+            return None
         secs = float(dlm.group("secs"))
         bar = "▓" * int(secs) + "░" * max(0, 7 - int(secs))
-        return f"{ts}  {GREY}⏳ {bar} {secs:.1f}s{RESET}"
+        tag = _run_tag(rid, run_id_filter)
+        return f"{ts}  {tag}{GREY}⏳ {bar} {secs:.1f}s{RESET}"
 
     # ── errors ────────────────────────────────────────────────────────────────
     if level == "ERROR":
+        rid = _last_run_id[0]
+        if run_id_filter and rid != run_id_filter:
+            return None
         em = _RE_ERROR.search(msg)
         text = em.group("msg") if em else msg
-        return f"{ts}  {RED}{BOLD}❌ {text}{RESET}"
+        tag = _run_tag(rid, run_id_filter)
+        return f"{ts}  {tag}{RED}{BOLD}❌ {text}{RESET}"
 
     # ── warnings that matter ───────────────────────────────────────────────────
     wm = _RE_WARN.search(msg)
     if wm and any(kw in msg for kw in ("429", "stale", "reaper", "SSL", "retry", "circuit")):
-        return f"{ts}  {YELLOW}⚠️  {wm.group('msg')}{RESET}"
+        rid = _last_run_id[0]
+        if run_id_filter and rid != run_id_filter:
+            return None
+        tag = _run_tag(rid, run_id_filter)
+        return f"{ts}  {tag}{YELLOW}⚠️  {wm.group('msg')}{RESET}"
 
     # ── teardown ───────────────────────────────────────────────────────────────
     tdm = _RE_TEARDOWN.search(msg)
@@ -411,8 +496,9 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
         teardown_rid = tdm.group("run_id")
         if run_id_filter and teardown_rid != run_id_filter:
             return None
+        tag = _run_tag(teardown_rid, run_id_filter)
         tmsg = tdm.group("msg")
-        return f"{ts}  {GREY}🧹 teardown[{teardown_rid}]: {tmsg}{RESET}"
+        return f"{ts}  {tag}{GREY}🧹 teardown[{teardown_rid}]: {tmsg}{RESET}"
 
     return None
 
@@ -420,61 +506,62 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
 import threading
 import time as _time_mod
 
-# ── Silence tracker — shared between log reader and heartbeat thread ──────────
+# ── Per-run silence tracker ────────────────────────────────────────────────────
+# Tracks the last output timestamp and LLM-call state independently per run_id
+# so that one busy agent doesn't mask a silent/stuck agent.
+
+class _SilenceState:
+    last_output_ts: float = 0.0
+    last_llm_call_ts: float = 0.0
+    llm_retry_count: int = 0
+
+
 _silence_lock = threading.Lock()
-_last_output_ts: float = 0.0     # epoch seconds of last printed output line
-_last_llm_call_ts: float = 0.0   # epoch seconds of most recent LLM call log
-_llm_retry_count: int = 0        # retries fired for the current in-flight call
+_silence: dict[str, _SilenceState] = defaultdict(lambda: _SilenceState())
 _stop_heartbeat = threading.Event()
 
 
 def _heartbeat(run_id_filter: str | None) -> None:
-    """Background thread: print a status line every 10s when logs go silent.
-
-    The LLM read timeout is 90s, so a retry fires at ~92s (90s + 2s sleep).
-    STUCK_AFTER_S must exceed that to avoid false positives on large generations.
-    """
-    WARN_AFTER_S = 10     # first notice
-    STUCK_AFTER_S = 120   # escalate to ⚠️ stuck (> 90s read timeout + 30s buffer)
+    """Background thread: print a status line when any run goes silent."""
+    WARN_AFTER_S = 10
+    STUCK_AFTER_S = 120
 
     while not _stop_heartbeat.wait(timeout=5):
         now = _time_mod.time()
         with _silence_lock:
-            last_out = _last_output_ts
-            last_llm = _last_llm_call_ts
-            retry_count = _llm_retry_count
+            snapshot = {rid: (s.last_output_ts, s.last_llm_call_ts, s.llm_retry_count)
+                        for rid, s in _silence.items()}
 
-        silent_for = now - last_out if last_out else 0.0
-        if silent_for < WARN_AFTER_S:
-            continue  # still active — nothing to print
+        for rid, (last_out, last_llm, retry_count) in snapshot.items():
+            if run_id_filter and rid != run_id_filter:
+                continue
+            silent_for = now - last_out if last_out else 0.0
+            if silent_for < WARN_AFTER_S:
+                continue
 
-        ts_str = GREY + _time_mod.strftime("%H:%M:%S") + RESET
+            ts_str = GREY + _time_mod.strftime("%H:%M:%S") + RESET
+            tag = _run_tag(rid, run_id_filter)
 
-        if last_llm and (now - last_llm) > WARN_AFTER_S:
-            # LLM call is in flight and unacknowledged
-            llm_wait = int(now - last_llm)
-            retry_tag = f" (retry {retry_count})" if retry_count else ""
-            if silent_for >= STUCK_AFTER_S:
-                label = (
-                    f"{RED}{BOLD}⚠️  LLM call in flight{retry_tag} — {llm_wait}s"
-                    f" — LIKELY STUCK (container crash?){RESET}"
-                )
+            if last_llm and (now - last_llm) > WARN_AFTER_S:
+                llm_wait = int(now - last_llm)
+                retry_tag = f" (retry {retry_count})" if retry_count else ""
+                if silent_for >= STUCK_AFTER_S:
+                    label = (
+                        f"{RED}{BOLD}⚠️  LLM call in flight{retry_tag} — {llm_wait}s"
+                        f" — LIKELY STUCK (container crash?){RESET}"
+                    )
+                else:
+                    label = f"{YELLOW}⏳ waiting for Anthropic response{retry_tag} — {llm_wait}s elapsed{RESET}"
             else:
-                label = f"{YELLOW}⏳ waiting for Anthropic response{retry_tag} — {llm_wait}s elapsed{RESET}"
-        else:
-            # No LLM call pending — agent is idle for another reason
-            if silent_for >= STUCK_AFTER_S:
-                label = f"{RED}{BOLD}⚠️  no agent activity for {int(silent_for)}s — run may be dead{RESET}"
-            else:
-                label = f"{GREY}    … no new activity for {int(silent_for)}s{RESET}"
+                if silent_for >= STUCK_AFTER_S:
+                    label = f"{RED}{BOLD}⚠️  no agent activity for {int(silent_for)}s — run may be dead{RESET}"
+                else:
+                    label = f"{GREY}    … no new activity for {int(silent_for)}s{RESET}"
 
-        filter_tag = f"[{run_id_filter}] " if run_id_filter else ""
-        print(f"{ts_str}  {filter_tag}{label}", flush=True)
+            print(f"{ts_str}  {tag}{label}", flush=True)
 
 
 def main() -> None:
-    global _last_output_ts, _last_llm_call_ts, _llm_retry_count
-
     run_id_filter: str | None = sys.argv[1] if len(sys.argv) > 1 else None
 
     if run_id_filter:
@@ -486,11 +573,15 @@ def main() -> None:
         print(
             f"\n{BOLD}{CYAN}👁  Watching ALL agent activity{RESET}\n"
             f"{GREY}    Pass a run_id to filter: python scripts/watch_run.py <run_id>{RESET}\n"
+            f"{GREY}    Each line is prefixed [#issue] or [rv-N] to identify the agent.{RESET}\n"
             f"{GREY}    (Ctrl-C to stop){RESET}\n"
         )
 
+    # Seed the default silence entry so heartbeat fires even before first log.
     with _silence_lock:
-        _last_output_ts = _time_mod.time()
+        if run_id_filter:
+            s = _silence[run_id_filter]
+            s.last_output_ts = _time_mod.time()
 
     hb = threading.Thread(target=_heartbeat, args=(run_id_filter,), daemon=True)
     hb.start()
@@ -510,21 +601,19 @@ def main() -> None:
             out = process_line(line, run_id_filter)
             if out is not None:
                 now = _time_mod.time()
+                rid = _last_run_id[0]
                 with _silence_lock:
-                    _last_output_ts = now
-                    # Track when an LLM call was fired so heartbeat knows
-                    # whether silence means "waiting on Anthropic" vs idle.
+                    s = _silence[rid]
+                    s.last_output_ts = now
                     if _RE_LLM_CALL.search(line):
-                        _last_llm_call_ts = now
-                        _llm_retry_count = 0
+                        s.last_llm_call_ts = now
+                        s.llm_retry_count = 0
                     elif _RE_LLM_DONE.search(line):
-                        _last_llm_call_ts = 0.0  # cleared on response
-                        _llm_retry_count = 0
-                    elif m := _RE_LLM_RETRY.search(line):
-                        # Retry fired: reset the in-flight timer so elapsed
-                        # counts from the retry, not the original call.
-                        _last_llm_call_ts = now
-                        _llm_retry_count = int(m.group("n"))
+                        s.last_llm_call_ts = 0.0
+                        s.llm_retry_count = 0
+                    elif (mr := _RE_LLM_RETRY.search(line)):
+                        s.last_llm_call_ts = now
+                        s.llm_retry_count = int(mr.group("n"))
                 print(out, flush=True)
     except KeyboardInterrupt:
         print(f"\n{GREY}stopped.{RESET}", flush=True)
