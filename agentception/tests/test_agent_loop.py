@@ -1292,6 +1292,25 @@ class TestLoopGuard:
             )
 
 
+    def test_guard_allowlist_includes_shell_tools(self) -> None:
+        """run_command and git_commit_and_push must always be in the guard allowlist.
+
+        Without these a guarded agent can write code but has no way to run
+        verification (mypy/pytest) or deliver the work (git push) — the guard
+        would re-fire on every iteration, trapping the agent permanently.
+        """
+        from agentception.services.agent_loop import _GUARD_PERMITTED_TOOL_NAMES
+
+        assert "run_command" in _GUARD_PERMITTED_TOOL_NAMES, (
+            "run_command must be in _GUARD_PERMITTED_TOOL_NAMES so a guarded "
+            "agent can still run mypy/pytest to verify its writes."
+        )
+        assert "git_commit_and_push" in _GUARD_PERMITTED_TOOL_NAMES, (
+            "git_commit_and_push must be in _GUARD_PERMITTED_TOOL_NAMES so a "
+            "guarded agent can still commit and push after writing code."
+        )
+
+
 # ---------------------------------------------------------------------------
 # Loop guard disabled for reviewer
 # ---------------------------------------------------------------------------

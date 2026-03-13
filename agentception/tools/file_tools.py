@@ -488,6 +488,12 @@ def read_symbol(path: str | Path, symbol_name: str) -> dict[str, object]:
         # AST found nothing — fall through to string scan below.
 
     # Non-Python or AST miss: scan for `def name` / `class name`.
+    # LIMITATION: this heuristic uses indentation-based end-detection, which
+    # works for Python-style files but NOT for brace-delimited languages such
+    # as TypeScript or JavaScript.  For .ts/.js files the heuristic returns
+    # only the opening line (the `{` body is not indented relative to the
+    # header).  If a TypeScript agent role is added, replace this path with
+    # a tree-sitter or AST-based extractor for those file types.
     for i, line in enumerate(lines, 1):
         stripped = line.lstrip()
         if stripped.startswith(f"def {symbol_name}(") or stripped.startswith(
@@ -598,8 +604,18 @@ async def find_call_sites(
     if not d.exists():
         return {"ok": False, "error": f"Directory does not exist: {d}"}
 
-    # Match call sites `name(` AND import lines `import name` / `from x import name`.
-    pattern = rf"\b{symbol_name}[\(\s]|import\s+{symbol_name}"
+    # Four patterns cover the main usage forms:
+    # 1. Call sites:   symbol_name( or symbol_name  (followed by whitespace)
+    # 2. Bare import:  import symbol_name
+    # 3. From-import:  from x import symbol_name  (including multi-symbol lines)
+    # 4. Type context: symbol_name: / symbol_name[ / symbol_name, / symbol_name)
+    #    — covers annotations, generic parameters, and tuple positions
+    pattern = (
+        rf"\b{symbol_name}[\(\s]"
+        rf"|import\s+{symbol_name}\b"
+        rf"|from\s+\S+\s+import\b[^#\n]*\b{symbol_name}\b"
+        rf"|\b{symbol_name}[:\[,\)]"
+    )
 
     try:
         proc = await asyncio.create_subprocess_exec(
