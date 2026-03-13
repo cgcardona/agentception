@@ -138,12 +138,11 @@ def test_build_board_partial_has_no_load_trigger() -> None:
     )
 
 
-def test_build_page_has_htmx_indicator() -> None:
-    """build.html must contain an element with class 'htmx-indicator' for the resync spinner."""
+def test_build_page_resync_button_is_own_indicator() -> None:
+    """Resync button is its own HTMX indicator so it spins in place (no separate spinner)."""
     html = _render("build.html", _BUILD_CTX)
-    assert "htmx-indicator" in html, (
-        "build.html does not contain 'htmx-indicator'. "
-        "The resync spinner must use the .htmx-indicator class so HTMX toggles it automatically."
+    assert 'id="resync-btn"' in html and 'hx-indicator="#resync-btn"' in html, (
+        "Resync button must have id=resync-btn and hx-indicator=#resync-btn so it spins when clicked."
     )
 
 

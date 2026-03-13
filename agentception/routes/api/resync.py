@@ -89,7 +89,12 @@ async def post_resync_issues(request: Request) -> HTMLResponse | JSONResponse:
         return JSONResponse(status_code=503, content=body_err.model_dump())
 
     if htmx:
-        return HTMLResponse(content="", status_code=200)
+        # Trigger immediate board refresh so the UI shows fresh data from GitHub.
+        return HTMLResponse(
+            content="",
+            status_code=200,
+            headers={"HX-Trigger": "refreshBoard"},
+        )
 
     body_ok = ResyncOkResponse(ok=True, **counts)
     return JSONResponse(status_code=200, content=body_ok.model_dump())
