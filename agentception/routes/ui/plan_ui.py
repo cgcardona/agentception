@@ -41,6 +41,7 @@ from pydantic import BaseModel
 from starlette.requests import Request
 
 from agentception.readers.llm_phase_planner import _strip_fences
+from agentception.readers.plan_enricher import enrich_plan_with_codebase_context
 from agentception.services.llm import LLMChunk, call_anthropic_stream
 from ._shared import _TEMPLATES
 
@@ -359,6 +360,10 @@ async def plan_preview(body: PlanDraftRequest) -> StreamingResponse:
             parsed = _normalize_plan_dict(parsed)
 
             spec = PlanSpec.model_validate(parsed)
+            try:
+                spec = await enrich_plan_with_codebase_context(spec)
+            except Exception as exc:
+                logger.warning("⚠️ plan enrichment failed: %s", exc)
             canonical = spec.to_yaml()
             total = sum(len(p.issues) for p in spec.phases)
             logger.info(
