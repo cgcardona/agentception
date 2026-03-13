@@ -153,6 +153,40 @@ _LOOP_GUARD_THRESHOLD: int = 2
 _FINAL_STRETCH_THRESHOLD: int = 15
 
 # ---------------------------------------------------------------------------
+# Pytest hard-stop — mechanically enforced once pytest exits 0
+# ---------------------------------------------------------------------------
+# When a run_command call containing "pytest" returns exit_code=0, the loop
+# arms a hard-stop interrupt.  On every subsequent iteration, these read-only
+# tools are intercepted and returned as synthetic errors — the same mechanism
+# used by the loop guard — so the agent cannot enter a post-test audit loop.
+# The stop is disarmed if the agent writes new code (file-mutating tools)
+# after the passing test run, because the new code is untested.
+_PYTEST_STOP_BLOCKED_TOOLS: frozenset[str] = frozenset({
+    "read_file",
+    "read_file_lines",
+    "search_text",
+    "search_codebase",
+    "list_directory",
+    "find_call_sites",
+    "read_symbol",
+    "read_window",
+    "update_working_memory",
+})
+
+# Injected every turn once pytest_clean_since is set.
+_PYTEST_STOP_OVERRIDE: str = (
+    "🛑 HARD STOP — pytest exited 0 on iteration {iteration}.\n\n"
+    "Step 3 of your execution contract is now mechanically enforced. "
+    "File reads, searches, and diagnostics are LOCKED.\n\n"
+    "Your only permitted actions:\n"
+    "1. `git_commit_and_push` — commit and push your work.\n"
+    "2. `create_pull_request` — open a PR against dev.\n"
+    "3. `build_complete_run` — mark the run complete.\n\n"
+    "Any read or search tool call will be rejected with a synthetic error. "
+    "Do not audit. Do not re-verify. Commit and ship."
+)
+
+# ---------------------------------------------------------------------------
 # Developer agent — minimal tool surface
 # ---------------------------------------------------------------------------
 # Cursor completes developer tasks in 5–15 tool calls because it has only
@@ -506,6 +540,10 @@ async def run_agent_loop(
     # Write journal: file path → number of mutations applied this session.
     # Injected into extra_blocks every turn so it survives history pruning.
     files_written: dict[str, int] = {}
+    # Set to the iteration number when pytest last exited 0.  None means the
+    # hard-stop interrupt is disarmed.  Reset when new code is written after
+    # the clean run, or when a subsequent pytest run fails.
+    pytest_clean_since: int | None = None
 
     for iteration in range(1, max_iterations + 1):
         await log_run_step(
@@ -614,6 +652,23 @@ async def run_agent_loop(
                 run_id, iteration, remaining,
             )
 
+        # Pytest hard-stop escalation — fires every iteration after pytest
+        # exits 0.  Independent of loop_guard and final_stretch.  Not applied
+        # to reviewers (whose workflow is intentionally read-heavy).
+        _pytest_clean_iter = pytest_clean_since
+        pytest_stop_active: bool = (
+            _pytest_clean_iter is not None and task.role != "reviewer"
+        )
+        if pytest_stop_active and _pytest_clean_iter is not None:
+            extra_blocks.append({
+                "type": "text",
+                "text": _PYTEST_STOP_OVERRIDE.format(iteration=_pytest_clean_iter),
+            })
+            logger.warning(
+                "⚠️ pytest_stop active — run_id=%s current_iter=%d armed_at=%d",
+                run_id, iteration, _pytest_clean_iter,
+            )
+
         try:
             bounded = _prune_history(_truncate_tool_results(messages))
             _active_model = _HAIKU_MODEL if task.role == "reviewer" else _MODEL
@@ -705,6 +760,39 @@ async def run_agent_loop(
             else:
                 tc_to_dispatch = list(response["tool_calls"])
 
+            # Pass 2: pytest hard-stop interception (independent of loop guard).
+            # Any read/search tool that made it past Pass 1 is blocked here when
+            # pytest_stop_active.  This runs on tc_to_dispatch (not the full list)
+            # so guard-intercepted tools are not double-counted.
+            if pytest_stop_active:
+                unblocked: list[ToolCall] = []
+                for tc in tc_to_dispatch:
+                    tc_name = tc["function"]["name"]
+                    if tc_name in _PYTEST_STOP_BLOCKED_TOOLS:
+                        synthetic_errors.append({
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": json.dumps({
+                                "ok": False,
+                                "error": (
+                                    f"HARD STOP: pytest exited 0 on iteration "
+                                    f"{pytest_clean_since}. Reading, searching, "
+                                    "and diagnostics are locked. Your only "
+                                    "permitted actions are git_commit_and_push, "
+                                    "create_pull_request, and build_complete_run. "
+                                    "Commit and ship now."
+                                ),
+                            }),
+                        })
+                    else:
+                        unblocked.append(tc)
+                if len(unblocked) < len(tc_to_dispatch):
+                    logger.warning(
+                        "⚠️ pytest_stop intercepted %d tool call(s) — run_id=%s iteration=%d",
+                        len(tc_to_dispatch) - len(unblocked), run_id, iteration,
+                    )
+                tc_to_dispatch = unblocked
+
             tool_results: list[dict[str, object]] = []
             if tc_to_dispatch:
                 tool_results = await _dispatch_tool_calls(
@@ -781,6 +869,59 @@ async def run_agent_loop(
                         )
                 except (json.JSONDecodeError, AttributeError):
                     pass
+
+            # Pytest hard-stop bookkeeping.
+            #
+            # Arm: if any dispatched run_command call ran pytest and exited 0,
+            # set pytest_clean_since so the hard-stop fires next iteration.
+            # tc_to_dispatch and tool_results are parallel (asyncio.gather order).
+            for tc, tr in zip(tc_to_dispatch, tool_results):
+                if tc["function"]["name"] != "run_command":
+                    continue
+                try:
+                    cmd_args: dict[str, object] = json.loads(tc["function"]["arguments"])
+                    cmd_str = str(cmd_args.get("command", ""))
+                except (json.JSONDecodeError, AttributeError):
+                    continue
+                if "pytest" not in cmd_str:
+                    continue
+                try:
+                    result_data: dict[str, object] = json.loads(
+                        str(tr.get("content", "{}"))
+                    )
+                    exit_code = result_data.get("exit_code")
+                    if exit_code == 0:
+                        pytest_clean_since = iteration
+                        logger.info(
+                            "✅ pytest_stop armed — run_id=%s iteration=%d",
+                            run_id, iteration,
+                        )
+                    elif exit_code is not None and pytest_clean_since is not None:
+                        # A subsequent pytest run failed — disarm so the agent
+                        # can fix the code without being blocked.
+                        logger.info(
+                            "⚠️ pytest_stop disarmed (pytest failed) — run_id=%s"
+                            " iteration=%d exit_code=%s",
+                            run_id, iteration, exit_code,
+                        )
+                        pytest_clean_since = None
+                except (json.JSONDecodeError, AttributeError, ValueError):
+                    pass
+
+            # Disarm if the agent wrote new code after the clean test run.
+            # Only file-mutating tools (not git or run_command) trigger a reset,
+            # and only when the write occurs AFTER the iteration that armed the stop.
+            if (
+                pytest_clean_since is not None
+                and iteration > pytest_clean_since
+                and tool_names_this_iter & _FILE_MUTATING_TOOL_NAMES
+            ):
+                logger.info(
+                    "⚠️ pytest_stop disarmed (new code written) — run_id=%s"
+                    " iteration=%d armed_at=%d",
+                    run_id, iteration, pytest_clean_since,
+                )
+                pytest_clean_since = None
 
             continue
 

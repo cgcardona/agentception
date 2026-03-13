@@ -2944,3 +2944,262 @@ class TestModelSelection:
             f"Expected model='claude-sonnet-4-6' for developer, got {kwargs.get('model')!r}"
         )
 
+
+# ---------------------------------------------------------------------------
+# Pytest hard-stop — mechanically enforced once pytest exits 0
+# ---------------------------------------------------------------------------
+
+
+def _run_command_response(command: str) -> ToolResponse:
+    """Return a ToolResponse simulating the agent calling run_command."""
+    tc = ToolCall(
+        id="call_pytest",
+        type="function",
+        function=ToolCallFunction(name="run_command", arguments=json.dumps({"command": command})),
+    )
+    return ToolResponse(stop_reason="tool_calls", content="", tool_calls=[tc])
+
+
+class TestPytestHardStop:
+    """Pytest hard-stop: reads/searches are intercepted after pytest exits 0.
+
+    The stop arms when run_command runs pytest and exit_code==0.  It is
+    mechanically enforced via synthetic errors on every subsequent iteration
+    for any tool in _PYTEST_STOP_BLOCKED_TOOLS.  It disarms when new code is
+    written after the clean run, or when a later pytest invocation fails.
+    """
+
+    @pytest.mark.anyio
+    async def test_pytest_stop_blocks_reads_after_clean_exit(
+        self, tmp_path: Path
+    ) -> None:
+        """read_file calls are intercepted with a synthetic error after pytest exits 0.
+
+        Sequence:
+          iter 1: run_command("pytest ...") → exit_code=0  (arms stop)
+          iter 2: read_file(...)  → intercepted, synthetic error returned
+          iter 3: stop
+        The LLM must receive the HARD STOP override in extra_system_blocks on
+        iter 2, and read_file must not reach the real dispatcher.
+        """
+        from agentception.services.agent_loop import run_agent_loop
+
+        worktree = tmp_path / "test-pytest-stop"
+        worktree.mkdir()
+        task_spec = _make_task_spec(worktree)
+
+        pytest_cmd_result: dict[str, object] = {
+            "ok": True,
+            "stdout": "1 passed",
+            "stderr": "",
+            "exit_code": 0,
+            "stdout_truncated": False,
+            "stderr_truncated": False,
+        }
+
+        responses = [
+            _run_command_response("pytest agentception/tests/test_foo.py -v"),
+            _tool_response("read_file", {"path": "agentception/models.py"}),
+            _stop_response("Done."),
+        ]
+
+        captured_extra: list[list[dict[str, object]] | None] = []
+
+        async def fake_llm(
+            *args: object,
+            extra_system_blocks: list[dict[str, object]] | None = None,
+            **kwargs: object,
+        ) -> ToolResponse:
+            captured_extra.append(extra_system_blocks)
+            return responses[len(captured_extra) - 1]
+
+        read_file_called = False
+
+        # read_file is synchronous in _dispatch_local_tool — use a plain callable
+        # (not AsyncMock) so the return value is a dict, not a coroutine.
+        def fake_read_file_sync(*args: object, **kwargs: object) -> dict[str, object]:
+            nonlocal read_file_called
+            read_file_called = True
+            return {"ok": True, "content": "stub", "truncated": False}
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.get_run_by_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": [], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic_with_tools",
+                side_effect=fake_llm,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
+
+            from agentception.services import agent_loop as al
+
+            with patch.object(al, "run_command", new=AsyncMock(return_value=pytest_cmd_result)):
+                with patch.object(al, "read_file", side_effect=fake_read_file_sync):
+                    await run_agent_loop("test-pytest-stop")
+
+        # The HARD STOP override must appear in extra_system_blocks on iter 2
+        # (index 1 — the read_file attempt after pytest passed).
+        assert len(captured_extra) >= 2, "Expected at least 2 LLM iterations"
+        iter2_extra = captured_extra[1]
+        assert iter2_extra is not None, "extra_system_blocks must be non-None on iter 2"
+        all_text = " ".join(
+            str(b["text"]) for b in iter2_extra if isinstance(b.get("text"), str)
+        )
+        assert "HARD STOP" in all_text, (
+            "Expected 'HARD STOP' in extra_system_blocks on the iteration after pytest passes"
+        )
+
+        # read_file must NOT have been dispatched — the interception returns a
+        # synthetic error before the real tool is called.
+        assert not read_file_called, (
+            "read_file must be intercepted and not reach the real dispatcher"
+        )
+
+    @pytest.mark.anyio
+    async def test_pytest_stop_disarmed_by_file_write(self, tmp_path: Path) -> None:
+        """Writing a file after pytest passes disarms the hard-stop.
+
+        Sequence:
+          iter 1: run_command("pytest ...") → exit_code=0  (arms stop)
+          iter 2: replace_in_file(...)  (disarms stop — new untested code)
+          iter 3: read_file(...)  → reaches dispatcher normally (stop is disarmed)
+          iter 4: stop
+        """
+        from agentception.services.agent_loop import run_agent_loop
+
+        worktree = tmp_path / "test-pytest-disarm"
+        worktree.mkdir()
+        task_spec = _make_task_spec(worktree)
+
+        pytest_cmd_result: dict[str, object] = {
+            "ok": True,
+            "stdout": "1 passed",
+            "stderr": "",
+            "exit_code": 0,
+            "stdout_truncated": False,
+            "stderr_truncated": False,
+        }
+        replace_result: dict[str, object] = {"ok": True}
+        read_result: dict[str, object] = {"ok": True, "content": "stub", "truncated": False}
+
+        responses = [
+            _run_command_response("pytest agentception/tests/test_foo.py -v"),
+            _tool_response("replace_in_file", {"path": "agentception/foo.py", "old_string": "x", "new_string": "y"}),
+            _tool_response("read_file", {"path": "agentception/models.py"}),
+            _stop_response("Done."),
+        ]
+
+        captured_extra: list[list[dict[str, object]] | None] = []
+
+        async def fake_llm(
+            *args: object,
+            extra_system_blocks: list[dict[str, object]] | None = None,
+            **kwargs: object,
+        ) -> ToolResponse:
+            captured_extra.append(extra_system_blocks)
+            return responses[len(captured_extra) - 1]
+
+        read_file_called = False
+
+        # read_file and replace_in_file are synchronous in _dispatch_local_tool —
+        # use plain MagicMock (not AsyncMock) so the return value is a dict, not
+        # a coroutine.
+        def fake_read_file_sync(*args: object, **kwargs: object) -> dict[str, object]:
+            nonlocal read_file_called
+            read_file_called = True
+            return read_result
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.get_run_by_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": [], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic_with_tools",
+                side_effect=fake_llm,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
+
+            from agentception.services import agent_loop as al
+
+            with patch.object(al, "run_command", new=AsyncMock(return_value=pytest_cmd_result)):
+                with patch.object(al, "replace_in_file", return_value=replace_result):
+                    with patch.object(al, "read_file", side_effect=fake_read_file_sync):
+                        await run_agent_loop("test-pytest-disarm")
+
+        # After the file write on iter 2, the stop is disarmed.
+        # On iter 3, read_file must reach the real dispatcher (not be intercepted).
+        assert read_file_called, (
+            "read_file must be dispatched normally after the stop is disarmed by a file write"
+        )
+
+        # No HARD STOP in extra_system_blocks on iter 3 (index 2).
+        assert len(captured_extra) >= 3, "Expected at least 3 LLM iterations"
+        iter3_extra = captured_extra[2]
+        if iter3_extra is not None:
+            all_text = " ".join(
+                str(b["text"]) for b in iter3_extra if isinstance(b.get("text"), str)
+            )
+            assert "HARD STOP" not in all_text, (
+                "HARD STOP must not appear after disarm"
+            )
