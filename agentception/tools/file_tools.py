@@ -11,8 +11,60 @@ import ast as _ast
 import logging
 import re as _re
 from pathlib import Path
+from typing import Union
+
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
+
+from agentception.db.activity_events import (
+    FileInsertedPayload,
+    FileReadPayload,
+    FileReplacedPayload,
+    FileWrittenPayload,
+    persist_activity_event,
+)
+from agentception.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _shorten_path(abs_path: Path | str, run_id: str) -> str:
+    """Strip the absolute worktree prefix and return the repo-relative path.
+
+    For example, ``/worktrees/issue-941/agentception/db/models.py`` with
+    ``run_id="issue-941"`` returns ``"agentception/db/models.py"``.
+
+    Falls back to the string representation of *abs_path* when the prefix
+    cannot be stripped (e.g. the path is already relative).
+    """
+    p = Path(abs_path)
+    worktree_root = Path(settings.worktrees_dir) / run_id
+    try:
+        return str(p.relative_to(worktree_root))
+    except ValueError:
+        return str(p)
+
+
+def _emit_activity(
+    session: Union[Session, AsyncSession],
+    run_id: str,
+    subtype: str,
+    payload: dict[str, object],
+) -> None:
+    """Persist one activity event, catching and logging any DB error.
+
+    Wraps ``persist_activity_event`` so that a database failure never
+    propagates to the file-tool caller.
+    """
+    try:
+        persist_activity_event(session, run_id, subtype, payload)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "⚠️ activity event persist failed (subtype=%s run_id=%s): %s",
+            subtype,
+            run_id,
+            exc,
+        )
 
 # Maximum bytes read from a single file before truncation.
 _MAX_READ_BYTES = 131_072  # 128 KiB
@@ -57,12 +109,22 @@ def read_file(path: str | Path) -> dict[str, object]:
     return {"ok": True, "content": text, "truncated": truncated}
 
 
-def write_file(path: str | Path, content: str) -> dict[str, object]:
+def write_file(
+    path: str | Path,
+    content: str,
+    *,
+    run_id: str | None = None,
+    session: Union[Session, AsyncSession] | None = None,
+) -> dict[str, object]:
     """Write *content* to *path*, creating parent directories as needed.
 
     Args:
         path: Destination path.
         content: Text to write (UTF-8).
+        run_id: Agent run ID used to shorten the path in the activity event.
+            When ``None``, no activity event is persisted.
+        session: Open SQLAlchemy session for persisting the activity event.
+            When ``None``, no activity event is persisted.
 
     Returns:
         ``{"ok": True, "bytes_written": int}`` on success, or
@@ -81,6 +143,13 @@ def write_file(path: str | Path, content: str) -> dict[str, object]:
 
     bytes_written = len(content.encode("utf-8"))
     logger.info("✅ write_file — %s (%d bytes)", p, bytes_written)
+    # activity event — see docs/reference/activity-events.md
+    if run_id is not None and session is not None:
+        payload: FileWrittenPayload = {  # type: ignore[assignment]
+            "path": _shorten_path(p, run_id),
+            "byte_count": bytes_written,
+        }
+        _emit_activity(session, run_id, "file_written", payload)
     return {"ok": True, "bytes_written": bytes_written}
 
 
@@ -119,6 +188,8 @@ def replace_in_file(
     new_string: str,
     *,
     allow_multiple: bool = False,
+    run_id: str | None = None,
+    session: Union[Session, AsyncSession] | None = None,
 ) -> dict[str, object]:
     """Replace an exact string in *path* with *new_string*.
 
@@ -176,6 +247,13 @@ def replace_in_file(
 
     replacements = count if allow_multiple else 1
     logger.info("✅ replace_in_file — %s (%d replacement(s))", p, replacements)
+    # activity event — see docs/reference/activity-events.md
+    if run_id is not None and session is not None:
+        rp_payload: FileReplacedPayload = {  # type: ignore[assignment]
+            "path": _shorten_path(p, run_id),
+            "replacement_count": replacements,
+        }
+        _emit_activity(session, run_id, "file_replaced", rp_payload)
     return {"ok": True, "replacements": replacements}
 
 
@@ -183,6 +261,9 @@ def read_file_lines(
     path: str | Path,
     start_line: int,
     end_line: int,
+    *,
+    run_id: str | None = None,
+    session: Union[Session, AsyncSession] | None = None,
 ) -> dict[str, object]:
     """Return lines *start_line* through *end_line* (1-indexed, inclusive) from *path*.
 
@@ -232,6 +313,15 @@ def read_file_lines(
     logger.info(
         "✅ read_file_lines — %s lines %d-%d/%d", p, clamped_start, clamped_end, total
     )
+    # activity event — see docs/reference/activity-events.md
+    if run_id is not None and session is not None:
+        fr_payload: FileReadPayload = {  # type: ignore[assignment]
+            "path": _shorten_path(p, run_id),
+            "start_line": clamped_start,
+            "end_line": clamped_end,
+            "total_lines": total,
+        }
+        _emit_activity(session, run_id, "file_read", fr_payload)
     return {
         "ok": True,
         "content": content,
@@ -245,6 +335,9 @@ def insert_after_in_file(
     path: str | Path,
     anchor: str,
     new_content: str,
+    *,
+    run_id: str | None = None,
+    session: Union[Session, AsyncSession] | None = None,
 ) -> dict[str, object]:
     """Insert *new_content* immediately after the first occurrence of *anchor* in *path*.
 
@@ -327,6 +420,12 @@ def insert_after_in_file(
         return {"ok": False, "error": str(exc)}
 
     logger.info("✅ insert_after_in_file — %s (inserted at byte %d)", p, insert_pos)
+    # activity event — see docs/reference/activity-events.md
+    if run_id is not None and session is not None:
+        fi_payload: FileInsertedPayload = {  # type: ignore[assignment]
+            "path": _shorten_path(p, run_id),
+        }
+        _emit_activity(session, run_id, "file_inserted", fi_payload)
     return {"ok": True, "inserted_at": insert_pos}
 
 
