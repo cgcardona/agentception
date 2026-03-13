@@ -1,0 +1,38 @@
+// ── A/B metrics panel (Mission Control build page) ─────────────────────────────
+
+.ab-metrics {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+
+  th,
+  td {
+    padding: 4px 8px;
+    text-align: right;
+  }
+
+  th:first-child,
+  td:first-child {
+    text-align: left;
+  }
+
+  thead th {
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+  }
+
+  tr:nth-child(even) {
+    background: var(--surface-2);
+  }
+
+  .no-data {
+    text-align: center;
+    color: var(--muted);
+  }
+}
+
+.loading-placeholder {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 0.5rem 0;
+}

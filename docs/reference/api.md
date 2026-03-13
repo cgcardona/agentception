@@ -700,6 +700,8 @@ Returns per-variant aggregates for completed developer runs over a lookback wind
 | `passed` | `integer` | Count of runs with grade A or B |
 | `failed` | `integer` | Count of runs with grade C, D, or F |
 
+**A/B Metrics Panel (HTMX):** When the request includes the header `HX-Request: true`, the endpoint returns HTML (`Content-Type: text/html`) — a table partial for in-place swap on the Mission Control build page. When the header is absent, the response is JSON as above.
+
 #### `GET /api/metrics/daily`
 
 

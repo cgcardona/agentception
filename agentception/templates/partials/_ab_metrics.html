@@ -1,0 +1,26 @@
+<table class="ab-metrics">
+  <thead>
+    <tr>
+      <th>Variant</th>
+      <th>Runs</th>
+      <th>Avg Iters</th>
+      <th>Pass Rate</th>
+      <th>Avg Tokens</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for v in variants %}
+  <tr>
+    <td>{{ v.variant }}</td>
+    <td>{{ v.runs }}</td>
+    <td>{{ "%.1f"|format(v.avg_iterations) }}</td>
+    <td>{{ "%.0f%%"|format(v.pass_rate * 100) }}</td>
+    <td>{{ v.avg_input_tokens | int }}</td>
+  </tr>
+  {% else %}
+  <tr>
+    <td colspan="5" class="no-data">No completed runs in the last 7 days.</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
