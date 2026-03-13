@@ -129,6 +129,20 @@ export function attachThoughtHandler(source: EventSource): void {
       return;
     }
 
+    if (msg.t === "thought" && msg.role === "assistant") {
+      closeActive(); // collapse any open thinking block first
+      const bubble = document.createElement("div");
+      bubble.className = "assistant-bubble";
+      bubble.setAttribute("role", "note");
+      bubble.setAttribute("aria-label", "Agent response");
+      bubble.textContent = msg.content;
+      feed.appendChild(bubble);
+      if (typeof bubble.scrollIntoView === "function") {
+        bubble.scrollIntoView({ block: "end", behavior: "smooth" });
+      }
+      return;
+    }
+
     if (msg.t === "event") {
       if (msg.event_type === "step_start" || msg.event_type === "done") {
         closeActive();

@@ -2213,3 +2213,14 @@ $preset-accents: (
 .diff-remove  { display: block; background: rgba(255, 60, 60, 0.10); color: #f97583; }
 .diff-context { display: block; color: var(--color-text-muted, #888); }
 
+// ── Assistant bubble ──────────────────────────────────────────────────────────
+
+.assistant-bubble {
+  border-left: 2px solid var(--color-text, #eee);
+  padding: 0.35rem 0.5rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-text, #eee);
+  line-height: 1.5;
+}
+
