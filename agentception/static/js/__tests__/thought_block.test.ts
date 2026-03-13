@@ -49,4 +49,30 @@ describe("attachThoughtHandler", () => {
     const btn = document.querySelector(".thought-block__header");
     expect(btn?.getAttribute("aria-expanded")).toBe("false");
   });
+
+  it("renders assistant-bubble for role=assistant event", () => {
+    const src = makeSource();
+    attachThoughtHandler(src);
+    dispatch(src, { t: "thought", role: "assistant", content: "Here is my answer.", recorded_at: "" });
+    const bubble = document.querySelector(".assistant-bubble");
+    expect(bubble).not.toBeNull();
+    expect(bubble?.textContent).toBe("Here is my answer.");
+  });
+
+  it("renders thought-block for role=thinking event (existing behaviour unchanged)", () => {
+    const src = makeSource();
+    attachThoughtHandler(src);
+    dispatch(src, { t: "thought", role: "thinking", content: "thinking...", recorded_at: "" });
+    expect(document.querySelector(".thought-block")).not.toBeNull();
+    expect(document.querySelector(".assistant-bubble")).toBeNull();
+  });
+
+  it("assistant-bubble has no collapse button", () => {
+    const src = makeSource();
+    attachThoughtHandler(src);
+    dispatch(src, { t: "thought", role: "assistant", content: "answer", recorded_at: "" });
+    // No button inside the bubble.
+    expect(document.querySelector(".assistant-bubble button")).toBeNull();
+    expect(document.querySelector(".assistant-bubble .thought-block__header")).toBeNull();
+  });
 });
