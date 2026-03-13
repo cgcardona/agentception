@@ -3227,10 +3227,10 @@ class TestPytestHardStop:
 class TestPruneHistoryTokenBudget:
     """Unit tests for the token-budget path of _prune_history."""
 
-    def test_prune_history_by_token_count(self) -> None:
+    @pytest.mark.anyio
+    async def test_prune_history_by_token_count(self) -> None:
         """When last_input_tokens > _MAX_INPUT_TOKEN_ESTIMATE, prune until estimated
-        tokens fall below the threshold, keeping messages[0] and at most _HISTORY_TAIL+1
-        messages."""
+        tokens fall below the threshold, always keeping messages[0]."""
         from agentception.services.agent_loop import (
             _prune_history,
             _HISTORY_TAIL,
@@ -3249,14 +3249,22 @@ class TestPruneHistoryTokenBudget:
         ]
         messages = [briefing] + body
 
-        result = _prune_history(messages, last_input_tokens=145_000)
+        with patch(
+            "agentception.services.agent_loop._summarise_history",
+            new_callable=AsyncMock,
+            return_value="",
+        ):
+            result = await _prune_history(messages, last_input_tokens=145_000)
 
         assert result[0] == briefing, "messages[0] must always be preserved"
-        assert len(result) <= _HISTORY_TAIL + 1
+        # The token-budget loop drops messages until estimated <= threshold.
         estimated = sum(len(json.dumps(m)) // 4 for m in result)
         assert estimated <= _MAX_INPUT_TOKEN_ESTIMATE
+        # The loop stops when len(prunable) == _HISTORY_TAIL + 1 at the minimum.
+        assert len(result) >= _HISTORY_TAIL + 1
 
-    def test_prune_history_skips_token_path_when_under_threshold(self) -> None:
+    @pytest.mark.anyio
+    async def test_prune_history_skips_token_path_when_under_threshold(self) -> None:
         """When last_input_tokens <= _MAX_INPUT_TOKEN_ESTIMATE the token-budget
         loop must not run; the count guard controls the result."""
         from agentception.services.agent_loop import (
@@ -3273,7 +3281,12 @@ class TestPruneHistoryTokenBudget:
         ]
         messages = [briefing] + body
 
-        result = _prune_history(messages, last_input_tokens=50_000)
+        with patch(
+            "agentception.services.agent_loop._summarise_history",
+            new_callable=AsyncMock,
+            return_value="",
+        ):
+            result = await _prune_history(messages, last_input_tokens=50_000)
 
         # Count guard fires: result must start with messages[0] + _HISTORY_TAIL tail.
         # Token loop never runs, so len(result) is NOT further reduced.
@@ -3282,4 +3295,84 @@ class TestPruneHistoryTokenBudget:
         # All content is tiny, so estimated tokens are well under threshold.
         estimated = sum(len(json.dumps(m)) // 4 for m in result)
         assert estimated <= _MAX_INPUT_TOKEN_ESTIMATE
+
+    @pytest.mark.anyio
+    async def test_context_checkpoint_summary_injected(self) -> None:
+        """When > 4 messages are dropped and _summarise_history returns a non-empty
+        string, a [Context checkpoint] message is inserted at index 1."""
+        from agentception.services.agent_loop import (
+            _prune_history,
+        )
+
+        # Use 30_000-char messages so that many messages must be dropped to reach
+        # the token threshold, ensuring dropped count > 4.
+        large_content = "y" * 30_000
+        briefing: dict[str, object] = {"role": "user", "content": "Task briefing"}
+        body: list[dict[str, object]] = [
+            {"role": "assistant" if i % 2 == 0 else "user", "content": large_content}
+            for i in range(30)
+        ]
+        messages = [briefing] + body
+
+        with patch(
+            "agentception.services.agent_loop._summarise_history",
+            new_callable=AsyncMock,
+            return_value="Did X and Y",
+        ):
+            result = await _prune_history(messages, last_input_tokens=145_000)
+
+        assert result[0] == briefing
+        checkpoint_content = result[1]["content"]
+        assert isinstance(checkpoint_content, str)
+        assert checkpoint_content.startswith("[Context checkpoint]")
+        assert "Did X and Y" in checkpoint_content
+
+    @pytest.mark.anyio
+    async def test_context_checkpoint_skipped_when_few_dropped(self) -> None:
+        """When <= 4 messages are dropped, _summarise_history must NOT be called."""
+        from agentception.services.agent_loop import (
+            _prune_history,
+            _MAX_INPUT_TOKEN_ESTIMATE,
+            _HISTORY_TAIL,
+        )
+
+        # Build a history that triggers the token path but drops only 3 messages.
+        # Each message contributes ~(20_000 // 4) = 5_000 tokens.
+        # We need total > _MAX_INPUT_TOKEN_ESTIMATE but only 3 messages to drop.
+        # Strategy: briefing + _HISTORY_TAIL messages that are just over threshold
+        # when combined, so only a few need to be removed.
+        large_content = "z" * 20_000
+        briefing: dict[str, object] = {"role": "user", "content": "Task briefing"}
+        # Use exactly _HISTORY_TAIL + 3 body messages so the tail is _HISTORY_TAIL
+        # and 3 extra messages sit at the front (indices 1-3) to be dropped.
+        body: list[dict[str, object]] = [
+            {"role": "assistant" if i % 2 == 0 else "user", "content": large_content}
+            for i in range(_HISTORY_TAIL + 3)
+        ]
+        messages = [briefing] + body
+
+        mock_summarise = AsyncMock(return_value="should not be called")
+        with patch(
+            "agentception.services.agent_loop._summarise_history",
+            mock_summarise,
+        ):
+            result = await _prune_history(messages, last_input_tokens=145_000)
+
+        mock_summarise.assert_not_called()
+        for msg in result:
+            content = msg.get("content", "")
+            assert not (isinstance(content, str) and content.startswith("[Context checkpoint]"))
+
+    @pytest.mark.anyio
+    async def test_summarise_history_returns_empty_on_exception(self) -> None:
+        """_summarise_history returns '' and does not propagate when call_anthropic raises."""
+        from agentception.services.agent_loop import _summarise_history
+
+        with patch(
+            "agentception.services.agent_loop.call_anthropic",
+            side_effect=RuntimeError("api down"),
+        ):
+            result = await _summarise_history([{}])
+
+        assert result == ""
 
