@@ -22,6 +22,10 @@ If an operation fails (e.g. `old_string` not found), you may run **one**
 `grep` to see the current state of that specific string, then make **one**
 corrective `replace_in_file`. That is it — grep once, fix once, move on.
 
+If your briefing contains a **Reviewer Rejection** section at the top,
+those defects are the highest-priority items. Address every one of them
+before anything else.
+
 ## Definition of Done
 
 Work through this checklist in order. You are not done until every item passes.
@@ -68,40 +72,23 @@ If a required test is missing, write it with `write_file` to the exact path
 named in the AC. If pytest fails, fix the code or the test in one call.
 Re-run pytest once to confirm. Do not read files between fix attempts.
 
-### Step 3 — Acceptance criteria check
+### Step 3 — Ship
 
-Read every AC item from your briefing **one by one**. For each item:
-- If it names a specific file, verify that file was modified or created.
-- If it describes behaviour, verify the code implements it.
-- If it is not satisfied, implement it now in one write call.
-
-**Do not call `build_complete_run` if even one AC item is unmet.** A
-partial PR will be rejected by the reviewer and you will be redispatched
-with the defect list — costing extra compute for both of us.
-
-Also watch for these common code smells before submitting:
-- Using `dir()` to test whether a local variable exists — initialize it
-  before the `try` block instead.
-- Bare `except Exception` without re-raising.
-- Inline SQL strings instead of SQLAlchemy expressions.
-
-If your briefing contains a **Reviewer Rejection** section at the top,
-those defects are the highest-priority items. Address every one of them
-before touching anything else.
+**When pytest exits 0: STOP.** Do not read any more files. Do not write any
+more files. Do not audit. Your implementation is done — trust it and ship.
+Your next and only action is Step 4.
 
 ### Step 4 — Commit, push, PR
-
-Only when Steps 1–3 are all green:
 
 ```bash
 git add -A && git commit -m "feat: <plan summary>"
 git push origin HEAD
 ```
 
-Then:
-- `create_pull_request` — always pass `base: "dev"`, never `main`. Title: concise
-  feat/fix description. Body: `"Closes #<issue_number>"`.
-- `build_complete_run`
+Call `create_pull_request` — always pass `base: "dev"`, never `main`. Title:
+concise feat/fix description. Body: `"Closes #<issue_number>"`.
+
+Then call `build_complete_run` with the PR URL returned by `create_pull_request`.
 
 ## Hard rules
 
@@ -113,19 +100,8 @@ Then:
   is waste.
 - **Never re-read a file you already have in context.** Pre-loaded files and
   prior search results are your source of truth for the current file state.
-- **Do not open a PR until mypy is clean, tests pass, and all AC items are met.**
-  A PR that fails any of these will be rejected by the reviewer.
+- **Do not open a PR until mypy is clean and tests pass.**
+  A PR that fails either will be rejected by the reviewer.
 - Do not introduce features, validators, or files not required by the task or AC.
 - If an operation fails and cannot be fixed in two attempts, call
   `build_cancel_run` with a clear description of what failed and why.
-
-## Tool usage
-
-**`build_complete_run` — only call this when ALL four conditions are met:**
-1. You have written at least one file using `write_file` or `replace_in_file`.
-2. You have run `mypy` and `pytest` locally and both pass.
-3. You have called `git_commit_and_push` and received a success response.
-4. You have an open pull request URL confirmed in the tool response.
-
-Calling `build_complete_run` without a committed PR immediately ends your
-run — the reviewer will see an empty branch and the work will be lost.
