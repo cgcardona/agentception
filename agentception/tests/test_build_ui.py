@@ -104,7 +104,7 @@ async def test_inspector_sse_poll_interval() -> None:
 
     with (
         patch(
-            "agentception.routes.ui.build_ui.get_agent_events_tail",
+            "agentception.routes.ui.build_ui.get_all_events_tail",
             new_callable=AsyncMock,
             return_value=[],
         ),
@@ -203,7 +203,7 @@ async def test_sse_stream_emits_file_edit_event_after_str_replace() -> None:
 
     with (
         patch(
-            "agentception.routes.ui.build_ui.get_agent_events_tail",
+            "agentception.routes.ui.build_ui.get_all_events_tail",
             side_effect=fake_events_tail,
         ),
         patch(

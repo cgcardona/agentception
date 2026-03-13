@@ -37,7 +37,7 @@ def _make_thought(
 async def test_tool_call_emitted() -> None:
     with (
         patch(
-            "agentception.routes.ui.build_ui.get_agent_events_tail",
+            "agentception.routes.ui.build_ui.get_all_events_tail",
             new_callable=AsyncMock,
             return_value=[],
         ),
@@ -68,7 +68,7 @@ async def test_tool_call_emitted() -> None:
 async def test_tool_result_emitted() -> None:
     with (
         patch(
-            "agentception.routes.ui.build_ui.get_agent_events_tail",
+            "agentception.routes.ui.build_ui.get_all_events_tail",
             new_callable=AsyncMock,
             return_value=[],
         ),
@@ -98,7 +98,7 @@ async def test_tool_result_emitted() -> None:
 async def test_file_edit_tool_result_suppressed() -> None:
     with (
         patch(
-            "agentception.routes.ui.build_ui.get_agent_events_tail",
+            "agentception.routes.ui.build_ui.get_all_events_tail",
             new_callable=AsyncMock,
             return_value=[],
         ),

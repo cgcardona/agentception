@@ -115,6 +115,7 @@ from agentception.db.queries.messages import (
 
 from agentception.db.queries.events import (
     get_agent_events_tail as get_agent_events_tail,
+    get_all_events_tail as get_all_events_tail,
     get_file_edit_events as get_file_edit_events,
 )
 
