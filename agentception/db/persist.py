@@ -22,7 +22,7 @@ import re
 import uuid
 from typing import TYPE_CHECKING, TypedDict
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 
 # Label namespace prefixes that are part of the taxonomy and must never be
 # interpreted as initiative slugs.  Any label whose prefix-before-"/" matches
@@ -1074,6 +1074,10 @@ async def persist_agent_run_dispatch(
     )
     try:
         async with get_session() as session:
+            # Clear previous run's events and messages so re-dispatches show a clean timeline.
+            await session.execute(delete(ACAgentEvent).where(ACAgentEvent.agent_run_id == run_id))
+            await session.execute(delete(ACAgentMessage).where(ACAgentMessage.agent_run_id == run_id))
+
             result = await session.execute(
                 select(ACAgentRun).where(ACAgentRun.id == run_id)
             )

@@ -287,16 +287,10 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
 
         if tool_name in _RESULT_LINE_TOOLS:
             st.pending_arg = parsed.get("path", "")
+            # read_file_lines: skip here — file_tools logs a result line with path+lines+total;
+            # we render that one only to avoid showing the same read twice.
             if tool_name == "read_file_lines":
-                path = parsed.get("path", "")
-                lines = parsed.get("lines", "")
-                if path or lines:
-                    path_short = _shorten_path(path) if path else "?"
-                    line_info = f"  {GREY}lines {lines}{RESET}" if lines else ""
-                    return (
-                        f"{ts}  {tag}{BLUE}{_tool_icon('read_file_lines')} read{RESET}  "
-                        f"{WHITE}{path_short}{RESET}{line_info}"
-                    )
+                return None
             return None
         if tool_name in _DISPATCH_ONLY_TOOLS:
             path = parsed.get("path", "")
