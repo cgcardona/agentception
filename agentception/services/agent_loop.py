@@ -51,6 +51,8 @@ from agentception.services.llm import (
     ToolDefinition,
     ToolFunction,
     ToolResponse,
+    _HAIKU_MODEL,
+    _MODEL,
     call_anthropic,
     call_anthropic_with_tools,
 )
@@ -614,10 +616,12 @@ async def run_agent_loop(
 
         try:
             bounded = _prune_history(_truncate_tool_results(messages))
+            _active_model = _HAIKU_MODEL if task.role == "reviewer" else _MODEL
             response: ToolResponse = await call_anthropic_with_tools(
                 bounded,
                 system=system_prompt,
                 tools=active_tool_defs,
+                model=_active_model,
                 extra_system_blocks=extra_blocks or None,
             )
         except Exception as exc:

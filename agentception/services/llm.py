@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
 _ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 _MODEL = "claude-sonnet-4-6"
 _OPUS_MODEL = "claude-opus-4-6"
+_HAIKU_MODEL = "claude-haiku-4-5"
 _ANTHROPIC_VERSION = "2023-06-01"
 # Per-phase timeouts for Anthropic API calls.
 # connect/write: generous but bounded — API should accept the request quickly.
