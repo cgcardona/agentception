@@ -256,12 +256,20 @@ _REVIEWER_TOOL_ALLOWLIST: frozenset[str] = frozenset({
 # cases where the reviewer needs to request changes and wait for context.
 _REVIEWER_MAX_ITERATIONS = 20
 
-# When the loop guard fires, the tool palette switches to an ALLOWLIST:
-# only write tools and a minimal set of essential non-read tools remain.
+# When the loop guard fires, these tools remain available.  The set must
+# include run_command and git_commit_and_push so a guarded agent can still
+# run mypy/pytest to verify its own writes and then commit and push to ship.
+# Without them, a guarded agent writes code with no path to verify or deliver
+# it — the guard would correctly fire, force a write, then fire again forever.
 _GUARD_PERMITTED_TOOL_NAMES: frozenset[str] = frozenset({
+    # Code-mutation tools — the primary target of the guard.
     "write_file",
     "replace_in_file",
     "insert_after_in_file",
+    # Shell — needed to run mypy/pytest (verification) and git (delivery).
+    "run_command",
+    "git_commit_and_push",
+    # Completion — the only way to close the loop.
     "build_complete_run",
     "build_cancel_run",
     "create_pull_request",
