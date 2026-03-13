@@ -863,3 +863,225 @@ async def call_anthropic_with_tools(
         cache_creation_input_tokens=cache_creation_tokens,
         cache_read_input_tokens=cache_read_tokens,
     )
+
+
+# ---------------------------------------------------------------------------
+# Local OpenAI-compatible server (e.g. mlx_lm.server) — used when use_local_llm
+# ---------------------------------------------------------------------------
+
+
+def _tools_to_openai(tools: list[ToolDefinition]) -> list[dict[str, object]]:
+    """Convert internal tool definitions to OpenAI /v1/chat/completions format."""
+    out: list[dict[str, object]] = []
+    for t in tools:
+        fn = t["function"]
+        out.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": fn["name"],
+                    "description": fn.get("description", ""),
+                    "parameters": fn.get("parameters", {}),
+                },
+            }
+        )
+    return out
+
+
+async def call_local_with_tools(
+    messages: list[dict[str, object]],
+    *,
+    system: str,
+    tools: list[ToolDefinition],
+    model: str = "local",
+    temperature: float = 0.0,
+    max_tokens: int = 32000,
+    extra_system_blocks: list[dict[str, object]] | None = None,
+    session: AsyncSession | None = None,
+    run_id: str | None = None,
+    iteration: int = 0,
+) -> ToolResponse:
+    """Call a local OpenAI-compatible server (e.g. mlx_lm.server) with tool use.
+
+    Same contract as :func:`call_anthropic_with_tools`: accepts OpenAI-format
+    messages and tools, returns :class:`ToolResponse`. Use when
+    ``settings.use_local_llm`` is True.
+    """
+    base = settings.local_llm_base_url.rstrip("/")
+    url = f"{base}{settings.local_llm_chat_path}"
+    system_content = system
+    if extra_system_blocks:
+        for blk in extra_system_blocks:
+            if isinstance(blk, dict) and blk.get("type") == "text":
+                text = blk.get("text", "")
+                if isinstance(text, str) and text:
+                    system_content = f"{system_content}\n\n{text}"
+    request_messages: list[dict[str, object]] = [
+        {"role": "system", "content": system_content},
+        *messages,
+    ]
+    payload: dict[str, object] = {
+        "messages": request_messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    if tools:
+        payload["tools"] = _tools_to_openai(tools)
+        payload["tool_choice"] = "auto"
+    if settings.local_llm_model:
+        payload["model"] = settings.local_llm_model
+    # Else omit model so servers like mlx_lm.server use their loaded model (avoids 404).
+    if session is not None and run_id is not None:
+        persist_activity_event(
+            session,
+            run_id,
+            "llm_iter",
+            {"iteration": iteration, "model": model, "turns": len(messages)},
+        )
+        await session.flush()
+
+    logger.info(
+        "✅ Local LLM tool-use call — url=%s turns=%d tools=%d",
+        url,
+        len(messages),
+        len(tools),
+    )
+    timeout = httpx.Timeout(connect=10.0, read=300.0, write=60.0, pool=10.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        resp = await client.post(url, json=payload)
+        resp.raise_for_status()
+
+    data: object = resp.json()
+    if not isinstance(data, dict):
+        raise ValueError(f"Local LLM response not a dict: {type(data)}")
+
+    choices: object = data.get("choices", [])
+    if not isinstance(choices, list) or not choices:
+        raise ValueError("Local LLM response has no choices")
+    first: object = choices[0]
+    if not isinstance(first, dict):
+        raise ValueError("Local LLM first choice not a dict")
+    msg: object = first.get("message", {})
+    if not isinstance(msg, dict):
+        raise ValueError("Local LLM message not a dict")
+
+    finish: object = first.get("finish_reason", "stop")
+    if finish == "tool_calls":
+        stop_reason = "tool_calls"
+    elif finish == "length":
+        stop_reason = "length"
+    else:
+        stop_reason = "stop"
+
+    content = str(msg.get("content") or "").strip()
+    raw_calls: object = msg.get("tool_calls") or []
+    tool_calls: list[ToolCall] = []
+    if isinstance(raw_calls, list):
+        for tc in raw_calls:
+            if not isinstance(tc, dict):
+                continue
+            fn = tc.get("function")
+            if not isinstance(fn, dict):
+                continue
+            args = fn.get("arguments", "{}")
+            tool_calls.append(
+                ToolCall(
+                    id=str(tc.get("id", "")),
+                    type="function",
+                    function=ToolCallFunction(
+                        name=str(fn.get("name", "")),
+                        arguments=args if isinstance(args, str) else json.dumps(args),
+                    ),
+                )
+            )
+
+    usage: object = data.get("usage", {})
+    input_tokens = 0
+    output_tokens = 0
+    if isinstance(usage, dict):
+        input_tokens = int(usage.get("prompt_tokens", 0) or 0)
+        output_tokens = int(usage.get("completion_tokens", 0) or 0)
+    # Same log shape as Anthropic path so watch_run.py shows reply and done.
+    if content.strip():
+        snippet = content.replace("\n", " ").strip()
+        logger.info("✅ LLM reply — chars=%d text=%s", len(content), snippet)
+    logger.info(
+        "✅ LLM tool-use done — stop_reason=%s content_chars=%d tool_calls=%d",
+        stop_reason,
+        len(content),
+        len(tool_calls),
+    )
+    if session is not None and run_id is not None:
+        persist_activity_event(
+            session,
+            run_id,
+            "llm_usage",
+            {"input_tokens": input_tokens, "cache_write": 0, "cache_read": 0},
+        )
+        await session.flush()
+        if content:
+            persist_activity_event(
+                session,
+                run_id,
+                "llm_reply",
+                {"chars": len(content), "text_preview": content[:200]},
+            )
+            await session.flush()
+        persist_activity_event(
+            session,
+            run_id,
+            "llm_done",
+            {"stop_reason": stop_reason, "tool_call_count": len(tool_calls)},
+        )
+        await session.flush()
+
+    return ToolResponse(
+        stop_reason=stop_reason,
+        content=content,
+        tool_calls=tool_calls,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+    )
+
+
+async def call_local_completion(
+    system: str,
+    user_message: str,
+    *,
+    max_tokens: int = 128,
+) -> str:
+    """Single-turn completion against the local OpenAI-compatible server (no tools).
+
+    Used by the ``GET /api/local-llm/hello`` endpoint to verify the local model
+    responds. Returns the assistant's text content.
+    """
+    base = settings.local_llm_base_url.rstrip("/")
+    url = f"{base}{settings.local_llm_chat_path}"
+    payload: dict[str, object] = {
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_message},
+        ],
+        "temperature": 0.0,
+        "max_tokens": max_tokens,
+    }
+    if settings.local_llm_model:
+        payload["model"] = settings.local_llm_model
+    timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        resp = await client.post(url, json=payload)
+        resp.raise_for_status()
+    data: object = resp.json()
+    if not isinstance(data, dict):
+        raise ValueError(f"Local LLM response not a dict: {type(data)}")
+    choices: object = data.get("choices", [])
+    if not isinstance(choices, list) or not choices:
+        raise ValueError("Local LLM response has no choices")
+    first: object = choices[0]
+    if not isinstance(first, dict):
+        raise ValueError("Local LLM first choice not a dict")
+    msg: object = first.get("message", {})
+    if not isinstance(msg, dict):
+        raise ValueError("Local LLM message not a dict")
+    content: object = msg.get("content")
+    return str(content).strip() if content else ""

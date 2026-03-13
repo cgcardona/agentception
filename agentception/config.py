@@ -24,7 +24,7 @@ import json
 import logging
 from pathlib import Path
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -145,6 +145,49 @@ class AgentCeptionSettings(BaseSettings):
     falls back to the keyword-based heuristic classifier — no LLM is required
     for the service to start.
     """
+    use_local_llm: bool = False
+    """When True, the developer agent uses the local LLM at ``local_llm_base_url``
+    instead of Anthropic. Set via ``USE_LOCAL_LLM`` env var (e.g. ``true``).
+    Planner and reviewer still use Anthropic."""
+
+    @field_validator("use_local_llm", mode="before")
+    @classmethod
+    def _parse_use_local_llm(cls, v: object) -> bool:
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            return v.strip().lower() in ("true", "1", "yes")
+        return False
+
+    local_llm_base_url: str = "http://host.docker.internal:8080"
+    """Base URL of the local OpenAI-compatible server (e.g. mlx_lm.server).
+    Used when ``use_local_llm`` is True. From Docker, use host.docker.internal
+    to reach a server running on the host. Set via ``LOCAL_LLM_BASE_URL``."""
+
+    local_llm_chat_path: str = "/v1/chat/completions"
+    """Path appended to ``local_llm_base_url`` for chat requests. Some servers
+    use ``/chat/completions`` without the ``/v1`` prefix. Set via
+    ``LOCAL_LLM_CHAT_PATH``."""
+
+    local_llm_model: str = ""
+    """Model name sent in the request. If empty, omit so the server uses its
+    loaded model (avoids 404 from mlx_lm.server when it doesn't know \"local\").
+    Set via ``LOCAL_LLM_MODEL``."""
+
+    local_llm_max_context_chars: int = 12_000
+    """Max characters for the first user message when using the local LLM.
+    Small models (e.g. Qwen 4B) are easily overloaded; truncating the task
+    briefing keeps context manageable. Set via ``LOCAL_LLM_MAX_CONTEXT_CHARS``."""
+
+    local_llm_max_tokens: int = 4096
+    """Max tokens for local LLM completion. Small models struggle with 32k;
+    use 4096 or 8192. Set via ``LOCAL_LLM_MAX_TOKENS``."""
+
+    local_llm_max_system_chars: int = 6000
+    """Max characters for the system prompt when using the local LLM. Truncates
+    role + cognitive arch so small models get a digest. Set via
+    ``LOCAL_LLM_MAX_SYSTEM_CHARS``."""
+
     github_token: str = ""
     """GitHub Personal Access Token for GitHub API calls and the GitHub MCP server.
 

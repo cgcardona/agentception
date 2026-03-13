@@ -60,6 +60,7 @@ from agentception.services.llm import (
     _MODEL,
     call_anthropic,
     call_anthropic_with_tools,
+    call_local_with_tools,
 )
 from agentception.services.code_indexer import search_codebase
 from agentception.services.github_mcp_client import GitHubMCPClient
@@ -525,7 +526,11 @@ async def run_agent_loop(
     else:
         tool_defs = all_tool_defs
 
-    initial_message = await _fetch_task_briefing(run_id, task, worktree_path)
+    if run_id.startswith("local-hello") and settings.use_local_llm:
+        initial_message = "Reply with exactly: hello world."
+        tool_defs = []
+    else:
+        initial_message = await _fetch_task_briefing(run_id, task, worktree_path)
 
     messages: list[dict[str, object]] = [{"role": "user", "content": initial_message}]
 
@@ -755,16 +760,48 @@ async def run_agent_loop(
             try:
                 bounded = await _prune_history(_truncate_tool_results(messages), last_input_tokens=last_input_tokens)
                 _active_model = _HAIKU_MODEL if task.role == "reviewer" else _MODEL
-                response: ToolResponse = await call_anthropic_with_tools(
-                    bounded,
-                    system=system_prompt,
-                    tools=active_tool_defs,
-                    model=_active_model,
-                    extra_system_blocks=extra_blocks or None,
-                    session=session,
-                    run_id=run_id,
-                    iteration=iteration,
-                )
+                if settings.use_local_llm and task.role == "developer":
+                    # Same pipeline as Anthropic: full system prompt (role + cognitive arch + runtime
+                    # note), same tools, same extra_system_blocks. Only the LLM endpoint and context
+                    # caps differ. Cap context so small local models (e.g. Qwen 4B) aren't overloaded.
+                    local_messages = _truncate_first_user_message_for_local_llm(
+                        bounded,
+                        max_chars=settings.local_llm_max_context_chars,
+                    )
+                    system_for_local = system_prompt
+                    if len(system_prompt) > settings.local_llm_max_system_chars:
+                        system_for_local = (
+                            system_prompt[: settings.local_llm_max_system_chars]
+                            + "\n\n[System prompt truncated for local model.]"
+                        )
+                        logger.warning(
+                            "⚠️ local LLM: truncated system prompt from %d to %d chars",
+                            len(system_prompt),
+                            settings.local_llm_max_system_chars,
+                        )
+                    response = await call_local_with_tools(
+                        local_messages,
+                        system=system_for_local,
+                        tools=active_tool_defs,
+                        model="local",
+                        temperature=0.0,
+                        max_tokens=settings.local_llm_max_tokens,
+                        extra_system_blocks=extra_blocks or None,
+                        session=session,
+                        run_id=run_id,
+                        iteration=iteration,
+                    )
+                else:
+                    response = await call_anthropic_with_tools(
+                        bounded,
+                        system=system_prompt,
+                        tools=active_tool_defs,
+                        model=_active_model,
+                        extra_system_blocks=extra_blocks or None,
+                        session=session,
+                        run_id=run_id,
+                        iteration=iteration,
+                    )
             except Exception as exc:
                 _record_llm_call()  # stamp even on error so next delay is measured correctly
                 logger.exception("❌ agent_loop LLM error on iteration %d", iteration)
@@ -1908,6 +1945,38 @@ async def _run_recon_phase(
 # ---------------------------------------------------------------------------
 # Context management — keep token count bounded across iterations
 # ---------------------------------------------------------------------------
+
+
+def _truncate_first_user_message_for_local_llm(
+    messages: list[dict[str, object]],
+    max_chars: int,
+) -> list[dict[str, object]]:
+    """Truncate the first user message to max_chars when using a small local LLM.
+
+    Avoids overloading models like Qwen 4B with a 50k+ character task briefing.
+    Only the first message is considered; its content must be a string.  Returns
+    a copy so the original list is unchanged.
+    """
+    if not messages or max_chars <= 0:
+        return list(messages)
+    first = messages[0]
+    if first.get("role") != "user":
+        return list(messages)
+    content = first.get("content", "")
+    if not isinstance(content, str) or len(content) <= max_chars:
+        return list(messages)
+    truncated = content[:max_chars] + (
+        "\n\n[Context truncated for local model. Use the objective and AC above.]"
+    )
+    out = [dict(first)]
+    out[0]["content"] = truncated
+    out.extend(messages[1:])
+    logger.warning(
+        "⚠️ local LLM: truncated first user message from %d to %d chars",
+        len(content),
+        max_chars,
+    )
+    return out
 
 
 def _build_tool_id_map(messages: list[dict[str, object]]) -> dict[str, str]:
