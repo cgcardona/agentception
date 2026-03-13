@@ -455,7 +455,7 @@ async def run_agent_loop(
 
     issue_number = task.issue_number or 0
 
-    role_prompt = _load_role_prompt(task.role)
+    role_prompt = _load_role_prompt(task.role, task.prompt_variant)
     system_prompt = _build_system_prompt(role_prompt, task.cognitive_arch or "")
 
     # Initialise the GitHub MCP client and fetch its tool definitions.
@@ -1077,14 +1077,20 @@ async def _load_task_from_db(run_id: str) -> AgentTaskSpec | None:
             gh_repo=run.gh_repo,
             is_resumed=run.is_resumed,
             coord_fingerprint=run.coord_fingerprint,
+            prompt_variant=run.prompt_variant,
         )
     except Exception as exc:
         logger.error("❌ _load_task_from_db error for run_id=%s: %s", run_id, exc)
         return None
 
 
-def _load_role_prompt(role: str | None) -> str:
+def _load_role_prompt(role: str | None, variant: str | None = None) -> str:
     """Return the Markdown content of the role file for *role*.
+
+    When *variant* is provided and non-empty, the function first looks for a
+    variant-specific file ``{role}-{variant}.md`` and returns its content if
+    found.  If the variant file does not exist, it falls back to the base
+    ``{role}.md`` file — the same behaviour as when *variant* is ``None``.
 
     Falls back to an empty string when the role is unknown or the file is
     missing, so the agent still has the system prompt's runtime note.
@@ -1093,7 +1099,24 @@ def _load_role_prompt(role: str | None) -> str:
         logger.warning("⚠️ _load_role_prompt — no role specified")
         return ""
 
-    role_path = settings.repo_dir / ".agentception" / "roles" / f"{role}.md"
+    roles_dir = settings.repo_dir / ".agentception" / "roles"
+
+    # Try the variant file first when a variant is requested.
+    if variant:
+        candidate = roles_dir / f"{role}-{variant}.md"
+        if candidate.exists():
+            logger.info("Loading role file: %s (variant=%s)", candidate, variant)
+            try:
+                return candidate.read_text(encoding="utf-8")
+            except OSError as exc:
+                logger.warning(
+                    "⚠️ _load_role_prompt — OS error reading %s: %s", candidate, exc
+                )
+                # Fall through to the base file.
+
+    # Base (default) role file.
+    role_path = roles_dir / f"{role}.md"
+    logger.info("Loading role file: %s (variant=%s)", role_path, variant)
     try:
         return role_path.read_text(encoding="utf-8")
     except FileNotFoundError:
