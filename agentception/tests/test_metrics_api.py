@@ -7,17 +7,18 @@ connection is required.
 """
 
 from collections.abc import AsyncGenerator
-from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from agentception.db.queries import DailyMetrics
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
-_METRICS_STUB: dict[str, Any] = {
+_METRICS_STUB: DailyMetrics = {
     "date": "2025-01-15",
     "issues_closed": 3,
     "prs_merged": 2,
@@ -39,7 +40,7 @@ _METRICS_STUB: dict[str, Any] = {
 }
 
 
-def _make_stub(date_str: str) -> dict[str, Any]:
+def _make_stub(date_str: str) -> DailyMetrics:
     """Return a metrics stub with the given date string."""
     return {**_METRICS_STUB, "date": date_str}
 
@@ -141,7 +142,7 @@ async def test_get_metrics_daily_invalid_format_returns_400(client: AsyncClient)
 async def test_get_metrics_daily_range_three_days(client: AsyncClient) -> None:
     """start=2025-01-01&end=2025-01-03 → list of 3 objects, sorted ascending."""
 
-    async def _fake_get_daily_metrics(date: object) -> dict[str, Any]:
+    async def _fake_get_daily_metrics(date: object) -> DailyMetrics:
         import datetime
 
         assert isinstance(date, datetime.date)
@@ -168,7 +169,7 @@ async def test_get_metrics_daily_range_three_days(client: AsyncClient) -> None:
 async def test_get_metrics_daily_range_single_day(client: AsyncClient) -> None:
     """start == end → list of 1 object."""
 
-    async def _fake(date: object) -> dict[str, Any]:
+    async def _fake(date: object) -> DailyMetrics:
         import datetime
 
         assert isinstance(date, datetime.date)
