@@ -2170,8 +2170,7 @@ async def _dispatch_single_tool(
     except json.JSONDecodeError as exc:
         return {"ok": False, "error": f"Invalid tool arguments (JSON parse error): {exc}"}
 
-    # Log tool name + the single most useful arg so watch_run.py can show
-    # what was searched / read / written without needing a second log line.
+    # Log tool name + useful args so watch_run.py can show what was read/searched/written.
     _KEY_ARG: dict[str, str] = {
         "search_codebase": "query",
         "search_text": "pattern",
@@ -2184,7 +2183,18 @@ async def _dispatch_single_tool(
     }
     _key = _KEY_ARG.get(name)
     _val = args.get(_key) if _key else None
-    _arg_tag = f" {_key}={str(_val)!r}" if isinstance(_val, str) else ""
+    if name == "read_file_lines" and isinstance(_val, str):
+        start = args.get("start_line")
+        end = args.get("end_line")
+        if start is not None and end is not None:
+            _arg_tag = f" path={_val!r} lines={start}-{end}"
+        else:
+            _arg_tag = f" path={_val!r}"
+    elif name == "search_text" and isinstance(_val, str):
+        directory = args.get("directory", ".")
+        _arg_tag = f" pattern={_val!r} directory={directory!r}"
+    else:
+        _arg_tag = f" {_key}={str(_val)!r}" if isinstance(_val, str) else ""
     logger.info("✅ dispatch_tool — run_id=%s tool=%s%s", run_id, name, _arg_tag)
 
     if name in _LOCAL_TOOL_NAMES:

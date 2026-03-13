@@ -179,6 +179,16 @@ class TestRunCommand:
         assert "blocked" in str(result["error"]).lower()
 
     @pytest.mark.anyio
+    async def test_grep_blocked_use_search_text(self, tmp_path: Path) -> None:
+        """grep via run_command is blocked; agent must use search_text (ripgrep)."""
+        result = await run_command("grep -n foo .", tmp_path)
+        assert result["ok"] is False
+        assert "search_text" in str(result["error"])
+        result_pipe = await run_command("cat file | grep bar", tmp_path)
+        assert result_pipe["ok"] is False
+        assert "search_text" in str(result_pipe["error"])
+
+    @pytest.mark.anyio
     async def test_cwd_defaults_to_none(self) -> None:
         result = await run_command("echo cwd_test")
         assert result["ok"] is True
