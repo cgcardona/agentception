@@ -1050,6 +1050,24 @@ async def run_agent_loop(
             })
             continue
 
+        # stop_reason="tool_calls" with empty tool_calls — API sometimes returns
+        # this when the model signaled tool_use but no tool_use blocks were
+        # present (e.g. truncation or wire quirk).  Continue the loop with a
+        # nudge instead of cancelling.
+        if response["stop_reason"] == "tool_calls":
+            logger.warning(
+                "⚠️ agent_loop stop_reason=tool_calls with 0 tool calls on iteration %d — continuing",
+                iteration,
+            )
+            messages.append({
+                "role": "user",
+                "content": (
+                    "Your previous response indicated tool use but no tool calls were received. "
+                    "Please issue one or more tool calls now to make progress on the task."
+                ),
+            })
+            continue
+
         # Truly unexpected stop reason — cancel.
         logger.warning(
             "⚠️ agent_loop unexpected stop_reason=%r on iteration %d",
