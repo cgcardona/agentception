@@ -276,7 +276,7 @@ async def git_commit_and_push(
             if code2 != 0:
                 return {
                     "ok": False,
-                    "error": f"git_commit_and_push: checkout failed",
+                    "error": "git_commit_and_push: checkout failed",
                     "stderr": err + "\n" + err2,
                 }
 

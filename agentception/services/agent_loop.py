@@ -179,7 +179,8 @@ _PYTEST_STOP_OVERRIDE: str = (
     "Step 3 of your execution contract is now mechanically enforced. "
     "File reads, searches, and diagnostics are LOCKED.\n\n"
     "Your only permitted actions:\n"
-    "1. `git_commit_and_push` — commit and push your work.\n"
+    "1. Commit and push — use `run_command` with `git add -A && git commit -m '...' && git push origin HEAD` "
+    "(or `git_commit_and_push` if it appears in your tool list).\n"
     "2. `create_pull_request` — open a PR against dev.\n"
     "3. `build_complete_run` — mark the run complete.\n\n"
     "Any read or search tool call will be rejected with a synthetic error. "
@@ -266,9 +267,6 @@ _GUARD_PERMITTED_TOOL_NAMES: frozenset[str] = frozenset({
     "create_pull_request",
     "add_issue_comment",
 })
-
-# Legacy alias kept so existing references compile.
-_READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset()
 
 # System-block text still injected alongside tool narrowing so the model
 # understands WHY its tool palette shrank.
@@ -777,10 +775,10 @@ async def run_agent_loop(
                                 "error": (
                                     f"HARD STOP: pytest exited 0 on iteration "
                                     f"{pytest_clean_since}. Reading, searching, "
-                                    "and diagnostics are locked. Your only "
-                                    "permitted actions are git_commit_and_push, "
-                                    "create_pull_request, and build_complete_run. "
-                                    "Commit and ship now."
+                                    "and diagnostics are locked. Commit via "
+                                    "run_command (git add/commit/push) or "
+                                    "git_commit_and_push if available, then "
+                                    "create_pull_request and build_complete_run."
                                 ),
                             }),
                         })
@@ -2046,7 +2044,6 @@ async def _dispatch_single_tool(
         "write_file": "path",
         "replace_in_file": "path",
         "insert_after_in_file": "path",
-        "create_directory": "path",
         "list_directory": "path",
     }
     _key = _KEY_ARG.get(name)
@@ -2116,7 +2113,7 @@ async def _dispatch_local_tool(
         if not isinstance(new_raw, str):
             return {"ok": False, "error": "replace_in_file: 'new_string' must be a string"}
         allow_raw = args.get("allow_multiple", False)
-        allow = bool(allow_raw) if isinstance(allow_raw, bool) else False
+        allow = bool(allow_raw) if isinstance(allow_raw, (bool, int)) else False
         result = replace_in_file(
             _resolve(path_raw, worktree_path),
             old_raw,

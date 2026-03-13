@@ -227,7 +227,7 @@ FILE_TOOL_DEFS: list[ToolDefinition] = [
                     },
                     "n_results": {
                         "type": "integer",
-                        "description": "Max matching lines to return (default 30).",
+                        "description": "Max total matching lines to return across all files (default 30).",
                         "default": 30,
                         "minimum": 1,
                         "maximum": 200,
@@ -357,7 +357,7 @@ SEARCH_CODEBASE_TOOL_DEF: ToolDefinition = ToolDefinition(
                     "type": "string",
                     "description": (
                         "Qdrant collection to search. "
-                        "Omit (or leave null) to search the main 'code' collection "
+                        "Omit to search the main 'code' collection "
                         "which indexes the full repository. "
                         "Pass 'worktree-<your-run-id>' to search only the files "
                         "in your worktree (available after the background indexing "
@@ -463,7 +463,7 @@ FIND_CALL_SITES_TOOL_DEF: ToolDefinition = ToolDefinition(
                 },
                 "n_results": {
                     "type": "integer",
-                    "description": "Max matching lines to return (default 30).",
+                    "description": "Max total matching lines to return across all files (default 30).",
                     "default": 30,
                     "minimum": 1,
                     "maximum": 100,
