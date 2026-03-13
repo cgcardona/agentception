@@ -381,42 +381,58 @@ async def build_complete_run(
         if normalised_grade in _FAILING_GRADES:
             logger.info(
                 "ℹ️ build_complete_run: reviewer rejected (grade=%r) — "
-                "scheduling auto-redispatch for issue #%d run_id=%r",
+                "releasing worktree and scheduling redispatch for issue #%d run_id=%r",
                 grade,
                 issue_number,
                 agent_run_id,
             )
+            # Resolve the PR branch name and worktree path from DB before releasing.
+            pr_branch: str | None = None
+            if agent_run_id:
+                teardown_info = await get_agent_run_teardown(agent_run_id)
+                wt_path = teardown_info.get("worktree_path") if teardown_info else None
+                pr_branch = teardown_info.get("branch") if teardown_info else None
+                if wt_path:
+                    # Release the reviewer's worktree synchronously BEFORE scheduling
+                    # redispatch.  release_worktree removes the worktree directory and
+                    # prunes refs but does NOT delete the branch — the developer
+                    # continuation dispatch needs the branch to be alive.
+                    # This sequencing guarantees git will never see the branch checked
+                    # out in two worktrees simultaneously.
+                    await release_worktree(wt_path, str(settings.repo_dir))
+                    logger.info(
+                        "🧹 build_complete_run: reviewer worktree released (branch kept) for run_id=%r",
+                        agent_run_id,
+                    )
+
             asyncio.create_task(
                 auto_redispatch_after_rejection(
                     issue_number=issue_number,
                     pr_url=pr_url,
                     reviewer_feedback=reviewer_feedback,
                     grade=normalised_grade,
+                    pr_branch=pr_branch,
                 ),
                 name=f"auto-redispatch-{issue_number}",
             )
         else:
-            # Grade A or B: reviewer already merged — nothing else to do.
+            # Grade A or B: reviewer already merged — full teardown (delete branch too,
+            # since it is now merged into dev).
             logger.info(
                 "ℹ️ build_complete_run: reviewer approved (grade=%r) — "
-                "no redispatch needed run_id=%r",
+                "scheduling full worktree teardown for run_id=%r",
                 grade,
                 agent_run_id,
             )
-
-        # Always tear down the reviewer's own worktree regardless of grade.
-        # Leaving the reviewer worktree on disk blocks re-dispatch of the same
-        # issue because git worktree add refuses to check out a branch that is
-        # already active in another worktree.
-        if agent_run_id:
-            asyncio.create_task(
-                teardown_agent_worktree(agent_run_id),
-                name=f"teardown-{agent_run_id}",
-            )
-            logger.info(
-                "🧹 build_complete_run: reviewer worktree teardown queued for run_id=%r",
-                agent_run_id,
-            )
+            if agent_run_id:
+                asyncio.create_task(
+                    teardown_agent_worktree(agent_run_id),
+                    name=f"teardown-{agent_run_id}",
+                )
+                logger.info(
+                    "🧹 build_complete_run: reviewer worktree teardown queued for run_id=%r",
+                    agent_run_id,
+                )
     else:
         # Non-reviewer (implementer) completed: release worktree and dispatch reviewer.
         # Release the developer's worktree before dispatching the reviewer.
