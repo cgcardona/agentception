@@ -118,7 +118,7 @@ async def test_contention_adds_depends_on() -> None:
         ],
     )
 
-    def side_effect(title: str, n_results: int = 5) -> list[SearchMatch]:  # type: ignore[misc]
+    def side_effect(title: str, n_results: int = 5) -> list[SearchMatch]:
         return [_make_match(file=shared_file)]
 
     with patch(
@@ -151,7 +151,7 @@ async def test_no_contention_leaves_depends_on_unchanged() -> None:
 
     call_count = 0
 
-    def side_effect(title: str, n_results: int = 5) -> list[SearchMatch]:  # type: ignore[misc]
+    def side_effect(title: str, n_results: int = 5) -> list[SearchMatch]:
         nonlocal call_count
         call_count += 1
         file = "agentception/a.py" if call_count % 2 == 1 else "agentception/b.py"
