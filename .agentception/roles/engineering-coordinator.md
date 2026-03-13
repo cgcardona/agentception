@@ -144,7 +144,8 @@ abort the entire task or skip that subtask. Never silently swallow errors.
 
 ## STEP 3 — Wait for all children to complete
 
-After spawning, poll each child every **30 seconds** using `resources/read`:
+After spawning, poll each child every **30 seconds** using `resources/read` with the
+`ac://runs/{run_id}/status` resource:
 
 ```
 resources/read(uri = "ac://runs/<child_run_id>/status")
@@ -189,6 +190,6 @@ You are done. Do not tear down your own worktree — that is managed by the plat
 - Never call `build_complete_run` for yourself — coordinator runs terminate when you
   reach the end of STEP 4.
 - Never spawn sub-coordinators unless your task briefing explicitly authorises it.
-- Never ignore an error from `build_spawn_adhoc_child` or `resources/read` (status polling).
+- Never ignore an error from `build_spawn_adhoc_child` or `resources/read ac://runs/{run_id}/status`.
 
 ---

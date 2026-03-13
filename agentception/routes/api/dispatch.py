@@ -488,6 +488,18 @@ class DispatchRequest(BaseModel):
     The ``run_id`` and worktree slug are always derived from ``issue_number``
     regardless of what ``pr_branch`` is set to.
     """
+    continuation_branch: str | None = None
+    """Existing remote branch for a rework (C/D/F rejection) developer dispatch.
+
+    For ``developer`` rework dispatches only.  When set, the endpoint reattaches
+    the worktree to this branch (fetching from remote first) instead of branching
+    fresh from ``origin/dev``.  The developer inherits the previous attempt's
+    code and only needs to fix the specific defects listed in the rejection
+    section of the issue body.
+
+    Populated automatically by ``auto_redispatch_after_rejection``.  Do not
+    set this when dispatching a brand-new developer run.
+    """
 
 
 class DispatchResponse(BaseModel):
@@ -678,20 +690,31 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
         slug = f"issue-{req.issue_number}"
         run_id = f"issue-{req.issue_number}"
 
-    # For reviewer dispatches the PR branch may not follow feat/issue-{N} naming
-    # (e.g. feat/reviewer-branch-orientation).  pr_branch overrides the default.
-    branch = req.pr_branch if req.pr_branch else f"feat/issue-{req.issue_number}"
+    # Branch name resolution:
+    # - reviewer: pr_branch override or feat/issue-{N} (the implementer's branch)
+    # - developer continuation (rework after C/D/F): continuation_branch (existing PR branch)
+    # - developer fresh: feat/issue-{N}
+    if is_reviewer:
+        branch = req.pr_branch if req.pr_branch else f"feat/issue-{req.issue_number}"
+        is_continuation = False
+    elif req.continuation_branch is not None:
+        branch = req.continuation_branch
+        is_continuation = True
+    else:
+        branch = f"feat/issue-{req.issue_number}"
+        is_continuation = False
     batch_id = _make_batch_id(req.issue_number)
     worktree_path = str(Path(settings.worktrees_dir) / slug)
     host_worktree_path = str(Path(settings.host_worktrees_dir) / slug)
 
     from agentception.readers.git import ensure_worktree  # noqa: PLC0415
 
-    if is_reviewer:
-        # For reviewers the relevant code lives on the implementer's branch, not
-        # dev.  Fetch the remote branch so `origin/<branch>` is up to date, then
-        # create the worktree from that ref.  The agent is on the correct branch
-        # from its very first turn — no wasted turns detecting the wrong branch.
+    if is_reviewer or is_continuation:
+        # For reviewers: the relevant code lives on the implementer's branch, not dev.
+        # For continuation dispatches: the developer re-attaches to the existing PR
+        # branch and only fixes the specific defects — no from-scratch re-implementation.
+        # Fetch the remote branch so `origin/<branch>` is up to date, then create the
+        # worktree from that ref.
         fetch_proc = await asyncio.create_subprocess_exec(
             "git", "fetch", "origin", branch,
             cwd=str(settings.repo_dir),
@@ -702,27 +725,44 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
         if fetch_proc.returncode != 0:
             err_msg = _fetch_err.decode(errors="replace").strip()
             logger.error("❌ dispatch: fetch of %s failed — %s", branch, err_msg)
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"Remote branch '{branch}' not found. "
-                    "If the PR was already merged and the branch deleted, reviewers "
-                    "must be dispatched before merge. "
-                    "If the branch uses a non-standard name, pass it in 'pr_branch'. "
-                    f"git error: {err_msg}"
-                ),
-            )
+            if is_reviewer:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"Remote branch '{branch}' not found. "
+                        "If the PR was already merged and the branch deleted, reviewers "
+                        "must be dispatched before merge. "
+                        "If the branch uses a non-standard name, pass it in 'pr_branch'. "
+                        f"git error: {err_msg}"
+                    ),
+                )
+            else:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"Continuation branch '{branch}' not found on remote. "
+                        f"git error: {err_msg}"
+                    ),
+                )
         worktree_base = f"origin/{branch}"
-        logger.info("✅ dispatch: fetched %s for reviewer worktree", branch)
+        logger.info(
+            "✅ dispatch: fetched %s for %s worktree",
+            branch,
+            "reviewer" if is_reviewer else "continuation-developer",
+        )
     else:
         worktree_base = "origin/dev"
 
     try:
-        # reset=True for implementers: if a stale worktree/branch exists from a
-        # prior run, tear it down first so the developer always starts from a
-        # clean origin/dev.  Reviewers use reset=False — they reuse the branch
-        # the implementer already pushed.
-        await ensure_worktree(Path(worktree_path), branch, worktree_base, reset=not is_reviewer)
+        # reset=True for fresh developer dispatches: if a stale worktree/branch exists
+        # from a prior run, tear it down first so the developer always starts from a
+        # clean origin/dev.
+        # reset=False for reviewers and continuation dispatches: they reuse the branch
+        # the implementer already pushed — no teardown, just reattach.
+        await ensure_worktree(
+            Path(worktree_path), branch, worktree_base,
+            reset=not is_reviewer and not is_continuation,
+        )
         logger.info("✅ dispatch: worktree created at %s (base=%s)", worktree_path, worktree_base)
     except RuntimeError as exc:
         logger.error("❌ dispatch: worktree creation failed — %s", exc)

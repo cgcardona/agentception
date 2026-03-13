@@ -3,11 +3,16 @@
 When the reviewer calls build_complete_run with a failing grade (C/D/F),
 this service:
 
-1. Closes the rejected PR.
-2. Fetches the original issue details from GitHub.
-3. Builds an enhanced issue body injecting the reviewer's defect list at the top.
-4. Redispatches a developer run with the enriched briefing so the executor
-   sees the full defect list before writing a single line of code.
+1. Posts a rejection comment on the existing (still-open) PR with the
+   full defect list.
+2. Fetches the original issue details from GitHub for the enhanced body.
+3. Dispatches a developer run configured to *continue from the same branch*
+   rather than starting from origin/dev — so the agent only needs to fix
+   the specific defects, not re-implement everything from scratch.
+
+The reviewer's worktree must be released (via release_worktree) by the
+caller *before* this coroutine is awaited, so that the branch is free for
+the new developer worktree to reattach.
 
 Maximum 3 attempts. After the third rejection the run is abandoned and an
 error is logged — no further redispatch occurs.
@@ -22,16 +27,16 @@ import httpx
 
 from agentception.config import settings
 from agentception.db.queries import get_agent_run_task_description
-from agentception.readers.github import close_pr, get_issue
+from agentception.readers.github import add_comment_to_issue, get_issue
 
 logger = logging.getLogger(__name__)
 
 _PR_URL_RE = re.compile(r"/pull/(\d+)")
 _SERVICE_URL = "http://localhost:10003/api/dispatch/issue"
 
-# Seconds to wait before redispatching — gives GitHub time to process
-# the PR close before the new worktree fetch starts.
-_REDISPATCH_DELAY_SECS: float = 3.0
+# Brief pause after worktree release before touching git/GitHub so git prune
+# has time to flush its ref locks.
+_REDISPATCH_DELAY_SECS: float = 1.0
 
 # Maximum number of reviewer-rejected attempts before giving up.
 _MAX_ATTEMPTS: int = 3
@@ -73,19 +78,31 @@ async def auto_redispatch_after_rejection(
     pr_url: str,
     reviewer_feedback: str,
     grade: str,
+    pr_branch: str | None = None,
 ) -> None:
-    """Close a rejected PR and redispatch the developer for a new attempt.
+    """Post a rejection comment and redispatch the developer for a new attempt.
 
     Called as a fire-and-forget background task from build_complete_run when
     the reviewer signals a failing grade.  Never raises — all errors are
     logged at ERROR level and swallowed so the reviewer's completed state is
     not disturbed.
 
+    The PR is kept open and the branch is kept alive.  The new developer run
+    is dispatched with ``continuation_branch`` set to *pr_branch* so it
+    reattaches to the existing branch and only has to fix the specific
+    defects identified by the reviewer.
+
+    The caller must have already called ``release_worktree`` on the
+    reviewer's worktree before scheduling this task so the branch is free.
+
     Args:
         issue_number: GitHub issue number the implementer worked on.
-        pr_url: Full URL of the rejected pull request.
+        pr_url: Full URL of the (still-open) pull request.
         reviewer_feedback: Full defect list from the reviewer (plain text).
         grade: Single letter grade from the reviewer (e.g. "C", "D", "F").
+        pr_branch: Name of the existing PR branch (e.g. "feat/issue-869").
+            When provided the re-dispatched developer will reattach to this
+            branch instead of branching fresh from origin/dev.
     """
     run_id = f"issue-{issue_number}"
 
@@ -118,25 +135,27 @@ async def auto_redispatch_after_rejection(
 
     await asyncio.sleep(_REDISPATCH_DELAY_SECS)
 
-    # Close the rejected PR so the branch can be recreated clean.
+    # Post a rejection comment on the open PR so the history is visible on
+    # GitHub — the PR itself stays open for the developer to push a fix onto
+    # the same branch.
     try:
-        await close_pr(
+        await add_comment_to_issue(
             pr_number,
-            comment=(
-                f"**Grade {grade} — Attempt {attempt} rejected.** "
-                f"Closing for rework. Defects:\n\n{reviewer_feedback}"
+            body=(
+                f"**Grade {grade} — Attempt {attempt} needs rework.**\n\n"
+                f"The implementation has been sent back for corrections. "
+                f"Defects to resolve:\n\n{reviewer_feedback}"
             ),
         )
         logger.info(
-            "✅ auto_redispatch: closed PR #%d for issue #%d (attempt %d, grade %s)",
+            "✅ auto_redispatch: posted rejection comment on PR #%d (attempt %d, grade %s)",
             pr_number,
             issue_number,
             attempt,
-            grade,
         )
     except Exception as exc:  # noqa: BLE001
         logger.error(
-            "❌ auto_redispatch: failed to close PR #%d — %s (continuing)",
+            "❌ auto_redispatch: failed to comment on PR #%d — %s (continuing)",
             pr_number,
             exc,
         )
@@ -163,6 +182,13 @@ async def auto_redispatch_after_rejection(
         "role": "developer",
         "repo": settings.gh_repo,
     }
+    # When the PR branch is known, tell the dispatch endpoint to reattach the
+    # developer worktree to the existing branch instead of starting fresh from
+    # origin/dev.  This means the agent only patches the specific defects —
+    # it does not have to re-implement from scratch.
+    if pr_branch:
+        payload["continuation_branch"] = pr_branch
+
     headers = {
         "X-API-Key": settings.ac_api_key,
         "Content-Type": "application/json",
@@ -178,10 +204,11 @@ async def auto_redispatch_after_rejection(
             )
             resp.raise_for_status()
         logger.info(
-            "✅ auto_redispatch: developer dispatched for issue #%d (attempt %d/%d)",
+            "✅ auto_redispatch: developer dispatched for issue #%d (attempt %d/%d, branch=%r)",
             issue_number,
             attempt,
             _MAX_ATTEMPTS,
+            pr_branch,
         )
     except httpx.HTTPStatusError as exc:
         logger.error(

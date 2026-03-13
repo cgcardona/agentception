@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-"""Tests for build_complete_run reviewer worktree teardown behaviour.
+"""Tests for build_complete_run reviewer worktree teardown / release behaviour.
 
 Coverage:
-- Reviewer worktree is torn down after a failing grade (C/D/F).
-- Reviewer worktree is torn down after a passing grade (A/B).
+- C/D/F grade: reviewer worktree is *released* (branch kept) before redispatch.
+- A/B grade: reviewer worktree is fully torn down (branch deleted, PR merged).
 - Teardown task name follows the expected convention.
 
 Run targeted:
@@ -16,16 +16,19 @@ from unittest.mock import AsyncMock, patch
 
 
 @pytest.mark.anyio
-async def test_reviewer_worktree_torn_down_after_failing_grade() -> None:
-    """build_complete_run schedules reviewer worktree teardown on a failing grade (C).
+async def test_reviewer_worktree_released_after_failing_grade() -> None:
+    """build_complete_run releases (not full-tears-down) the reviewer worktree for C/D/F.
 
-    Regression: the reviewer worktree was left on disk after a C/D/F grade,
-    blocking re-dispatch of the same issue because git worktree add refuses to
-    check out a branch already active in another worktree.
+    For a failing grade, the PR branch must be kept alive so the re-dispatched
+    developer can continue from the existing branch.  release_worktree removes
+    the worktree directory without deleting the branch, while teardown_agent_worktree
+    (which would delete the branch) must NOT be called for C/D/F grades.
     """
     from agentception.mcp.build_commands import build_complete_run
 
     reviewer_run_id = "reviewer-issue-42-abc123"
+    wt_path = "/worktrees/review-99"
+    pr_branch = "feat/issue-42"
 
     with (
         patch(
@@ -43,17 +46,28 @@ async def test_reviewer_worktree_torn_down_after_failing_grade() -> None:
             return_value="reviewer",
         ),
         patch(
-            "agentception.mcp.build_commands.auto_redispatch_after_rejection",
+            "agentception.mcp.build_commands.get_agent_run_teardown",
             new_callable=AsyncMock,
+            return_value={"worktree_path": wt_path, "branch": pr_branch},
         ),
+        patch(
+            "agentception.mcp.build_commands.release_worktree",
+            new_callable=AsyncMock,
+        ) as mock_release,
         patch(
             "agentception.mcp.build_commands.teardown_agent_worktree",
             new_callable=AsyncMock,
         ) as mock_teardown,
         patch(
+            "agentception.mcp.build_commands.auto_redispatch_after_rejection",
+            new_callable=AsyncMock,
+        ),
+        patch(
             "agentception.mcp.build_commands.asyncio.create_task",
         ) as mock_create_task,
+        patch("agentception.mcp.build_commands.settings") as mock_settings,
     ):
+        mock_settings.repo_dir = "/app"
         result = await build_complete_run(
             issue_number=42,
             pr_url="https://github.com/cgcardona/agentception/pull/99",
@@ -65,14 +79,15 @@ async def test_reviewer_worktree_torn_down_after_failing_grade() -> None:
     assert result["ok"] is True
     assert result["status"] == "completed"
 
-    # Verify that a teardown task was scheduled for the reviewer's run_id.
-    task_names = [
-        c.kwargs.get("name", "") for c in mock_create_task.call_args_list
-    ]
-    assert f"teardown-{reviewer_run_id}" in task_names, (
-        f"Expected teardown task for reviewer run_id={reviewer_run_id!r}; "
-        f"got task names: {task_names}"
-    )
+    # release_worktree is awaited synchronously (branch kept alive for developer).
+    mock_release.assert_awaited_once_with(wt_path, "/app")
+
+    # teardown_agent_worktree (which deletes the branch) must NOT be called for C/D/F.
+    mock_teardown.assert_not_called()
+
+    # No teardown task should be in create_task calls either.
+    task_names = [c.kwargs.get("name", "") for c in mock_create_task.call_args_list]
+    assert f"teardown-{reviewer_run_id}" not in task_names
 
 
 @pytest.mark.anyio
@@ -132,12 +147,13 @@ async def test_reviewer_worktree_torn_down_after_passing_grade() -> None:
 
 @pytest.mark.anyio
 async def test_redispatch_fires_after_failing_grade() -> None:
-    """build_complete_run schedules auto_redispatch_after_rejection when grade is F.
+    """build_complete_run releases reviewer worktree then schedules redispatch for grade F.
 
-    Regression: a failing grade (C/D/F) from a reviewer must automatically
-    re-queue the original issue to a fresh developer worktree via
-    auto_redispatch_after_rejection.  The task must be created with the
-    correct issue_number, pr_url, reviewer_feedback, and grade.
+    Regression: a failing grade (C/D/F) from a reviewer must:
+    1. Await release_worktree synchronously (keeps branch alive for continuation).
+    2. Schedule auto_redispatch_after_rejection with the PR branch name so the
+       re-dispatched developer attaches to the existing branch instead of starting
+       from origin/dev.
     """
     from agentception.mcp.build_commands import build_complete_run
 
@@ -146,6 +162,7 @@ async def test_redispatch_fires_after_failing_grade() -> None:
     pr_url = "https://github.com/cgcardona/agentception/pull/200"
     reviewer_feedback = "1. Missing type hints\n2. No tests for failure path"
     grade = "F"
+    pr_branch = "feat/issue-77"
 
     with (
         patch(
@@ -163,17 +180,24 @@ async def test_redispatch_fires_after_failing_grade() -> None:
             return_value="reviewer",
         ),
         patch(
+            "agentception.mcp.build_commands.get_agent_run_teardown",
+            new_callable=AsyncMock,
+            return_value={"worktree_path": "/worktrees/review-200", "branch": pr_branch},
+        ),
+        patch(
+            "agentception.mcp.build_commands.release_worktree",
+            new_callable=AsyncMock,
+        ) as mock_release,
+        patch(
             "agentception.mcp.build_commands.auto_redispatch_after_rejection",
             new_callable=AsyncMock,
         ) as mock_redispatch,
         patch(
-            "agentception.mcp.build_commands.teardown_agent_worktree",
-            new_callable=AsyncMock,
-        ),
-        patch(
             "agentception.mcp.build_commands.asyncio.create_task",
         ) as mock_create_task,
+        patch("agentception.mcp.build_commands.settings") as mock_settings,
     ):
+        mock_settings.repo_dir = "/app"
         result = await build_complete_run(
             issue_number=issue_number,
             pr_url=pr_url,
@@ -185,6 +209,10 @@ async def test_redispatch_fires_after_failing_grade() -> None:
     assert result["ok"] is True
     assert result["status"] == "completed"
 
+    # release_worktree must be awaited (not fire-and-forget) to free the branch
+    # before the developer continuation dispatch starts.
+    mock_release.assert_awaited_once_with("/worktrees/review-200", "/app")
+
     # Verify that a redispatch task was scheduled.
     task_names = [
         c.kwargs.get("name", "") for c in mock_create_task.call_args_list
@@ -195,12 +223,13 @@ async def test_redispatch_fires_after_failing_grade() -> None:
     )
 
     # Verify the coroutine passed to create_task was auto_redispatch_after_rejection
-    # with the correct arguments.
+    # with the correct arguments including pr_branch for continuation.
     mock_redispatch.assert_called_once_with(
         issue_number=issue_number,
         pr_url=pr_url,
         reviewer_feedback=reviewer_feedback,
         grade="F",
+        pr_branch=pr_branch,
     )
 
 
@@ -209,7 +238,8 @@ async def test_redispatch_skipped_after_passing_grade() -> None:
     """build_complete_run does NOT schedule auto_redispatch_after_rejection for grade A.
 
     A passing grade (A or B) means the reviewer already merged the PR.
-    No developer re-dispatch should be triggered.
+    No developer re-dispatch should be triggered; instead a full teardown
+    (deleting the branch) is queued because the branch is now merged.
     """
     from agentception.mcp.build_commands import build_complete_run
 
@@ -239,7 +269,7 @@ async def test_redispatch_skipped_after_passing_grade() -> None:
         patch(
             "agentception.mcp.build_commands.teardown_agent_worktree",
             new_callable=AsyncMock,
-        ),
+        ) as mock_teardown,
         patch(
             "agentception.mcp.build_commands.asyncio.create_task",
         ) as mock_create_task,
@@ -264,8 +294,14 @@ async def test_redispatch_skipped_after_passing_grade() -> None:
         f"got task names: {task_names}"
     )
 
-    # The mock should never have been called (create_task wraps the coroutine).
+    # Full teardown (including branch deletion) must be queued for A/B grades.
+    assert f"teardown-{reviewer_run_id}" in task_names, (
+        f"Expected teardown task for reviewer; got task names: {task_names}"
+    )
+
+    # The redispatch mock should never have been called.
     mock_redispatch.assert_not_called()
+    _ = mock_teardown  # verified via create_task names above
 
 
 @pytest.mark.anyio

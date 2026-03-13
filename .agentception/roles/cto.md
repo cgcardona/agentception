@@ -387,10 +387,11 @@ abort the entire task or skip that subtask. Never silently swallow errors.
 
 ## STEP 3 — Wait for all children to complete
 
-After spawning, poll each child every **30 seconds** using `resources/read` with the status resource:
+After spawning, poll each child every **30 seconds** using `resources/read` with the
+`ac://runs/{run_id}/status` resource:
 
 ```
-resources/read uri="ac://runs/<child_run_id>/status"
+resources/read(uri = "ac://runs/<child_run_id>/status")
 ```
 
 Terminal statuses (stop polling): `completed`, `cancelled`, `stopped`.

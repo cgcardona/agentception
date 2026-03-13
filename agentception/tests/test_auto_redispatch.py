@@ -4,11 +4,12 @@ Covers:
 - _count_prior_rejections: zero, one, multiple rejections in task_description
 - _build_enhanced_body: correct structure and ordering
 - auto_redispatch_after_rejection:
-    - max attempts guard
-    - bad PR URL guard
-    - happy path: closes PR, fetches issue, dispatches developer
-    - close_pr failure is non-fatal (continues to dispatch)
+    - max attempts guard (no comment posted, no dispatch)
+    - bad PR URL guard (no comment posted, no dispatch)
+    - happy path: posts rejection comment, fetches issue, dispatches developer
+    - comment failure is non-fatal (continues to dispatch)
     - dispatch HTTP error is logged and swallowed
+    - pr_branch forwarded as continuation_branch in dispatch payload
 
 Run targeted:
     pytest agentception/tests/test_auto_redispatch.py -v
@@ -115,11 +116,12 @@ _ISSUE_NUMBER = 37
 _PR_URL = "https://github.com/cgcardona/agentception/pull/569"
 _GRADE = "C"
 _FEEDBACK = "1. dir() smell\n2. SCSS not moved\n3. No regression test"
+_PR_BRANCH = "feat/issue-37"
 
 
 @pytest.mark.anyio
 async def test_auto_redispatch_max_attempts_guard() -> None:
-    """No dispatch or PR-close occurs when max attempts is reached."""
+    """No dispatch or comment occurs when max attempts is reached."""
     with (
         patch(
             "agentception.services.auto_redispatch.get_agent_run_task_description",
@@ -132,9 +134,9 @@ async def test_auto_redispatch_max_attempts_guard() -> None:
             ),
         ),
         patch(
-            "agentception.services.auto_redispatch.close_pr",
+            "agentception.services.auto_redispatch.add_comment_to_issue",
             new_callable=AsyncMock,
-        ) as mock_close,
+        ) as mock_comment,
         patch(
             "agentception.services.auto_redispatch.get_issue",
             new_callable=AsyncMock,
@@ -146,7 +148,7 @@ async def test_auto_redispatch_max_attempts_guard() -> None:
             reviewer_feedback=_FEEDBACK,
             grade=_GRADE,
         )
-    mock_close.assert_not_called()
+    mock_comment.assert_not_called()
     mock_get_issue.assert_not_called()
 
 
@@ -160,9 +162,9 @@ async def test_auto_redispatch_bad_pr_url_guard() -> None:
             return_value=None,
         ),
         patch(
-            "agentception.services.auto_redispatch.close_pr",
+            "agentception.services.auto_redispatch.add_comment_to_issue",
             new_callable=AsyncMock,
-        ) as mock_close,
+        ) as mock_comment,
         patch("agentception.services.auto_redispatch.asyncio.sleep", new_callable=AsyncMock),
     ):
         await auto_redispatch_after_rejection(
@@ -171,12 +173,12 @@ async def test_auto_redispatch_bad_pr_url_guard() -> None:
             reviewer_feedback=_FEEDBACK,
             grade=_GRADE,
         )
-    mock_close.assert_not_called()
+    mock_comment.assert_not_called()
 
 
 @pytest.mark.anyio
 async def test_auto_redispatch_happy_path() -> None:
-    """Closes PR, fetches issue, dispatches developer on the happy path."""
+    """Posts rejection comment, fetches issue, dispatches developer on the happy path."""
     mock_response = MagicMock()
     mock_response.raise_for_status = MagicMock()
 
@@ -187,9 +189,10 @@ async def test_auto_redispatch_happy_path() -> None:
             return_value=None,  # first attempt
         ),
         patch(
-            "agentception.services.auto_redispatch.close_pr",
+            "agentception.services.auto_redispatch.add_comment_to_issue",
             new_callable=AsyncMock,
-        ) as mock_close,
+            return_value="https://github.com/comment/1",
+        ) as mock_comment,
         patch(
             "agentception.services.auto_redispatch.get_issue",
             new_callable=AsyncMock,
@@ -211,9 +214,14 @@ async def test_auto_redispatch_happy_path() -> None:
             pr_url=_PR_URL,
             reviewer_feedback=_FEEDBACK,
             grade=_GRADE,
+            pr_branch=_PR_BRANCH,
         )
 
-    mock_close.assert_called_once_with(569, comment=mock_close.call_args[1]["comment"])
+    # Comment posted on the PR number (569), not the issue number (37).
+    mock_comment.assert_called_once_with(
+        569,
+        body=mock_comment.call_args[1]["body"],
+    )
     mock_get_issue.assert_called_once_with(_ISSUE_NUMBER)
     mock_client.post.assert_called_once()
     payload = mock_client.post.call_args[1]["json"]
@@ -221,11 +229,13 @@ async def test_auto_redispatch_happy_path() -> None:
     assert payload["issue_number"] == _ISSUE_NUMBER
     assert _REJECTION_MARKER in payload["issue_body"]
     assert _FEEDBACK in payload["issue_body"]
+    # Continuation branch must be forwarded so the developer reattaches.
+    assert payload["continuation_branch"] == _PR_BRANCH
 
 
 @pytest.mark.anyio
-async def test_auto_redispatch_close_pr_failure_is_nonfatal() -> None:
-    """A close_pr failure must not prevent the developer dispatch."""
+async def test_auto_redispatch_no_pr_branch_omits_continuation_field() -> None:
+    """When pr_branch is omitted, continuation_branch is not included in the payload."""
     mock_response = MagicMock()
     mock_response.raise_for_status = MagicMock()
 
@@ -236,7 +246,52 @@ async def test_auto_redispatch_close_pr_failure_is_nonfatal() -> None:
             return_value=None,
         ),
         patch(
-            "agentception.services.auto_redispatch.close_pr",
+            "agentception.services.auto_redispatch.add_comment_to_issue",
+            new_callable=AsyncMock,
+            return_value="https://github.com/comment/1",
+        ),
+        patch(
+            "agentception.services.auto_redispatch.get_issue",
+            new_callable=AsyncMock,
+            return_value={"title": "Fix", "body": "body"},
+        ),
+        patch("agentception.services.auto_redispatch.asyncio.sleep", new_callable=AsyncMock),
+        patch("agentception.services.auto_redispatch.settings") as mock_settings,
+        patch("agentception.services.auto_redispatch.httpx.AsyncClient") as mock_client_cls,
+    ):
+        mock_settings.gh_repo = "cgcardona/agentception"
+        mock_settings.ac_api_key = "test-key"
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        await auto_redispatch_after_rejection(
+            issue_number=_ISSUE_NUMBER,
+            pr_url=_PR_URL,
+            reviewer_feedback=_FEEDBACK,
+            grade=_GRADE,
+            # pr_branch omitted — fallback to original behaviour (fresh dispatch)
+        )
+
+    payload = mock_client.post.call_args[1]["json"]
+    assert "continuation_branch" not in payload
+
+
+@pytest.mark.anyio
+async def test_auto_redispatch_comment_failure_is_nonfatal() -> None:
+    """A comment failure must not prevent the developer dispatch."""
+    mock_response = MagicMock()
+    mock_response.raise_for_status = MagicMock()
+
+    with (
+        patch(
+            "agentception.services.auto_redispatch.get_agent_run_task_description",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+        patch(
+            "agentception.services.auto_redispatch.add_comment_to_issue",
             new_callable=AsyncMock,
             side_effect=RuntimeError("GitHub unavailable"),
         ),
@@ -263,7 +318,7 @@ async def test_auto_redispatch_close_pr_failure_is_nonfatal() -> None:
             grade=_GRADE,
         )
 
-    # Dispatch must still have been called despite close_pr raising.
+    # Dispatch must still have been called despite comment failure.
     mock_client.post.assert_called_once()
 
 
@@ -276,7 +331,11 @@ async def test_auto_redispatch_http_error_is_swallowed() -> None:
             new_callable=AsyncMock,
             return_value=None,
         ),
-        patch("agentception.services.auto_redispatch.close_pr", new_callable=AsyncMock),
+        patch(
+            "agentception.services.auto_redispatch.add_comment_to_issue",
+            new_callable=AsyncMock,
+            return_value="https://github.com/comment/1",
+        ),
         patch(
             "agentception.services.auto_redispatch.get_issue",
             new_callable=AsyncMock,
