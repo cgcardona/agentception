@@ -200,15 +200,15 @@ def test_engineering_coordinator_uses_build_spawn_adhoc_child() -> None:
 
 
 def test_engineering_coordinator_uses_query_run_status() -> None:
-    """The engineering-coordinator role uses query_run_status to poll child runs."""
+    """The engineering-coordinator role uses ac://runs/{run_id}/status to poll child runs."""
     role_path = (
         Path(__file__).parent.parent.parent
         / ".agentception" / "roles" / "engineering-coordinator.md"
     )
     assert role_path.exists(), f"Role file missing: {role_path}"
     content = role_path.read_text()
-    assert re.search(r"query_run_status", content), (
-        "engineering-coordinator must use query_run_status to poll child run completion"
+    assert re.search(r"ac://runs/.*status", content), (
+        "engineering-coordinator must use ac://runs/{run_id}/status to poll child run completion"
     )
 
 

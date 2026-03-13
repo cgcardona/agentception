@@ -22,6 +22,14 @@ Tool vs Resource design
   Actions that mutate state (build_*, log_*, github_*, plan mutations) remain Tools.
   See :mod:`agentception.mcp.resources` for the full URI catalogue.
 
+Run-level resource templates (ac://runs/{run_id}/*)
+  ac://runs/{run_id}          — lightweight metadata for one run
+  ac://runs/{run_id}/children — child runs spawned by this run
+  ac://runs/{run_id}/context  — full task context (RunContextRow)
+  ac://runs/{run_id}/events   — structured event log (paginated via ?after_id=N)
+  ac://runs/{run_id}/status   — current status and completed_at timestamp
+  ac://runs/{run_id}/task     — task_description field for the run
+
 Error handling follows the JSON-RPC 2.0 specification:
   - Parse errors     → code -32700 (never raised here; caller parses JSON)
   - Invalid Request  → code -32600 (missing required fields)
@@ -46,7 +54,6 @@ from agentception.mcp.build_commands import (
     build_stop_run,
     build_teardown_worktree,
 )
-from agentception.mcp.query_tools import query_run_status
 from agentception.mcp.log_tools import (
     log_run_blocker,
     log_run_decision,
@@ -122,6 +129,7 @@ _RETIRED_TOOL_URIS: dict[str, str] = {
     "plan_get_schema": "ac://plan/schema",
     "plan_get_labels": "ac://plan/labels",
     "plan_get_cognitive_figures": "ac://plan/figures/{role}",
+    "query_run_status": "ac://runs/{run_id}/status",
 }
 
 # ---------------------------------------------------------------------------
@@ -312,7 +320,7 @@ TOOLS: list[ACToolDef] = [
             "The child receives its context entirely "
             "via the task/briefing MCP prompt and ac://runs/{run_id}/context resource. "
             "Returns {ok, child_run_id, worktree_path, cognitive_arch}. "
-            "After calling this tool, use query_run_status to poll for completion."
+            "After calling this tool, use resources/read with ac://runs/{run_id}/status to poll for completion."
         ),
         inputSchema={
             "type": "object",
@@ -343,28 +351,6 @@ TOOLS: list[ACToolDef] = [
                 },
             },
             "required": ["parent_run_id", "role", "task_description"],
-            "additionalProperties": False,
-        },
-    ),
-    ACToolDef(
-        name="query_run_status",
-        description=(
-            "Return the current status of a run. "
-            "Coordinators use this to poll child runs spawned with build_spawn_adhoc_child. "
-            "Poll every 30–60 seconds until status is a terminal value. "
-            "Terminal statuses: 'completed', 'cancelled', 'stopped'. "
-            "Active statuses: 'implementing', 'reviewing', 'pending_launch'. "
-            "Returns {ok, run_id, status, completed_at}."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "run_id": {
-                    "type": "string",
-                    "description": "The child_run_id returned by build_spawn_adhoc_child.",
-                },
-            },
-            "required": ["run_id"],
             "additionalProperties": False,
         },
     ),
@@ -845,8 +831,6 @@ def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
         "build_resume_run",
         "build_cancel_run",
         "build_stop_run",
-        # Query tools
-        "query_run_status",
         # Log tools
         "log_run_step",
         "log_run_blocker",
@@ -963,23 +947,6 @@ async def call_tool_async(
             figure=figure,
             base_branch=base_branch,
         )
-        is_error = not bool(result.get("ok", False))
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=is_error,
-        )
-
-    if name == "query_run_status":
-        run_id_arg = arguments.get("run_id")
-        if not isinstance(run_id_arg, str) or not run_id_arg:
-            err_text = _tool_result_to_text(
-                {"error": "query_run_status requires a non-empty run_id string"}
-            )
-            return ACToolResult(
-                content=[ACToolContent(type="text", text=err_text)],
-                isError=True,
-            )
-        result = await query_run_status(run_id_arg)
         is_error = not bool(result.get("ok", False))
         return ACToolResult(
             content=[ACToolContent(type="text", text=_tool_result_to_text(result))],

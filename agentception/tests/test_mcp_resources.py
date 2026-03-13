@@ -805,3 +805,43 @@ async def test_read_resource_empty_uri_returns_error() -> None:
     result = await read_resource("")
     payload = _content(result)
     assert "error" in payload
+
+# ---------------------------------------------------------------------------
+# ac://runs/{run_id}/status
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_read_run_status_resource() -> None:
+    """ac://runs/{run_id}/status returns ok, run_id, status, and completed_at."""
+    mock_result = {
+        "ok": True,
+        "run_id": "issue-42",
+        "status": "implementing",
+        "completed_at": None,
+    }
+    with patch(
+        "agentception.mcp.resources.query_run_status",
+        new_callable=AsyncMock,
+        return_value=mock_result,
+    ):
+        result = await read_resource("ac://runs/issue-42/status")
+
+    payload = _content(result)
+    assert "ok" in payload
+    assert "run_id" in payload
+    assert "status" in payload
+    assert "completed_at" in payload
+    assert payload["run_id"] == "issue-42"
+    assert payload["status"] == "implementing"
+
+
+@pytest.mark.anyio
+async def test_retired_query_run_status_tool() -> None:
+    """tools/call query_run_status returns the retired-tool redirect error."""
+    result = await call_tool_async("query_run_status", {"run_id": "issue-42"})
+    assert result["isError"] is True
+    payload = json.loads(result["content"][0]["text"])
+    assert "resources/read" in payload["error"]
+    assert "ac://runs/{run_id}/status" in payload["error"]
+

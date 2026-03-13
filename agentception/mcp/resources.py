@@ -25,8 +25,11 @@ Static resources
 Templated resources (RFC 6570)
     ac://runs/{run_id}                  — lightweight metadata for one run
     ac://runs/{run_id}/children         — child runs spawned by this run
+    ac://runs/{run_id}/context          — full task context (RunContextRow)
     ac://runs/{run_id}/events           — full structured event log
     ac://runs/{run_id}/events?after_id={n} — paginated event log (n > 0)
+    ac://runs/{run_id}/status           — current status and completed_at timestamp
+    ac://runs/{run_id}/task             — task_description field for the run
 
     ac://batches/{batch_id}/tree        — all runs in a batch, flat list
     ac://plan/figures/{role}            — cognitive-arch figures for a role
@@ -54,6 +57,7 @@ from agentception.mcp.query_tools import (
     query_run,
     query_run_context,
     query_run_events,
+    query_run_status,
     query_run_tree,
     query_system_health,
 )
@@ -235,6 +239,12 @@ RESOURCE_TEMPLATES: list[ACResourceTemplate] = [
             "spawned_at, last_activity_at, completed_at. "
             "Returns ok=false when the run does not exist."
         ),
+        mimeType=_MIME,
+    ),
+    ACResourceTemplate(
+        uriTemplate="ac://runs/{run_id}/status",
+        name="Run status",
+        description="Current status and completed_at timestamp for a single run",
         mimeType=_MIME,
     ),
 
@@ -552,6 +562,9 @@ async def _dispatch(
 
             if sub == "context" and len(path_parts) == 2:
                 return _content(uri, await query_run_context(run_id))
+
+            if sub == "status" and len(path_parts) == 2:
+                return _content(uri, await query_run_status(run_id))
 
             if sub == "task" and len(path_parts) == 2:
                 return await _handle_run_task(uri, run_id)
