@@ -524,9 +524,9 @@ async def test_get_issues_grouped_by_phase_initiative_scoped_labels() -> None:
     mock_result.scalars.return_value.all.return_value = mock_rows
 
     with (
-        patch("agentception.db.queries.get_session") as mock_session,
+        patch("agentception.db.queries.board.get_session") as mock_session,
         patch(
-            "agentception.db.queries.get_initiative_phase_meta",
+            "agentception.db.queries.board.get_initiative_phase_meta",
             new_callable=AsyncMock,
             return_value=[],  # no DB rows → fall back to lexicographic sort
         ),
@@ -579,9 +579,9 @@ async def test_get_issues_grouped_by_phase_phase_key_initiative_prefix() -> None
     mock_result.scalars.return_value.all.return_value = [row]
 
     with (
-        patch("agentception.db.queries.get_session") as mock_session,
+        patch("agentception.db.queries.board.get_session") as mock_session,
         patch(
-            "agentception.db.queries.get_initiative_phase_meta",
+            "agentception.db.queries.board.get_initiative_phase_meta",
             new_callable=AsyncMock,
             return_value=[],
         ),
@@ -761,9 +761,9 @@ async def test_get_issues_grouped_by_phase_filters_closed_deps() -> None:
     mock_result.scalars.return_value.all.return_value = rows
 
     with (
-        patch("agentception.db.queries.get_session") as mock_session,
+        patch("agentception.db.queries.board.get_session") as mock_session,
         patch(
-            "agentception.db.queries.get_initiative_phase_meta",
+            "agentception.db.queries.board.get_initiative_phase_meta",
             new_callable=AsyncMock,
             return_value=[],
         ),
