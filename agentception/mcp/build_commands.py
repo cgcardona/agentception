@@ -386,6 +386,7 @@ async def build_complete_run(
         # fail with "already used by worktree at …".  We only remove the
         # worktree directory and prune refs — branches are left intact because
         # the open PR still references the remote branch.
+        worktree_released = True
         if agent_run_id:
             teardown_info = await get_agent_run_teardown(agent_run_id)
             wt_path = teardown_info.get("worktree_path") if teardown_info else None
@@ -395,16 +396,30 @@ async def build_complete_run(
                 if rebase_error is not None:
                     return rebase_error
 
-                await release_worktree(
+                worktree_released = await release_worktree(
                     worktree_path=wt_path,
                     repo_dir=str(settings.repo_dir),
                 )
+                if not worktree_released:
+                    logger.warning(
+                        "⚠️ build_complete_run: worktree release failed for run_id=%r — "
+                        "reviewer not dispatched (would fail with branch already in use)",
+                        agent_run_id,
+                    )
+                    return {
+                        "ok": False,
+                        "error": (
+                            "Worktree release failed; reviewer was not dispatched. "
+                            "The PR is open. Retry build_complete_run after the worktree is released, "
+                            "or an operator can run release_worktree and dispatch the reviewer manually."
+                        ),
+                    }
 
-        # Fire-and-forget: reviewer failure never affects the implementer's result.
-        asyncio.create_task(
-            auto_dispatch_reviewer(issue_number=issue_number, pr_url=pr_url),
-            name=f"auto-reviewer-{issue_number}",
-        )
+        if worktree_released:
+            asyncio.create_task(
+                auto_dispatch_reviewer(issue_number=issue_number, pr_url=pr_url),
+                name=f"auto-reviewer-{issue_number}",
+            )
 
     return {"ok": True, "event": "done", "status": "completed"}
 

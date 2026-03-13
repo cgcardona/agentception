@@ -443,6 +443,74 @@ async def test_build_complete_run_accepted_with_valid_pr_url() -> None:
 
 
 @pytest.mark.anyio
+async def test_implementer_completion_fails_when_release_worktree_returns_false() -> None:
+    """build_complete_run returns error and does not dispatch reviewer when release_worktree fails.
+
+    Regression: if git worktree remove fails, dispatching the reviewer would fail with
+    'feat/issue-N is already used by worktree at /worktrees/issue-N'. We must not
+    dispatch until the worktree is actually released.
+    """
+    from agentception.mcp.build_commands import build_complete_run
+
+    agent_run_id = "issue-939"
+    wt_path = "/worktrees/issue-939"
+
+    with (
+        patch(
+            "agentception.mcp.build_commands.persist_agent_event",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agentception.mcp.build_commands.complete_agent_run",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands.get_agent_run_role",
+            new_callable=AsyncMock,
+            return_value="developer",
+        ),
+        patch(
+            "agentception.mcp.build_commands.get_agent_run_teardown",
+            new_callable=AsyncMock,
+            return_value={"worktree_path": wt_path, "branch": "feat/issue-939"},
+        ),
+        patch(
+            "agentception.mcp.build_commands.release_worktree",
+            new_callable=AsyncMock,
+            return_value=False,
+        ) as mock_release,
+        patch(
+            "agentception.mcp.build_commands.auto_dispatch_reviewer",
+            new_callable=AsyncMock,
+        ) as mock_reviewer,
+        patch(
+            "agentception.mcp.build_commands.asyncio.create_task",
+        ) as mock_create_task,
+        patch(
+            "agentception.mcp.build_commands._rebase_and_push_worktree",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+    ):
+        result = await build_complete_run(
+            issue_number=939,
+            pr_url="https://github.com/cgcardona/agentception/pull/950",
+            agent_run_id=agent_run_id,
+        )
+
+    assert result["ok"] is False
+    assert "error" in result
+    assert "worktree" in str(result["error"]).lower() or "release" in str(result["error"]).lower()
+    mock_release.assert_awaited_once()
+    mock_reviewer.assert_not_called()
+    # Reviewer must not be dispatched (create_task with auto_dispatch_reviewer).
+    task_calls = mock_create_task.call_args_list
+    reviewer_calls = [c for c in task_calls if "reviewer" in str(c)]
+    assert not reviewer_calls, "reviewer must not be dispatched when release_worktree fails"
+
+
+@pytest.mark.anyio
 async def test_build_complete_run_rejects_whitespace_grade_from_reviewer() -> None:
     """build_complete_run returns an error dict when reviewer passes grade='   '.
 

@@ -289,6 +289,19 @@ using write_file or replace_in_file. If the symbol does not exist, create it —
 absence is the task, not a blocker. Writing resets this guard.
 """
 
+# Injected one turn before the loop guard fires. Tells the model to call a write
+# tool in this response instead of saying "I will write" and calling read again.
+# Do not include "LOOP GUARD" here so tests that assert "LOOP GUARD" not in
+# extra_blocks (when a write resets the counter) still pass.
+_LOOP_GUARD_PREEMPTIVE_NUDGE = """\
+⚠️  ONE TURN BEFORE READ-ONLY LOCK — read/search tools lock after this response
+
+You have not written code for several turns. If you have enough context to implement,
+call write_file, replace_in_file, or insert_after_in_file in this response.
+Do not output that you will write and then call read_file or search again — that
+will be rejected on the next turn. Issue a write tool call now.
+"""
+
 # Injected every turn (via extra_blocks) once any file has been written.
 # Lives outside the prunable history window so the agent always knows which
 # files it has already modified, even after the middle of history is dropped.
@@ -642,6 +655,18 @@ async def run_agent_loop(
         )
         # Always pass the full (constant) tool list so the cache key is stable.
         active_tool_defs: list[ToolDefinition] = tool_defs
+        # One turn before guard fires: nudge the model to call a write tool in this response.
+        if (
+            loop_guard_enabled
+            and not guard_active
+            and iteration > 0
+            and iterations_since_write == loop_guard_threshold - 1
+        ):
+            extra_blocks.append({"type": "text", "text": _LOOP_GUARD_PREEMPTIVE_NUDGE})
+            logger.info(
+                "ℹ️ loop_guard preemptive nudge — run_id=%s iteration=%d iterations_since_write=%d",
+                run_id, iteration, iterations_since_write,
+            )
         if guard_active:
             override_text = _LOOP_GUARD_OVERRIDE.format(n=iterations_since_write)
             extra_blocks.append({"type": "text", "text": override_text})
