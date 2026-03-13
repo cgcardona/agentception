@@ -386,16 +386,24 @@ async def build_complete_run(
         # fail with "already used by worktree at …".  We only remove the
         # worktree directory and prune refs — branches are left intact because
         # the open PR still references the remote branch.
+        #
+        # When the DB has no worktree_path (e.g. null or run not found), derive
+        # the conventional path worktrees_dir/run_id so we still attempt release —
+        # otherwise the reviewer dispatch fails with "branch already used by worktree".
         worktree_released = True
         if agent_run_id:
             teardown_info = await get_agent_run_teardown(agent_run_id)
-            wt_path = teardown_info.get("worktree_path") if teardown_info else None
-            if wt_path is not None:
+            wt_path = (
+                (teardown_info.get("worktree_path") if teardown_info else None)
+                or str(Path(settings.worktrees_dir) / agent_run_id)
+            )
+            if wt_path and Path(wt_path).exists():
                 # Rebase onto dev and force-push before dispatching reviewer.
                 rebase_error = await _rebase_and_push_worktree(wt_path, agent_run_id)
                 if rebase_error is not None:
                     return rebase_error
 
+            if wt_path:
                 worktree_released = await release_worktree(
                     worktree_path=wt_path,
                     repo_dir=str(settings.repo_dir),
