@@ -30,6 +30,7 @@ from .presets import router as _presets
 from .resync import router as _resync
 from .telemetry import router as _telemetry
 from .wizard import router as _wizard
+from .ab_metrics import router as _ab_metrics
 from .metrics import router as _metrics
 from .worktrees import router as _worktrees
 
@@ -54,3 +55,4 @@ router.include_router(_wizard)
 router.include_router(_plan)
 router.include_router(_presets)
 router.include_router(_metrics)
+router.include_router(_ab_metrics)

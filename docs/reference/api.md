@@ -663,8 +663,45 @@ Read-only endpoints that expose daily KPI snapshots from the database.
 |--------|------|-------------|
 | `GET` | `/api/metrics/daily` | KPI snapshot for a single calendar day |
 | `GET` | `/api/metrics/daily/range` | KPI snapshots for a date range (max 30 days) |
+| `GET` | `/api/metrics/ab` | Per-prompt-variant A/B metrics for developer runs |
+
+#### `GET /api/metrics/ab`
+
+Returns per-variant aggregates for completed developer runs over a lookback window. Used to compare control vs treatment when running prompt A/B experiments. Runs with `prompt_variant IS NULL` are grouped as the **control** bucket.
+
+| Query param | Type | Required | Description |
+|-------------|------|----------|-------------|
+| `days` | `integer` | no | Lookback window in days (1–90). Default: 7. |
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| `200` | Success — `ABMetricsResponse` (always; empty `variants` when no data) |
+| `422` | `days` outside 1–90 |
+
+**Response schema — `ABMetricsResponse`:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `variants` | `list[ABVariantMetrics]` | One entry per distinct `(variant, role)` |
+
+**`ABVariantMetrics`:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `variant` | `string` | `"control"` or the value of `prompt_variant` (e.g. `"streamlined"`) |
+| `role` | `string` | Agent role (e.g. `"developer"`) |
+| `runs` | `integer` | Number of completed runs in the window |
+| `avg_iterations` | `float` | Mean step_start count per run |
+| `avg_input_tokens` | `float` | Mean input tokens per run |
+| `total_tokens` | `integer` | Sum of input + output tokens across runs |
+| `pass_rate` | `float` | Fraction of runs with reviewer grade A or B (from done event payload) |
+| `passed` | `integer` | Count of runs with grade A or B |
+| `failed` | `integer` | Count of runs with grade C, D, or F |
 
 #### `GET /api/metrics/daily`
+
 
 Returns a `DailyMetricsResponse` for the requested date.
 
