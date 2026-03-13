@@ -3,9 +3,9 @@ from __future__ import annotations
 """Pipeline configuration reader/writer for AgentCeption.
 
 The canonical source of truth for pipeline allocation parameters is
-``.agentception/pipeline-config.json`` in the repository root.  The CTO and
-Engineering VP role files read this file at the start of every loop/seed
-cycle instead of relying on hardcoded constants.
+``.agentception/pipeline-config.json`` in the repository root.  Coordinator
+role files read this file at the start of every loop/seed cycle instead of
+relying on hardcoded constants.
 
 The dashboard exposes GET/PUT ``/api/config`` routes (see
 ``agentception/routes/api.py``) so operators can adjust allocation without
@@ -21,18 +21,10 @@ from agentception.models import PipelineConfig
 # Default values mirror the spec exactly — used when the config file is absent.
 # Kept as a typed dict so tests can inspect individual keys without constructing
 # a full PipelineConfig.
-_DEFAULTS: dict[str, int | list[str]] = {
-    "max_eng_vps": 1,
-    "max_qa_vps": 1,
-    "pool_size_per_vp": 4,
-    "active_labels_order": [
-        "ac-ui/0-critical-bugs",
-        "ac-ui/1-design-tokens",
-        "ac-ui/2-data-model",
-        "ac-ui/3-core-pages",
-        "ac-ui/4-controls-intelligence",
-        "ac-ui/5-polish",
-    ],
+_DEFAULTS: dict[str, int | dict[str, int]] = {
+    "coordinator_limits": {"engineering-coordinator": 1, "qa-coordinator": 1},
+    "pool_size": 4,
+    "max_attempts": 3,
 }
 
 _CONFIG_PATH: Path = settings.ac_dir / "pipeline-config.json"

@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import datetime
 import logging
-from pathlib import Path
 from typing import TypedDict
 
 from fastapi import APIRouter
@@ -13,15 +12,18 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from agentception.db.queries import (
+    AgentEventRow,
     AgentMessageRow,
     AgentRunDetail,
     AgentRunRow,
     BoardIssueRow,
+    IssueDetailRow,
+    SiblingRunRow,
+    get_issue_detail,
 )
 from agentception.models import AgentNode, PipelineState, VALID_ROLES
 from agentception.poller import get_state
 from agentception.readers.pipeline_config import read_pipeline_config
-from agentception.readers.transcripts import read_transcript_messages
 from ._shared import (
     _TEMPLATES,
     _CATEGORY_ORDER,
@@ -70,6 +72,9 @@ class EnrichedAgentRunRow(TypedDict):
     duration_str: str
     spawned_fmt: str
     completed_fmt: str
+    tier: str | None
+    org_domain: str | None
+    parent_run_id: str | None
 
 
 class BatchRow(TypedDict):
@@ -109,7 +114,7 @@ async def agents_list(request: Request) -> HTMLResponse:
     from agentception.routes.roles import resolve_cognitive_arch
 
     state = get_state() or PipelineState.empty()
-    now_utc = datetime.datetime.utcnow()
+    now_utc = datetime.datetime.now(datetime.UTC)
 
     # Flatten root + children into one list for the listing view.
     all_agents: list[AgentNode] = []
@@ -160,7 +165,7 @@ async def agents_list(request: Request) -> HTMLResponse:
         if spawned and completed and completed > spawned:
             duration_s = (completed - spawned).total_seconds()
             duration_str = _fmt_duration(duration_s)
-            if run.get("status") == "done":
+            if run.get("status") == "completed":
                 total_duration_s += duration_s
                 completed_count += 1
 
@@ -183,6 +188,9 @@ async def agents_list(request: Request) -> HTMLResponse:
             duration_str=duration_str,
             spawned_fmt=run["spawned_at"][:16].replace("T", " "),
             completed_fmt=run["completed_at"][:16].replace("T", " ") if run["completed_at"] else "—",
+            tier=run["tier"],
+            org_domain=run["org_domain"],
+            parent_run_id=run["parent_run_id"],
         ))
 
     # ── Group history by batch_id, newest batch first ─────────────────────
@@ -208,13 +216,13 @@ async def agents_list(request: Request) -> HTMLResponse:
     for batch in batches:
         b_runs = batch["runs"]
         b_total = len(b_runs)
-        b_done = sum(1 for r in b_runs if r.get("status") == "done")
+        b_done = sum(1 for r in b_runs if r.get("status") == "completed")
         batch["success_rate"] = round(b_done / b_total * 100) if b_total else 0
 
     # ── Aggregate KPI stats ───────────────────────────────────────────────
     total = len(enriched_history)
-    done_count = sum(1 for r in enriched_history if r.get("status") == "done")
-    failed_count = sum(1 for r in enriched_history if r.get("status") in ("stale", "unknown"))
+    done_count = sum(1 for r in enriched_history if r.get("status") == "completed")
+    failed_count = sum(1 for r in enriched_history if r.get("status") in ("stale", "failed"))
     success_rate = round(done_count / total * 100) if total else 0
     avg_duration_str = _fmt_duration(total_duration_s / completed_count) if completed_count else "—"
 
@@ -256,7 +264,7 @@ async def agents_partial(request: Request) -> HTMLResponse:
     from agentception.routes.roles import resolve_cognitive_arch
 
     state = get_state() or PipelineState.empty()
-    now_utc = datetime.datetime.utcnow()
+    now_utc = datetime.datetime.now(datetime.UTC)
 
     all_agents: list[AgentNode] = []
     for agent in state.agents:
@@ -331,7 +339,7 @@ async def controls_hub(request: Request) -> HTMLResponse:
         history = await get_agent_run_history(limit=50)
         kill_history = [
             r for r in history
-            if r.get("status") in ("done", "stale", "unknown")
+            if r.get("status") in ("completed", "stale", "failed", "cancelled", "stopped")
         ][:10]
     except Exception as exc:
         logger.debug("DB kill history fetch skipped: %s", exc)
@@ -346,13 +354,6 @@ async def controls_hub(request: Request) -> HTMLResponse:
             "kill_history": kill_history,
         },
     )
-
-
-@router.get("/control/spawn", response_class=HTMLResponse)
-async def spawn_form_legacy(request: Request) -> Response:
-    """Backwards-compat redirect — /control/spawn → /agents/spawn."""
-    from starlette.responses import RedirectResponse
-    return RedirectResponse(url="/agents/spawn", status_code=302)
 
 
 @router.get("/agents/spawn", response_class=HTMLResponse)
@@ -488,11 +489,11 @@ async def agent_transcript_partial(request: Request, agent_id: str) -> Response:
             db_run = await get_agent_run_detail(agent_id)
             if db_run:
                 db_messages = db_run.get("messages", [])
-                raw_status = str(db_run.get("status", "unknown")).lower()
+                raw_status = str(db_run.get("status", "failed")).lower()
                 try:
                     synth_status = _AgentStatus(raw_status)
                 except ValueError:
-                    synth_status = _AgentStatus.UNKNOWN
+                    synth_status = _AgentStatus.FAILED
                 node = AgentNode(
                     id=str(db_run.get("id", agent_id)),
                     role=str(db_run.get("role", "unknown")),
@@ -507,8 +508,6 @@ async def agent_transcript_partial(request: Request, agent_id: str) -> Response:
             logger.debug("DB agent run lookup skipped for transcript partial: %s", exc)
 
     messages: list[dict[str, str]] = []
-    if node and node.transcript_path:
-        messages = await read_transcript_messages(Path(node.transcript_path))
 
     if not messages and db_messages:
         messages = [
@@ -528,7 +527,7 @@ async def agent_transcript_partial(request: Request, agent_id: str) -> Response:
 
 @router.get("/agents/{agent_id}", response_class=HTMLResponse)
 async def agent_detail(request: Request, agent_id: str) -> Response:
-    """Agent detail page — transcript viewer and .agent-task fields.
+    """Agent profile page — rich view of a single agent run.
 
     Data sources (in priority order):
     1. In-memory state — live status, branch, issue number from the poller.
@@ -536,18 +535,26 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
     3. Postgres ``ac_agent_runs`` — historical run metadata and status.
     4. Postgres ``ac_agent_messages`` — stored messages when no transcript
        file is accessible (e.g. after the worktree is removed).
+    5. Postgres ``ac_agent_events`` — structured MCP events for the timeline.
+    6. GitHub API — issue body, PR checks, PR reviews (fetched in parallel).
 
     Returns HTTP 404 only when the agent is absent from both in-memory state
     and the Postgres history.
     """
-    from agentception.db.queries import get_agent_run_detail
+    from agentception.db.queries import (
+        get_agent_events_tail,
+        get_agent_run_detail,
+        get_sibling_runs,
+    )
     from agentception.routes.roles import resolve_cognitive_arch
-    from ._shared import _find_agent
+    from ._shared import _find_agent, _fmt_duration, _parse_iso
 
     state = get_state()
     node = _find_agent(state, agent_id)
+    # True only when the agent is live in the poller (worktree exists, killable).
+    is_live_agent: bool = node is not None
 
-    # Try DB run detail as a fallback enrichment (or if node is not in memory).
+    # DB run detail — enrichment regardless of live state.
     db_run: AgentRunDetail | None = None
     db_messages: list[AgentMessageRow] = []
     try:
@@ -561,20 +568,25 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
         return _TEMPLATES.TemplateResponse(
             request,
             "agent.html",
-            {"node": None, "agent_id": agent_id, "messages": [], "db_run": None},
+            {"node": None, "agent_id": agent_id, "messages": [], "db_run": None,
+             "persona": resolve_cognitive_arch(None)},
             status_code=404,
         )
 
-    # Agent has left the live poller state (worktree gone) but exists in the
-    # DB.  Synthesise a lightweight AgentNode so the template renders its full
-    # detail view without a separate code path.
+    # Synthesise AgentNode from DB when the live poller no longer holds it.
     if node is None and db_run is not None:
         from agentception.models import AgentStatus as _AgentStatus
-        raw_status = str(db_run.get("status", "unknown")).lower()
+        raw_status = str(db_run.get("status", "failed")).lower()
+        # If the agent is not live in the poller it cannot still be running.
+        # Map any legacy "unknown" value to "failed" for backward compatibility.
+        if raw_status == "unknown":
+            raw_status = "failed"
+        elif raw_status == "done":
+            raw_status = "completed"
         try:
             synth_status = _AgentStatus(raw_status)
         except ValueError:
-            synth_status = _AgentStatus.UNKNOWN
+            synth_status = _AgentStatus.FAILED
         node = AgentNode(
             id=str(db_run.get("id", agent_id)),
             role=str(db_run.get("role", "unknown")),
@@ -583,20 +595,156 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
             pr_number=db_run.get("pr_number"),
             branch=db_run.get("branch"),
             batch_id=db_run.get("batch_id"),
+            cognitive_arch=db_run.get("cognitive_arch"),
+            tier=db_run.get("tier"),
+            org_domain=db_run.get("org_domain"),
+            parent_run_id=db_run.get("parent_run_id"),
             worktree_path=db_run.get("worktree_path"),
         )
 
-    # Filesystem transcript takes priority — it's the live Cursor session.
+    # Messages come from DB; filesystem transcript reading is removed.
     messages: list[dict[str, str]] = []
-    if node and node.transcript_path:
-        messages = await read_transcript_messages(Path(node.transcript_path))
-
-    # Fall back to DB messages when the filesystem transcript is absent or empty.
     if not messages and db_messages:
         messages = [
             {"role": str(m.get("role", "")), "content": str(m.get("content", ""))}
             for m in db_messages
         ]
+
+    # ── Parallel enrichment fetches ─────────────────────────────────────────
+    # All helpers return [] / {} / None on error so the page never fails.
+    issue_number: int | None = node.issue_number if node else None
+    pr_number: int | None = node.pr_number if node else None
+    batch_id: str | None = node.batch_id if node else None
+
+    async def _safe_get_pr_checks(n: int) -> list[dict[str, object]]:
+        try:
+            from agentception.readers.github import get_pr_checks as _get_pr_checks
+            return await _get_pr_checks(n)
+        except Exception:
+            return []
+
+    async def _safe_get_pr_reviews(n: int) -> list[dict[str, object]]:
+        try:
+            from agentception.readers.github import get_pr_reviews as _get_pr_reviews
+            return await _get_pr_reviews(n)
+        except Exception:
+            return []
+
+    async def _safe_get_siblings(bid: str) -> list[SiblingRunRow]:
+        try:
+            return await get_sibling_runs(bid, agent_id)
+        except Exception:
+            return []
+
+    async def _noop_none() -> IssueDetailRow | None:
+        return None
+
+    async def _noop_list_dict() -> list[dict[str, object]]:
+        return []
+
+    async def _noop_list_sibling() -> list[SiblingRunRow]:
+        return []
+
+    async def _safe_get_parent_run(run_id: str) -> AgentRunDetail | None:
+        """Fetch the parent run from DB to extract its own parent_run_id (grandparent)."""
+        try:
+            return await get_agent_run_detail(run_id)
+        except Exception:
+            return None
+
+    events: list[AgentEventRow]
+    issue_detail: IssueDetailRow | None
+    pr_checks: list[dict[str, object]]
+    pr_reviews: list[dict[str, object]]
+    siblings: list[SiblingRunRow]
+
+    parent_run_id: str | None = node.parent_run_id if node else None
+
+    async def _safe_get_issue_from_db(n: int) -> IssueDetailRow | None:
+        try:
+            from agentception.config import settings as _settings
+            return await get_issue_detail(_settings.gh_repo, n)
+        except Exception:
+            return None
+
+    (
+        events,
+        issue_detail,
+        pr_checks,
+        pr_reviews,
+        siblings,
+    ) = await asyncio.gather(
+        get_agent_events_tail(agent_id),
+        _safe_get_issue_from_db(issue_number) if issue_number else _noop_none(),
+        _safe_get_pr_checks(pr_number) if pr_number else _noop_list_dict(),
+        _safe_get_pr_reviews(pr_number) if pr_number else _noop_list_dict(),
+        _safe_get_siblings(batch_id) if batch_id else _noop_list_sibling(),
+    )
+
+    # Fetch parent run separately (to avoid the 5-coroutine overload limit in mypy)
+    # and extract the grandparent run id for the org chart.
+    grandparent_run_id: str | None = None
+    if parent_run_id:
+        parent_run = await _safe_get_parent_run(parent_run_id)
+        if parent_run and isinstance(parent_run, dict):
+            gp = parent_run.get("parent_run_id")
+            grandparent_run_id = str(gp) if gp else None
+
+    # Pre-process events: parse payload JSON so the template has plain dicts.
+    import json as _json
+
+    def _event_detail_text(ev: AgentEventRow) -> str:
+        """Extract the human-readable summary string from an event payload."""
+        try:
+            p: dict[str, object] = _json.loads(ev["payload"])
+        except Exception:
+            return ev["payload"]
+        etype = ev["event_type"]
+        if etype == "step_start":
+            return str(p.get("step", ""))
+        if etype == "blocker":
+            return str(p.get("description", ""))
+        if etype == "decision":
+            decision = str(p.get("decision", ""))
+            rationale = str(p.get("rationale", ""))
+            return f"{decision} — {rationale}" if rationale else decision
+        if etype == "done":
+            return str(p.get("summary", "") or p.get("pr_url", ""))
+        return ev["payload"]
+
+    _event_icon: dict[str, str] = {
+        "step_start": "▶",
+        "blocker": "🚧",
+        "decision": "💡",
+        "done": "✅",
+    }
+
+    processed_events = [
+        {
+            "event_type": ev["event_type"],
+            "icon": _event_icon.get(ev["event_type"], "•"),
+            "detail": _event_detail_text(ev),
+            "recorded_at": ev["recorded_at"],
+        }
+        for ev in events
+    ]
+
+    # ── Duration / date strings ─────────────────────────────────────────────
+    # Only use completed_at for duration — last_activity_at is updated by the
+    # poller and can be arbitrarily recent even for long-dead agents, which
+    # would produce a wildly inflated "ran Xh Ym" display.
+    spawned_at_iso: str | None = db_run.get("spawned_at") if db_run else None
+    finished_iso: str | None = db_run.get("completed_at") if db_run else None
+    duration_str = ""
+    spawned_date_str = ""
+    if spawned_at_iso:
+        spawned_dt = _parse_iso(spawned_at_iso)
+        if spawned_dt:
+            spawned_date_str = spawned_dt.strftime("%b %-d, %Y")
+        finished_dt = _parse_iso(finished_iso) if finished_iso else None
+        if spawned_dt and finished_dt:
+            delta = (finished_dt - spawned_dt).total_seconds()
+            duration_str = _fmt_duration(max(0.0, delta))
 
     persona = resolve_cognitive_arch(node.cognitive_arch if node else None)
 
@@ -609,5 +757,15 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
             "messages": messages,
             "db_run": db_run,
             "persona": persona,
+            # Enrichment
+            "events": processed_events,
+            "issue_detail": issue_detail,
+            "pr_checks": pr_checks,
+            "pr_reviews": pr_reviews,
+            "siblings": siblings,
+            "grandparent_run_id": grandparent_run_id,
+            "is_live_agent": is_live_agent,
+            "duration_str": duration_str,
+            "spawned_date_str": spawned_date_str,
         },
     )

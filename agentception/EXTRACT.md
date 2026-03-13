@@ -28,8 +28,7 @@ pytest agentception/tests/test_agentception_extraction.py -v
 pip install -e agentception/ --dry-run
 ```
 
-All three checks must pass:
-- `test_no_maestro_imports_in_agentception` — no cross-package imports
+All checks must pass:
 - `test_no_hardcoded_gabriel_paths` — no user-specific paths
 - `test_pyproject_toml_valid` — valid TOML with required keys
 
@@ -78,7 +77,7 @@ ls -la
 
 After extraction, `pipeline-config.json` references in the new repo need updating:
 
-1. Copy your existing `pipeline-config.json` to `.cursor/pipeline-config.json` in the new repo.
+1. Copy your existing `pipeline-config.json` to `.agentception/pipeline-config.json` in the new repo.
 2. Update the `projects` array:
 
 ```json

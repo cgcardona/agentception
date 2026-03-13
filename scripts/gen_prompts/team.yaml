@@ -4,7 +4,7 @@
 # agent hierarchy. It is read by generate.py (for validation) and by
 # resolve_arch.py (at agent runtime) to assemble the live context block.
 #
-# COGNITIVE_ARCH string format (used in .agent-task and dispatch prompts):
+# COGNITIVE_ARCH string format (used in DB context rows and dispatch prompts):
 #   figures:skill1:skill2:...
 #
 #   - figures: comma-separated figure ids (for blends), colon-separates from skills
@@ -21,20 +21,24 @@ org:
     ceo:
       # Steve Jobs: product taste, simplicity, "insanely great."
       # The CEO sets vision and culture; never writes code.
+      # Surveys team/* labels on GitHub issues to discover which C-levels to dispatch.
       figures: [steve_jobs]
       archetype: the_visionary
       skills: []
       cognitive_arch: "steve_jobs"
+      teams_owned: []   # CEO owns no team directly — routes to C-levels below
 
     cto:
       # von Neumann: systematic, architectural, throughput-obsessed.
       # The CTO is the top-level orchestrator — no skill domains.
+      # Owns all engineering-family teams.
       figures: [von_neumann]
       archetype: the_architect
       atom_overrides:
         cognitive_rhythm: burst
       skills: []
       cognitive_arch: "von_neumann"
+      teams_owned: [engineering, qa, infrastructure, mobile, platform]
 
     cpo:
       # Lovelace: visionary, sees what the machine could become.
@@ -42,6 +46,7 @@ org:
       archetype: the_visionary
       skills: []
       cognitive_arch: "lovelace"
+      teams_owned: [product, design]
 
     cfo:
       # von Neumann: quantitative, systematic, cross-domain.
@@ -49,6 +54,7 @@ org:
       archetype: the_scholar
       skills: []
       cognitive_arch: "von_neumann"
+      teams_owned: []
 
     ciso:
       # Bruce Schneier: threat model first, security theater last.
@@ -56,6 +62,7 @@ org:
       archetype: the_guardian
       skills: []
       cognitive_arch: "bruce_schneier"
+      teams_owned: [security]
 
     cdo:
       # Shannon: information theory, signal/noise, data strategy.
@@ -63,6 +70,7 @@ org:
       archetype: the_architect
       skills: []
       cognitive_arch: "shannon"
+      teams_owned: [data, ml]
 
     cmo:
       # Steve Jobs: clarity of message, narrative, simplicity.
@@ -70,6 +78,7 @@ org:
       archetype: the_visionary
       skills: []
       cognitive_arch: "steve_jobs"
+      teams_owned: [marketing]
 
     coo:
       # Jeff Bezos: operational discipline, Day 1, working backwards.
@@ -77,76 +86,105 @@ org:
       archetype: the_operator
       skills: []
       cognitive_arch: "jeff_bezos"
+      teams_owned: []
 
-  vp:
+  coordinator:
     engineering:
       # Hamming: error-correcting, pragmatic, reliability-focused.
-      # The Engineering VP seeds leaf agents and routes work.
+      # The Engineering Coordinator seeds leaf agents and routes work.
       figures: [hamming]
       archetype: the_pragmatist
       skills: []
       cognitive_arch: "hamming"
+      c_level_owner: cto
+      label: "team/engineering"
 
     qa:
       # Dijkstra: proof-oriented, uncompromising on correctness.
-      # The QA VP orchestrates PR reviewers.
+      # The QA Coordinator orchestrates PR reviewers.
       figures: [dijkstra]
       archetype: the_guardian
       skills: []
       cognitive_arch: "dijkstra"
+      c_level_owner: cto
+      label: "team/qa"
 
     product:
       figures: [steve_jobs]
       archetype: the_visionary
       skills: []
       cognitive_arch: "steve_jobs"
+      c_level_owner: cpo
+      label: "team/product"
 
     design:
       figures: [lovelace]
       archetype: the_visionary
       skills: []
       cognitive_arch: "lovelace"
+      c_level_owner: cpo
+      label: "team/design"
 
     data:
       figures: [shannon]
       archetype: the_architect
       skills: []
       cognitive_arch: "shannon"
+      c_level_owner: cdo
+      label: "team/data"
 
     security:
       figures: [bruce_schneier]
       archetype: the_guardian
       skills: []
       cognitive_arch: "bruce_schneier"
+      c_level_owner: ciso
+      label: "team/security"
 
     infrastructure:
       figures: [ritchie]
       archetype: the_operator
       skills: []
       cognitive_arch: "ritchie"
+      c_level_owner: cto
+      label: "team/infrastructure"
 
     mobile:
       figures: [lovelace]
       archetype: the_visionary
       skills: []
       cognitive_arch: "lovelace"
+      c_level_owner: cto
+      label: "team/mobile"
 
     platform:
       figures: [ritchie]
       archetype: the_architect
       skills: []
       cognitive_arch: "ritchie"
+      c_level_owner: cto
+      label: "team/platform"
 
     ml:
       figures: [yann_lecun]
       archetype: the_visionary
       skills: []
       cognitive_arch: "yann_lecun"
+      c_level_owner: cdo
+      label: "team/ml"
+
+    marketing:
+      figures: [steve_jobs]
+      archetype: the_visionary
+      skills: []
+      cognitive_arch: "steve_jobs"
+      c_level_owner: cmo
+      label: "team/marketing"
 
   leaf:
-    # Leaf agents are dynamically assigned by the Engineering VP based on the
-    # issue content. The VP selects one or more figures and up to max_skills
-    # skill domains, then writes the assembled COGNITIVE_ARCH to .agent-task.
+    # Leaf agents are dynamically assigned by the Engineering Coordinator based on the
+    # issue content. The coordinator selects one or more figures and up to max_skills
+    # skill domains, then persists the assembled COGNITIVE_ARCH to the DB context row.
     selection: dynamic
 
     # Original historical figures
@@ -188,6 +226,9 @@ org:
       - python
       - fastapi
       - postgresql
+      # Vector search
+      - qdrant
+      - rag
       # Frontend / UI
       - htmx
       - jinja2
@@ -204,7 +245,7 @@ org:
     max_skills: 3   # cap prevents context bloat
 
   reviewers:
-    # PR reviewers are assigned by the QA VP based on the PR content.
+    # PR reviewers are assigned by the QA Coordinator based on the PR content.
     # Same pools and rules as leaf agents — different task file, same format.
     selection: dynamic
     figure_pool:
@@ -219,6 +260,8 @@ org:
       - python
       - fastapi
       - postgresql
+      - qdrant
+      - rag
       - htmx
       - jinja2
       - alpine
@@ -230,7 +273,7 @@ org:
       - llm
     max_skills: 3
 
-# Heuristics used by the Engineering VP and QA VP to select skill domains.
+# Heuristics used by the Engineering Coordinator and QA Coordinator to select skill domains.
 # First matching rule wins. Skills are joined with ':' in COGNITIVE_ARCH.
 heuristics:
   - keywords: [htmx, hx-, partial, sse, hypermedia]
@@ -251,6 +294,10 @@ heuristics:
     skills: [midi, python]
   - keywords: [ml, ai, model, inference, huggingface, gradio]
     skills: [llm, python]
+  - keywords: [qdrant, vector, embedding, fastembed, search_codebase, index_codebase, chunk, payload_index]
+    skills: [qdrant, python]
+  - keywords: [rag, retrieval, hybrid search, bm25, rerank, semantic search]
+    skills: [qdrant, rag, python]
   - keywords: [docker, compose, nginx, deployment, ci, github actions]
     skills: [devops]
   - keywords: [javascript, fetch, dom, browser]

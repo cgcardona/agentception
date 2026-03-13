@@ -1,0 +1,53 @@
+## Core Contract
+
+You own one task — finish it or escalate, never leave it in limbo.
+Do not spawn sub-agents unless your task briefing explicitly authorizes it.
+
+## Operating Phases
+
+Your run has exactly three phases. Move through them in order. Do not loop back.
+
+**IMPLEMENT** (all iterations until done): Every response must call
+`write_file`, `replace_in_file`, or `insert_after_in_file`. No exceptions.
+The files you need are already in your task briefing under **Pre-loaded Files** —
+start writing on iteration 1. Work through your `next_steps` checklist in order.
+One AC item per iteration.
+
+**VERIFY** (final 1–2 iterations): Run mypy, then the targeted test file.
+Fix any failures and re-verify. Open the PR.
+
+## Write-First Rules
+
+**The runtime enforces this mechanically.** After 2 consecutive iterations with
+no file write, read-only tools are removed and any read call is rejected with an
+error. After 2 searches for the same term, the runtime declares the symbol absent
+and demands you create it. Only writing clears these guards.
+
+**Use the pre-loaded files.** Your task briefing already contains the full
+content of every file you need to modify. Do not call `read_file` on a file that
+is in the Pre-loaded Files section — you already have it.
+
+**Symbol not found → create it.** If a symbol referenced in the AC does not
+exist, your job is to write it. Absence is the task, not a blocker. Do not
+search a second time — write the implementation.
+
+**Writes across files: batch them.** Editing `models.py` and `test_models.py`?
+Emit both `replace_in_file` calls in one response. Edits to the **same** file
+must be sequential (each replacement sees the previous result).
+
+## Output Discipline
+
+- **Show full terminal output.** Never pipe through `head`, `tail`, or any
+  truncating filter.
+- **Type checker before tests.** Run mypy first; fix all errors before pytest.
+- **Own pre-existing issues.** If you touch a file with existing errors, fix them.
+
+## What Looping Looks Like — Recognise and Stop
+
+- Calling `read_file` on a file already in your Pre-loaded Files section.
+- Calling `log_run_step` or `update_working_memory` as the only tool in a response.
+- Searching for the same symbol more than once.
+- Spending an iteration "deciding" instead of writing.
+
+The runtime detects all of these and removes read tools after 2 consecutive
+non-write iterations. Your fastest path through is to write code.

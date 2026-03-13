@@ -5,7 +5,7 @@ from __future__ import annotations
 Provides action endpoints for anomalies detected by
 :mod:`agentception.intelligence.guards`.  The "clear stale claim" endpoint
 is the primary consumer: the dashboard surfaces a "Clear Label" button for
-each stale claim and POSTs here to remove the ``agent:wip`` label.
+each stale claim and POSTs here to remove the ``agent/wip`` label.
 
 The ``POST /api/intelligence/scaling-advice/apply`` endpoint applies the
 current scaling recommendation to ``pipeline-config.json`` in a single click,
@@ -62,17 +62,17 @@ async def dag_api() -> DependencyDAG:
 
 @router.post("/stale-claims/{issue_number}/clear")
 async def clear_stale_claim(issue_number: int) -> dict[str, int]:
-    """Remove the ``agent:wip`` label from a stale-claim issue.
+    """Remove the ``agent/wip`` label from a stale-claim issue.
 
     Intended to be called from the dashboard "Clear Label" button when the
-    poller detects that an issue carries ``agent:wip`` but has no live worktree.
+    poller detects that an issue carries ``agent/wip`` but has no live worktree.
     After clearing the label the issue re-enters the scheduling pool and the
     next polling tick will stop reporting it as a stale claim.
 
     Parameters
     ----------
     issue_number:
-        GitHub issue number whose ``agent:wip`` label should be removed.
+        GitHub issue number whose ``agent/wip`` label should be removed.
 
     Returns
     -------
@@ -87,13 +87,13 @@ async def clear_stale_claim(issue_number: int) -> dict[str, int]:
     try:
         await clear_wip_label(issue_number)
     except RuntimeError as exc:
-        logger.error("❌ Failed to clear agent:wip from issue #%d: %s", issue_number, exc)
+        logger.error("❌ Failed to clear agent/wip from issue #%d: %s", issue_number, exc)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to clear agent:wip label from issue #{issue_number}: {exc}",
+            detail=f"Failed to clear agent/wip label from issue #{issue_number}: {exc}",
         ) from exc
 
-    logger.info("✅ Cleared stale claim: removed agent:wip from issue #%d", issue_number)
+    logger.info("✅ Cleared stale claim: removed agent/wip from issue #%d", issue_number)
     return {"cleared": issue_number}
 
 
@@ -136,14 +136,14 @@ async def apply_scaling_advice() -> dict[str, object]:
 
         # Mutate only the field that the recommendation targets.
         new_config: PipelineConfig
-        if rec.action == "increase_qa_vps":
-            new_config = config.model_copy(update={"max_qa_vps": rec.recommended_value})
+        if rec.action == "increase_coordinator_limit" and rec.target_role is not None:
+            new_limits = {**config.coordinator_limits, rec.target_role: rec.recommended_value}
+            new_config = config.model_copy(update={"coordinator_limits": new_limits})
         elif rec.action == "increase_pool":
-            new_config = config.model_copy(update={"pool_size_per_vp": rec.recommended_value})
-        elif rec.action == "increase_eng_vps":
-            new_config = config.model_copy(update={"max_eng_vps": rec.recommended_value})
-        # All Literal branches handled above; mypy may still flag the else as unreachable.
-        # The dead-code guard is kept for runtime safety when called with coerced types.
+            new_config = config.model_copy(update={"pool_size": rec.recommended_value})
+        else:
+            # no_change — already handled above; guard against coerced types at runtime
+            return {"applied": rec.action, "new_value": 0}
 
         await write_pipeline_config(new_config)
         logger.info(

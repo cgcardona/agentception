@@ -1,16 +1,21 @@
 from __future__ import annotations
 
-"""UI routes: Build / Mission Control page.
+"""UI routes: Ship / Mission Control page.
 
 Endpoints
 ---------
-GET  /build                      — full page (Mission Control)
-GET  /build/board                — HTMX board partial (polled every 10 s)
-GET  /build/agent/{run_id}/stream — SSE: structured events + thinking messages
+GET  /ship                                  — redirect to /ship/{org}/{repo}/{first-initiative}
+GET  /ship/{org}/{repo}/{initiative}        — full page (Mission Control)
+GET  /ship/{org}/{repo}/{initiative}/board  — HTMX board partial (polled every 5 s)
+GET  /ship/{org}/{repo}/{initiative}/tree   — JSON agent tree for latest active batch
+GET  /ship/runs/{run_id}/tree              — JSON agent tree for a specific run's batch
+GET  /ship/runs/{run_id}/stream            — SSE: structured events + thinking messages
 
 The board shows all issues grouped by phase with live PR/agent-run status.
 The inspector panel streams events from ``ac_agent_events`` and thinking
-messages from ``ac_agent_messages`` for a selected agent run.
+messages from ``ac_agent_messages`` for a selected agent run.  The hierarchy
+panel renders the full agent tree (coordinator → leaf) from the
+most recently active batch for the current initiative.
 """
 
 import asyncio
@@ -19,35 +24,123 @@ import logging
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
+from sqlalchemy import select
 from starlette.requests import Request
 
 from typing import TypedDict
 
+import yaml
+
 from agentception.config import settings
+from agentception.db.engine import get_session
+from agentception.db.models import ACAgentRun
 from agentception.db.queries import (
-    PhasedIssueRow,
     PhaseGroupRow,
     RunForIssueRow,
+    RunTreeNodeRow,
     get_agent_events_tail,
     get_agent_thoughts_tail,
+    get_file_edit_events,
     get_initiatives,
     get_issues_grouped_by_phase,
+    get_latest_active_batch_id,
+    get_run_tree_by_batch_id,
     get_runs_for_issue_numbers,
+    get_workflow_states_by_issue,
 )
+from agentception.services.cognitive_arch import figure_display_name, ROLE_DEFAULT_FIGURE
 from ._shared import _TEMPLATES
+
+_TAXONOMY_PATH = (
+    Path(__file__).parent.parent.parent.parent / "scripts" / "gen_prompts" / "role-taxonomy.yaml"
+)
+
+
+class FigureItem(TypedDict):
+    """A cognitive architecture figure entry for the Org Designer picker."""
+
+    id: str
+    name: str
+
+
+def _build_role_figure_map() -> dict[str, list[str]]:
+    """Parse role-taxonomy.yaml and return {role_slug: [compatible_figure_ids]}.
+
+    Degrades gracefully to an empty dict when the YAML is missing or malformed.
+    Only figure IDs that are also present in ``_FIGURES`` are retained so the
+    dropdown never offers a figure the backend doesn't know about.
+    """
+    try:
+        raw: object = yaml.safe_load(_TAXONOMY_PATH.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            return {}
+        result: dict[str, list[str]] = {}
+        for level in raw.get("levels", []):
+            if not isinstance(level, dict):
+                continue
+            for role in level.get("roles", []):
+                if not isinstance(role, dict):
+                    continue
+                slug = role.get("slug")
+                if not isinstance(slug, str) or not slug:
+                    continue
+                figs: object = role.get("compatible_figures", [])
+                result[slug] = [str(f) for f in figs] if isinstance(figs, list) else []
+        return result
+    except Exception:
+        return {}
+
+
+# Built once at import time — the figure catalog is static.
+_FIGURES: list[FigureItem] = sorted(
+    [
+        FigureItem(id=fig_id, name=figure_display_name(fig_id))
+        for fig_id in {
+            *ROLE_DEFAULT_FIGURE.values(),
+            # A handful of prominent figures not used as role defaults.
+            "da_vinci", "darwin", "einstein", "feynman", "newton", "sun_tzu",
+            "marie_curie", "linus_pauling", "carl_sagan", "fabrice_bellard",
+            "rich_hickey", "joe_armstrong", "barbara_liskov", "leslie_lamport",
+            "nassim_taleb", "bill_gates", "nick_szabo", "gavin_wood",
+            "vitalik_buterin", "satoshi_nakamoto", "hal_finney", "david_chaum",
+            "emin_gun_sirer", "ilya_sutskever", "demis_hassabis", "sam_altman",
+            "brendan_eich", "bjarne_stroustrup", "hamming", "gabriel_cardona",
+        }
+    ],
+    key=lambda f: f["name"],
+)
+
+# Map role slug → list of compatible figure IDs.  Built at import time from the
+# taxonomy YAML so the figure dropdown can filter by the selected role.
+_known_figure_ids: frozenset[str] = frozenset(f["id"] for f in _FIGURES)
+_ROLE_FIGURE_MAP: dict[str, list[str]] = {
+    slug: [fig for fig in figs if fig in _known_figure_ids]
+    for slug, figs in _build_role_figure_map().items()
+}
 
 
 class EnrichedIssueRow(TypedDict):
-    """PhasedIssueRow with the most-recent agent run attached."""
+    """Issue row enriched with the most-recent agent run and deterministic swim lane.
+
+    ``swim_lane`` is the canonical swim lane string computed by the workflow
+    state machine.  It is derived from authoritative DB signals — not from
+    Jinja2 logic — ensuring there is exactly one definition.
+
+    Values: ``'todo'`` | ``'active'`` | ``'pr_open'`` | ``'reviewing'`` | ``'done'``
+    """
 
     number: int
     title: str
+    body_excerpt: str
     state: str
     url: str
     labels: list[str]
+    depends_on: list[int]
     run: RunForIssueRow | None
+    swim_lane: str
+    pr_number: int | None
 
 
 class EnrichedPhaseGroupRow(TypedDict):
@@ -59,173 +152,216 @@ class EnrichedPhaseGroupRow(TypedDict):
     complete: bool
     depends_on: list[str]
 
+
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# ---------------------------------------------------------------------------
-# Role catalogue (derived from .cursor/roles/ on disk)
-# ---------------------------------------------------------------------------
-
-_ROLES_DIR = Path(__file__).parent.parent.parent.parent / ".cursor" / "roles"
-
-_ROLE_GROUPS: dict[str, list[str]] = {
-    "C-Suite": ["ceo", "cto", "cpo", "coo", "cfo", "cmo", "cdo", "ciso"],
-    "VPs": [
-        "vp-product", "vp-infrastructure", "vp-platform", "vp-ml",
-        "vp-mobile", "vp-data", "vp-design", "vp-security",
-    ],
-    "Engineering": [
-        "python-developer", "typescript-developer", "frontend-developer",
-        "full-stack-developer", "api-developer", "go-developer", "rust-developer",
-        "android-developer", "ios-developer", "mobile-developer",
-        "react-developer", "rails-developer", "systems-programmer",
-        "database-architect", "devops-engineer", "site-reliability-engineer",
-        "security-engineer",
-    ],
-    "Specialists": [
-        "architect", "ml-engineer", "ml-researcher", "data-engineer",
-        "data-scientist", "engineering-coordinator", "qa-coordinator", "test-engineer",
-        "technical-writer", "muse-specialist", "pr-reviewer", "coordinator",
-    ],
-}
-
-
-def _available_roles() -> dict[str, list[str]]:
-    """Return role groups filtered to roles that actually exist on disk."""
-    out: dict[str, list[str]] = {}
-    for group, roles in _ROLE_GROUPS.items():
-        present = [r for r in roles if (_ROLES_DIR / f"{r}.md").exists()]
-        if present:
-            out[group] = present
-    return out
-
 
 # ---------------------------------------------------------------------------
-# /build — full Mission Control page
+# Shared enrichment helper
 # ---------------------------------------------------------------------------
 
 
-@router.get("/build", response_class=HTMLResponse, response_model=None)
+async def _build_enriched_groups(
+    repo: str,
+    initiative: str,
+) -> tuple[list[EnrichedPhaseGroupRow], int, int]:
+    """Fetch and enrich all phase groups for *initiative*.
+
+    Returns ``(enriched_groups, total_issue_count, open_issue_count)``.
+
+    Swim lanes and PR numbers come exclusively from ``ac_issue_workflow_state``
+    — the canonical persisted state written by the workflow state machine on
+    every poller tick and immediately on ``build_report_done``.  There is no
+    fallback; if a row is absent the issue is ``todo``.
+    """
+    groups = await get_issues_grouped_by_phase(repo, initiative=initiative)
+    all_issue_numbers = [i["number"] for g in groups for i in g["issues"]]
+    open_issue_count = sum(
+        1 for g in groups for i in g["issues"] if i["state"] != "closed"
+    )
+    runs, workflow_states = await asyncio.gather(
+        get_runs_for_issue_numbers(all_issue_numbers),
+        get_workflow_states_by_issue(all_issue_numbers, repo),
+    )
+    enriched: list[EnrichedPhaseGroupRow] = [
+        EnrichedPhaseGroupRow(
+            label=g["label"],
+            issues=[
+                EnrichedIssueRow(
+                    number=i["number"],
+                    title=i["title"],
+                    body_excerpt=i["body_excerpt"],
+                    state=i["state"],
+                    url=i["url"],
+                    labels=i["labels"],
+                    depends_on=i["depends_on"],
+                    run=runs.get(i["number"]),
+                    swim_lane=(
+                        workflow_states[i["number"]]["lane"]
+                        if i["number"] in workflow_states
+                        else "todo"
+                    ),
+                    pr_number=(
+                        workflow_states[i["number"]].get("pr_number")
+                        if i["number"] in workflow_states
+                        else None
+                    ),
+                )
+                for i in g["issues"]
+            ],
+            locked=g["locked"],
+            complete=g["complete"],
+            depends_on=g["depends_on"],
+        )
+        for g in groups
+    ]
+    return enriched, len(all_issue_numbers), open_issue_count
+
+
+# ---------------------------------------------------------------------------
+# GET /ship — redirect to first available initiative
+# ---------------------------------------------------------------------------
+
+
+@router.get("/ship", response_class=HTMLResponse, response_model=None)
+async def ship_redirect() -> Response:
+    """Redirect ``/ship`` to ``/ship/{repo}/{first-initiative}`` when initiatives exist.
+
+    Falls through to /plan if none are found.
+    """
+    gh_repo = settings.gh_repo
+    repo_name = gh_repo.split("/")[-1]
+    initiatives = await get_initiatives(gh_repo)
+    if initiatives:
+        return RedirectResponse(url=f"/ship/{repo_name}/{initiatives[0]}", status_code=302)
+    return RedirectResponse(url="/plan", status_code=302)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/ship/{repo}/initiative-tabs — HTMX initiative tab nav partial
+# ---------------------------------------------------------------------------
+# NOTE: must NOT live under /ship/{repo}/* because Starlette matches the
+# parametric route /ship/{repo}/{initiative} before literal segments at the
+# same depth, so /ship/{repo}/initiatives would silently serve the full page.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/ship/{repo}/initiative-tabs", response_class=HTMLResponse)
+async def initiative_tabs_partial(
+    request: Request,
+    repo: str,
+    initiative: str = "",
+) -> HTMLResponse:
+    """Return the initiative tab nav as an HTML partial for HTMX swapping.
+
+    Registered under ``/api/ship/`` (not ``/ship/``) to avoid the Starlette
+    route-ordering conflict where ``/ship/{repo}/{initiative}`` would shadow
+    ``/ship/{repo}/initiatives`` regardless of registration order.
+
+    Validates *repo* against the configured ``settings.gh_repo`` and returns
+    404 when it does not match.  Accepts an optional ``?initiative=<slug>``
+    query parameter so the active tab can be highlighted in the rendered fragment.
+    """
+    gh_repo = settings.gh_repo
+    configured_name = gh_repo.split("/")[-1]
+    if repo != configured_name:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Repo '{repo}' is not configured in this AgentCeption instance.",
+        )
+    initiatives = await get_initiatives(gh_repo)
+    rendered = _TEMPLATES.get_template("_build_initiative_tabs.html").render(
+        {
+            "initiatives": initiatives,
+            "repo_name": repo,
+            "initiative": initiative,
+        }
+    )
+    return HTMLResponse(content=rendered, status_code=200)
+
+
+# ---------------------------------------------------------------------------
+# GET /ship/{repo}/{initiative} — full Mission Control page
+# ---------------------------------------------------------------------------
+
+
+@router.get("/ship/{repo}/{initiative}", response_class=HTMLResponse, response_model=None)
 async def build_page(
     request: Request,
-    initiative: str | None = Query(default=None),
+    repo: str,
+    initiative: str,
 ) -> Response:
-    """Render the Mission Control build page.
-
-    When no *initiative* query param is provided, redirects to the first
-    available initiative so the board is always scoped.  Falls through to
-    the legacy unscoped view only when the DB has no initiative-labelled
-    issues at all.
-    """
-    repo = settings.gh_repo
-    initiatives = await get_initiatives(repo)
-
-    # Auto-select the first initiative when none is specified.
-    if not initiative and initiatives:
-        return RedirectResponse(
-            url=f"/build?initiative={initiatives[0]}", status_code=302
-        )
-
-    groups = await get_issues_grouped_by_phase(repo, initiative=initiative)
-
-    all_issue_numbers = [i["number"] for g in groups for i in g["issues"]]
-    runs = await get_runs_for_issue_numbers(all_issue_numbers)
-
-    enriched_groups: list[EnrichedPhaseGroupRow] = [
-        EnrichedPhaseGroupRow(
-            label=g["label"],
-            issues=[
-                EnrichedIssueRow(
-                    number=i["number"],
-                    title=i["title"],
-                    state=i["state"],
-                    url=i["url"],
-                    labels=i["labels"],
-                    run=runs.get(i["number"]),
-                )
-                for i in g["issues"]
-            ],
-            locked=g["locked"],
-            complete=g["complete"],
-            depends_on=g["depends_on"],
-        )
-        for g in groups
-    ]
-
+    """Render the Mission Control Ship page scoped to *repo/initiative*."""
+    gh_repo = settings.gh_repo
+    repo_name = gh_repo.split("/")[-1]
+    initiatives = await get_initiatives(gh_repo)
+    enriched_groups, total_issues, open_issues = await _build_enriched_groups(gh_repo, initiative)
     return _TEMPLATES.TemplateResponse(
+        request,
         "build.html",
         {
-            "request": request,
-            "repo": repo,
-            "initiative": initiative or "",
+            "repo": gh_repo,
+            "repo_name": repo_name,
+            "initiative": initiative,
             "initiatives": initiatives,
             "groups": enriched_groups,
-            "role_groups": _available_roles(),
-            "total_issues": len(all_issue_numbers),
+            "total_issues": total_issues,
+            "open_issues": open_issues,
+            "figures": _FIGURES,
+            "role_figure_map": _ROLE_FIGURE_MAP,
         },
     )
 
 
 # ---------------------------------------------------------------------------
-# /build/board — HTMX board partial (polled every 10 s)
+# GET /ship/{repo}/{initiative}/board — HTMX board partial (polled every 5 s)
 # ---------------------------------------------------------------------------
 
 
-@router.get("/build/board", response_class=HTMLResponse)
+@router.get("/ship/{repo}/{initiative}/board", response_class=HTMLResponse)
 async def build_board_partial(
     request: Request,
-    initiative: str | None = Query(default=None),
+    repo: str,
+    initiative: str,
 ) -> HTMLResponse:
     """Return the phase-grouped board as an HTML partial for HTMX polling."""
-    repo = settings.gh_repo
-    groups = await get_issues_grouped_by_phase(repo, initiative=initiative)
-
-    all_issue_numbers = [i["number"] for g in groups for i in g["issues"]]
-    runs = await get_runs_for_issue_numbers(all_issue_numbers)
-
-    enriched_groups: list[EnrichedPhaseGroupRow] = [
-        EnrichedPhaseGroupRow(
-            label=g["label"],
-            issues=[
-                EnrichedIssueRow(
-                    number=i["number"],
-                    title=i["title"],
-                    state=i["state"],
-                    url=i["url"],
-                    labels=i["labels"],
-                    run=runs.get(i["number"]),
-                )
-                for i in g["issues"]
-            ],
-            locked=g["locked"],
-            complete=g["complete"],
-            depends_on=g["depends_on"],
-        )
-        for g in groups
-    ]
-
+    gh_repo = settings.gh_repo
+    enriched_groups, _, _ = await _build_enriched_groups(gh_repo, initiative)
     return _TEMPLATES.TemplateResponse(
+        request,
         "_build_board.html",
         {
-            "request": request,
             "groups": enriched_groups,
-            "repo": repo,
-            "initiative": initiative or "",
+            "repo": gh_repo,
+            "initiative": initiative,
         },
     )
 
 
 # ---------------------------------------------------------------------------
-# /build/agent/{run_id}/stream — SSE inspector stream
+# GET /ship/runs/{run_id}/stream — SSE inspector stream
 # ---------------------------------------------------------------------------
+
+_FILE_EDIT_TOOL_NAMES: frozenset[str] = frozenset(
+    {"write_file", "replace_in_file", "create_file"}
+)
+
+
+def _preview(text: str) -> str:
+    """Collapse newlines and truncate to 120 chars (including the ellipsis)."""
+    flat = " ".join(text.split())
+    return flat[:119] + "…" if len(flat) > 119 else flat
 
 
 async def _inspector_sse(run_id: str) -> AsyncGenerator[str, None]:
     """Yield SSE events for the inspector panel.
 
     Interleaves structured MCP events (``ac_agent_events``) and raw thinking
-    messages (``ac_agent_messages``) in near-real-time.  Polls DB every 2 s.
+    messages (``ac_agent_messages``) in near-real-time.  Polls DB every 0.5 s
+    for near-real-time thought delivery.
 
     Event shapes::
 
@@ -238,7 +374,6 @@ async def _inspector_sse(run_id: str) -> AsyncGenerator[str, None]:
     ping_counter = 0
 
     while True:
-        # Structured events
         events = await get_agent_events_tail(run_id, after_id=last_event_id)
         for ev in events:
             last_event_id = max(last_event_id, int(ev["id"]))
@@ -250,33 +385,152 @@ async def _inspector_sse(run_id: str) -> AsyncGenerator[str, None]:
                     "recorded_at": ev["recorded_at"],
                 }
             )
+            # Supported event_types: step_start, done, file_edit, build_complete_run, orphan_failed
             yield f"data: {payload}\n\n"
 
-        # Raw thinking messages
         thoughts = await get_agent_thoughts_tail(
             run_id, after_seq=last_thought_seq
         )
         for thought in thoughts:
             last_thought_seq = max(last_thought_seq, int(thought["seq"]))
-            payload = json.dumps(
-                {
-                    "t": "thought",
-                    "role": thought["role"],
-                    "content": thought["content"],
-                    "recorded_at": thought["recorded_at"],
-                }
-            )
+            role = thought["role"]
+            if role == "tool_call":
+                payload = json.dumps(
+                    {
+                        "t": "tool_call",
+                        "tool_name": thought["tool_name"],
+                        "args_preview": _preview(thought["content"]),
+                        "recorded_at": thought["recorded_at"],
+                    }
+                )
+            elif role == "tool_result":
+                tool_name = thought["tool_name"]
+                if tool_name in _FILE_EDIT_TOOL_NAMES:
+                    continue  # file-edit results already have their own rendering path
+                payload = json.dumps(
+                    {
+                        "t": "tool_result",
+                        "tool_name": tool_name,
+                        "result_preview": _preview(thought["content"]),
+                        "recorded_at": thought["recorded_at"],
+                    }
+                )
+            else:
+                payload = json.dumps(
+                    {
+                        "t": "thought",
+                        "role": role,
+                        "content": thought["content"],
+                        "recorded_at": thought["recorded_at"],
+                    }
+                )
             yield f"data: {payload}\n\n"
 
-        # Keepalive ping every ~20 s (10 × 2 s sleep)
         ping_counter += 1
         if ping_counter % 10 == 0:
             yield 'data: {"t":"ping"}\n\n'
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(0.5)
 
 
-@router.get("/build/agent/{run_id}/stream")
+# ---------------------------------------------------------------------------
+# GET /ship/runs/{run_id}/inspector — pre-rendered inspector panel partial
+# ---------------------------------------------------------------------------
+
+#: Statuses that indicate a run has finished and the SSE stream is closed.
+_TERMINAL_STATUSES: frozenset[str] = frozenset({"done", "error", "cancelled", "failed"})
+
+
+@router.get("/ship/runs/{run_id}/inspector", response_class=HTMLResponse)
+async def inspector_partial(request: Request, run_id: str) -> HTMLResponse:
+    """Return the inspector panel HTML partial for *run_id*.
+
+    For completed runs (status in ``_TERMINAL_STATUSES``) the response
+    includes pre-rendered ``file-edit-card`` divs so the user can see the
+    file-edit history even though the SSE stream is closed.  For active runs
+    the ``memory_events`` list is empty and the SSE stream appends cards live.
+
+    Args:
+        run_id: The agent run id (e.g. ``issue-938``).
+
+    Returns:
+        HTML partial rendered from ``_inspector.html``.
+    """
+    run_status: str | None = None
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun.status).where(ACAgentRun.id == run_id)
+            )
+            run_status = result.scalar_one_or_none()
+    except Exception:
+        run_status = None
+
+    run_is_active = run_status not in _TERMINAL_STATUSES
+    memory_events = [] if run_is_active else await get_file_edit_events(run_id)
+
+    return _TEMPLATES.TemplateResponse(
+        request,
+        "_inspector.html",
+        {
+            "run_id": run_id,
+            "run_is_active": run_is_active,
+            "memory_events": memory_events,
+        },
+    )
+
+
+@router.get("/ship/runs/{run_id}/tree", response_class=Response, response_model=None)
+async def agent_run_tree(run_id: str) -> Response:
+    """Return the full agent tree for the batch containing *run_id*.
+
+    Looks up the run's ``batch_id``, then fetches all sibling runs in that
+    batch and returns them as a flat list ordered by spawn time.  The client
+    assembles the tree via ``parent_run_id`` references.
+
+    Returns ``{"nodes": [], "batch_id": null}`` when the run is not found or
+    has no batch.
+    """
+    batch_id: str | None = None
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun.batch_id).where(ACAgentRun.id == run_id)
+            )
+            raw = result.scalar_one_or_none()
+            batch_id = str(raw) if raw is not None else None
+    except Exception:
+        batch_id = None
+
+    if not batch_id:
+        return JSONResponse({"nodes": [], "batch_id": None})
+
+    nodes = await get_run_tree_by_batch_id(batch_id)
+    return JSONResponse({"nodes": nodes, "batch_id": batch_id})
+
+
+@router.get("/ship/{repo}/{initiative}/tree", response_class=Response, response_model=None)
+async def initiative_active_tree(repo: str, initiative: str) -> Response:
+    """Return the agent tree for the most recently active batch under *repo/initiative*.
+
+    Used by the build board to populate the hierarchy panel when no specific
+    issue is selected.  Falls back to an empty tree when there are no runs.
+    """
+    gh_repo = settings.gh_repo
+    groups = await get_issues_grouped_by_phase(gh_repo, initiative=initiative)
+    # Only open issues drive the hierarchy — closed issues' stale runs must
+    # never surface a ghost agent in the panel.
+    open_issue_numbers = [
+        i["number"] for g in groups for i in g["issues"] if i["state"] != "closed"
+    ]
+    batch_id = await get_latest_active_batch_id(issue_numbers=open_issue_numbers)
+    if not batch_id:
+        return JSONResponse({"nodes": [], "batch_id": None})
+    nodes = await get_run_tree_by_batch_id(batch_id)
+    return JSONResponse({"nodes": nodes, "batch_id": batch_id})
+
+
+@router.get("/ship/runs/{run_id}/stream")
 async def agent_stream(run_id: str) -> StreamingResponse:
     """SSE stream of structured events + thinking for the inspector panel.
 
@@ -284,7 +538,7 @@ async def agent_stream(run_id: str) -> StreamingResponse:
     runs until the client closes it.
 
     Args:
-        run_id: The agent run id (worktree basename, e.g. ``issue-938``).
+        run_id: The agent run id (e.g. ``issue-938``).
 
     Returns:
         ``text/event-stream`` SSE response.

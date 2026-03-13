@@ -1,195 +1,476 @@
 from __future__ import annotations
 
-"""LLM-powered plan generator -- converts a brain dump into a PlanSpec YAML via Claude.
+"""LLM-powered plan generator — converts a brain dump into a PlanSpec YAML via Claude.
 
-Two public entry points:
+Public entry point:
 
 ``generate_plan_yaml(dump)``
     Step 1.A: calls Claude, returns a validated PlanSpec YAML string ready for
-    the Monaco editor.  This is the production path when OPENROUTER_API_KEY
+    the Monaco editor.  This is the production path when ANTHROPIC_API_KEY
     is set.
-
-``plan_phases_llm(dump)``
-    Legacy JSON phase-card path (kept for heuristic fallback in plan_ui.py).
-    Returns a PlanResult with PhasePreview objects.
 
 Architecture note
 -----------------
-MCP is NOT involved in this module.  The browser -> AgentCeption -> OpenRouter
+MCP is NOT involved in this module.  The browser -> AgentCeption -> Anthropic
 loop is entirely self-contained.  MCP enters only after the user approves the
 YAML and a coordinator worktree is spawned -- the coordinator agent (in Cursor)
 calls ``plan_get_labels()`` and similar tools as it files GitHub issues.
 """
 
-import json
 import logging
+from pathlib import Path
 
 import yaml as _yaml
 
-from agentception.models import PhasePreview, PlanResult, PlanSpec
-from agentception.services.llm import call_openrouter
+from agentception.models import PlanSpec
+from agentception.services.llm import call_anthropic
+
+# Paths to the cognitive architecture assets (resolved relative to this file).
+_FIGURES_DIR: Path = (
+    Path(__file__).parent.parent.parent
+    / "scripts" / "gen_prompts" / "cognitive_archetypes" / "figures"
+)
+_SKILL_DOMAINS_DIR: Path = (
+    Path(__file__).parent.parent.parent
+    / "scripts" / "gen_prompts" / "cognitive_archetypes" / "skill_domains"
+)
+_TAXONOMY_PATH: Path = (
+    Path(__file__).parent.parent.parent
+    / "scripts" / "gen_prompts" / "role-taxonomy.yaml"
+)
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Shared cognitive architecture injected into both prompts
+# Cognitive architecture persona — prepended to the system prompt
 # ---------------------------------------------------------------------------
 
-_IDENTITY = (
-    "## Identity\n\n"
-    "You are a Staff-level Technical Program Manager with the mental model of a "
-    "dependency-graph theorist. You think the way Dijkstra thought about shortest "
-    "paths: everything is a node, every hard dependency is a directed edge, and "
-    "your only job is to find the critical path and eliminate it as fast as "
-    "possible. You are ruthlessly pragmatic -- you ship, you sequence, you "
-    "parallelize.\n\n"
-    "Your single obsession: **What is the minimum number of phases needed to "
-    "deliver this work safely, in the right order, with maximum parallelism "
-    "within each phase?**\n\n"
-    "You do not gold-plate plans. You do not invent work. You do not pad phases. "
-    "You extract signal from the user's brain dump and impose order on it.\n\n"
-    "## The four phases -- strict definitions\n\n"
-    "**phase-0 -- Foundations & Critical Fixes**: Work everything else depends on.\n"
-    "**phase-1 -- Infrastructure & Core Services**: Internal plumbing features need.\n"
-    "**phase-2 -- Features & User-Facing Work**: New capabilities visible to users.\n"
-    "**phase-3 -- Polish, Tests & Debt**: Tests, docs, refactors, cleanup.\n\n"
-    "Only emit phases that have work. Skip empty phases entirely.\n"
-)
+_IDENTITY = """\
+## Identity
+
+You think the way Dijkstra thought about shortest paths: everything is a node,
+every hard dependency is a directed edge, and your only job is to find the
+critical path and eliminate it as fast as possible.
+
+Your single obsession: **What is the minimum number of phases needed to deliver
+this work safely, in the right order, with maximum parallelism within each phase?**
+
+You do not gold-plate plans. You do not invent work. You do not pad phases.
+You extract signal from the user's input and impose order on it.
+
+**The stakes:** every issue you produce is executed verbatim by an autonomous AI
+agent — a git branch, an implementation, a PR, a merge. Vague issues produce
+wrong code. Invented issues waste real compute. Over-sequenced phases serialize
+work that could ship in parallel. Get the structure right the first time.
+
+## Parallelism rule
+
+Issues within a phase are parallel by default. A `depends_on` at the issue level
+is the only thing that serializes two issues — use it only for hard data or API
+dependencies (e.g. a model must exist before a route that queries it). Never use
+`depends_on` for stylistic preference or convenience.
+"""
 
 # ---------------------------------------------------------------------------
-# Prompt A -- JSON phase cards (used by plan_phases_llm / heuristic fallback)
+# System prompt — Full PlanSpec YAML (Step 1.A production output)
 # ---------------------------------------------------------------------------
 
-_SYSTEM_PROMPT = (
-    _IDENTITY
-    + "\n## Output format: JSON phase cards\n\n"
-    "Return ONLY valid JSON -- no explanation, no markdown fences, no preamble:\n\n"
-    '{\n  "phases": [\n    {\n      "label": "phase-0",\n'
-    '      "description": "One sentence: theme for the confirmation card.",\n'
-    '      "estimated_issue_count": 2,\n      "depends_on": []\n    }\n  ]\n}\n\n'
-    "phase labels: ONLY phase-0, phase-1, phase-2, phase-3. No others.\n"
-    "depends_on: list of phase labels that must complete before this one.\n"
-    "estimated_issue_count: distinct GitHub issues, not bullet points.\n"
-    "description: one concise sentence for the human confirmation card.\n"
-)
+_YAML_SYSTEM_PROMPT = _IDENTITY + """\
+
+## Output format: PlanSpec YAML -- STRICT
+
+You are producing the COMPLETE plan specification. Every issue title and body
+you write will be created verbatim as a GitHub issue and executed by an
+autonomous AI agent with no human review. Write as if you are writing the
+actual GitHub issue — not a summary of it.
+
+Return ONLY valid YAML — no explanation, no markdown fences (no ```), no
+preamble. The response is passed directly to yaml.safe_load() and then
+PlanSpec.model_validate(). Any extra key, wrong type, or missing required
+field raises an exception and the entire plan is rejected.
+
+## Phase naming
+
+Each phase gets a label in the format `{N}-{semantic-slug}` where:
+- N is the 0-indexed position of the phase (0, 1, 2, ...).
+- slug is a short kebab-case descriptor of what the phase delivers.
+Examples: `0-foundation`, `1-api-layer`, `2-ui`, `3-polish`.
+
+Rules:
+- Use as many phases as the work genuinely requires. One phase is fine.
+  Six phases is fine. Do not force-fit all work into a fixed number.
+- Phase N+1 should depend on phase N unless the work is genuinely parallel.
+- Never emit a phase with zero issues — every phase must contain at least one.
+- Choose slugs that communicate the gate criterion: what must be true for
+  the next phase to begin?
+
+Schema (follow exactly):
+
+initiative: user-auth                # short kebab-case slug inferred from the work
+coordinator_arch:                    # figure IDs are snake_case (person names); see Cognitive architecture section below
+  cto: werner_vogels:python:fastapi  # pick from valid figures listed in that section
+  engineering-coordinator: linus_torvalds:python
+phases:
+  - label: 0-foundation
+    description: "Scaffold User model, migration, and DB schema"  # max 100 chars, no trailing period
+    depends_on: []
+    issues:
+      - id: user-auth-p0-001
+        title: "Add SQLAlchemy User model and Alembic migration"
+        skills: [python, postgresql]  # 1-3 IDs from the list below
+        cognitive_arch: barbara_liskov:python:postgresql  # required on every issue; snake_case figure id
+        body: |
+          ## Context
+          The application has no persistent user store. Auth endpoints return 501.
+
+          ## Objective
+          Add a SQLAlchemy `User` model with `id`, `email`, and `hashed_password`
+          fields and generate an Alembic migration so the table exists in Postgres.
+
+          ## Implementation notes
+          - Model lives in `agentception/db/models.py` alongside existing models.
+          - Migration: `alembic revision --autogenerate -m "add_user_table"`.
+          - `email` must have a unique index; `hashed_password` is a non-nullable string.
+          - Do not add auth logic — that is out of scope for this issue.
+
+          ## Acceptance criteria
+          - [ ] `User` model exists in `agentception/db/models.py`.
+          - [ ] Alembic migration applies cleanly on a fresh DB with `alembic upgrade head`.
+          - [ ] `email` column has a unique constraint enforced at the DB level.
+          - [ ] mypy passes with zero errors on `agentception/db/models.py`.
+
+          ## Test coverage
+          Add `tests/test_models.py::test_user_model_fields` asserting column names,
+          types, and the unique constraint via SQLAlchemy introspection.
+
+          ## Documentation
+          None — internal model, no public API surface yet.
+
+          ## Out of scope
+          Password hashing, login endpoints, sessions, JWT — all handled in later phases.
+        depends_on: []
+  - label: 1-api-layer
+    description: "Expose User CRUD via FastAPI routes"
+    depends_on: [0-foundation]
+    issues:
+      - id: user-auth-p1-001
+        title: "Add POST /users and GET /users/{id} endpoints"
+        skills: [fastapi, python]
+        cognitive_arch: guido_van_rossum:fastapi:python
+        body: |
+          ## Context
+          The `User` model exists (user-auth-p0-001) but no API surface exposes it.
+
+          ## Objective
+          Implement `POST /users` (create) and `GET /users/{id}` (fetch) as thin
+          FastAPI route handlers delegating to a `UserService`.
+
+          ## Implementation notes
+          - Routes in `agentception/routes/api/users.py`; auto-discovered via `__init__.py`.
+          - `UserService` in `agentception/services/user_service.py` owns DB logic.
+          - Request body: `UserCreate(email: str, password: str)` Pydantic model.
+          - Response: `UserRead(id: int, email: str)` — never expose `hashed_password`.
+          - Hash passwords with `passlib.hash.bcrypt` before persisting.
+
+          ## Acceptance criteria
+          - [ ] `POST /users` returns 201 with `UserRead` on valid input.
+          - [ ] `POST /users` returns 409 on duplicate email.
+          - [ ] `GET /users/{id}` returns 200 with `UserRead` or 404 if not found.
+          - [ ] `hashed_password` never appears in any response body.
+          - [ ] mypy passes with zero errors on new files.
+
+          ## Test coverage
+          `tests/test_users.py` — integration tests for both endpoints using the
+          async test client. Cover happy path, duplicate email, and 404 cases.
+
+          ## Documentation
+          Update `docs/reference/api.md` with the two new endpoints and their schemas.
+
+          ## Out of scope
+          Authentication, authorization, JWT — not part of this issue.
+        depends_on: [user-auth-p0-001]
+
+## Field rules
+
+initiative
+  Short kebab-case slug from the dominant theme (e.g. auth-rewrite).
+
+id (issue level)
+  Stable kebab-case slug: {initiative}-p{phase_number}-{issue_number}.
+  Example: auth-rewrite-p0-001. Must be unique across the entire plan.
+  This is the dependency reference key — never changes even if the title changes.
+
+description (phase level)
+  HARD LIMIT: 100 characters maximum. GitHub uses this as a label tooltip.
+  One tight phrase: theme + gate criterion. No trailing period.
+  Good: 'Scaffold DB schema, migrations, and core models'
+  Bad:  'Set up the database layer by writing SQLAlchemy models, Alembic
+         migrations, and seed data so the API layer has a stable schema.'
+
+title
+  Imperative mood. Specific. Standalone GitHub issue title.
+  Good: "Fix intermittent 503 on mobile login"
+  Bad:  "Authentication work"
+
+skills (issue level)
+  A YAML list of 1-3 skill domain IDs identifying the primary technology
+  domains this issue touches. Used to select the cognitive architecture
+  (domain expert persona) injected into the implementing agent.
+  Choose from this exact set (use the id, not the display name):
+  __SKILL_IDS__
+  If unsure, use python as the sole entry. Never invent skill ids.
+
+depends_on (issue level)
+  Issue IDs (not titles) this issue waits for. Use sparingly — only for hard
+  data or API dependencies. Reference only IDs defined earlier. Never self-reference.
+
+## Anti-patterns -- never do these
+
+- Do NOT use the initiative slug as the top-level YAML key.
+  WRONG:
+    tech-debt-sprint:
+      phases: ...
+  RIGHT:
+    initiative: tech-debt-sprint
+    phases: ...
+- Do NOT emit an empty phase.
+- Do NOT invent tasks the user did not mention.
+- Do NOT add markdown fences around the YAML output.
+- Do NOT write vague bodies. Every section must be specific and actionable.
+- Do NOT write 'TBD' or 'see description' in any section.
+- Do NOT reuse the same issue id twice.
+- Do NOT make issue depends_on reference a title — reference the id field only.
+- Do NOT make depends_on reference an id that does not exist in this plan, or
+  an id defined later in the plan (forward references). Only reference ids
+  that appear earlier in the YAML.
+- Do NOT omit any of the seven body sections, even if the content is brief.
+- Do NOT reorder the seven body sections — they must appear in this exact order:
+  ## Context, ## Objective, ## Implementation notes, ## Acceptance criteria,
+  ## Test coverage, ## Documentation, ## Out of scope.
+- Do NOT use bare phase-N labels (phase-0, phase-1). Always use {N}-{slug}.
+- Do NOT omit cognitive_arch from any issue. It is required on every issue.
+- Do NOT omit coordinator_arch from the plan. It is required at the top level.
+- Do NOT write a phase description longer than 100 characters. This is a hard
+  validation limit — exceeding it rejects the entire plan.
+
+## CRITICAL: always output YAML -- no exceptions
+
+You MUST output valid YAML regardless of how vague or short the input is.
+You MUST NOT ask for clarification. You MUST NOT output prose.
+If the input is too vague to extract real tasks, produce a minimal valid plan:
+
+initiative: clarify-and-scope
+coordinator_arch:
+  cto: margaret_hamilton:python
+  engineering-coordinator: linus_torvalds:python
+phases:
+  - label: 0-scope
+    description: "Define project scope and requirements"
+    depends_on: []
+    issues:
+      - id: clarify-and-scope-p0-001
+        title: "Define project scope and requirements"
+        skills: [python]
+        cognitive_arch: guido_van_rossum:python
+        body: |
+          ## Context
+          The project brief was too vague to extract concrete tasks.
+
+          ## Objective
+          Work with the team to define concrete scope, deliverables, and constraints.
+
+          ## Implementation notes
+          - Schedule a scope definition session.
+          - Document decisions in the project wiki.
+
+          ## Acceptance criteria
+          - [ ] Scope document approved by stakeholders.
+          - [ ] At least three concrete deliverables identified.
+
+          ## Test coverage
+          None required — this is a planning issue.
+
+          ## Documentation
+          Create initial project scope document.
+
+          ## Out of scope
+          Any implementation work until scope is approved.
+        depends_on: []
+
+Even a single-phase, single-issue YAML is a valid output. Never refuse.
+"""
 
 # ---------------------------------------------------------------------------
-# Prompt B -- Full PlanSpec YAML (Step 1.A production output)
+# Cognitive architecture catalog — injected into the system prompt at call time
 # ---------------------------------------------------------------------------
 
-_YAML_SYSTEM_PROMPT = (
-    _IDENTITY
-    + "\n## Output format: PlanSpec YAML -- STRICT\n\n"
-    "You are producing the COMPLETE plan specification. The coordinator will "
-    "create GitHub issues verbatim from this YAML -- write every title and body "
-    "as if you are writing the actual GitHub issue.\n\n"
-    "Return ONLY valid YAML -- no explanation, no markdown fences (no ```), no "
-    "preamble. The response must be parseable by yaml.safe_load() as-is.\n\n"
-    "Schema (follow exactly):\n\n"
-    "initiative: short-kebab-slug-inferred-from-the-work\n"
-    "phases:\n"
-    "  - label: phase-0\n"
-    "    description: \"One sentence: theme and gate criterion.\"\n"
-    "    depends_on: []\n"
-    "    issues:\n"
-    "      - id: initiative-p0-001\n"
-    "        title: \"Imperative-mood GitHub issue title (Fix X / Add Y / Migrate Z)\"\n"
-    "        body: |\n"
-    "          ## Context\n"
-    "          1-2 sentences: current state and why this issue exists.\n\n"
-    "          ## Objective\n"
-    "          1-2 sentences: what this issue specifically delivers — no more, no less.\n\n"
-    "          ## Implementation notes\n"
-    "          - Concrete technical steps, constraints, or decisions the engineer must know.\n"
-    "          - File paths, APIs, config keys, or patterns to follow.\n"
-    "          - Anything that would save an engineer 30 minutes of archaeology.\n\n"
-    "          ## Acceptance criteria\n"
-    "          - [ ] Specific, testable, binary condition 1.\n"
-    "          - [ ] Specific, testable, binary condition 2.\n"
-    "          - [ ] (Add as many as needed — err on the side of specificity.)\n\n"
-    "          ## Test coverage\n"
-    "          What tests must be written or updated. Name the test file or describe\n"
-    "          the scenario if the file doesn't exist yet. Write 'None required' only\n"
-    "          if the change is infrastructure with no testable behavior.\n\n"
-    "          ## Documentation\n"
-    "          Which docs, comments, or README sections must be updated as part of\n"
-    "          this issue. Write 'None' only if truly no docs are affected.\n\n"
-    "          ## Out of scope\n"
-    "          Explicit list of what this issue does NOT cover (prevents scope creep).\n"
-    "        depends_on: []\n"
-    "  - label: phase-1\n"
-    "    description: \"...\"\n"
-    "    depends_on: [phase-0]\n"
-    "    issues:\n"
-    "      - id: initiative-p1-001\n"
-    "        title: \"...\"\n"
-    "        body: |\n"
-    "          ## Context\n"
-    "          ...\n\n"
-    "          ## Objective\n"
-    "          ...\n\n"
-    "          ## Implementation notes\n"
-    "          - ...\n\n"
-    "          ## Acceptance criteria\n"
-    "          - [ ] ...\n\n"
-    "          ## Test coverage\n"
-    "          ...\n\n"
-    "          ## Documentation\n"
-    "          ...\n\n"
-    "          ## Out of scope\n"
-    "          ...\n"
-    "        depends_on: []\n\n"
-    "## Field rules\n\n"
-    "initiative\n"
-    "  Short kebab-case slug from the dominant theme (e.g. auth-rewrite).\n\n"
-    "id (issue level)\n"
-    "  Stable kebab-case slug: {initiative}-p{phase_number}-{sequence}.\n"
-    "  Example: auth-rewrite-p0-001. Must be unique across the entire plan.\n"
-    "  This is the dependency reference key -- never changes even if title changes.\n\n"
-    "label\n"
-    "  ONLY: phase-0, phase-1, phase-2, phase-3. No others.\n\n"
-    "depends_on (phase level)\n"
-    "  Phase labels this phase waits for. Use linear order unless phases are\n"
-    "  genuinely independent.\n\n"
-    "title\n"
-    "  Imperative mood. Specific. Standalone GitHub issue title.\n"
-    '  Good: "Fix intermittent 503 on mobile login".\n\n'
-    "body\n"
-    "  Structured GitHub-flavored markdown with ALL seven sections in order:\n"
-    "  ## Context, ## Objective, ## Implementation notes, ## Acceptance criteria,\n"
-    "  ## Test coverage, ## Documentation, ## Out of scope.\n"
-    "  Every section must be present. Acceptance criteria MUST use GitHub task-list\n"
-    "  syntax (- [ ] item). Implementation notes MUST use bullet points.\n"
-    "  Be specific and concrete -- a junior engineer should be able to start\n"
-    "  immediately with no follow-up questions.\n\n"
-    "depends_on (issue level)\n"
-    "  Issue IDs (not titles) this issue waits for. Use sparingly.\n"
-    "  Reference only IDs defined earlier in the plan. Never self-reference.\n\n"
-    "## Anti-patterns -- never do these\n\n"
-    "- Do NOT use the initiative slug as the top-level YAML key.\n"
-    "  WRONG:  tech-debt-sprint:\\n  phase-0:\\n    ...\n"
-    "  RIGHT:  initiative: tech-debt-sprint\\nphases:\\n  - label: phase-0\\n    ...\n"
-    "- Do NOT emit an empty phase.\n"
-    "- Do NOT invent tasks the user did not mention.\n"
-    "- Do NOT duplicate issues that already exist in the repository context.\n"
-    "- Do NOT use more than 4 phases or create custom phase labels.\n"
-    "- Do NOT add markdown fences around the YAML output.\n"
-    "- Do NOT write vague bodies. Every section must be specific and actionable.\n"
-    "- Do NOT write 'TBD' or 'see description' in any section.\n"
-    "- Do NOT reuse the same issue id twice.\n"
-    "- Do NOT make issue depends_on reference a title -- reference the id field only.\n"
-    "- Do NOT omit any of the seven body sections, even if the content is brief.\n"
-    "\n## CRITICAL: always output YAML -- no exceptions\n\n"
-    "You MUST output valid YAML regardless of how vague or short the input is.\n"
-    "You MUST NOT ask for clarification. You MUST NOT output prose.\n"
-    "If the input is too vague to extract real tasks, produce a minimal plan:\n"
-    "  initiative: clarify-and-scope\n"
-    "  phase-0 with one issue:\n"
-    "    id: clarify-and-scope-p0-001\n"
-    "    title: Define project scope and requirements\n"
-    "    body: (use the full seven-section template above)\n"
-    "Even a single-phase, single-issue YAML is a valid output. Never refuse.\n"
-)
+# The orchestration tiers the planner must fill in coordinator_arch for.
+# A figure catalog is injected for each role so the model can make an informed choice.
+_COORDINATOR_ROLES: list[str] = [
+    "cto",
+    "engineering-coordinator",
+    "qa-coordinator",
+]
+
+
+def _build_skill_ids() -> str:
+    """Return a sorted, comma-separated string of all skill domain IDs.
+
+    Reads the skill_domains directory at call time so the list stays in sync
+    with the filesystem automatically — adding a new YAML file is sufficient.
+    Falls back to 'python' if the directory is absent (e.g. in CI without assets).
+    """
+    if not _SKILL_DOMAINS_DIR.exists():
+        return "python"
+    ids = sorted(p.stem for p in _SKILL_DOMAINS_DIR.glob("*.yaml"))
+    if not ids:
+        return "python"
+    return ", ".join(ids)
+
+
+def _first_sentence(text: str) -> str:
+    """Return the first sentence of *text* (up to the first period or newline)."""
+    stripped = text.strip()
+    line = stripped.split("\n")[0]
+    return line.split(". ")[0].rstrip(".")
+
+
+def _build_figure_catalog_section() -> str:
+    """Build the cognitive architecture section appended to the system prompt.
+
+    Reads the taxonomy and figure YAMLs at call time so the catalog is always
+    fresh.  Returns an empty string when the assets are absent (e.g. in tests
+    that run without the scripts directory).
+    """
+    if not _TAXONOMY_PATH.exists() or not _FIGURES_DIR.exists():
+        return ""
+
+    try:
+        raw_taxonomy: object = _yaml.safe_load(
+            _TAXONOMY_PATH.read_text(encoding="utf-8")
+        )
+    except Exception:
+        return ""
+
+    if not isinstance(raw_taxonomy, dict):
+        return ""
+
+    # Build a slug → compatible_figures mapping for coordinator roles.
+    role_figures: dict[str, list[str]] = {}
+    for level in raw_taxonomy.get("levels", []):
+        if not isinstance(level, dict):
+            continue
+        for role_entry in level.get("roles", []):
+            if not isinstance(role_entry, dict):
+                continue
+            slug = role_entry.get("slug", "")
+            if slug in _COORDINATOR_ROLES:
+                figs = role_entry.get("compatible_figures", [])
+                if isinstance(figs, list):
+                    role_figures[slug] = [str(f) for f in figs]
+
+    def _describe_figures(fig_ids: list[str]) -> str:
+        lines: list[str] = []
+        for fig_id in fig_ids:
+            path = _FIGURES_DIR / f"{fig_id}.yaml"
+            if not path.exists():
+                continue
+            try:
+                fig_raw: object = _yaml.safe_load(path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if not isinstance(fig_raw, dict):
+                continue
+            display = str(fig_raw.get("display_name", fig_id))
+            desc = _first_sentence(str(fig_raw.get("description", "")))
+            lines.append(f"  - {fig_id}: {display} — {desc}")
+        return "\n".join(lines)
+
+    parts: list[str] = [
+        """\
+
+## Cognitive architecture assignment
+
+Every PlanSpec you produce MUST include two cognitive architecture blocks:
+
+### 1. coordinator_arch (plan level)
+
+Add a `coordinator_arch` mapping at the TOP of the YAML (before `phases`).
+Keys are role slugs; values are arch strings in the format `figure_id:skill1[:skill2]`.
+Always include at least `cto` and `engineering-coordinator`.
+Include `qa-coordinator` when the work clearly involves QA/testing phases.
+
+Select the figure that best matches the EPISTEMIC STYLE the initiative requires —
+not just the tech stack. Skills (after the colon) should match the dominant
+technology domain from the initiative.
+
+Example:
+  coordinator_arch:
+    cto: werner_vogels:python:fastapi
+    engineering-coordinator: linus_torvalds:python
+    qa-coordinator: w_edwards_deming:testing
+
+Available figures per coordinator role:
+""",
+    ]
+
+    for role in _COORDINATOR_ROLES:
+        figs = role_figures.get(role, [])
+        parts.append(f"\n**{role}**:\n{_describe_figures(figs)}\n")
+
+    parts.append("""\
+
+### 2. cognitive_arch (per issue)
+
+Add a `cognitive_arch` field to EVERY issue in the plan.
+Format: `figure_id:skill1[:skill2]`.
+Select the figure whose epistemic style best fits the WORK in that specific issue.
+
+Key principle: the figure encodes HOW to think, not WHAT to build.
+Match the figure to the nature of the problem:
+- Correctness-critical or algorithmic work → dijkstra, leslie_lamport, barbara_liskov
+- Scale / distributed systems → jeff_dean, werner_vogels
+- Minimal, systems-level code → ken_thompson, rob_pike
+- Language / type system / API design → anders_hejlsberg, barbara_liskov
+- Testing / quality gates → kent_beck, michael_fagan, w_edwards_deming
+- Security → bruce_schneier
+- ML / LLM integration → andrej_karpathy, jeff_dean
+- General Python backend → guido_van_rossum
+- Frontend / UX → don_norman
+- Full-stack / pragmatic → lovelace, hopper
+
+The skills part (after the colon) should match the `skills` list for that issue.
+
+Example issue with cognitive_arch:
+  - id: auth-p0-001
+    title: Add JWT authentication middleware
+    skills: [fastapi, python]
+    cognitive_arch: barbara_liskov:fastapi:python
+    body: |
+      ...
+
+IMPORTANT: `cognitive_arch` is REQUIRED on every issue. Never omit it.
+""")
+
+    return "".join(parts)
+
+
+# Cache the catalog section so the filesystem is only read once per process.
+_COGNITIVE_ARCH_SECTION: str | None = None
+
+
+def _get_cognitive_arch_section() -> str:
+    """Return the cached cognitive arch section, building it on first call."""
+    global _COGNITIVE_ARCH_SECTION
+    if _COGNITIVE_ARCH_SECTION is None:
+        _COGNITIVE_ARCH_SECTION = _build_figure_catalog_section()
+    return _COGNITIVE_ARCH_SECTION
+
+
+def _build_yaml_system_prompt() -> str:
+    """Return the full system prompt with skill IDs and cognitive arch injected."""
+    prompt = _YAML_SYSTEM_PROMPT.replace("__SKILL_IDS__", _build_skill_ids())
+    return prompt + _get_cognitive_arch_section()
 
 
 # ---------------------------------------------------------------------------
@@ -217,9 +498,9 @@ def _strip_fences(raw: str) -> str:
 async def generate_plan_yaml(dump: str, label_prefix: str = "") -> str:
     """Step 1.A -- convert a brain dump into a validated PlanSpec YAML string.
 
-    Calls Claude Sonnet via OpenRouter with the full PlanSpec YAML prompt.
+    Calls Claude Sonnet via the Anthropic API with the full PlanSpec YAML prompt.
     Validates the returned YAML against :class:`~agentception.models.PlanSpec`
-    so the Monaco editor always shows a structurally correct document.
+    so the CodeMirror 6 editor always shows a structurally correct document.
 
     If ``label_prefix`` is provided it overrides the ``initiative`` field
     Claude inferred from the text.
@@ -233,16 +514,16 @@ async def generate_plan_yaml(dump: str, label_prefix: str = "") -> str:
 
     Raises:
         ValueError: Empty dump, invalid YAML from LLM, or schema mismatch.
-        RuntimeError: Missing OPENROUTER_API_KEY.
-        httpx.HTTPStatusError: Non-2xx from OpenRouter.
+        RuntimeError: Missing ANTHROPIC_API_KEY.
+        httpx.HTTPStatusError: Non-2xx from Anthropic.
     """
     dump = dump.strip()
     if not dump:
         raise ValueError("Plan text must not be empty.")
 
-    raw = await call_openrouter(
+    raw = await call_anthropic(
         dump,
-        system_prompt=_YAML_SYSTEM_PROMPT,
+        system_prompt=_build_yaml_system_prompt(),
         temperature=0.2,
         max_tokens=8192,
     )
@@ -275,63 +556,3 @@ async def generate_plan_yaml(dump: str, label_prefix: str = "") -> str:
         issue_count,
     )
     return validated_yaml
-
-
-async def plan_phases_llm(dump: str) -> PlanResult:
-    """Call Claude via OpenRouter to convert a brain dump into a PlanResult.
-
-    Args:
-        dump: Raw plan text from the user.
-
-    Returns:
-        A :class:`~agentception.models.PlanResult` with one or more phases.
-
-    Raises:
-        ValueError: When ``dump`` is empty, the LLM returns invalid JSON, or
-            the response contains no phases.
-        RuntimeError: Propagated from :func:`~agentception.services.llm.call_openrouter`
-            when the API key is missing.
-        httpx.HTTPStatusError: On non-2xx responses from OpenRouter.
-    """
-    dump = dump.strip()
-    if not dump:
-        raise ValueError("Plan text must not be empty.")
-
-    raw = await call_openrouter(dump, system_prompt=_SYSTEM_PROMPT, temperature=0.2)
-    raw = _strip_fences(raw)
-
-    try:
-        data: object = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        logger.error("LLM returned invalid JSON: %s\nRaw: %s", exc, raw[:500])
-        raise ValueError(f"LLM returned invalid JSON: {exc}") from exc
-
-    if not isinstance(data, dict):
-        raise ValueError(f"LLM returned unexpected top-level type: {type(data).__name__}")
-
-    raw_phases: object = data.get("phases", [])
-    if not isinstance(raw_phases, list):
-        raise ValueError(f"LLM 'phases' field is not a list: {type(raw_phases).__name__}")
-
-    phases: list[PhasePreview] = []
-    for item in raw_phases:
-        if not isinstance(item, dict):
-            logger.warning("Skipping non-dict phase entry: %r", item)
-            continue
-        try:
-            phases.append(
-                PhasePreview(
-                    label=str(item["label"]),
-                    description=str(item["description"]),
-                    estimated_issue_count=int(item["estimated_issue_count"]),
-                    depends_on=[str(d) for d in item.get("depends_on", [])],
-                )
-            )
-        except (KeyError, TypeError, ValueError) as exc:
-            logger.warning("Skipping malformed phase entry %r: %s", item, exc)
-
-    if not phases:
-        raise ValueError("LLM returned no valid phases -- check the prompt or input.")
-
-    logger.info("✅ LLM phase plan: %d phases for %d-char dump", len(phases), len(dump))
-    return PlanResult(phases=phases)

@@ -38,10 +38,10 @@
       {% for issue in issues %}
       <tr>
         <td>
-          <a href="/issues/{{ issue.number }}">#{{ issue.number }}</a>
+          <a href="/issues/{{ repo_name }}/{{ issue.number }}">#{{ issue.number }}</a>
         </td>
         <td style="max-width:360px;">
-          <a href="/issues/{{ issue.number }}" style="color:var(--text-primary);font-family:var(--font-sans);">{{ issue.title }}</a>
+          <a href="/issues/{{ repo_name }}/{{ issue.number }}" style="color:var(--text-primary);font-family:var(--font-sans);">{{ issue.title }}</a>
         </td>
         <td>
           <span class="badge {% if issue.state == 'open' %}badge--green{% else %}badge--grey{% endif %}">

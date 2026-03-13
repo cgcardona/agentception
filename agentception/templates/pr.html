@@ -48,7 +48,7 @@
     {% if pr.linked_issue %}
     <span class="meta-chip">
       <span class="meta-label">Closes</span>
-      <a href="/issues/{{ pr.linked_issue.number }}" class="meta-value">
+      <a href="/issues/{{ repo_name }}/{{ pr.linked_issue.number }}" class="meta-value">
         #{{ pr.linked_issue.number }}
       </a>
     </span>
@@ -66,7 +66,7 @@
   <section>
     <h2 class="section-title" style="margin-bottom:0.5rem;">CI Checks</h2>
     <div id="checks-area"
-         hx-get="/api/prs/{{ pr.number }}/checks"
+         hx-get="/api/prs/{{ repo_name }}/{{ pr.number }}/checks"
          hx-trigger="load"
          hx-swap="innerHTML">
       <div class="card"><p class="text-muted empty-state">Loading CI checks…</p></div>
@@ -76,7 +76,7 @@
   <section>
     <h2 class="section-title" style="margin-bottom:0.5rem;">Reviews</h2>
     <div id="reviews-area"
-         hx-get="/api/prs/{{ pr.number }}/reviews"
+         hx-get="/api/prs/{{ repo_name }}/{{ pr.number }}/reviews"
          hx-trigger="load"
          hx-swap="innerHTML">
       <div class="card"><p class="text-muted empty-state">Loading reviews…</p></div>
@@ -99,7 +99,7 @@
             <span class="run-status-badge run-status-badge--{{ run.status }}">{{ run.status }}</span>
           </td>
           <td>
-            {% if run.issue_number %}<a href="/issues/{{ run.issue_number }}">#{{ run.issue_number }}</a>{% else %}—{% endif %}
+            {% if run.issue_number %}<a href="/issues/{{ repo_name }}/{{ run.issue_number }}">#{{ run.issue_number }}</a>{% else %}—{% endif %}
           </td>
           <td style="font-size:0.75rem;color:var(--text-muted);">{{ run.spawned_at[:10] }}</td>
         </tr>

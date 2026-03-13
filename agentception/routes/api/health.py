@@ -1,9 +1,8 @@
-from __future__ import annotations
-
 """API route: GET /api/health/detailed — detailed system health snapshot.
 
 Thin handler — all collection logic lives in ``agentception.services.health_collector``.
 """
+from __future__ import annotations
 
 import logging
 

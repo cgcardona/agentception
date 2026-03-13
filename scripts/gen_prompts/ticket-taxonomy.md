@@ -1,7 +1,7 @@
 # AgentCeption Ticket Taxonomy
 
 > Every open issue mapped to its phase, tech stack, and optimal `COGNITIVE_ARCH`.
-> This document drives the auto-selection logic in `engineering-manager.md.j2`.
+> This document drives the auto-selection logic in `engineering-coordinator.md.j2`.
 > Update when new issues are added or the skill domain library grows.
 
 ---
@@ -39,7 +39,7 @@ files that can each be loaded independently for mixed-stack tickets.
 | #648 | Docker runtime — Dockerfile, compose service | DevOps | docker, dockerfile, compose, HOME-relative | `ritchie:devops` | Minimal tools that compose cleanly. Ritchie's Unix philosophy maps directly to Docker service design. |
 | #614 | poller.py — asyncio background task, SSE broadcast | Python | asyncio, SSE, broadcast, PipelineState, subscribe | `shannon:python` | Shannon thinks in information flows and channels. A poller that merges sources and broadcasts is exactly a Shannon problem: latency, throughput, subscriber fanout. |
 | #615 | Pipeline overview UI — live tree, status badges, GitHub board | HTMX+Jinja2 | htmx, sse-swap, hx-ext, template, overview.html | `lovelace:htmx:jinja2:alpine` | Lovelace sees the machine behind the machine. The overview page IS the meta-view of the agent pipeline — she would design it to reveal the system's structure, not just display data. |
-| #616 | Agent inspector UI — transcript viewer, .agent-task display | HTMX+Jinja2 | agents/{id}, transcript, agent.html, detail page | `feynman:htmx:jinja2` | Feynman's job is to make the invisible visible. An agent inspector that surfaces what agents are actually doing is a Feynman problem: expose the internals clearly. |
+| #616 | Agent inspector UI — transcript viewer, DB context display | HTMX+Jinja2 | agents/{id}, transcript, agent.html, detail page | `feynman:htmx:jinja2` | Feynman's job is to make the invisible visible. An agent inspector that surfaces what agents are actually doing is a Feynman problem: expose the internals clearly. |
 
 ### Phase 1 — Controls
 
@@ -98,9 +98,9 @@ files that can each be loaded independently for mixed-stack tickets.
 
 ---
 
-## Heuristic Rules (implemented in engineering-manager)
+## Heuristic Rules (implemented in engineering-coordinator)
 
-The engineering-manager runs these checks against each issue's body + labels
+The engineering coordinator runs these checks against each issue's body + labels
 to auto-select `COGNITIVE_ARCH`. Rules are checked in priority order — first match wins.
 The new format emits colon-separated skills (up to 3), replacing the deprecated `+` format.
 
@@ -126,7 +126,7 @@ elif echo "$ISSUE_BODY" | grep -qiE "dockerfile|docker compose|FROM python|conta
   SKILLS="devops"
 elif echo "$ISSUE_BODY" | grep -qiE "midi|audio|music"; then
   SKILLS="midi:python"
-elif echo "$ISSUE_BODY" | grep -qiE "llm|embedding|rag|openrouter|claude.*model"; then
+elif echo "$ISSUE_BODY" | grep -qiE "llm|embedding|rag|anthropic|claude.*model"; then
   SKILLS="llm:python"
 elif echo "$ISSUE_BODY" | grep -qiE "APIRouter|FastAPI|Depends|response_model"; then
   SKILLS="fastapi:python"

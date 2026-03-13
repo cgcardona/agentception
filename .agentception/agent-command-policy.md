@@ -51,7 +51,7 @@ they trip a restriction. Red-tier commands that reach the sandbox will prompt.
 `.cursor/sandbox.json` grants the sandbox:
 - Docker socket access (`/var/run/docker.sock`) — all `docker compose exec` commands
 - Worktrees directory (`~/.agentception/worktrees`) — parallel agent workflows
-- Full outbound network — GitHub CLI, Docker Hub, OpenRouter, pypi
+- Full outbound network — GitHub CLI, Docker Hub, Anthropic API, pypi
 
 ### Command Allowlist — paste this into the Cursor UI text field
 
@@ -120,7 +120,7 @@ exit / exit 0 / exit 1        ← script exit; used in merge-gate escalation and
 mapfile -t <ARRAY> < <(...)   ← bash builtin for reading command output into an array
 read                          ← bash builtin; used in IFS-split and while-read loops
 IFS=',' read -ra <ARRAY> <<< ← bash IFS-split; used to iterate LABELS_TO_APPLY and similar CSV fields
-source <file>                 ← load env vars from /tmp/ files (e.g. qa_batch_env, agent-task exports)
+source <file>                 ← load env vars from /tmp/ files (e.g. qa_batch_env)
 check_issue_deps              ← coordinator helper; checks issue dependency gates before merging
 check_deps                    ← agentception helper; checks dependency gates before claiming an issue
 declare -a ISSUES=(...)       ← indexed array declaration in coordinator setup scripts
@@ -140,22 +140,21 @@ GH_REPO=cgcardona/agentception     ← hardcoded repo slug — NEVER derive from
 export GH_REPO=cgcardona/agentception
 ```
 
-### Shell — Variable assignments from command substitution (task-file parsing)
-These patterns appear in every agent kickoff when parsing `.agent-task` KEY=value fields.
-Cursor treats each `VAR=$(cmd)` prefix as a command token — all must be on the allowlist.
+### Shell — Variable assignments from command substitution
+These patterns appear in agent kickoffs. Cursor treats each `VAR=$(cmd)` prefix as a command token — all must be on the allowlist.
 ```
-N=$(grep                      ← parse PR_NUMBER / ISSUE_NUMBER from .agent-task
+N=$(grep                      ← parse PR_NUMBER / ISSUE_NUMBER from context or MCP
 N=$(printf                    ← zero-pad batch number: N=$(printf "%02d" $i)
-BRANCH=$(grep                 ← parse PR_BRANCH from .agent-task
-MERGE_AFTER=$(grep            ← parse MERGE_AFTER gate from .agent-task
-LABELS_TO_APPLY=$(grep        ← parse comma-separated label list from .agent-task
-CLOSES_ISSUES=$(grep          ← parse linked issue numbers from .agent-task
-STATE=$(gh                    ← capture live PR/issue state: STATE=$(gh pr view ...)
-PR_BRANCH=$(gh                ← fetch PR branch name from GitHub
-PR_FILES=$(gh                 ← fetch PR file list from GitHub
-CLOSES_ISSUE=$(gh             ← fetch close-links from PR body
-OPEN_PRS=$(gh                 ← list open PRs for overlap check
-REMAINING=$(gh                ← count remaining open issues in phase closure audit
+BRANCH=$(grep                 ← parse PR_BRANCH from context or MCP
+MERGE_AFTER=$(grep            ← parse MERGE_AFTER gate from context or MCP
+LABELS_TO_APPLY=$(grep        ← parse comma-separated label list from context or MCP
+CLOSES_ISSUES=$(grep          ← parse linked issue numbers from context or MCP
+STATE=       ← capture live PR/issue state via MCP: pull_request_read(pullNumber=N)
+PR_BRANCH=   ← fetch PR branch name via MCP: pull_request_read(pullNumber=N) → headRefName
+PR_FILES=    ← fetch PR file list via MCP: pull_request_read(method="get_files", pullNumber=N)
+CLOSES_ISSUE= ← parse "Closes #N" from PR body returned by pull_request_read
+OPEN_PRS=    ← list open PRs via MCP: list_pull_requests(state="open") or github_list_prs
+REMAINING=   ← count open issues via MCP: list_issues(label=PHASE_LABEL, state="open") → .count
 NUM=$(echo                    ← extract issue/PR number from pipe: NUM="${entry%%|*}"
 TITLE=$(echo                  ← extract title from pipe: TITLE="${entry##*|}"
 LABELS=$(echo                 ← extract label string from pipe output
@@ -277,19 +276,22 @@ git branch -D <feature-branch>            ← delete LOCAL branch ref after PR s
 
 ### GitHub CLI — Read Only
 ```
-gh auth status
-gh repo view
-gh pr view <N> [--json <fields>]
-gh pr list [--state <state>] [--json <fields>]
-gh pr diff <N>
-gh issue view <N>
-gh issue list [--search "..."] [--state ...] [--label ...]
-gh label list [--limit N]         ← enumerate valid repo labels before gh issue edit
-gh run list
-gh run view <id>
-gh release list
-gh release view [<tag>]
-gh api <GET-endpoint>              ← read-only API calls only
+# ⚠️  PREFER MCP for ALL of these. Keep gh only when listed as ← keep below.
+# pull_request_read(pullNumber=N)                  replaces: gh pr view <N>
+# list_pull_requests(state=...)                    replaces: gh pr list
+# pull_request_read(method="get_diff", pullNumber=N)   replaces: gh pr diff <N>
+# pull_request_read(method="get_files", pullNumber=N)  replaces: gh pr diff <N> --name-only
+# issue_read(issue_number=N)                       replaces: gh issue view <N>
+# list_issues(label=..., state=...)                replaces: gh issue list
+# list_releases()                                  replaces: gh release list
+# get_latest_release()                             replaces: gh release view (latest)
+# get_release_by_tag(tag=T)                        replaces: gh release view <tag>
+# get_me()                                         replaces: gh auth status (proves auth works)
+# get_label(name=X)                                replaces: gh label list --search X (point lookup)
+gh label list [--limit N]                  ← keep as gh — no MCP equivalent for full label list
+gh run list                                ← keep as gh — CI/Actions not covered by GitHub MCP
+gh run view <id>                           ← keep as gh — CI/Actions not covered by GitHub MCP
+gh api <GET-endpoint>                      ← keep as gh — catch-all for unlisted read-only API calls
 ```
 
 ### GitHub CLI — Label Management (Label Pre-flight scripts)
@@ -301,26 +303,18 @@ gh label edit <name> --color <hex> --description "..."    ← updates existing l
 #    Without it, gh issue edit --add-label fails silently and issues are mislabeled.
 ```
 
-### GitHub CLI — Safe Writes
+### GitHub CLI — Allowed Writes (prefer MCP equivalents instead)
 ```
-gh pr checkout <N>                 ← checkout into own worktree
-gh pr create --title "..." --body "..."
-gh pr edit <N> [--base <branch>] [--title "..."] [--body "..."] [--add-label "..."]
-                                   ← safe write; needed to retarget base branch or update PR metadata
-                                   ← must be on allowlist: runs a GraphQL mutation (POST api.github.com/graphql)
-                                   ← which the sandbox blocks for non-allowlisted commands
-gh pr merge <N> --squash                   ← ONLY after "Grade: X / Approved" output; never --delete-branch (breaks with multi-worktree)
-gh pr comment <N> --body "..."
-gh pr review <N> [--approve | --request-changes | --comment]
-gh issue create --title "..." --body "..."  ← never pass --label here (see note below)
-gh issue close <N> [--comment "..."]       ← ONLY after merge confirmed
-gh issue comment <N> --body "..."
-gh issue edit <N> --add-label "..."        ← apply labels here, after creation, with || true
-# ⚠️  LABEL RULE: a single missing label causes gh issue create to fail entirely.
-#    Always create the issue first, then apply labels with gh issue edit || true.
-#    Valid labels: bug enhancement documentation performance ai-pipeline muse muse-cli
-#                 muse-hub muse-music-extensions agentception muse mypy
-#                 cli testing multimodal help-wanted good-first-issue weekend-mvp
+gh pr checkout <N>                 ← ONLY allowed write with no MCP equivalent; use for branch checkout
+# All other writes — use MCP tools instead:
+# create_pull_request(base, head, title, body)     replaces: gh pr create
+# update_pull_request(pullNumber, ...)             replaces: gh pr edit
+# add_issue_comment(issue_number, body)            replaces: gh pr comment / gh issue comment
+# merge_pull_request(pullNumber, merge_method="squash")  replaces: gh pr merge
+# issue_write(title, body)                         replaces: gh issue create
+# issue_write(issue_number, state="closed")        replaces: gh issue close
+# github_add_label(issue_number, label)            replaces: gh issue edit --add-label
+# github_remove_label(issue_number, label)         replaces: gh issue edit --remove-label
 ```
 
 ### Docker — Inspection
@@ -361,17 +355,6 @@ docker compose exec agentception alembic history
 docker compose exec agentception alembic current
 docker compose exec agentception alembic heads
 docker compose exec agentception alembic upgrade head   ← forward migration only
-```
-
-### Docker — exec agentception (Muse services)
-```
-docker compose exec agentception mypy agentception/ (or muse/ when implemented)
-docker compose exec agentception pytest <file> -v [flags]
-docker compose exec agentception sh -c "<any command>"
-docker compose exec agentception ls <path>
-docker compose exec agentception cat <file>
-docker compose exec agentception rg <pattern>
-docker compose exec agentception grep <pattern>
 ```
 
 ### Docker — exec agentception (tests, type checks, inspection)
@@ -416,7 +399,7 @@ python3 -m json.tool           ← pretty-printing JSON output from curl or gh c
 python3 -m <stdlib-module>     ← stdlib modules only (json, base64, hashlib, etc.)
 open                           ← (1) macOS shell command — opens files/URLs in the default GUI app
                                ← (2) Python builtin — appears as a standalone token when Cursor
-                               ←     parses a Python heredoc: open('.agent-task', 'rb')
+                               ←     parses a Python expression or MCP resource JSON
                                ← Both are safe; neither writes to disk or makes network calls
 pip3 install                   ← agentception host-side dependency installs ONLY
                                ← All other package installs must use docker compose exec
@@ -542,7 +525,6 @@ su <anything>
 env | grep -i "key\|secret\|token\|password"
 printenv
 cat .env
-cat .muse/config.toml           ← contains Hub auth token
 ```
 
 ### Alembic destructive
@@ -566,7 +548,15 @@ npm publish / pip publish       ← publishing packages
 
 ### Merging without grade output
 ```
-gh pr merge <N>   ← without having first output "Grade: X" and "Approved for merge"
+merge_pull_request(N)   ← without having first output "Grade: X" and "Approved for merge"
+```
+
+### Closing a PR without a mandatory explanation comment
+```
+gh pr close <N>   ← FORBIDDEN unless gh pr comment with the exact reason runs FIRST.
+                  ← For D/F grade: do NOT close the PR — leave it open for the engineer to fix.
+                  ← The only valid reason to close (not merge) a PR is if it is fundamentally
+                  ← broken and must be re-opened from scratch. Even then, comment first.
 ```
 
 ---
@@ -593,20 +583,37 @@ gh pr merge <N>   ← without having first output "Grade: X" and "Approved for m
 6. **When in doubt, stop and ask.** Explain exactly what you need and why.
    A paused agent is infinitely better than a destructive one.
 
-7. **Never use `while read` in pipelines for issue/PR data.** Use `xargs` instead — it is on
-   the allowlist and avoids the sandbox prompt that `read` (a shell builtin) triggers.
+7. **Never use `while read` or `xargs gh issue close` in pipelines for issue/PR data.** Use MCP
+   instead — `issue_write` and `add_issue_comment` are direct tool calls with no subprocess overhead
+   and no sandbox prompt risk.
    ```bash
-   # ✅ Correct — uses xargs (allowlisted, no prompt):
-   gh pr view <N> --json body --jq '.body' \
-     | grep -oE '[Cc]loses?\s+#[0-9]+' \
-     | grep -oE '[0-9]+' \
-     | xargs -I{} gh issue close {} --comment "Fixed by PR #<N>." --repo "$GH_REPO"
+   # ✅ Correct — use MCP to close linked issues (no shell subprocesses needed):
+   # For each issue number in the "Closes #N" list from the PR body:
+   # MCP: issue_write(issue_number=N, state="closed")
+   #      add_issue_comment(issue_number=N, body="✅ Closed by PR #<N> (merged).")
 
    # ❌ Wrong — while read triggers a sandbox prompt:
    | while read ISSUE_NUM; do gh issue close "$ISSUE_NUM" ...; done
    ```
 
-8. **`GH_REPO` is always `cgcardona/agentception` — hardcoded, never derived.**
+8. **Never run `gh pr close` without first posting a mandatory explanation comment.**
+   An agent-closed PR with no comment is untraceable — it leaves the human with no way to
+   understand what failed or what to do next. The required sequence is:
+   ```bash
+   # ✅ Correct — explain before closing:
+   gh pr comment "$N" --repo "$GH_REPO" --body "❌ Closing PR without merge.
+   Reason: <exact reason — D/F grade, fundamental design flaw, etc.>
+   Grade (if reviewed): <grade>
+   Next steps: <what the engineer or human should do>"
+   gh pr close "$N" --repo "$GH_REPO"
+
+   # ❌ Wrong — silent close, leaves humans with no context:
+   gh pr close "$N" --repo "$GH_REPO"
+   ```
+   **For D/F grade: do NOT close the PR.** Leave it open so the engineer can push fixes
+   to the existing branch. File a GitHub issue describing the failures instead and self-destruct.
+
+9. **`GH_REPO` is always `cgcardona/agentception` — hardcoded, never derived.**
    The local path (e.g. `/Users/<you>`) contains the local repo directory which is
    NOT the GitHub org. Using `gh` without `--repo "$GH_REPO"` or with a derived slug causes
    "Forbidden" / "Repository not found" errors.

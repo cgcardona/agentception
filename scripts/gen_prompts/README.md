@@ -2,7 +2,7 @@
 
 > **Commands can run inside the agentception Docker container or directly on the host.**
 
-The 12 agent prompt files (`.cursor/roles/*.md`, `.cursor/PARALLEL_*.md`) are
+The agent prompt files (`.agentception/roles/*.md`) are
 **generated** — never hand-edited. One config file (`config.yaml`) drives
 everything: repo slug, phase label order, active codebase, GitHub label
 definitions, and every value that varies between pipeline runs.
@@ -14,10 +14,10 @@ definitions, and every value that varies between pipeline runs.
 docker compose exec agentception python3 /app/scripts/gen_prompts/generate.py
 
 # 2. Review diffs:
-git diff .cursor/
+git diff .agentception/roles/
 
 # 3. Commit generated files:
-git add .cursor/ scripts/gen_prompts/sync_labels.sh
+git add .agentception/roles/ scripts/gen_prompts/sync_labels.sh
 git commit -m "chore: regenerate prompts"
 
 # 4. Sync GitHub labels (only needed when labels section changed):
@@ -25,7 +25,7 @@ bash scripts/gen_prompts/sync_labels.sh
 ```
 
 > **Why Docker?**
-> The generator writes directly to `.cursor/` inside the container, which is
+> The generator writes directly to `.agentception/roles/` inside the container, which is
 > bind-mounted from the host (`docker-compose.override.yml`). This guarantees
 > the same Python version (3.11), the same Jinja2 version, and the same file
 > permissions as the running pipeline. Running on the host bypasses all of
@@ -36,7 +36,7 @@ bash scripts/gen_prompts/sync_labels.sh
 ```
 scripts/gen_prompts/
   config.yaml                      ← edit this to reconfigure a run
-  generate.py                      ← run this to regenerate .cursor/ files
+  generate.py                      ← run this to regenerate .agentception/roles/ files
   sync_labels.sh                   ← auto-generated; run once to sync GitHub labels
   COGNITIVE_ARCHITECTURE_SPEC.md   ← full spec for the cognitive architecture mixer
   README.md                        ← this file
@@ -56,7 +56,7 @@ scripts/gen_prompts/
       python.yaml                  #   FastAPI, Pydantic v2, async, mypy strict
       midi.yaml              #   MIDI pipeline, GM, music generation
       devops.yaml                  #   Docker Compose, containers, service reliability
-      llm.yaml                     #   LLM APIs, RAG, embedding, OpenRouter
+      llm.yaml                     #   LLM APIs, RAG, embedding, Anthropic API
     archetypes/                    ← Layer 2: named bundles of atoms (inheritable)
       the_architect.yaml           #   deductive + deep_focus + systems + craftsman
       the_guardian.yaml            #   deductive + fail_loud + perfectionist + minimal
@@ -79,16 +79,15 @@ scripts/gen_prompts/
       hamming.yaml                 #   → the_pragmatist (work on the important problems)
       mccarthy.yaml                #   → the_architect  (formalize first, solve within formalism)
       ritchie.yaml                 #   → the_operator   (minimal tools that compose cleanly)
-  templates/                       ← Jinja2 templates for all .cursor/ prompt files
+  templates/                       ← Jinja2 templates for all .agentception/roles/ prompt files
     roles/
       cto.md.j2
-      engineering-manager.md.j2
-      qa-manager.md.j2
-      pr-reviewer.md.j2
-      python-developer.md.j2
+      engineering-coordinator.md.j2
+      qa-coordinator.md.j2
+      reviewer.md.j2
+      developer.md.j2
       coordinator.md.j2
       database-architect.md.j2
-      muse-specialist.md.j2
     PARALLEL_BUGS_TO_ISSUES.md.j2
     PARALLEL_CONDUCTOR.md.j2
     PARALLEL_ISSUE_TO_PR.md.j2
@@ -138,12 +137,12 @@ To move the pipeline to a different project's work:
 # config.yaml
 pipeline:
   phases:
-    - "muse/0-foundation"
-    - "muse/1-features"
+    - "ac-ui/0-critical-bugs"
+    - "ac-ui/1-design-tokens"
     # ...
 
 codebases:
-  active: "muse"   # ← only change needed here
+  active: "agentception_ui"   # ← only change needed here
 ```
 
 Then run the generator and commit. All 12 prompt files update atomically.
@@ -193,17 +192,13 @@ Each value carries a `prompt_fragment` — actual text that gets injected into t
 **Figures** extend archetypes and override specific atoms, carrying a narrative
 `prompt_injection` written in the figure's voice.
 
-### Usage in `.agent-task`
+### Usage in DB context (RunContextRow)
 
-The engineering-manager writes `COGNITIVE_ARCH` to `.agent-task` at spawn time:
+The dispatch layer persists `COGNITIVE_ARCH` to the DB context row at spawn time:
 
-```bash
-ISSUE=671
-WORKTREE="$HOME/.agentception/worktrees/agentception/issue-671"
-ROLE_FILE="$HOME/.cursor/roles/python-developer.md"
-ISSUE_LABEL="agentception/2-telemetry"
-SPAWN_MODE=direct
-COGNITIVE_ARCH=dijkstra+python        # figure + skill domain
+```
+RunContextRow.cognitive_arch = "dijkstra:python"   # figure + skill domain
+# accessible via ac://runs/{run_id}/context
 ```
 
 ### Selection Examples
@@ -234,7 +229,7 @@ When blending, conflicting atoms are resolved left-to-right (first listed wins).
 1. Create `cognitive_archetypes/figures/<id>.yaml` extending any archetype.
 2. Specify only the atoms that differ from the archetype in `overrides:`.
 3. Write the `prompt_injection.prefix` in the figure's authentic voice.
-4. Reference the figure by ID in `COGNITIVE_ARCH` in any `.agent-task`.
+4. Reference the figure by ID in `COGNITIVE_ARCH` in the DB context.
 
 No generator run needed — figures are read at agent spawn time by `resolve_arch.py`
 (the companion resolver script, to be implemented as a follow-on).

@@ -19,27 +19,80 @@ services:
       GH_REPO: ${GH_REPO:-cgcardona/agentception}
       REPO_DIR: ${REPO_DIR:-/app}
       WORKTREES_DIR: ${WORKTREES_DIR:-/worktrees}
-      # Host-side path written into .agent-task files so spawned Cursor agents
-      # (running on the host) can find the worktree at the same path the container
-      # created it.  Must match the left-hand side of the worktrees volume mount below.
+      # Host-side path to the worktrees directory.  Persisted to the DB context row
+      # so spawned Cursor agents (running on the host) can find the worktree at
+      # the same path the container created it.  Must match the worktrees volume mount.
       HOST_WORKTREES_DIR: ${HOST_WORKTREES_DIR:-${HOME}/.agentception/worktrees/agentception}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      # Host-side path to the repository root — persisted to the DB context row
+      # so Cursor agents (on the host) can resolve role files.
+      # Override via HOST_REPO_DIR in .env when the repo is not at the default.
+      HOST_REPO_DIR: ${HOST_REPO_DIR:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       # gh CLI reads GITHUB_TOKEN when the keychain (macOS) is unavailable inside Docker.
       # Set GITHUB_TOKEN in .env to a PAT with repo+issues scope.
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      # Prevent git from falling back to an interactive TTY prompt when credentials
+      # are missing. Agents run non-interactively; fail fast is always correct here.
+      GIT_TERMINAL_PROMPT: "0"
+      # ── ONNX Runtime thread control ──────────────────────────────────────
+      # ORT defaults to using all available CPUs for intra-op / inter-op
+      # parallelism.  On a 16-core host inside Docker Desktop (x86 emulation
+      # on Apple Silicon) this spawns ~32 OS threads per embedding call.
+      # Combined with asyncio.to_thread and the Python GIL, this causes
+      # severe scheduler contention and unpredictable memory behaviour.
+      # Capping to 2 threads per operation gives stable single-batch
+      # throughput without the thrashing.
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+      OPENBLAS_NUM_THREADS: "2"
+      # Disable HuggingFace tokenizers Rust parallelism — it spawns its own
+      # thread pool that stacks on top of ORT's, making contention worse.
+      TOKENIZERS_PARALLELISM: "false"
+      # ── Worktree indexing ─────────────────────────────────────────────────
+      # Disable per-run worktree indexing to prevent the concurrent ONNX embed
+      # batches from spiking RSS by ~500 MB alongside the first LLM call.
+      # The main `code` collection (full-repo index) remains available for all
+      # search_codebase calls — sufficient for code discovery on this codebase.
+      WORKTREE_INDEX_ENABLED: "false"
     volumes:
-      # Mount cursor dir at same absolute path so worktree paths resolve correctly.
-      - ${HOME}/.cursor:${HOME}/.cursor
       # gh CLI auth (read-only)
       - ${HOME}/.config/gh:${HOME}/.config/gh:ro
       # Repo itself (for git operations)
       - ./:/app
+      # Linux-native node_modules — sits on top of the ./:/app bind mount so the
+      # container's esbuild/tsc binaries (ELF) are never replaced by the host's
+      # macOS binaries. Populated from the image layer on first run via Docker's
+      # volume-init copy (image content wins when the named volume is empty).
+      - node_modules:/app/node_modules
       # Agent worktrees: bind-mount the host directory into the container so that
       # git worktrees created inside the container are immediately visible to Cursor
       # agents running on the host at the same absolute path.
       - ${HOME}/.agentception/worktrees/agentception:/worktrees
+      # Persist FastEmbed / HuggingFace model files across container restarts.
+      # Without this volume the three ONNX models (jina-v2, BM25, bge-reranker)
+      # are re-downloaded from HuggingFace on every restart, adding ~50s to the
+      # first dispatch after each restart.  With the volume they are loaded from
+      # disk on first use (~5–10s) and stay warm for the lifetime of the volume.
+      - model_cache:/root/.cache/huggingface
+    # Use Cloudflare DNS instead of Docker's embedded resolver.
+    # Docker's embedded DNS caches whichever node it gets first, and GitHub
+    # occasionally has dead nodes in rotation (e.g. 140.82.116.6) that refuse
+    # all connections. 1.1.1.1 performs its own health-aware routing and avoids
+    # returning dead nodes. This also prevents hardcoded IPs from going stale
+    # as GitHub updates its infrastructure.
+    dns:
+      - "1.1.1.1"
+      - "8.8.8.8"
     networks:
       - agentception-net
+    command: >
+      sh -c 'printf "nameserver 127.0.0.11\nnameserver 1.1.1.1\nnameserver 8.8.8.8\noptions ndots:0 timeout:3 attempts:1 use-vc\n" > /etc/resolv.conf &&
+      cd /app &&
+      sass --style=compressed --no-source-map agentception/static/scss/app.scss agentception/static/app.css &&
+      npm run build:js &&
+      (alembic -c agentception/alembic.ini upgrade head ||
+        (echo "[startup] alembic failed, retrying in 5s" && sleep 5 && alembic -c agentception/alembic.ini upgrade head)) &&
+      exec uvicorn agentception.app:app --host 0.0.0.0 --port 10003'
     depends_on:
       postgres:
         condition: service_healthy
@@ -79,7 +132,7 @@ services:
   # Qdrant — vector store for semantic search over agent transcripts / docs
   # ==========================================================================
   qdrant:
-    image: qdrant/qdrant:v1.7.4
+    image: qdrant/qdrant:v1.17.0
     container_name: agentception-qdrant
     restart: unless-stopped
     volumes:
@@ -95,6 +148,10 @@ volumes:
     name: agentception-postgres-data
   qdrant_data:
     name: agentception-qdrant-data
+  model_cache:
+    name: agentception-model-cache
+  node_modules:
+    name: agentception-node-modules
 
 networks:
   agentception-net:

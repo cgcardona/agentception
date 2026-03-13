@@ -32,7 +32,7 @@ from agentception.telemetry import WaveSummary
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def client() -> Generator[TestClient, None, None]:
     """Synchronous test client wrapping the AgentCeption FastAPI app."""
     with TestClient(app) as c:
@@ -56,8 +56,8 @@ def _make_wave(batch_id: str, issues: list[int], prs_opened: int = 1) -> WaveSum
         agents=[
             AgentNode(
                 id=f"agent-{issues[0]}",
-                role="python-developer",
-                status=AgentStatus.DONE,
+                role="developer",
+                status=AgentStatus.COMPLETED,
                 issue_number=issues[0],
                 batch_id=batch_id,
             )

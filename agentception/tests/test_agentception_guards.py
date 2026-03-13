@@ -7,9 +7,9 @@ Coverage:
 - detect_out_of_order_prs() returns PRViolation when phase label mismatches
 - detect_out_of_order_prs() skips PRs with no 'Closes #N' reference
 - close_pr() is called via the /api/intelligence/pr-violations/{n}/close route
-- detect_stale_claims() flags issues with agent:wip but no worktree
+- detect_stale_claims() flags issues with agent/wip but no worktree
 - detect_stale_claims() ignores issues whose worktree exists
-- clear_stale_claim endpoint removes the agent:wip label
+- clear_stale_claim endpoint removes the agent/wip label
 - stale claims from guards propagate into PipelineState.alerts via detect_alerts()
 
 Run targeted:
@@ -24,7 +24,8 @@ from httpx import ASGITransport, AsyncClient
 
 from agentception.app import app
 from agentception.intelligence.guards import PRViolation, detect_out_of_order_prs, detect_stale_claims
-from agentception.models import StaleClaim, TaskFile
+from agentception.db.queries import RunContextRow
+from agentception.models import StaleClaim
 from agentception.poller import GitHubBoard, detect_alerts
 
 
@@ -262,7 +263,7 @@ async def test_stale_claim_shows_in_alerts(tmp_path: Path) -> None:
         wip_issues=[{"number": 42, "title": "Stale issue"}],
     )
     # No worktrees — issue 42 has no live worktree → stale claim expected.
-    worktrees: list[TaskFile] = []
+    worktrees: list[RunContextRow] = []
 
     with (
         patch("agentception.poller.settings") as poller_mock,
@@ -273,7 +274,7 @@ async def test_stale_claim_shows_in_alerts(tmp_path: Path) -> None:
         ),
     ):
         poller_mock.worktrees_dir = tmp_path
-        alerts, stale_claims = await detect_alerts(worktrees, board)
+        alerts, stale_claims, _stalled = await detect_alerts(worktrees, board)
 
     assert any("Stale claim on #42" in a for a in alerts), (
         f"Expected 'Stale claim on #42' in alerts, got: {alerts}"

@@ -99,37 +99,30 @@
 
       <div class="cfg-slider-group">
 
-        <div class="cfg-slider-row">
-          <label class="cfg-slider-label" for="slider-eng-vps">Engineering VPs</label>
-          <p class="cfg-slider-hint">Parallel engineering VP agents in the pipeline</p>
-          <input id="slider-eng-vps"
-                 class="cfg-slider-input"
-                 type="range" min="1" max="8" step="1"
-                 x-model.number="config.max_eng_vps"
-                 aria-label="Max Engineering VPs" />
-          <span class="cfg-slider-value" x-text="config.max_eng_vps"></span>
-        </div>
+        {# Coordinator limits — one slider per entry in coordinator_limits #}
+        <template x-for="[role, limit] in Object.entries(config.coordinator_limits)" :key="role">
+          <div class="cfg-slider-row">
+            <label class="cfg-slider-label" :for="'slider-coord-' + role" x-text="role + ' (max concurrent)'"></label>
+            <p class="cfg-slider-hint">Max parallel instances of this coordinator role</p>
+            <input :id="'slider-coord-' + role"
+                   class="cfg-slider-input"
+                   type="range" min="1" max="8" step="1"
+                   :value="limit"
+                   @input="config.coordinator_limits[role] = parseInt($event.target.value)"
+                   :aria-label="'Max ' + role" />
+            <span class="cfg-slider-value" x-text="limit"></span>
+          </div>
+        </template>
 
         <div class="cfg-slider-row">
-          <label class="cfg-slider-label" for="slider-qa-vps">QA VPs</label>
-          <p class="cfg-slider-hint">Parallel QA VP agents in the pipeline</p>
-          <input id="slider-qa-vps"
-                 class="cfg-slider-input"
-                 type="range" min="1" max="4" step="1"
-                 x-model.number="config.max_qa_vps"
-                 aria-label="Max QA VPs" />
-          <span class="cfg-slider-value" x-text="config.max_qa_vps"></span>
-        </div>
-
-        <div class="cfg-slider-row">
-          <label class="cfg-slider-label" for="slider-pool-size">Pool size per VP</label>
-          <p class="cfg-slider-hint">Worker agents assigned to each VP</p>
+          <label class="cfg-slider-label" for="slider-pool-size">Pool size (leaves per coordinator)</label>
+          <p class="cfg-slider-hint">Leaf agents assigned to each coordinator instance</p>
           <input id="slider-pool-size"
                  class="cfg-slider-input"
                  type="range" min="1" max="20" step="1"
-                 x-model.number="config.pool_size_per_vp"
-                 aria-label="Pool size per VP" />
-          <span class="cfg-slider-value" x-text="config.pool_size_per_vp"></span>
+                 x-model.number="config.pool_size"
+                 aria-label="Pool size per coordinator" />
+          <span class="cfg-slider-value" x-text="config.pool_size"></span>
         </div>
 
       </div>
@@ -148,24 +141,19 @@
              :aria-valuenow="totalAgents"
              aria-valuemin="0"
              :aria-valuemax="totalAgents"
-             aria-label="Agent slot allocation">
+             aria-label="Total agent slots">
           <div class="cfg-capacity-bar-eng"
-               :style="'width:' + engPct + '%'"
-               :title="engSlots + ' engineering slots'"></div>
-          <div class="cfg-capacity-bar-qa"
-               :style="'width:' + qaPct + '%'"
-               :title="qaSlots + ' QA slots'"></div>
+               style="width:100%"
+               :title="totalAgents + ' total leaf agent slots'"></div>
         </div>
 
         <div class="cfg-capacity-legend">
-          <span class="cfg-capacity-legend-item">
-            <span class="cfg-legend-dot eng"></span>
-            <span x-text="engSlots + ' engineering'"></span>
-          </span>
-          <span class="cfg-capacity-legend-item">
-            <span class="cfg-legend-dot qa"></span>
-            <span x-text="qaSlots + ' QA'"></span>
-          </span>
+          <template x-for="[role, limit] in Object.entries(config.coordinator_limits)" :key="role">
+            <span class="cfg-capacity-legend-item">
+              <span class="cfg-legend-dot eng"></span>
+              <span x-text="(limit * config.pool_size) + ' slots (' + role + ')'"></span>
+            </span>
+          </template>
         </div>
       </div>
     </section>
@@ -283,11 +271,11 @@
 
         <div class="cfg-ab-field">
           <label class="cfg-field-label" for="ab-variant-a">Variant A File</label>
-          <p class="cfg-field-hint">Path relative to repo root (e.g. <code>.cursor/roles/python-developer.md</code>)</p>
+          <p class="cfg-field-hint">Path relative to repo root (e.g. <code>.agentception/roles/python-developer.md</code>)</p>
           <input id="ab-variant-a"
                  class="cfg-text-input"
                  type="text"
-                 placeholder=".cursor/roles/python-developer.md"
+                 placeholder=".agentception/roles/python-developer.md"
                  x-model.trim="config.ab_mode.variant_a_file"
                  aria-label="Variant A file path" />
         </div>
@@ -298,7 +286,7 @@
           <input id="ab-variant-b"
                  class="cfg-text-input"
                  type="text"
-                 placeholder=".cursor/roles/python-developer-v2.md"
+                 placeholder=".agentception/roles/python-developer-v2.md"
                  x-model.trim="config.ab_mode.variant_b_file"
                  aria-label="Variant B file path" />
         </div>

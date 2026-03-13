@@ -8,59 +8,76 @@ that the user reviewed in the CodeMirror editor and creates real GitHub issues
 
 Execution order
 ---------------
-1. Ensure all required labels exist (phase labels + initiative label).
-2. Iterate phases in order.  Within each phase, create issues concurrently
-   (they have no inter-phase dependency at creation time).
+1. Ensure all required labels exist (initiative label + scoped phase labels +
+   pipeline/active + pipeline/gated).
+2. Iterate phases in order.  Within each phase, create issues concurrently.
 3. After all issues are created and GitHub numbers are known, edit any issue
    whose ``depends_on`` list is non-empty to append a "Blocked by: #X" line.
 
 Labels applied to every issue
 ------------------------------
-- ``{phase.label}``     e.g. ``phase-0``, ``phase-1``
-- ``{spec.initiative}`` e.g. ``health-ratelimit-dashboard``
+- ``{spec.initiative}``               e.g. ``ac-build``
+- ``{spec.initiative}/{phase.label}`` e.g. ``ac-build/phase-0``
+- ``pipeline/active``                 phase 0 (first phase) only — ready for dispatch
+- ``pipeline/gated``                  phase 1+ — phase-gated until prior phase closes
 
-The phase label acts as the execution gate: agents (or humans) know not to
-start a phase-1 issue until all phase-0 issues are closed.
+When ``plan_advance_phase`` runs it removes ``pipeline/gated`` and adds
+``pipeline/active`` to the newly unlocked phase, so the pipeline/active /
+pipeline/gated labels always reflect the live execution frontier.
 """
 
 import asyncio
 import logging
-from collections.abc import AsyncGenerator
-from typing import TypedDict
+import uuid
+from collections.abc import AsyncGenerator, Coroutine
+from typing import Literal, TypedDict
 
 from agentception.config import settings as _cfg
-from agentception.db.persist import persist_initiative_phases
+from agentception.db.persist import persist_initiative_phases, persist_issue_depends_on
 from agentception.models import PlanIssue, PlanSpec
-from agentception.readers.github import ensure_label_exists
+from agentception.readers.github import add_label_to_issue, ensure_label_exists
 
 logger = logging.getLogger(__name__)
 
-# ── Phase label palette ────────────────────────────────────────────────────
-_PHASE_LABELS: dict[str, tuple[str, str]] = {
-    "phase-0": ("B60205", "Foundations and critical fixes"),
-    "phase-1": ("E4E669", "Infrastructure and core services"),
-    "phase-2": ("0075CA", "Features and user-facing work"),
-    "phase-3": ("CFD3D7", "Polish, tests, and debt"),
-}
+# ── Phase metadata (colour, description) ──────────────────────────────────
+# Keyed by the internal phase identifier (phase-0 … phase-3).
+# GitHub labels are namespaced as ``{initiative}/{phase}`` — no global labels.
+# Phase label colors cycled by position (idx % len) so any number of phases
+# and any slug convention receives a distinct, deterministic GitHub label color.
+_PHASE_PALETTE: list[str] = ["B60205", "E4E669", "0075CA", "CFD3D7"]
 _INITIATIVE_COLOR = "7057FF"
+# GitHub enforces a 50-character ceiling on label names.
+_GITHUB_LABEL_MAX_LEN = 50
+
+
+def _scoped_label(initiative: str, phase_label: str) -> str:
+    """Return ``initiative/phase_label`` truncated to the GitHub label limit.
+
+    GitHub rejects label names longer than 50 characters with a 422 validation
+    error.  We truncate the combined string rather than either component alone
+    so that the separator ``/`` is always preserved and the result is still
+    human-readable.
+    """
+    full = f"{initiative}/{phase_label}"
+    return full[:_GITHUB_LABEL_MAX_LEN]
 
 
 # ── Event types streamed to the browser ───────────────────────────────────
 
 
 class StartEvent(TypedDict):
-    t: str  # "start"
+    t: Literal["start"]
     total: int
     initiative: str
 
 
 class LabelEvent(TypedDict):
-    t: str  # "label"
+    t: Literal["label"]
     text: str
 
 
 class IssueEvent(TypedDict):
-    t: str  # "issue"
+    t: Literal["issue"]
     index: int
     total: int
     number: int
@@ -70,20 +87,32 @@ class IssueEvent(TypedDict):
 
 
 class BlockedEvent(TypedDict):
-    t: str  # "blocked"
+    t: Literal["blocked"]
     number: int
     blocked_by: list[int]
 
 
+class CreatedIssue(TypedDict):
+    """A single issue returned in the ``done`` SSE event."""
+
+    issue_id: str
+    number: int
+    url: str
+    title: str
+    phase: str
+
+
 class DoneEvent(TypedDict):
-    t: str  # "done"
+    t: Literal["done"]
     total: int
     initiative: str
-    issues: list[dict[str, object]]
+    batch_id: str
+    issues: list[CreatedIssue]
+    coordinator_arch: dict[str, str]  # role_slug → arch string from PlanSpec
 
 
 class FilingErrorEvent(TypedDict):
-    t: str  # "error"
+    t: Literal["error"]
     detail: str
 
 
@@ -165,32 +194,108 @@ async def _gh_edit_body(repo: str, number: int, new_body: str) -> None:
 
 
 async def _bootstrap_labels(spec: PlanSpec) -> None:
-    """Ensure all phase labels and the initiative label exist in the repo."""
-    phase_labels_needed = {p.label for p in spec.phases}
+    """Ensure all required labels exist in the repo.
 
-    coros = [
-        ensure_label_exists(label, color, description)
-        for label, (color, description) in _PHASE_LABELS.items()
-        if label in phase_labels_needed
-    ]
-    coros.append(
+    Creates the initiative label, all scoped phase labels, and the three
+    pipeline-gate labels (``pipeline/active`` / ``pipeline/gated`` / ``blocked/deps``).  Labels are
+    namespaced per initiative — no bare global phase-N labels are created.
+    Phase colors are assigned by position (``_PHASE_PALETTE[idx % len]``) so
+    any slug convention and any number of phases receives a distinct color.
+    """
+    coros: list[Coroutine[None, None, None]] = [
         ensure_label_exists(
             spec.initiative,
             _INITIATIVE_COLOR,
             f"Initiative: {spec.initiative}",
-        )
-    )
+        ),
+        ensure_label_exists(
+            "pipeline/active",
+            "0E8A16",
+            "Ready for agent dispatch — phase gate is open",
+        ),
+        ensure_label_exists(
+            "pipeline/gated",
+            "B60205",
+            "Phase gate closed — prior phase must complete before dispatch",
+        ),
+        ensure_label_exists(
+            "blocked/deps",
+            "E4B429",
+            "Has open ticket dependencies — poller removes once all deps close",
+        ),
+    ]
+    for idx, phase in enumerate(spec.phases):
+        color = _PHASE_PALETTE[idx % len(_PHASE_PALETTE)]
+        scoped_label = _scoped_label(spec.initiative, phase.label)
+        # GitHub caps label descriptions at 100 characters.
+        desc = phase.description
+        if len(desc) > 100:
+            desc = desc[:97] + "…"
+        coros.append(ensure_label_exists(scoped_label, color, desc))
     await asyncio.gather(*coros)
 
 
 # ── per-issue creation helper (free function avoids closure capture bugs) ──
 
 
+def _embed_skills(body: str, skills: list[str]) -> str:
+    """Append an HTML comment with skill domain IDs to the issue body.
+
+    The comment is machine-readable and invisible to humans in the GitHub UI.
+    It is parsed back at agent spawn time by ``_extract_skills_from_body`` in
+    ``agentception/routes/api/_shared.py`` to pass as ``skills_hint`` to
+    ``_resolve_cognitive_arch``, replacing fallback keyword extraction.
+    """
+    if not skills:
+        return body
+    skills_str = ", ".join(skills)
+    return f"{body}\n\n<!-- ac:skills: {skills_str} -->"
+
+
+def _embed_cognitive_arch(body: str, cognitive_arch: str) -> str:
+    """Append an HTML comment with the resolved cognitive arch string.
+
+    The comment is machine-readable and invisible to humans in the GitHub UI.
+    At agent spawn time, ``_extract_cognitive_arch_from_body`` in
+    ``agentception/services/cognitive_arch.py`` reads this value as the
+    primary source of truth for the arch assignment — no heuristics required.
+
+    The arch string has the format ``figure_id:skill1[:skill2]``, e.g.
+    ``barbara_liskov:fastapi:python``.  When *cognitive_arch* is empty the
+    body is returned unchanged so that legacy issues without the field are
+    handled gracefully.
+    """
+    if not cognitive_arch:
+        return body
+    return f"{body}\n<!-- ac:cognitive_arch: {cognitive_arch} -->"
+
+
+def _embed_phase_gate(body: str, prev_phase_label: str) -> str:
+    """Append a phase-gate notice to the issue body.
+
+    This makes the gating dependency explicit in the ticket itself — agents
+    reading the ticket understand what must finish before they can start,
+    without needing to query the DB or read label metadata.
+    """
+    return (
+        f"{body}\n\n---\n"
+        f"**Phase gate:** This issue is blocked until all issues in "
+        f"`{prev_phase_label}` are closed."
+    )
+
+
 async def _create_one(
-    repo: str, issue: PlanIssue, labels: list[str]
+    repo: str,
+    issue: PlanIssue,
+    labels: list[str],
+    prev_phase_label: str | None = None,
 ) -> tuple[str, int, str]:
     """Create a single issue; return (issue.id, github_number, html_url)."""
-    number, url = await _gh_create_issue(repo, issue.title, issue.body, labels)
+    body = _embed_skills(issue.body, issue.skills)
+    body = _embed_cognitive_arch(body, issue.cognitive_arch)
+    if prev_phase_label is not None:
+        body = _embed_phase_gate(body, prev_phase_label)
+    number, url = await _gh_create_issue(repo, issue.title, body, labels)
     return issue.id, number, url
 
 
@@ -210,6 +315,7 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
     and iteration stops.
     """
     repo = _cfg.gh_repo
+    batch_id = f"batch-{uuid.uuid4().hex[:12]}"
     total_issues = sum(len(p.issues) for p in spec.phases)
     id_to_number: dict[str, int] = {}
     id_to_body: dict[str, str] = {
@@ -217,7 +323,7 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
         for phase in spec.phases
         for issue in phase.issues
     }
-    created: list[dict[str, object]] = []
+    created: list[CreatedIssue] = []
 
     yield StartEvent(t="start", total=total_issues, initiative=spec.initiative)
 
@@ -231,10 +337,19 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
 
     # ── 2. Issues (concurrent within each phase) ───────────────────────────
     index = 0
-    for phase in spec.phases:
-        labels = [phase.label, spec.initiative]
+    for phase_idx, phase in enumerate(spec.phases):
+        # Phase 0 is immediately workable; all later phases are phase-gated.
+        gate_label = "pipeline/active" if phase_idx == 0 else "pipeline/gated"
+        labels = [spec.initiative, _scoped_label(spec.initiative, phase.label), gate_label]
+        # For phase 1+ embed the blocking phase label into the issue body so
+        # agents reading the ticket immediately know what must complete first.
+        prev_phase_label = (
+            _scoped_label(spec.initiative, spec.phases[phase_idx - 1].label)
+            if phase_idx > 0
+            else None
+        )
         phase_tasks: list[asyncio.Task[tuple[str, int, str]]] = [
-            asyncio.create_task(_create_one(repo, issue, labels))
+            asyncio.create_task(_create_one(repo, issue, labels, prev_phase_label))
             for issue in phase.issues
         ]
 
@@ -257,13 +372,13 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
                 issue_id,
             )
             created.append(
-                {
-                    "issue_id": issue_id,
-                    "number": number,
-                    "url": url,
-                    "title": title,
-                    "phase": phase.label,
-                }
+                CreatedIssue(
+                    issue_id=issue_id,
+                    number=number,
+                    url=url,
+                    title=title,
+                    phase=phase.label,
+                )
             )
             logger.info("✅ Created #%d — %s (%s)", number, title, phase.label)
             yield IssueEvent(
@@ -277,6 +392,8 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
             )
 
     # ── 3. Resolve depends_on ──────────────────────────────────────────────
+    # Build a map of issue_number → blocker_numbers for DB persistence.
+    issue_deps: dict[int, list[int]] = {}
     for phase in spec.phases:
         for issue in phase.issues:
             if not issue.depends_on:
@@ -294,6 +411,8 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
             if our_number is None:
                 continue
 
+            issue_deps[our_number] = blocker_numbers
+
             original_body = id_to_body.get(issue.id, issue.body)
             blocked_line = (
                 "\n\n---\n**Blocked by:** "
@@ -301,28 +420,52 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
             )
             try:
                 await _gh_edit_body(repo, our_number, original_body.rstrip() + blocked_line)
+            except RuntimeError as exc:
+                logger.warning("⚠️ Could not edit body of #%d for depends_on: %s", our_number, exc)
+                continue
+
+            # Stamp blocked/deps so coordinators can filter this issue out
+            # until all its deps are closed.  Separated from the body edit so a
+            # label-API failure never silently leaves an issue unblocked: the
+            # poller's _stamp_missing_blocked_deps will re-apply it next tick.
+            try:
+                await add_label_to_issue(our_number, "blocked/deps")
+            except RuntimeError as exc:
+                logger.error(
+                    "❌ #%d body edited but blocked/deps stamp failed — poller will re-stamp: %s",
+                    our_number,
+                    exc,
+                )
+            else:
                 logger.info(
-                    "✅ #%d blocked_by %s",
+                    "✅ #%d blocked_by %s — blocked/deps label added",
                     our_number,
                     [f"#{n}" for n in blocker_numbers],
                 )
-                yield BlockedEvent(
-                    t="blocked",
-                    number=our_number,
-                    blocked_by=blocker_numbers,
-                )
-            except RuntimeError as exc:
-                # Non-fatal — log and continue.
-                logger.warning("⚠️ Could not edit #%d for depends_on: %s", our_number, exc)
 
-    # ── 4. Persist phase dependency graph ─────────────────────────────────
-    # Store the DAG so the Build board can show correct locked/unlocked
-    # status for each phase swim lane rather than guessing sequentially.
+            yield BlockedEvent(
+                t="blocked",
+                number=our_number,
+                blocked_by=blocker_numbers,
+            )
+
+    # Persist dep relationships to DB so the Build board can display them.
+    await persist_issue_depends_on(repo, issue_deps)
+
+    # ── 4. Persist phase DAG and display order ────────────────────────────
+    # Writes phase_order (list index) alongside the dependency graph so the
+    # Build board has a single, explicit source of truth for phase ordering.
     await persist_initiative_phases(
+        repo=repo,
         initiative=spec.initiative,
+        batch_id=batch_id,
         phases=[
-            {"label": p.label, "depends_on": list(p.depends_on)}
-            for p in spec.phases
+            {
+                "label": f"{spec.initiative}/{p.label}",
+                "order": idx,
+                "depends_on": [f"{spec.initiative}/{d}" for d in p.depends_on],
+            }
+            for idx, p in enumerate(spec.phases)
         ],
     )
 
@@ -330,5 +473,7 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
         t="done",
         total=total_issues,
         initiative=spec.initiative,
+        batch_id=batch_id,
         issues=created,
+        coordinator_arch=dict(spec.coordinator_arch),
     )

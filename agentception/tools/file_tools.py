@@ -1,0 +1,605 @@
+"""File-system tools exposed to the agent loop.
+
+Each public function returns ``{"ok": True, ...}`` on success and
+``{"ok": False, "error": "<message>"}`` on failure so the model always
+receives structured feedback rather than a Python exception traceback.
+"""
+
+from __future__ import annotations
+
+import ast as _ast
+import logging
+import re as _re
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+# Maximum bytes read from a single file before truncation.
+_MAX_READ_BYTES = 131_072  # 128 KiB
+
+
+def read_file(path: str | Path) -> dict[str, object]:
+    """Return the text content of *path*.
+
+    Args:
+        path: File to read.  Relative paths are resolved from the caller's cwd.
+
+    Returns:
+        ``{"ok": True, "content": str, "truncated": bool}`` on success, or
+        ``{"ok": False, "error": str}`` when the file cannot be read.
+    """
+    p = Path(path)
+    try:
+        raw = p.read_bytes()
+    except FileNotFoundError:
+        logger.warning("⚠️ read_file — not found: %s", p)
+        return {"ok": False, "error": f"File not found: {p}"}
+    except PermissionError:
+        logger.warning("⚠️ read_file — permission denied: %s", p)
+        return {"ok": False, "error": f"Permission denied: {p}"}
+    except OSError as exc:
+        logger.warning("⚠️ read_file — OS error: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+    truncated = len(raw) > _MAX_READ_BYTES
+    if truncated:
+        raw = raw[:_MAX_READ_BYTES]
+    try:
+        text = raw.decode("utf-8", errors="replace")
+    except Exception as exc:
+        return {"ok": False, "error": f"Decode error: {exc}"}
+
+    return {"ok": True, "content": text, "truncated": truncated}
+
+
+def write_file(path: str | Path, content: str) -> dict[str, object]:
+    """Write *content* to *path*, creating parent directories as needed.
+
+    Args:
+        path: Destination path.
+        content: Text to write (UTF-8).
+
+    Returns:
+        ``{"ok": True, "bytes_written": int}`` on success, or
+        ``{"ok": False, "error": str}`` on failure.
+    """
+    p = Path(path)
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+    except PermissionError:
+        logger.warning("⚠️ write_file — permission denied: %s", p)
+        return {"ok": False, "error": f"Permission denied: {p}"}
+    except OSError as exc:
+        logger.warning("⚠️ write_file — OS error: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+    bytes_written = len(content.encode("utf-8"))
+    logger.info("✅ write_file — %s (%d bytes)", p, bytes_written)
+    return {"ok": True, "bytes_written": bytes_written}
+
+
+def list_directory(path: str | Path) -> dict[str, object]:
+    """Return a sorted list of entries in *path*.
+
+    Args:
+        path: Directory to list.
+
+    Returns:
+        ``{"ok": True, "entries": list[str]}`` — each entry is a relative
+        name, with a trailing ``/`` for directories.  Returns an error dict
+        when the path is not a directory or cannot be accessed.
+    """
+    p = Path(path)
+    try:
+        if not p.is_dir():
+            return {"ok": False, "error": f"Not a directory: {p}"}
+        entries = sorted(
+            (f"{child.name}/" if child.is_dir() else child.name)
+            for child in p.iterdir()
+        )
+    except PermissionError:
+        logger.warning("⚠️ list_directory — permission denied: %s", p)
+        return {"ok": False, "error": f"Permission denied: {p}"}
+    except OSError as exc:
+        logger.warning("⚠️ list_directory — OS error: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+    return {"ok": True, "entries": entries}
+
+
+def replace_in_file(
+    path: str | Path,
+    old_string: str,
+    new_string: str,
+    *,
+    allow_multiple: bool = False,
+) -> dict[str, object]:
+    """Replace an exact string in *path* with *new_string*.
+
+    Safer than ``write_file`` for targeted edits because only the matched
+    region changes; the rest of the file is untouched.  If the anchor text
+    appears more than once and ``allow_multiple`` is ``False``, the call
+    fails rather than making an ambiguous edit.
+
+    Args:
+        path: File to edit.
+        old_string: Exact text to find (must be unique unless allow_multiple).
+        new_string: Replacement text.
+        allow_multiple: When ``True``, replace every occurrence.  When
+            ``False`` (default), fail if the anchor matches more than once.
+
+    Returns:
+        ``{"ok": True, "replacements": int}`` on success, or
+        ``{"ok": False, "error": str}`` on any failure.
+    """
+    p = Path(path)
+    try:
+        original = p.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        logger.warning("⚠️ replace_in_file — not found: %s", p)
+        return {"ok": False, "error": f"File not found: {p}"}
+    except PermissionError:
+        logger.warning("⚠️ replace_in_file — permission denied: %s", p)
+        return {"ok": False, "error": f"Permission denied: {p}"}
+    except OSError as exc:
+        logger.warning("⚠️ replace_in_file — OS error: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+    count = original.count(old_string)
+    if count == 0:
+        return {"ok": False, "error": "replace_in_file: old_string not found in file"}
+    if count > 1 and not allow_multiple:
+        return {
+            "ok": False,
+            "error": (
+                f"replace_in_file: old_string matches {count} times — "
+                "use a longer anchor to make it unique, "
+                "or pass allow_multiple=true to replace all occurrences"
+            ),
+        }
+
+    updated = original.replace(old_string, new_string)
+    try:
+        p.write_text(updated, encoding="utf-8")
+    except PermissionError:
+        logger.warning("⚠️ replace_in_file — permission denied writing: %s", p)
+        return {"ok": False, "error": f"Permission denied writing: {p}"}
+    except OSError as exc:
+        logger.warning("⚠️ replace_in_file — OS write error: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+    replacements = count if allow_multiple else 1
+    logger.info("✅ replace_in_file — %s (%d replacement(s))", p, replacements)
+    return {"ok": True, "replacements": replacements}
+
+
+def read_file_lines(
+    path: str | Path,
+    start_line: int,
+    end_line: int,
+) -> dict[str, object]:
+    """Return lines *start_line* through *end_line* (1-indexed, inclusive) from *path*.
+
+    Cheaper than ``read_file`` for large files when only a specific region is
+    needed.  Out-of-range bounds are clamped to the actual file length rather
+    than returning an error.
+
+    Args:
+        path: File to read.  Relative paths are resolved from the caller's cwd.
+        start_line: First line to return (1-indexed).
+        end_line: Last line to return (1-indexed, inclusive).
+
+    Returns:
+        ``{"ok": True, "content": str, "start_line": int, "end_line": int,
+        "total_lines": int}`` on success, or ``{"ok": False, "error": str}``
+        on any failure.
+    """
+    p = Path(path)
+    try:
+        text = p.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        logger.warning("⚠️ read_file_lines — not found: %s", p)
+        return {"ok": False, "error": f"File not found: {p}"}
+    except PermissionError:
+        logger.warning("⚠️ read_file_lines — permission denied: %s", p)
+        return {"ok": False, "error": f"Permission denied: {p}"}
+    except OSError as exc:
+        logger.warning("⚠️ read_file_lines — OS error: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+    lines = text.splitlines(keepends=True)
+    total = len(lines)
+
+    clamped_start = max(1, start_line)
+    clamped_end = min(total, end_line)
+
+    if clamped_start > clamped_end:
+        return {
+            "ok": False,
+            "error": (
+                f"read_file_lines: start_line {start_line} is beyond end_line "
+                f"{end_line} after clamping to file length {total}"
+            ),
+        }
+
+    content = "".join(lines[clamped_start - 1 : clamped_end])
+    logger.info(
+        "✅ read_file_lines — %s lines %d-%d/%d", p, clamped_start, clamped_end, total
+    )
+    return {
+        "ok": True,
+        "content": content,
+        "start_line": clamped_start,
+        "end_line": clamped_end,
+        "total_lines": total,
+    }
+
+
+def insert_after_in_file(
+    path: str | Path,
+    anchor: str,
+    new_content: str,
+) -> dict[str, object]:
+    """Insert *new_content* immediately after the first occurrence of *anchor* in *path*.
+
+    Complements ``replace_in_file`` for pure-insertion tasks where the anchor
+    text should be preserved.  Fails if the anchor is not found or appears more
+    than once, so the caller must use a unique anchor.
+
+    Args:
+        path: File to edit.
+        anchor: Exact text that marks the insertion point.  Must appear exactly
+            once in the file.
+        new_content: Text to insert immediately after *anchor*.
+
+    Returns:
+        ``{"ok": True, "inserted_at": int}`` — byte offset of the insertion
+        point — or ``{"ok": False, "error": str}`` on any failure.
+    """
+    p = Path(path)
+    try:
+        original = p.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        logger.warning("⚠️ insert_after_in_file — not found: %s", p)
+        return {"ok": False, "error": f"File not found: {p}"}
+    except PermissionError:
+        logger.warning("⚠️ insert_after_in_file — permission denied: %s", p)
+        return {"ok": False, "error": f"Permission denied: {p}"}
+    except OSError as exc:
+        logger.warning("⚠️ insert_after_in_file — OS error: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+    count = original.count(anchor)
+    if count == 0:
+        return {"ok": False, "error": "insert_after_in_file: anchor not found in file"}
+    if count > 1:
+        return {
+            "ok": False,
+            "error": (
+                f"insert_after_in_file: anchor matches {count} times — "
+                "use a longer anchor to make it unique"
+            ),
+        }
+
+    insert_pos = original.index(anchor) + len(anchor)
+
+    # Guard: refuse to insert immediately after a bare class/function definition
+    # header.  A header line ends with ":" and the following non-blank line is
+    # indented — inserting between them detaches the body from its header and
+    # produces a SyntaxError.  The caller must use an anchor that ends inside
+    # the body (e.g. the last method's closing line) rather than on the header.
+    _CLASS_DEF_RE = _re.compile(r"^\s*(class|def)\s+\w+")
+    anchor_end_line = original[:insert_pos].rpartition("\n")[2]
+    stripped_header = anchor_end_line.rstrip()
+    if stripped_header.endswith(":") and _CLASS_DEF_RE.match(stripped_header):
+        for _line in original[insert_pos:].splitlines():
+            if not _line.strip():
+                continue  # skip blank lines
+            if _line[0] in (" ", "\t"):
+                return {
+                    "ok": False,
+                    "error": (
+                        "insert_after_in_file: anchor ends on a class/function "
+                        "definition header whose body immediately follows. "
+                        "Inserting here would detach the body from its header "
+                        "and produce a SyntaxError. "
+                        "Use an anchor that ends inside the body — for example, "
+                        "the last line of the final method — so the new content "
+                        "is appended after the complete class/function."
+                    ),
+                }
+            break  # next non-blank line is not indented — safe to insert
+
+    updated = original[:insert_pos] + new_content + original[insert_pos:]
+
+    try:
+        p.write_text(updated, encoding="utf-8")
+    except PermissionError:
+        logger.warning("⚠️ insert_after_in_file — permission denied writing: %s", p)
+        return {"ok": False, "error": f"Permission denied writing: {p}"}
+    except OSError as exc:
+        logger.warning("⚠️ insert_after_in_file — OS write error: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+    logger.info("✅ insert_after_in_file — %s (inserted at byte %d)", p, insert_pos)
+    return {"ok": True, "inserted_at": insert_pos}
+
+
+async def search_text(
+    pattern: str,
+    directory: str | Path,
+    *,
+    n_results: int = 30,
+) -> dict[str, object]:
+    """Search *directory* for lines matching *pattern* using ripgrep.
+
+    Uses ``rg`` (ripgrep) for fast, .gitignore-aware searching.  Falls back
+    to an error result when ``rg`` is not on ``PATH``.
+
+    Args:
+        pattern: Regex or literal pattern forwarded verbatim to ``rg``.
+        directory: Root directory to search.
+        n_results: Maximum number of matching lines to return.
+
+    Returns:
+        ``{"ok": True, "matches": str}`` — rg output (at most *n_results*
+        lines) — or ``{"ok": False, "error": str}`` on failure.
+    """
+    import asyncio
+
+    d = Path(directory)
+    if not d.exists():
+        return {"ok": False, "error": f"Directory does not exist: {d}"}
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "rg",
+            "--heading",
+            "--line-number",
+            "--max-count",
+            str(n_results),
+            pattern,
+            str(d),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+    except FileNotFoundError:
+        return {"ok": False, "error": "rg (ripgrep) not found on PATH"}
+    except asyncio.TimeoutError:
+        return {"ok": False, "error": "search_text timed out after 30s"}
+    except OSError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    output = stdout.decode("utf-8", errors="replace")
+    # rg exits 1 when no matches found — that is not an error for us.
+    if proc.returncode not in (0, 1):
+        err_text = stderr.decode("utf-8", errors="replace").strip()
+        return {"ok": False, "error": f"rg failed (exit {proc.returncode}): {err_text}"}
+
+    return {"ok": True, "matches": output or "(no matches)"}
+
+
+# ---------------------------------------------------------------------------
+# Symbol-aware navigation tools
+# ---------------------------------------------------------------------------
+
+
+def _find_symbol_lines_py(text: str, symbol_name: str) -> tuple[int, int] | None:
+    """Return (start_line, end_line) for *symbol_name* using the Python AST.
+
+    Walks every function/class definition in the parsed tree and returns the
+    first match.  Includes decorator lines in the start.  Returns ``None`` on
+    a parse error or when the symbol is not found.
+    """
+    try:
+        tree = _ast.parse(text)
+    except SyntaxError:
+        return None
+
+    for node in _ast.walk(tree):
+        if not isinstance(
+            node, (_ast.FunctionDef, _ast.AsyncFunctionDef, _ast.ClassDef)
+        ):
+            continue
+        if node.name != symbol_name:
+            continue
+        end_line: int | None = getattr(node, "end_lineno", None)
+        if end_line is None:
+            continue
+        start_line = node.lineno
+        if node.decorator_list:
+            start_line = min(d.lineno for d in node.decorator_list)
+        return start_line, end_line
+
+    return None
+
+
+def read_symbol(path: str | Path, symbol_name: str) -> dict[str, object]:
+    """Return the complete body of a function or class by name.
+
+    For ``.py`` files, uses the Python AST to find exact symbol boundaries
+    (including decorators).  Returns the full definition so the model can act
+    on it without a follow-up ``read_file_lines`` call.
+
+    Args:
+        path: Source file to search.
+        symbol_name: Exact function or class name (e.g. ``_truncate_tool_results``).
+
+    Returns:
+        ``{"ok": True, "content": str, "start_line": int, "end_line": int,
+        "total_lines": int}`` — the symbol body with its line range.  Or
+        ``{"ok": False, "error": str}`` when the symbol is not found or the
+        file cannot be read.
+    """
+    p = Path(path)
+    try:
+        text = p.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {"ok": False, "error": f"File not found: {p}"}
+    except PermissionError:
+        return {"ok": False, "error": f"Permission denied: {p}"}
+    except OSError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    lines = text.splitlines(keepends=True)
+    total = len(lines)
+
+    if p.suffix == ".py":
+        bounds = _find_symbol_lines_py(text, symbol_name)
+        if bounds is not None:
+            start, end = bounds
+            content = "".join(lines[start - 1 : end])
+            logger.info("✅ read_symbol — %s::%s lines %d-%d", p, symbol_name, start, end)
+            return {
+                "ok": True,
+                "content": content,
+                "start_line": start,
+                "end_line": end,
+                "total_lines": total,
+            }
+        # AST found nothing — fall through to string scan below.
+
+    # Non-Python or AST miss: scan for `def name` / `class name`.
+    for i, line in enumerate(lines, 1):
+        stripped = line.lstrip()
+        if stripped.startswith(f"def {symbol_name}(") or stripped.startswith(
+            f"class {symbol_name}("
+        ) or stripped.startswith(f"class {symbol_name}:"):
+            # Heuristic end: next non-indented non-empty line at same or
+            # lower indent level.  Good enough for most source files.
+            base_indent = len(line) - len(stripped)
+            end = i
+            for j in range(i, total):
+                following = lines[j]
+                if following.strip() == "":
+                    end = j + 1
+                    continue
+                curr_indent = len(following) - len(following.lstrip())
+                if curr_indent <= base_indent and j > i:
+                    break
+                end = j + 1
+            content = "".join(lines[i - 1 : end])
+            logger.info("✅ read_symbol — %s::%s lines %d-%d (heuristic)", p, symbol_name, i, end)
+            return {
+                "ok": True,
+                "content": content,
+                "start_line": i,
+                "end_line": end,
+                "total_lines": total,
+            }
+
+    return {"ok": False, "error": f"Symbol '{symbol_name}' not found in {p}"}
+
+
+def read_window(
+    path: str | Path,
+    center_line: int,
+    *,
+    before: int = 80,
+    after: int = 120,
+) -> dict[str, object]:
+    """Read a window of lines centered on *center_line*.
+
+    More ergonomic than ``read_file_lines`` for exploration: plug in a line
+    number from search results and receive enough surrounding context to act
+    without a follow-up read.  The default window (80 before, 120 after)
+    captures most complete function definitions.
+
+    Args:
+        path: File to read.
+        center_line: 1-indexed line to center the window on.
+        before: Lines to include before *center_line* (default 80).
+        after: Lines to include after *center_line* (default 120).
+
+    Returns:
+        ``{"ok": True, "content": str, "start_line": int, "end_line": int,
+        "center_line": int, "total_lines": int}`` or ``{"ok": False, "error": str}``.
+    """
+    p = Path(path)
+    try:
+        text = p.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {"ok": False, "error": f"File not found: {p}"}
+    except PermissionError:
+        return {"ok": False, "error": f"Permission denied: {p}"}
+    except OSError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    lines = text.splitlines(keepends=True)
+    total = len(lines)
+
+    start = max(1, center_line - before)
+    end = min(total, center_line + after)
+    content = "".join(lines[start - 1 : end])
+
+    logger.info("✅ read_window — %s center=%d (%d-%d/%d)", p, center_line, start, end, total)
+    return {
+        "ok": True,
+        "content": content,
+        "start_line": start,
+        "end_line": end,
+        "center_line": center_line,
+        "total_lines": total,
+    }
+
+
+async def find_call_sites(
+    symbol_name: str,
+    directory: str | Path,
+    *,
+    n_results: int = 30,
+) -> dict[str, object]:
+    """Find all call sites of *symbol_name* using ripgrep.
+
+    Searches for ``symbol_name(`` to catch function calls, plus ``symbol_name``
+    in import lines.  Returns file paths, line numbers, and the matching line
+    so the model can see usage patterns before editing.
+
+    Args:
+        symbol_name: Function or class name to search for.
+        directory: Root directory to search (defaults to worktree root).
+        n_results: Maximum matching lines to return.
+
+    Returns:
+        ``{"ok": True, "matches": str}`` — ripgrep-formatted output — or
+        ``{"ok": False, "error": str}`` on failure.
+    """
+    import asyncio
+
+    d = Path(directory)
+    if not d.exists():
+        return {"ok": False, "error": f"Directory does not exist: {d}"}
+
+    # Match call sites `name(` AND import lines `import name` / `from x import name`.
+    pattern = rf"\b{symbol_name}[\(\s]|import\s+{symbol_name}"
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "rg",
+            "--heading",
+            "--line-number",
+            "--max-count",
+            str(n_results),
+            "-e",
+            pattern,
+            str(d),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+    except FileNotFoundError:
+        return {"ok": False, "error": "rg (ripgrep) not found on PATH"}
+    except asyncio.TimeoutError:
+        return {"ok": False, "error": "find_call_sites timed out after 30s"}
+    except OSError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    output = stdout.decode("utf-8", errors="replace")
+    if proc.returncode not in (0, 1):
+        err_text = stderr.decode("utf-8", errors="replace").strip()
+        return {"ok": False, "error": f"rg failed (exit {proc.returncode}): {err_text}"}
+
+    logger.info("✅ find_call_sites — %s in %s", symbol_name, d)
+    return {"ok": True, "matches": output or "(no call sites found)"}

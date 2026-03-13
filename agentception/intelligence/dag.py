@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Dependency DAG builder for the AgentCeption intelligence layer.
 
 Parses every open issue body for ``Depends on #NNN`` patterns and assembles
@@ -16,6 +14,7 @@ Typical usage::
     for (src, dst) in dag.edges:
         print(f"#{src} depends on #{dst}")
 """
+from __future__ import annotations
 
 import logging
 
@@ -114,7 +113,7 @@ async def build_dag() -> DependencyDAG:
                 elif isinstance(lbl, str):
                     label_names.append(lbl)
 
-        has_wip = "agent:wip" in label_names
+        has_wip = "agent/wip" in label_names
         deps = parse_deps_from_body(body)
 
         nodes.append(

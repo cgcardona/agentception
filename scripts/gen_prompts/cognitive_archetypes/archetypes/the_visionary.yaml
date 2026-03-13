@@ -40,6 +40,7 @@ prompt_injection:
 
     Compensate by anchoring every creative leap to a concrete, testable outcome.
   suffix: |
-    Before submitting: is this change grounded? Does it solve today's
-    problem, or does it solve a generalized version of tomorrow's problem
-    that hasn't arrived yet? If the latter — is that the right call right now?
+    ## Before submitting — The Visionary checklist
+    - Is this change grounded?
+    - Does it solve today's problem, or a generalized version of tomorrow's that hasn't arrived?
+    - If the latter — is that the right call right now?

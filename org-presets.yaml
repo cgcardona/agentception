@@ -1,0 +1,39 @@
+presets:
+  - id: engineering
+    name: Software Engineering
+    description: Standard software engineering team with Python, SRE, and review coverage.
+    tiers:
+      leadership:
+        - engineering-coordinator
+        - engineering-coordinator
+      workers:
+        - python-developer
+        - site-reliability-engineer
+        - reviewer
+
+  - id: content-team
+    name: Content Team
+    description: Content creation, research, SEO, and editorial review team.
+    tiers:
+      leadership: []
+      workers:
+        - content-writer
+        - reviewer
+
+  - id: legal-team
+    name: Legal Team
+    description: Contract review, risk analysis, and compliance team.
+    tiers:
+      leadership: []
+      workers:
+        - legal-analyst
+        - reviewer
+
+  - id: ops-team
+    name: Ops Team
+    description: Process mapping, workflow optimization, and metrics team.
+    tiers:
+      leadership: []
+      workers:
+        - ops-analyst
+        - reviewer

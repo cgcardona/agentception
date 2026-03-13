@@ -5,8 +5,18 @@ import json
 import logging
 
 from fastapi import APIRouter
+from fastapi.responses import HTMLResponse
 from starlette.requests import Request
 
+from agentception.readers.github import (
+    add_label_to_issue,
+    ensure_label_exists,
+    get_issue_comments,
+    get_open_issues,
+    get_pr_checks,
+    get_pr_reviews,
+)
+from agentception.readers.pipeline_config import read_pipeline_config
 from agentception.routes.ui._shared import _TEMPLATES
 
 logger = logging.getLogger(__name__)
@@ -16,14 +26,14 @@ router = APIRouter()
 _DEFAULT_APPROVAL_LABELS: list[str] = ["db-schema", "security", "api-contract"]
 
 
-@router.get("/issues/{number}/comments")
-async def issue_comments_partial(request: Request, number: int) -> object:
+@router.get("/issues/{repo}/{number}/comments", response_class=HTMLResponse)
+async def issue_comments_partial(request: Request, repo: str, number: int) -> HTMLResponse:
     """HTMX partial: render comments for issue #{number}.
 
     Lazily fetches from GitHub so the issue detail page loads without blocking.
+    The ``repo`` path segment is accepted for URL uniqueness in HTMX routing
+    but the reader uses the globally configured repo from settings.
     """
-    from agentception.readers.github import get_issue_comments
-
     comments: list[dict[str, object]] = []
     try:
         comments = await get_issue_comments(number)
@@ -37,11 +47,13 @@ async def issue_comments_partial(request: Request, number: int) -> object:
     )
 
 
-@router.get("/prs/{number}/checks")
-async def pr_checks_partial(request: Request, number: int) -> object:
-    """HTMX partial: render CI check statuses for PR #{number}."""
-    from agentception.readers.github import get_pr_checks
+@router.get("/prs/{repo}/{number}/checks", response_class=HTMLResponse)
+async def pr_checks_partial(request: Request, repo: str, number: int) -> HTMLResponse:
+    """HTMX partial: render CI check statuses for PR #{number}.
 
+    The ``repo`` path segment is accepted for URL uniqueness in HTMX routing
+    but the reader uses the globally configured repo from settings.
+    """
     checks: list[dict[str, object]] = []
     error: str | None = None
     try:
@@ -57,11 +69,13 @@ async def pr_checks_partial(request: Request, number: int) -> object:
     )
 
 
-@router.get("/prs/{number}/reviews")
-async def pr_reviews_partial(request: Request, number: int) -> object:
-    """HTMX partial: render review decisions for PR #{number}."""
-    from agentception.readers.github import get_pr_reviews
+@router.get("/prs/{repo}/{number}/reviews", response_class=HTMLResponse)
+async def pr_reviews_partial(request: Request, repo: str, number: int) -> HTMLResponse:
+    """HTMX partial: render review decisions for PR #{number}.
 
+    The ``repo`` path segment is accepted for URL uniqueness in HTMX routing
+    but the reader uses the globally configured repo from settings.
+    """
     reviews: list[dict[str, object]] = []
     error: str | None = None
     try:
@@ -77,8 +91,8 @@ async def pr_reviews_partial(request: Request, number: int) -> object:
     )
 
 
-@router.get("/issues/approval-queue")
-async def approval_queue_partial(request: Request) -> object:
+@router.get("/issues/approval-queue", response_class=HTMLResponse)
+async def approval_queue_partial(request: Request) -> HTMLResponse:
     """HTMX partial: render the list of issues pending human approval.
 
     Fetches all open issues, retains those whose label set intersects the
@@ -86,9 +100,6 @@ async def approval_queue_partial(request: Request) -> object:
     carry the ``"approved"`` label.  Renders ``partials/approval_queue.html``
     so callers can embed it via ``hx-get`` with a polling trigger.
     """
-    from agentception.readers.github import get_open_issues
-    from agentception.readers.pipeline_config import read_pipeline_config
-
     approval_labels: list[str] = _DEFAULT_APPROVAL_LABELS
     try:
         config = await read_pipeline_config()
@@ -125,8 +136,8 @@ async def approval_queue_partial(request: Request) -> object:
     )
 
 
-@router.post("/issues/{number}/approve")
-async def approve_issue(request: Request, number: int) -> object:
+@router.post("/issues/{repo}/{number}/approve", response_class=HTMLResponse)
+async def approve_issue(request: Request, repo: str, number: int) -> HTMLResponse:
     """HTMX action: add the ``approved`` label to an issue.
 
     Ensures the ``approved`` label exists on the repo (idempotent), then adds
@@ -135,9 +146,10 @@ async def approve_issue(request: Request, number: int) -> object:
 
     Emits an ``HX-Trigger`` response header carrying a toast notification so
     the dashboard's global toast handler can surface confirmation to the user.
-    """
-    from agentception.readers.github import add_label_to_issue, ensure_label_exists
 
+    The ``repo`` path segment is accepted for URL uniqueness in HTMX routing
+    but the reader uses the globally configured repo from settings.
+    """
     try:
         await ensure_label_exists(
             "approved",

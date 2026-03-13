@@ -18,7 +18,7 @@
   <div class="agents-empty__title">No agents running</div>
   <p class="agents-empty__body">
     The pipeline is idle. Agents appear here when worktrees with
-    <code>.agent-task</code> files are active.
+    agents with active DB context are running.
   </p>
   <a href="/agents/spawn" class="btn btn-primary mt-1">Spawn an agent</a>
 </div>
@@ -84,9 +84,9 @@
         {% endif %}
         {% if persona.raw %}
         <a
-          href="/cognitive-arch/{{ persona.raw | urlencode }}"
+          href="/cognitive-arch/{{ persona.raw | replace(':', '-') }}"
           class="agent-arch-link"
-          @click.prevent.stop="window.location='/cognitive-arch/{{ persona.raw }}'"
+          @click.prevent.stop="window.location='/cognitive-arch/{{ persona.raw | replace(':', '-') }}'"
           title="View cognitive architecture"
         >{{ persona.archetype_emoji }}</a>
         {% endif %}

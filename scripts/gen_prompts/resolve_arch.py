@@ -375,16 +375,17 @@ def _resolve_display_names(
 def _normalize_arch_display(arch: str) -> str:
     """Normalize a COGNITIVE_ARCH string for display.
 
-    Strips the 'the_' prefix from archetype names and removes underscores so
-    figure IDs read as single clean tokens: the_guardian → guardian,
-    von_neumann → vonneumann.  Skill tokens (after the first colon) are left
-    unchanged — they have no underscores and are already idiomatic.
+    Strips the 'the_' prefix from archetype layer names only.
+    Underscores in person-name figure IDs (e.g. guido_van_rossum,
+    von_neumann) are preserved — removing them collapses multi-word names
+    into unreadable blobs.  Skill tokens (after the first colon) are left
+    unchanged.
     """
     def norm(token: str) -> str:
         t = token.strip()
         if t.startswith("the_"):
             t = t[4:]
-        return t.replace("_", "")
+        return t
 
     parts = arch.split(":")
     parts[0] = ",".join(norm(f) for f in parts[0].split(","))
@@ -396,8 +397,7 @@ def render_fingerprint(
     role: str,
     session: str,
     batch: str,
-    wave: str,
-    vp: str,
+    coordinator: str,
     started_at: str = "",
 ) -> str:
     """Render the canonical agent fingerprint as a collapsible GitHub markdown block.
@@ -405,12 +405,11 @@ def render_fingerprint(
     This is the single source of truth for fingerprint format. All agents call
     this and embed the output verbatim — same block, same format, everywhere.
 
-    Every fingerprint shows the full three-tier chain:
+    Every fingerprint shows the full lineage chain:
       Role + Architecture (who the agent is)
-      CTO Wave (which wave the CTO dispatched)
-      VP Batch (which batch the VP assembled)
-      VP (which VP identity spawned this agent)
-      Timestamp (when this fingerprint was written — always present)
+      Batch (coordinator batch ID — "none" for root agents)
+      Coordinator (which coordinator identity spawned this agent)
+      Claimed at (timestamp — always present)
 
     Pass started_at (ISO-8601 string) to use a specific timestamp; otherwise
     the current UTC time is used so every fingerprint always carries a timestamp.
@@ -420,15 +419,18 @@ def render_fingerprint(
     arch_display = _normalize_arch_display(arch)
     timestamp = started_at if started_at else _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+    # Always present
     rows = [
         f"| **Role** | `{role}` |",
         f"| **Architecture** | `{arch_display}` |",
         f"| **Session** | `{session}` |",
-        f"| **CTO Wave** | `{wave}` |",
-        f"| **VP Batch** | `{batch}` |",
-        f"| **VP** | `{vp}` |",
-        f"| **Timestamp** | `{timestamp}` |",
     ]
+    # Org-hierarchy fields — omitted when the agent has no coordinator above it
+    if batch and batch != "none":
+        rows.append(f"| **Batch** | `{batch}` |")
+    if coordinator and coordinator != "unset":
+        rows.append(f"| **Coordinator** | `{coordinator}` |")
+    rows.append(f"| **Claimed at** | `{timestamp}` |")
 
     lines = [
         "<details>",
@@ -466,9 +468,8 @@ def main() -> None:
     )
     parser.add_argument("--role", default="unset", help="Agent role for fingerprint.")
     parser.add_argument("--session", default="unset", help="Agent session ID for fingerprint.")
-    parser.add_argument("--batch", default="none", help="VP batch ID for fingerprint.")
-    parser.add_argument("--wave", default="unset", help="CTO wave ID for fingerprint.")
-    parser.add_argument("--vp", default="unset", help="VP fingerprint string.")
+    parser.add_argument("--batch", default="none", help="Coordinator batch ID for fingerprint.")
+    parser.add_argument("--coordinator", default="unset", help="Coordinator fingerprint string.")
     parser.add_argument("--started-at", default="", help="ISO-8601 start timestamp (reviewer context).")
     args = parser.parse_args()
 
@@ -478,8 +479,7 @@ def main() -> None:
             role=args.role,
             session=args.session,
             batch=args.batch,
-            wave=args.wave,
-            vp=args.vp,
+            coordinator=args.coordinator,
             started_at=args.started_at,
         ))
         return

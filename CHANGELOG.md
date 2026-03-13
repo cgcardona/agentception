@@ -9,6 +9,11 @@ See [CONTRIBUTING](docs/guides/contributing.md) for commit conventions and PR gu
 
 ## [Unreleased]
 
+### Added
+
+- Plan done state: copyable `batch_id` pill and "Open in Build →" link. After a successful plan launch, the done state now displays a copyable `batch_id` pill and an anchor that navigates to `/build?initiative=<initiative_name>`. Both `ac_active_batch` and `ac_active_initiative` are written to `localStorage` so the persistent batch bar can pick them up automatically.
+- Frontend build toolchain: added `package.json` with esbuild and CodeMirror dependencies. Run `npm run build:js` to rebuild `agentception/static/app.js`, `npm run build:css` for the stylesheet, or `npm run build` for both.
+
 ## [0.3.0] – 2026-03-04 <!-- TODO: fill in release date -->
 
 ### Added
@@ -28,7 +33,7 @@ See [CONTRIBUTING](docs/guides/contributing.md) for commit conventions and PR gu
 
 ### Added
 
-- Standalone extraction from the maestro monorepo; `cgcardona/agentception` established as an independent repository.
+- Established `cgcardona/agentception` as an independent repository.
 - Initial project scaffold: FastAPI application with Jinja2/HTMX/Alpine.js build dashboard.
 - Docker Compose setup with bind mounts for fast development iteration (no rebuild required for code changes).
 - Base agent infrastructure: `.agentception/` configuration directory, cognitive architecture scripts, and dispatcher prompt.

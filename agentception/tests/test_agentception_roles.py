@@ -29,7 +29,7 @@ from agentception.app import app
 from agentception.models import RoleMeta
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def client() -> Generator[TestClient, None, None]:
     """Synchronous test client that handles lifespan correctly."""
     with TestClient(app) as c:
@@ -42,7 +42,7 @@ def tmp_repo(tmp_path: Path) -> Path:
     roles_dir = tmp_path / ".agentception" / "roles"
     roles_dir.mkdir(parents=True)
     (roles_dir / "cto.md").write_text("# CTO\nLeads engineering.", encoding="utf-8")
-    (roles_dir / "python-developer.md").write_text(
+    (roles_dir / "developer.md").write_text(
         "# Python Developer\nWrites code.", encoding="utf-8"
     )
     return tmp_path
@@ -69,7 +69,7 @@ def test_list_roles_returns_all_managed_files(
     slugs = {item["slug"] for item in response.json()}
     # Only files that exist in tmp_repo are returned
     assert "cto" in slugs
-    assert "python-developer" in slugs
+    assert "developer" in slugs
     # Files not created in tmp_repo are absent
     assert "engineering-coordinator" not in slugs
 
@@ -525,9 +525,9 @@ def test_new_worker_roles_in_managed_files(client: TestClient) -> None:
     data = response.json()
     slugs = {r["slug"] for r in data}
     new_workers = {
-        "frontend-developer", "full-stack-developer", "mobile-developer",
-        "systems-programmer", "ml-engineer", "data-engineer", "devops-engineer",
-        "security-engineer", "test-engineer", "architect", "api-developer",
+        "developer", "developer", "developer",
+        "developer", "ml-engineer", "data-engineer", "devops-engineer",
+        "security-engineer", "test-engineer", "architect", "developer",
         "technical-writer",
     }
     for slug in new_workers:

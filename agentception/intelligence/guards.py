@@ -1,10 +1,8 @@
-from __future__ import annotations
-
 """Pipeline guard functions for the AgentCeption intelligence layer.
 
 Contains two families of guards:
 
-**Stale-claim detection** (AC-404): An issue carrying ``agent:wip`` with no
+**Stale-claim detection** (AC-404): An issue carrying ``agent/wip`` with no
 corresponding worktree on the local filesystem indicates an agent that was
 killed or crashed before removing its label, leaving the issue permanently
 locked out of the scheduling pool.
@@ -21,15 +19,16 @@ Public API:
 - ``detect_out_of_order_prs()``— main detection coroutine; called by poller
                                   and the /api/intelligence/pr-violations route
 """
+from __future__ import annotations
 
 import logging
 import re
 from pathlib import Path
 
+from pydantic import BaseModel
+
 from agentception.models import StaleClaim
 from agentception.readers.github import get_active_label, get_issue, get_open_prs_with_body
-
-from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +45,9 @@ async def detect_stale_claims(
     wip_issues: list[dict[str, object]],
     worktrees_dir: Path,
 ) -> list[StaleClaim]:
-    """Detect issues with ``agent:wip`` label but no corresponding worktree.
+    """Detect issues with ``agent/wip`` label but no corresponding worktree.
 
-    For each open issue labelled ``agent:wip``, computes the expected worktree
+    For each open issue labelled ``agent/wip``, computes the expected worktree
     path ``worktrees_dir / f"issue-{number}"``.  When that path does not exist
     on the filesystem, the issue is classified as a stale claim.
 

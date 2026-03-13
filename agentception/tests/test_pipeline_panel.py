@@ -28,9 +28,15 @@ from agentception.models import AgentNode, AgentStatus, BoardIssue, PipelineStat
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def client() -> Generator[TestClient, None, None]:
-    """Synchronous test client with full lifespan."""
+    """Module-scoped test client.
+
+    Scoped to module so the lifespan (DB init + poller task) starts and stops
+    exactly once for all HTTP route tests in this file, avoiding repeated
+    startup/shutdown overhead.  The poller is replaced by _noop_polling_loop
+    via the session-scoped autouse fixture in conftest.py.
+    """
     with TestClient(app) as c:
         yield c
 
@@ -38,9 +44,9 @@ def client() -> Generator[TestClient, None, None]:
 @pytest.fixture()
 def labels() -> list[str]:
     return [
-        "ac-ui/0-critical-bugs",
-        "ac-ui/1-design-tokens",
-        "ac-ui/2-data-model",
+        "phase/0",
+        "phase/1",
+        "phase/2",
     ]
 
 
@@ -48,16 +54,16 @@ def labels() -> list[str]:
 def state_with_lanes(labels: list[str]) -> PipelineState:
     """PipelineState with board issues spread across two phases."""
     return PipelineState(
-        active_label="ac-ui/0-critical-bugs",
+        active_label="phase/0",
         issues_open=3,
         prs_open=0,
         agents=[],
         alerts=[],
         polled_at=time.time(),
         board_issues=[
-            BoardIssue(number=10, title="Bug alpha", phase_label="ac-ui/0-critical-bugs"),
-            BoardIssue(number=11, title="Bug beta", phase_label="ac-ui/0-critical-bugs"),
-            BoardIssue(number=20, title="Token issue", phase_label="ac-ui/1-design-tokens"),
+            BoardIssue(number=10, title="Bug alpha", phase_label="phase/0"),
+            BoardIssue(number=11, title="Bug beta", phase_label="phase/0"),
+            BoardIssue(number=20, title="Token issue", phase_label="phase/1"),
         ],
     )
 
@@ -83,9 +89,8 @@ def _make_pipeline_cfg(labels: list[str]) -> object:
 
     return _PC.model_validate(
         {
-            "max_eng_vps": 1,
-            "max_qa_vps": 1,
-            "pool_size_per_vp": 4,
+            "coordinator_limits": {"engineering-coordinator": 1, "qa-coordinator": 1},
+            "pool_size": 4,
             "active_labels_order": labels,
         }
     )
@@ -94,39 +99,39 @@ def _make_pipeline_cfg(labels: list[str]) -> object:
 def test_overview_returns_200_with_phase_lanes(
     client: TestClient, state_with_lanes: PipelineState, labels: list[str]
 ) -> None:
-    """GET / must return HTTP 200 even when phase lanes are populated."""
+    """GET /overview must return HTTP 200 even when phase lanes are populated."""
     mock_cfg = AsyncMock(return_value=_make_pipeline_cfg(labels))
     with (
         patch("agentception.routes.ui.overview.get_state", return_value=state_with_lanes),
         patch("agentception.routes.ui.overview.read_pipeline_config", mock_cfg),
     ):
-        response = client.get("/")
+        response = client.get("/overview")
     assert response.status_code == 200
 
 
 def test_overview_contains_phase_lanes_section(
     client: TestClient, state_with_lanes: PipelineState, labels: list[str]
 ) -> None:
-    """GET / HTML must include the phase-lanes CSS class when lanes are computed."""
+    """GET /overview HTML must include the phase-lanes CSS class when lanes are computed."""
     mock_cfg = AsyncMock(return_value=_make_pipeline_cfg(labels))
     with (
         patch("agentception.routes.ui.overview.get_state", return_value=state_with_lanes),
         patch("agentception.routes.ui.overview.read_pipeline_config", mock_cfg),
     ):
-        response = client.get("/")
+        response = client.get("/overview")
     assert "phase-lanes" in response.text
 
 
 def test_overview_phase_lanes_show_label_names(
     client: TestClient, state_with_lanes: PipelineState, labels: list[str]
 ) -> None:
-    """GET / HTML must render the phase label names inside the lane strip."""
+    """GET /overview HTML must render the phase label names inside the lane strip."""
     mock_cfg = AsyncMock(return_value=_make_pipeline_cfg(labels))
     with (
         patch("agentception.routes.ui.overview.get_state", return_value=state_with_lanes),
         patch("agentception.routes.ui.overview.read_pipeline_config", mock_cfg),
     ):
-        response = client.get("/")
+        response = client.get("/overview")
     for lbl in labels:
         assert lbl in response.text
 
@@ -134,20 +139,20 @@ def test_overview_phase_lanes_show_label_names(
 def test_overview_phase_lanes_gate_badges_present(
     client: TestClient, state_with_lanes: PipelineState, labels: list[str]
 ) -> None:
-    """GET / HTML must include at least one phase-gate-badge element."""
+    """GET /overview HTML must include at least one phase-gate-badge element."""
     mock_cfg = AsyncMock(return_value=_make_pipeline_cfg(labels))
     with (
         patch("agentception.routes.ui.overview.get_state", return_value=state_with_lanes),
         patch("agentception.routes.ui.overview.read_pipeline_config", mock_cfg),
     ):
-        response = client.get("/")
+        response = client.get("/overview")
     assert "phase-gate-badge" in response.text
 
 
 def test_overview_waiting_lane_shows_blocker_link(
     client: TestClient, state_with_lanes: PipelineState, labels: list[str]
 ) -> None:
-    """GET / HTML must render blocker issue links for waiting-status lanes.
+    """GET /overview HTML must render blocker issue links for waiting-status lanes.
 
     Phase ac-ui/1-design-tokens has open issues while ac-ui/0-critical-bugs
     also has open issues, so it must be gated (waiting) and show blockers.
@@ -157,7 +162,7 @@ def test_overview_waiting_lane_shows_blocker_link(
         patch("agentception.routes.ui.overview.get_state", return_value=state_with_lanes),
         patch("agentception.routes.ui.overview.read_pipeline_config", mock_cfg),
     ):
-        response = client.get("/")
+        response = client.get("/overview")
     # The blocker links point to upstream phase issues (#10 or #11).
     assert "blocker-link" in response.text or "#10" in response.text or "#11" in response.text
 

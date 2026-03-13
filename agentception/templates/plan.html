@@ -4,58 +4,71 @@
 {#
   Plan — Step 1.A + 1.B
   ─────────────────────────────────────────────────────────────────────────────
-  Three states managed by Alpine (planForm in plan.js):
-    write    — textarea input, seeds, submit
-    review   — Monaco YAML editor, editable, validate + launch
-    done     — success summary, batch ID, next steps
+  Five states managed by Alpine (planForm in plan.ts):
+    write      — textarea input, seeds, submit
+    generating — SSE stream live-preview, cancel button
+    review     — CodeMirror 6 YAML editor, editable, validate + launch
+    launching  — issue-filing SSE in progress, progress strip
+    done       — success summary, batch ID, next steps
 
   No right sidebar. The coordinator pipeline happens after Submit — it's not
   a UI step, so we don't show it here.
 
-  JS     : plan.js  →  planForm()
+  JS     : plan.ts  →  planForm()
   CSS    : app.css  §  Plan
   ─────────────────────────────────────────────────────────────────────────────
 #}
 
 <div
   class="plan-page"
-  x-data="planForm()"
+  x-data='planForm({ ghRepo: {{ gh_repo | tojson }} })'
   x-init="init()"
 >
 
   {# ── Progress indicator ──────────────────────────────────────────────── #}
   <nav class="plan-stepper" aria-label="Progress">
-    <div class="plan-step"
-         :class="step === 'write' || step === 'generating' ? 'plan-step--active' : 'plan-step--done'"
-         :aria-current='step === "write" || step === "generating" ? "step" : "false"'>
+    <button
+      class="plan-step plan-step--btn"
+      :class="step === 'write' || step === 'generating' ? 'plan-step--active' : 'plan-step--done'"
+      :aria-current='step === "write" || step === "generating" ? "step" : "false"'
+      :disabled="step === 'write' || step === 'generating' || step === 'launching'"
+      @click="reset()"
+      title="Back to Write"
+    >
       <span class="plan-step-bubble">
         <span class="plan-step-check" x-show="step !== 'write' && step !== 'generating'" aria-hidden="true">✓</span>
         <span class="plan-step-num"   x-show="step === 'write' || step === 'generating'" aria-hidden="true">1</span>
       </span>
       <span class="plan-step-label">Write</span>
-    </div>
+    </button>
 
     <div class="plan-step-conn" :class="{'plan-step-conn--lit': step === 'review' || step === 'launching' || step === 'done'}" aria-hidden="true"></div>
 
-    <div class="plan-step"
-         :class="step === 'review' || step === 'launching' ? 'plan-step--active'
-               : step === 'done' ? 'plan-step--done'
-               : 'plan-step--future'"
-         :aria-current='step === "review" || step === "launching" ? "step" : "false"'>
+    <button
+      class="plan-step plan-step--btn"
+      :class="step === 'review' || step === 'launching' ? 'plan-step--active'
+            : step === 'done' ? 'plan-step--done'
+            : 'plan-step--future'"
+      :aria-current='step === "review" || step === "launching" ? "step" : "false"'
+      :disabled="step === 'launching'"
+      @click="skipToReview()"
+      title="Jump to Review"
+    >
       <span class="plan-step-bubble">
         <span class="plan-step-check" x-show="step === 'done'" aria-hidden="true">✓</span>
         <span class="plan-step-num"   x-show="step !== 'done'" aria-hidden="true">2</span>
       </span>
       <span class="plan-step-label">Review</span>
-    </div>
+    </button>
 
     <div class="plan-step-conn" :class="{'plan-step-conn--lit': step === 'done'}" aria-hidden="true"></div>
 
     <div class="plan-step"
-         :class="step === 'done' ? 'plan-step--active' : 'plan-step--future'"
+         :class="step === 'done' ? 'plan-step--done' : 'plan-step--future'"
          :aria-current='step === "done" ? "step" : "false"'>
       <span class="plan-step-bubble">
-        <span class="plan-step-num" aria-hidden="true">3</span>
+        <span class="plan-step-check" x-show="step === 'done'" aria-hidden="true">✓</span>
+        <span class="plan-step-num"   x-show="step !== 'done'" aria-hidden="true">3</span>
       </span>
       <span class="plan-step-label">Done</span>
     </div>
@@ -64,10 +77,10 @@
   {# ══════════════════════════════════════════════════════════════════════
      WRITE state — free-form text input
      ══════════════════════════════════════════════════════════════════════ #}
-  <div class="plan-write" x-show="step === 'write'" x-transition.opacity>
+  <div id="plan-write" class="plan-write" x-show="step === 'write'" x-transition.opacity>
 
-    <h1 class="plan-title">Messy thoughts → shipped work.</h1>
-    <p class="plan-sub">Dump everything — bugs, features, ideas, debt. Claude will structure it into phased GitHub issues.</p>
+    <h1 class="plan-title">The Singularity is here.</h1>
+    <p class="plan-sub">Paste anything — a rough idea, a wall of text, a list of tasks, a complaint about what's broken. AgentCeption structures it into a phase-gated plan of GitHub issues.</p>
 
     <div class="plan-textarea-wrap" :class="{'plan-textarea-wrap--focused': focused}">
       <textarea
@@ -79,7 +92,7 @@
         @blur="focused = false"
         @input="autoGrow($refs.textarea)"
         @keydown.meta.enter.prevent="submit()"
-        placeholder="e.g.&#10;- Fix the flaky login test when DB is slow&#10;- Migrate auth middleware to JWT&#10;- Add dark mode toggle&#10;- CSV export breaks for reports over 10k rows&#10;- Refactor legacy jQuery to Alpine.js&#10;..."
+        placeholder="e.g.&#10;- Auth is broken on mobile and rate limiting is missing on public endpoints&#10;- Build a billing dashboard: Stripe, invoice emails, subscription management&#10;- User settings page needs dark mode and email notification preferences&#10;- Export hangs for reports over 10k rows&#10;&#10;Or just paste a wall of text — AgentCeption will sort it out."
         :disabled="submitting"
         spellcheck="true"
       ></textarea>
@@ -131,11 +144,13 @@
             class="plan-input"
             type="text"
             x-model="labelPrefix"
+            @input="labelPrefix = labelPrefix.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-')"
             placeholder="e.g. auth-rewrite"
             :disabled="submitting"
             maxlength="40"
           />
         </div>
+        <p class="plan-input-hint" x-show="labelPrefix">kebab-case only — lowercase letters, numbers, hyphens</p>
       </div>
     </div>
 
@@ -159,7 +174,7 @@
   {# ══════════════════════════════════════════════════════════════════════
      GENERATING state — spinner while LLM works
      ══════════════════════════════════════════════════════════════════════ #}
-  <div class="plan-generating" x-show="step === 'generating'">
+  <div id="plan-generating" class="plan-generating" x-show="step === 'generating'">
     <div class="plan-gen-header">
       <div class="plan-spinner"></div>
       <div>
@@ -182,17 +197,17 @@
   </div>
 
   {# ══════════════════════════════════════════════════════════════════════
-     REVIEW state — Monaco YAML editor
+     REVIEW state — CodeMirror 6 YAML editor
      ══════════════════════════════════════════════════════════════════════ #}
-  <div class="plan-review" x-show="step === 'review' || step === 'launching'">
+  <div id="plan-review" class="plan-review" x-show="step === 'review' || step === 'launching'">
 
     <div class="plan-review-header">
       <div>
         <h2 class="plan-review-title">Review your plan</h2>
         <p class="plan-review-meta">
           <span x-text="initiative"></span> ·
-          <span x-text="phaseCount"></span> phases ·
-          <span x-text="issueCount"></span> issues
+          <span x-text="phaseCount"></span> <span x-text="phaseCount === 1 ? 'phase' : 'phases'"></span> ·
+               <span x-text="issueCount"></span> <span x-text="issueCount === 1 ? 'issue' : 'issues'"></span>
         </p>
       </div>
       <div class="plan-review-actions">
@@ -200,14 +215,14 @@
           class="btn btn-secondary"
           @click="editPlan()"
           :disabled="step === 'launching'"
-        >← Edit</button>
+        >← Edit plan</button>
         <button
           class="btn btn-primary"
           @click="launch()"
           :disabled="step === 'launching' || !yamlValid"
         >
           <span x-show="step !== 'launching'">Launch →</span>
-          <span x-show="step === 'launching'">Filing…</span>
+          <span x-show="step === 'launching'">Launching…</span>
         </button>
       </div>
     </div>
@@ -224,14 +239,14 @@
       <span x-text="yamlValidationMsg"></span>
     </div>
 
-    {# Monaco editor container #}
-    <div x-ref="yamlEditor" class="plan-yaml-editor"></div>
-
-    {# Filing progress strip — only visible during launching state #}
+    {# Filing progress strip — shown between validation and editor during launch #}
     <div class="plan-filing-progress" x-show="step === 'launching' && filingProgress" x-transition.opacity>
       <div class="plan-spinner plan-spinner--sm"></div>
       <span x-text="filingProgress"></span>
     </div>
+
+    {# CodeMirror 6 editor container #}
+    <div x-ref="yamlEditor" class="plan-yaml-editor"></div>
 
     <div class="plan-error" x-show="errorMsg" x-transition>
       <span x-text="errorMsg"></span>
@@ -240,36 +255,45 @@
   </div>
 
   {# ══════════════════════════════════════════════════════════════════════
-     DONE state — issues filed, links shown
+     DONE state — issues filed, summary + next steps
      ══════════════════════════════════════════════════════════════════════ #}
-  <div class="plan-done" x-show="step === 'done'" x-transition.opacity>
-    <div class="plan-done-badge">🚀</div>
-    <h2 class="plan-done-title">Issues filed</h2>
-    <p class="plan-done-sub">
-      <strong x-text="result.total || filedIssues.length"></strong> GitHub issues created
-      for initiative <strong x-text="result.initiative || initiative"></strong>.
-      Phase labels gate execution — engineers start on phase&#8209;0 first.
-    </p>
+  <div id="plan-done" class="plan-done" x-show="step === 'done'" x-transition.opacity>
 
-    {# Per-phase issue links #}
-    <div class="plan-done-issues">
-      <template x-for="phase in ['phase-0','phase-1','phase-2','phase-3']" :key="phase">
-        <div
-          class="plan-done-phase"
-          x-show="filedIssues.some(i => i.phase === phase)"
-        >
-          <h3 class="plan-done-phase-label" x-text="phase"></h3>
+    {# ── Hero ──────────────────────────────────────────────────────────── #}
+    <div class="plan-done-hero">
+      <div class="plan-done-initiative" x-text="initiative || 'Plan filed'"></div>
+      <div class="plan-done-hero-stats">
+        <span x-text="(result.phaseGroups || []).length || phaseCount"></span>
+        <span x-text="((result.phaseGroups || []).length || phaseCount) === 1 ? 'phase' : 'phases'"></span>
+        <span class="plan-done-sep">·</span>
+        <span x-text="issueCount"></span>
+        <span x-text="issueCount === 1 ? 'issue' : 'issues'"></span>
+        <span class="plan-done-sep">·</span>
+        <span class="plan-done-active-dot"></span>
+        <span x-text="(result.phaseGroups[0]?.phase ?? 'phase 0') + ' active'"></span>
+      </div>
+    </div>
+
+    {# ── Phase cards ───────────────────────────────────────────────────── #}
+    <div class="plan-done-phases">
+      <template x-for="group in (result.phaseGroups || [])" :key="group.phase">
+        <div class="plan-done-phase-card"
+             :class="group.isActive ? 'plan-done-phase-card--active' : 'plan-done-phase-card--blocked'">
+          <div class="plan-done-phase-header">
+            <code class="plan-done-phase-slug" x-text="group.phase"></code>
+            <span class="plan-done-phase-badge"
+                  :class="group.isActive ? 'plan-done-phase-badge--active' : 'plan-done-phase-badge--blocked'"
+                  x-text="group.isActive ? 'ACTIVE' : 'BLOCKED'"></span>
+            <span class="plan-done-phase-count"
+                  x-text="group.issues.length + (group.issues.length === 1 ? ' issue' : ' issues')"></span>
+          </div>
           <ul class="plan-done-issue-list">
-            <template x-for="issue in filedIssues.filter(i => i.phase === phase)" :key="issue.number">
+            <template x-for="iss in group.issues" :key="iss.number">
               <li class="plan-done-issue-item">
-                <a
-                  class="plan-done-issue-link"
-                  :href="issue.url"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <span class="plan-done-issue-num" x-text="'#' + issue.number"></span>
-                  <span class="plan-done-issue-title" x-text="issue.title"></span>
+                <a class="plan-done-issue-link" :href="iss.url" target="_blank" rel="noopener noreferrer">
+                  <span class="plan-done-issue-num" x-text="'#' + iss.number"></span>
+                  <span class="plan-done-issue-title" x-text="iss.title"></span>
+                  <span class="plan-done-issue-arrow" aria-hidden="true">↗</span>
                 </a>
               </li>
             </template>
@@ -278,10 +302,34 @@
       </template>
     </div>
 
-    <div class="plan-done-actions">
-      <a href="/org-chart" class="btn btn-primary">View org chart →</a>
-      <button class="btn btn-secondary" @click="reset()">← New plan</button>
+    {# ── Footer: batch ID + actions ────────────────────────────────────── #}
+    <div class="plan-done-footer">
+      <div class="plan-done-batch" x-show="batchId">
+        <span class="plan-done-batch-label">Batch</span>
+        <code class="plan-done-batch-id" x-text="batchId"></code>
+        <button
+          class="plan-done-batch-copy"
+          @click="copyBatchId()"
+          :title="batchIdCopied ? 'Copied!' : 'Copy'"
+          :aria-label="batchIdCopied ? 'Copied!' : 'Copy batch ID'"
+        >
+          <span x-show="!batchIdCopied">⎘</span>
+          <span x-show="batchIdCopied">✓</span>
+        </button>
+      </div>
+
+      <div class="plan-done-actions">
+        <button class="btn btn-ghost" @click="reset()">New plan</button>
+        <a
+          :href="'https://github.com/{{ gh_repo }}/issues?q=is%3Aopen+label%3A' + encodeURIComponent(initiative)"
+          target="_blank" rel="noopener noreferrer"
+          class="btn btn-secondary"
+        >View on GitHub ↗</a>
+        <a :href="initiative ? '/ship/{{ repo_name }}/' + initiative : '/ship'"
+           class="btn btn-primary">Dispatch agents →</a>
+      </div>
     </div>
+
   </div>
 
 </div>

@@ -39,7 +39,7 @@ AgentCeption has exactly two external interfaces:
 | MCP server | JSON-RPC 2.0 | Cursor — the only inference engine |
 
 **What AgentCeption is NOT:**
-- Not an LLM client — it never calls OpenRouter, Anthropic, or any model API directly.
+- Not an LLM client in the MCP sense — the MCP server itself does not call Anthropic; the agent loop in `services/agent_loop.py` does.
 - Not a Cursor fork — it is a standalone Python service that Cursor talks to.
 - Fully self-contained — `agentception/` has zero imports from external packages.
 
@@ -59,25 +59,25 @@ User: "Plan this idea: ..."
   → Cursor calls plan_validate_spec(yaml_text)
   → AgentCeption returns validation result (or errors)
   → Cursor calls plan_spawn_coordinator(manifest_json)
-  → AgentCeption creates worktree + .agent-task → returns path
+  → AgentCeption creates worktree + DB context row → returns run_id
 ```
 
-### Channel 2 — AgentCeption → Cursor (`.agent-task` file)
+### Channel 2 — AgentCeption → Cursor (DB context row)
 
-When AgentCeption needs Cursor to perform LLM work on behalf of the web UI, it writes a `.agent-task` file into a git worktree. Cursor's background agent poll loop detects the file, runs its LLM with the task as context, and writes the result back (to a file, GitHub PR, etc.). AgentCeption's poller detects the output and SSE-pushes it to the browser.
+When AgentCeption needs Cursor to perform LLM work on behalf of the web UI, it persists a `RunContextRow` to the DB and returns the `run_id`. Cursor's agent reads its context via the `ac://runs/{run_id}/context` MCP resource and the `task/briefing` MCP prompt. AgentCeption's poller detects the output and SSE-pushes it to the browser.
 
-**The `.agent-task` file is the AgentCeption-to-Cursor IPC channel.** It is filesystem-based, not HTTP.
+**The DB-backed `RunContextRow` is the AgentCeption-to-Cursor IPC channel.** It is database-backed, not filesystem-based. No `.agent-task` files are written or read.
 
 ```
 User fills "Plan" textarea in web UI → clicks "Generate"
-  → AgentCeption writes .agent-task (WORKFLOW=plan-spec, DUMP=..., OUTPUT_PATH=...)
-  → Cursor agent poll loop detects the file
-  → Cursor LLM generates YAML spec, writes to OUTPUT_PATH
-  → AgentCeption poller detects OUTPUT_PATH, reads YAML
+  → AgentCeption calls build_spawn_child → persists context to DB → returns run_id
+  → Cursor agent reads ac://runs/{run_id}/context for full task briefing
+  → Cursor LLM generates YAML spec, writes result back via MCP or GitHub PR
+  → AgentCeption poller detects output, reads result
   → SSE pushes YAML to browser → user reviews and edits
   → User clicks "Launch"
   → AgentCeption calls plan_spawn_coordinator(manifest_json) internally
-  → New Cursor agent picks up the coordinator .agent-task
+  → New Cursor agent reads its own DB context row
 ```
 
 This means the brain dump can live entirely in the AgentCeption web UI — the user never has to open Cursor. Cursor does the inference in the background.
@@ -110,7 +110,7 @@ graph TD
 
     subgraph "External"
         GH[GitHub API]
-        WT[Git Worktrees\n+ .agent-task files]
+        WT[Git Worktrees\n+ DB context row]
         CFG[pipeline-config.json]
     end
 
@@ -166,7 +166,7 @@ That's it. The dashboard auto-refreshes every 5 seconds.
 
 ## Configuration Reference
 
-AgentCeption is configured via environment variables or via the `pipeline-config.json` file in your repository's `.cursor/` directory.
+AgentCeption is configured via environment variables or via the `pipeline-config.json` file in your repository's `.agentception/` directory.
 
 ### Environment Variables
 
@@ -183,7 +183,7 @@ AgentCeption is configured via environment variables or via the `pipeline-config
 
 ### `pipeline-config.json` Schema
 
-Place this file at `<your-repo>/.cursor/pipeline-config.json`:
+Place this file at `<your-repo>/.agentception/pipeline-config.json`:
 
 ```jsonc
 {
@@ -206,9 +206,9 @@ Place this file at `<your-repo>/.cursor/pipeline-config.json`:
   // A/B testing configuration for role variants
   "ab_mode": {
     "enabled": false,
-    "target_role": "python-developer",
-    "variant_a_file": ".cursor/roles/python-developer.md",
-    "variant_b_file": ".cursor/roles/python-developer-v2.md"
+    "target_role": "developer",
+    "variant_a_file": ".agentception/roles/developer.md",
+    "variant_b_file": ".agentception/roles/developer-v2.md"
   },
 
   // Multi-repo support: list projects and set the active one
@@ -266,9 +266,9 @@ curl -X POST http://localhost:10003/api/templates/import \
 
 ### Minimal Manual Setup
 
-1. Copy `.cursor/pipeline-config.json` from this repo to your target repo, updating `gh_repo`, `repo_dir`, and `worktrees_dir`.
+1. Copy `.agentception/pipeline-config.json` from this repo to your target repo, updating `gh_repo`, `repo_dir`, and `worktrees_dir`.
 2. Create GitHub issue labels matching your `active_labels_order` entries.
-3. Create role files at `.cursor/roles/<role-name>.md`.
+3. Create role files at `.agentception/roles/<role-name>.md`.
 4. Launch AgentCeption with `REPO_DIR=/path/to/new-repo agentception`.
 
 ---

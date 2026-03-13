@@ -1,0 +1,64 @@
+## Environment
+
+**You are running inside a git worktree.** Your working directory is an isolated
+checkout created from the target base branch. It is NOT the main repository.
+
+```bash
+# Derive paths — run these at the start of your session
+REPO=$(git worktree list | head -1 | awk '{print $1}')   # filesystem path to main repo
+WTNAME=$(basename "$(pwd)")                               # this worktree's name
+
+# Inside Docker the worktree is mounted at:
+# /worktrees/$WTNAME
+```
+
+| Item | Value |
+|------|-------|
+| Your worktree root | current directory |
+| Main repo (local path) | first entry of `git worktree list` |
+| GitHub repo slug | from your task briefing (`ac://runs/{your_run_id}/context`) |
+| Docker compose location | main repo |
+| Your worktree inside Docker | `/worktrees/$WTNAME` |
+
+**All `docker compose exec` commands must be run from the main repo:**
+```bash
+cd "$REPO" && docker compose exec agentception <cmd>
+```
+
+### Docker sees your worktree directly — no file copying needed
+
+`docker-compose.override.yml` bind-mounts the entire worktrees directory into
+the container. After creating your feature branch, your worktree's code is
+**immediately live inside the container at `/worktrees/$WTNAME/`**:
+
+```bash
+REPO=$(git worktree list | head -1 | awk '{print $1}')
+WTNAME=$(basename "$(pwd)")
+
+# mypy
+cd "$REPO" && docker compose exec agentception sh -c "PYTHONPATH=/worktrees/$WTNAME mypy /worktrees/$WTNAME/agentception/"
+
+# pytest
+cd "$REPO" && docker compose exec agentception sh -c \
+  "PYTHONPATH=/worktrees/$WTNAME pytest /worktrees/$WTNAME/agentception/tests/test_<module>.py -v"
+```
+
+**⚠️ NEVER copy files into the main repo** for testing purposes. That pollutes
+the `dev` branch with uncommitted changes.
+
+> **Alembic exception:** `alembic revision --autogenerate` must run from the main repo
+> because it needs a live DB connection. After generating, immediately `git mv` the
+> migration file into your worktree and delete the copy from the main repo.
+
+### GitHub via MCP — always prefer MCP over `gh`
+
+{% include 'snippets/github-mcp-reference.md.j2' %}
+
+### Command policy
+
+Summary:
+- **Green (auto-allow):** `ls`, `git status/log/diff/fetch`, `issue_read (user-github)`, `list_pull_requests (user-github)`, `mypy`, `pytest`, `rg`
+- **Yellow (review before running):** `docker compose build`, `rm <single file>`, `git rebase`
+- **Red (never):** `rm -rf`, `git push --force`, `git push origin dev`, `docker system prune`
+
+---

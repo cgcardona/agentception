@@ -8,42 +8,77 @@
 set -euo pipefail
 GH_REPO="cgcardona/agentception"
 
-# Helper: create label if absent, otherwise update color + description.
+# Helper: create or update a label idempotently.
+# gh label create --force creates if absent, updates if present.
 sync_label() {
   local name="$1" color="$2" desc="$3"
-  if gh label list --repo "$GH_REPO" --limit 200 | grep -q "^${name}\b"; then
-    gh label edit "$name" --repo "$GH_REPO" --color "$color" --description "$desc"
-    echo "  ✏️  updated: $name"
+  if gh label create "$name" --repo "$GH_REPO" --color "$color" --description "$desc" --force 2>&1; then
+    echo "  ✅ synced: $name"
   else
-    gh label create "$name" --repo "$GH_REPO" --color "$color" --description "$desc"
-    echo "  ✅ created: $name"
+    echo "  ❌ failed: $name"
   fi
 }
 
-echo '── Claim label ──────────────────────────────────────────────'
-sync_label 'agent:wip' '0075ca' 'Claimed by a pipeline agent — do not assign manually'
+echo '── Claim ───────────────────────────────────────────────────'
+sync_label 'agent/wip' '0075ca' 'Claimed by a pipeline agent — do not assign manually'
 
-echo '── Project label ────────────────────────────────────────────'
-sync_label 'ac-ui' '7c3aed' 'AgentCeption UI — bug fixes, design system, and UX improvements'
+echo '── Pipeline ────────────────────────────────────────────────'
+sync_label 'pipeline/active' '2ecc71' 'Ready for agent dispatch — phase gate is open'
+sync_label 'pipeline/gated' 'd73a4a' 'Phase gate closed — prior phase must complete before dispatch'
+sync_label 'blocked/deps' 'cfd3d7' 'Has open ticket dependencies — poller removes once all deps close'
 
-echo '── Phase labels ─────────────────────────────────────────────'
-sync_label 'ac-ui/0-critical-bugs' 'd63939' 'AC-UI Phase 0 · Critical bugs — CSS crashes, undefined vars, broken Jinja filters'
-sync_label 'ac-ui/1-design-tokens' '6741d9' 'AC-UI Phase 1 · Design tokens — unify CSS vocabulary, remove hardcoded URLs'
-sync_label 'ac-ui/2-data-model' '1098ad' 'AC-UI Phase 2 · Data model — fix status mismatch, staleness, live data contracts'
-sync_label 'ac-ui/3-core-pages' '0d6efd' 'AC-UI Phase 3 · Core pages — overview, agents list, agent detail UX'
-sync_label 'ac-ui/4-controls-intelligence' 'f59f00' 'AC-UI Phase 4 · Controls & Intelligence — controls hub, DAG, A/B, telemetry'
-sync_label 'ac-ui/5-polish' '198754' 'AC-UI Phase 5 · Polish — toast system, keyboard a11y, responsive, settings'
+echo '── Special ─────────────────────────────────────────────────'
+sync_label 'conductor-reminder' 'e4e669' 'Open: pipeline incomplete — re-run agent-conductor.md'
 
-echo '── Utility labels ───────────────────────────────────────────'
-sync_label 'bug' 'd73a4a' 'Something isn'\''t working'
-sync_label 'enhancement' 'a2eeef' 'New feature or request'
-sync_label 'documentation' '0075ca' 'Improvements or additions to documentation'
-sync_label 'testing' '10b981' 'Test coverage — unit, integration, e2e'
-sync_label 'mypy' '0ea5e9' 'Type errors or mypy compliance required'
-sync_label 'good first issue' '7057ff' 'Good for newcomers'
-sync_label 'help wanted' '008672' 'Extra attention is needed'
-sync_label 'duplicate' 'cfd3d7' 'This issue or pull request already exists'
-sync_label 'wontfix' 'ffffff' 'This will not be worked on'
+echo '── Teams ───────────────────────────────────────────────────'
+sync_label 'team/engineering' '7c3aed' 'Engineering team (owned by CTO)'
+sync_label 'team/qa' '0075ca' 'QA team (owned by CTO)'
+sync_label 'team/marketing' 'f59f00' 'Marketing team (owned by CMO)'
+sync_label 'team/data' '1098ad' 'Data team (owned by CDO)'
+sync_label 'team/security' 'd63939' 'Security team (owned by CISO)'
+sync_label 'team/infrastructure' '198754' 'Infrastructure team (owned by CTO)'
+sync_label 'team/mobile' '6741d9' 'Mobile team (owned by CTO)'
+sync_label 'team/platform' '0d6efd' 'Platform team (owned by CTO)'
+sync_label 'team/ml' 'e8a2f4' 'ML team (owned by CDO)'
+sync_label 'team/design' 'f4a261' 'Design team (owned by CPO)'
+sync_label 'team/product' 'e76f51' 'Product team (owned by CPO)'
+
+echo '── Phases ──────────────────────────────────────────────────'
+sync_label 'phase/0' 'd63939' 'Phase 0 — highest priority, blocks all later phases'
+sync_label 'phase/1' 'e67e22' 'Phase 1'
+sync_label 'phase/2' 'f59f00' 'Phase 2'
+sync_label 'phase/3' '2ecc71' 'Phase 3'
+sync_label 'phase/4' '1abc9c' 'Phase 4'
+sync_label 'phase/5' '0d6efd' 'Phase 5'
+
+echo '── Batches ─────────────────────────────────────────────────'
+sync_label 'batch/critical-bugs' 'd63939' 'Batch: critical bug fixes'
+sync_label 'batch/design-tokens' '6741d9' 'Batch: design system tokens and CSS vocabulary'
+sync_label 'batch/data-model' '1098ad' 'Batch: data model, status, and live data contracts'
+sync_label 'batch/core-pages' '0d6efd' 'Batch: core page UX — overview, agents list, agent detail'
+sync_label 'batch/controls' 'f59f00' 'Batch: controls hub, DAG, telemetry, intelligence'
+sync_label 'batch/polish' '198754' 'Batch: polish — a11y, responsive, toast, settings'
+
+echo '── Priorities ──────────────────────────────────────────────'
+sync_label 'priority/critical' 'd63939' 'Must be done immediately — blocks everything else'
+sync_label 'priority/high' 'e67e22' 'High priority — do this wave'
+sync_label 'priority/medium' 'f59f00' 'Normal priority'
+sync_label 'priority/low' 'a2eeef' 'Nice to have — do after higher-priority items'
+
+echo '── Gates ───────────────────────────────────────────────────'
+sync_label 'gate/db-migration' 'd63939' 'Human gate: Alembic migration — verify MERGE_AFTER chain first'
+sync_label 'gate/security' 'd73a4a' 'Human gate: security review required before dispatch'
+sync_label 'gate/api-contract' 'f59f00' 'Human gate: API contract change — coordinate with all consumers'
+
+echo '── Types ───────────────────────────────────────────────────'
+sync_label 'type/bug' 'd73a4a' 'Something isn'\''t working'
+sync_label 'type/feature' 'a2eeef' 'New feature or enhancement'
+sync_label 'type/docs' '0075ca' 'Improvements or additions to documentation'
+sync_label 'type/testing' '10b981' 'Test coverage — unit, integration, e2e'
+sync_label 'type/refactor' '6741d9' 'Code refactoring without behavior change'
+sync_label 'type/mypy' '0ea5e9' 'Type errors or mypy compliance required'
+sync_label 'type/good-first-issue' '7057ff' 'Good for newcomers'
+sync_label 'type/help-wanted' '008672' 'Extra attention is needed'
 
 echo ''
 echo '✅ Label sync complete.'

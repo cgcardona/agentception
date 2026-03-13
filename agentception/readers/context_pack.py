@@ -38,7 +38,7 @@ async def build_context_pack() -> str:
     from agentception.readers.github import (
         get_open_issues,
         get_merged_prs,
-        gh_json,
+        get_repo_labels,
     )
 
     repo = _cfg.gh_repo
@@ -46,19 +46,18 @@ async def build_context_pack() -> str:
 
     # ── Labels ───────────────────────────────────────────────────────────────
     try:
-        raw_labels = await gh_json(
-            ["label", "list", "--repo", repo, "--json", "name", "--limit", "100"],
-            "[.[].name]",
-            "context_pack:labels",
-        )
-        if isinstance(raw_labels, list):
-            label_names = [str(n) for n in raw_labels if isinstance(n, str)]
-            if label_names:
-                sections.append(
-                    "### Existing labels (reuse these — do not invent new ones)\n"
-                    + ", ".join(label_names)
-                    + "\n"
-                )
+        raw_labels = await get_repo_labels(limit=100)
+        label_names = [
+            str(lbl.get("name", ""))
+            for lbl in raw_labels
+            if lbl.get("name")
+        ]
+        if label_names:
+            sections.append(
+                "### Existing labels (reuse these — do not invent new ones)\n"
+                + ", ".join(label_names)
+                + "\n"
+            )
     except Exception as exc:
         logger.warning("⚠️ context_pack: could not fetch labels: %s", exc)
 

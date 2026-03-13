@@ -24,7 +24,7 @@ from agentception.models import AgentNode, AgentStatus
 from agentception.telemetry import WaveSummary
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def client() -> Generator[TestClient, None, None]:
     """Synchronous test client with full lifespan (poller starts and is immediately cancelled)."""
     with TestClient(app) as c:
@@ -43,8 +43,8 @@ def populated_waves() -> list[WaveSummary]:
     now = time.time()
     agent = AgentNode(
         id="issue-615",
-        role="python-developer",
-        status=AgentStatus.DONE,
+        role="developer",
+        status=AgentStatus.COMPLETED,
         issue_number=615,
         batch_id="eng-batch-A",
     )

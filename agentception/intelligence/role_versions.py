@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Role version tracking for AgentCeption (AC-503).
 
-Maintains ``.cursor/role-versions.json`` — a persistent ledger that records
+Maintains ``.agentception/role-versions.json`` — a persistent ledger that records
 which SHA of each managed role file was active during each agent batch/wave.
 This enables retrospective A/B testing and outcome correlation: given a
 batch ID, callers can retrieve the exact role file content that governed the
@@ -42,7 +42,7 @@ from agentception.config import settings
 
 logger = logging.getLogger(__name__)
 
-_ROLE_VERSIONS_REL = ".cursor/role-versions.json"
+_ROLE_VERSIONS_REL = ".agentception/role-versions.json"
 
 
 def _versions_path() -> Path:
@@ -64,7 +64,7 @@ async def read_role_versions() -> dict[str, object]:
     import json
 
     try:
-        text = await asyncio.get_event_loop().run_in_executor(
+        text = await asyncio.get_running_loop().run_in_executor(
             None, lambda: path.read_text(encoding="utf-8")
         )
         data: dict[str, object] = json.loads(text)
@@ -82,7 +82,7 @@ async def read_role_versions() -> dict[str, object]:
 async def write_role_versions(data: dict[str, object]) -> None:
     """Atomically write ``data`` to role-versions.json with 2-space indentation.
 
-    Creates the parent ``.cursor/`` directory if it does not yet exist so the
+    Creates the parent ``.agentception/`` directory if it does not yet exist so the
     first write (bootstrap scenario) succeeds without any pre-setup.
     """
     import json
@@ -91,7 +91,7 @@ async def write_role_versions(data: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
     serialised = json.dumps(data, indent=2)
-    await asyncio.get_event_loop().run_in_executor(
+    await asyncio.get_running_loop().run_in_executor(
         None, lambda: path.write_text(serialised + "\n", encoding="utf-8")
     )
     logger.info("✅ role-versions.json written (%d bytes)", len(serialised))

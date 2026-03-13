@@ -46,7 +46,7 @@ async def overview(request: Request) -> HTMLResponse:
     # Fire an immediate tick in the background so the SSE stream delivers
     # fresh data within seconds of the page loading — eliminates up-to-5s
     # staleness on hard refresh without adding latency to the initial render.
-    asyncio.get_event_loop().create_task(_poller_tick())
+    asyncio.create_task(_poller_tick())
 
     state = get_state() or PipelineState.empty()
     all_phase_labels: list[str] = []

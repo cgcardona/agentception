@@ -13,18 +13,25 @@ agentception/
   telemetry.py     → Structured logging setup
 
   routes/
-    api/           → JSON/SSE API endpoints
+    api/           → JSON/SSE API endpoints (including /api/runs/*/execute, /api/system/*)
     ui/            → Jinja2/HTMX/Alpine.js page handlers
 
+  middleware/      → Starlette middleware (auth.py — API key validation)
   readers/         → LLM planner, GitHub client, worktree manager, transcript reader
-  services/        → LLM calls (OpenRouter), external integrations
+  services/        → LLM calls (Anthropic API), agent loop, code indexer
+    llm.py         → call_anthropic(), call_anthropic_with_tools()
+    agent_loop.py  → Cursor-free agent execution loop
+    code_indexer.py → Qdrant codebase indexing + semantic search
+  tools/           → Local agent tools (file I/O, shell, semantic search definitions)
+    file_tools.py  → read_file, write_file, list_directory, search_text
+    shell_tools.py → run_command (with denylist)
+    definitions.py → OpenAI-format JSON schemas for all local tools
   mcp/             → MCP server for Cursor/Claude tool integration
   db/              → SQLAlchemy async models, Alembic migrations, engine
   intelligence/    → Cognitive architecture engine
   static/          → Compiled JS/CSS bundles (build with npm run build)
   templates/       → Jinja2 HTML templates
-  docs/            → Internal design documents (plan-spec, agent-tree-protocol, etc.)
-  tests/           → Unit, integration, regression, and E2E tests
+  tests/           → Unit, integration, regression, and E2E tests (single directory)
 ```
 
 ## Service Dependencies
@@ -37,6 +44,8 @@ agentception/
 
 ## Data Flow
 
+### Planning pipeline (Phase 1A → GitHub issues → dispatch)
+
 ```
 Browser / Cursor MCP
       ↓
@@ -44,19 +53,54 @@ FastAPI routes (thin HTTP handlers)
       ↓
 readers/ (LLM planner, GitHub, worktree)
       ↓
-services/ (OpenRouter LLM calls)
+services/llm.py (Anthropic API, HTTPS)
       ↓
 GitHub API → Issues, PRs, Worktrees
       ↓
-Agents (dispatched via Cursor CLI)
+POST /api/runs/{run_id}/execute  ← Cursor-free dispatch
+      ↓
+services/agent_loop.py
       ↓
 PRs → merged → next phase unlocks
+```
+
+### Cursor-free agent execution (per-run)
+
+```
+POST /api/runs/{run_id}/execute
+      ↓
+agent_loop.py
+  ├─ load DB context
+  ├─ load role markdown + resolve_arch.py (cognitive arch)
+  ├─ build tool catalogue (file + shell + search_codebase + MCP)
+  └─ conversation loop ─→ Anthropic Claude
+         ↓ tool calls
+   ┌─────────────────────────────────────────┐
+   │  read_file / write_file / list_dir      │ ← tools/file_tools.py
+   │  run_command (denylist enforced)        │ ← tools/shell_tools.py
+   │  search_codebase (Qdrant cosine search) │ ← services/code_indexer.py
+   │  GitHub / pipeline MCP tools           │ ← mcp/server.py
+   └─────────────────────────────────────────┘
+      ↓ on completion
+  build_complete_run() / build_cancel_run()
+```
+
+### Codebase indexing (one-time, then incremental)
+
+```
+POST /api/system/index-codebase
+      ↓ (background task)
+code_indexer.py
+  ├─ walk source files (.py .ts .md .yml …)
+  ├─ chunk (~1500 chars, 200-char overlap)
+  ├─ embed → fastembed BAAI/bge-small-en-v1.5 (ONNX, CPU, no API key)
+  └─ upsert 384-dim vectors → Qdrant
 ```
 
 ## Agent Hierarchy
 
 - **CTO-tier agent** — surveys unlocked phases, decides dispatch order
-- **VP-tier agent** — receives label scope, breaks into tickets, spawns engineers
+- **Coordinator-tier agent** — receives label scope, breaks into tickets, spawns engineers
 - **Engineer-tier agents** — each owns one issue, implements in isolated git worktree, opens PR
 
 Each agent receives a **cognitive architecture** composed from figures (historical thinkers), archetypes (thinking styles), skill domains, and behavioral atoms via `scripts/gen_prompts/resolve_arch.py`.
@@ -74,8 +118,8 @@ Markdown files that define the organizational identity and operational constrain
 | Tier | Count | Examples |
 |------|-------|---------|
 | C-Suite | 8 | CEO, CTO, CPO, CFO, CISO, CDO, CMO, COO |
-| VP Level | 10 | VP Engineering, VP QA, VP Product, VP Design, VP Data, VP Security, VP Infrastructure, VP Mobile, VP Platform, VP ML |
-| Workers | 15 | python-developer, database-architect, pr-reviewer, frontend-developer, full-stack-developer, mobile-developer, systems-programmer, ml-engineer, data-engineer, devops-engineer, security-engineer, test-engineer, architect, api-developer, technical-writer |
+| Coordinator Level | 10 | Engineering, QA, Product, Design, Data, Security, Infrastructure, Mobile, Platform, ML |
+| Workers | 15 | python-developer, database-architect, reviewer, frontend-developer, full-stack-developer, mobile-developer, systems-programmer, ml-engineer, data-engineer, devops-engineer, security-engineer, test-engineer, architect, api-developer, technical-writer |
 
 Managed via the Role Studio UI (`GET /roles`) and the roles API (`/api/roles/*`).
 
@@ -128,7 +172,7 @@ Example: `COGNITIVE_ARCH=andrej_karpathy:llm:python` — Karpathy's build-from-s
 
 Three-panel layout:
 
-- **Left — Org Hierarchy:** Collapsible tree by tier (C-Suite / VP / Worker). Color-coded dots: green = file authored, purple = spawnable leaf agent, grey = draft. Click to select.
+- **Left — Org Hierarchy:** Collapsible tree by tier (C-Suite / Coordinator / Worker). Color-coded dots: green = file authored, purple = spawnable leaf agent, grey = draft. Click to select.
 - **Center — Personas + Composer:** Two tabs:
   - *Personas*: Card grid of compatible historical/industry personas for the selected role. Click to apply to the composer.
   - *Primitive Composer*: Dropdowns for figure, per-atom overrides, and skill domain checkboxes. Displays the assembled `COGNITIVE_ARCH` string.
@@ -214,10 +258,17 @@ phases:
 
 ---
 
+## TaskRunner Abstraction
+
+The `TaskRunner` protocol (`agentception/services/task_runner.py`) defines a runner-agnostic interface for executing agent tasks. It decouples coordinators from specific execution engines (Cursor, Anthropic, etc.), allowing the system to swap implementations without changing orchestration logic. Concrete implementations live in sibling modules and are selected via the `ac_task_runner` config setting. The protocol uses structural subtyping (`@runtime_checkable`) to verify implementations at runtime without requiring explicit inheritance.
+
+---
+
 ## Further Reading
 
-- [Plan Spec format](../agentception/docs/plan-spec.md)
-- [Agent tree protocol](../agentception/docs/agent-tree-protocol.md)
-- [Cursor agent spawning](../agentception/docs/cursor-agent-spawning.md)
+- [Plan Spec format](plan-spec.md)
+- [Agent tree protocol](agent-tree-protocol.md)
+- [Cursor-Free Agent Loop](guides/agent-loop.md)
 - [MCP integration guide](guides/mcp.md)
+- [Security Guide](guides/security.md)
 - [Type contracts reference](reference/type-contracts.md)

@@ -1,9 +1,7 @@
-from __future__ import annotations
-
 """Ticket analyzer for AgentCeption.
 
 Parses an issue body and returns structured recommendations used by the
-Eng VP seed loop when generating ``.agent-task`` files.  All heuristics are
+Eng VP seed loop.  All heuristics are
 intentionally simple and rule-based so that results are deterministic and
 testable without a live model call.
 
@@ -12,9 +10,10 @@ Typical usage::
     from agentception.intelligence.analyzer import analyze_issue
 
     analysis = await analyze_issue(632)
-    print(analysis.recommended_role)   # "python-developer"
+    print(analysis.recommended_role)   # "developer"
     print(analysis.parallelism)        # "safe"
 """
+from __future__ import annotations
 
 import re
 from typing import Literal
@@ -32,8 +31,6 @@ from agentception.readers.github import get_issue_body
 _HIGH_CONFLICT_FILES: frozenset[str] = frozenset(
     {
         "agentception/app.py",
-        "agentception/muse/cli/app.py",
-        "docs/architecture/muse-vcs.md",
         "docs/reference/type-contracts.md",
         "alembic/versions/",   # any migration file
     }
@@ -75,14 +72,14 @@ class IssueAnalysis(BaseModel):
         Estimated merge-conflict risk:
         ``"none"`` — no known conflict-prone files touched.
         ``"low"`` — touches a shared config but not a high-risk additive file.
-        ``"high"`` — touches a high-risk additive file (app.py, muse-vcs.md …).
+        ``"high"`` — touches a high-risk additive file (app.py, type-contracts.md …).
     modifies_files:
         File paths extracted from a ``### Files to Create / Modify`` section.
         Empty list when no such section is present.
     recommended_role:
         Role that should handle this issue:
         ``"database-architect"`` when migrations or Alembic are mentioned.
-        ``"python-developer"`` otherwise.
+        ``"developer"`` otherwise.
     recommended_merge_after:
         Largest dependency issue number, or ``None`` when there are no deps.
         The Eng VP uses this to defer assignment until the dependency PR merges.
@@ -93,7 +90,7 @@ class IssueAnalysis(BaseModel):
     parallelism: Literal["safe", "risky", "serial"]
     conflict_risk: Literal["none", "low", "high"]
     modifies_files: list[str]
-    recommended_role: Literal["python-developer", "database-architect"]
+    recommended_role: Literal["developer", "database-architect"]
     recommended_merge_after: int | None
 
 
@@ -238,13 +235,13 @@ def extract_modified_files(body: str) -> list[str]:
     return files
 
 
-def infer_role(body: str, files: list[str]) -> Literal["python-developer", "database-architect"]:
+def infer_role(body: str, files: list[str]) -> Literal["developer", "database-architect"]:
     """Recommend an engineer role based on the issue body and file list.
 
     Heuristics (applied in order, first match wins):
     1. If any file path contains ``alembic`` or ``migration`` → ``"database-architect"``.
     2. If the body mentions Alembic, migration, or SQL schema keywords → ``"database-architect"``.
-    3. Otherwise → ``"python-developer"``.
+    3. Otherwise → ``"developer"``.
 
     Parameters
     ----------
@@ -255,8 +252,8 @@ def infer_role(body: str, files: list[str]) -> Literal["python-developer", "data
 
     Returns
     -------
-    Literal["python-developer", "database-architect"]
-        One of ``"python-developer"`` or ``"database-architect"``.
+    Literal["developer", "database-architect"]
+        One of ``"developer"`` or ``"database-architect"``.
     """
     for path in files:
         if any(pat in path for pat in _MIGRATION_PATTERNS):
@@ -269,7 +266,7 @@ def infer_role(body: str, files: list[str]) -> Literal["python-developer", "data
     if db_pattern.search(body):
         return "database-architect"
 
-    return "python-developer"
+    return "developer"
 
 
 def infer_parallelism(body: str, files: list[str]) -> Literal["safe", "risky", "serial"]:

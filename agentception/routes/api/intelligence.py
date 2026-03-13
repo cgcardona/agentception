@@ -1,4 +1,9 @@
-"""API routes: DAG, PR violations, and issue analysis."""
+"""API routes: PR violations and issue analysis.
+
+The canonical DAG endpoint is ``GET /api/intelligence/dag`` served by
+``routes/intelligence.py``.  This module provides supplementary intelligence
+endpoints that share the same ``/api`` prefix.
+"""
 from __future__ import annotations
 
 import logging
@@ -6,25 +11,12 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 from agentception.intelligence.analyzer import IssueAnalysis, analyze_issue
-from agentception.intelligence.dag import DependencyDAG, build_dag
 from agentception.intelligence.guards import PRViolation, detect_out_of_order_prs
 from agentception.readers.github import close_pr
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-@router.get("/dag", tags=["intelligence"])
-async def dag_api() -> DependencyDAG:
-    """Return the full dependency DAG as JSON.
-
-    Fetches every open issue, parses ``Depends on #N`` declarations, and
-    returns a :class:`~agentception.intelligence.dag.DependencyDAG` with
-    ``nodes`` (one per open issue) and ``edges`` (one per dependency pair).
-    Callers who want an interactive visualisation should use ``GET /dag`` instead.
-    """
-    return await build_dag()
 
 
 @router.get("/intelligence/pr-violations", tags=["intelligence"])
@@ -75,7 +67,7 @@ async def analyze_issue_api(number: int) -> IssueAnalysis:
     recommended engineer role.  No model calls are made — results are
     deterministic for a given issue body.
 
-    This endpoint feeds into the Eng VP ``.agent-task`` generation pipeline:
+    This endpoint feeds into the Eng VP dispatch pipeline:
     the caller can use ``recommended_role``, ``parallelism``, and
     ``recommended_merge_after`` to decide whether and how to schedule an agent.
 

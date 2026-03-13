@@ -21,7 +21,7 @@ async def telemetry_page(request: Request) -> HTMLResponse:
     """Telemetry D3 dashboard — wave history + pipeline trend.
 
     Data sources:
-    - ``aggregate_waves()`` — reads ``.agent-task`` files grouped by BATCH_ID
+    - ``aggregate_waves()`` — reads worktrees grouped by BATCH_ID
       into WaveSummary objects for D3 charts.
     - ``get_pipeline_trend()`` — reads ``ac_pipeline_snapshots`` (Postgres)
       for the pipeline trend multi-line chart.

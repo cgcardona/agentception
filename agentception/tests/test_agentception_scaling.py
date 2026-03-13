@@ -4,7 +4,7 @@ from __future__ import annotations
 
 Coverage:
 - test_no_recommendation_when_balanced: returns no_change when metrics are within bounds
-- test_recommend_more_qa_when_pr_backlog: recommends increase_qa_vps when pr_backlog >= 2
+- test_recommend_more_qa_when_pr_backlog: recommends increase_coordinator_limit for qa-coordinator
 - test_recommend_bigger_pool_when_deep_queue: recommends increase_pool when queue deep & agents fast
 - test_confidence_low_without_wave_history: returns low confidence when < 3 completed waves
 - test_confidence_high_with_sufficient_waves: returns high confidence with >= 3 completed waves
@@ -29,7 +29,7 @@ from agentception.intelligence.scaling import (
     _classify_confidence,
     compute_recommendation,
 )
-from agentception.models import AgentStatus, AgentNode, PipelineState
+from agentception.models import AgentNode, AgentStatus, PipelineState
 from agentception.telemetry import WaveSummary
 
 
@@ -72,17 +72,19 @@ def _make_wave(duration_minutes: float | None, batch_id: str = "eng-test") -> Wa
 
 
 def _make_pipeline_config(
-    max_eng_vps: int = 1,
-    max_qa_vps: int = 1,
-    pool_size_per_vp: int = 4,
+    coordinator_limits: dict[str, int] | None = None,
+    pool_size: int = 4,
 ) -> object:
     """Return a PipelineConfig instance with controllable allocation fields."""
     from agentception.models import PipelineConfig
 
+    limits = coordinator_limits if coordinator_limits is not None else {
+        "engineering-coordinator": 1,
+        "qa-coordinator": 1,
+    }
     return PipelineConfig(
-        max_eng_vps=max_eng_vps,
-        max_qa_vps=max_qa_vps,
-        pool_size_per_vp=pool_size_per_vp,
+        coordinator_limits=limits,
+        pool_size=pool_size,
         active_labels_order=["agentception/5-scaling"],
     )
 
@@ -111,18 +113,21 @@ async def test_no_recommendation_when_balanced() -> None:
 
 @pytest.mark.anyio
 async def test_recommend_more_qa_when_pr_backlog() -> None:
-    """Returns increase_qa_vps when pr_backlog >= 2 and max_qa_vps < 2."""
+    """Returns increase_coordinator_limit for qa-coordinator when pr_backlog >= 2 and limit < 2."""
     state = _make_state(issues_open=1, prs_open=3)  # pr_backlog=3 >= threshold(2)
     waves = [_make_wave(25.0, f"b{i}") for i in range(3)]  # slow waves, no pool trigger
 
     with patch(
         "agentception.intelligence.scaling.read_pipeline_config",
         new_callable=AsyncMock,
-        return_value=_make_pipeline_config(max_qa_vps=1),
+        return_value=_make_pipeline_config(
+            coordinator_limits={"engineering-coordinator": 1, "qa-coordinator": 1}
+        ),
     ):
         rec = await compute_recommendation(state, waves)
 
-    assert rec.action == "increase_qa_vps", f"Expected increase_qa_vps, got {rec.action!r}"
+    assert rec.action == "increase_coordinator_limit", f"Got {rec.action!r}"
+    assert rec.target_role == "qa-coordinator"
     assert rec.current_value == 1
     assert rec.recommended_value == 2
     assert "PR backlog" in rec.reason
@@ -138,11 +143,12 @@ async def test_recommend_bigger_pool_when_deep_queue() -> None:
     with patch(
         "agentception.intelligence.scaling.read_pipeline_config",
         new_callable=AsyncMock,
-        return_value=_make_pipeline_config(pool_size_per_vp=4),
+        return_value=_make_pipeline_config(pool_size=4),
     ):
         rec = await compute_recommendation(state, waves)
 
     assert rec.action == "increase_pool", f"Expected increase_pool, got {rec.action!r}"
+    assert rec.target_role is None
     assert rec.current_value == 4
     assert rec.recommended_value == 6  # min(4+2, 8)
     assert "queue depth" in rec.reason.lower()
@@ -157,7 +163,9 @@ async def test_confidence_low_without_wave_history() -> None:
     with patch(
         "agentception.intelligence.scaling.read_pipeline_config",
         new_callable=AsyncMock,
-        return_value=_make_pipeline_config(max_qa_vps=1),
+        return_value=_make_pipeline_config(
+            coordinator_limits={"engineering-coordinator": 1, "qa-coordinator": 1}
+        ),
     ):
         rec = await compute_recommendation(state, waves)
 
@@ -231,7 +239,7 @@ async def test_in_progress_waves_excluded_from_duration() -> None:
     with patch(
         "agentception.intelligence.scaling.read_pipeline_config",
         new_callable=AsyncMock,
-        return_value=_make_pipeline_config(pool_size_per_vp=4),
+        return_value=_make_pipeline_config(pool_size=4),
     ):
         rec = await compute_recommendation(state, waves)
 
@@ -318,15 +326,14 @@ async def test_scaling_advice_api_returns_200() -> None:
 async def test_apply_increases_correct_field() -> None:
     """POST apply writes the recommended_value to the correct PipelineConfig field.
 
-    Scenario: recommendation is increase_pool (pool_size_per_vp: 4 → 6).
-    The written config must have pool_size_per_vp == 6; other fields unchanged.
+    Scenario: recommendation is increase_pool (pool_size: 4 → 6).
+    The written config must have pool_size == 6; other fields unchanged.
     """
     from agentception.models import PipelineConfig
 
     initial_config = PipelineConfig(
-        max_eng_vps=1,
-        max_qa_vps=1,
-        pool_size_per_vp=4,
+        coordinator_limits={"engineering-coordinator": 1, "qa-coordinator": 1},
+        pool_size=4,
         active_labels_order=["agentception/5-scaling"],
     )
     recommendation = ScalingRecommendation(
@@ -380,10 +387,71 @@ async def test_apply_increases_correct_field() -> None:
     assert body["new_value"] == 6
 
     assert len(written) == 1, "write_pipeline_config must be called exactly once"
-    assert written[0].pool_size_per_vp == 6
+    assert written[0].pool_size == 6
     # Other fields must remain unchanged
-    assert written[0].max_qa_vps == initial_config.max_qa_vps
-    assert written[0].max_eng_vps == initial_config.max_eng_vps
+    assert written[0].coordinator_limits == initial_config.coordinator_limits
+
+
+@pytest.mark.anyio
+async def test_apply_increases_coordinator_limit() -> None:
+    """POST apply bumps a specific coordinator's limit when action is increase_coordinator_limit."""
+    from agentception.models import PipelineConfig
+
+    initial_config = PipelineConfig(
+        coordinator_limits={"engineering-coordinator": 1, "qa-coordinator": 1},
+        pool_size=4,
+        active_labels_order=["agentception/5-scaling"],
+    )
+    recommendation = ScalingRecommendation(
+        action="increase_coordinator_limit",
+        target_role="qa-coordinator",
+        reason="PR backlog high.",
+        current_value=1,
+        recommended_value=2,
+        confidence="high",
+    )
+    written: list[PipelineConfig] = []
+
+    async def fake_write(cfg: PipelineConfig) -> PipelineConfig:
+        written.append(cfg)
+        return cfg
+
+    with (
+        patch(
+            "agentception.routes.intelligence.get_state",
+            return_value=_make_state(issues_open=0, prs_open=3),
+        ),
+        patch(
+            "agentception.routes.intelligence.aggregate_waves",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
+        patch(
+            "agentception.routes.intelligence.compute_recommendation",
+            new_callable=AsyncMock,
+            return_value=recommendation,
+        ),
+        patch(
+            "agentception.routes.intelligence.read_pipeline_config",
+            new_callable=AsyncMock,
+            return_value=initial_config,
+        ),
+        patch(
+            "agentception.routes.intelligence.write_pipeline_config",
+            new_callable=AsyncMock,
+            side_effect=fake_write,
+        ),
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            response = await client.post("/api/intelligence/scaling-advice/apply")
+
+    assert response.status_code == 200
+    assert len(written) == 1
+    assert written[0].coordinator_limits["qa-coordinator"] == 2
+    assert written[0].coordinator_limits["engineering-coordinator"] == 1
 
 
 @pytest.mark.anyio
@@ -433,15 +501,9 @@ async def test_apply_no_change_is_noop() -> None:
     mock_write.assert_not_called()
 
 
-def test_banner_hidden_when_dismissed_markup_present() -> None:
-    """Overview page HTML includes the scaling advisor banner markup with x-cloak.
-
-    The dismissed state is managed client-side by Alpine.js (x-data/x-show).
-    This test verifies the server renders the container element so the browser
-    can initialise the Alpine component — it does not execute JavaScript.
-    """
-    from fastapi.testclient import TestClient
-    import time
+@pytest.mark.anyio
+async def test_banner_hidden_when_dismissed_markup_present() -> None:
+    """Overview page HTML includes the scaling advisor banner markup with x-cloak."""
     from agentception.models import PipelineState
 
     state = PipelineState(
@@ -456,16 +518,15 @@ def test_banner_hidden_when_dismissed_markup_present() -> None:
     )
 
     with patch("agentception.routes.ui.overview.get_state", return_value=state):
-        with TestClient(app) as client:
-            response = client.get("/")
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            response = await client.get("/overview")
 
     assert response.status_code == 200
     html = response.text
-    # Banner container with Alpine dismissed-state guard must be rendered.
-    # scalingAdvisor() is defined in app.js; the HTML uses it via x-data invocation.
     assert "scalingAdvisor(" in html, "Alpine scalingAdvisor x-data invocation must be in the page"
-    # Apply logic (POST /api/intelligence/scaling-advice/apply) lives in app.js,
-    # invoked via @click="apply()". Verify the button and app.js are present.
     assert '@click="apply()"' in html, "Apply button must delegate to scalingAdvisor.apply()"
     assert "/static/app.js" in html, "app.js must be loaded for scalingAdvisor to work"
     assert "Dismiss" in html, "Dismiss button must be rendered"

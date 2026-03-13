@@ -27,27 +27,17 @@ def _read(name: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_base_has_skip_link_class() -> None:
-    """base.html must contain a skip-link element for keyboard users."""
+def test_base_no_skip_link() -> None:
+    """base.html must NOT contain a skip-link — removed by design.
+
+    AgentCeption is a developer tool accessed by technical users; the skip-link
+    added unnecessary UI noise (visible when tabbing from the URL bar) and was
+    intentionally removed.  This test prevents it from being accidentally
+    re-introduced.
+    """
     content = _read("base.html")
-    assert 'class="skip-link"' in content, (
-        'base.html is missing <a class="skip-link"> skip-to-content anchor'
-    )
-
-
-def test_base_has_main_content_id() -> None:
-    """base.html <main> must carry id='main-content' so the skip link target exists."""
-    content = _read("base.html")
-    assert 'id="main-content"' in content, (
-        'base.html <main> is missing id="main-content"'
-    )
-
-
-def test_base_skip_link_points_to_main_content() -> None:
-    """The skip link href must match the main-content anchor."""
-    content = _read("base.html")
-    assert 'href="#main-content"' in content, (
-        'Skip link in base.html must use href="#main-content"'
+    assert 'class="skip-link"' not in content, (
+        'base.html unexpectedly contains a skip-link — it was removed by design'
     )
 
 
@@ -162,15 +152,16 @@ def test_config_panels_have_aria_labelledby() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Brain Dump — horizontal step indicator (issue #827)
+# Plan — horizontal step indicator
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
 def test_plan_stepper_present() -> None:
     """plan.html must include the horizontal step indicator nav element."""
     content = _read("plan.html")
-    assert 'class="bd-stepper"' in content, (
-        "plan.html is missing the .bd-stepper nav element"
+    assert 'class="plan-stepper"' in content, (
+        "plan.html is missing the .plan-stepper nav element"
     )
 
 
@@ -183,22 +174,22 @@ def test_plan_stepper_has_aria_label() -> None:
 
 
 def test_plan_stepper_has_four_steps() -> None:
-    """The stepper must render exactly four step labels: Plan, Preview, Running, Done."""
+    """The stepper must render step labels: Write, Review, Done."""
     content = _read("plan.html")
-    for label in ("Plan", "Preview", "Running", "Done"):
+    for label in ("Write", "Review", "Done"):
         assert f">{label}<" in content, (
             f"plan.html stepper is missing step label '{label}'"
         )
 
 
 def test_plan_stepper_driven_by_step_var() -> None:
-    """Stepper classes must reference the existing Alpine 'step' variable, not new state."""
+    """Stepper classes must reference the Alpine 'step' variable with the correct state names."""
     content = _read("plan.html")
-    assert "step === 'input'" in content, (
-        "plan.html stepper must use the existing Alpine 'step' variable"
+    assert "step === 'write'" in content, (
+        "plan.html stepper must use the 'write' step state"
     )
-    assert "step === 'loading'" in content, (
-        "plan.html stepper must reference 'loading' state"
+    assert "step === 'generating'" in content, (
+        "plan.html stepper must reference 'generating' state"
     )
     assert "step === 'done'" in content, (
         "plan.html stepper must reference 'done' state"

@@ -16,10 +16,10 @@ from fastapi.testclient import TestClient
 
 from agentception.app import app
 from agentception.config import AgentCeptionSettings
-from agentception.models import AgentNode, AgentStatus, PipelineState, TaskFile
+from agentception.models import AgentNode, AgentStatus, AgentTaskSpec, PipelineState
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def client() -> Generator[TestClient, None, None]:
     """Synchronous test client that handles lifespan correctly."""
     with TestClient(app) as c:
@@ -50,7 +50,7 @@ def test_settings_loads_defaults() -> None:
     s = AgentCeptionSettings()
     assert s.gh_repo == "cgcardona/agentception"
     assert s.poll_interval_seconds == 5
-    assert s.github_cache_seconds == 10
+    assert s.github_cache_seconds == 4
     assert isinstance(s.worktrees_dir, __import__("pathlib").Path)
     assert str(s.worktrees_dir) != ""
 
@@ -62,7 +62,7 @@ def test_agent_node_serializes_roundtrip() -> None:
     """AgentNode must survive a JSON serialise → deserialise roundtrip without data loss."""
     node = AgentNode(
         id="eng-20260301T000000Z-abcd",
-        role="python-developer",
+        role="developer",
         status=AgentStatus.IMPLEMENTING,
         issue_number=609,
         branch="feat/issue-609",
@@ -105,21 +105,21 @@ def test_index_returns_html_with_agentception(client: TestClient) -> None:
     assert "Agentception" in response.text
 
 
-# ── TaskFile ──────────────────────────────────────────────────────────────────
+# ── AgentTaskSpec ─────────────────────────────────────────────────────────────
 
 
-def test_task_file_model_parses_known_fields() -> None:
-    """TaskFile must parse a representative .agent-task payload correctly."""
-    tf = TaskFile(
+def test_agent_task_spec_parses_known_fields() -> None:
+    """AgentTaskSpec must parse a representative DB-backed payload correctly."""
+    spec = AgentTaskSpec(
         task="issue-to-pr",
         gh_repo="cgcardona/agentception",
         issue_number=609,
         branch="feat/issue-609",
-        role="python-developer",
+        role="developer",
         batch_id="eng-20260301T211956Z-741f",
         spawn_sub_agents=False,
         attempt_n=0,
     )
-    assert tf.issue_number == 609
-    assert tf.spawn_sub_agents is False
-    assert tf.attempt_n == 0
+    assert spec.issue_number == 609
+    assert spec.spawn_sub_agents is False
+    assert spec.attempt_n == 0

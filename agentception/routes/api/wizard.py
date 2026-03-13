@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """API route: wizard stepper state endpoint.
 
 Implements GET /api/wizard/state which returns the three-step guided-flow
@@ -10,6 +8,7 @@ Step 2 — Org Chart:   complete when pipeline-config.json has a non-null active
 Step 3 — Launch Wave: active when ac_waves has a wave started in the last 24 h
                       that has not yet completed (completed_at IS NULL).
 """
+from __future__ import annotations
 
 import datetime
 import json
