@@ -29,7 +29,7 @@ from agentception.services.llm import ToolDefinition, ToolFunction
 logger = logging.getLogger(__name__)
 
 _GH_MCP_BINARY = "github-mcp-server"
-_MCP_PROTOCOL_VERSION = "2024-11-05"
+_MCP_PROTOCOL_VERSION = "2025-03-26"
 _READ_TIMEOUT_SECS = 30.0
 # GitHub MCP tools/list response can exceed asyncio's default 64 KB readline
 # buffer.  Set a generous limit (16 MB) to accommodate it.
