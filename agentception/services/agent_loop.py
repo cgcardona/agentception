@@ -354,6 +354,8 @@ _DEFAULT_TOOL_RESULT_CHARS: int = 3_000
 # most-recent _HISTORY_TAIL messages are always kept.
 _MAX_HISTORY_MESSAGES: int = 20
 _HISTORY_TAIL: int = 14
+_MAX_INPUT_TOKEN_ESTIMATE: int = 140_000  # token-budget prune target
+_CONTEXT_PRESSURE_THRESHOLD: int = 100_000  # warn threshold (used in a later issue)
 
 # ---------------------------------------------------------------------------
 # Token-rate guard — proactive pacing between consecutive LLM calls.
@@ -550,6 +552,8 @@ async def run_agent_loop(
     # hard-stop interrupt is disarmed.  Reset when new code is written after
     # the clean run, or when a subsequent pytest run fails.
     pytest_clean_since: int | None = None
+    # Real input token count from the most recent LLM response.  Seeded at 0
+    # so the first iteration's _prune_history call skips the token-budget path.
     last_input_tokens: int = 0
 
     for iteration in range(1, max_iterations + 1):
@@ -677,7 +681,7 @@ async def run_agent_loop(
             )
 
         try:
-            bounded = _prune_history(_truncate_tool_results(messages))
+            bounded = _prune_history(_truncate_tool_results(messages), last_input_tokens=last_input_tokens)
             _active_model = _HAIKU_MODEL if task.role == "reviewer" else _MODEL
             response: ToolResponse = await call_anthropic_with_tools(
                 bounded,
@@ -695,6 +699,10 @@ async def run_agent_loop(
             return
 
         _record_llm_call()  # stamp after successful response — this is the reference point for the next delay
+
+        # Track real input tokens so _prune_history can apply the token-budget
+        # path on the *next* iteration if the context is growing too large.
+        last_input_tokens = int(response.get("input_tokens", 0) or 0)
 
         # Accumulate real token counts for cost tracking.  Fire-and-forget so
         # a DB hiccup never interrupts the agent loop.
@@ -1846,6 +1854,8 @@ def _truncate_tool_results(
 
 def _prune_history(
     messages: list[dict[str, object]],
+    *,
+    last_input_tokens: int = 0,
 ) -> list[dict[str, object]]:
     """Drop old turns from the middle of the message history.
 
@@ -1861,6 +1871,11 @@ def _prune_history(
     ``assistant`` message in the tail so the structure is always:
 
         user (task briefing) → assistant → tool(s) → assistant → …
+
+    When ``last_input_tokens`` exceeds ``_MAX_INPUT_TOKEN_ESTIMATE``, a second
+    token-budget pass runs after the count guard, dropping messages from the
+    front of the tail (preserving ``messages[0]``) until the estimated token
+    count falls below the threshold.
     """
     if len(messages) <= _MAX_HISTORY_MESSAGES:
         return messages
@@ -1877,6 +1892,21 @@ def _prune_history(
 
     if not tail:
         return messages  # safety: nothing to prune without breaking structure
+
+    # Token-budget path: only entered when the LLM reported > _MAX_INPUT_TOKEN_ESTIMATE
+    # input tokens last turn.  Uses a character-count heuristic (4 chars ≈ 1 token).
+    if last_input_tokens > _MAX_INPUT_TOKEN_ESTIMATE:
+        prunable = messages[:1] + list(tail)  # work on a copy; messages[0] is anchored
+        estimated = sum(len(json.dumps(m)) // 4 for m in prunable)
+        while estimated > _MAX_INPUT_TOKEN_ESTIMATE and len(prunable) > _HISTORY_TAIL + 1:
+            dropped = prunable.pop(1)  # index 0 = task briefing, always kept
+            estimated -= len(json.dumps(dropped)) // 4
+        logger.warning(
+            "⚠️ context prune: estimated %d tokens exceeds threshold — pruned to %d messages",
+            estimated,
+            len(prunable),
+        )
+        return prunable
 
     return messages[:1] + tail
 

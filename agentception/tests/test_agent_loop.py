@@ -3222,3 +3222,64 @@ class TestPytestHardStop:
             assert "HARD STOP" not in all_text, (
                 "HARD STOP must not appear after disarm"
             )
+
+
+class TestPruneHistoryTokenBudget:
+    """Unit tests for the token-budget path of _prune_history."""
+
+    def test_prune_history_by_token_count(self) -> None:
+        """When last_input_tokens > _MAX_INPUT_TOKEN_ESTIMATE, prune until estimated
+        tokens fall below the threshold, keeping messages[0] and at most _HISTORY_TAIL+1
+        messages."""
+        from agentception.services.agent_loop import (
+            _prune_history,
+            _HISTORY_TAIL,
+            _MAX_INPUT_TOKEN_ESTIMATE,
+        )
+
+        # Build a large task briefing (message[0]) and 30 large body messages.
+        # Each body message has 20_000 chars of content → json.dumps ~20_050 chars
+        # → contributes ~5_012 estimated tokens each.
+        # 30 × 5_012 = 150_360 > 140_000, so token pruning must fire.
+        large_content = "x" * 20_000
+        briefing: dict[str, object] = {"role": "user", "content": "Task briefing"}
+        body: list[dict[str, object]] = [
+            {"role": "assistant" if i % 2 == 0 else "user", "content": large_content}
+            for i in range(30)
+        ]
+        messages = [briefing] + body
+
+        result = _prune_history(messages, last_input_tokens=145_000)
+
+        assert result[0] == briefing, "messages[0] must always be preserved"
+        assert len(result) <= _HISTORY_TAIL + 1
+        estimated = sum(len(json.dumps(m)) // 4 for m in result)
+        assert estimated <= _MAX_INPUT_TOKEN_ESTIMATE
+
+    def test_prune_history_skips_token_path_when_under_threshold(self) -> None:
+        """When last_input_tokens <= _MAX_INPUT_TOKEN_ESTIMATE the token-budget
+        loop must not run; the count guard controls the result."""
+        from agentception.services.agent_loop import (
+            _prune_history,
+            _HISTORY_TAIL,
+            _MAX_INPUT_TOKEN_ESTIMATE,
+        )
+
+        briefing: dict[str, object] = {"role": "user", "content": "Task briefing"}
+        # 25 messages > _MAX_HISTORY_MESSAGES (20), triggering the count guard
+        body: list[dict[str, object]] = [
+            {"role": "assistant" if i % 2 == 0 else "user", "content": "small"}
+            for i in range(25)
+        ]
+        messages = [briefing] + body
+
+        result = _prune_history(messages, last_input_tokens=50_000)
+
+        # Count guard fires: result must start with messages[0] + _HISTORY_TAIL tail.
+        # Token loop never runs, so len(result) is NOT further reduced.
+        assert result[0] == briefing
+        assert len(result) <= _HISTORY_TAIL + 1
+        # All content is tiny, so estimated tokens are well under threshold.
+        estimated = sum(len(json.dumps(m)) // 4 for m in result)
+        assert estimated <= _MAX_INPUT_TOKEN_ESTIMATE
+
