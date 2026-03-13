@@ -886,6 +886,15 @@ async def _upsert_agent_runs(
     # lifecycle is now driven by the PR state (GitHub), not by a live worktree.
     # They stay "reviewing" until the PR merges and the issue closes, at which
     # point the issue moves to the "completed" bucket naturally.
+    #
+    # Grace period: do not orphan a run that transitioned to active very
+    # recently (last_activity_at within _ORPHAN_GRACE_SECONDS).  The poller
+    # builds live_ids from list_active_runs() at tick start; dispatch can
+    # commit acknowledge_agent_run after that, so the run is in the DB as
+    # implementing but not yet in live_ids.  Without the grace period the
+    # orphan sweep would immediately mark it failed.
+    _ORPHAN_GRACE_SECONDS = 60
+    orphan_cutoff = now - datetime.timedelta(seconds=_ORPHAN_GRACE_SECONDS)
     orphan_result = await session.execute(
         select(ACAgentRun).where(
             ACAgentRun.status.in_(_ACTIVE_STATUSES),
@@ -908,6 +917,7 @@ async def _upsert_agent_runs(
             orphan.id not in live_ids
             and orphan.issue_number is not None
             and orphan.role != "reviewer"
+            and (orphan.last_activity_at is None or orphan.last_activity_at <= orphan_cutoff)
         ):
             with session.no_autoflush:
                 # Use the build_complete_run event as the authoritative completion
@@ -938,7 +948,7 @@ async def _upsert_agent_runs(
                         event_type="orphan_failed",
                         payload=json.dumps({"reason": "worktree_gone_no_build_complete"}),
                         recorded_at=now,
-                    ))
+                   ))
                     logger.warning(
                         "🧹 Orphan run %s → failed (worktree gone, no build_complete_run event)",
                         orphan.id,
@@ -1038,7 +1048,6 @@ async def persist_agent_run_dispatch(
     coord_fingerprint: str | None = None,
     task_description: str | None = None,
     pr_number: int | None = None,
-    prompt_variant: str | None = None,
 ) -> None:
     """Insert an ``ACAgentRun`` row with status ``pending_launch`` at dispatch time.
 
@@ -1124,7 +1133,6 @@ async def persist_agent_run_dispatch(
                         is_resumed=is_resumed,
                         coord_fingerprint=coord_fingerprint,
                         task_description=task_description,
-                        prompt_variant=prompt_variant,
                         spawned_at=_now(),
                         last_activity_at=_now(),
                     )

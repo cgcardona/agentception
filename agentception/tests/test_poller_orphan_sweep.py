@@ -137,6 +137,58 @@ async def test_missing_build_complete_marks_failed() -> None:
     assert payload["reason"] == "worktree_gone_no_build_complete"
 
 
+@pytest.mark.anyio
+async def test_orphan_grace_period_skips_recently_acknowledged_run() -> None:
+    """Orphan not in live_ids is not marked failed if last_activity_at is within grace period.
+
+    Regression: poller builds live_ids from list_active_runs() at tick start;
+    dispatch can commit acknowledge_agent_run after that, so the run is in the DB
+    as implementing but not yet in live_ids.  Without the grace period the
+    orphan sweep would immediately mark it failed.
+    """
+    import datetime
+
+    orphan = _make_run(status="implementing")
+    orphan.last_activity_at = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+        seconds=30
+    )  # within 60s grace
+
+    orphan_result_mock = MagicMock()
+    orphan_result_mock.scalars.return_value.all.return_value = [orphan]
+    ttl_sweep_result = MagicMock()
+    ttl_sweep_result.scalars.return_value.all.return_value = []
+    scalar_lookup = MagicMock()
+    scalar_lookup.scalar_one_or_none.return_value = None
+
+    session = MagicMock(spec=AsyncSession)
+    session.execute = AsyncMock(
+        side_effect=[scalar_lookup, orphan_result_mock, ttl_sweep_result]
+    )
+    session.scalar = AsyncMock(return_value=0)
+    session.add = MagicMock()
+    session.no_autoflush = MagicMock()
+    session.no_autoflush.__enter__ = MagicMock(return_value=None)
+    session.no_autoflush.__exit__ = MagicMock(return_value=False)
+
+    from agentception.models import AgentNode, AgentStatus
+
+    other_agent = AgentNode(
+        id="other-run", role="developer", status=AgentStatus.IMPLEMENTING
+    )
+    await _persist._upsert_agent_runs(session, [other_agent])
+
+    assert orphan.status == "implementing", (
+        f"Expected orphan left implementing (grace period), got {orphan.status!r}"
+    )
+    orphan_failed_events = [
+        c.args[0] for c in session.add.call_args_list
+        if isinstance(c.args[0], ACAgentEvent) and c.args[0].event_type == "orphan_failed"
+    ]
+    assert len(orphan_failed_events) == 0, (
+        f"Expected no orphan_failed event (grace period), got {len(orphan_failed_events)}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # AC 3: orphan sweep leaves run alone when build_complete_run event present
 # ---------------------------------------------------------------------------
