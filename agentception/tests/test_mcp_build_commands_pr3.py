@@ -344,6 +344,16 @@ async def test_build_complete_run_reviewer_does_not_redispatch_reviewer() -> Non
     """
     with (
         patch(
+            "agentception.mcp.build_commands._has_file_edit_events",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands._has_pr_recorded",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
         ),
@@ -382,6 +392,16 @@ async def test_build_complete_run_reviewer_does_not_redispatch_reviewer() -> Non
 async def test_build_complete_run_implementer_does_redispatch_reviewer() -> None:
     """When a developer calls build_complete_run, reviewer IS dispatched."""
     with (
+        patch(
+            "agentception.mcp.build_commands._has_file_edit_events",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands._has_pr_recorded",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
         patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
@@ -431,6 +451,16 @@ async def test_build_complete_run_releases_worktree_before_reviewer() -> None:
     release_worktree (remove dir + prune refs) first.
     """
     with (
+        patch(
+            "agentception.mcp.build_commands._has_file_edit_events",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands._has_pr_recorded",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
         patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,

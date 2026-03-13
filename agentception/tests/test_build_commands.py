@@ -29,6 +29,16 @@ async def test_reviewer_worktree_torn_down_after_failing_grade() -> None:
 
     with (
         patch(
+            "agentception.mcp.build_commands._has_file_edit_events",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands._has_pr_recorded",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
         ),
@@ -87,6 +97,16 @@ async def test_reviewer_worktree_torn_down_after_passing_grade() -> None:
     reviewer_run_id = "reviewer-issue-55-def456"
 
     with (
+        patch(
+            "agentception.mcp.build_commands._has_file_edit_events",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands._has_pr_recorded",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
         patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
@@ -148,6 +168,16 @@ async def test_redispatch_fires_after_failing_grade() -> None:
     grade = "F"
 
     with (
+        patch(
+            "agentception.mcp.build_commands._has_file_edit_events",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands._has_pr_recorded",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
         patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
@@ -219,6 +249,16 @@ async def test_redispatch_skipped_after_passing_grade() -> None:
 
     with (
         patch(
+            "agentception.mcp.build_commands._has_file_edit_events",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands._has_pr_recorded",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
         ),
@@ -281,6 +321,16 @@ async def test_build_complete_run_rejects_empty_grade_from_reviewer() -> None:
 
     with (
         patch(
+            "agentception.mcp.build_commands._has_file_edit_events",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands._has_pr_recorded",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
         ),
@@ -322,6 +372,138 @@ async def test_build_complete_run_rejects_empty_grade_from_reviewer() -> None:
 
 
 @pytest.mark.anyio
+async def test_build_complete_run_refused_no_file_edits() -> None:
+    """build_complete_run returns a refusal dict when no file_edit/write_file events exist.
+
+    Pre-flight guard: prevents agents from signalling completion before writing any code.
+    The guard must fire before any side-effectful completion logic runs.
+    """
+    from agentception.mcp.build_commands import build_complete_run
+
+    run_id = "issue-999-no-edits"
+
+    with (
+        patch(
+            "agentception.mcp.build_commands._has_file_edit_events",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+        patch(
+            "agentception.mcp.build_commands._has_pr_recorded",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands.persist_agent_event",
+            new_callable=AsyncMock,
+        ) as mock_persist,
+    ):
+        result = await build_complete_run(
+            issue_number=999,
+            pr_url="https://github.com/cgcardona/agentception/pull/1",
+            agent_run_id=run_id,
+        )
+
+    assert result["ok"] is False
+    assert "no file edits recorded" in str(result["error"])
+    mock_persist.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_build_complete_run_refused_no_pr() -> None:
+    """build_complete_run returns a refusal dict when pr_number is not recorded on the run.
+
+    Pre-flight guard: file-edit events exist but no PR has been created yet.
+    The guard must fire before any side-effectful completion logic runs.
+    """
+    from agentception.mcp.build_commands import build_complete_run
+
+    run_id = "issue-998-no-pr"
+
+    with (
+        patch(
+            "agentception.mcp.build_commands._has_file_edit_events",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands._has_pr_recorded",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+        patch(
+            "agentception.mcp.build_commands.persist_agent_event",
+            new_callable=AsyncMock,
+        ) as mock_persist,
+    ):
+        result = await build_complete_run(
+            issue_number=998,
+            pr_url="https://github.com/cgcardona/agentception/pull/2",
+            agent_run_id=run_id,
+        )
+
+    assert result["ok"] is False
+    assert "no PR found" in str(result["error"])
+    mock_persist.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_build_complete_run_allowed_when_checks_pass() -> None:
+    """build_complete_run proceeds to completion logic when both pre-flight checks pass.
+
+    With file-edit events recorded and a PR number on the run, the handler must
+    reach the existing completion path (persist_agent_event is called).
+    """
+    from agentception.mcp.build_commands import build_complete_run
+
+    run_id = "issue-997-all-good"
+
+    with (
+        patch(
+            "agentception.mcp.build_commands._has_file_edit_events",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands._has_pr_recorded",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands.persist_agent_event",
+            new_callable=AsyncMock,
+        ) as mock_persist,
+        patch(
+            "agentception.mcp.build_commands.complete_agent_run",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands.get_agent_run_role",
+            new_callable=AsyncMock,
+            return_value="developer",
+        ),
+        patch(
+            "agentception.mcp.build_commands.get_agent_run_teardown",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+        patch(
+            "agentception.mcp.build_commands.asyncio.create_task",
+        ),
+    ):
+        result = await build_complete_run(
+            issue_number=997,
+            pr_url="https://github.com/cgcardona/agentception/pull/3",
+            agent_run_id=run_id,
+        )
+
+    assert result["ok"] is True
+    assert result["status"] == "completed"
+    mock_persist.assert_called_once()
+
+
+@pytest.mark.anyio
 async def test_build_complete_run_rejects_whitespace_grade_from_reviewer() -> None:
     """build_complete_run returns an error dict when reviewer passes grade='   '.
 
@@ -333,6 +515,16 @@ async def test_build_complete_run_rejects_whitespace_grade_from_reviewer() -> No
     reviewer_run_id = "reviewer-issue-99-whitespace"
 
     with (
+        patch(
+            "agentception.mcp.build_commands._has_file_edit_events",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands._has_pr_recorded",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
         patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
@@ -372,4 +564,3 @@ async def test_build_complete_run_rejects_whitespace_grade_from_reviewer() -> No
     mock_redispatch.assert_not_called()
     mock_teardown.assert_not_called()
     mock_create_task.assert_not_called()
-

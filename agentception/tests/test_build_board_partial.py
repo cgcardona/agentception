@@ -671,6 +671,8 @@ async def test_build_complete_run_does_not_teardown_worktree() -> None:
     from agentception.mcp.build_commands import build_complete_run
 
     with (
+        patch("agentception.mcp.build_commands._has_file_edit_events", new_callable=AsyncMock, return_value=True),
+        patch("agentception.mcp.build_commands._has_pr_recorded", new_callable=AsyncMock, return_value=True),
         patch("agentception.mcp.build_commands.persist_agent_event", new_callable=AsyncMock),
         patch("agentception.mcp.build_commands.complete_agent_run", new_callable=AsyncMock, return_value=True),
         patch("agentception.mcp.build_commands.auto_dispatch_reviewer", new_callable=AsyncMock),
