@@ -3376,3 +3376,226 @@ class TestPruneHistoryTokenBudget:
 
         assert result == ""
 
+
+# ---------------------------------------------------------------------------
+# TestContextPressureWarning
+# ---------------------------------------------------------------------------
+
+
+class TestContextPressureWarning:
+    """_CONTEXT_PRESSURE_WARNING is injected into extra_blocks when
+    last_input_tokens > _CONTEXT_PRESSURE_THRESHOLD.
+
+    The warning must NOT appear on the first iteration (last_input_tokens==0)
+    and must NOT appear when the previous turn consumed fewer tokens than the
+    threshold.
+    """
+
+    @pytest.mark.anyio
+    async def test_context_pressure_warning_injected_above_threshold(
+        self, tmp_path: Path
+    ) -> None:
+        """Warning appears on iteration 2 when iteration 1 returned 110K tokens."""
+        from agentception.services.agent_loop import (
+            _CONTEXT_PRESSURE_THRESHOLD,
+            _CONTEXT_PRESSURE_WARNING,
+            run_agent_loop,
+        )
+
+        worktree = tmp_path / "test-run-ctx-pressure-above"
+        worktree.mkdir()
+        task_spec = _make_task_spec(worktree)
+
+        # Iteration 1: read_file tool call with input_tokens=110_000 (above threshold).
+        # Iteration 2: stop.
+        first_response: ToolResponse = {
+            **_tool_response("read_file", {"path": "agentception/models.py"}),
+            "input_tokens": 110_000,
+        }
+        all_responses: list[ToolResponse] = [
+            first_response,
+            _stop_response("Done."),
+        ]
+
+        captured_extra: list[list[dict[str, object]] | None] = []
+
+        async def fake_llm(
+            *args: object,
+            extra_system_blocks: list[dict[str, object]] | None = None,
+            **kwargs: object,
+        ) -> ToolResponse:
+            captured_extra.append(extra_system_blocks)
+            return all_responses[len(captured_extra) - 1]
+
+        file_result: dict[str, object] = {
+            "ok": True,
+            "content": "",
+            "truncated": False,
+        }
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.get_run_by_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic_with_tools",
+                side_effect=fake_llm,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
+
+            from agentception.services import agent_loop as al
+
+            with patch.object(al, "read_file", return_value=file_result):
+                await run_agent_loop("test-run-ctx-pressure-above", max_iterations=10)
+
+        assert len(captured_extra) == 2, (
+            f"Expected 2 LLM calls, got {len(captured_extra)}"
+        )
+
+        # Iteration 2 (index 1) must contain the context-pressure warning.
+        blocks_iter2 = captured_extra[1]
+        assert blocks_iter2 is not None, "extra_system_blocks must not be None on iteration 2"
+        warning_texts = [
+            str(b.get("text", ""))
+            for b in blocks_iter2
+            if isinstance(b, dict)
+        ]
+        assert any("⚠️ CONTEXT PRESSURE" in t for t in warning_texts), (
+            f"Expected '⚠️ CONTEXT PRESSURE' in iteration-2 extra_blocks, got: {warning_texts}"
+        )
+        assert any("110K input tokens" in t for t in warning_texts), (
+            f"Expected '110K input tokens' in iteration-2 extra_blocks, got: {warning_texts}"
+        )
+
+    @pytest.mark.anyio
+    async def test_context_pressure_warning_absent_below_threshold(
+        self, tmp_path: Path
+    ) -> None:
+        """Warning is absent on iteration 2 when iteration 1 returned only 50K tokens."""
+        from agentception.services.agent_loop import (
+            _CONTEXT_PRESSURE_THRESHOLD,
+            run_agent_loop,
+        )
+
+        worktree = tmp_path / "test-run-ctx-pressure-below"
+        worktree.mkdir()
+        task_spec = _make_task_spec(worktree)
+
+        # Iteration 1: read_file tool call with input_tokens=50_000 (below threshold).
+        # Iteration 2: stop.
+        first_response: ToolResponse = {
+            **_tool_response("read_file", {"path": "agentception/models.py"}),
+            "input_tokens": 50_000,
+        }
+        all_responses: list[ToolResponse] = [
+            first_response,
+            _stop_response("Done."),
+        ]
+
+        captured_extra: list[list[dict[str, object]] | None] = []
+
+        async def fake_llm(
+            *args: object,
+            extra_system_blocks: list[dict[str, object]] | None = None,
+            **kwargs: object,
+        ) -> ToolResponse:
+            captured_extra.append(extra_system_blocks)
+            return all_responses[len(captured_extra) - 1]
+
+        file_result: dict[str, object] = {
+            "ok": True,
+            "content": "",
+            "truncated": False,
+        }
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.get_run_by_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic",
+                new_callable=AsyncMock,
+                return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
+                "agentception.services.agent_loop.call_anthropic_with_tools",
+                side_effect=fake_llm,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
+
+            from agentception.services import agent_loop as al
+
+            with patch.object(al, "read_file", return_value=file_result):
+                await run_agent_loop("test-run-ctx-pressure-below", max_iterations=10)
+
+        assert len(captured_extra) == 2, (
+            f"Expected 2 LLM calls, got {len(captured_extra)}"
+        )
+
+        # Iteration 2 (index 1) must NOT contain the context-pressure warning.
+        blocks_iter2 = captured_extra[1]
+        if blocks_iter2 is not None:
+            warning_texts = [
+                str(b.get("text", ""))
+                for b in blocks_iter2
+                if isinstance(b, dict)
+            ]
+            assert not any("CONTEXT PRESSURE" in t for t in warning_texts), (
+                f"Context-pressure warning must NOT appear when tokens={50_000} "
+                f"<= threshold={_CONTEXT_PRESSURE_THRESHOLD}. Got: {warning_texts}"
+            )
