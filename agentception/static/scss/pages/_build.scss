@@ -729,6 +729,9 @@ body:has(.build-layout) nav.topnav {
     background: var(--bg-surface);
     border-bottom: 1px solid var(--border-subtle);
     flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    z-index: 10;
   }
 
   &__toolbar-left {
@@ -1883,13 +1886,28 @@ $preset-accents: (
   flex-direction: column;
   gap: 0.5rem;
   padding: 0.5rem 0;
+  overflow-y: auto;
+  flex: 1 1 auto;
 }
 
 // ── Thought block ─────────────────────────────────────────────────────────────
+// Inspector accent palette:
+//   thought-block    #9b59b6  purple
+//   tool-call-card   #3498db  blue
+//   file-edit-card   #27ae60  green
+//   assistant-bubble rgba(255,255,255,0.6)  light
+//   event step_start #7f8c8d  grey
+//   event blocker    #e67e22  amber
+//   event decision   #2980b9  blue
+//   event done       #2ecc71  green
+// Monospace stack: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace)
 
 .thought-block {
-  border-left: 2px solid var(--color-border-muted, #444);
+  border-left: 4px solid #9b59b6;
   padding: 0.25rem 0.5rem;
+  max-width: 100%;
+  overflow-x: hidden;
+  word-break: break-word;
 
   &__header {
     background: none;
@@ -1914,17 +1932,21 @@ $preset-accents: (
     transition: transform 0.2s ease;
   }
 
-  &[aria-expanded="true"] &__chevron { transform: rotate(90deg); }
+  &--open &__chevron { transform: rotate(90deg); }
 
   &__body {
+    font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
     font-style: italic;
     color: var(--color-text-muted, #888);
     white-space: pre-wrap;
     word-break: break-word;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.25s ease-out;
   }
 
-  &--open &__body  { display: block; }
-  &--collapsed &__body { display: none; }
+  &--open &__body  { max-height: 2000px; }
+  &--collapsed &__body { max-height: 0; }
 }
 
 // ── File edit card ────────────────────────────────────────────────────────────
@@ -1932,11 +1954,15 @@ $preset-accents: (
 .file-edit-card {
   background: var(--color-bg-subtle, #1a1a1a);
   border: 1px solid var(--color-border, #333);
+  border-left: 4px solid #27ae60;
   border-radius: 4px;
   overflow: hidden;
+  max-width: 100%;
+  overflow-x: hidden;
+  word-break: break-word;
 
   &__header {
-    font-family: monospace;
+    font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
     color: var(--color-text-muted, #888);
     padding: 0.25rem 0.5rem;
     border-bottom: 1px solid var(--color-border, #333);
@@ -1944,7 +1970,7 @@ $preset-accents: (
 
   &__diff {
     pre {
-      font-family: monospace;
+      font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
       overflow-x: auto;
       margin: 0;
       padding: 0.25rem 0.5rem;
@@ -1959,35 +1985,40 @@ $preset-accents: (
 // ── Assistant bubble ──────────────────────────────────────────────────────────
 
 .assistant-bubble {
-  border-left: 2px solid var(--color-text, #eee);
+  border-left: 4px solid rgba(255,255,255,0.6);
   padding: 0.35rem 0.5rem;
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--color-text, #eee);
   line-height: 1.5;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 // ── Tool call card ────────────────────────────────────────────────────────────
 
 .tool-call-card {
-  border-left: 2px solid #4a9eff;
+  border-left: 4px solid #3498db;
   padding: 0.2rem 0.5rem;
   display: flex;
   flex-direction: row;
   align-items: baseline;
   gap: 0.4rem;
   flex-wrap: wrap;
+  max-width: 100%;
+  overflow-x: hidden;
+  word-break: break-word;
 
   &__icon { flex-shrink: 0; }
 
   &__name {
-    font-family: monospace;
+    font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
     font-weight: 600;
     color: var(--color-text, #eee);
   }
 
   &__args {
-    font-family: monospace;
+    font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
     font-size: 0.85em;
     color: var(--color-text-muted, #888);
     word-break: break-all;
@@ -1995,7 +2026,7 @@ $preset-accents: (
 
   &__result {
     flex-basis: 100%;
-    font-family: monospace;
+    font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
     font-size: 0.82em;
     color: var(--color-text-muted, #888);
     padding-left: 1.4rem;
@@ -2016,14 +2047,17 @@ $preset-accents: (
   align-items: center;
   gap: 0.4rem;
   padding: 0.2rem 0.5rem;
-  border-left: 2px solid var(--border-subtle, #444);
+  border-left: 4px solid #7f8c8d;
   font-size: 0.75rem;
   color: var(--text-secondary, #888);
+  max-width: 100%;
+  overflow-x: hidden;
+  word-break: break-word;
 
-  &[data-event-type='step_start'] { border-left-color: var(--accent,  #6366f1); }
-  &[data-event-type='blocker']    { border-left-color: var(--warning, #f59e0b); }
-  &[data-event-type='decision']   { border-left-color: var(--info,    #3b82f6); }
-  &[data-event-type='done']       { border-left-color: var(--success, #22c55e); }
+  &[data-event-type='step_start'] { border-left-color: #7f8c8d; }
+  &[data-event-type='blocker']    { border-left-color: #e67e22; }
+  &[data-event-type='decision']   { border-left-color: #2980b9; }
+  &[data-event-type='done']       { border-left-color: #2ecc71; }
 
   &__icon { flex-shrink: 0; }
 
