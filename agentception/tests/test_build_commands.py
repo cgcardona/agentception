@@ -12,7 +12,50 @@ Run targeted:
 """
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+
+def _make_preflight_sessions(file_edit_count: int = 5, pr_number: int = 99) -> tuple[AsyncMock, AsyncMock]:
+    """Return two mock session context managers for the pre-flight guard queries.
+
+    The first session returns ``file_edit_count`` for the file-edit count query.
+    The second session returns a mock run row with ``pr_number`` set.
+    """
+    mock_count_result = MagicMock()
+    mock_count_result.scalar_one.return_value = file_edit_count
+
+    mock_run_row = MagicMock()
+    mock_run_row.pr_number = pr_number
+
+    mock_run_result = MagicMock()
+    mock_run_result.scalar_one_or_none.return_value = mock_run_row
+
+    mock_session_1 = AsyncMock()
+    mock_session_1.__aenter__ = AsyncMock(return_value=mock_session_1)
+    mock_session_1.__aexit__ = AsyncMock(return_value=False)
+    mock_session_1.execute = AsyncMock(return_value=mock_count_result)
+
+    mock_session_2 = AsyncMock()
+    mock_session_2.__aenter__ = AsyncMock(return_value=mock_session_2)
+    mock_session_2.__aexit__ = AsyncMock(return_value=False)
+    mock_session_2.execute = AsyncMock(return_value=mock_run_result)
+
+    return mock_session_1, mock_session_2
+
+
+def _preflight_session_factory(
+    file_edit_count: int = 5, pr_number: int = 99
+) -> object:
+    """Return a side_effect callable that yields pre-flight mock sessions."""
+    s1, s2 = _make_preflight_sessions(file_edit_count=file_edit_count, pr_number=pr_number)
+    call_count = 0
+
+    def factory() -> AsyncMock:
+        nonlocal call_count
+        call_count += 1
+        return s1 if call_count == 1 else s2
+
+    return factory
 
 
 @pytest.mark.anyio
@@ -28,6 +71,10 @@ async def test_reviewer_worktree_torn_down_after_failing_grade() -> None:
     reviewer_run_id = "reviewer-issue-42-abc123"
 
     with (
+        patch(
+            "agentception.mcp.build_commands.get_session",
+            side_effect=_preflight_session_factory(),
+        ),
         patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
@@ -87,6 +134,10 @@ async def test_reviewer_worktree_torn_down_after_passing_grade() -> None:
     reviewer_run_id = "reviewer-issue-55-def456"
 
     with (
+        patch(
+            "agentception.mcp.build_commands.get_session",
+            side_effect=_preflight_session_factory(),
+        ),
         patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
@@ -148,6 +199,10 @@ async def test_redispatch_fires_after_failing_grade() -> None:
     grade = "F"
 
     with (
+        patch(
+            "agentception.mcp.build_commands.get_session",
+            side_effect=_preflight_session_factory(),
+        ),
         patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
@@ -219,6 +274,10 @@ async def test_redispatch_skipped_after_passing_grade() -> None:
 
     with (
         patch(
+            "agentception.mcp.build_commands.get_session",
+            side_effect=_preflight_session_factory(),
+        ),
+        patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
         ),
@@ -281,6 +340,10 @@ async def test_build_complete_run_rejects_empty_grade_from_reviewer() -> None:
 
     with (
         patch(
+            "agentception.mcp.build_commands.get_session",
+            side_effect=_preflight_session_factory(),
+        ),
+        patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
         ),
@@ -334,6 +397,10 @@ async def test_build_complete_run_rejects_whitespace_grade_from_reviewer() -> No
 
     with (
         patch(
+            "agentception.mcp.build_commands.get_session",
+            side_effect=_preflight_session_factory(),
+        ),
+        patch(
             "agentception.mcp.build_commands.persist_agent_event",
             new_callable=AsyncMock,
         ),
@@ -372,4 +439,3 @@ async def test_build_complete_run_rejects_whitespace_grade_from_reviewer() -> No
     mock_redispatch.assert_not_called()
     mock_teardown.assert_not_called()
     mock_create_task.assert_not_called()
-

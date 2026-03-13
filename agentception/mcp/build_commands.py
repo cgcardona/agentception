@@ -26,6 +26,10 @@ import asyncio
 import logging
 from pathlib import Path
 
+from sqlalchemy import func, select
+
+from agentception.db.engine import get_session
+from agentception.db.models import ACAgentEvent, ACAgentRun
 from agentception.db.persist import (
     acknowledge_agent_run,
     block_agent_run,
@@ -299,6 +303,54 @@ async def build_complete_run(
     Returns:
         ``{"ok": True, "event": "done", "status": "completed"}``
     """
+    # Pre-flight invariant checks — enforced before any side-effectful code.
+    #
+    # Invariant 1: The agent must have written at least one file before calling
+    # build_complete_run.  Agents that call this tool with no file edits have
+    # produced no work product; accepting the call would trigger the auto-reviewer
+    # against an empty branch, wasting a full reviewer turn.  We return a
+    # structured dict (not an exception) so the MCP framework serialises it back
+    # to the agent as a normal tool response the agent can act on and retry.
+    #
+    # Invariant 2: A PR must already exist before the run can be completed.
+    # build_complete_run is the signal that triggers the auto-reviewer; if no PR
+    # has been opened yet the reviewer has nothing to review.  Again, an early
+    # return (not an exception) is the correct signal — the agent can open the PR
+    # and call build_complete_run again.
+    if agent_run_id:
+        async with get_session() as session:
+            file_edit_count_result = await session.execute(
+                select(func.count()).select_from(ACAgentEvent).where(
+                    ACAgentEvent.agent_run_id == agent_run_id,
+                    ACAgentEvent.event_type.in_(["file_edit", "write_file"]),
+                )
+            )
+            file_edit_count: int = file_edit_count_result.scalar_one()
+
+        if file_edit_count == 0:
+            return {
+                "ok": False,
+                "error": (
+                    "build_complete_run refused: no file edits recorded for this run. "
+                    "Write and commit your changes first."
+                ),
+            }
+
+        async with get_session() as session:
+            run_result = await session.execute(
+                select(ACAgentRun).where(ACAgentRun.id == agent_run_id)
+            )
+            run_row = run_result.scalar_one_or_none()
+
+        if run_row is None or run_row.pr_number is None:
+            return {
+                "ok": False,
+                "error": (
+                    "build_complete_run refused: no PR found. "
+                    "Create and push a branch, then open a pull request first."
+                ),
+            }
+
     await persist_agent_event(
         issue_number=issue_number,
         event_type="done",
