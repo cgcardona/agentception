@@ -937,6 +937,7 @@ async def _upsert_agent_runs(
                         issue_number=orphan.issue_number,
                         event_type="orphan_failed",
                         payload=json.dumps({"reason": "worktree_gone_no_build_complete"}),
+                        recorded_at=now,
                     ))
                     logger.warning(
                         "🧹 Orphan run %s → failed (worktree gone, no build_complete_run event)",
@@ -1197,6 +1198,7 @@ async def complete_agent_run(run_id: str) -> bool:
                 agent_run_id=run_id,
                 event_type="build_complete_run",
                 payload="{}",
+                recorded_at=_now(),
             ))
             await session.commit()
         logger.info("✅ complete_agent_run: %s → completed", run_id)
