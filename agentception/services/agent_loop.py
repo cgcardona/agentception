@@ -2269,11 +2269,25 @@ async def _dispatch_single_tool(
         await session.flush()
 
     if name in _LOCAL_TOOL_NAMES:
-        return await _dispatch_local_tool(name, args, worktree_path)
+        return await _dispatch_local_tool(
+            name, args, worktree_path, run_id=run_id, session=session
+        )
 
     if name in github_tool_names and github_client is not None:
         try:
             text = await github_client.call_tool(name, args)
+            # activity event — see docs/reference/activity-events.md
+            if session is not None:
+                try:
+                    persist_activity_event(
+                        session,
+                        run_id,
+                        "github_tool",
+                        {"tool_name": name, "arg_preview": str(args)[:120]},
+                    )
+                    await session.flush()
+                except Exception as exc:
+                    logger.warning("⚠️ persist github_tool failed: %s", exc)
             return {"ok": True, "result": text}
         except RuntimeError as exc:
             logger.error("❌ github_mcp tool %s failed: %s", name, exc)
@@ -2286,6 +2300,9 @@ async def _dispatch_local_tool(
     name: str,
     args: dict[str, object],
     worktree_path: Path,
+    *,
+    run_id: str | None = None,
+    session: AsyncSession | None = None,
 ) -> dict[str, object]:
     """Route a local tool call to the appropriate file or shell function."""
 
@@ -2394,7 +2411,9 @@ async def _dispatch_local_tool(
             return {"ok": False, "error": "run_command: 'command' must be a string"}
         cwd_raw = args.get("cwd")
         cwd = _resolve(cwd_raw, worktree_path) if cwd_raw is not None else worktree_path
-        return await run_command(command_raw, cwd)
+        return await run_command(
+            command_raw, cwd, run_id=run_id, session=session
+        )
 
     if name == "git_commit_and_push":
         branch_raw = args.get("branch")
@@ -2421,6 +2440,8 @@ async def _dispatch_local_tool(
             str_paths,
             worktree_path,
             base=base,
+            run_id=run_id,
+            session=session,
         )
 
     if name == "search_codebase":
