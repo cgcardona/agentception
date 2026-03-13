@@ -375,9 +375,16 @@ TOOLS: list[ACToolDef] = [
                     "type": "string",
                     "description": "Optional one-sentence summary of what you did.",
                 },
-                "agent_run_id": {"type": "string"},
+                "agent_run_id": {
+                    "type": "string",
+                    "description": (
+                        "Your own run ID exactly as it appears in your task briefing "
+                        "(e.g. 'issue-858' or 'review-900'). Required — omitting it "
+                        "leaves your run stuck in implementing state."
+                    ),
+                },
             },
-            "required": ["issue_number", "pr_url"],
+            "required": ["issue_number", "pr_url", "agent_run_id"],
             "additionalProperties": False,
         },
     ),

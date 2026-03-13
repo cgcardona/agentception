@@ -468,16 +468,6 @@ async def test_done_event_payload_includes_grade_for_reviewer() -> None:
 
     with (
         patch(
-            "agentception.mcp.build_commands._has_file_edit_events",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
-        patch(
-            "agentception.mcp.build_commands._has_pr_recorded",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
-        patch(
             "agentception.mcp.build_commands.persist_agent_event",
             side_effect=_capture_persist,
         ),
@@ -532,16 +522,6 @@ async def test_done_event_payload_excludes_grade_for_developer() -> None:
             captured_payload.update(payload)
 
     with (
-        patch(
-            "agentception.mcp.build_commands._has_file_edit_events",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
-        patch(
-            "agentception.mcp.build_commands._has_pr_recorded",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
         patch(
             "agentception.mcp.build_commands.persist_agent_event",
             side_effect=_capture_persist,
