@@ -17,12 +17,17 @@ logger = logging.getLogger(__name__)
 # Maximum bytes read from a single file before truncation.
 _MAX_READ_BYTES = 131_072  # 128 KiB
 
+# Matches class/def header lines — used by insert_after_in_file to prevent
+# inserting content after a class or function signature (which would break
+# the structure of the class/function body).
+_CLASS_DEF_RE: _re.Pattern[str] = _re.compile(r"^\s*(class|def)\s+\w+")
+
 
 def read_file(path: str | Path) -> dict[str, object]:
     """Return the text content of *path*.
 
     Args:
-        path: File to read.  Relative paths are resolved from the caller's cwd.
+        path: File to read.  Pre-resolved to the worktree root by the dispatcher.
 
     Returns:
         ``{"ok": True, "content": str, "truncated": bool}`` on success, or
@@ -289,7 +294,6 @@ def insert_after_in_file(
     # indented — inserting between them detaches the body from its header and
     # produces a SyntaxError.  The caller must use an anchor that ends inside
     # the body (e.g. the last method's closing line) rather than on the header.
-    _CLASS_DEF_RE = _re.compile(r"^\s*(class|def)\s+\w+")
     anchor_end_line = original[:insert_pos].rpartition("\n")[2]
     stripped_header = anchor_end_line.rstrip()
     if stripped_header.endswith(":") and _CLASS_DEF_RE.match(stripped_header):
@@ -326,6 +330,29 @@ def insert_after_in_file(
     return {"ok": True, "inserted_at": insert_pos}
 
 
+def _truncate_rg_output(output: str, n_results: int) -> str:
+    """Truncate ripgrep ``--heading`` output to at most *n_results* match lines.
+
+    In ``--heading`` mode rg emits a file-path header line, then numbered
+    match lines (``<lineno>:<content>``), then a blank separator between
+    file groups.  This function counts only the numbered match lines and
+    stops (dropping trailing headers/blanks) once the limit is reached so
+    the total returned is bounded regardless of how many files matched.
+    """
+    kept: list[str] = []
+    match_count = 0
+    for line in output.split("\n"):
+        # Numbered match lines in --heading mode start with digits followed
+        # by ":" (e.g. "42:def foo():").  File headers and blank separators
+        # do not match this pattern.
+        if line and line[0].isdigit() and ":" in line:
+            if match_count >= n_results:
+                break
+            match_count += 1
+        kept.append(line)
+    return "\n".join(kept).rstrip()
+
+
 async def search_text(
     pattern: str,
     directory: str | Path,
@@ -340,11 +367,11 @@ async def search_text(
     Args:
         pattern: Regex or literal pattern forwarded verbatim to ``rg``.
         directory: Root directory to search.
-        n_results: Maximum number of matching lines to return.
+        n_results: Maximum total matching lines to return across all files.
 
     Returns:
         ``{"ok": True, "matches": str}`` — rg output (at most *n_results*
-        lines) — or ``{"ok": False, "error": str}`` on failure.
+        total match lines) — or ``{"ok": False, "error": str}`` on failure.
     """
     import asyncio
 
@@ -357,8 +384,6 @@ async def search_text(
             "rg",
             "--heading",
             "--line-number",
-            "--max-count",
-            str(n_results),
             pattern,
             str(d),
             stdout=asyncio.subprocess.PIPE,
@@ -378,7 +403,8 @@ async def search_text(
         err_text = stderr.decode("utf-8", errors="replace").strip()
         return {"ok": False, "error": f"rg failed (exit {proc.returncode}): {err_text}"}
 
-    return {"ok": True, "matches": output or "(no matches)"}
+    truncated = _truncate_rg_output(output, n_results)
+    return {"ok": True, "matches": truncated or "(no matches)"}
 
 
 # ---------------------------------------------------------------------------
@@ -560,7 +586,7 @@ async def find_call_sites(
     Args:
         symbol_name: Function or class name to search for.
         directory: Root directory to search (defaults to worktree root).
-        n_results: Maximum matching lines to return.
+        n_results: Maximum total matching lines to return across all files.
 
     Returns:
         ``{"ok": True, "matches": str}`` — ripgrep-formatted output — or
@@ -580,8 +606,6 @@ async def find_call_sites(
             "rg",
             "--heading",
             "--line-number",
-            "--max-count",
-            str(n_results),
             "-e",
             pattern,
             str(d),
@@ -601,5 +625,6 @@ async def find_call_sites(
         err_text = stderr.decode("utf-8", errors="replace").strip()
         return {"ok": False, "error": f"rg failed (exit {proc.returncode}): {err_text}"}
 
+    truncated = _truncate_rg_output(output, n_results)
     logger.info("✅ find_call_sites — %s in %s", symbol_name, d)
-    return {"ok": True, "matches": output or "(no call sites found)"}
+    return {"ok": True, "matches": truncated or "(no call sites found)"}

@@ -8,7 +8,6 @@ machine.  Functions are grouped by audience:
 Dispatcher
 ----------
 - ``build_claim_run``       — pending_launch → implementing (was: build_acknowledge_run)
-- ``build_spawn_child_run`` — create child worktree + DB record (was: build_spawn_child)
 
 Engineers
 ---------
@@ -41,7 +40,6 @@ from agentception.db.queries import get_agent_run_role, get_agent_run_teardown
 
 from agentception.services.auto_redispatch import auto_redispatch_after_rejection
 from agentception.services.auto_reviewer import auto_dispatch_reviewer
-from agentception.services.spawn_child import ScopeType, SpawnChildError, Tier, spawn_child
 from agentception.services.teardown import release_worktree, teardown_agent_worktree
 
 logger = logging.getLogger(__name__)
@@ -155,114 +153,6 @@ async def build_claim_run(run_id: str) -> dict[str, object]:
         }
     logger.info("✅ build_claim_run: %r claimed", run_id)
     return {"ok": True, "run_id": run_id, "previous_state": "pending_launch"}
-
-
-async def build_spawn_child_run(
-    parent_run_id: str,
-    role: str,
-    tier: str,
-    scope_type: str,
-    scope_value: str,
-    gh_repo: str,
-    org_domain: str = "",
-    issue_body: str = "",
-    issue_title: str = "",
-    skills_hint: list[str] | None = None,
-    coord_fingerprint: str | None = None,
-    cognitive_arch: str = "",
-) -> dict[str, object]:
-    """Create a child agent node in the tree and return its worktree path.
-
-    Any coordinator agent calls this tool to atomically spawn a child.
-    The tool creates the worktree, persists all task context to the DB row
-    (role, cognitive_arch, tier, scope, parent lineage, and all required fields),
-    and auto-acknowledges the run so the caller can immediately fire a Task call.
-    The child reads its full context via
-    ``ac://runs/{run_id}/context`` and the ``task/briefing`` MCP prompt.
-
-    Was: ``build_spawn_child``.
-
-    Args:
-        parent_run_id:  ``run_id`` of the calling agent (lineage tracking).
-        role:           Child's role slug (e.g. ``"engineering-coordinator"``).
-        tier:           Behavioral execution tier — ``"coordinator"``
-                        or ``"worker"``.
-        scope_type:     ``"label"``, ``"issue"``, or ``"pr"``.
-        scope_value:    Label string, or issue/PR number as a string.
-        gh_repo:        ``"owner/repo"`` string.
-        org_domain:     Organisational slot for UI hierarchy (``"c-suite"``,
-                        ``"engineering"``, ``"qa"``).
-        issue_body:     Issue body for COGNITIVE_ARCH skill extraction.
-        issue_title:    Issue title written to ISSUE_TITLE field.
-        skills_hint:    Explicit skill override list for COGNITIVE_ARCH.
-        coord_fingerprint: The spawning coordinator's fingerprint string.
-        cognitive_arch: When provided, forward this exact arch string to the child.
-
-    Returns:
-        On success: ``{"ok": True, "child_run_id": ..., "worktree_path": ...,
-                       "tier": ..., "org_domain": ..., "role": ..., "cognitive_arch": ...}``
-        On failure: ``{"ok": False, "error": "<reason>"}``
-    """
-    if tier == "coordinator":
-        typed_tier: Tier = "coordinator"
-    elif tier == "worker":
-        typed_tier = "worker"
-    else:
-        return {
-            "ok": False,
-            "error": f"tier must be coordinator/worker, got {tier!r}",
-        }
-
-    if scope_type == "label":
-        scope: ScopeType = "label"
-    elif scope_type == "issue":
-        scope = "issue"
-    elif scope_type == "pr":
-        scope = "pr"
-    else:
-        return {
-            "ok": False,
-            "error": f"scope_type must be label/issue/pr, got {scope_type!r}",
-        }
-
-    domain: str | None = org_domain if org_domain else None
-
-    try:
-        result = await spawn_child(
-            parent_run_id=parent_run_id,
-            role=role,
-            tier=typed_tier,
-            org_domain=domain,
-            scope_type=scope,
-            scope_value=scope_value,
-            gh_repo=gh_repo,
-            issue_body=issue_body,
-            issue_title=issue_title,
-            skills_hint=skills_hint,
-            coord_fingerprint=coord_fingerprint,
-            cognitive_arch=cognitive_arch if cognitive_arch else None,
-        )
-    except SpawnChildError as exc:
-        logger.error("❌ build_spawn_child_run failed: %s", exc)
-        return {"ok": False, "error": str(exc)}
-
-    logger.info(
-        "✅ build_spawn_child_run: spawned child_run_id=%r role=%r tier=%r org_domain=%r scope=%s:%s",
-        result.run_id, result.role, result.tier, result.org_domain,
-        result.scope_type, result.scope_value,
-    )
-    return {
-        "ok": True,
-        "child_run_id": result.run_id,
-        "worktree_path": result.host_worktree_path,
-        "tier": result.tier,
-        "org_domain": result.org_domain,
-        "role": result.role,
-        "cognitive_arch": result.cognitive_arch,
-        "scope_type": result.scope_type,
-        "scope_value": result.scope_value,
-        "status": "implementing",
-    }
 
 
 # Matches https://github.com/<owner>/<repo>/pull/<number>
