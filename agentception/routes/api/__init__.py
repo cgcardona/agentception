@@ -30,6 +30,7 @@ from .presets import router as _presets
 from .resync import router as _resync
 from .telemetry import router as _telemetry
 from .wizard import router as _wizard
+from .metrics import router as _metrics
 from .worktrees import router as _worktrees
 
 router = APIRouter(prefix="/api", tags=["api"])
@@ -52,3 +53,4 @@ router.include_router(_issues)
 router.include_router(_wizard)
 router.include_router(_plan)
 router.include_router(_presets)
+router.include_router(_metrics)
