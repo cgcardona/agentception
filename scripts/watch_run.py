@@ -90,6 +90,9 @@ _RE_GITHUB_TOOL = re.compile(
 _RE_LLM_CALL = re.compile(
     r"LLM tool-use call — model=(?P<model>\S+) turns=(?P<turns>\d+) tools=(?P<tools>\d+)"
 )
+_RE_LOCAL_LLM_CALL = re.compile(
+    r"Local LLM tool-use call — url=\S+ turns=(?P<turns>\d+) tools=(?P<tools>\d+)"
+)
 _RE_LLM_RETRY = re.compile(r"LLM retry (?P<n>\d+)/(?P<max>\d+) after (?P<secs>[\d.]+)s")
 _RE_LLM_USAGE = re.compile(
     r"LLM usage — input=(?P<input>\d+) cache_written=(?P<cw>\d+) cache_read=(?P<cr>\d+)"
@@ -123,11 +126,17 @@ class _RunState:
     history_len: int = 0
     pending_arg: str = ""      # key arg from last dispatch_tool
     colour_idx: int = 0        # index into _RUN_COLOURS for this run's prefix
+    last_llm_was_local: bool = False  # so heartbeat can say "local" vs "LLM"
 
 
 # Assign colours round-robin as new run_ids are seen.
 _run_states: dict[str, _RunState] = {}
 _next_colour_idx: list[int] = [0]   # list so inner func can mutate it
+
+# Dedupe "loop ready" per run_id: docker compose logs --follow replays buffered
+# lines, so we see one "agent_loop start" per past dispatch. Show only the first
+# per run_id per session; clear on teardown so a re-dispatch shows again.
+_seen_loop_ready: set[str] = set()
 
 
 def _get_state(run_id: str) -> _RunState:
@@ -226,8 +235,13 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
     rsm = _RE_RUN_START.search(msg)
     if rsm:
         rid = rsm.group("run_id")
+        if not run_id_filter or rid == run_id_filter:
+            _last_run_id[0] = rid  # so LLM reply/done (no run_id in log) match this run
         if run_id_filter and rid != run_id_filter:
             return None
+        if rid in _seen_loop_ready:
+            return None  # dedupe: buffer may replay multiple starts from past dispatches
+        _seen_loop_ready.add(rid)
         tools = rsm.group("tools")
         tag = _run_tag(rid, run_id_filter)
         return f"{ts}  {tag}{GREY}    loop ready — {tools} tools available{RESET}"
@@ -432,13 +446,30 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
         if run_id_filter and rid != run_id_filter:
             return None
         st = _get_state(rid)
+        st.last_llm_was_local = False
         st.history_len = int(lm.group("turns"))
         iteration = st.iteration
         iter_tag = str(iteration) if iteration else "?"
         short_id = rid.replace("issue-", "#").replace("review-", "rv-")
         tag = _run_tag(rid, run_id_filter)
         return (
-            f"\n{ts}  {tag}{MAGENTA}{BOLD}╔══ ITER {iter_tag}  [{short_id}]{RESET}"
+            f"\n{ts}  {tag}{MAGENTA}{BOLD}╔══ ITER {iter_tag}  [{short_id}]  model={lm.group('model')}{RESET}"
+        )
+    # Local LLM (e.g. Qwen via MLX) — same header but show "local" so you can confirm provider
+    llm = _RE_LOCAL_LLM_CALL.search(msg)
+    if llm:
+        rid = _last_run_id[0]
+        if run_id_filter and rid != run_id_filter:
+            return None
+        st = _get_state(rid)
+        st.last_llm_was_local = True
+        st.history_len = int(llm.group("turns"))
+        iteration = st.iteration
+        iter_tag = str(iteration) if iteration else "?"
+        short_id = rid.replace("issue-", "#").replace("review-", "rv-")
+        tag = _run_tag(rid, run_id_filter)
+        return (
+            f"\n{ts}  {tag}{MAGENTA}{BOLD}╔══ ITER {iter_tag}  [{short_id}]  {GREEN}local{RESET}{RESET}"
         )
 
     # ── LLM token usage ───────────────────────────────────────────────────────
@@ -526,6 +557,7 @@ def process_line(raw: str, run_id_filter: str | None) -> str | None:
     tdm = _RE_TEARDOWN.search(msg)
     if tdm:
         teardown_rid = tdm.group("run_id")
+        _seen_loop_ready.discard(teardown_rid)  # next dispatch of same run_id shows "loop ready" again
         if run_id_filter and teardown_rid != run_id_filter:
             return None
         tag = _run_tag(teardown_rid, run_id_filter)
@@ -546,6 +578,7 @@ class _SilenceState:
     last_output_ts: float = 0.0
     last_llm_call_ts: float = 0.0
     llm_retry_count: int = 0
+    last_llm_was_local: bool = False
 
 
 _silence_lock = threading.Lock()
@@ -561,10 +594,12 @@ def _heartbeat(run_id_filter: str | None) -> None:
     while not _stop_heartbeat.wait(timeout=5):
         now = _time_mod.time()
         with _silence_lock:
-            snapshot = {rid: (s.last_output_ts, s.last_llm_call_ts, s.llm_retry_count)
-                        for rid, s in _silence.items()}
+            snapshot = {
+                rid: (s.last_output_ts, s.last_llm_call_ts, s.llm_retry_count, s.last_llm_was_local)
+                for rid, s in _silence.items()
+            }
 
-        for rid, (last_out, last_llm, retry_count) in snapshot.items():
+        for rid, (last_out, last_llm, retry_count, last_llm_was_local) in snapshot.items():
             if run_id_filter and rid != run_id_filter:
                 continue
             silent_for = now - last_out if last_out else 0.0
@@ -583,7 +618,8 @@ def _heartbeat(run_id_filter: str | None) -> None:
                         f" — LIKELY STUCK (container crash?){RESET}"
                     )
                 else:
-                    label = f"{YELLOW}⏳ waiting for Anthropic response{retry_tag} — {llm_wait}s elapsed{RESET}"
+                    provider = "local" if last_llm_was_local else "LLM"
+                    label = f"{YELLOW}⏳ waiting for {provider} response{retry_tag} — {llm_wait}s elapsed{RESET}"
             else:
                 if silent_for >= STUCK_AFTER_S:
                     label = f"{RED}{BOLD}⚠️  no agent activity for {int(silent_for)}s — run may be dead{RESET}"
@@ -640,6 +676,11 @@ def main() -> None:
                     if _RE_LLM_CALL.search(line):
                         s.last_llm_call_ts = now
                         s.llm_retry_count = 0
+                        s.last_llm_was_local = False
+                    elif _RE_LOCAL_LLM_CALL.search(line):
+                        s.last_llm_call_ts = now
+                        s.llm_retry_count = 0
+                        s.last_llm_was_local = True
                     elif _RE_LLM_DONE.search(line):
                         s.last_llm_call_ts = 0.0
                         s.llm_retry_count = 0

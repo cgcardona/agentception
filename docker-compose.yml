@@ -28,6 +28,9 @@ services:
       # Override via HOST_REPO_DIR in .env when the repo is not at the default.
       HOST_REPO_DIR: ${HOST_REPO_DIR:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Optional: developer agent uses local OpenAI-compatible server (e.g. mlx_lm.server on host).
+      USE_LOCAL_LLM: ${USE_LOCAL_LLM:-false}
+      LOCAL_LLM_BASE_URL: ${LOCAL_LLM_BASE_URL:-http://host.docker.internal:8080}
       # gh CLI reads GITHUB_TOKEN when the keychain (macOS) is unavailable inside Docker.
       # Set GITHUB_TOKEN in .env to a PAT with repo+issues scope.
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
@@ -83,6 +86,11 @@ services:
     dns:
       - "1.1.1.1"
       - "8.8.8.8"
+    # Let the container reach a server on the host (e.g. MLX server on port 8080).
+    # Docker Desktop on Mac/Windows provides host.docker.internal by default;
+    # Linux and some other runtimes do not, so we set it explicitly.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - agentception-net
     command: >
