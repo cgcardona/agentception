@@ -41,7 +41,7 @@ from typing import Literal, NotRequired, TypedDict
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agentception.config import settings
+from agentception.config import LLMProviderChoice, settings
 from agentception.db.activity_events import persist_activity_event
 
 logger = logging.getLogger(__name__)
@@ -218,9 +218,15 @@ async def completion(
 ) -> str:
     """Single-turn completion; returns final answer text (thinking stripped by adapter).
 
-    Provider-agnostic. Currently delegates to Anthropic; local adapter can be
-    added and selected via config.
+    Provider-agnostic. Branches on ``settings.effective_llm_provider``; local
+    adapter uses single-turn no-tools call; Anthropic uses full completion API.
     """
+    if settings.effective_llm_provider == LLMProviderChoice.local:
+        return await call_local_completion(
+            system_prompt or "",
+            user_prompt,
+            max_tokens=max_tokens,
+        )
     return await call_anthropic(
         user_prompt,
         system_prompt=system_prompt,
@@ -240,9 +246,18 @@ async def completion_stream(
 ) -> AsyncGenerator[LLMChunk, None]:
     """Stream completion chunks; each chunk has type \"thinking\" or \"content\".
 
-    Provider-agnostic. Callers discard thinking and accumulate content.
-    Currently delegates to Anthropic stream.
+    Provider-agnostic. Branches on ``settings.effective_llm_provider``. Local
+    adapter does a single completion and yields one content chunk; Anthropic
+    streams thinking + content.
     """
+    if settings.effective_llm_provider == LLMProviderChoice.local:
+        text = await call_local_completion(
+            system_prompt or "",
+            user_prompt,
+            max_tokens=max_tokens,
+        )
+        yield LLMChunk(type="content", text=text)
+        return
     async for chunk in call_anthropic_stream(
         user_prompt,
         system_prompt=system_prompt,
@@ -268,10 +283,10 @@ async def completion_with_tools(
 ) -> ToolResponse:
     """Multi-turn tool-use completion; returns ToolResponse (content + tool_calls).
 
-    Provider-agnostic. When ``settings.use_local_llm`` is True, uses local
-    OpenAI-compatible server; otherwise Anthropic.
+    Provider-agnostic. Branches on ``settings.effective_llm_provider``; local
+    uses OpenAI-compatible server; otherwise Anthropic.
     """
-    if settings.use_local_llm:
+    if settings.effective_llm_provider == LLMProviderChoice.local:
         return await call_local_with_tools(
             messages,
             system=system,
@@ -966,7 +981,7 @@ async def call_anthropic_with_tools(
 
 
 # ---------------------------------------------------------------------------
-# Local OpenAI-compatible server (e.g. mlx_lm.server) — used when use_local_llm
+# Local OpenAI-compatible server (e.g. mlx_lm.server) — used when effective_llm_provider is local
 # ---------------------------------------------------------------------------
 
 
@@ -1004,8 +1019,8 @@ async def call_local_with_tools(
     """Call a local OpenAI-compatible server (e.g. mlx_lm.server) with tool use.
 
     Same contract as :func:`call_anthropic_with_tools`: accepts OpenAI-format
-    messages and tools, returns :class:`ToolResponse`. Use when
-    ``settings.use_local_llm`` is True.
+    messages and tools, returns :class:`ToolResponse`. Used when
+    ``settings.effective_llm_provider`` is ``local``.
     """
     base = settings.local_llm_base_url.rstrip("/")
     url = f"{base}{settings.local_llm_chat_path}"

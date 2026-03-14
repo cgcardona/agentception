@@ -34,7 +34,7 @@ from pathlib import Path
 
 from sqlalchemy import select
 
-from agentception.config import settings
+from agentception.config import LLMProviderChoice, settings
 from agentception.db.engine import get_session
 from agentception.db.models import ACAgentRun
 from agentception.db.queries import get_run_by_id
@@ -525,7 +525,7 @@ async def run_agent_loop(
     else:
         tool_defs = all_tool_defs
 
-    if run_id.startswith("local-hello") and settings.use_local_llm:
+    if run_id.startswith("local-hello") and settings.effective_llm_provider == LLMProviderChoice.local:
         initial_message = "Reply with exactly: hello world."
         tool_defs = []
     else:
@@ -759,7 +759,7 @@ async def run_agent_loop(
             try:
                 bounded = await _prune_history(_truncate_tool_results(messages), last_input_tokens=last_input_tokens)
                 _active_model = _HAIKU_MODEL if task.role == "reviewer" else _MODEL
-                if settings.use_local_llm and task.role == "developer":
+                if settings.effective_llm_provider == LLMProviderChoice.local and task.role == "developer":
                     # Same pipeline as Anthropic: full system prompt (role + cognitive arch + runtime
                     # note), same tools, same extra_system_blocks. Only the LLM endpoint and context
                     # caps differ. Cap context so small local models (e.g. Qwen 4B) aren't overloaded.

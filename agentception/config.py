@@ -32,13 +32,23 @@ logger = logging.getLogger(__name__)
 
 class TaskRunnerChoice(str, enum.Enum):
     """Task runner backend for agent execution.
-    
+
     Determines which system executes agent tasks:
     - ``cursor``: Cursor IDE with Composer agent
     - ``anthropic``: Direct Anthropic API calls (default)
     """
     cursor = "cursor"
     anthropic = "anthropic"
+
+
+class LLMProviderChoice(str, enum.Enum):
+    """Which LLM backend to use for completion, streaming, and tool-use.
+
+    Single source of provider choice. When ``USE_LOCAL_LLM=true``, effective
+    provider is ``local`` regardless of ``LLM_PROVIDER`` (backward compat).
+    """
+    anthropic = "anthropic"
+    local = "local"
 
 
 def _resolve_project(raw: dict[str, object], target: AgentCeptionSettings) -> None:
@@ -148,7 +158,7 @@ class AgentCeptionSettings(BaseSettings):
     use_local_llm: bool = False
     """When True, the developer agent uses the local LLM at ``local_llm_base_url``
     instead of Anthropic. Set via ``USE_LOCAL_LLM`` env var (e.g. ``true``).
-    Planner and reviewer still use Anthropic."""
+    Maps to effective provider ``local``; prefer ``LLM_PROVIDER=local`` for new config."""
 
     @field_validator("use_local_llm", mode="before")
     @classmethod
@@ -158,6 +168,29 @@ class AgentCeptionSettings(BaseSettings):
         if isinstance(v, str):
             return v.strip().lower() in ("true", "1", "yes")
         return False
+
+    llm_provider: LLMProviderChoice = LLMProviderChoice.anthropic
+    """Which LLM backend to use. Set via ``LLM_PROVIDER`` (``anthropic`` or ``local``).
+    When ``USE_LOCAL_LLM=true``, effective provider is ``local`` regardless of this."""
+
+    @field_validator("llm_provider", mode="before")
+    @classmethod
+    def _parse_llm_provider(cls, v: object) -> LLMProviderChoice:
+        if isinstance(v, LLMProviderChoice):
+            return v
+        if isinstance(v, str):
+            raw = v.strip().lower()
+            if raw == "local":
+                return LLMProviderChoice.local
+            return LLMProviderChoice.anthropic
+        return LLMProviderChoice.anthropic
+
+    @property
+    def effective_llm_provider(self) -> LLMProviderChoice:
+        """Provider actually used for LLM calls. USE_LOCAL_LLM=true overrides LLM_PROVIDER."""
+        if self.use_local_llm:
+            return LLMProviderChoice.local
+        return self.llm_provider
 
     local_llm_base_url: str = "http://host.docker.internal:8080"
     """Base URL of the local OpenAI-compatible server (e.g. mlx_lm.server).

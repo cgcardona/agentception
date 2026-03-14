@@ -2,7 +2,7 @@
 
 **Goal:** AgentCeption should support plugging in any model (Anthropic, Qwen/local, future providers) without tight coupling. Streaming, chain-of-thought, and response shape must be in a **universal format** the rest of the app consumes. Operators should be able to swap providers via config, not code.
 
-**Status:** Planning (not yet implemented).
+**Status:** Phases 1–3 implemented (public API, callers wired, provider selection in config). Phase 4 (local adapter behind contract) and 5 (tests, docs) in progress.
 
 ---
 
@@ -168,8 +168,8 @@ This gives a clean “plug in a model” story: add a new adapter and config val
    - For streaming, if server supports it, stream and map `delta.content` / `delta.reasoning_content` to `LLMChunk`; otherwise do a single completion and yield one content chunk.  
    - Optionally: use LiteLLM for the HTTP/streaming call and map its output to our Chunk/str.
 
-4. **Provider selection in config**  
-   Add `LLM_PROVIDER` (and optional plan/agent overrides). In the LLM layer, branch only on provider when choosing which adapter to call; keep no provider-specific logic in plan_ui, llm_phase_planner, or agent_loop.
+4. **Provider selection in config** ✅  
+   Implemented: `LLM_PROVIDER` (env: `anthropic` | `local`, default `anthropic`) and `effective_llm_provider` (property: `USE_LOCAL_LLM=true` → local overrides). In the LLM layer, `completion`, `completion_stream`, and `completion_with_tools` branch only on `settings.effective_llm_provider`; no provider-specific logic in plan_ui, llm_phase_planner, or agent_loop.
 
 5. **Extract “response normalization” for plan**  
    Move “extract YAML from blob” (<think>/</think>, ```yaml, “Thinking Process” strip) into the **local adapter** for the plan use case, so the adapter returns (or streams) only the final YAML when possible. Alternatively, keep extraction in the reader but document that the adapter should return “content” that is as close to final answer as the server allows; then we have one place (adapter vs reader) for that policy.
