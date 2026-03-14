@@ -1294,7 +1294,10 @@ async def call_local_completion(
         system, user_message, temperature=temperature, max_tokens=max_tokens,
         model_override=model_override,
     )
-    timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
+    # read=600 s: non-streaming Ollama generates all tokens before sending the
+    # first byte.  Qwen 3.5 takes 2-3 min on Apple Silicon; 600 s gives ample
+    # headroom for slow hardware and long planning prompts.
+    timeout = httpx.Timeout(connect=10.0, read=600.0, write=10.0, pool=10.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(url, json=payload)
         resp.raise_for_status()
@@ -1414,12 +1417,12 @@ async def _local_completion_stream(
             model_override=plan_model,
             think=True,
         )
-        # read=90s is the inter-chunk idle timeout: if the server stops sending any
-        # SSE data for 90 seconds we abort.  At 870 tok/s (typical for Ollama) the
-        # gap between tokens is milliseconds; 90 s is generous enough for a cold
-        # prefill (4 s for a 4 k-token prompt) while still catching a hung server
-        # on the second request instead of waiting indefinitely.
-        timeout = httpx.Timeout(connect=10.0, read=90.0, write=30.0, pool=10.0)
+        # read=120s is the inter-chunk idle timeout: if the server stops sending any
+        # SSE data for 120 seconds we abort.  During normal streaming, Ollama emits
+        # tokens continuously (gap of milliseconds).  120 s covers the worst-case
+        # cold prefill on slow Apple Silicon (large context + first-load KV cache
+        # miss) while still detecting a genuinely hung server within two minutes.
+        timeout = httpx.Timeout(connect=10.0, read=120.0, write=30.0, pool=10.0)
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 async with client.stream("POST", plan_url, json=payload) as resp:
@@ -1461,7 +1464,7 @@ async def _local_completion_stream(
                         return
         except httpx.ReadTimeout:
             logger.warning(
-                "⚠️ Local LLM stream idle for >90 s — server may be stuck; "
+                "⚠️ Local LLM stream idle for >120 s — server may be stuck; "
                 "falling back to one-shot completion"
             )
         except (httpx.HTTPStatusError, httpx.RequestError, ValueError) as exc:
@@ -1477,7 +1480,7 @@ async def _local_completion_stream(
             )
         except httpx.ReadTimeout:
             raise RuntimeError(
-                "Local LLM server did not respond within 60 s on the one-shot "
+                "Local LLM server did not respond within 600 s on the one-shot "
                 "fallback. The server may be stuck — restart it and try again."
             ) from None
         yield LLMChunk(type="content", text=text)
