@@ -57,9 +57,9 @@ Adapters live inside `agentception/services/llm.py`. They are **not** part of th
 | Provider | Completion | Stream | Tools |
 |----------|------------|--------|-------|
 | **Anthropic** | `call_anthropic()` | `call_anthropic_stream()` | `call_anthropic_with_tools()` |
-| **Local** (OpenAI-compatible) | `call_local_completion()` | `_local_completion_stream()` (SSE or one-shot fallback) | `call_local_with_tools()` |
+| **Local** (Chat Completions–compatible HTTP on the host) | `call_local_completion()` | `_local_completion_stream()` (SSE or one-shot fallback) | `call_local_with_tools()` |
 
-The public entry points branch on `settings.effective_llm_provider` and call the corresponding adapter. Local adapter normalizes OpenAI-format responses (e.g. `content` as string or list of parts; reasoning stripped) so the contract is always satisfied.
+The public entry points branch on `settings.effective_llm_provider` and call the corresponding adapter. The local adapter talks to **your** server (e.g. MLX) using the same **request/response shape** as OpenAI’s Chat Completions API—“OpenAI” here means **wire format**, not OpenAI Inc.; no cloud call is required. Responses are normalized (e.g. `content` as string or list of parts; reasoning stripped) so the contract is always satisfied.
 
 ---
 
