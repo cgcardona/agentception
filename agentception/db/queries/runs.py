@@ -16,6 +16,9 @@ from agentception.db.models import (
     ACAgentMessage,
     ACAgentRun,
     ACExecutionPlan,
+    ACPlanBranch,
+    ACPlanIssue,
+    ACPullRequest,
 )
 from agentception.workflow.status import (
     LIVE_STATUSES as _LIVE_STATUSES,
@@ -530,16 +533,19 @@ async def get_agent_run_teardown(run_id: str) -> AgentRunTeardownRow | None:
     try:
         async with get_session() as session:
             result = await session.execute(
-                select(ACAgentRun.worktree_path, ACAgentRun.branch).where(
-                    ACAgentRun.id == run_id
-                )
+                select(
+                    ACAgentRun.worktree_path,
+                    ACAgentRun.branch,
+                    ACAgentRun.plan_branch,
+                ).where(ACAgentRun.id == run_id)
             )
             row = result.one_or_none()
         if row is None:
             return None
         return AgentRunTeardownRow(
-            worktree_path=row.worktree_path,
-            branch=row.branch,
+            worktree_path=row[0],
+            branch=row[1],
+            plan_branch=row[2],
         )
     except Exception as exc:
         logger.warning("⚠️  get_agent_run_teardown DB query failed (non-fatal): %s", exc)
@@ -717,10 +723,100 @@ async def get_run_context(run_id: str) -> RunContextRow | None:
             spawned_at=row.spawned_at.isoformat(),
             last_activity_at=(row.last_activity_at.isoformat() if row.last_activity_at else None),
             completed_at=(row.completed_at.isoformat() if row.completed_at else None),
+            pr_base_branch=row.plan_branch,
         )
     except Exception as exc:
         logger.warning("⚠️  get_run_context DB query failed (non-fatal): %s", exc)
         return None
+
+
+async def get_plan_branch(plan_id: str, repo: str) -> str | None:
+    """Return the integration branch name for a plan, or None if not yet created."""
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACPlanBranch.branch_name).where(
+                    ACPlanBranch.plan_id == plan_id,
+                    ACPlanBranch.repo == repo,
+                )
+            )
+            row = result.one_or_none()
+        return row[0] if row else None
+    except Exception as exc:
+        logger.warning("⚠️  get_plan_branch failed (non-fatal): %s", exc)
+        return None
+
+
+async def get_plan_issue_numbers(plan_id: str, repo: str) -> list[int]:
+    """Return the list of issue numbers that belong to a plan (for "last issue" detection)."""
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACPlanIssue.issue_number).where(
+                    ACPlanIssue.plan_id == plan_id,
+                    ACPlanIssue.repo == repo,
+                ).order_by(ACPlanIssue.issue_number)
+            )
+            return [r[0] for r in result.all()]
+    except Exception as exc:
+        logger.warning("⚠️  get_plan_issue_numbers failed (non-fatal): %s", exc)
+        return []
+
+
+async def get_plan_id_for_issue(issue_number: int, repo: str) -> str | None:
+    """Return the plan_id for an issue that belongs to a plan, or None."""
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACPlanIssue.plan_id).where(
+                    ACPlanIssue.repo == repo,
+                    ACPlanIssue.issue_number == issue_number,
+                ).limit(1)
+            )
+            row = result.one_or_none()
+        return row[0] if row else None
+    except Exception as exc:
+        logger.warning("⚠️  get_plan_id_for_issue failed (non-fatal): %s", exc)
+        return None
+
+
+async def all_plan_issues_merged_into_plan_branch(
+    plan_id: str, repo: str, plan_branch: str
+) -> bool:
+    """Return True when every issue in the plan has a merged PR into the plan branch.
+
+    Used to detect when the last issue's PR was merged so we can trigger the
+    plan→dev merge (rebase plan branch onto dev, open PR, dispatch reviewer).
+    """
+    import json as _json
+    issue_numbers = await get_plan_issue_numbers(plan_id, repo)
+    if not issue_numbers:
+        return False
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACPullRequest.closes_issue_number, ACPullRequest.closes_issue_numbers_json).where(
+                    ACPullRequest.repo == repo,
+                    ACPullRequest.base_ref == plan_branch,
+                    ACPullRequest.state == "merged",
+                )
+            )
+            rows = result.all()
+        closed: set[int] = set()
+        for closes_one, closes_json in rows:
+            if closes_one is not None:
+                closed.add(closes_one)
+            if closes_json:
+                try:
+                    for n in _json.loads(closes_json):
+                        if isinstance(n, int):
+                            closed.add(n)
+                except (ValueError, TypeError):
+                    pass
+        return set(issue_numbers) <= closed
+    except Exception as exc:
+        logger.warning("⚠️  all_plan_issues_merged_into_plan_branch failed: %s", exc)
+        return False
 
 
 async def list_active_runs() -> list[RunContextRow]:
@@ -758,6 +854,7 @@ async def list_active_runs() -> list[RunContextRow]:
                 spawned_at=row.spawned_at.isoformat(),
                 last_activity_at=(row.last_activity_at.isoformat() if row.last_activity_at else None),
                 completed_at=(row.completed_at.isoformat() if row.completed_at else None),
+                pr_base_branch=row.plan_branch,
             )
             for row in rows
         ]

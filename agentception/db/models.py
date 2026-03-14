@@ -150,6 +150,16 @@ class ACAgentRun(Base):
     target a specific repository, and for rows created before migration 0018.
     """
 
+    plan_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    """When set, this run is part of a plan-scoped integration branch.
+
+    Worktree was created from the plan branch; PR should target the plan branch.
+    When the last issue in the plan is merged, a plan→dev PR is opened and reviewed.
+    """
+
+    plan_branch: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    """Branch name for this plan (e.g. ``feat/plan-{plan_id}``).  Set when plan_id is set."""
+
     is_resumed: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="0"
     )
@@ -566,6 +576,41 @@ class ACIssueWorkflowState(Base):
         Index("ix_issue_workflow_state_initiative", "initiative"),
         Index("ix_issue_workflow_state_phase", "phase_key"),
     )
+
+
+# ---------------------------------------------------------------------------
+# ACPlanIssue, ACPlanBranch — plan-scoped integration branch
+# ---------------------------------------------------------------------------
+
+
+class ACPlanIssue(Base):
+    """One row per issue that belongs to a plan (filing batch).
+
+    Written by ``persist_plan_issues`` when ``file_issues`` completes.
+    Used to know the set of issues in a plan so we can detect when the last
+    issue's PR is merged into the plan branch and trigger the plan→dev merge.
+    """
+
+    __tablename__ = "plan_issues"
+
+    plan_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    repo: Mapped[str] = mapped_column(String(256), primary_key=True)
+    issue_number: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+
+class ACPlanBranch(Base):
+    """One row per plan's integration branch — created on first dispatch.
+
+    When the first issue in a plan is dispatched, we create the branch from
+    origin/dev and record it here. Subsequent dispatches for the same plan
+    reuse this branch as worktree base and PR target.
+    """
+
+    __tablename__ = "plan_branches"
+
+    plan_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    repo: Mapped[str] = mapped_column(String(256), primary_key=True)
+    branch_name: Mapped[str] = mapped_column(String(256), nullable=False)
 
 
 # ---------------------------------------------------------------------------
