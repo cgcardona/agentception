@@ -1,0 +1,33 @@
+// ── File edit card ────────────────────────────────────────────────────────────
+
+.file-edit-card {
+  background: var(--color-bg-subtle, #1a1a1a);
+  border: 1px solid var(--color-border, #333);
+  border-left: 4px solid #27ae60;
+  border-radius: 4px;
+  overflow: hidden;
+  max-width: 100%;
+  overflow-x: hidden;
+  word-break: break-word;
+
+  &__header {
+    font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
+    color: var(--color-text-muted, #888);
+    padding: 0.25rem 0.5rem;
+    border-bottom: 1px solid var(--color-border, #333);
+  }
+
+  &__diff {
+    pre {
+      font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
+      overflow-x: auto;
+      margin: 0;
+      padding: 0.25rem 0.5rem;
+    }
+  }
+}
+
+.diff-add     { display: block; background: rgba(0, 255, 70, 0.08); color: #7ee787; }
+.diff-remove  { display: block; background: rgba(255, 60, 60, 0.10); color: #f97583; }
+.diff-context { display: block; color: var(--color-text-muted, #888); }
+

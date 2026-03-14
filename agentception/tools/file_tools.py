@@ -10,19 +10,77 @@ from __future__ import annotations
 import ast as _ast
 import logging
 import re as _re
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Union
+
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
+
+from agentception.db.activity_events import (
+    FileInsertedPayload,
+    FileReadPayload,
+    FileReplacedPayload,
+    FileWrittenPayload,
+    persist_activity_event,
+)
+from agentception.config import settings
 
 logger = logging.getLogger(__name__)
 
+
+def _shorten_path(abs_path: Path | str, run_id: str) -> str:
+    """Strip the absolute worktree prefix and return the repo-relative path.
+
+    For example, ``/worktrees/issue-941/agentception/db/models.py`` with
+    ``run_id="issue-941"`` returns ``"agentception/db/models.py"``.
+
+    Falls back to the string representation of *abs_path* when the prefix
+    cannot be stripped (e.g. the path is already relative).
+    """
+    p = Path(abs_path)
+    worktree_root = Path(settings.worktrees_dir) / run_id
+    try:
+        return str(p.relative_to(worktree_root))
+    except ValueError:
+        return str(p)
+
+
+def _emit_activity(
+    session: Union[Session, AsyncSession],
+    run_id: str,
+    subtype: str,
+    payload: Mapping[str, object],
+) -> None:
+    """Persist one activity event, catching and logging any DB error.
+
+    Wraps ``persist_activity_event`` so that a database failure never
+    propagates to the file-tool caller.
+    """
+    try:
+        persist_activity_event(session, run_id, subtype, payload)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "⚠️ activity event persist failed (subtype=%s run_id=%s): %s",
+            subtype,
+            run_id,
+            exc,
+        )
+
 # Maximum bytes read from a single file before truncation.
 _MAX_READ_BYTES = 131_072  # 128 KiB
+
+# Matches class/def header lines — used by insert_after_in_file to prevent
+# inserting content after a class or function signature (which would break
+# the structure of the class/function body).
+_CLASS_DEF_RE: _re.Pattern[str] = _re.compile(r"^\s*(class|def)\s+\w+")
 
 
 def read_file(path: str | Path) -> dict[str, object]:
     """Return the text content of *path*.
 
     Args:
-        path: File to read.  Relative paths are resolved from the caller's cwd.
+        path: File to read.  Pre-resolved to the worktree root by the dispatcher.
 
     Returns:
         ``{"ok": True, "content": str, "truncated": bool}`` on success, or
@@ -52,12 +110,22 @@ def read_file(path: str | Path) -> dict[str, object]:
     return {"ok": True, "content": text, "truncated": truncated}
 
 
-def write_file(path: str | Path, content: str) -> dict[str, object]:
+def write_file(
+    path: str | Path,
+    content: str,
+    *,
+    run_id: str | None = None,
+    session: Union[Session, AsyncSession] | None = None,
+) -> dict[str, object]:
     """Write *content* to *path*, creating parent directories as needed.
 
     Args:
         path: Destination path.
         content: Text to write (UTF-8).
+        run_id: Agent run ID used to shorten the path in the activity event.
+            When ``None``, no activity event is persisted.
+        session: Open SQLAlchemy session for persisting the activity event.
+            When ``None``, no activity event is persisted.
 
     Returns:
         ``{"ok": True, "bytes_written": int}`` on success, or
@@ -76,6 +144,13 @@ def write_file(path: str | Path, content: str) -> dict[str, object]:
 
     bytes_written = len(content.encode("utf-8"))
     logger.info("✅ write_file — %s (%d bytes)", p, bytes_written)
+    # activity event — see docs/reference/activity-events.md
+    if run_id is not None and session is not None:
+        payload: FileWrittenPayload = {
+            "path": _shorten_path(p, run_id),
+            "byte_count": bytes_written,
+        }
+        _emit_activity(session, run_id, "file_written", payload)
     return {"ok": True, "bytes_written": bytes_written}
 
 
@@ -114,6 +189,8 @@ def replace_in_file(
     new_string: str,
     *,
     allow_multiple: bool = False,
+    run_id: str | None = None,
+    session: Union[Session, AsyncSession] | None = None,
 ) -> dict[str, object]:
     """Replace an exact string in *path* with *new_string*.
 
@@ -171,6 +248,13 @@ def replace_in_file(
 
     replacements = count if allow_multiple else 1
     logger.info("✅ replace_in_file — %s (%d replacement(s))", p, replacements)
+    # activity event — see docs/reference/activity-events.md
+    if run_id is not None and session is not None:
+        rp_payload: FileReplacedPayload = {
+            "path": _shorten_path(p, run_id),
+            "replacement_count": replacements,
+        }
+        _emit_activity(session, run_id, "file_replaced", rp_payload)
     return {"ok": True, "replacements": replacements}
 
 
@@ -178,6 +262,9 @@ def read_file_lines(
     path: str | Path,
     start_line: int,
     end_line: int,
+    *,
+    run_id: str | None = None,
+    session: Union[Session, AsyncSession] | None = None,
 ) -> dict[str, object]:
     """Return lines *start_line* through *end_line* (1-indexed, inclusive) from *path*.
 
@@ -227,6 +314,15 @@ def read_file_lines(
     logger.info(
         "✅ read_file_lines — %s lines %d-%d/%d", p, clamped_start, clamped_end, total
     )
+    # activity event — see docs/reference/activity-events.md
+    if run_id is not None and session is not None:
+        fr_payload: FileReadPayload = {
+            "path": _shorten_path(p, run_id),
+            "start_line": clamped_start,
+            "end_line": clamped_end,
+            "total_lines": total,
+        }
+        _emit_activity(session, run_id, "file_read", fr_payload)
     return {
         "ok": True,
         "content": content,
@@ -240,6 +336,9 @@ def insert_after_in_file(
     path: str | Path,
     anchor: str,
     new_content: str,
+    *,
+    run_id: str | None = None,
+    session: Union[Session, AsyncSession] | None = None,
 ) -> dict[str, object]:
     """Insert *new_content* immediately after the first occurrence of *anchor* in *path*.
 
@@ -289,7 +388,6 @@ def insert_after_in_file(
     # indented — inserting between them detaches the body from its header and
     # produces a SyntaxError.  The caller must use an anchor that ends inside
     # the body (e.g. the last method's closing line) rather than on the header.
-    _CLASS_DEF_RE = _re.compile(r"^\s*(class|def)\s+\w+")
     anchor_end_line = original[:insert_pos].rpartition("\n")[2]
     stripped_header = anchor_end_line.rstrip()
     if stripped_header.endswith(":") and _CLASS_DEF_RE.match(stripped_header):
@@ -323,7 +421,36 @@ def insert_after_in_file(
         return {"ok": False, "error": str(exc)}
 
     logger.info("✅ insert_after_in_file — %s (inserted at byte %d)", p, insert_pos)
+    # activity event — see docs/reference/activity-events.md
+    if run_id is not None and session is not None:
+        fi_payload: FileInsertedPayload = {
+            "path": _shorten_path(p, run_id),
+        }
+        _emit_activity(session, run_id, "file_inserted", fi_payload)
     return {"ok": True, "inserted_at": insert_pos}
+
+
+def _truncate_rg_output(output: str, n_results: int) -> str:
+    """Truncate ripgrep ``--heading`` output to at most *n_results* match lines.
+
+    In ``--heading`` mode rg emits a file-path header line, then numbered
+    match lines (``<lineno>:<content>``), then a blank separator between
+    file groups.  This function counts only the numbered match lines and
+    stops (dropping trailing headers/blanks) once the limit is reached so
+    the total returned is bounded regardless of how many files matched.
+    """
+    kept: list[str] = []
+    match_count = 0
+    for line in output.split("\n"):
+        # Numbered match lines in --heading mode start with digits followed
+        # by ":" (e.g. "42:def foo():").  File headers and blank separators
+        # do not match this pattern.
+        if line and line[0].isdigit() and ":" in line:
+            if match_count >= n_results:
+                break
+            match_count += 1
+        kept.append(line)
+    return "\n".join(kept).rstrip()
 
 
 async def search_text(
@@ -340,11 +467,11 @@ async def search_text(
     Args:
         pattern: Regex or literal pattern forwarded verbatim to ``rg``.
         directory: Root directory to search.
-        n_results: Maximum number of matching lines to return.
+        n_results: Maximum total matching lines to return across all files.
 
     Returns:
         ``{"ok": True, "matches": str}`` — rg output (at most *n_results*
-        lines) — or ``{"ok": False, "error": str}`` on failure.
+        total match lines) — or ``{"ok": False, "error": str}`` on failure.
     """
     import asyncio
 
@@ -357,8 +484,6 @@ async def search_text(
             "rg",
             "--heading",
             "--line-number",
-            "--max-count",
-            str(n_results),
             pattern,
             str(d),
             stdout=asyncio.subprocess.PIPE,
@@ -378,7 +503,8 @@ async def search_text(
         err_text = stderr.decode("utf-8", errors="replace").strip()
         return {"ok": False, "error": f"rg failed (exit {proc.returncode}): {err_text}"}
 
-    return {"ok": True, "matches": output or "(no matches)"}
+    truncated = _truncate_rg_output(output, n_results)
+    return {"ok": True, "matches": truncated or "(no matches)"}
 
 
 # ---------------------------------------------------------------------------
@@ -462,6 +588,12 @@ def read_symbol(path: str | Path, symbol_name: str) -> dict[str, object]:
         # AST found nothing — fall through to string scan below.
 
     # Non-Python or AST miss: scan for `def name` / `class name`.
+    # LIMITATION: this heuristic uses indentation-based end-detection, which
+    # works for Python-style files but NOT for brace-delimited languages such
+    # as TypeScript or JavaScript.  For .ts/.js files the heuristic returns
+    # only the opening line (the `{` body is not indented relative to the
+    # header).  If a TypeScript agent role is added, replace this path with
+    # a tree-sitter or AST-based extractor for those file types.
     for i, line in enumerate(lines, 1):
         stripped = line.lstrip()
         if stripped.startswith(f"def {symbol_name}(") or stripped.startswith(
@@ -560,7 +692,7 @@ async def find_call_sites(
     Args:
         symbol_name: Function or class name to search for.
         directory: Root directory to search (defaults to worktree root).
-        n_results: Maximum matching lines to return.
+        n_results: Maximum total matching lines to return across all files.
 
     Returns:
         ``{"ok": True, "matches": str}`` — ripgrep-formatted output — or
@@ -572,16 +704,24 @@ async def find_call_sites(
     if not d.exists():
         return {"ok": False, "error": f"Directory does not exist: {d}"}
 
-    # Match call sites `name(` AND import lines `import name` / `from x import name`.
-    pattern = rf"\b{symbol_name}[\(\s]|import\s+{symbol_name}"
+    # Four patterns cover the main usage forms:
+    # 1. Call sites:   symbol_name( or symbol_name  (followed by whitespace)
+    # 2. Bare import:  import symbol_name
+    # 3. From-import:  from x import symbol_name  (including multi-symbol lines)
+    # 4. Type context: symbol_name: / symbol_name[ / symbol_name, / symbol_name)
+    #    — covers annotations, generic parameters, and tuple positions
+    pattern = (
+        rf"\b{symbol_name}[\(\s]"
+        rf"|import\s+{symbol_name}\b"
+        rf"|from\s+\S+\s+import\b[^#\n]*\b{symbol_name}\b"
+        rf"|\b{symbol_name}[:\[,\)]"
+    )
 
     try:
         proc = await asyncio.create_subprocess_exec(
             "rg",
             "--heading",
             "--line-number",
-            "--max-count",
-            str(n_results),
             "-e",
             pattern,
             str(d),
@@ -601,5 +741,6 @@ async def find_call_sites(
         err_text = stderr.decode("utf-8", errors="replace").strip()
         return {"ok": False, "error": f"rg failed (exit {proc.returncode}): {err_text}"}
 
+    truncated = _truncate_rg_output(output, n_results)
     logger.info("✅ find_call_sites — %s in %s", symbol_name, d)
-    return {"ok": True, "matches": output or "(no call sites found)"}
+    return {"ok": True, "matches": truncated or "(no call sites found)"}

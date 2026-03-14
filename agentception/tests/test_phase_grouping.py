@@ -69,8 +69,8 @@ async def test_db_canonical_order_respected() -> None:
     ]
 
     with (
-        patch("agentception.db.queries.get_session") as mock_get_session,
-        patch("agentception.db.queries.get_initiative_phase_meta", new_callable=AsyncMock, return_value=meta),
+        patch("agentception.db.queries.board.get_session") as mock_get_session,
+        patch("agentception.db.queries.board.get_initiative_phase_meta", new_callable=AsyncMock, return_value=meta),
     ):
         mock_get_session.return_value = _mock_session(rows)
         groups = await get_issues_grouped_by_phase("owner/repo", initiative=initiative)
@@ -100,8 +100,8 @@ async def test_db_canonical_order_dep_graph_used_for_locking() -> None:
     ]
 
     with (
-        patch("agentception.db.queries.get_session") as mock_get_session,
-        patch("agentception.db.queries.get_initiative_phase_meta", new_callable=AsyncMock, return_value=meta),
+        patch("agentception.db.queries.board.get_session") as mock_get_session,
+        patch("agentception.db.queries.board.get_initiative_phase_meta", new_callable=AsyncMock, return_value=meta),
     ):
         mock_get_session.return_value = _mock_session(rows)
         groups = await get_issues_grouped_by_phase("owner/repo", initiative=initiative)
@@ -131,8 +131,8 @@ async def test_db_canonical_order_unlocks_when_dep_complete() -> None:
     ]
 
     with (
-        patch("agentception.db.queries.get_session") as mock_get_session,
-        patch("agentception.db.queries.get_initiative_phase_meta", new_callable=AsyncMock, return_value=meta),
+        patch("agentception.db.queries.board.get_session") as mock_get_session,
+        patch("agentception.db.queries.board.get_initiative_phase_meta", new_callable=AsyncMock, return_value=meta),
     ):
         mock_get_session.return_value = _mock_session(rows)
         groups = await get_issues_grouped_by_phase("owner/repo", initiative=initiative)
@@ -163,8 +163,8 @@ async def test_legacy_sort_used_when_no_db_rows() -> None:
     ]
 
     with (
-        patch("agentception.db.queries.get_session") as mock_get_session,
-        patch("agentception.db.queries.get_initiative_phase_meta", new_callable=AsyncMock, return_value=[]),
+        patch("agentception.db.queries.board.get_session") as mock_get_session,
+        patch("agentception.db.queries.board.get_initiative_phase_meta", new_callable=AsyncMock, return_value=[]),
     ):
         mock_get_session.return_value = _mock_session(rows)
         groups = await get_issues_grouped_by_phase("owner/repo", initiative=initiative)
@@ -188,8 +188,8 @@ async def test_legacy_sort_all_phases_unlocked_when_no_db_deps() -> None:
     ]
 
     with (
-        patch("agentception.db.queries.get_session") as mock_get_session,
-        patch("agentception.db.queries.get_initiative_phase_meta", new_callable=AsyncMock, return_value=[]),
+        patch("agentception.db.queries.board.get_session") as mock_get_session,
+        patch("agentception.db.queries.board.get_initiative_phase_meta", new_callable=AsyncMock, return_value=[]),
     ):
         mock_get_session.return_value = _mock_session(rows)
         groups = await get_issues_grouped_by_phase("owner/repo", initiative=initiative)
@@ -206,8 +206,8 @@ async def test_legacy_sort_all_phases_unlocked_when_no_db_deps() -> None:
 async def test_empty_state_returns_empty_list() -> None:
     """No issues and no DB rows → empty list, no phantom phase rows."""
     with (
-        patch("agentception.db.queries.get_session") as mock_get_session,
-        patch("agentception.db.queries.get_initiative_phase_meta", new_callable=AsyncMock, return_value=[]),
+        patch("agentception.db.queries.board.get_session") as mock_get_session,
+        patch("agentception.db.queries.board.get_initiative_phase_meta", new_callable=AsyncMock, return_value=[]),
     ):
         mock_get_session.return_value = _mock_session([])
         groups = await get_issues_grouped_by_phase("owner/repo", initiative="ac-new")
@@ -231,9 +231,9 @@ async def test_explicit_phase_order_arg_overrides_db() -> None:
     ]
 
     with (
-        patch("agentception.db.queries.get_session") as mock_get_session,
+        patch("agentception.db.queries.board.get_session") as mock_get_session,
         # get_initiative_phase_meta should NOT be called when phase_order is given
-        patch("agentception.db.queries.get_initiative_phase_meta", new_callable=AsyncMock, return_value=[]) as mock_meta,
+        patch("agentception.db.queries.board.get_initiative_phase_meta", new_callable=AsyncMock, return_value=[]) as mock_meta,
     ):
         mock_get_session.return_value = _mock_session(rows)
         groups = await get_issues_grouped_by_phase(
@@ -261,8 +261,8 @@ async def test_no_initiative_does_not_call_meta_and_needs_explicit_order() -> No
     rows = [_make_issue(1, "ac-x", "ac-x/0-base")]
 
     with (
-        patch("agentception.db.queries.get_session") as mock_get_session,
-        patch("agentception.db.queries.get_initiative_phase_meta", new_callable=AsyncMock) as mock_meta,
+        patch("agentception.db.queries.board.get_session") as mock_get_session,
+        patch("agentception.db.queries.board.get_initiative_phase_meta", new_callable=AsyncMock) as mock_meta,
     ):
         mock_get_session.return_value = _mock_session(rows)
         groups = await get_issues_grouped_by_phase("owner/repo", initiative=None)

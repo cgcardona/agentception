@@ -74,8 +74,6 @@ from agentception.mcp.github_tools import (
 from agentception.mcp.prompts import PROMPTS, get_prompt, get_static_prompt
 from agentception.mcp.plan_advance_phase import plan_advance_phase
 from agentception.mcp.plan_tools import (
-    plan_get_cognitive_figures,
-    plan_get_labels,
     plan_validate_manifest,
     plan_validate_spec,
 )
@@ -381,6 +379,21 @@ TOOLS: list[ACToolDef] = [
                         "Your own run ID exactly as it appears in your task briefing "
                         "(e.g. 'issue-858' or 'review-900'). Required — omitting it "
                         "leaves your run stuck in implementing state."
+                    ),
+                },
+                "grade": {
+                    "type": "string",
+                    "description": (
+                        "Reviewer grade (A/B/C/D/F). Required when called by a reviewer "
+                        "agent — A/B merges the PR, C/D/F rejects it with feedback. "
+                        "Omit when called by a developer or other non-reviewer role."
+                    ),
+                },
+                "reviewer_feedback": {
+                    "type": "string",
+                    "description": (
+                        "Detailed feedback posted as an issue comment when the grade is "
+                        "C, D, or F (rejection). Omit for A/B grades and non-reviewer roles."
                     ),
                 },
             },
@@ -982,7 +995,7 @@ async def call_tool_async(
         )
         return ACToolResult(
             content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=False,
+            isError=not bool(result.get("ok", True)),
         )
 
     if name == "build_teardown_worktree":

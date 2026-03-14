@@ -8,7 +8,6 @@ machine.  Functions are grouped by audience:
 Dispatcher
 ----------
 - ``build_claim_run``       — pending_launch → implementing (was: build_acknowledge_run)
-- ``build_spawn_child_run`` — create child worktree + DB record (was: build_spawn_child)
 
 Engineers
 ---------
@@ -27,6 +26,8 @@ import logging
 import re
 from pathlib import Path
 
+import httpx
+
 from agentception.db.persist import (
     acknowledge_agent_run,
     block_agent_run,
@@ -37,29 +38,34 @@ from agentception.db.persist import (
     stop_agent_run,
 )
 from agentception.config import settings
-from agentception.db.queries import get_agent_run_role, get_agent_run_teardown
+from agentception.db.queries import (
+    all_plan_issues_merged_into_plan_branch,
+    get_agent_run_role,
+    get_agent_run_teardown,
+    get_plan_branch,
+    get_plan_id_for_issue,
+)
 
 from agentception.services.auto_redispatch import auto_redispatch_after_rejection
 from agentception.services.auto_reviewer import auto_dispatch_reviewer
-from agentception.services.spawn_child import ScopeType, SpawnChildError, Tier, spawn_child
 from agentception.services.teardown import release_worktree, teardown_agent_worktree
 
 logger = logging.getLogger(__name__)
 
 
-async def _rebase_and_push_worktree(wt_path: str, agent_run_id: str | None) -> dict[str, object] | None:
-    """Rebase the worktree branch onto origin/dev and force-push.
+async def _rebase_and_push_worktree(
+    wt_path: str,
+    agent_run_id: str | None,
+    base: str = "origin/dev",
+) -> dict[str, object] | None:
+    """Rebase the worktree branch onto *base* and force-push.
 
     Returns ``None`` on success, or a structured error dict on rebase conflict
     that the caller should return immediately to the agent.
 
-    Extracted into its own function so tests can mock it cleanly without
-    spawning real git subprocesses against non-existent paths.
-
-    If the worktree directory no longer exists (e.g. the agent called
-    build_complete_run explicitly as a tool and the loop's stop-path
-    calls it again as a safety net) the function skips the rebase and
-    returns ``None`` — the branch was already pushed by the first call.
+    When the run is plan-scoped, *base* is the plan branch (e.g. origin/feat/plan-xyz)
+    so the implementer's branch is rebased onto the plan branch before the reviewer
+    is dispatched. Otherwise *base* is origin/dev.
     """
     if not Path(wt_path).exists():
         logger.info(
@@ -68,8 +74,9 @@ async def _rebase_and_push_worktree(wt_path: str, agent_run_id: str | None) -> d
         )
         return None
 
+    base_branch_name = base.replace("origin/", "") if base.startswith("origin/") else base
     proc = await asyncio.create_subprocess_exec(
-        "git", "fetch", "origin", "dev",
+        "git", "fetch", "origin", base_branch_name,
         cwd=wt_path,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -77,7 +84,7 @@ async def _rebase_and_push_worktree(wt_path: str, agent_run_id: str | None) -> d
     await proc.communicate()
 
     proc = await asyncio.create_subprocess_exec(
-        "git", "rebase", "origin/dev",
+        "git", "rebase", base,
         cwd=wt_path,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -93,7 +100,8 @@ async def _rebase_and_push_worktree(wt_path: str, agent_run_id: str | None) -> d
         )
         await abort_proc.communicate()
         logger.error(
-            "❌ _rebase_and_push_worktree: rebase onto origin/dev failed for run_id=%r — %s",
+            "❌ _rebase_and_push_worktree: rebase onto %s failed for run_id=%r — %s",
+            base,
             agent_run_id,
             stderr.decode(errors="replace").strip(),
         )
@@ -101,7 +109,7 @@ async def _rebase_and_push_worktree(wt_path: str, agent_run_id: str | None) -> d
             "status": "error",
             "reason": "rebase_conflict",
             "message": (
-                "Rebase onto origin/dev failed. "
+                f"Rebase onto {base} failed. "
                 "Resolve the conflicts manually and call build_complete_run again."
             ),
         }
@@ -123,6 +131,88 @@ async def _rebase_and_push_worktree(wt_path: str, agent_run_id: str | None) -> d
     )
     await proc.communicate()
     return None
+
+
+async def _maybe_trigger_plan_merge(plan_id: str) -> None:
+    """If all plan issues are merged into the plan branch, rebase onto dev, open PR, dispatch reviewer.
+
+    Called as a background task when a reviewer merges an issue PR (grade A/B).
+    If this was the last issue in the plan, we rebase the plan branch onto dev,
+    open the plan→dev PR, and dispatch a reviewer to merge it. Never raises.
+    """
+    repo = settings.gh_repo
+    plan_branch = await get_plan_branch(plan_id, repo)
+    if not plan_branch:
+        logger.info("ℹ️ _maybe_trigger_plan_merge: plan_id=%s has no branch — skipping", plan_id)
+        return
+    if not await all_plan_issues_merged_into_plan_branch(plan_id, repo, plan_branch):
+        logger.info(
+            "ℹ️ _maybe_trigger_plan_merge: plan_id=%s not all issues merged yet — skipping",
+            plan_id,
+        )
+        return
+    repo_dir = str(settings.repo_dir)
+    try:
+        # Rebase plan branch onto origin/dev in the main repo.
+        proc = await asyncio.create_subprocess_exec(
+            "git", "-C", repo_dir, "fetch", "origin", "dev",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
+        proc = await asyncio.create_subprocess_exec(
+            "git", "-C", repo_dir, "checkout", plan_branch,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
+        if proc.returncode != 0:
+            logger.warning("⚠️ _maybe_trigger_plan_merge: checkout %s failed — skipping", plan_branch)
+            return
+        proc = await asyncio.create_subprocess_exec(
+            "git", "-C", repo_dir, "rebase", "origin/dev",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
+        if proc.returncode != 0:
+            logger.warning(
+                "⚠️ _maybe_trigger_plan_merge: rebase plan %s onto dev failed — skipping",
+                plan_branch,
+            )
+            return
+        proc = await asyncio.create_subprocess_exec(
+            "git", "-C", repo_dir, "push", "--force-with-lease", "origin", plan_branch,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
+        if proc.returncode != 0:
+            logger.warning("⚠️ _maybe_trigger_plan_merge: push %s failed — skipping", plan_branch)
+            return
+    except Exception as exc:
+        logger.warning("⚠️ _maybe_trigger_plan_merge: %s — skipping", exc)
+        return
+
+    from agentception.readers.github import ensure_pull_request
+    pr_number, _ = await ensure_pull_request(
+        head=plan_branch,
+        base="dev",
+        title=f"Merge plan into dev ({plan_id})",
+        body="Plan integration branch — all issue PRs merged. Review and merge.",
+    )
+    pr_url = f"https://github.com/{repo}/pull/{pr_number}"
+    from agentception.services.auto_reviewer import auto_dispatch_reviewer
+    await auto_dispatch_reviewer(
+        issue_number=0,
+        pr_url=pr_url,
+        pr_branch=plan_branch,
+    )
+    logger.info(
+        "✅ _maybe_trigger_plan_merge: plan_id=%s plan→dev PR #%d opened, reviewer dispatched",
+        plan_id,
+        pr_number,
+    )
 
 
 async def build_claim_run(run_id: str) -> dict[str, object]:
@@ -157,119 +247,45 @@ async def build_claim_run(run_id: str) -> dict[str, object]:
     return {"ok": True, "run_id": run_id, "previous_state": "pending_launch"}
 
 
-async def build_spawn_child_run(
-    parent_run_id: str,
-    role: str,
-    tier: str,
-    scope_type: str,
-    scope_value: str,
-    gh_repo: str,
-    org_domain: str = "",
-    issue_body: str = "",
-    issue_title: str = "",
-    skills_hint: list[str] | None = None,
-    coord_fingerprint: str | None = None,
-    cognitive_arch: str = "",
-) -> dict[str, object]:
-    """Create a child agent node in the tree and return its worktree path.
-
-    Any coordinator agent calls this tool to atomically spawn a child.
-    The tool creates the worktree, persists all task context to the DB row
-    (role, cognitive_arch, tier, scope, parent lineage, and all required fields),
-    and auto-acknowledges the run so the caller can immediately fire a Task call.
-    The child reads its full context via
-    ``ac://runs/{run_id}/context`` and the ``task/briefing`` MCP prompt.
-
-    Was: ``build_spawn_child``.
-
-    Args:
-        parent_run_id:  ``run_id`` of the calling agent (lineage tracking).
-        role:           Child's role slug (e.g. ``"engineering-coordinator"``).
-        tier:           Behavioral execution tier — ``"coordinator"``
-                        or ``"worker"``.
-        scope_type:     ``"label"``, ``"issue"``, or ``"pr"``.
-        scope_value:    Label string, or issue/PR number as a string.
-        gh_repo:        ``"owner/repo"`` string.
-        org_domain:     Organisational slot for UI hierarchy (``"c-suite"``,
-                        ``"engineering"``, ``"qa"``).
-        issue_body:     Issue body for COGNITIVE_ARCH skill extraction.
-        issue_title:    Issue title written to ISSUE_TITLE field.
-        skills_hint:    Explicit skill override list for COGNITIVE_ARCH.
-        coord_fingerprint: The spawning coordinator's fingerprint string.
-        cognitive_arch: When provided, forward this exact arch string to the child.
-
-    Returns:
-        On success: ``{"ok": True, "child_run_id": ..., "worktree_path": ...,
-                       "tier": ..., "org_domain": ..., "role": ..., "cognitive_arch": ...}``
-        On failure: ``{"ok": False, "error": "<reason>"}``
-    """
-    if tier == "coordinator":
-        typed_tier: Tier = "coordinator"
-    elif tier == "worker":
-        typed_tier = "worker"
-    else:
-        return {
-            "ok": False,
-            "error": f"tier must be coordinator/worker, got {tier!r}",
-        }
-
-    if scope_type == "label":
-        scope: ScopeType = "label"
-    elif scope_type == "issue":
-        scope = "issue"
-    elif scope_type == "pr":
-        scope = "pr"
-    else:
-        return {
-            "ok": False,
-            "error": f"scope_type must be label/issue/pr, got {scope_type!r}",
-        }
-
-    domain: str | None = org_domain if org_domain else None
-
-    try:
-        result = await spawn_child(
-            parent_run_id=parent_run_id,
-            role=role,
-            tier=typed_tier,
-            org_domain=domain,
-            scope_type=scope,
-            scope_value=scope_value,
-            gh_repo=gh_repo,
-            issue_body=issue_body,
-            issue_title=issue_title,
-            skills_hint=skills_hint,
-            coord_fingerprint=coord_fingerprint,
-            cognitive_arch=cognitive_arch if cognitive_arch else None,
-        )
-    except SpawnChildError as exc:
-        logger.error("❌ build_spawn_child_run failed: %s", exc)
-        return {"ok": False, "error": str(exc)}
-
-    logger.info(
-        "✅ build_spawn_child_run: spawned child_run_id=%r role=%r tier=%r org_domain=%r scope=%s:%s",
-        result.run_id, result.role, result.tier, result.org_domain,
-        result.scope_type, result.scope_value,
-    )
-    return {
-        "ok": True,
-        "child_run_id": result.run_id,
-        "worktree_path": result.host_worktree_path,
-        "tier": result.tier,
-        "org_domain": result.org_domain,
-        "role": result.role,
-        "cognitive_arch": result.cognitive_arch,
-        "scope_type": result.scope_type,
-        "scope_value": result.scope_value,
-        "status": "implementing",
-    }
-
-
 # Matches https://github.com/<owner>/<repo>/pull/<number>
 # Used to validate the pr_url argument before accepting build_complete_run.
 _GITHUB_PR_URL_RE: re.Pattern[str] = re.compile(
     r"https://github\.com/[^/]+/[^/]+/pull/\d+"
 )
+
+
+async def _is_pr_merged(pr_url: str) -> bool:
+    """Return True if the GitHub PR at *pr_url* has been merged.
+
+    Parses the owner, repo, and PR number from the URL and calls the GitHub
+    REST API.  Returns False on any network or auth error so the caller can
+    decide whether to treat the failure as a hard block or a soft warning.
+    """
+    m = re.search(
+        r"github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<number>\d+)",
+        pr_url,
+    )
+    if not m:
+        return False
+    owner, repo, number = m.group("owner"), m.group("repo"), m.group("number")
+    token = settings.github_token
+    headers: dict[str, str] = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"https://api.github.com/repos/{owner}/{repo}/pulls/{number}/merge",
+                headers=headers,
+            )
+        # 204 = merged; 404 = not merged; anything else = uncertain
+        return resp.status_code == 204
+    except Exception:
+        logger.warning("⚠️ _is_pr_merged: GitHub API call failed for %r — assuming not merged", pr_url)
+        return False
 
 
 def _is_valid_pr_url(pr_url: str) -> bool:
@@ -416,8 +432,27 @@ async def build_complete_run(
                 name=f"auto-redispatch-{issue_number}",
             )
         else:
-            # Grade A or B: reviewer already merged — full teardown (delete branch too,
-            # since it is now merged into dev).
+            # Grade A or B: reviewer should have already merged the PR.  Verify
+            # before scheduling teardown — teardown deletes the remote branch,
+            # which causes GitHub to auto-close any open PR pointing to it.  If
+            # the PR is not yet merged, refusing here forces the reviewer to
+            # actually call merge_pull_request before completion is recorded.
+            pr_is_merged = await _is_pr_merged(pr_url)
+            if not pr_is_merged:
+                logger.warning(
+                    "⚠️ build_complete_run: reviewer called with grade=%r but PR %r "
+                    "is not merged — refusing completion to prevent branch deletion",
+                    grade,
+                    pr_url,
+                )
+                return {
+                    "ok": False,
+                    "error": (
+                        f"PR {pr_url!r} has not been merged. "
+                        "Call merge_pull_request first, then call build_complete_run again. "
+                        "Completing without a merge would delete the branch and close the PR."
+                    ),
+                }
             logger.info(
                 "ℹ️ build_complete_run: reviewer approved (grade=%r) — "
                 "scheduling full worktree teardown for run_id=%r",
@@ -433,6 +468,14 @@ async def build_complete_run(
                     "🧹 build_complete_run: reviewer worktree teardown queued for run_id=%r",
                     agent_run_id,
                 )
+            # If this issue belongs to a plan, check whether all plan issues are merged;
+            # if so, rebase plan branch onto dev, open plan→dev PR, and dispatch reviewer.
+            plan_id = await get_plan_id_for_issue(issue_number, settings.gh_repo)
+            if plan_id:
+                asyncio.create_task(
+                    _maybe_trigger_plan_merge(plan_id),
+                    name=f"plan-merge-{plan_id}",
+                )
     else:
         # Non-reviewer (implementer) completed: release worktree and dispatch reviewer.
         # Release the developer's worktree before dispatching the reviewer.
@@ -441,25 +484,53 @@ async def build_complete_run(
         # fail with "already used by worktree at …".  We only remove the
         # worktree directory and prune refs — branches are left intact because
         # the open PR still references the remote branch.
+        #
+        # When the DB has no worktree_path (e.g. null or run not found), derive
+        # the conventional path worktrees_dir/run_id so we still attempt release —
+        # otherwise the reviewer dispatch fails with "branch already used by worktree".
+        worktree_released = True
         if agent_run_id:
             teardown_info = await get_agent_run_teardown(agent_run_id)
-            wt_path = teardown_info.get("worktree_path") if teardown_info else None
-            if wt_path is not None:
-                # Rebase onto dev and force-push before dispatching reviewer.
-                rebase_error = await _rebase_and_push_worktree(wt_path, agent_run_id)
+            wt_path = (
+                (teardown_info.get("worktree_path") if teardown_info else None)
+                or str(Path(settings.worktrees_dir) / agent_run_id)
+            )
+            if wt_path and Path(wt_path).exists() and teardown_info:
+                # Rebase onto plan branch (if plan-scoped) or dev, then force-push.
+                rebase_base = "origin/dev"
+                if teardown_info.get("plan_branch"):
+                    rebase_base = f"origin/{teardown_info['plan_branch']}"
+                rebase_error = await _rebase_and_push_worktree(
+                    wt_path, agent_run_id, base=rebase_base
+                )
                 if rebase_error is not None:
                     return rebase_error
 
-                await release_worktree(
+            if wt_path:
+                worktree_released = await release_worktree(
                     worktree_path=wt_path,
                     repo_dir=str(settings.repo_dir),
                 )
+                if not worktree_released:
+                    logger.warning(
+                        "⚠️ build_complete_run: worktree release failed for run_id=%r — "
+                        "reviewer not dispatched (would fail with branch already in use)",
+                        agent_run_id,
+                    )
+                    return {
+                        "ok": False,
+                        "error": (
+                            "Worktree release failed; reviewer was not dispatched. "
+                            "The PR is open. Retry build_complete_run after the worktree is released, "
+                            "or an operator can run release_worktree and dispatch the reviewer manually."
+                        ),
+                    }
 
-        # Fire-and-forget: reviewer failure never affects the implementer's result.
-        asyncio.create_task(
-            auto_dispatch_reviewer(issue_number=issue_number, pr_url=pr_url),
-            name=f"auto-reviewer-{issue_number}",
-        )
+        if worktree_released:
+            asyncio.create_task(
+                auto_dispatch_reviewer(issue_number=issue_number, pr_url=pr_url),
+                name=f"auto-reviewer-{issue_number}",
+            )
 
     return {"ok": True, "event": "done", "status": "completed"}
 

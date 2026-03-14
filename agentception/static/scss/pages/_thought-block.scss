@@ -1,0 +1,59 @@
+// ── Thought block ─────────────────────────────────────────────────────────────
+// Inspector accent palette:
+//   thought-block    #9b59b6  purple
+//   tool-call-card   #3498db  blue
+//   file-edit-card   #27ae60  green
+//   assistant-bubble rgba(255,255,255,0.6)  light
+//   event step_start #7f8c8d  grey
+//   event blocker    #e67e22  amber
+//   event decision   #2980b9  blue
+//   event done       #2ecc71  green
+// Monospace stack: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace)
+
+.thought-block {
+  border-left: 4px solid #9b59b6;
+  padding: 0.25rem 0.5rem;
+  max-width: 100%;
+  overflow-x: hidden;
+  word-break: break-word;
+
+  &__header {
+    background: none;
+    border: none;
+    color: var(--color-text-muted, #888);
+    cursor: pointer;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.25rem;
+    width: 100%;
+    text-align: left;
+    padding: 0;
+
+    &:hover { color: var(--color-text, #eee); }
+  }
+
+  &__icon { aria-hidden: attr(aria-hidden); }
+
+  &__chevron {
+    margin-left: auto;
+    transition: transform 0.2s ease;
+  }
+
+  &--open &__chevron { transform: rotate(90deg); }
+
+  &__body {
+    font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
+    font-style: italic;
+    color: var(--color-text-muted, #888);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.25s ease-out;
+  }
+
+  &--open &__body  { max-height: 2000px; }
+  &--collapsed &__body { max-height: 0; }
+}
+

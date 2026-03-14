@@ -1,0 +1,13 @@
+// ── Assistant bubble ──────────────────────────────────────────────────────────
+
+.assistant-bubble {
+  border-left: 4px solid rgba(255,255,255,0.6);
+  padding: 0.35rem 0.5rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-text, #eee);
+  line-height: 1.5;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+

@@ -24,6 +24,7 @@ import logging
 from pathlib import Path
 
 from agentception.config import settings
+from agentception.db.persist import clear_run_worktree_path
 from agentception.db.queries import get_terminal_runs_with_worktrees
 from agentception.services.teardown import release_worktree
 
@@ -58,8 +59,9 @@ async def reap_stale_worktrees() -> int:
             run["id"],
             worktree_path,
         )
-        await release_worktree(worktree_path=worktree_path, repo_dir=repo_dir)
-        reaped += 1
+        if await release_worktree(worktree_path=worktree_path, repo_dir=repo_dir):
+            await clear_run_worktree_path(run["id"])
+            reaped += 1
 
     if reaped:
         logger.info("✅ worktree reaper: released %d stale worktree dir(s)", reaped)

@@ -26,7 +26,7 @@ Each **tick** performs the following steps in order:
 6. **Phase advance** — optionally advance the active phase label when all issues
    in the current phase are resolved.
 
-Default tick cadence: **30 seconds** (configurable via `settings.poll_interval`).
+Default tick cadence: **5 seconds** (configurable via `POLL_INTERVAL_SECONDS` / `settings.poll_interval_seconds`). 5s is safe for GitHub API rate limits.
 
 ---
 

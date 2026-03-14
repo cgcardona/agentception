@@ -22,7 +22,7 @@ import re
 import uuid
 from typing import TYPE_CHECKING, TypedDict
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 
 # Label namespace prefixes that are part of the taxonomy and must never be
 # interpreted as initiative slugs.  Any label whose prefix-before-"/" matches
@@ -40,6 +40,8 @@ from agentception.db.models import (
     ACInitiativePhase,
     ACIssue,
     ACIssueWorkflowState,
+    ACPlanBranch,
+    ACPlanIssue,
     ACPipelineSnapshot,
     ACPRIssueLink,
     ACPullRequest,
@@ -886,6 +888,15 @@ async def _upsert_agent_runs(
     # lifecycle is now driven by the PR state (GitHub), not by a live worktree.
     # They stay "reviewing" until the PR merges and the issue closes, at which
     # point the issue moves to the "completed" bucket naturally.
+    #
+    # Grace period: do not orphan a run that transitioned to active very
+    # recently (last_activity_at within _ORPHAN_GRACE_SECONDS).  The poller
+    # builds live_ids from list_active_runs() at tick start; dispatch can
+    # commit acknowledge_agent_run after that, so the run is in the DB as
+    # implementing but not yet in live_ids.  Without the grace period the
+    # orphan sweep would immediately mark it failed.
+    _ORPHAN_GRACE_SECONDS = 60
+    orphan_cutoff = now - datetime.timedelta(seconds=_ORPHAN_GRACE_SECONDS)
     orphan_result = await session.execute(
         select(ACAgentRun).where(
             ACAgentRun.status.in_(_ACTIVE_STATUSES),
@@ -908,6 +919,7 @@ async def _upsert_agent_runs(
             orphan.id not in live_ids
             and orphan.issue_number is not None
             and orphan.role != "reviewer"
+            and (orphan.last_activity_at is None or orphan.last_activity_at <= orphan_cutoff)
         ):
             with session.no_autoflush:
                 # Use the build_complete_run event as the authoritative completion
@@ -937,7 +949,8 @@ async def _upsert_agent_runs(
                         issue_number=orphan.issue_number,
                         event_type="orphan_failed",
                         payload=json.dumps({"reason": "worktree_gone_no_build_complete"}),
-                    ))
+                        recorded_at=now,
+                   ))
                     logger.warning(
                         "🧹 Orphan run %s → failed (worktree gone, no build_complete_run event)",
                         orphan.id,
@@ -1037,6 +1050,9 @@ async def persist_agent_run_dispatch(
     coord_fingerprint: str | None = None,
     task_description: str | None = None,
     pr_number: int | None = None,
+    prompt_variant: str | None = None,
+    plan_id: str | None = None,
+    plan_branch: str | None = None,
 ) -> None:
     """Insert an ``ACAgentRun`` row with status ``pending_launch`` at dispatch time.
 
@@ -1062,6 +1078,10 @@ async def persist_agent_run_dispatch(
     )
     try:
         async with get_session() as session:
+            # Clear previous run's events and messages so re-dispatches show a clean timeline.
+            await session.execute(delete(ACAgentEvent).where(ACAgentEvent.agent_run_id == run_id))
+            await session.execute(delete(ACAgentMessage).where(ACAgentMessage.agent_run_id == run_id))
+
             result = await session.execute(
                 select(ACAgentRun).where(ACAgentRun.id == run_id)
             )
@@ -1096,6 +1116,12 @@ async def persist_agent_run_dispatch(
                     existing.task_description = task_description
                 if pr_number is not None:
                     existing.pr_number = pr_number
+                if prompt_variant is not None:
+                    existing.prompt_variant = prompt_variant
+                if plan_id is not None:
+                    existing.plan_id = plan_id
+                if plan_branch is not None:
+                    existing.plan_branch = plan_branch
             else:
                 logger.warning(
                     "💾 persist_agent_run_dispatch: run_id=%r is new — inserting with status=pending_launch",
@@ -1122,6 +1148,9 @@ async def persist_agent_run_dispatch(
                         is_resumed=is_resumed,
                         coord_fingerprint=coord_fingerprint,
                         task_description=task_description,
+                        prompt_variant=prompt_variant,
+                        plan_id=plan_id,
+                        plan_branch=plan_branch,
                         spawned_at=_now(),
                         last_activity_at=_now(),
                     )
@@ -1197,6 +1226,7 @@ async def complete_agent_run(run_id: str) -> bool:
                 agent_run_id=run_id,
                 event_type="build_complete_run",
                 payload="{}",
+                recorded_at=_now(),
             ))
             await session.commit()
         logger.info("✅ complete_agent_run: %s → completed", run_id)
@@ -1354,6 +1384,24 @@ async def update_agent_status(run_id: str, status: str) -> bool:
         return False
 
 
+async def clear_run_worktree_path(run_id: str) -> bool:
+    """Set worktree_path to None for *run_id* so the reaper stops re-finding it.
+
+    Called by the worktree reaper after successfully releasing a worktree dir.
+    Returns True on success, False if run not found or DB error.
+    """
+    try:
+        async with get_session() as session:
+            await session.execute(
+                update(ACAgentRun).where(ACAgentRun.id == run_id).values(worktree_path=None)
+            )
+            await session.commit()
+        return True
+    except Exception as exc:
+        logger.warning("⚠️  clear_run_worktree_path failed for %s: %s", run_id, exc)
+        return False
+
+
 async def accumulate_token_usage(
     run_id: str,
     input_tokens: int,
@@ -1465,6 +1513,58 @@ async def persist_initiative_phases(
         )
     except Exception as exc:
         logger.warning("⚠️  persist_initiative_phases failed (non-fatal): %s", exc)
+
+
+async def persist_plan_issues(repo: str, plan_id: str, issue_numbers: list[int]) -> None:
+    """Insert one row per issue that belongs to a plan (filing batch).
+
+    Called by ``file_issues`` after ``persist_initiative_phases`` so we know
+    which issues are in the plan for plan-scoped dispatch and "last issue merged"
+    detection.  Best-effort — swallows exceptions.
+    """
+    if not issue_numbers:
+        return
+    try:
+        async with get_session() as session:
+            for num in issue_numbers:
+                session.add(
+                    ACPlanIssue(plan_id=plan_id, repo=repo, issue_number=num)
+                )
+            await session.commit()
+        logger.info(
+            "✅ persist_plan_issues: plan_id=%s repo=%s — %d issues",
+            plan_id, repo, len(issue_numbers),
+        )
+    except Exception as exc:
+        logger.warning("⚠️  persist_plan_issues failed (non-fatal): %s", exc)
+
+
+async def persist_plan_branch(plan_id: str, repo: str, branch_name: str) -> None:
+    """Record the integration branch for a plan (created on first dispatch).
+
+    Idempotent: if a row exists for (plan_id, repo), it is updated to the given
+    branch_name.  Best-effort — swallows exceptions.
+    """
+    try:
+        async with get_session() as session:
+            existing = (
+                await session.execute(
+                    select(ACPlanBranch).where(
+                        ACPlanBranch.plan_id == plan_id,
+                        ACPlanBranch.repo == repo,
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing:
+                existing.branch_name = branch_name
+            else:
+                session.add(
+                    ACPlanBranch(plan_id=plan_id, repo=repo, branch_name=branch_name)
+                )
+            await session.commit()
+        logger.info("✅ persist_plan_branch: plan_id=%s branch=%s", plan_id, branch_name)
+    except Exception as exc:
+        logger.warning("⚠️  persist_plan_branch failed (non-fatal): %s", exc)
 
 
 async def reseed_missing_initiative_phases(repo: str) -> None:

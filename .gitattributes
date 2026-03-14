@@ -1,4 +1,13 @@
-# Append-only SCSS files — agents always add new rule blocks at the end.
-# merge=union includes lines from both sides rather than conflicting, which
-# eliminates spurious merge conflicts when multiple agents land in parallel.
 agentception/static/scss/pages/_build.scss merge=union
+agentception/static/scss/pages/_inspector-layout.scss merge=union
+agentception/static/scss/pages/_thought-block.scss merge=union
+agentception/static/scss/pages/_file-edit-card.scss merge=union
+agentception/static/scss/pages/_assistant-bubble.scss merge=union
+agentception/static/scss/pages/_tool-call-card.scss merge=union
+agentception/static/scss/pages/_event-card.scss merge=union
+agentception/db/queries/types.py merge=union
+agentception/db/queries/board.py merge=union
+agentception/db/queries/runs.py merge=union
+agentception/db/queries/messages.py merge=union
+agentception/db/queries/events.py merge=union
+agentception/db/queries/metrics.py merge=union

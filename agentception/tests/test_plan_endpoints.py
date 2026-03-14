@@ -186,12 +186,13 @@ async def test_preview_whitespace_dump_returns_422(async_client: AsyncClient) ->
 
 @pytest.mark.anyio
 async def test_preview_missing_api_key_returns_503(async_client: AsyncClient) -> None:
-    """When ANTHROPIC_API_KEY is absent the endpoint returns HTTP 503."""
-    from agentception.config import settings
+    """When provider is anthropic and ANTHROPIC_API_KEY is absent, the endpoint returns HTTP 503."""
+    from agentception.config import LLMProviderChoice, settings
 
-    # model_copy produces a new Pydantic settings instance with the field overridden.
-    settings_no_key = settings.model_copy(update={"anthropic_api_key": None})
-    with patch("agentception.config.settings", settings_no_key):
+    settings_anthropic_no_key = settings.model_copy(
+        update={"anthropic_api_key": "", "use_local_llm": False, "llm_provider": LLMProviderChoice.anthropic}
+    )
+    with patch("agentception.config.settings", settings_anthropic_no_key):
         resp = await async_client.post(
             "/api/plan/preview", json={"dump": "do some things", "label_prefix": ""}
         )
@@ -210,15 +211,22 @@ async def test_preview_valid_input_streams_chunk_and_done_events(
         yield LLMChunk(type="content", text="initiative: auth-rewrite\n")
         yield LLMChunk(type="content", text=_MINIMAL_VALID_YAML[len("initiative: auth-rewrite\n"):])
 
+    async def return_spec(spec: object) -> object:
+        return spec
+
     with (
         patch(
-            "agentception.routes.ui.plan_ui.call_anthropic_stream",
+            "agentception.routes.ui.plan_ui.completion_stream",
             side_effect=fake_llm_stream,
         ),
         patch(
             "agentception.readers.context_pack.build_context_pack",
             new_callable=AsyncMock,
             return_value="",
+        ),
+        patch(
+            "agentception.routes.ui.plan_ui.enrich_plan_with_codebase_context",
+            side_effect=return_spec,
         ),
         patch(
             "agentception.config.settings",
@@ -245,24 +253,33 @@ async def test_preview_valid_input_streams_chunk_and_done_events(
 
 
 @pytest.mark.anyio
-async def test_preview_thinking_chunks_are_discarded(async_client: AsyncClient) -> None:
-    """Chain-of-thought ('thinking') chunks are never forwarded to the browser."""
+async def test_preview_thinking_and_content_chunks_are_both_streamed(async_client: AsyncClient) -> None:
+    """Both chain-of-thought ('thinking') and content chunks are forwarded to the browser."""
+
+    fenced_yaml = "```yaml\n" + _MINIMAL_VALID_YAML + "\n```\n"
 
     async def fake_llm_stream(
         *_args: object, **_kwargs: object
     ) -> AsyncGenerator[LLMChunk, None]:
         yield LLMChunk(type="thinking", text="<internal reasoning>")
-        yield LLMChunk(type="content", text=_MINIMAL_VALID_YAML)
+        yield LLMChunk(type="content", text=fenced_yaml)
+
+    async def return_spec(spec: object) -> object:
+        return spec
 
     with (
         patch(
-            "agentception.routes.ui.plan_ui.call_anthropic_stream",
+            "agentception.routes.ui.plan_ui.completion_stream",
             side_effect=fake_llm_stream,
         ),
         patch(
             "agentception.readers.context_pack.build_context_pack",
             new_callable=AsyncMock,
             return_value="",
+        ),
+        patch(
+            "agentception.routes.ui.plan_ui.enrich_plan_with_codebase_context",
+            side_effect=return_spec,
         ),
         patch(
             "agentception.config.settings",
@@ -276,29 +293,38 @@ async def test_preview_thinking_chunks_are_discarded(async_client: AsyncClient) 
 
     events = _parse_sse_events(resp.text)
     chunk_texts: list[str] = [str(e.get("text", "")) for e in events if e.get("t") == "chunk"]
-    assert not any("<internal reasoning>" in t for t in chunk_texts), (
-        "Thinking chunk text must never be forwarded"
-    )
+    assert any("<internal reasoning>" in t for t in chunk_texts), "Thinking chunks must be streamed"
+    assert any("initiative:" in t for t in chunk_texts), "Content chunks must be streamed"
+    done_events = [e for e in events if e.get("t") == "done"]
+    assert len(done_events) == 1
+    assert done_events[0]["initiative"] == "auth-rewrite"
 
 
 @pytest.mark.anyio
-async def test_preview_prose_response_yields_error_event(async_client: AsyncClient) -> None:
-    """When the LLM returns prose instead of YAML, an error event is emitted — not a crash."""
+async def test_preview_prose_response_uses_fallback_plan(async_client: AsyncClient) -> None:
+    """When the LLM returns prose instead of YAML, we never push back — emit the fallback clarify-and-scope plan."""
 
     async def fake_llm_stream(
         *_args: object, **_kwargs: object
     ) -> AsyncGenerator[LLMChunk, None]:
         yield LLMChunk(type="content", text="Sure, here are some ideas for your project...")
 
+    async def return_spec(spec: object) -> object:
+        return spec
+
     with (
         patch(
-            "agentception.routes.ui.plan_ui.call_anthropic_stream",
+            "agentception.routes.ui.plan_ui.completion_stream",
             side_effect=fake_llm_stream,
         ),
         patch(
             "agentception.readers.context_pack.build_context_pack",
             new_callable=AsyncMock,
             return_value="",
+        ),
+        patch(
+            "agentception.routes.ui.plan_ui.enrich_plan_with_codebase_context",
+            side_effect=return_spec,
         ),
         patch(
             "agentception.config.settings",
@@ -313,8 +339,184 @@ async def test_preview_prose_response_yields_error_event(async_client: AsyncClie
     assert resp.status_code == 200
     events = _parse_sse_events(resp.text)
     error_events = [e for e in events if e.get("t") == "error"]
-    assert error_events, "Expected an error event when LLM returns prose"
-    assert isinstance(error_events[0].get("detail"), str)
+    assert not error_events, "We never push back with an error for vague input"
+    done_events = [e for e in events if e.get("t") == "done"]
+    assert len(done_events) == 1
+    assert done_events[0]["initiative"] == "clarify-and-scope"
+    assert done_events[0]["phase_count"] == 1
+    assert done_events[0]["issue_count"] == 1
+
+
+@pytest.mark.anyio
+async def test_preview_malformed_yaml_uses_fallback_plan_not_error(async_client: AsyncClient) -> None:
+    """When the LLM returns content that is invalid YAML (e.g. numbered list), we emit done with fallback, not error.
+
+    Regression: safe_load can raise on input like '1. Login fails...\\n2. Rate limiter...';
+    we must catch that and plug the fallback plan into the browser instead of showing a parse error.
+    """
+
+    async def fake_llm_stream(
+        *_args: object, **_kwargs: object
+    ) -> AsyncGenerator[LLMChunk, None]:
+        yield LLMChunk(
+            type="content",
+            text=(
+                "1. Login fails intermittently on mobile\n"
+                "2. Rate limiter not applied to /api/public\n"
+                "3. CSV export hangs for reports > 10k rows"
+            ),
+        )
+
+    async def return_spec(spec: object) -> object:
+        return spec
+
+    with (
+        patch(
+            "agentception.routes.ui.plan_ui.completion_stream",
+            side_effect=fake_llm_stream,
+        ),
+        patch(
+            "agentception.readers.context_pack.build_context_pack",
+            new_callable=AsyncMock,
+            return_value="",
+        ),
+        patch(
+            "agentception.routes.ui.plan_ui.enrich_plan_with_codebase_context",
+            side_effect=return_spec,
+        ),
+        patch(
+            "agentception.config.settings",
+            MagicMock(anthropic_api_key="test-key", **_passthrough_settings()),
+        ),
+    ):
+        resp = await async_client.post(
+            "/api/plan/preview",
+            json={"dump": "Bug list", "label_prefix": ""},
+        )
+
+    assert resp.status_code == 200
+    events = _parse_sse_events(resp.text)
+    error_events = [e for e in events if e.get("t") == "error"]
+    assert not error_events, "Malformed YAML must yield fallback plan, not error event"
+    done_events = [e for e in events if e.get("t") == "done"]
+    assert len(done_events) == 1
+    assert done_events[0]["initiative"] == "clarify-and-scope"
+    assert isinstance(done_events[0]["yaml"], str) and "initiative:" in done_events[0]["yaml"]
+
+
+@pytest.mark.anyio
+async def test_preview_local_model_think_tags_separated(async_client: AsyncClient) -> None:
+    """Local model thinking (via <think> tags) is split at the LLM layer; only YAML is accumulated.
+
+    Simulates what completion_stream returns after _normalize_think_tags: thinking chunks
+    are properly classified so plan_ui only accumulates the content (fenced YAML).
+    The done event must contain the real plan, not the fallback.
+    """
+    fenced_yaml = "```yaml\n" + _MINIMAL_VALID_YAML + "\n```\n"
+
+    async def fake_llm_stream(
+        *_args: object, **_kwargs: object
+    ) -> AsyncGenerator[LLMChunk, None]:
+        yield LLMChunk(type="thinking", text="Let me plan this carefully.")
+        yield LLMChunk(type="content", text=fenced_yaml)
+
+    async def return_spec(spec: object) -> object:
+        return spec
+
+    with (
+        patch(
+            "agentception.routes.ui.plan_ui.completion_stream",
+            side_effect=fake_llm_stream,
+        ),
+        patch(
+            "agentception.readers.context_pack.build_context_pack",
+            new_callable=AsyncMock,
+            return_value="",
+        ),
+        patch(
+            "agentception.routes.ui.plan_ui.enrich_plan_with_codebase_context",
+            side_effect=return_spec,
+        ),
+        patch(
+            "agentception.config.settings",
+            MagicMock(anthropic_api_key="test-key", **_passthrough_settings()),
+        ),
+    ):
+        resp = await async_client.post(
+            "/api/plan/preview",
+            json={"dump": "Bug triage list", "label_prefix": ""},
+        )
+
+    assert resp.status_code == 200
+    events = _parse_sse_events(resp.text)
+    chunk_texts = [str(e.get("text", "")) for e in events if e.get("t") == "chunk"]
+    assert any("Let me plan" in t for t in chunk_texts), "Thinking chunks streamed to browser"
+    assert any("initiative:" in t for t in chunk_texts), "Content chunks streamed to browser"
+    error_events = [e for e in events if e.get("t") == "error"]
+    assert not error_events, "Must not produce an error"
+    done_events = [e for e in events if e.get("t") == "done"]
+    assert len(done_events) == 1
+    assert done_events[0]["initiative"] == "auth-rewrite", (
+        "Must use the real plan, not fall back to clarify-and-scope"
+    )
+
+
+@pytest.mark.anyio
+async def test_preview_multi_issue_yaml_with_repeated_structure_not_truncated(
+    async_client: AsyncClient,
+) -> None:
+    """Multi-issue YAML with repeated body section headers (## Context etc.) must not be truncated.
+
+    Regression: an earlier repetition-detector checked whether the last 150 chars of accumulated
+    appeared earlier in the buffer.  Structured YAML naturally repeats issue body sections
+    (## Context, ## Objective, depends_on: [], ...) so the detector fired mid-stream and the
+    truncated YAML failed to parse, falling back to clarify-and-scope.
+
+    The repetition_penalty in the model payload is the correct prevention mechanism.
+    The stream must consume the full YAML regardless of structural repetition.
+    """
+
+    async def fake_llm_stream(
+        *_args: object, **_kwargs: object
+    ) -> AsyncGenerator[LLMChunk, None]:
+        yield LLMChunk(type="content", text=_TWO_PHASE_YAML)
+
+    async def return_spec(spec: object) -> object:
+        return spec
+
+    with (
+        patch(
+            "agentception.routes.ui.plan_ui.completion_stream",
+            side_effect=fake_llm_stream,
+        ),
+        patch(
+            "agentception.readers.context_pack.build_context_pack",
+            new_callable=AsyncMock,
+            return_value="",
+        ),
+        patch(
+            "agentception.routes.ui.plan_ui.enrich_plan_with_codebase_context",
+            side_effect=return_spec,
+        ),
+        patch(
+            "agentception.config.settings",
+            MagicMock(anthropic_api_key="test-key", **_passthrough_settings()),
+        ),
+    ):
+        resp = await async_client.post(
+            "/api/plan/preview",
+            json={"dump": "Refactor backend", "label_prefix": ""},
+        )
+
+    assert resp.status_code == 200
+    events = _parse_sse_events(resp.text)
+    error_events = [e for e in events if e.get("t") == "error"]
+    assert not error_events, "Repeated YAML structure must not trigger an error"
+    done_events = [e for e in events if e.get("t") == "done"]
+    assert len(done_events) == 1
+    assert done_events[0]["initiative"] == "big-project"
+    assert done_events[0]["phase_count"] == 2
+    assert done_events[0]["issue_count"] == 3
 
 
 @pytest.mark.anyio
@@ -332,7 +534,7 @@ async def test_preview_context_pack_is_prepended_to_dump(async_client: AsyncClie
 
     with (
         patch(
-            "agentception.routes.ui.plan_ui.call_anthropic_stream",
+            "agentception.routes.ui.plan_ui.completion_stream",
             side_effect=capture_stream,
         ),
         patch(

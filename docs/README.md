@@ -17,6 +17,7 @@ Step-by-step instructions for humans.
 | [Developer Workflow](guides/developer-workflow.md) | Bind-mount loop, mypy → tests → docs verification order, JS/CSS build pipeline |
 | [Contributing](guides/contributing.md) | Branch naming, commit conventions, PR checklist, code review expectations |
 | [CI](guides/ci.md) | GitHub Actions pipeline — what runs, how to reproduce locally |
+| [Local LLM with MLX](guides/local-llm-mlx.md) | Run the local LLM provider (Qwen/MLX on Apple Silicon): config, env vars, server, probes |
 
 ---
 
@@ -29,6 +30,7 @@ Precise specifications for every system component.
 | [API Routes](reference/api.md) | Complete HTTP endpoint inventory — semantic URL taxonomy, request/response shapes |
 | [Task Context Spec](../.agentception/agent-task-spec.md) | `RunContextRow` DB schema — every field, access patterns, and examples |
 | [Type Contracts](reference/type-contracts.md) | Pydantic models, TypedDicts, and the typed layer contracts between DB → service → route |
+| [LLM Contract and Provider Abstraction](reference/llm-contract.md) | Provider-agnostic LLM API, provider selection, and how to add a new backend |
 | [Cognitive Architecture](reference/cognitive-arch.md) | Figures, archetypes, skill domains, atoms — how agents get their identities |
 | [YAML Configuration](reference/yaml-config.md) | `config.yaml`, `team.yaml`, `role-taxonomy.yaml` — full field reference |
 
@@ -72,7 +74,7 @@ User input (brain dump)
 │  Cursor-Free Agent Loop             │
 │  agent_loop.py                      │
 │  → Reads DB context + role + arch   │
-│  → Calls Anthropic API               │
+│  → Calls LLM API (Anthropic or local via config) │
 │  → Dispatches file/shell/MCP tools  │
 │  → Uses Qdrant for code search      │
 │  Reports via POST /api/runs/{id}/*  │
@@ -104,7 +106,7 @@ agentception/
     issue_creator.py      → Phase 1B: PlanSpec → GitHub issues + DB rows
     worktrees.py          → Agent dispatch: git worktree + DB context row
   services/
-    llm.py           → call_anthropic() and call_anthropic_with_tools()
+    llm.py           → completion(), completion_stream(), completion_with_tools(); provider selection (Anthropic or local)
     agent_loop.py    → Cursor-free agent execution loop (multi-turn + tool dispatch)
     code_indexer.py  → Qdrant codebase indexing + semantic search (FastEmbed)
   tools/

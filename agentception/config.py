@@ -24,7 +24,7 @@ import json
 import logging
 from pathlib import Path
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -32,13 +32,23 @@ logger = logging.getLogger(__name__)
 
 class TaskRunnerChoice(str, enum.Enum):
     """Task runner backend for agent execution.
-    
+
     Determines which system executes agent tasks:
     - ``cursor``: Cursor IDE with Composer agent
     - ``anthropic``: Direct Anthropic API calls (default)
     """
     cursor = "cursor"
     anthropic = "anthropic"
+
+
+class LLMProviderChoice(str, enum.Enum):
+    """Which LLM backend to use for completion, streaming, and tool-use.
+
+    Single source of provider choice. When ``USE_LOCAL_LLM=true``, effective
+    provider is ``local`` regardless of ``LLM_PROVIDER`` (backward compat).
+    """
+    anthropic = "anthropic"
+    local = "local"
 
 
 def _resolve_project(raw: dict[str, object], target: AgentCeptionSettings) -> None:
@@ -145,6 +155,130 @@ class AgentCeptionSettings(BaseSettings):
     falls back to the keyword-based heuristic classifier — no LLM is required
     for the service to start.
     """
+    use_local_llm: bool = False
+    """When True, the developer agent uses the local LLM at ``local_llm_base_url``
+    instead of Anthropic. Set via ``USE_LOCAL_LLM`` env var (e.g. ``true``).
+    Maps to effective provider ``local``; prefer ``LLM_PROVIDER=local`` for new config."""
+
+    @field_validator("use_local_llm", mode="before")
+    @classmethod
+    def _parse_use_local_llm(cls, v: object) -> bool:
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            return v.strip().lower() in ("true", "1", "yes")
+        return False
+
+    llm_provider: LLMProviderChoice = LLMProviderChoice.anthropic
+    """Which LLM backend to use. Set via ``LLM_PROVIDER`` (``anthropic`` or ``local``).
+    When ``USE_LOCAL_LLM=true``, effective provider is ``local`` regardless of this."""
+
+    @field_validator("llm_provider", mode="before")
+    @classmethod
+    def _parse_llm_provider(cls, v: object) -> LLMProviderChoice:
+        if isinstance(v, LLMProviderChoice):
+            return v
+        if isinstance(v, str):
+            raw = v.strip().lower()
+            if raw == "local":
+                return LLMProviderChoice.local
+            return LLMProviderChoice.anthropic
+        return LLMProviderChoice.anthropic
+
+    @property
+    def effective_llm_provider(self) -> LLMProviderChoice:
+        """Provider actually used for LLM calls. USE_LOCAL_LLM=true overrides LLM_PROVIDER."""
+        if self.use_local_llm:
+            return LLMProviderChoice.local
+        return self.llm_provider
+
+    local_llm_base_url: str = "http://host.docker.internal:8080"
+    """Base URL of the local OpenAI-compatible server (e.g. mlx_lm.server).
+    Used when ``use_local_llm`` is True. From Docker, use host.docker.internal
+    to reach a server running on the host. Set via ``LOCAL_LLM_BASE_URL``."""
+
+    local_llm_chat_path: str = "/v1/chat/completions"
+    """Path appended to ``local_llm_base_url`` for chat requests. Some servers
+    use ``/chat/completions`` without the ``/v1`` prefix. Set via
+    ``LOCAL_LLM_CHAT_PATH``."""
+
+    local_llm_model: str = ""
+    """Model name sent in the request. If empty, omit so the server uses its
+    loaded model (avoids 404 from mlx_lm.server when it doesn't know \"local\").
+    Set via ``LOCAL_LLM_MODEL``."""
+
+    local_llm_max_context_chars: int = 12_000
+    """Max characters for the first user message when using the local LLM.
+    Small models (e.g. Qwen 4B) are easily overloaded; truncating the task
+    briefing keeps context manageable. Set via ``LOCAL_LLM_MAX_CONTEXT_CHARS``."""
+
+    local_llm_max_tokens: int = 4096
+    """Desired max output tokens for local LLM (agent loop, etc.). Capped by
+    ``local_llm_completion_token_ceiling`` when sending requests. Set via
+    ``LOCAL_LLM_MAX_TOKENS``."""
+
+    local_llm_completion_token_ceiling: int = 8192
+    """Hard cap on ``max_tokens`` sent to the local OpenAI-compatible server.
+    Ollama (the recommended backend) supports full context lengths; 8192 is a
+    safe default for a 35B 4-bit model. If you still use mlx-openai-server,
+    lower this to 4096 to avoid HTTP 422 errors. Set via
+    ``LOCAL_LLM_COMPLETION_TOKEN_CEILING``."""
+
+    local_llm_max_system_chars: int = 6000
+    """Max characters for the system prompt when using the local LLM. Truncates
+    role + cognitive arch so small models get a digest. Set via
+    ``LOCAL_LLM_MAX_SYSTEM_CHARS``."""
+
+    # ── Per-usecase overrides (Phase 3: two models, purpose-matched) ─────────
+    # When LiteLLM Proxy is in use, set these to different model names so the
+    # proxy routes planning calls to the large model and agent tool calls to the
+    # fast model.  When unset, fall back to LOCAL_LLM_BASE_URL / LOCAL_LLM_MODEL.
+
+    local_llm_base_url_plan: str = ""
+    """Base URL override for planning/streaming calls (Phase 1A YAML generation).
+    When set, overrides ``local_llm_base_url`` for ``completion_stream`` calls.
+    Useful when the 35B planning model is on a different port than the agent
+    tool-call model.  Leave empty to share one endpoint.  Set via
+    ``LOCAL_LLM_BASE_URL_PLAN``."""
+
+    local_llm_model_plan: str = ""
+    """Model name override for planning/streaming calls (Phase 1A).
+    When set, overrides ``local_llm_model`` so LiteLLM Proxy can route to the
+    large (35B) model instance.  Leave empty to use ``LOCAL_LLM_MODEL``.
+    Set via ``LOCAL_LLM_MODEL_PLAN``."""
+
+    local_llm_base_url_agent: str = ""
+    """Base URL override for agent tool-call turns.
+    When set, overrides ``local_llm_base_url`` for ``completion_with_tools``
+    calls.  Useful when the 8B agent model is on a different port.  Leave
+    empty to share one endpoint.  Set via ``LOCAL_LLM_BASE_URL_AGENT``."""
+
+    local_llm_model_agent: str = ""
+    """Model name override for agent tool-call turns.
+    When set, overrides ``local_llm_model`` so LiteLLM Proxy can route to the
+    fast (8B) model instance.  Leave empty to use ``LOCAL_LLM_MODEL``.
+    Set via ``LOCAL_LLM_MODEL_AGENT``."""
+
+    @property
+    def effective_local_base_url_plan(self) -> str:
+        """Base URL for planning/streaming calls (falls back to local_llm_base_url)."""
+        return (self.local_llm_base_url_plan or self.local_llm_base_url).rstrip("/")
+
+    @property
+    def effective_local_model_plan(self) -> str:
+        """Model name for planning/streaming calls (falls back to local_llm_model)."""
+        return self.local_llm_model_plan or self.local_llm_model
+
+    @property
+    def effective_local_base_url_agent(self) -> str:
+        """Base URL for agent tool-call turns (falls back to local_llm_base_url)."""
+        return (self.local_llm_base_url_agent or self.local_llm_base_url).rstrip("/")
+
+    @property
+    def effective_local_model_agent(self) -> str:
+        """Model name for agent tool-call turns (falls back to local_llm_model)."""
+        return self.local_llm_model_agent or self.local_llm_model
+
     github_token: str = ""
     """GitHub Personal Access Token for GitHub API calls and the GitHub MCP server.
 

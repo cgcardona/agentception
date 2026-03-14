@@ -28,6 +28,20 @@ services:
       # Override via HOST_REPO_DIR in .env when the repo is not at the default.
       HOST_REPO_DIR: ${HOST_REPO_DIR:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Optional: developer agent uses local OpenAI-compatible server (e.g. Ollama on host).
+      USE_LOCAL_LLM: ${USE_LOCAL_LLM:-false}
+      LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
+      LOCAL_LLM_BASE_URL: ${LOCAL_LLM_BASE_URL:-http://host.docker.internal:11434}
+      LOCAL_LLM_CHAT_PATH: ${LOCAL_LLM_CHAT_PATH:-/v1/chat/completions}
+      LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-}
+      LOCAL_LLM_MAX_TOKENS: ${LOCAL_LLM_MAX_TOKENS:-4096}
+      LOCAL_LLM_COMPLETION_TOKEN_CEILING: ${LOCAL_LLM_COMPLETION_TOKEN_CEILING:-8192}
+      LOCAL_LLM_MAX_CONTEXT_CHARS: ${LOCAL_LLM_MAX_CONTEXT_CHARS:-12000}
+      LOCAL_LLM_MAX_SYSTEM_CHARS: ${LOCAL_LLM_MAX_SYSTEM_CHARS:-6000}
+      LOCAL_LLM_BASE_URL_PLAN: ${LOCAL_LLM_BASE_URL_PLAN:-}
+      LOCAL_LLM_MODEL_PLAN: ${LOCAL_LLM_MODEL_PLAN:-}
+      LOCAL_LLM_BASE_URL_AGENT: ${LOCAL_LLM_BASE_URL_AGENT:-}
+      LOCAL_LLM_MODEL_AGENT: ${LOCAL_LLM_MODEL_AGENT:-}
       # gh CLI reads GITHUB_TOKEN when the keychain (macOS) is unavailable inside Docker.
       # Set GITHUB_TOKEN in .env to a PAT with repo+issues scope.
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
@@ -83,6 +97,11 @@ services:
     dns:
       - "1.1.1.1"
       - "8.8.8.8"
+    # Let the container reach a server on the host (e.g. MLX server on port 8080).
+    # Docker Desktop on Mac/Windows provides host.docker.internal by default;
+    # Linux and some other runtimes do not, so we set it explicitly.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - agentception-net
     command: >

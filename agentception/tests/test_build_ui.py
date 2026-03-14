@@ -73,8 +73,8 @@ def test_force_resync_button_present(client: TestClient) -> None:
     assert 'id="resync-result"' in html, (
         "A div with id='resync-result' must exist to receive the HTMX swap"
     )
-    assert 'aria-label="Force resync"' in html, (
-        "Force resync button must have aria-label='Force resync' for accessibility"
+    assert 'aria-label="Refresh from GitHub"' in html, (
+        "Resync button must have aria-label='Refresh from GitHub' for accessibility"
     )
     assert 'class="build-header__resync-btn"' in html, (
         "Force resync button must carry the build-header__resync-btn CSS class"
@@ -104,7 +104,7 @@ async def test_inspector_sse_poll_interval() -> None:
 
     with (
         patch(
-            "agentception.routes.ui.build_ui.get_agent_events_tail",
+            "agentception.routes.ui.build_ui.get_all_events_tail",
             new_callable=AsyncMock,
             return_value=[],
         ),
@@ -203,7 +203,7 @@ async def test_sse_stream_emits_file_edit_event_after_str_replace() -> None:
 
     with (
         patch(
-            "agentception.routes.ui.build_ui.get_agent_events_tail",
+            "agentception.routes.ui.build_ui.get_all_events_tail",
             side_effect=fake_events_tail,
         ),
         patch(

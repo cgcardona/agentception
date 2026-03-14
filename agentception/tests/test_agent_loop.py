@@ -1,7 +1,7 @@
 """Unit tests for agentception.services.agent_loop.
 
 All external I/O is mocked:
-  - call_anthropic_with_tools   → controlled ToolResponse stubs
+  - completion_with_tools       → controlled ToolResponse stubs
   - build_complete_run / build_cancel_run / log_run_step / log_run_error → AsyncMock
   - call_tool_async             → AsyncMock returning valid ACToolResult
   - _load_task                  → AsyncMock returning a minimal AgentTaskSpec from DB
@@ -82,6 +82,21 @@ def _mock_github_client() -> MagicMock:
     return client
 
 
+def _mock_get_session() -> MagicMock:
+    """Return a MagicMock for get_session() so run_agent_loop can run without init_db."""
+    session = MagicMock()
+    session.commit = AsyncMock()
+    session.rollback = AsyncMock()
+    session.flush = AsyncMock()
+    session.scalar = AsyncMock(return_value=None)
+    session.execute = AsyncMock()
+    session.add = MagicMock()
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=session)
+    cm.__aexit__ = AsyncMock(return_value=None)
+    return MagicMock(return_value=cm)
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -98,17 +113,21 @@ class TestRunAgentLoop:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 new_callable=AsyncMock,
                 return_value=_stop_response("All done."),
             ),
@@ -130,6 +149,7 @@ class TestRunAgentLoop:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services.agent_loop import run_agent_loop
 
@@ -156,17 +176,21 @@ class TestRunAgentLoop:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 new_callable=AsyncMock,
                 side_effect=responses,
             ),
@@ -188,6 +212,7 @@ class TestRunAgentLoop:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services import agent_loop as al
 
@@ -211,17 +236,21 @@ class TestRunAgentLoop:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 new_callable=AsyncMock,
                 side_effect=responses,
             ),
@@ -248,6 +277,7 @@ class TestRunAgentLoop:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services.agent_loop import run_agent_loop
 
@@ -265,17 +295,21 @@ class TestRunAgentLoop:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 new_callable=AsyncMock,
                 return_value=_tool_response("log_run_step", {"issue_number": 42, "step_name": "x"}),
             ),
@@ -307,6 +341,7 @@ class TestRunAgentLoop:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services.agent_loop import run_agent_loop
 
@@ -320,6 +355,10 @@ class TestRunAgentLoop:
         """run_agent_loop cancels cleanly when the DB row is missing."""
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
             patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
@@ -350,17 +389,21 @@ class TestRunAgentLoop:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 new_callable=AsyncMock,
                 side_effect=RuntimeError("Anthropic API is down"),
             ),
@@ -387,6 +430,7 @@ class TestRunAgentLoop:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services.agent_loop import run_agent_loop
 
@@ -527,7 +571,9 @@ class TestDispatchToolCalls:
             type="function",
             function=ToolCallFunction(name="read_file", arguments="not-valid-json"),
         )
-        result = await _dispatch_single_tool(bad_tc, tmp_path, "run-1")
+        result = await _dispatch_single_tool(
+            bad_tc, tmp_path, "run-1", session=None
+        )
         assert result["ok"] is False
         assert "json" in str(result["error"]).lower()
 
@@ -548,7 +594,10 @@ class TestEnforceTurnDelay:
         al._last_llm_call_at = 0.0  # simulate never called
         t0 = time.monotonic()
         from agentception.services.agent_loop import _enforce_turn_delay
-        await _enforce_turn_delay()
+        mock_session = AsyncMock()
+        mock_session.flush = AsyncMock()
+        mock_session.add = MagicMock()  # persist_activity_event calls add() synchronously
+        await _enforce_turn_delay(mock_session, "run-1")
         assert time.monotonic() - t0 < 1.0
 
     @pytest.mark.anyio
@@ -559,9 +608,12 @@ class TestEnforceTurnDelay:
         al._last_llm_call_at = time.monotonic() - 2.0
         t0 = time.monotonic()
         from agentception.services.agent_loop import _enforce_turn_delay
+        mock_session = AsyncMock()
+        mock_session.flush = AsyncMock()
+        mock_session.add = MagicMock()  # persist_activity_event calls add() synchronously
         with patch("agentception.services.agent_loop.settings") as mock_settings:
             mock_settings.ac_min_turn_delay_secs = 4.0
-            await _enforce_turn_delay()
+            await _enforce_turn_delay(mock_session, "run-1")
         elapsed = time.monotonic() - t0
         assert 1.5 < elapsed < 3.0  # ~2s wait, with tolerance
 
@@ -573,7 +625,10 @@ class TestEnforceTurnDelay:
         al._last_llm_call_at = time.monotonic() - 15.0
         t0 = time.monotonic()
         from agentception.services.agent_loop import _enforce_turn_delay
-        await _enforce_turn_delay()
+        mock_session = AsyncMock()
+        mock_session.flush = AsyncMock()
+        mock_session.add = MagicMock()  # persist_activity_event calls add() synchronously
+        await _enforce_turn_delay(mock_session, "run-1")
         assert time.monotonic() - t0 < 1.0
 
     def test_record_llm_call_updates_timestamp(self) -> None:
@@ -596,9 +651,12 @@ class TestEnforceTurnDelay:
         # Simulate: _record_llm_call() called just now (LLM call just completed)
         _record_llm_call()
         t0 = time.monotonic()
+        mock_session = AsyncMock()
+        mock_session.flush = AsyncMock()
+        mock_session.add = MagicMock()  # persist_activity_event calls add() synchronously
         with patch("agentception.services.agent_loop.settings") as mock_settings:
             mock_settings.ac_min_turn_delay_secs = 4.0
-            await _enforce_turn_delay()
+            await _enforce_turn_delay(mock_session, "run-1")
         # Should wait close to ac_min_turn_delay_secs, not skip due to stale timestamp
         elapsed = time.monotonic() - t0
         assert elapsed >= 3.0  # within 1s tolerance of the 4s target
@@ -825,6 +883,10 @@ class TestTerminalStateGuard:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
@@ -835,7 +897,7 @@ class TestTerminalStateGuard:
                 return_value=terminal_row,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 new_callable=AsyncMock,
                 return_value=_stop_response("should not be called"),
             ) as mock_llm,
@@ -931,6 +993,10 @@ class TestLoopGuard:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
@@ -942,12 +1008,12 @@ class TestLoopGuard:
             ),
             # Prevent the recon phase from hitting the real Anthropic API.
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -968,6 +1034,7 @@ class TestLoopGuard:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services import agent_loop as al
 
@@ -1040,6 +1107,10 @@ class TestLoopGuard:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
@@ -1050,12 +1121,12 @@ class TestLoopGuard:
                 return_value=None,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -1076,6 +1147,7 @@ class TestLoopGuard:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services import agent_loop as al
 
@@ -1096,6 +1168,116 @@ class TestLoopGuard:
             assert "LOOP GUARD" not in all_text, (
                 "Loop guard must NOT fire when a write tool was called within the threshold"
             )
+
+    @pytest.mark.anyio
+    async def test_preemptive_nudge_injected_one_turn_before_loop_guard(
+        self, tmp_path: Path
+    ) -> None:
+        """Preemptive nudge appears when iterations_since_write == threshold - 1.
+
+        One turn before the loop guard fires we inject a nudge telling the model
+        to call a write tool in this response. The nudge must not contain
+        'LOOP GUARD' (that string is reserved for the full guard override).
+        """
+        from agentception.services.agent_loop import (
+            _LOOP_GUARD_THRESHOLD,
+            run_agent_loop,
+        )
+
+        worktree = tmp_path / "test-run-preemptive"
+        worktree.mkdir()
+        task_spec = _make_task_spec(worktree)
+
+        # With threshold=2: after 1 read we have iterations_since_write=1.
+        # The next request (index 1) gets the preemptive nudge. Then we return
+        # another read so the run continues; then write + stop.
+        nudge_turn_index = 1
+        all_responses = (
+            [_tool_response("read_file", {"path": "agentception/models.py"})]
+            + [_tool_response("read_file", {"path": "agentception/other.py"})]
+            + [_tool_response("write_file", {"path": "agentception/new.py", "content": "# x"})]
+            + [_stop_response("Done.")]
+        )
+
+        captured_extra: list[list[dict[str, object]] | None] = []
+
+        async def fake_llm(
+            *args: object,
+            extra_system_blocks: list[dict[str, object]] | None = None,
+            **kwargs: object,
+        ) -> ToolResponse:
+            captured_extra.append(extra_system_blocks)
+            return all_responses[len(captured_extra) - 1]
+
+        file_result: dict[str, object] = {"ok": True, "content": "# stub", "truncated": False}
+        write_result: dict[str, object] = {"ok": True}
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.get_run_by_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "agentception.services.agent_loop.completion",
+                new_callable=AsyncMock,
+                return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
+                "agentception.services.agent_loop.completion_with_tools",
+                side_effect=fake_llm,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
+
+            from agentception.services import agent_loop as al
+
+            with (
+                patch.object(al, "read_file", return_value=file_result),
+                patch.object(al, "write_file", return_value=write_result),
+            ):
+                await run_agent_loop("test-run-preemptive", max_iterations=20)
+
+        assert len(captured_extra) > nudge_turn_index, "Expected at least 2 LLM requests"
+        blocks = captured_extra[nudge_turn_index]
+        assert blocks is not None
+        all_text = " ".join(
+            str(b["text"]) for b in blocks if isinstance(b.get("text"), str)
+        )
+        assert "ONE TURN BEFORE READ-ONLY LOCK" in all_text, (
+            "Preemptive nudge must be injected one turn before guard fires"
+        )
+        assert "Issue a write tool call now" in all_text
+        assert "LOOP GUARD" not in all_text, (
+            "Preemptive nudge must not contain LOOP GUARD (reserved for full override)"
+        )
 
     @pytest.mark.anyio
     async def test_symbol_absence_injects_override_on_repeated_search(
@@ -1130,6 +1312,10 @@ class TestLoopGuard:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
@@ -1140,12 +1326,12 @@ class TestLoopGuard:
                 return_value=None,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -1166,6 +1352,7 @@ class TestLoopGuard:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services import agent_loop as al
 
@@ -1236,6 +1423,10 @@ class TestLoopGuard:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
@@ -1246,12 +1437,12 @@ class TestLoopGuard:
                 return_value=None,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -1272,6 +1463,7 @@ class TestLoopGuard:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services import agent_loop as al
 
@@ -1290,6 +1482,25 @@ class TestLoopGuard:
                 f"Guard fired at iteration {i + 1} with only {n_reads} reads "
                 f"and a threshold of 10 (max_iterations=100) — should not fire until 10"
             )
+
+
+    def test_guard_allowlist_includes_shell_tools(self) -> None:
+        """run_command and git_commit_and_push must always be in the guard allowlist.
+
+        Without these a guarded agent can write code but has no way to run
+        verification (mypy/pytest) or deliver the work (git push) — the guard
+        would re-fire on every iteration, trapping the agent permanently.
+        """
+        from agentception.services.agent_loop import _GUARD_PERMITTED_TOOL_NAMES
+
+        assert "run_command" in _GUARD_PERMITTED_TOOL_NAMES, (
+            "run_command must be in _GUARD_PERMITTED_TOOL_NAMES so a guarded "
+            "agent can still run mypy/pytest to verify its writes."
+        )
+        assert "git_commit_and_push" in _GUARD_PERMITTED_TOOL_NAMES, (
+            "git_commit_and_push must be in _GUARD_PERMITTED_TOOL_NAMES so a "
+            "guarded agent can still commit and push after writing code."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1354,6 +1565,10 @@ class TestLoopGuardReviewer:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=reviewer_spec,
@@ -1363,14 +1578,14 @@ class TestLoopGuardReviewer:
                 new_callable=AsyncMock,
                 return_value=None,
             ),
-            # Patch call_anthropic so the recon phase doesn't hit the real API.
+            # Patch completion so the recon phase doesn't hit the real API.
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -1391,6 +1606,7 @@ class TestLoopGuardReviewer:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
             await run_agent_loop("review-run")
 
         # None of the captured extra_system_blocks should mention LOOP GUARD.
@@ -1459,6 +1675,10 @@ class TestReviewerToolAllowlist:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=reviewer_spec,
@@ -1469,12 +1689,12 @@ class TestReviewerToolAllowlist:
                 return_value=None,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -1495,6 +1715,7 @@ class TestReviewerToolAllowlist:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
             # Pass a high cap — must be overridden to _REVIEWER_MAX_ITERATIONS.
             await run_agent_loop("review-allowlist-run", max_iterations=100)
 
@@ -1567,6 +1788,10 @@ class TestReviewerToolAllowlist:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=reviewer_spec,
@@ -1577,12 +1802,12 @@ class TestReviewerToolAllowlist:
                 return_value=None,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -1602,6 +1827,7 @@ class TestReviewerToolAllowlist:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
             # Pass 100 — must be silently capped to _REVIEWER_MAX_ITERATIONS.
             await run_agent_loop("review-cap-run", max_iterations=100)
 
@@ -1668,6 +1894,10 @@ class TestDeveloperToolAllowlist:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=developer_spec,
@@ -1678,12 +1908,12 @@ class TestDeveloperToolAllowlist:
                 return_value=None,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -1704,6 +1934,7 @@ class TestDeveloperToolAllowlist:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
             await run_agent_loop("dev-allowlist-run", max_iterations=100)
 
         assert captured_tools, "fake_llm must have been called at least once"
@@ -1966,6 +2197,10 @@ class TestReviewerWarmup:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=reviewer_spec,
@@ -1976,7 +2211,7 @@ class TestReviewerWarmup:
                 return_value=None,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -2005,6 +2240,7 @@ class TestReviewerWarmup:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
             mock_settings.gh_repo = "cgcardona/agentception"
             await run_agent_loop("review-warmup-run")
 
@@ -2035,17 +2271,21 @@ class TestAgentLoopPersistsMessages:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 new_callable=AsyncMock,
                 side_effect=responses,
             ),
@@ -2071,6 +2311,7 @@ class TestAgentLoopPersistsMessages:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services import agent_loop as al
 
@@ -2190,17 +2431,21 @@ class TestStopReasonLengthRecovery:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 new_callable=AsyncMock,
                 side_effect=responses,
             ),
@@ -2230,6 +2475,7 @@ class TestStopReasonLengthRecovery:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services import agent_loop as al
 
@@ -2260,17 +2506,21 @@ class TestStopReasonLengthRecovery:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 new_callable=AsyncMock,
                 side_effect=responses,
             ),
@@ -2300,6 +2550,7 @@ class TestStopReasonLengthRecovery:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services import agent_loop as al
 
@@ -2356,17 +2607,21 @@ class TestFileEditQueue:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 new_callable=AsyncMock,
                 side_effect=responses,
             ),
@@ -2405,6 +2660,7 @@ class TestFileEditQueue:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             await run_agent_loop("run-feq-write")
 
@@ -2441,17 +2697,21 @@ class TestFileEditQueue:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 new_callable=AsyncMock,
                 side_effect=responses,
             ),
@@ -2490,6 +2750,7 @@ class TestFileEditQueue:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             await run_agent_loop("run-feq-read")
 
@@ -2576,6 +2837,10 @@ class TestFinalStretchWarning:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
@@ -2586,12 +2851,12 @@ class TestFinalStretchWarning:
                 return_value=None,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -2612,6 +2877,7 @@ class TestFinalStretchWarning:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services import agent_loop as al
 
@@ -2740,6 +3006,10 @@ class TestFinalStretchWarning:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
@@ -2750,12 +3020,12 @@ class TestFinalStretchWarning:
                 return_value=None,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -2776,6 +3046,7 @@ class TestFinalStretchWarning:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services import agent_loop as al
 
@@ -2832,11 +3103,11 @@ class TestFinalStretchWarning:
 
 
 class TestModelSelection:
-    """call_anthropic_with_tools must receive model=haiku for reviewer, sonnet otherwise."""
+    """completion_with_tools must receive model=haiku for reviewer, sonnet otherwise."""
 
     @pytest.mark.anyio
     async def test_reviewer_uses_haiku_model(self, tmp_path: Path) -> None:
-        """When task.role == 'reviewer', call_anthropic_with_tools gets model='claude-haiku-4-5'."""
+        """When task.role == 'reviewer', completion_with_tools gets model='claude-haiku-4-5'."""
         worktree = tmp_path / "test-run-1"
         worktree.mkdir()
         task_spec = _make_task_spec(worktree)
@@ -2848,17 +3119,21 @@ class TestModelSelection:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 mock_llm,
             ),
             patch(
@@ -2879,12 +3154,13 @@ class TestModelSelection:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services.agent_loop import run_agent_loop
 
             await run_agent_loop("test-run-1")
 
-        assert mock_llm.called, "call_anthropic_with_tools was never invoked"
+        assert mock_llm.called, "completion_with_tools was never invoked"
         _, kwargs = mock_llm.call_args
         assert kwargs.get("model") == "claude-haiku-4-5", (
             f"Expected model='claude-haiku-4-5' for reviewer, got {kwargs.get('model')!r}"
@@ -2892,7 +3168,7 @@ class TestModelSelection:
 
     @pytest.mark.anyio
     async def test_developer_uses_sonnet_model(self, tmp_path: Path) -> None:
-        """When task.role == 'developer', call_anthropic_with_tools gets model='claude-sonnet-4-6'."""
+        """When task.role == 'developer', completion_with_tools gets model='claude-sonnet-4-6'."""
         worktree = tmp_path / "test-run-1"
         worktree.mkdir()
         task_spec = _make_task_spec(worktree)  # role defaults to "developer"
@@ -2902,17 +3178,21 @@ class TestModelSelection:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 mock_llm,
             ),
             patch(
@@ -2933,14 +3213,671 @@ class TestModelSelection:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services.agent_loop import run_agent_loop
 
             await run_agent_loop("test-run-1")
 
-        assert mock_llm.called, "call_anthropic_with_tools was never invoked"
+        assert mock_llm.called, "completion_with_tools was never invoked"
         _, kwargs = mock_llm.call_args
         assert kwargs.get("model") == "claude-sonnet-4-6", (
             f"Expected model='claude-sonnet-4-6' for developer, got {kwargs.get('model')!r}"
         )
 
+
+# ---------------------------------------------------------------------------
+# Pytest hard-stop — mechanically enforced once pytest exits 0
+# ---------------------------------------------------------------------------
+
+
+def _run_command_response(command: str) -> ToolResponse:
+    """Return a ToolResponse simulating the agent calling run_command."""
+    tc = ToolCall(
+        id="call_pytest",
+        type="function",
+        function=ToolCallFunction(name="run_command", arguments=json.dumps({"command": command})),
+    )
+    return ToolResponse(stop_reason="tool_calls", content="", tool_calls=[tc])
+
+
+class TestPytestHardStop:
+    """Pytest hard-stop: reads/searches are intercepted after pytest exits 0.
+
+    The stop arms when run_command runs pytest and exit_code==0.  It is
+    mechanically enforced via synthetic errors on every subsequent iteration
+    for any tool in _PYTEST_STOP_BLOCKED_TOOLS.  It disarms when new code is
+    written after the clean run, or when a later pytest invocation fails.
+    """
+
+    @pytest.mark.anyio
+    async def test_pytest_stop_blocks_reads_after_clean_exit(
+        self, tmp_path: Path
+    ) -> None:
+        """read_file calls are intercepted with a synthetic error after pytest exits 0.
+
+        Sequence:
+          iter 1: run_command("pytest ...") → exit_code=0  (arms stop)
+          iter 2: read_file(...)  → intercepted, synthetic error returned
+          iter 3: stop
+        The LLM must receive the HARD STOP override in extra_system_blocks on
+        iter 2, and read_file must not reach the real dispatcher.
+        """
+        from agentception.services.agent_loop import run_agent_loop
+
+        worktree = tmp_path / "test-pytest-stop"
+        worktree.mkdir()
+        task_spec = _make_task_spec(worktree)
+
+        pytest_cmd_result: dict[str, object] = {
+            "ok": True,
+            "stdout": "1 passed",
+            "stderr": "",
+            "exit_code": 0,
+            "stdout_truncated": False,
+            "stderr_truncated": False,
+        }
+
+        responses = [
+            _run_command_response("pytest agentception/tests/test_foo.py -v"),
+            _tool_response("read_file", {"path": "agentception/models.py"}),
+            _stop_response("Done."),
+        ]
+
+        captured_extra: list[list[dict[str, object]] | None] = []
+
+        async def fake_llm(
+            *args: object,
+            extra_system_blocks: list[dict[str, object]] | None = None,
+            **kwargs: object,
+        ) -> ToolResponse:
+            captured_extra.append(extra_system_blocks)
+            return responses[len(captured_extra) - 1]
+
+        read_file_called = False
+
+        # read_file is synchronous in _dispatch_local_tool — use a plain callable
+        # (not AsyncMock) so the return value is a dict, not a coroutine.
+        def fake_read_file_sync(*args: object, **kwargs: object) -> dict[str, object]:
+            nonlocal read_file_called
+            read_file_called = True
+            return {"ok": True, "content": "stub", "truncated": False}
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.get_run_by_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "agentception.services.agent_loop.completion",
+                new_callable=AsyncMock,
+                return_value='{"files": [], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
+                "agentception.services.agent_loop.completion_with_tools",
+                side_effect=fake_llm,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
+
+            from agentception.services import agent_loop as al
+
+            with patch.object(al, "run_command", new=AsyncMock(return_value=pytest_cmd_result)):
+                with patch.object(al, "read_file", side_effect=fake_read_file_sync):
+                    await run_agent_loop("test-pytest-stop")
+
+        # The HARD STOP override must appear in extra_system_blocks on iter 2
+        # (index 1 — the read_file attempt after pytest passed).
+        assert len(captured_extra) >= 2, "Expected at least 2 LLM iterations"
+        iter2_extra = captured_extra[1]
+        assert iter2_extra is not None, "extra_system_blocks must be non-None on iter 2"
+        all_text = " ".join(
+            str(b["text"]) for b in iter2_extra if isinstance(b.get("text"), str)
+        )
+        assert "HARD STOP" in all_text, (
+            "Expected 'HARD STOP' in extra_system_blocks on the iteration after pytest passes"
+        )
+
+        # read_file must NOT have been dispatched — the interception returns a
+        # synthetic error before the real tool is called.
+        assert not read_file_called, (
+            "read_file must be intercepted and not reach the real dispatcher"
+        )
+
+    @pytest.mark.anyio
+    async def test_pytest_stop_disarmed_by_file_write(self, tmp_path: Path) -> None:
+        """Writing a file after pytest passes disarms the hard-stop.
+
+        Sequence:
+          iter 1: run_command("pytest ...") → exit_code=0  (arms stop)
+          iter 2: replace_in_file(...)  (disarms stop — new untested code)
+          iter 3: read_file(...)  → reaches dispatcher normally (stop is disarmed)
+          iter 4: stop
+        """
+        from agentception.services.agent_loop import run_agent_loop
+
+        worktree = tmp_path / "test-pytest-disarm"
+        worktree.mkdir()
+        task_spec = _make_task_spec(worktree)
+
+        pytest_cmd_result: dict[str, object] = {
+            "ok": True,
+            "stdout": "1 passed",
+            "stderr": "",
+            "exit_code": 0,
+            "stdout_truncated": False,
+            "stderr_truncated": False,
+        }
+        replace_result: dict[str, object] = {"ok": True}
+        read_result: dict[str, object] = {"ok": True, "content": "stub", "truncated": False}
+
+        responses = [
+            _run_command_response("pytest agentception/tests/test_foo.py -v"),
+            _tool_response("replace_in_file", {"path": "agentception/foo.py", "old_string": "x", "new_string": "y"}),
+            _tool_response("read_file", {"path": "agentception/models.py"}),
+            _stop_response("Done."),
+        ]
+
+        captured_extra: list[list[dict[str, object]] | None] = []
+
+        async def fake_llm(
+            *args: object,
+            extra_system_blocks: list[dict[str, object]] | None = None,
+            **kwargs: object,
+        ) -> ToolResponse:
+            captured_extra.append(extra_system_blocks)
+            return responses[len(captured_extra) - 1]
+
+        read_file_called = False
+
+        # read_file and replace_in_file are synchronous in _dispatch_local_tool —
+        # use plain MagicMock (not AsyncMock) so the return value is a dict, not
+        # a coroutine.
+        def fake_read_file_sync(*args: object, **kwargs: object) -> dict[str, object]:
+            nonlocal read_file_called
+            read_file_called = True
+            return read_result
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.get_run_by_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "agentception.services.agent_loop.completion",
+                new_callable=AsyncMock,
+                return_value='{"files": [], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
+                "agentception.services.agent_loop.completion_with_tools",
+                side_effect=fake_llm,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
+
+            from agentception.services import agent_loop as al
+
+            with patch.object(al, "run_command", new=AsyncMock(return_value=pytest_cmd_result)):
+                with patch.object(al, "replace_in_file", return_value=replace_result):
+                    with patch.object(al, "read_file", side_effect=fake_read_file_sync):
+                        await run_agent_loop("test-pytest-disarm")
+
+        # After the file write on iter 2, the stop is disarmed.
+        # On iter 3, read_file must reach the real dispatcher (not be intercepted).
+        assert read_file_called, (
+            "read_file must be dispatched normally after the stop is disarmed by a file write"
+        )
+
+        # No HARD STOP in extra_system_blocks on iter 3 (index 2).
+        assert len(captured_extra) >= 3, "Expected at least 3 LLM iterations"
+        iter3_extra = captured_extra[2]
+        if iter3_extra is not None:
+            all_text = " ".join(
+                str(b["text"]) for b in iter3_extra if isinstance(b.get("text"), str)
+            )
+            assert "HARD STOP" not in all_text, (
+                "HARD STOP must not appear after disarm"
+            )
+
+
+class TestPruneHistoryTokenBudget:
+    """Unit tests for the token-budget path of _prune_history."""
+
+    @pytest.mark.anyio
+    async def test_prune_history_by_token_count(self) -> None:
+        """When last_input_tokens > _MAX_INPUT_TOKEN_ESTIMATE, prune until estimated
+        tokens fall below the threshold, always keeping messages[0]."""
+        from agentception.services.agent_loop import (
+            _prune_history,
+            _HISTORY_TAIL,
+            _MAX_INPUT_TOKEN_ESTIMATE,
+        )
+
+        # Build a large task briefing (message[0]) and 30 large body messages.
+        # Each body message has 20_000 chars of content → json.dumps ~20_050 chars
+        # → contributes ~5_012 estimated tokens each.
+        # 30 × 5_012 = 150_360 > 140_000, so token pruning must fire.
+        large_content = "x" * 20_000
+        briefing: dict[str, object] = {"role": "user", "content": "Task briefing"}
+        body: list[dict[str, object]] = [
+            {"role": "assistant" if i % 2 == 0 else "user", "content": large_content}
+            for i in range(30)
+        ]
+        messages = [briefing] + body
+
+        with patch(
+            "agentception.services.agent_loop._summarise_history",
+            new_callable=AsyncMock,
+            return_value="",
+        ):
+            result = await _prune_history(messages, last_input_tokens=145_000)
+
+        assert result[0] == briefing, "messages[0] must always be preserved"
+        # The token-budget loop drops messages until estimated <= threshold.
+        estimated = sum(len(json.dumps(m)) // 4 for m in result)
+        assert estimated <= _MAX_INPUT_TOKEN_ESTIMATE
+        # The loop stops when len(prunable) == _HISTORY_TAIL + 1 at the minimum.
+        assert len(result) >= _HISTORY_TAIL + 1
+
+    @pytest.mark.anyio
+    async def test_prune_history_skips_token_path_when_under_threshold(self) -> None:
+        """When last_input_tokens <= _MAX_INPUT_TOKEN_ESTIMATE the token-budget
+        loop must not run; the count guard controls the result."""
+        from agentception.services.agent_loop import (
+            _prune_history,
+            _HISTORY_TAIL,
+            _MAX_INPUT_TOKEN_ESTIMATE,
+        )
+
+        briefing: dict[str, object] = {"role": "user", "content": "Task briefing"}
+        # 25 messages > _MAX_HISTORY_MESSAGES (20), triggering the count guard
+        body: list[dict[str, object]] = [
+            {"role": "assistant" if i % 2 == 0 else "user", "content": "small"}
+            for i in range(25)
+        ]
+        messages = [briefing] + body
+
+        with patch(
+            "agentception.services.agent_loop._summarise_history",
+            new_callable=AsyncMock,
+            return_value="",
+        ):
+            result = await _prune_history(messages, last_input_tokens=50_000)
+
+        # Count guard fires: result must start with messages[0] + _HISTORY_TAIL tail.
+        # Token loop never runs, so len(result) is NOT further reduced.
+        assert result[0] == briefing
+        assert len(result) <= _HISTORY_TAIL + 1
+        # All content is tiny, so estimated tokens are well under threshold.
+        estimated = sum(len(json.dumps(m)) // 4 for m in result)
+        assert estimated <= _MAX_INPUT_TOKEN_ESTIMATE
+
+    @pytest.mark.anyio
+    async def test_context_checkpoint_summary_injected(self) -> None:
+        """When > 4 messages are dropped and _summarise_history returns a non-empty
+        string, a [Context checkpoint] message is inserted at index 1."""
+        from agentception.services.agent_loop import (
+            _prune_history,
+        )
+
+        # Use 30_000-char messages so that many messages must be dropped to reach
+        # the token threshold, ensuring dropped count > 4.
+        large_content = "y" * 30_000
+        briefing: dict[str, object] = {"role": "user", "content": "Task briefing"}
+        body: list[dict[str, object]] = [
+            {"role": "assistant" if i % 2 == 0 else "user", "content": large_content}
+            for i in range(30)
+        ]
+        messages = [briefing] + body
+
+        with patch(
+            "agentception.services.agent_loop._summarise_history",
+            new_callable=AsyncMock,
+            return_value="Did X and Y",
+        ):
+            result = await _prune_history(messages, last_input_tokens=145_000)
+
+        assert result[0] == briefing
+        checkpoint_content = result[1]["content"]
+        assert isinstance(checkpoint_content, str)
+        assert checkpoint_content.startswith("[Context checkpoint]")
+        assert "Did X and Y" in checkpoint_content
+
+    @pytest.mark.anyio
+    async def test_context_checkpoint_skipped_when_few_dropped(self) -> None:
+        """When <= 4 messages are dropped, _summarise_history must NOT be called."""
+        from agentception.services.agent_loop import (
+            _prune_history,
+            _MAX_INPUT_TOKEN_ESTIMATE,
+            _HISTORY_TAIL,
+        )
+
+        # Build a history that triggers the token path but drops only 3 messages.
+        # Each message contributes ~(20_000 // 4) = 5_000 tokens.
+        # We need total > _MAX_INPUT_TOKEN_ESTIMATE but only 3 messages to drop.
+        # Strategy: briefing + _HISTORY_TAIL messages that are just over threshold
+        # when combined, so only a few need to be removed.
+        large_content = "z" * 20_000
+        briefing: dict[str, object] = {"role": "user", "content": "Task briefing"}
+        # Use exactly _HISTORY_TAIL + 3 body messages so the tail is _HISTORY_TAIL
+        # and 3 extra messages sit at the front (indices 1-3) to be dropped.
+        body: list[dict[str, object]] = [
+            {"role": "assistant" if i % 2 == 0 else "user", "content": large_content}
+            for i in range(_HISTORY_TAIL + 3)
+        ]
+        messages = [briefing] + body
+
+        mock_summarise = AsyncMock(return_value="should not be called")
+        with patch(
+            "agentception.services.agent_loop._summarise_history",
+            mock_summarise,
+        ):
+            result = await _prune_history(messages, last_input_tokens=145_000)
+
+        mock_summarise.assert_not_called()
+        for msg in result:
+            content = msg.get("content", "")
+            assert not (isinstance(content, str) and content.startswith("[Context checkpoint]"))
+
+    @pytest.mark.anyio
+    async def test_summarise_history_returns_empty_on_exception(self) -> None:
+        """_summarise_history returns '' and does not propagate when completion raises."""
+        from agentception.services.agent_loop import _summarise_history
+
+        with patch(
+            "agentception.services.agent_loop.completion",
+            side_effect=RuntimeError("api down"),
+        ):
+            result = await _summarise_history([{}])
+
+        assert result == ""
+
+
+# ---------------------------------------------------------------------------
+# TestContextPressureWarning
+# ---------------------------------------------------------------------------
+
+
+class TestContextPressureWarning:
+    """_CONTEXT_PRESSURE_WARNING is injected into extra_blocks when
+    last_input_tokens > _CONTEXT_PRESSURE_THRESHOLD.
+
+    The warning must NOT appear on the first iteration (last_input_tokens==0)
+    and must NOT appear when the previous turn consumed fewer tokens than the
+    threshold.
+    """
+
+    @pytest.mark.anyio
+    async def test_context_pressure_warning_injected_above_threshold(
+        self, tmp_path: Path
+    ) -> None:
+        """Warning appears on iteration 2 when iteration 1 returned 110K tokens."""
+        from agentception.services.agent_loop import (
+            _CONTEXT_PRESSURE_THRESHOLD,
+            _CONTEXT_PRESSURE_WARNING,
+            run_agent_loop,
+        )
+
+        worktree = tmp_path / "test-run-ctx-pressure-above"
+        worktree.mkdir()
+        task_spec = _make_task_spec(worktree)
+
+        # Iteration 1: read_file tool call with input_tokens=110_000 (above threshold).
+        # Iteration 2: stop.
+        first_response: ToolResponse = {
+            **_tool_response("read_file", {"path": "agentception/models.py"}),
+            "input_tokens": 110_000,
+        }
+        all_responses: list[ToolResponse] = [
+            first_response,
+            _stop_response("Done."),
+        ]
+
+        captured_extra: list[list[dict[str, object]] | None] = []
+
+        async def fake_llm(
+            *args: object,
+            extra_system_blocks: list[dict[str, object]] | None = None,
+            **kwargs: object,
+        ) -> ToolResponse:
+            captured_extra.append(extra_system_blocks)
+            return all_responses[len(captured_extra) - 1]
+
+        file_result: dict[str, object] = {
+            "ok": True,
+            "content": "",
+            "truncated": False,
+        }
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.get_run_by_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "agentception.services.agent_loop.completion",
+                new_callable=AsyncMock,
+                return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
+                "agentception.services.agent_loop.completion_with_tools",
+                side_effect=fake_llm,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
+
+            from agentception.services import agent_loop as al
+
+            with patch.object(al, "read_file", return_value=file_result):
+                await run_agent_loop("test-run-ctx-pressure-above", max_iterations=10)
+
+        assert len(captured_extra) == 2, (
+            f"Expected 2 LLM calls, got {len(captured_extra)}"
+        )
+
+        # Iteration 2 (index 1) must contain the context-pressure warning.
+        blocks_iter2 = captured_extra[1]
+        assert blocks_iter2 is not None, "extra_system_blocks must not be None on iteration 2"
+        warning_texts = [
+            str(b.get("text", ""))
+            for b in blocks_iter2
+            if isinstance(b, dict)
+        ]
+        assert any("⚠️ CONTEXT PRESSURE" in t for t in warning_texts), (
+            f"Expected '⚠️ CONTEXT PRESSURE' in iteration-2 extra_blocks, got: {warning_texts}"
+        )
+        assert any("110K input tokens" in t for t in warning_texts), (
+            f"Expected '110K input tokens' in iteration-2 extra_blocks, got: {warning_texts}"
+        )
+
+    @pytest.mark.anyio
+    async def test_context_pressure_warning_absent_below_threshold(
+        self, tmp_path: Path
+    ) -> None:
+        """Warning is absent on iteration 2 when iteration 1 returned only 50K tokens."""
+        from agentception.services.agent_loop import (
+            _CONTEXT_PRESSURE_THRESHOLD,
+            run_agent_loop,
+        )
+
+        worktree = tmp_path / "test-run-ctx-pressure-below"
+        worktree.mkdir()
+        task_spec = _make_task_spec(worktree)
+
+        # Iteration 1: read_file tool call with input_tokens=50_000 (below threshold).
+        # Iteration 2: stop.
+        first_response: ToolResponse = {
+            **_tool_response("read_file", {"path": "agentception/models.py"}),
+            "input_tokens": 50_000,
+        }
+        all_responses: list[ToolResponse] = [
+            first_response,
+            _stop_response("Done."),
+        ]
+
+        captured_extra: list[list[dict[str, object]] | None] = []
+
+        async def fake_llm(
+            *args: object,
+            extra_system_blocks: list[dict[str, object]] | None = None,
+            **kwargs: object,
+        ) -> ToolResponse:
+            captured_extra.append(extra_system_blocks)
+            return all_responses[len(captured_extra) - 1]
+
+        file_result: dict[str, object] = {
+            "ok": True,
+            "content": "",
+            "truncated": False,
+        }
+
+        with (
+            patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
+                "agentception.services.agent_loop._load_task",
+                new_callable=AsyncMock,
+                return_value=task_spec,
+            ),
+            patch(
+                "agentception.services.agent_loop.get_run_by_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "agentception.services.agent_loop.completion",
+                new_callable=AsyncMock,
+                return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
+            ),
+            patch(
+                "agentception.services.agent_loop.completion_with_tools",
+                side_effect=fake_llm,
+            ),
+            patch(
+                "agentception.services.agent_loop.build_complete_run",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.log_run_step",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ),
+            patch(
+                "agentception.services.agent_loop.GitHubMCPClient",
+                return_value=_mock_github_client(),
+            ),
+        ):
+            mock_settings.worktrees_dir = tmp_path
+            mock_settings.repo_dir = tmp_path
+            mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
+
+            from agentception.services import agent_loop as al
+
+            with patch.object(al, "read_file", return_value=file_result):
+                await run_agent_loop("test-run-ctx-pressure-below", max_iterations=10)
+
+        assert len(captured_extra) == 2, (
+            f"Expected 2 LLM calls, got {len(captured_extra)}"
+        )
+
+        # Iteration 2 (index 1) must NOT contain the context-pressure warning.
+        blocks_iter2 = captured_extra[1]
+        if blocks_iter2 is not None:
+            warning_texts = [
+                str(b.get("text", ""))
+                for b in blocks_iter2
+                if isinstance(b, dict)
+            ]
+            assert not any("CONTEXT PRESSURE" in t for t in warning_texts), (
+                f"Context-pressure warning must NOT appear when tokens={50_000} "
+                f"<= threshold={_CONTEXT_PRESSURE_THRESHOLD}. Got: {warning_texts}"
+            )

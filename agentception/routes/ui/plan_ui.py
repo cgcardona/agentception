@@ -40,8 +40,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from pydantic import BaseModel
 from starlette.requests import Request
 
-from agentception.readers.llm_phase_planner import _strip_fences
-from agentception.services.llm import LLMChunk, call_anthropic_stream
+from agentception.readers.plan_enricher import enrich_plan_with_codebase_context
+from agentception.services.llm import LLMChunk, completion_stream
 from ._shared import _TEMPLATES
 
 if TYPE_CHECKING:
@@ -290,9 +290,13 @@ async def plan_preview(body: PlanDraftRequest) -> StreamingResponse:
 
     Requires ``ANTHROPIC_API_KEY`` to be configured — returns HTTP 503 if absent.
     """
-    from agentception.config import settings as _cfg
+    from agentception.config import LLMProviderChoice, settings as _cfg
     from agentception.models import PlanSpec
-    from agentception.readers.llm_phase_planner import _build_yaml_system_prompt
+    from agentception.readers.llm_phase_planner import (
+        _build_yaml_system_prompt,
+        _strip_fences,
+        get_fallback_plan_spec,
+    )
 
     dump = body.dump.strip()
     if not dump:
@@ -308,57 +312,56 @@ async def plan_preview(body: PlanDraftRequest) -> StreamingResponse:
     async def _llm_stream() -> AsyncGenerator[str, None]:
         """Stream LLM tokens then emit a validated ``done`` event.
 
-        Yields two SSE event types to the browser:
-          {"t": "chunk",    "text": "..."}  -- output YAML token
-          {"t": "done",     "yaml": "...", ...}  -- validated, complete
-          {"t": "error",    "detail": "..."}  -- something went wrong
+        Yields:
+          {"t": "chunk", "text": "..."}  — every token (thinking + content) streamed to browser
+          {"t": "done", "yaml": "...", ...}  — validated, complete
+          {"t": "error", "detail": "..."}  — something went wrong
 
-        Chain-of-thought ("thinking") tokens from extended reasoning are
-        intentionally discarded — they can leak prompt internals and anchor
-        users on model reasoning rather than the YAML output.
+        We accumulate only content for validation so _strip_fences(accumulated) sees plain or fenced YAML (same as before).
         """
         accumulated = ""
         try:
             chunk: LLMChunk
-            async for chunk in call_anthropic_stream(
+            async for chunk in completion_stream(
                 augmented_dump,
                 system_prompt=_build_yaml_system_prompt(),
                 temperature=0.2,
                 max_tokens=8192,
             ):
                 if chunk["type"] == "thinking":
-                    pass  # discard — never sent to browser
+                    yield _sse(_ChunkEvent(t="chunk", text=chunk["text"]))
                 else:
                     accumulated += chunk["text"]
                     yield _sse(_ChunkEvent(t="chunk", text=chunk["text"]))
 
-            # Validate and canonicalise the full output.
-            yaml_str = _strip_fences(accumulated)
-
-            # Detect prose response: yaml.safe_load returns a str (not a dict)
-            # when the model outputs conversational text instead of YAML.
+            # Validate and canonicalise: strip markdown fences, parse, validate.
+            # Thinking is already separated at the LLM layer (for all providers),
+            # so accumulated contains only content — plain YAML or fenced YAML.
             import yaml as _yaml_mod
-            parsed: _YamlNode = _yaml_mod.safe_load(yaml_str) if yaml_str.strip() else None
-            if not isinstance(parsed, dict):
-                logger.warning(
-                    "⚠️ LLM returned prose instead of YAML (first 200 chars): %s",
+            spec: PlanSpec
+            try:
+                yaml_str = _strip_fences(accumulated)
+                parsed: _YamlNode = _yaml_mod.safe_load(yaml_str) if yaml_str.strip() else None
+                if not isinstance(parsed, dict):
+                    logger.debug(
+                        "LLM returned prose or empty; using fallback (first 200): %s",
+                        accumulated[:200],
+                    )
+                    spec = get_fallback_plan_spec()
+                else:
+                    parsed = _normalize_plan_dict(parsed)
+                    spec = PlanSpec.model_validate(parsed)
+            except Exception as parse_exc:
+                logger.debug(
+                    "Plan parse/validate failed, using fallback (first 200): %s — %s",
                     accumulated[:200],
+                    parse_exc,
                 )
-                yield _sse(_PreviewErrorEvent(
-                    t="error",
-                    detail=(
-                        "Your input was too short or vague for the model to plan. "
-                        "Add more detail — describe actual bugs, features, or tech debt you want tackled."
-                    ),
-                ))
-                return
-
-            # Normalise alternative YAML structures Claude occasionally produces.
-            # Claude sometimes returns {initiative_slug: {phase_label: {...}}}
-            # instead of the canonical {initiative: ..., phases: [...]} shape.
-            parsed = _normalize_plan_dict(parsed)
-
-            spec = PlanSpec.model_validate(parsed)
+                spec = get_fallback_plan_spec()
+            try:
+                spec = await enrich_plan_with_codebase_context(spec)
+            except Exception as exc:
+                logger.warning("⚠️ plan enrichment failed: %s", exc)
             canonical = spec.to_yaml()
             total = sum(len(p.issues) for p in spec.phases)
             logger.info(
@@ -376,10 +379,10 @@ async def plan_preview(body: PlanDraftRequest) -> StreamingResponse:
             logger.error("❌ Plan stream error: %s | accumulated (200): %s", exc, accumulated[:200])
             yield _sse(_PreviewErrorEvent(t="error", detail=str(exc)))
 
-    if not _cfg.anthropic_api_key:
+    if _cfg.effective_llm_provider == LLMProviderChoice.anthropic and not _cfg.anthropic_api_key:
         raise HTTPException(
             status_code=503,
-            detail="ANTHROPIC_API_KEY is not configured. Set it to use the Plan step.",
+            detail="ANTHROPIC_API_KEY is not configured. Set it or use LLM_PROVIDER=local.",
         )
 
     return StreamingResponse(_llm_stream(), media_type="text/event-stream")

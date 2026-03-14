@@ -664,15 +664,15 @@ All query functions return plain `TypedDict` instances. No SQLAlchemy ORM object
 
 **Path:** `agentception/services/llm.py`
 
-TypedDicts for the Anthropic wire protocol. These are the **internal** types — they do not correspond to the full OpenAI streaming protocol (we use a simplified non-streaming shape for tool use).
+The LLM layer exposes a **provider-agnostic contract**: the same three entry points and types regardless of backend (Anthropic or local OpenAI-compatible). Callers use only these; provider selection is via `settings.effective_llm_provider` (see [LLM contract and provider abstraction](llm-contract.md)).
 
 #### `LLMChunk`
 
-`TypedDict` — One event yielded by `call_anthropic_stream()`.
+`TypedDict` — One event yielded by `completion_stream()` (any provider).
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `type` | `Literal["thinking", "content"]` | Discriminant — thinking = reasoning token; content = output token |
+| `type` | `Literal["thinking", "content"]` | Discriminant — thinking = reasoning token; content = output token. Consumers discard thinking and accumulate content. |
 | `text` | `str` | Text fragment |
 
 #### Tool schema shapes
@@ -688,17 +688,19 @@ TypedDicts for the Anthropic wire protocol. These are the **internal** types —
 |-----------|--------|-------------|
 | `ToolCallFunction` | `name: str`, `arguments: str` | Function call detail — `arguments` is JSON-encoded |
 | `ToolCall` | `id: str`, `type: Literal["function"]`, `function: ToolCallFunction` | One tool invocation returned by the model |
-| `ToolResponse` | `stop_reason: str`, `content: str`, `tool_calls: list[ToolCall]` | Return value from `call_anthropic_with_tools()` |
+| `ToolResponse` | `stop_reason: str`, `content: str`, `tool_calls: list[ToolCall]` | Return value from `completion_with_tools()` |
 
 **`ToolResponse.stop_reason` values:** `"stop"` (model finished), `"tool_calls"` (model wants to call tools), `"length"` (max tokens hit).
 
-**Three public entry points:**
+**Three public entry points (provider-agnostic):**
 
 | Function | Returns | Use |
 |----------|---------|-----|
-| `call_anthropic(user_prompt, ...)` | `str` | Single non-streaming call for MCP tools |
-| `call_anthropic_stream(user_prompt, ...)` | `AsyncGenerator[LLMChunk, None]` | Streaming with extended reasoning for Phase 1A |
-| `call_anthropic_with_tools(messages, ...)` | `ToolResponse` | Multi-turn tool-use for agent loop |
+| `completion(user_prompt, ...)` | `str` | Single-turn completion; used by phase planner, recon, and local probe |
+| `completion_stream(user_prompt, ...)` | `AsyncGenerator[LLMChunk, None]` | Streaming for plan preview; yields thinking/content chunks |
+| `completion_with_tools(messages, ...)` | `ToolResponse` | Multi-turn tool-use for the agent loop |
+
+Internal adapters (e.g. `call_anthropic`, `call_local_completion`) implement these behaviours; callers must not use them directly.
 
 ---
 
@@ -1056,7 +1058,7 @@ AgentCeption
 │   ├── LLMChunk                     — streaming event {type, text}
 │   ├── ToolFunction, ToolDefinition — OpenAI tool schema shapes
 │   ├── ToolCallFunction, ToolCall   — tool call response shapes
-│   └── ToolResponse                 — call_anthropic_with_tools() return value
+│   └── ToolResponse                 — completion_with_tools() return value
 │
 ├── Code Indexer (agentception/services/code_indexer.py)
 │   ├── IndexStats                   — index_codebase() result
@@ -1327,7 +1329,7 @@ classDiagram
 
 ### Diagram 4 — LLM Wire Types (Tool Use)
 
-The simplified OpenAI-compatible type surface for `call_anthropic_with_tools`. The caller maintains the message history; the types below describe what the model sends back.
+The simplified OpenAI-compatible type surface for `completion_with_tools()`. The caller maintains the message history; the types below describe what the model sends back.
 
 ```mermaid
 classDiagram
