@@ -53,6 +53,18 @@ URLs are semantic: each path segment narrows the resource.
 | `GET` | `/ship/{initiative}/board` | HTMX board partial (polled every 5 s) |
 | `GET` | `/ship/runs/{run_id}/stream` | SSE stream for an agent run's events |
 
+#### `GET /ship/runs/{run_id}/stream` (SSE — inspector)
+
+Streams all agent events and thoughts for the given run in chronological order. Each `data:` line is a JSON object. The `t` field discriminates the message type:
+
+- **`t: "event"`** — Structured run events (step_start, done, file_edit, build_complete_run, orphan_failed). Shape: `{"t": "event", "event_type": "<type>", "payload": {...}, "recorded_at": "<ISO8601>", "id": <int>}`.
+- **`t: "activity"`** — Activity feed events (shell commands, file reads/writes, LLM usage, GitHub tool calls, etc.). Shape: `{"t": "activity", "subtype": "<subtype>", "payload": {...}, "recorded_at": "<ISO8601>", "id": <int>}`. Activity subtypes: `tool_invoked`, `llm_iter`, `llm_usage`, `llm_reply`, `llm_done`, `shell_start`, `shell_done`, `file_read`, `file_replaced`, `file_inserted`, `file_written`, `git_push`, `github_tool`, `delay`, `error`.
+- **`t: "thought"`** — Thinking/assistant message. Shape: `{"t": "thought", "role": "...", "content": "...", "recorded_at": "..."}`.
+- **`t: "tool_call"`** / **`t: "tool_result"`** — Tool invocation and result previews (same shape as before, with `recorded_at`).
+- **`t: "ping"`** — Keepalive (no payload).
+
+Events and thoughts are merged by `recorded_at` so the client sees the same order as `watch_run.py`. The cursor advances by `id` (events) and `seq` (thoughts); no event is delivered twice.
+
 ### Agents
 
 | Method | Path | Description |
@@ -156,6 +168,46 @@ Validate an edited PlanSpec YAML before filing.
   "errors": []
 }
 ```
+
+---
+
+#### Plan enrichment
+
+After `POST /api/plan/validate` succeeds and before `POST /api/plan/file-issues` is called, the server runs an enrichment pass over every `PlanIssue` in the spec. Enrichment is automatic and transparent — callers do not need to trigger it explicitly.
+
+**Purpose:** Grounds each issue in the real codebase so dispatched developer agents have concrete file/line targets and do not waste iterations searching.
+
+**Codebase location search:** For each issue, `search_codebase(issue.title, n_results=5)` is called against the Qdrant semantic index. The top matches are appended to `issue.body` as a `## Relevant codebase locations` section:
+
+```
+## Relevant codebase locations
+- agentception/readers/plan_enricher.py lines 45-58 — _enrich_issue
+- agentception/services/code_indexer.py lines 12-34 — search_codebase
+```
+
+**Symbol extraction:** Each chunk's leading comment lines are scanned for `# def <name>` or `# class <name>` patterns. The first match is used as the human-readable label; the file path is the fallback when no symbol is found.
+
+**File-contention serialization:** After all issues are enriched, pairs of issues within the same phase whose search-result file sets overlap are detected. The lexicographically smaller issue ID is appended to the larger ID's `depends_on` list, serializing agents that would otherwise race to edit the same files.
+
+Before enrichment:
+```yaml
+issues:
+  - id: p0-001
+    depends_on: []
+  - id: p0-002
+    depends_on: []
+```
+
+After enrichment (both issues matched `agentception/config.py`):
+```yaml
+issues:
+  - id: p0-001
+    depends_on: []
+  - id: p0-002
+    depends_on: [p0-001]   # injected automatically
+```
+
+**Best-effort guarantee:** Individual enrichment failures are caught and logged; they never block issue filing. If the Qdrant index is empty or unavailable, issue bodies are filed as-is.
 
 ---
 
@@ -611,8 +663,47 @@ Read-only endpoints that expose daily KPI snapshots from the database.
 |--------|------|-------------|
 | `GET` | `/api/metrics/daily` | KPI snapshot for a single calendar day |
 | `GET` | `/api/metrics/daily/range` | KPI snapshots for a date range (max 30 days) |
+| `GET` | `/api/metrics/ab` | Per-prompt-variant A/B metrics for developer runs |
+
+#### `GET /api/metrics/ab`
+
+Returns per-variant aggregates for completed developer runs over a lookback window. Used to compare control vs treatment when running prompt A/B experiments. Runs with `prompt_variant IS NULL` are grouped as the **control** bucket.
+
+| Query param | Type | Required | Description |
+|-------------|------|----------|-------------|
+| `days` | `integer` | no | Lookback window in days (1–90). Default: 7. |
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| `200` | Success — `ABMetricsResponse` (always; empty `variants` when no data) |
+| `422` | `days` outside 1–90 |
+
+**Response schema — `ABMetricsResponse`:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `variants` | `list[ABVariantMetrics]` | One entry per distinct `(variant, role)` |
+
+**`ABVariantMetrics`:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `variant` | `string` | `"control"` or the value of `prompt_variant` (e.g. `"streamlined"`) |
+| `role` | `string` | Agent role (e.g. `"developer"`) |
+| `runs` | `integer` | Number of completed runs in the window |
+| `avg_iterations` | `float` | Mean step_start count per run |
+| `avg_input_tokens` | `float` | Mean input tokens per run |
+| `total_tokens` | `integer` | Sum of input + output tokens across runs |
+| `pass_rate` | `float` | Fraction of runs with reviewer grade A or B (from done event payload) |
+| `passed` | `integer` | Count of runs with grade A or B |
+| `failed` | `integer` | Count of runs with grade C, D, or F |
+
+**A/B Metrics Panel (HTMX):** When the request includes the header `HX-Request: true`, the endpoint returns HTML (`Content-Type: text/html`) — a table partial for in-place swap on the Mission Control build page. When the header is absent, the response is JSON as above.
 
 #### `GET /api/metrics/daily`
+
 
 Returns a `DailyMetricsResponse` for the requested date.
 

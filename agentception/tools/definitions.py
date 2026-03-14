@@ -209,8 +209,9 @@ FILE_TOOL_DEFS: list[ToolDefinition] = [
             name="search_text",
             description=(
                 "Search for a regex or literal pattern in files using ripgrep. "
+                "PREFER this over run_command(grep/ripgrep) for searching the codebase — "
+                "it uses ripgrep, respects .gitignore, and returns structured matches. "
                 "Returns matching lines with file names and line numbers. "
-                "Respects .gitignore. "
                 "Relative paths are resolved from the worktree root."
             ),
             parameters={
@@ -227,7 +228,7 @@ FILE_TOOL_DEFS: list[ToolDefinition] = [
                     },
                     "n_results": {
                         "type": "integer",
-                        "description": "Max matching lines to return (default 30).",
+                        "description": "Max total matching lines to return across all files (default 30).",
                         "default": 30,
                         "minimum": 1,
                         "maximum": 200,
@@ -250,7 +251,8 @@ SHELL_TOOL_DEF: ToolDefinition = ToolDefinition(
             "so run Python tools directly (python3, pytest, mypy) without "
             "'docker compose exec agentception'. "
             "The default working directory is the worktree root. "
-            "Dangerous operations (rm -rf /, sudo, shutdown, …) are blocked."
+            "Dangerous operations (rm -rf /, sudo, shutdown, …) are blocked. "
+            "For searching the codebase for a string or regex, use search_text instead of grep."
         ),
         parameters={
             "type": "object",
@@ -357,7 +359,7 @@ SEARCH_CODEBASE_TOOL_DEF: ToolDefinition = ToolDefinition(
                     "type": "string",
                     "description": (
                         "Qdrant collection to search. "
-                        "Omit (or leave null) to search the main 'code' collection "
+                        "Omit to search the main 'code' collection "
                         "which indexes the full repository. "
                         "Pass 'worktree-<your-run-id>' to search only the files "
                         "in your worktree (available after the background indexing "
@@ -463,7 +465,7 @@ FIND_CALL_SITES_TOOL_DEF: ToolDefinition = ToolDefinition(
                 },
                 "n_results": {
                     "type": "integer",
-                    "description": "Max matching lines to return (default 30).",
+                    "description": "Max total matching lines to return across all files (default 30).",
                     "default": 30,
                     "minimum": 1,
                     "maximum": 100,

@@ -13,7 +13,7 @@ Pipeline
    runtime environment note (Python commands run directly, not via docker exec).
 5. Build the combined tool catalogue: local file/shell tools + all MCP tools.
 6. Run the multi-turn conversation loop via
-   :func:`~agentception.services.llm.call_anthropic_with_tools`, dispatching
+   :func:`~agentception.services.llm.completion_with_tools`, dispatching
    tool calls until the model returns ``stop_reason == "stop"`` or the
    iteration ceiling is hit.
 7. On completion: call :func:`~agentception.mcp.build_commands.build_complete_run`.
@@ -34,10 +34,15 @@ from pathlib import Path
 
 from sqlalchemy import select
 
-from agentception.config import settings
+from agentception.config import LLMProviderChoice, settings
 from agentception.db.engine import get_session
 from agentception.db.models import ACAgentRun
 from agentception.db.queries import get_run_by_id
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from agentception.db.activity_events import (
+    persist_activity_event,
+)
 from agentception.db.persist import accumulate_token_usage, persist_agent_messages_async
 from agentception.mcp.build_commands import build_cancel_run, build_complete_run
 from agentception.mcp.log_tools import log_run_error, log_run_step, log_file_edit_event
@@ -53,8 +58,8 @@ from agentception.services.llm import (
     ToolResponse,
     _HAIKU_MODEL,
     _MODEL,
-    call_anthropic,
-    call_anthropic_with_tools,
+    completion,
+    completion_with_tools,
 )
 from agentception.services.code_indexer import search_codebase
 from agentception.services.github_mcp_client import GitHubMCPClient
@@ -153,6 +158,41 @@ _LOOP_GUARD_THRESHOLD: int = 2
 _FINAL_STRETCH_THRESHOLD: int = 15
 
 # ---------------------------------------------------------------------------
+# Pytest hard-stop — mechanically enforced once pytest exits 0
+# ---------------------------------------------------------------------------
+# When a run_command call containing "pytest" returns exit_code=0, the loop
+# arms a hard-stop interrupt.  On every subsequent iteration, these read-only
+# tools are intercepted and returned as synthetic errors — the same mechanism
+# used by the loop guard — so the agent cannot enter a post-test audit loop.
+# The stop is disarmed if the agent writes new code (file-mutating tools)
+# after the passing test run, because the new code is untested.
+_PYTEST_STOP_BLOCKED_TOOLS: frozenset[str] = frozenset({
+    "read_file",
+    "read_file_lines",
+    "search_text",
+    "search_codebase",
+    "list_directory",
+    "find_call_sites",
+    "read_symbol",
+    "read_window",
+    "update_working_memory",
+})
+
+# Injected every turn once pytest_clean_since is set.
+_PYTEST_STOP_OVERRIDE: str = (
+    "🛑 HARD STOP — pytest exited 0 on iteration {iteration}.\n\n"
+    "Step 3 of your execution contract is now mechanically enforced. "
+    "File reads, searches, and diagnostics are LOCKED.\n\n"
+    "Your only permitted actions:\n"
+    "1. Commit and push — use `run_command` with `git add -A && git commit -m '...' && git push origin HEAD` "
+    "(or `git_commit_and_push` if it appears in your tool list).\n"
+    "2. `create_pull_request` — open a PR against dev.\n"
+    "3. `build_complete_run` — mark the run complete.\n\n"
+    "Any read or search tool call will be rejected with a synthetic error. "
+    "Do not audit. Do not re-verify. Commit and ship."
+)
+
+# ---------------------------------------------------------------------------
 # Developer agent — minimal tool surface
 # ---------------------------------------------------------------------------
 # Cursor completes developer tasks in 5–15 tool calls because it has only
@@ -221,20 +261,25 @@ _REVIEWER_TOOL_ALLOWLIST: frozenset[str] = frozenset({
 # cases where the reviewer needs to request changes and wait for context.
 _REVIEWER_MAX_ITERATIONS = 20
 
-# When the loop guard fires, the tool palette switches to an ALLOWLIST:
-# only write tools and a minimal set of essential non-read tools remain.
+# When the loop guard fires, these tools remain available.  The set must
+# include run_command and git_commit_and_push so a guarded agent can still
+# run mypy/pytest to verify its own writes and then commit and push to ship.
+# Without them, a guarded agent writes code with no path to verify or deliver
+# it — the guard would correctly fire, force a write, then fire again forever.
 _GUARD_PERMITTED_TOOL_NAMES: frozenset[str] = frozenset({
+    # Code-mutation tools — the primary target of the guard.
     "write_file",
     "replace_in_file",
     "insert_after_in_file",
+    # Shell — needed to run mypy/pytest (verification) and git (delivery).
+    "run_command",
+    "git_commit_and_push",
+    # Completion — the only way to close the loop.
     "build_complete_run",
     "build_cancel_run",
     "create_pull_request",
     "add_issue_comment",
 })
-
-# Legacy alias kept so existing references compile.
-_READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset()
 
 # System-block text still injected alongside tool narrowing so the model
 # understands WHY its tool palette shrank.
@@ -247,6 +292,19 @@ Read-only tools have been removed. You can only call write tools right now.
 Take the first uncompleted item from your next_steps. Write the implementation
 using write_file or replace_in_file. If the symbol does not exist, create it —
 absence is the task, not a blocker. Writing resets this guard.
+"""
+
+# Injected one turn before the loop guard fires. Tells the model to call a write
+# tool in this response instead of saying "I will write" and calling read again.
+# Do not include "LOOP GUARD" here so tests that assert "LOOP GUARD" not in
+# extra_blocks (when a write resets the counter) still pass.
+_LOOP_GUARD_PREEMPTIVE_NUDGE = """\
+⚠️  ONE TURN BEFORE READ-ONLY LOCK — read/search tools lock after this response
+
+You have not written code for several turns. If you have enough context to implement,
+call write_file, replace_in_file, or insert_after_in_file in this response.
+Do not output that you will write and then call read_file or search again — that
+will be rejected on the next turn. Issue a write tool call now.
 """
 
 # Injected every turn (via extra_blocks) once any file has been written.
@@ -276,6 +334,19 @@ _FINAL_STRETCH_WARNING: str = (
     "5. git push && create_pull_request && build_complete_run.\n\n"
     "Do NOT call read_file, read_file_lines, search_text, or "
     "search_codebase. Only write/fix/commit/push/PR tools are permitted."
+)
+
+# Injected on every iteration where last_input_tokens exceeds
+# _CONTEXT_PRESSURE_THRESHOLD.  Tells the agent the context window is filling
+# and to avoid expensive reads that accelerate truncation.
+_CONTEXT_PRESSURE_WARNING: str = (
+    "⚠️ CONTEXT PRESSURE — {tokens_k}K input tokens consumed this turn.\n\n"
+    "The context window is filling. To avoid truncation:\n"
+    "- Do NOT read large files. Read only specific line ranges.\n"
+    "- Do NOT repeat searches you have already run.\n"
+    "- Prefer replace_in_file over write_file (smaller diffs).\n"
+    "- Complete your remaining work and call build_complete_run soon.\n"
+    "Remaining context budget: approximately {remaining_k}K tokens."
 )
 
 # Injected when the agent has searched for the same query twice.
@@ -314,6 +385,8 @@ _DEFAULT_TOOL_RESULT_CHARS: int = 3_000
 # most-recent _HISTORY_TAIL messages are always kept.
 _MAX_HISTORY_MESSAGES: int = 20
 _HISTORY_TAIL: int = 14
+_MAX_INPUT_TOKEN_ESTIMATE: int = 140_000  # token-budget prune target
+_CONTEXT_PRESSURE_THRESHOLD: int = 100_000  # warn threshold (used in a later issue)
 
 # ---------------------------------------------------------------------------
 # Token-rate guard — proactive pacing between consecutive LLM calls.
@@ -327,10 +400,13 @@ _HISTORY_TAIL: int = 14
 _last_llm_call_at: float = 0.0
 
 
-async def _enforce_turn_delay() -> None:
+async def _enforce_turn_delay(
+    session: AsyncSession,
+    run_id: str,
+) -> None:
     """Sleep until settings.ac_min_turn_delay_secs has elapsed since the last LLM call.
 
-    The timestamp is updated by the caller *after* call_anthropic_with_tools
+    The timestamp is updated by the caller *after* completion_with_tools
     returns, so retry backoff inside the LLM call does not eat into the next
     window.  If the previous turn's tool dispatch already consumed the full
     window this returns immediately.
@@ -340,6 +416,10 @@ async def _enforce_turn_delay() -> None:
     wait = min_delay - elapsed
     if wait > 0.0:
         logger.info("⏳ agent_loop: inter-turn delay — sleeping %.1fs", wait)
+        persist_activity_event(
+            session, run_id, "delay", {"secs": wait}
+        )  # docs/reference/activity-events.md
+        await session.flush()
         await asyncio.sleep(wait)
 
 
@@ -400,7 +480,7 @@ async def run_agent_loop(
 
     issue_number = task.issue_number or 0
 
-    role_prompt = _load_role_prompt(task.role)
+    role_prompt = _load_role_prompt(task.role, task.prompt_variant)
     system_prompt = _build_system_prompt(role_prompt, task.cognitive_arch or "")
 
     # Initialise the GitHub MCP client and fetch its tool definitions.
@@ -445,7 +525,11 @@ async def run_agent_loop(
     else:
         tool_defs = all_tool_defs
 
-    initial_message = await _fetch_task_briefing(run_id, task, worktree_path)
+    if run_id.startswith("local-hello") and settings.effective_llm_provider == LLMProviderChoice.local:
+        initial_message = "Reply with exactly: hello world."
+        tool_defs = []
+    else:
+        initial_message = await _fetch_task_briefing(run_id, task, worktree_path)
 
     messages: list[dict[str, object]] = [{"role": "user", "content": initial_message}]
 
@@ -506,6 +590,13 @@ async def run_agent_loop(
     # Write journal: file path → number of mutations applied this session.
     # Injected into extra_blocks every turn so it survives history pruning.
     files_written: dict[str, int] = {}
+    # Set to the iteration number when pytest last exited 0.  None means the
+    # hard-stop interrupt is disarmed.  Reset when new code is written after
+    # the clean run, or when a subsequent pytest run fails.
+    pytest_clean_since: int | None = None
+    # Real input token count from the most recent LLM response.  Seeded at 0
+    # so the first iteration's _prune_history call skips the token-budget path.
+    last_input_tokens: int = 0
 
     for iteration in range(1, max_iterations + 1):
         await log_run_step(
@@ -529,192 +620,331 @@ async def run_agent_loop(
             return
 
         # Proactive inter-turn pacing.  _last_llm_call_at is stamped *after*
-        # call_anthropic_with_tools returns (including any retry backoff), so
+        # completion_with_tools returns (including any retry backoff), so
         # the full _MIN_TURN_DELAY_SECS gap is always preserved between the end
         # of one LLM interaction and the start of the next.
-        await _enforce_turn_delay()
+        # Session scoped to this iteration for activity-event persists (issue 940).
+        async with get_session() as session:
+            await _enforce_turn_delay(session, run_id)
 
-        # Read working memory and render it as a secondary system block.
-        # This is injected fresh every turn OUTSIDE the prunable history so
-        # the agent always has its scratch-pad regardless of how many turns
-        # have been pruned.  The main system-prompt cache is not invalidated
-        # because the working memory is a separate, un-cached block.
-        memory = read_memory(worktree_path)
-        extra_blocks: list[dict[str, object]] = []
-        if memory:
-            extra_blocks.append({"type": "text", "text": render_memory(memory)})
-
-        # Write journal — injected outside the prunable history window so the
-        # agent always knows which files it has already modified.  Without this,
-        # once the history is pruned to _HISTORY_TAIL messages the agent loses
-        # evidence of its own writes and loops re-implementing the same code.
-        if files_written:
-            entries = "\n".join(
-                f"  • {path} ({count} write{'s' if count > 1 else ''})"
-                for path, count in sorted(files_written.items())
-            )
-            extra_blocks.append({
-                "type": "text",
-                "text": _WRITE_JOURNAL_HEADER.format(entries=entries),
-            })
-
-        # Loop-guard enforcement — fires when the agent has not written any code
-        # for loop_guard_threshold consecutive iterations (scaled to max_iterations).
-        #
-        # The tool list is intentionally kept CONSTANT across all iterations
-        # (no narrowing when guard fires).  Changing the tool list busts
-        # Anthropic's prompt cache on the tool-catalogue block, turning every
-        # guarded turn from a cheap cache-read into a full cache-write.
-        # Enforcement is via interception only: calls to non-write tools during
-        # guard mode are rejected with a synthetic error.
-        #
-        # Instead, interception alone enforces the guard: the model is sent the
-        # full tool list, but any call to a non-permitted tool during guard mode
-        # is caught AFTER the LLM response and returned as a synthetic error.
-        # The model sees the error, understands it cannot read, and calls a
-        # write tool on the next turn — same behavioural outcome, no cache bust.
-        guard_active = (
-            loop_guard_enabled
-            and iteration > loop_guard_threshold
-            and iterations_since_write >= loop_guard_threshold
-        )
-        # Always pass the full (constant) tool list so the cache key is stable.
-        active_tool_defs: list[ToolDefinition] = tool_defs
-        if guard_active:
-            override_text = _LOOP_GUARD_OVERRIDE.format(n=iterations_since_write)
-            extra_blocks.append({"type": "text", "text": override_text})
-            logger.warning(
-                "⚠️ loop_guard fired — run_id=%s iteration=%d iterations_since_write=%d"
-                " (interception-only, tool list unchanged for cache stability)",
-                run_id, iteration, iterations_since_write,
-            )
-
-        # Symbol-absence injection — fires once per repeated search query.
-        for query, count in search_query_counts.items():
-            if count >= 2 and query not in symbol_absence_injected:
-                absence_text = _SYMBOL_ABSENCE_OVERRIDE.format(query=query)
-                extra_blocks.append({"type": "text", "text": absence_text})
-                symbol_absence_injected.add(query)
-                logger.warning(
-                    "⚠️ symbol_absence fired — run_id=%s query=%r count=%d",
-                    run_id, query, count,
+            # Read working memory and render it as a secondary system block.
+            # This is injected fresh every turn OUTSIDE the prunable history so
+            # the agent always has its scratch-pad regardless of how many turns
+            # have been pruned.  The main system-prompt cache is not invalidated
+            # because the working memory is a separate, un-cached block.
+            memory = read_memory(worktree_path)
+            extra_blocks: list[dict[str, object]] = []
+            if memory:
+                extra_blocks.append({"type": "text", "text": render_memory(memory)})
+    
+            # Write journal — injected outside the prunable history window so the
+            # agent always knows which files it has already modified.  Without this,
+            # once the history is pruned to _HISTORY_TAIL messages the agent loses
+            # evidence of its own writes and loops re-implementing the same code.
+            if files_written:
+                entries = "\n".join(
+                    f"  • {path} ({count} write{'s' if count > 1 else ''})"
+                    for path, count in sorted(files_written.items())
                 )
-
-        # Final-stretch escalation — fires on every iteration once the remaining
-        # budget falls to or below _FINAL_STRETCH_THRESHOLD.  Independent of
-        # loop_guard: both can be active simultaneously.
-        remaining: int = max_iterations - iteration
-        if remaining <= _FINAL_STRETCH_THRESHOLD:
-            extra_blocks.append({
-                "type": "text",
-                "text": _FINAL_STRETCH_WARNING.format(remaining=remaining),
-            })
-            logger.warning(
-                "⚠️ final_stretch — run_id=%s iteration=%d remaining=%d",
-                run_id, iteration, remaining,
+                extra_blocks.append({
+                    "type": "text",
+                    "text": _WRITE_JOURNAL_HEADER.format(entries=entries),
+                })
+    
+            # Loop-guard enforcement — fires when the agent has not written any code
+            # for loop_guard_threshold consecutive iterations (scaled to max_iterations).
+            #
+            # The tool list is intentionally kept CONSTANT across all iterations
+            # (no narrowing when guard fires).  Changing the tool list busts
+            # Anthropic's prompt cache on the tool-catalogue block, turning every
+            # guarded turn from a cheap cache-read into a full cache-write.
+            # Enforcement is via interception only: calls to non-write tools during
+            # guard mode are rejected with a synthetic error.
+            #
+            # Instead, interception alone enforces the guard: the model is sent the
+            # full tool list, but any call to a non-permitted tool during guard mode
+            # is caught AFTER the LLM response and returned as a synthetic error.
+            # The model sees the error, understands it cannot read, and calls a
+            # write tool on the next turn — same behavioural outcome, no cache bust.
+            guard_active = (
+                loop_guard_enabled
+                and iteration > loop_guard_threshold
+                and iterations_since_write >= loop_guard_threshold
             )
-
-        try:
-            bounded = _prune_history(_truncate_tool_results(messages))
-            _active_model = _HAIKU_MODEL if task.role == "reviewer" else _MODEL
-            response: ToolResponse = await call_anthropic_with_tools(
-                bounded,
-                system=system_prompt,
-                tools=active_tool_defs,
-                model=_active_model,
-                extra_system_blocks=extra_blocks or None,
-            )
-        except Exception as exc:
-            _record_llm_call()  # stamp even on error so next delay is measured correctly
-            logger.exception("❌ agent_loop LLM error on iteration %d", iteration)
-            await github_client.close()
-            await log_run_error(issue_number, f"LLM error: {exc}", run_id)
-            await build_cancel_run(run_id)
-            return
-
-        _record_llm_call()  # stamp after successful response — this is the reference point for the next delay
-
-        # Accumulate real token counts for cost tracking.  Fire-and-forget so
-        # a DB hiccup never interrupts the agent loop.
-        asyncio.create_task(
-            accumulate_token_usage(
-                run_id=run_id,
-                input_tokens=response.get("input_tokens", 0),
-                output_tokens=response.get("output_tokens", 0),
-                cache_write_tokens=response.get("cache_creation_input_tokens", 0),
-                cache_read_tokens=response.get("cache_read_input_tokens", 0),
-            ),
-            name=f"token-accum-{run_id}-{iteration}",
-        )
-
-        # Append assistant message to history before persisting so the full
-        # conversation (including the new assistant reply) is written to DB.
-        # persist_agent_messages_async is fire-and-forget via asyncio.create_task.
-        assistant_msg: dict[str, object] = {"role": "assistant", "content": response["content"]}
-        if response["tool_calls"]:
-            assistant_msg["tool_calls"] = list(response["tool_calls"])
-        messages.append(assistant_msg)
-
-        await persist_agent_messages_async(run_id, messages)
-
-        if response["stop_reason"] == "stop":
-            logger.info("✅ agent_loop complete — run_id=%s iterations=%d", run_id, iteration)
-            await github_client.close()
-            await build_complete_run(
-                issue_number=issue_number,
-                pr_url="",
-                summary=response["content"][:500] if response["content"] else "Agent completed.",
-                agent_run_id=run_id,
-            )
-            return
-
-        if response["stop_reason"] in ("tool_calls", "length") and response["tool_calls"]:
-            # During guard mode: intercept read-only tool calls and return
-            # synthetic error results BEFORE dispatching.  The model "remembers"
-            # tools from prior iterations and may call them even when they are
-            # absent from active_tool_defs — returning an error forces it to
-            # acknowledge the constraint and switch to a write tool.
-            tc_to_dispatch: list[ToolCall] = []
-            synthetic_errors: list[dict[str, object]] = []
+            # Always pass the full (constant) tool list so the cache key is stable.
+            active_tool_defs: list[ToolDefinition] = tool_defs
+            # One turn before guard fires: nudge the model to call a write tool in this response.
+            if (
+                loop_guard_enabled
+                and not guard_active
+                and iteration > 0
+                and iterations_since_write == loop_guard_threshold - 1
+            ):
+                extra_blocks.append({"type": "text", "text": _LOOP_GUARD_PREEMPTIVE_NUDGE})
+                logger.info(
+                    "ℹ️ loop_guard preemptive nudge — run_id=%s iteration=%d iterations_since_write=%d",
+                    run_id, iteration, iterations_since_write,
+                )
             if guard_active:
-                for tc in response["tool_calls"]:
-                    tc_name = tc["function"]["name"]
-                    if tc_name not in _GUARD_PERMITTED_TOOL_NAMES:
-                        synthetic_errors.append({
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": json.dumps({
-                                "ok": False,
-                                "error": (
-                                    f"GUARD MODE: '{tc_name}' is unavailable. "
-                                    f"You have not written code for "
-                                    f"{iterations_since_write} iterations. "
-                                    "Call write_file or replace_in_file to "
-                                    "implement code; that will restore all tools "
-                                    "including run_command and read_file."
-                                ),
-                            }),
-                        })
-                    else:
-                        tc_to_dispatch.append(tc)
-                if synthetic_errors:
-                    logger.warning(
-                        "⚠️ loop_guard intercepted %d read call(s) — run_id=%s",
-                        len(synthetic_errors), run_id,
-                    )
-            else:
-                tc_to_dispatch = list(response["tool_calls"])
-
-            tool_results: list[dict[str, object]] = []
-            if tc_to_dispatch:
-                tool_results = await _dispatch_tool_calls(
-                    tc_to_dispatch,
-                    worktree_path,
-                    run_id,
-                    github_client=github_client,
-                    github_tool_names=github_tool_names,
+                override_text = _LOOP_GUARD_OVERRIDE.format(n=iterations_since_write)
+                extra_blocks.append({"type": "text", "text": override_text})
+                logger.warning(
+                    "⚠️ loop_guard fired — run_id=%s iteration=%d iterations_since_write=%d"
+                    " (interception-only, tool list unchanged for cache stability)",
+                    run_id, iteration, iterations_since_write,
                 )
-            messages.extend(synthetic_errors + tool_results)
+    
+            # Symbol-absence injection — fires once per repeated search query.
+            for query, count in search_query_counts.items():
+                if count >= 2 and query not in symbol_absence_injected:
+                    absence_text = _SYMBOL_ABSENCE_OVERRIDE.format(query=query)
+                    extra_blocks.append({"type": "text", "text": absence_text})
+                    symbol_absence_injected.add(query)
+                    logger.warning(
+                        "⚠️ symbol_absence fired — run_id=%s query=%r count=%d",
+                        run_id, query, count,
+                    )
+    
+            # Final-stretch escalation — fires on every iteration once the remaining
+            # budget falls to or below _FINAL_STRETCH_THRESHOLD.  Independent of
+            # loop_guard: both can be active simultaneously.
+            remaining: int = max_iterations - iteration
+            if remaining <= _FINAL_STRETCH_THRESHOLD:
+                extra_blocks.append({
+                    "type": "text",
+                    "text": _FINAL_STRETCH_WARNING.format(remaining=remaining),
+                })
+                logger.warning(
+                    "⚠️ final_stretch — run_id=%s iteration=%d remaining=%d",
+                    run_id, iteration, remaining,
+                )
+    
+            # Context-pressure warning — fires on every iteration where the previous
+            # turn consumed more than _CONTEXT_PRESSURE_THRESHOLD input tokens.
+            # last_input_tokens is 0 on the first iteration (before any LLM call),
+            # so the condition is naturally False and the warning is never shown then.
+            if last_input_tokens > _CONTEXT_PRESSURE_THRESHOLD:
+                tokens_k = last_input_tokens // 1000
+                remaining_k = max(0, (200_000 - last_input_tokens) // 1000)
+                extra_blocks.append({
+                    "type": "text",
+                    "text": _CONTEXT_PRESSURE_WARNING.format(
+                        tokens_k=tokens_k, remaining_k=remaining_k
+                    ),
+                })
+                logger.warning(
+                    "⚠️ context_pressure — run_id=%s iter=%d input_tokens=%d",
+                    run_id,
+                    iteration,
+                    last_input_tokens,
+                )
+    
+            # Pytest hard-stop escalation — fires every iteration after pytest
+            # exits 0.  Independent of loop_guard and final_stretch.  Not applied
+            # to reviewers (whose workflow is intentionally read-heavy).
+            _pytest_clean_iter = pytest_clean_since
+            pytest_stop_active: bool = (
+                _pytest_clean_iter is not None and task.role != "reviewer"
+            )
+            if pytest_stop_active and _pytest_clean_iter is not None:
+                extra_blocks.append({
+                    "type": "text",
+                    "text": _PYTEST_STOP_OVERRIDE.format(iteration=_pytest_clean_iter),
+                })
+                logger.warning(
+                    "⚠️ pytest_stop active — run_id=%s current_iter=%d armed_at=%d",
+                    run_id, iteration, _pytest_clean_iter,
+                )
+    
+            try:
+                bounded = await _prune_history(_truncate_tool_results(messages), last_input_tokens=last_input_tokens)
+                _active_model = _HAIKU_MODEL if task.role == "reviewer" else _MODEL
+                if settings.effective_llm_provider == LLMProviderChoice.local:
+                    # All roles use the local provider when effective_llm_provider is local.
+                    # Same pipeline as Anthropic: full system prompt (role + cognitive arch + runtime
+                    # note), same tools, same extra_system_blocks. Only the LLM endpoint and context
+                    # caps differ. Cap context so small local models (e.g. Qwen 4B) aren't overloaded.
+                    local_messages = _truncate_first_user_message_for_local_llm(
+                        bounded,
+                        max_chars=settings.local_llm_max_context_chars,
+                    )
+                    system_for_local = system_prompt
+                    if len(system_prompt) > settings.local_llm_max_system_chars:
+                        system_for_local = (
+                            system_prompt[: settings.local_llm_max_system_chars]
+                            + "\n\n[System prompt truncated for local model.]"
+                        )
+                        logger.warning(
+                            "⚠️ local LLM: truncated system prompt from %d to %d chars",
+                            len(system_prompt),
+                            settings.local_llm_max_system_chars,
+                        )
+                    response = await completion_with_tools(
+                        local_messages,
+                        system=system_for_local,
+                        tools=active_tool_defs,
+                        model="local",
+                        temperature=0.0,
+                        max_tokens=settings.local_llm_max_tokens,
+                        extra_system_blocks=extra_blocks or None,
+                        session=session,
+                        run_id=run_id,
+                        iteration=iteration,
+                    )
+                else:
+                    response = await completion_with_tools(
+                        bounded,
+                        system=system_prompt,
+                        tools=active_tool_defs,
+                        model=_active_model,
+                        extra_system_blocks=extra_blocks or None,
+                        session=session,
+                        run_id=run_id,
+                        iteration=iteration,
+                    )
+            except Exception as exc:
+                _record_llm_call()  # stamp even on error so next delay is measured correctly
+                logger.exception("❌ agent_loop LLM error on iteration %d", iteration)
+                await github_client.close()
+                await log_run_error(issue_number, f"LLM error: {exc}", run_id)
+                await build_cancel_run(run_id)
+                return
+    
+            _record_llm_call()  # stamp after successful response — this is the reference point for the next delay
+    
+            # Track real input tokens so _prune_history can apply the token-budget
+            # path on the *next* iteration if the context is growing too large.
+            last_input_tokens = int(response.get("input_tokens", 0) or 0)
+    
+            # Accumulate real token counts for cost tracking.  Fire-and-forget so
+            # a DB hiccup never interrupts the agent loop.
+            asyncio.create_task(
+                accumulate_token_usage(
+                    run_id=run_id,
+                    input_tokens=response.get("input_tokens", 0),
+                    output_tokens=response.get("output_tokens", 0),
+                    cache_write_tokens=response.get("cache_creation_input_tokens", 0),
+                    cache_read_tokens=response.get("cache_read_input_tokens", 0),
+                ),
+                name=f"token-accum-{run_id}-{iteration}",
+            )
+    
+            last_input_tokens = response.get("input_tokens", 0)
+            logger.info(
+                "📊 context: iter=%d input_tokens=%d output_tokens=%d cache_hit=%d",
+                iteration,
+                last_input_tokens,
+                response.get("output_tokens", 0),
+                response.get("cache_read_input_tokens", 0),
+            )
+    
+            # Append assistant message to history before persisting so the full
+            # conversation (including the new assistant reply) is written to DB.
+            # persist_agent_messages_async is fire-and-forget via asyncio.create_task.
+            assistant_msg: dict[str, object] = {"role": "assistant", "content": response["content"]}
+            if response["tool_calls"]:
+                assistant_msg["tool_calls"] = list(response["tool_calls"])
+            messages.append(assistant_msg)
+    
+            await persist_agent_messages_async(run_id, messages)
+
+            # So that bookkeeping below (pytest arm, etc.) can always iterate; set when we have tool_calls.
+            tc_to_dispatch: list[ToolCall] = []
+            tool_results: list[dict[str, object]] = []
+
+            if response["stop_reason"] == "stop":
+                logger.info("✅ agent_loop complete — run_id=%s iterations=%d", run_id, iteration)
+                await github_client.close()
+                await build_complete_run(
+                    issue_number=issue_number,
+                    pr_url="",
+                    summary=response["content"][:500] if response["content"] else "Agent completed.",
+                    agent_run_id=run_id,
+                )
+                return
+    
+            if response["stop_reason"] in ("tool_calls", "length") and response["tool_calls"]:
+                # During guard mode: intercept read-only tool calls and return
+                # synthetic error results BEFORE dispatching.  The model "remembers"
+                # tools from prior iterations and may call them even when they are
+                # absent from active_tool_defs — returning an error forces it to
+                # acknowledge the constraint and switch to a write tool.
+                tc_to_dispatch = []
+                synthetic_errors: list[dict[str, object]] = []
+                if guard_active:
+                    for tc in response["tool_calls"]:
+                        tc_name = tc["function"]["name"]
+                        if tc_name not in _GUARD_PERMITTED_TOOL_NAMES:
+                            synthetic_errors.append({
+                                "role": "tool",
+                                "tool_call_id": tc["id"],
+                                "content": json.dumps({
+                                    "ok": False,
+                                    "error": (
+                                        f"GUARD MODE: '{tc_name}' is unavailable. "
+                                        f"You have not written code for "
+                                        f"{iterations_since_write} iterations. "
+                                        "Call write_file or replace_in_file to "
+                                        "implement code; that will restore all tools "
+                                        "including run_command and read_file."
+                                    ),
+                                }),
+                            })
+                        else:
+                            tc_to_dispatch.append(tc)
+                    if synthetic_errors:
+                        logger.warning(
+                            "⚠️ loop_guard intercepted %d read call(s) — run_id=%s",
+                            len(synthetic_errors), run_id,
+                        )
+                else:
+                    tc_to_dispatch = list(response["tool_calls"])
+    
+                # Pass 2: pytest hard-stop interception (independent of loop guard).
+                # Any read/search tool that made it past Pass 1 is blocked here when
+                # pytest_stop_active.  This runs on tc_to_dispatch (not the full list)
+                # so guard-intercepted tools are not double-counted.
+                if pytest_stop_active:
+                    unblocked: list[ToolCall] = []
+                    for tc in tc_to_dispatch:
+                        tc_name = tc["function"]["name"]
+                        if tc_name in _PYTEST_STOP_BLOCKED_TOOLS:
+                            synthetic_errors.append({
+                                "role": "tool",
+                                "tool_call_id": tc["id"],
+                                "content": json.dumps({
+                                    "ok": False,
+                                    "error": (
+                                        f"HARD STOP: pytest exited 0 on iteration "
+                                        f"{pytest_clean_since}. Reading, searching, "
+                                        "and diagnostics are locked. Commit via "
+                                        "run_command (git add/commit/push) or "
+                                        "git_commit_and_push if available, then "
+                                        "create_pull_request and build_complete_run."
+                                    ),
+                                }),
+                            })
+                        else:
+                            unblocked.append(tc)
+                    if len(unblocked) < len(tc_to_dispatch):
+                        logger.warning(
+                            "⚠️ pytest_stop intercepted %d tool call(s) — run_id=%s iteration=%d",
+                            len(tc_to_dispatch) - len(unblocked), run_id, iteration,
+                        )
+                    tc_to_dispatch = unblocked
+
+                tool_results = []
+                if tc_to_dispatch:
+                    tool_results = await _dispatch_tool_calls(
+                        tc_to_dispatch,
+                        worktree_path,
+                        run_id,
+                        session=session,
+                        github_client=github_client,
+                        github_tool_names=github_tool_names,
+                    )
+                messages.extend(synthetic_errors + tool_results)
+            await session.commit()
 
             # Loop-guard bookkeeping: track writes and repeated searches.
             tool_names_this_iter: set[str] = {
@@ -782,7 +1012,60 @@ async def run_agent_loop(
                 except (json.JSONDecodeError, AttributeError):
                     pass
 
-            continue
+            # Pytest hard-stop bookkeeping.
+            #
+            # Arm: if any dispatched run_command call ran pytest and exited 0,
+            # set pytest_clean_since so the hard-stop fires next iteration.
+            # tc_to_dispatch and tool_results are parallel (asyncio.gather order).
+            for tc, tr in zip(tc_to_dispatch, tool_results):
+                if tc["function"]["name"] != "run_command":
+                    continue
+                try:
+                    cmd_args: dict[str, object] = json.loads(tc["function"]["arguments"])
+                    cmd_str = str(cmd_args.get("command", ""))
+                except (json.JSONDecodeError, AttributeError):
+                    continue
+                if "pytest" not in cmd_str:
+                    continue
+                try:
+                    result_data: dict[str, object] = json.loads(
+                        str(tr.get("content", "{}"))
+                    )
+                    exit_code = result_data.get("exit_code")
+                    if exit_code == 0:
+                        pytest_clean_since = iteration
+                        logger.info(
+                            "✅ pytest_stop armed — run_id=%s iteration=%d",
+                            run_id, iteration,
+                        )
+                    elif exit_code is not None and pytest_clean_since is not None:
+                        # A subsequent pytest run failed — disarm so the agent
+                        # can fix the code without being blocked.
+                        logger.info(
+                            "⚠️ pytest_stop disarmed (pytest failed) — run_id=%s"
+                            " iteration=%d exit_code=%s",
+                            run_id, iteration, exit_code,
+                        )
+                        pytest_clean_since = None
+                except (json.JSONDecodeError, AttributeError, ValueError):
+                    pass
+
+            # Disarm if the agent wrote new code after the clean test run.
+            # Only file-mutating tools (not git or run_command) trigger a reset,
+            # and only when the write occurs AFTER the iteration that armed the stop.
+            if (
+                pytest_clean_since is not None
+                and iteration > pytest_clean_since
+                and tool_names_this_iter & _FILE_MUTATING_TOOL_NAMES
+            ):
+                logger.info(
+                    "⚠️ pytest_stop disarmed (new code written) — run_id=%s"
+                    " iteration=%d armed_at=%d",
+                    run_id, iteration, pytest_clean_since,
+                )
+                pytest_clean_since = None
+
+                continue
 
         # stop_reason="length" with no tool calls means the response was
         # genuinely truncated mid-generation — nothing actionable was produced.
@@ -804,6 +1087,24 @@ async def run_agent_loop(
                     "no reasoning preamble.  If you need to write a large block of code, "
                     "split it into smaller replace_in_file calls targeting specific "
                     "sections rather than rewriting the whole file."
+                ),
+            })
+            continue
+
+        # stop_reason="tool_calls" with empty tool_calls — API sometimes returns
+        # this when the model signaled tool_use but no tool_use blocks were
+        # present (e.g. truncation or wire quirk).  Continue the loop with a
+        # nudge instead of cancelling.
+        if response["stop_reason"] == "tool_calls":
+            logger.warning(
+                "⚠️ agent_loop stop_reason=tool_calls with 0 tool calls on iteration %d — continuing",
+                iteration,
+            )
+            messages.append({
+                "role": "user",
+                "content": (
+                    "Your previous response indicated tool use but no tool calls were received. "
+                    "Please issue one or more tool calls now to make progress on the task."
                 ),
             })
             continue
@@ -879,14 +1180,20 @@ async def _load_task_from_db(run_id: str) -> AgentTaskSpec | None:
             gh_repo=run.gh_repo,
             is_resumed=run.is_resumed,
             coord_fingerprint=run.coord_fingerprint,
+            prompt_variant=run.prompt_variant,
         )
     except Exception as exc:
         logger.error("❌ _load_task_from_db error for run_id=%s: %s", run_id, exc)
         return None
 
 
-def _load_role_prompt(role: str | None) -> str:
+def _load_role_prompt(role: str | None, variant: str | None = None) -> str:
     """Return the Markdown content of the role file for *role*.
+
+    When *variant* is provided and non-empty, the function first looks for a
+    variant-specific file ``{role}-{variant}.md`` and returns its content if
+    found.  If the variant file does not exist, it falls back to the base
+    ``{role}.md`` file — the same behaviour as when *variant* is ``None``.
 
     Falls back to an empty string when the role is unknown or the file is
     missing, so the agent still has the system prompt's runtime note.
@@ -895,7 +1202,24 @@ def _load_role_prompt(role: str | None) -> str:
         logger.warning("⚠️ _load_role_prompt — no role specified")
         return ""
 
-    role_path = settings.repo_dir / ".agentception" / "roles" / f"{role}.md"
+    roles_dir = settings.repo_dir / ".agentception" / "roles"
+
+    # Try the variant file first when a variant is requested.
+    if variant:
+        candidate = roles_dir / f"{role}-{variant}.md"
+        if candidate.exists():
+            logger.info("Loading role file: %s (variant=%s)", candidate, variant)
+            try:
+                return candidate.read_text(encoding="utf-8")
+            except OSError as exc:
+                logger.warning(
+                    "⚠️ _load_role_prompt — OS error reading %s: %s", candidate, exc
+                )
+                # Fall through to the base file.
+
+    # Base (default) role file.
+    role_path = roles_dir / f"{role}.md"
+    logger.info("Loading role file: %s (variant=%s)", role_path, variant)
     try:
         return role_path.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -1472,7 +1796,7 @@ async def _run_recon_phase(
         # No explicitly named files — fall back to LLM planning so the agent
         # at least starts with *some* codebase context for free-form tasks.
         try:
-            raw_plan = await call_anthropic(
+            raw_plan = await completion(
                 task_text,
                 system_prompt=system_prompt + _RECON_SYSTEM_ADDENDUM,
                 max_tokens=500,
@@ -1627,6 +1951,38 @@ async def _run_recon_phase(
 # ---------------------------------------------------------------------------
 
 
+def _truncate_first_user_message_for_local_llm(
+    messages: list[dict[str, object]],
+    max_chars: int,
+) -> list[dict[str, object]]:
+    """Truncate the first user message to max_chars when using a small local LLM.
+
+    Avoids overloading models like Qwen 4B with a 50k+ character task briefing.
+    Only the first message is considered; its content must be a string.  Returns
+    a copy so the original list is unchanged.
+    """
+    if not messages or max_chars <= 0:
+        return list(messages)
+    first = messages[0]
+    if first.get("role") != "user":
+        return list(messages)
+    content = first.get("content", "")
+    if not isinstance(content, str) or len(content) <= max_chars:
+        return list(messages)
+    truncated = content[:max_chars] + (
+        "\n\n[Context truncated for local model. Use the objective and AC above.]"
+    )
+    out = [dict(first)]
+    out[0]["content"] = truncated
+    out.extend(messages[1:])
+    logger.warning(
+        "⚠️ local LLM: truncated first user message from %d to %d chars",
+        len(content),
+        max_chars,
+    )
+    return out
+
+
 def _build_tool_id_map(messages: list[dict[str, object]]) -> dict[str, str]:
     """Build a mapping from tool_call_id → tool_name by scanning assistant messages.
 
@@ -1687,8 +2043,33 @@ def _truncate_tool_results(
     return out
 
 
-def _prune_history(
+async def _summarise_history(
+    dropped_messages: list[dict[str, object]],
+) -> str:
+    """Summarise dropped messages via a single non-streaming LLM call.
+
+    Returns a bullet-point summary string, or "" on any failure.
+    """
+    try:
+        payload = json.dumps(dropped_messages, indent=0)[-20_000:]
+        return await completion(
+            payload,
+            system_prompt=(
+                "You are a concise summariser. Summarise the agent's actions "
+                "and findings so far in bullet points. Focus on files modified, "
+                "errors fixed, and decisions made. Maximum 800 tokens."
+            ),
+            max_tokens=1000,
+        )
+    except Exception:
+        logger.warning("_summarise_history failed — falling back to plain prune")
+        return ""
+
+
+async def _prune_history(
     messages: list[dict[str, object]],
+    *,
+    last_input_tokens: int = 0,
 ) -> list[dict[str, object]]:
     """Drop old turns from the middle of the message history.
 
@@ -1704,6 +2085,11 @@ def _prune_history(
     ``assistant`` message in the tail so the structure is always:
 
         user (task briefing) → assistant → tool(s) → assistant → …
+
+    When ``last_input_tokens`` exceeds ``_MAX_INPUT_TOKEN_ESTIMATE``, a second
+    token-budget pass runs after the count guard, dropping messages from the
+    front of the tail (preserving ``messages[0]``) until the estimated token
+    count falls below the threshold.
     """
     if len(messages) <= _MAX_HISTORY_MESSAGES:
         return messages
@@ -1720,6 +2106,30 @@ def _prune_history(
 
     if not tail:
         return messages  # safety: nothing to prune without breaking structure
+
+    # Token-budget path: only entered when the LLM reported > _MAX_INPUT_TOKEN_ESTIMATE
+    # input tokens last turn.  Uses a character-count heuristic (4 chars ≈ 1 token).
+    if last_input_tokens > _MAX_INPUT_TOKEN_ESTIMATE:
+        prunable = list(messages)  # work on a copy; messages[0] is anchored
+        estimated = sum(len(json.dumps(m)) // 4 for m in prunable)
+        dropped: list[dict[str, object]] = []
+        while estimated > _MAX_INPUT_TOKEN_ESTIMATE and len(prunable) > _HISTORY_TAIL + 1:
+            msg = prunable.pop(1)  # index 0 = task briefing, always kept
+            dropped.append(msg)
+            estimated -= len(json.dumps(msg)) // 4
+        if len(dropped) > 4:
+            summary = await _summarise_history(dropped)
+            if summary:
+                prunable.insert(1, {
+                    "role": "user",
+                    "content": f"[Context checkpoint]\n{summary}",
+                })
+        logger.warning(
+            "⚠️ context prune: estimated %d tokens exceeds threshold — pruned to %d messages",
+            estimated,
+            len(prunable),
+        )
+        return prunable
 
     return messages[:1] + tail
 
@@ -1806,6 +2216,7 @@ async def _dispatch_tool_calls(
     worktree_path: Path,
     run_id: str,
     *,
+    session: AsyncSession | None = None,
     github_client: GitHubMCPClient | None = None,
     github_tool_names: frozenset[str] = frozenset(),
 ) -> list[dict[str, object]]:
@@ -1838,6 +2249,7 @@ async def _dispatch_tool_calls(
                 tc,
                 worktree_path,
                 run_id,
+                session=session,
                 github_client=github_client,
                 github_tool_names=github_tool_names,
             )
@@ -1879,6 +2291,7 @@ async def _dispatch_single_tool(
     worktree_path: Path,
     run_id: str,
     *,
+    session: AsyncSession | None = None,
     github_client: GitHubMCPClient | None = None,
     github_tool_names: frozenset[str] = frozenset(),
 ) -> dict[str, object]:
@@ -1895,8 +2308,7 @@ async def _dispatch_single_tool(
     except json.JSONDecodeError as exc:
         return {"ok": False, "error": f"Invalid tool arguments (JSON parse error): {exc}"}
 
-    # Log tool name + the single most useful arg so watch_run.py can show
-    # what was searched / read / written without needing a second log line.
+    # Log tool name + useful args so watch_run.py can show what was read/searched/written.
     _KEY_ARG: dict[str, str] = {
         "search_codebase": "query",
         "search_text": "pattern",
@@ -1905,20 +2317,50 @@ async def _dispatch_single_tool(
         "write_file": "path",
         "replace_in_file": "path",
         "insert_after_in_file": "path",
-        "create_directory": "path",
         "list_directory": "path",
     }
     _key = _KEY_ARG.get(name)
     _val = args.get(_key) if _key else None
-    _arg_tag = f" {_key}={str(_val)!r}" if isinstance(_val, str) else ""
+    if name == "read_file_lines" and isinstance(_val, str):
+        start = args.get("start_line")
+        end = args.get("end_line")
+        if start is not None and end is not None:
+            _arg_tag = f" path={_val!r} lines={start}-{end}"
+        else:
+            _arg_tag = f" path={_val!r}"
+    elif name == "search_text" and isinstance(_val, str):
+        directory = args.get("directory", ".")
+        _arg_tag = f" pattern={_val!r} directory={directory!r}"
+    else:
+        _arg_tag = f" {_key}={str(_val)!r}" if isinstance(_val, str) else ""
     logger.info("✅ dispatch_tool — run_id=%s tool=%s%s", run_id, name, _arg_tag)
+    if session is not None:
+        persist_activity_event(
+            session, run_id, "tool_invoked",
+            {"tool_name": name, "arg_preview": str(args)[:120]},
+        )
+        await session.flush()
 
     if name in _LOCAL_TOOL_NAMES:
-        return await _dispatch_local_tool(name, args, worktree_path)
+        return await _dispatch_local_tool(
+            name, args, worktree_path, run_id=run_id, session=session
+        )
 
     if name in github_tool_names and github_client is not None:
         try:
             text = await github_client.call_tool(name, args)
+            # activity event — see docs/reference/activity-events.md
+            if session is not None:
+                try:
+                    persist_activity_event(
+                        session,
+                        run_id,
+                        "github_tool",
+                        {"tool_name": name, "arg_preview": str(args)[:120]},
+                    )
+                    await session.flush()
+                except Exception as exc:
+                    logger.warning("⚠️ persist github_tool failed: %s", exc)
             return {"ok": True, "result": text}
         except RuntimeError as exc:
             logger.error("❌ github_mcp tool %s failed: %s", name, exc)
@@ -1931,6 +2373,9 @@ async def _dispatch_local_tool(
     name: str,
     args: dict[str, object],
     worktree_path: Path,
+    *,
+    run_id: str | None = None,
+    session: AsyncSession | None = None,
 ) -> dict[str, object]:
     """Route a local tool call to the appropriate file or shell function."""
 
@@ -1975,7 +2420,7 @@ async def _dispatch_local_tool(
         if not isinstance(new_raw, str):
             return {"ok": False, "error": "replace_in_file: 'new_string' must be a string"}
         allow_raw = args.get("allow_multiple", False)
-        allow = bool(allow_raw) if isinstance(allow_raw, bool) else False
+        allow = bool(allow_raw) if isinstance(allow_raw, (bool, int)) else False
         result = replace_in_file(
             _resolve(path_raw, worktree_path),
             old_raw,
@@ -2039,7 +2484,9 @@ async def _dispatch_local_tool(
             return {"ok": False, "error": "run_command: 'command' must be a string"}
         cwd_raw = args.get("cwd")
         cwd = _resolve(cwd_raw, worktree_path) if cwd_raw is not None else worktree_path
-        return await run_command(command_raw, cwd)
+        return await run_command(
+            command_raw, cwd, run_id=run_id, session=session
+        )
 
     if name == "git_commit_and_push":
         branch_raw = args.get("branch")
@@ -2066,6 +2513,8 @@ async def _dispatch_local_tool(
             str_paths,
             worktree_path,
             base=base,
+            run_id=run_id,
+            session=session,
         )
 
     if name == "search_codebase":

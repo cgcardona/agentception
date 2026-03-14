@@ -99,9 +99,11 @@
   {% if lane == 'active' and active_run %}
   <div class="build-issue__footer">
     <div class="build-issue__run">
+      {% if active_run.agent_status not in ('implementing', 'reviewing') %}
       <span class="build-issue__status build-issue__status--{{ active_run.agent_status }}">
         {%- if active_run.agent_status == 'stale' %}⚠ stale{%- else %}{{ active_run.agent_status }}{%- endif %}
       </span>
+      {% endif %}
       {% if active_run.current_step %}
       <span class="build-issue__step-badge">{{ active_run.current_step }}</span>
       {% endif %}

@@ -40,7 +40,7 @@ from agentception.db.queries import (
     PhaseGroupRow,
     RunForIssueRow,
     RunTreeNodeRow,
-    get_agent_events_tail,
+    get_all_events_tail,
     get_agent_thoughts_tail,
     get_file_edit_events,
     get_initiatives,
@@ -359,13 +359,15 @@ def _preview(text: str) -> str:
 async def _inspector_sse(run_id: str) -> AsyncGenerator[str, None]:
     """Yield SSE events for the inspector panel.
 
-    Interleaves structured MCP events (``ac_agent_events``) and raw thinking
-    messages (``ac_agent_messages``) in near-real-time.  Polls DB every 0.5 s
-    for near-real-time thought delivery.
+    Fetches all event types from ``ac_agent_events`` (via get_all_events_tail)
+    and thoughts from ``ac_agent_messages``, merges them by ``recorded_at``,
+    and emits in chronological order so the client sees the same sequence as
+    watch_run.py.  Polls DB every 0.5 s.
 
     Event shapes::
 
-        data: {"t": "event", "event_type": "step_start", "payload": {...}, "recorded_at": "..."}
+        data: {"t": "event", "event_type": "step_start", "payload": {...}, "recorded_at": "...", "id": N}
+        data: {"t": "activity", "subtype": "shell_done", "payload": {...}, "recorded_at": "...", "id": N}
         data: {"t": "thought", "role": "thinking", "content": "...", "recorded_at": "..."}
         data: {"t": "ping"}   -- keepalive every ~20 s
     """
@@ -374,57 +376,82 @@ async def _inspector_sse(run_id: str) -> AsyncGenerator[str, None]:
     ping_counter = 0
 
     while True:
-        events = await get_agent_events_tail(run_id, after_id=last_event_id)
-        for ev in events:
-            last_event_id = max(last_event_id, int(ev["id"]))
-            payload = json.dumps(
-                {
-                    "t": "event",
-                    "event_type": ev["event_type"],
-                    "payload": json.loads(ev["payload"]),
-                    "recorded_at": ev["recorded_at"],
-                }
-            )
-            # Supported event_types: step_start, done, file_edit, build_complete_run, orphan_failed
-            yield f"data: {payload}\n\n"
-
+        events = await get_all_events_tail(run_id, after_id=last_event_id)
         thoughts = await get_agent_thoughts_tail(
             run_id, after_seq=last_thought_seq
         )
-        for thought in thoughts:
-            last_thought_seq = max(last_thought_seq, int(thought["seq"]))
-            role = thought["role"]
-            if role == "tool_call":
-                payload = json.dumps(
-                    {
-                        "t": "tool_call",
-                        "tool_name": thought["tool_name"],
-                        "args_preview": _preview(thought["content"]),
-                        "recorded_at": thought["recorded_at"],
-                    }
-                )
-            elif role == "tool_result":
-                tool_name = thought["tool_name"]
-                if tool_name in _FILE_EDIT_TOOL_NAMES:
-                    continue  # file-edit results already have their own rendering path
-                payload = json.dumps(
-                    {
-                        "t": "tool_result",
-                        "tool_name": tool_name,
-                        "result_preview": _preview(thought["content"]),
-                        "recorded_at": thought["recorded_at"],
-                    }
-                )
+
+        # Merge by recorded_at so events and thoughts are emitted in chronological order.
+        merged: list[tuple[str, str, object]] = []
+        for ev in events:
+            merged.append((ev["recorded_at"], "event", ev))
+        for th in thoughts:
+            merged.append((th["recorded_at"], "thought", th))
+        merged.sort(key=lambda x: x[0])
+
+        for _recorded_at, kind, item in merged:
+            if kind == "event":
+                ev_item = item
+                assert isinstance(ev_item, dict)
+                last_event_id = max(last_event_id, int(ev_item["id"]))
+                payload_obj = json.loads(ev_item["payload"])
+                if ev_item["event_type"] == "activity":
+                    payload = json.dumps(
+                        {
+                            "t": "activity",
+                            "subtype": payload_obj.get("subtype", ""),
+                            "payload": payload_obj,
+                            "recorded_at": ev_item["recorded_at"],
+                            "id": ev_item["id"],
+                        }
+                    )
+                else:
+                    payload = json.dumps(
+                        {
+                            "t": "event",
+                            "event_type": ev_item["event_type"],
+                            "payload": payload_obj,
+                            "recorded_at": ev_item["recorded_at"],
+                            "id": ev_item["id"],
+                        }
+                    )
+                yield f"data: {payload}\n\n"
             else:
-                payload = json.dumps(
-                    {
-                        "t": "thought",
-                        "role": role,
-                        "content": thought["content"],
-                        "recorded_at": thought["recorded_at"],
-                    }
-                )
-            yield f"data: {payload}\n\n"
+                thought = item
+                assert isinstance(thought, dict)
+                last_thought_seq = max(last_thought_seq, int(thought["seq"]))
+                role = thought["role"]
+                if role == "tool_call":
+                    payload = json.dumps(
+                        {
+                            "t": "tool_call",
+                            "tool_name": thought["tool_name"],
+                            "args_preview": _preview(thought["content"]),
+                            "recorded_at": thought["recorded_at"],
+                        }
+                    )
+                elif role == "tool_result":
+                    tool_name = thought["tool_name"]
+                    if tool_name in _FILE_EDIT_TOOL_NAMES:
+                        continue
+                    payload = json.dumps(
+                        {
+                            "t": "tool_result",
+                            "tool_name": tool_name,
+                            "result_preview": _preview(thought["content"]),
+                            "recorded_at": thought["recorded_at"],
+                        }
+                    )
+                else:
+                    payload = json.dumps(
+                        {
+                            "t": "thought",
+                            "role": role,
+                            "content": thought["content"],
+                            "recorded_at": thought["recorded_at"],
+                        }
+                    )
+                yield f"data: {payload}\n\n"
 
         ping_counter += 1
         if ping_counter % 10 == 0:

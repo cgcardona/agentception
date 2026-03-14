@@ -18,8 +18,8 @@ agentception/
 
   middleware/      → Starlette middleware (auth.py — API key validation)
   readers/         → LLM planner, GitHub client, worktree manager, transcript reader
-  services/        → LLM calls (Anthropic API), agent loop, code indexer
-    llm.py         → call_anthropic(), call_anthropic_with_tools()
+  services/        → LLM calls (provider-agnostic API), agent loop, code indexer
+    llm.py         → completion(), completion_stream(), completion_with_tools(); provider selection via config (Anthropic or local)
     agent_loop.py  → Cursor-free agent execution loop
     code_indexer.py → Qdrant codebase indexing + semantic search
   tools/           → Local agent tools (file I/O, shell, semantic search definitions)
@@ -53,7 +53,7 @@ FastAPI routes (thin HTTP handlers)
       ↓
 readers/ (LLM planner, GitHub, worktree)
       ↓
-services/llm.py (Anthropic API, HTTPS)
+services/llm.py (LLM provider: Anthropic or local via config)
       ↓
 GitHub API → Issues, PRs, Worktrees
       ↓
@@ -264,9 +264,67 @@ The `TaskRunner` protocol (`agentception/services/task_runner.py`) defines a run
 
 ---
 
+## Query module structure
+
+`agentception/db/queries/` is a Python package. All existing call-sites use
+`from agentception.db.queries import X` and continue to work through the
+re-exporting `__init__.py`. The package is split into focused submodules to
+eliminate parallel-agent merge conflicts on the former 3250-line monolith.
+
+| File | Domain ownership |
+|------|-----------------|
+| `types.py` | All `TypedDict` return-value shapes shared across the package. No query logic. |
+| `board.py` | Board issues, initiative phases, label state, wave summaries, workflow states, and grouped-phase views. |
+| `runs.py` | Agent run lifecycle — run rows, active runs, run detail, tree traversal, teardown, and execution plan loading. |
+| `messages.py` | Agent thought stream queries (`get_agent_thoughts_tail`). |
+| `events.py` | Agent event tail queries and file-edit event hydration. |
+| `metrics.py` | Daily metrics, run status counts, throughput, and cost calculation. |
+
+`__init__.py` re-exports every public symbol (and a small set of test-required
+private helpers) using the `import X as X` pattern so that mypy's strict
+re-export checks are satisfied.
+
+All six files carry `merge=union` in `.gitattributes` to prevent spurious
+conflicts when parallel agents append to different domain files simultaneously.
+
+---
+
+## SCSS partial structure
+
+`agentception/static/scss/pages/_build.scss` is a barrel file that imports six
+focused partials in cascade order. Edit the partial — never the barrel.
+
+| Partial | Rule ownership |
+|---------|---------------|
+| `_inspector-layout.scss` | Inspector chrome, toolbar, header, sidebar layout, and general OD structural rules. |
+| `_thought-block.scss` | `.thought-block` collapsible sections for LLM reasoning display. |
+| `_file-edit-card.scss` | `.file-edit-card` diff viewer cards including `.diff-add`, `.diff-remove`, `.diff-context`. |
+| `_assistant-bubble.scss` | `.assistant-bubble` prose message bubbles. |
+| `_tool-call-card.scss` | `.tool-call-card` expandable tool-call detail cards. |
+| `_event-card.scss` | `.event-card` generic SSE event cards in the event log. |
+
+All six partials carry `merge=union` in `.gitattributes` for the same
+parallel-agent conflict-reduction reason as the query submodules.
+
+---
+
+## Context window management
+
+Five mechanisms in `agentception/services/agent_loop.py` keep the context window from overflowing:
+
+1. **Per-turn token logging** — `last_input_tokens` is captured from each `completion_with_tools()` response and logged at INFO level with iteration number, input tokens, output tokens, and cache hit count (line ∼705).
+2. **Token-aware history pruning** — `_prune_history()` applies a message-count guard (`_MAX_HISTORY_MESSAGES = 20`), then when `last_input_tokens > _MAX_INPUT_TOKEN_ESTIMATE` (140 000), runs a character-heuristic loop that drops messages from index 1 until the estimate falls below the threshold, always keeping `messages[0]` (task briefing) and the last `_HISTORY_TAIL = 14` messages.
+3. **Context pressure warning** — when `last_input_tokens > _CONTEXT_PRESSURE_THRESHOLD` (100 000), `_CONTEXT_PRESSURE_WARNING` is injected into `extra_blocks` each turn, advising targeted reads and `replace_in_file` and reporting the remaining context budget.
+4. **Context checkpoint summarisation** — when the token-budget loop drops more than 4 messages, `_summarise_history()` (async, max 1 000 tokens) compresses the dropped messages into a `[Context checkpoint]` user message inserted at index 1, preserving a compressed record of prior work.
+5. **Stop-reason=length recovery** — when the API returns `stop_reason="length"`, a one-sentence continuation hint is injected so the agent can resume without losing the current task context.
+
+---
+
 ## Further Reading
 
 - [Plan Spec format](plan-spec.md)
+- [Plan-scoped integration branch](architecture/plan-scoped-integration-branch.md)
+- [LLM provider abstraction](architecture/llm-provider-abstraction.md)
 - [Agent tree protocol](agent-tree-protocol.md)
 - [Cursor-Free Agent Loop](guides/agent-loop.md)
 - [MCP integration guide](guides/mcp.md)

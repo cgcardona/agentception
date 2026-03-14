@@ -1,5 +1,3 @@
-@use 'sass:list';
-
 // ── Mission Control — Build page ─────────────────────────────────────────────
 // All tokens from _foundation.scss: --bg-*, --text-*, --border-*, --accent*,
 // --success*, --warning*, --danger*, --info*, --radius-*, --shadow-*, --ease-*
@@ -2105,3 +2103,14 @@ $preset-accents: (
     text-overflow: ellipsis;
   }
 }
+// Barrel: each partial owns its rule block. Edit the partial, not this file.
+// Cascade order must match the original monolithic _build.scss.
+
+@use 'activity-feed';
+@use 'ab_metrics';
+@use 'inspector-layout';
+@use 'thought-block';
+@use 'file-edit-card';
+@use 'assistant-bubble';
+@use 'tool-call-card';
+@use 'event-card';

@@ -1,0 +1,28 @@
+// ── Event card ────────────────────────────────────────────────────────────────
+
+.event-card {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.5rem;
+  border-left: 4px solid #7f8c8d;
+  font-size: 0.75rem;
+  color: var(--text-secondary, #888);
+  max-width: 100%;
+  overflow-x: hidden;
+  word-break: break-word;
+
+  &[data-event-type='step_start'] { border-left-color: #7f8c8d; }
+  &[data-event-type='blocker']    { border-left-color: #e67e22; }
+  &[data-event-type='decision']   { border-left-color: #2980b9; }
+  &[data-event-type='done']       { border-left-color: #2ecc71; }
+
+  &__icon { flex-shrink: 0; }
+
+  &__text {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+

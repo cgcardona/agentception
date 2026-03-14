@@ -37,6 +37,9 @@ _WORKTREE_ADD_SEM: asyncio.Semaphore = asyncio.Semaphore(5)
 #   ac/*     — pipeline branches (engineer, coordinator, reviewer)
 _AGENT_BRANCH_RE = re.compile(r"^(agent/.+|ac/.+)$")
 
+# Slug for plan branch names: alphanumeric and single hyphens only, max 32 chars.
+_PLAN_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
 
 async def _git(args: list[str]) -> str:
     """Run ``git -C <repo_dir> <args>`` and return stdout as a string.
@@ -501,4 +504,55 @@ def _symlink_frontend_resources(worktree_path: Path) -> None:
             logger.debug("🔗 Symlinked %s → %s", dst, src)
         except OSError as exc:
             logger.warning("⚠️ Could not symlink %s → %s: %s", dst, src, exc)
+
+
+async def get_or_create_plan_branch(plan_id: str, repo: str) -> str:
+    """Return the integration branch name for a plan, creating it from origin/dev if needed.
+
+    Used when dispatching the first issue of a plan. Creates ``feat/plan-{slug}``
+    from ``origin/dev``, pushes it to origin, and records it in ``plan_branches``.
+    Subsequent dispatches for the same plan reuse the existing branch.
+
+    Returns:
+        The branch name (e.g. ``feat/plan-readme-rules``).
+
+    Raises:
+        RuntimeError: If branch creation or push fails.
+    """
+    from agentception.db.persist import persist_plan_branch
+    from agentception.db.queries.runs import get_plan_branch
+
+    existing = await get_plan_branch(plan_id, repo)
+    if existing:
+        return existing
+
+    slug = _PLAN_SLUG_RE.sub("-", plan_id.lower()).strip("-")[:32] or "plan"
+    branch_name = f"feat/plan-{slug}"
+
+    # Ensure origin/dev is up to date so the plan branch is created from latest.
+    repo_str = str(settings.repo_dir)
+    fetch_proc = await asyncio.create_subprocess_exec(
+        "git", "-C", repo_str, "fetch", "origin", "dev",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await fetch_proc.communicate()
+    if fetch_proc.returncode != 0:
+        raise RuntimeError("git fetch origin dev failed")
+
+    await ensure_branch(branch_name, "origin/dev")
+
+    push_proc = await asyncio.create_subprocess_exec(
+        "git", "-C", repo_str, "push", "-u", "origin", branch_name,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await push_proc.communicate()
+    if push_proc.returncode != 0:
+        err = stderr.decode(errors="replace").strip()
+        raise RuntimeError(f"git push origin {branch_name} failed: {err}")
+
+    await persist_plan_branch(plan_id=plan_id, repo=repo, branch_name=branch_name)
+    logger.info("✅ get_or_create_plan_branch: plan_id=%s branch=%s", plan_id, branch_name)
+    return branch_name
 

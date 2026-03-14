@@ -26,6 +26,10 @@ import re
 import shlex
 from pathlib import Path
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from agentception.db import activity_events
+
 logger = logging.getLogger(__name__)
 
 # Maximum captured output per stream to prevent memory exhaustion.
@@ -99,6 +103,16 @@ _MYPY_OOM_ERROR = (
     "Only list the files YOU modified — not entire directories."
 )
 
+# Commands that run grep (direct or in a pipeline). Blocked so the agent uses
+# the search_text tool (ripgrep) instead — structured output and .gitignore-aware.
+_GREP_CMD_RE: re.Pattern[str] = re.compile(r"(^|\|)\s*grep\b", re.IGNORECASE)
+
+_GREP_BLOCKED_MESSAGE = (
+    "run_command(grep) is not allowed. Use the search_text tool instead: "
+    "it uses ripgrep, respects .gitignore, and returns file names and line numbers. "
+    "Call search_text(pattern=..., directory=...) for codebase search."
+)
+
 
 def _check_oom_risk(command: str) -> tuple[bool, str]:
     """Return *(safe, reason)* for commands that are not destructive but are
@@ -128,6 +142,8 @@ async def run_command(
     cwd: str | Path | None = None,
     *,
     timeout: int = _DEFAULT_TIMEOUT,
+    run_id: str | None = None,
+    session: AsyncSession | None = None,
 ) -> dict[str, object]:
     """Execute *command* in a subprocess and return structured output.
 
@@ -152,8 +168,27 @@ async def run_command(
         logger.warning("⚠️ run_command blocked — %s", reason)
         return {"ok": False, "error": reason}
 
+    if _GREP_CMD_RE.search(command.strip()):
+        logger.warning("⚠️ run_command blocked — grep; use search_text")
+        return {"ok": False, "error": _GREP_BLOCKED_MESSAGE}
+
     cwd_path = Path(cwd) if cwd else None
     logger.info("✅ run_command — %s (cwd=%s)", shlex.quote(command), cwd_path)
+    # activity event — see docs/reference/activity-events.md
+    if run_id and session is not None:
+        try:
+            activity_events.persist_activity_event(
+                session,
+                run_id,
+                "shell_start",
+                {
+                    "cmd_preview": command[:200],
+                    "cwd": str(cwd_path) if cwd_path else "",
+                },
+            )
+            await session.flush()
+        except Exception as exc:
+            logger.warning("⚠️ persist shell_start failed: %s", exc)
 
     try:
         proc = await asyncio.create_subprocess_shell(
@@ -195,6 +230,23 @@ async def run_command(
         len(stdout),
         len(stderr),
     )
+    # activity event — see docs/reference/activity-events.md
+    if run_id and session is not None:
+        try:
+            activity_events.persist_activity_event(
+                session,
+                run_id,
+                "shell_done",
+                {
+                    "exit_code": exit_code,
+                    "stdout_bytes": len(raw_out),
+                    "stderr_bytes": len(raw_err),
+                },
+            )
+            await session.flush()
+        except Exception as exc:
+            logger.warning("⚠️ persist shell_done failed: %s", exc)
+
     return {
         "ok": True,
         "stdout": stdout,
@@ -226,6 +278,8 @@ async def git_commit_and_push(
     worktree_path: Path,
     *,
     base: str = "origin/dev",
+    run_id: str | None = None,
+    session: AsyncSession | None = None,
 ) -> dict[str, object]:
     """Create a branch, stage files, commit, and push in one atomic call.
 
@@ -276,7 +330,7 @@ async def git_commit_and_push(
             if code2 != 0:
                 return {
                     "ok": False,
-                    "error": f"git_commit_and_push: checkout failed",
+                    "error": "git_commit_and_push: checkout failed",
                     "stderr": err + "\n" + err2,
                 }
 
@@ -300,4 +354,17 @@ async def git_commit_and_push(
     sha = sha.strip() if code == 0 else "(unknown)"
 
     logger.info("✅ git_commit_and_push — pushed %s → origin/%s", sha[:12], branch)
+    # activity event — see docs/reference/activity-events.md
+    if run_id and session is not None:
+        try:
+            activity_events.persist_activity_event(
+                session,
+                run_id,
+                "git_push",
+                {"branch": branch},
+            )
+            await session.flush()
+        except Exception as exc:
+            logger.warning("⚠️ persist git_push failed: %s", exc)
+
     return {"ok": True, "branch": branch, "sha": sha, "stdout": push_out}

@@ -328,6 +328,8 @@ class AgentTaskSpec(BaseModel):
     # Ad-hoc runs
     task_description: str | None = None
     """Inline task description for ad-hoc runs (POST /api/runs/adhoc)."""
+    prompt_variant: str | None = None
+    """Prompt variant tag for A/B testing. None = control/default."""
     # Planning pipeline — coordinator/conductor extended fields
     draft_id: str | None = None
     output_path: str | None = None

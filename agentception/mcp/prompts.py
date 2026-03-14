@@ -480,6 +480,10 @@ def _render_task_briefing(ctx: RunContextRow, role_content: str) -> str:
         f"**Cognitive Architecture:** `{cognitive_arch}`  ",
         f"**Worktree:** `{worktree_path}`  ",
         f"**Branch:** `{branch}`  ",
+        *(
+            (f"**PR base branch:** `{ctx['pr_base_branch']}` — open the PR against this branch, not dev.  ",)
+            if ctx.get("pr_base_branch") else ()
+        ),
         f"**GH_REPO:** `{gh_repo}`  ",
         f"**OWNER:** `{gh_owner}`  ",
         f"**REPO:** `{gh_repo_name}`  ",

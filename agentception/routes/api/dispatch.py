@@ -501,6 +501,18 @@ class DispatchRequest(BaseModel):
     set this when dispatching a brand-new developer run.
     """
 
+    prompt_variant: str | None = None
+    """Prompt variant for A/B testing (e.g. ``streamlined``). None = default role file."""
+
+    plan_id: str | None = None
+    """When set, this dispatch is part of a plan-scoped integration branch.
+
+    The worktree is created from the plan branch (created from dev on first
+    use); the agent should open the PR against the plan branch, not dev.
+    Typically the filing batch_id (e.g. ``batch-923f3b99cf90``) from the
+    Build UI when launching from a plan.
+    """
+
 
 class DispatchResponse(BaseModel):
     """Successful dispatch response.
@@ -710,6 +722,9 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
 
     from agentception.readers.git import ensure_worktree  # noqa: PLC0415
 
+    plan_id_for_run: str | None = None
+    plan_branch_for_run: str | None = None
+
     if is_reviewer or is_continuation:
         # For reviewers: the relevant code lives on the implementer's branch, not dev.
         # For continuation dispatches: the developer re-attaches to the existing PR
@@ -752,7 +767,27 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
             "reviewer" if is_reviewer else "continuation-developer",
         )
     else:
-        worktree_base = "origin/dev"
+        # Plan-scoped: use the plan's integration branch as base (create from dev if first use).
+        # Otherwise: fetch dev and use origin/dev.
+        plan_id_for_run = req.plan_id
+        if req.plan_id:
+            from agentception.readers.git import get_or_create_plan_branch  # noqa: PLC0415
+            plan_branch_for_run = await get_or_create_plan_branch(req.plan_id, req.repo)
+            worktree_base = f"origin/{plan_branch_for_run}"
+            logger.info(
+                "✅ dispatch: plan-scoped run plan_id=%s base=%s",
+                req.plan_id,
+                worktree_base,
+            )
+        else:
+            _dev_fetch = await asyncio.create_subprocess_exec(
+                "git", "fetch", "origin", "dev",
+                cwd=str(settings.repo_dir),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await _dev_fetch.communicate()
+            worktree_base = "origin/dev"
 
     try:
         # reset=True for fresh developer dispatches: if a stale worktree/branch exists
@@ -988,6 +1023,9 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
         gh_repo=settings.gh_repo,
         task_description=task_description,
         pr_number=req.pr_number,
+        prompt_variant=req.prompt_variant,
+        plan_id=plan_id_for_run,
+        plan_branch=plan_branch_for_run,
     )
 
     # Transition pending_launch → implementing and fire the agent loop.

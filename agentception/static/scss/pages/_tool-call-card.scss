@@ -1,0 +1,43 @@
+// ── Tool call card ────────────────────────────────────────────────────────────
+
+.tool-call-card {
+  border-left: 4px solid #3498db;
+  padding: 0.2rem 0.5rem;
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  max-width: 100%;
+  overflow-x: hidden;
+  word-break: break-word;
+
+  &__icon { flex-shrink: 0; }
+
+  &__name {
+    font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
+    font-weight: 600;
+    color: var(--color-text, #eee);
+  }
+
+  &__args {
+    font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
+    font-size: 0.85em;
+    color: var(--color-text-muted, #888);
+    word-break: break-all;
+  }
+
+  &__result {
+    flex-basis: 100%;
+    font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
+    font-size: 0.82em;
+    color: var(--color-text-muted, #888);
+    padding-left: 1.4rem;
+    word-break: break-word;
+  }
+
+  &--result-only {
+    border-left-color: var(--color-border-muted, #444);
+  }
+}
+
