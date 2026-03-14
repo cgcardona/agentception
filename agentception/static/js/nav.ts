@@ -44,7 +44,10 @@ export function projectSwitcher(): ProjectSwitcherComponent {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ project_name: name }),
         });
-        if (res.ok) window.location.reload();
+        // Navigate to /ship so the redirect endpoint picks up the newly
+        // active project's gh_repo and lands on the correct board URL.
+        // A bare reload() would keep the old repo name in the path.
+        if (res.ok) window.location.href = '/ship';
       } catch {
         // Silently suppress.
       }
