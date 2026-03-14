@@ -439,7 +439,31 @@ def test_llm_provider_env_anthropic(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
 
 def test_local_llm_completion_token_ceiling_default(tmp_path: Path) -> None:
-    """mlx-openai-server max_tokens ceiling default matches adapter clamp."""
+    """Ollama-compatible default ceiling; must be lowered to 4096 for mlx-openai-server."""
     s = AgentCeptionSettings(repo_dir=tmp_path)
-    assert s.local_llm_completion_token_ceiling == 4096
+    assert s.local_llm_completion_token_ceiling == 8192
+
+
+def test_per_usecase_overrides_fall_back_to_global(tmp_path: Path) -> None:
+    """When per-usecase overrides are unset, effective URLs/models equal global values."""
+    s = AgentCeptionSettings(repo_dir=tmp_path)
+    assert s.effective_local_base_url_plan == s.local_llm_base_url.rstrip("/")
+    assert s.effective_local_base_url_agent == s.local_llm_base_url.rstrip("/")
+    assert s.effective_local_model_plan == s.local_llm_model
+    assert s.effective_local_model_agent == s.local_llm_model
+
+
+def test_per_usecase_overrides_applied_when_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When per-usecase overrides are set they are used instead of global values."""
+    monkeypatch.setenv("LOCAL_LLM_BASE_URL_PLAN", "http://plan-host:11434")
+    monkeypatch.setenv("LOCAL_LLM_MODEL_PLAN", "qwen-plan")
+    monkeypatch.setenv("LOCAL_LLM_BASE_URL_AGENT", "http://agent-host:11435")
+    monkeypatch.setenv("LOCAL_LLM_MODEL_AGENT", "qwen-agent")
+    s = _make_settings(tmp_path)
+    assert s.effective_local_base_url_plan == "http://plan-host:11434"
+    assert s.effective_local_model_plan == "qwen-plan"
+    assert s.effective_local_base_url_agent == "http://agent-host:11435"
+    assert s.effective_local_model_agent == "qwen-agent"
 

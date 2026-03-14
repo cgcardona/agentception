@@ -1056,8 +1056,7 @@ async def call_local_with_tools(
     messages and tools, returns :class:`ToolResponse`. Used when
     ``settings.effective_llm_provider`` is ``local``.
     """
-    base = settings.local_llm_base_url.rstrip("/")
-    url = f"{base}{settings.local_llm_chat_path}"
+    url = f"{settings.effective_local_base_url_agent}{settings.local_llm_chat_path}"
     system_content = system
     if extra_system_blocks:
         for blk in extra_system_blocks:
@@ -1077,8 +1076,9 @@ async def call_local_with_tools(
     if tools:
         payload["tools"] = _tools_to_openai(tools)
         payload["tool_choice"] = "auto"
-    if settings.local_llm_model:
-        payload["model"] = settings.local_llm_model
+    agent_model = settings.effective_local_model_agent
+    if agent_model:
+        payload["model"] = agent_model
     # Else omit model so servers like mlx_lm.server use their loaded model (avoids 404).
     if session is not None and run_id is not None:
         persist_activity_event(
@@ -1223,8 +1223,15 @@ def _local_completion_payload(
     temperature: float = 0.0,
     max_tokens: int = 128,
     stream: bool = False,
+    model_override: str = "",
 ) -> dict[str, object]:
-    """Build request body for local single-turn completion (no tools)."""
+    """Build request body for local single-turn completion (no tools).
+
+    ``model_override`` lets call sites specify a use-case-specific model name
+    (e.g. the large 35B planning model vs the fast 8B agent model) without
+    changing the global ``LOCAL_LLM_MODEL`` setting.  When empty, falls back
+    to ``settings.local_llm_model``.
+    """
     capped = _local_cap_max_tokens(max_tokens)
     payload: dict[str, object] = {
         "messages": [
@@ -1234,11 +1241,11 @@ def _local_completion_payload(
         "temperature": temperature,
         "max_tokens": capped,
         "stream": stream,
-        "repetition_penalty": 1.1,
         "frequency_penalty": 0.3,
     }
-    if settings.local_llm_model:
-        payload["model"] = settings.local_llm_model
+    model = model_override or settings.local_llm_model
+    if model:
+        payload["model"] = model
     return payload
 
 
@@ -1248,15 +1255,23 @@ async def call_local_completion(
     *,
     temperature: float = 0.0,
     max_tokens: int = 128,
+    base_url_override: str = "",
+    model_override: str = "",
 ) -> str:
     """Single-turn completion against the local OpenAI-compatible server (no tools).
 
     Returns the assistant's text content, normalized (thinking/reasoning stripped).
     Used by the public completion() and as fallback for completion_stream().
+
+    ``base_url_override`` / ``model_override`` let call sites target a different
+    Ollama instance or model (e.g. the large planning model) without touching the
+    global config.  When empty, the global config values are used.
     """
-    url = _local_chat_url()
+    base = (base_url_override or settings.local_llm_base_url).rstrip("/")
+    url = f"{base}{settings.local_llm_chat_path}"
     payload = _local_completion_payload(
-        system, user_message, temperature=temperature, max_tokens=max_tokens
+        system, user_message, temperature=temperature, max_tokens=max_tokens,
+        model_override=model_override,
     )
     timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
@@ -1358,26 +1373,34 @@ async def _local_completion_stream(
 
     If the server does not support streaming (4xx, invalid SSE, etc.), falls back
     to a single completion and yields one content chunk so the contract is always satisfied.
+
+    Uses ``settings.effective_local_base_url_plan`` and
+    ``settings.effective_local_model_plan`` so planning calls can target a
+    different Ollama instance or model than agent tool-call turns.
     """
+    plan_base_url = settings.effective_local_base_url_plan
+    plan_model = settings.effective_local_model_plan
+    plan_url = f"{plan_base_url}{settings.local_llm_chat_path}"
+
     async def _raw_sse() -> AsyncGenerator[LLMChunk, None]:
         """Parse raw SSE deltas into LLMChunk without think-tag normalisation."""
-        url = _local_chat_url()
         payload = _local_completion_payload(
             system,
             user_message,
             temperature=temperature,
             max_tokens=max_tokens,
             stream=True,
+            model_override=plan_model,
         )
         # read=90s is the inter-chunk idle timeout: if the server stops sending any
-        # SSE data for 90 seconds we abort.  At 870 tok/s (typical for mlx) the
+        # SSE data for 90 seconds we abort.  At 870 tok/s (typical for Ollama) the
         # gap between tokens is milliseconds; 90 s is generous enough for a cold
         # prefill (4 s for a 4 k-token prompt) while still catching a hung server
-        # on the second request instead of waiting the original 300 s.
+        # on the second request instead of waiting indefinitely.
         timeout = httpx.Timeout(connect=10.0, read=90.0, write=30.0, pool=10.0)
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
-                async with client.stream("POST", url, json=payload) as resp:
+                async with client.stream("POST", plan_url, json=payload) as resp:
                     resp.raise_for_status()
                     yielded_any = False
                     async for line in resp.aiter_lines():
@@ -1427,6 +1450,8 @@ async def _local_completion_stream(
                 user_message,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                base_url_override=plan_base_url,
+                model_override=plan_model,
             )
         except httpx.ReadTimeout:
             raise RuntimeError(
