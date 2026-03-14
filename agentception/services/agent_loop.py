@@ -759,7 +759,8 @@ async def run_agent_loop(
             try:
                 bounded = await _prune_history(_truncate_tool_results(messages), last_input_tokens=last_input_tokens)
                 _active_model = _HAIKU_MODEL if task.role == "reviewer" else _MODEL
-                if settings.effective_llm_provider == LLMProviderChoice.local and task.role == "developer":
+                if settings.effective_llm_provider == LLMProviderChoice.local:
+                    # All roles use the local provider when effective_llm_provider is local.
                     # Same pipeline as Anthropic: full system prompt (role + cognitive arch + runtime
                     # note), same tools, same extra_system_blocks. Only the LLM endpoint and context
                     # caps differ. Cap context so small local models (e.g. Qwen 4B) aren't overloaded.
