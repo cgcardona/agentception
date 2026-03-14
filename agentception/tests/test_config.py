@@ -437,3 +437,9 @@ def test_llm_provider_env_anthropic(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     s = _make_settings(tmp_path)
     assert s.llm_provider == LLMProviderChoice.anthropic
 
+
+def test_local_llm_completion_token_ceiling_default(tmp_path: Path) -> None:
+    """mlx-openai-server max_tokens ceiling default matches adapter clamp."""
+    s = AgentCeptionSettings(repo_dir=tmp_path)
+    assert s.local_llm_completion_token_ceiling == 4096
+

@@ -213,8 +213,15 @@ class AgentCeptionSettings(BaseSettings):
     briefing keeps context manageable. Set via ``LOCAL_LLM_MAX_CONTEXT_CHARS``."""
 
     local_llm_max_tokens: int = 4096
-    """Max tokens for local LLM completion. Small models struggle with 32k;
-    use 4096 or 8192. Set via ``LOCAL_LLM_MAX_TOKENS``."""
+    """Desired max output tokens for local LLM (agent loop, etc.). Capped by
+    ``local_llm_completion_token_ceiling`` when sending requests. Set via
+    ``LOCAL_LLM_MAX_TOKENS``."""
+
+    local_llm_completion_token_ceiling: int = 4096
+    """Hard cap on ``max_tokens`` sent to the local OpenAI-compatible server.
+    mlx-openai-server rejects values above 4096 with HTTP 422. Other servers
+    can raise this if they allow larger generation budgets. Set via
+    ``LOCAL_LLM_COMPLETION_TOKEN_CEILING``."""
 
     local_llm_max_system_chars: int = 6000
     """Max characters for the system prompt when using the local LLM. Truncates

@@ -1072,7 +1072,7 @@ async def call_local_with_tools(
     payload: dict[str, object] = {
         "messages": request_messages,
         "temperature": temperature,
-        "max_tokens": max_tokens,
+        "max_tokens": _local_cap_max_tokens(max_tokens),
     }
     if tools:
         payload["tools"] = _tools_to_openai(tools)
@@ -1203,6 +1203,19 @@ def _local_chat_url() -> str:
     return f"{_local_base_url()}{settings.local_llm_chat_path}"
 
 
+def _local_cap_max_tokens(requested: int) -> int:
+    """Clamp generation budget for local OpenAI-compatible servers.
+
+    mlx-openai-server returns 422 when ``max_tokens`` exceeds its ceiling
+    (default 4096). Callers may pass Anthropic-scale values (8k, 16k); we
+    never send above the configured ceiling.
+    """
+    ceiling = settings.local_llm_completion_token_ceiling
+    if ceiling < 1:
+        ceiling = 4096
+    return min(max(requested, 1), ceiling)
+
+
 def _local_completion_payload(
     system: str,
     user_message: str,
@@ -1212,13 +1225,14 @@ def _local_completion_payload(
     stream: bool = False,
 ) -> dict[str, object]:
     """Build request body for local single-turn completion (no tools)."""
+    capped = _local_cap_max_tokens(max_tokens)
     payload: dict[str, object] = {
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user_message},
         ],
         "temperature": temperature,
-        "max_tokens": max_tokens,
+        "max_tokens": capped,
         "stream": stream,
     }
     if settings.local_llm_model:

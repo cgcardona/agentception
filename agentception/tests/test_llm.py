@@ -56,6 +56,31 @@ def test_normalize_openai_message_content_strips_reasoning() -> None:
     assert _normalize_openai_message_content(msg) == "The answer is 42."
 
 
+def test_local_cap_max_tokens_respects_ceiling() -> None:
+    """mlx-openai-server rejects max_tokens > 4096; adapter clamps to ceiling."""
+    from agentception.services.llm import _local_cap_max_tokens
+
+    with patch("agentception.services.llm.settings") as mock_settings:
+        mock_settings.local_llm_completion_token_ceiling = 4096
+        assert _local_cap_max_tokens(8192) == 4096
+        assert _local_cap_max_tokens(100) == 100
+        mock_settings.local_llm_completion_token_ceiling = 2048
+        assert _local_cap_max_tokens(8192) == 2048
+
+
+def test_local_completion_payload_caps_max_tokens() -> None:
+    """Plan 1A asks for 8192; local payload must not exceed server ceiling."""
+    from agentception.services.llm import _local_completion_payload
+
+    with patch("agentception.services.llm.settings") as mock_settings:
+        mock_settings.local_llm_completion_token_ceiling = 4096
+        mock_settings.local_llm_model = ""
+        payload = _local_completion_payload(
+            "sys", "user", temperature=0.2, max_tokens=8192, stream=True
+        )
+        assert payload["max_tokens"] == 4096
+
+
 def test_normalize_openai_message_content_empty_or_missing() -> None:
     """Missing or empty content returns empty string."""
     from agentception.services.llm import _normalize_openai_message_content

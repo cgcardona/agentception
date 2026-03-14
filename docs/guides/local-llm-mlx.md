@@ -38,7 +38,8 @@ When the effective provider is **local**, the following env vars apply. Set them
 | `LOCAL_LLM_MODEL` | *(empty)* | Model name sent in requests. If empty, the field is omitted so servers like mlx_lm use their loaded model (avoids 404). |
 | `LOCAL_LLM_MAX_CONTEXT_CHARS` | `12000` | Max characters for the first user message (task briefing) when using the local LLM. Reduces load on small models. |
 | `LOCAL_LLM_MAX_SYSTEM_CHARS` | `6000` | Max characters for the system prompt (role + cognitive arch). Truncation is applied when using the local provider. |
-| `LOCAL_LLM_MAX_TOKENS` | `4096` | Max completion tokens per turn. Use 4096 or 8192 for small models; avoid 32k. |
+| `LOCAL_LLM_MAX_TOKENS` | `4096` | Desired max completion tokens per turn (agent loop). Never sent above the ceiling below. |
+| `LOCAL_LLM_COMPLETION_TOKEN_CEILING` | `4096` | Hard cap on `max_tokens` in every local chat request. **mlx-openai-server** rejects larger values with **422** (`max_tokens too high`). Raise only if your server allows it. |
 
 **Effective provider:** If `USE_LOCAL_LLM=true`, the effective provider is **local** regardless of `LLM_PROVIDER`. Otherwise the effective provider is the value of `LLM_PROVIDER`. Only the effective provider is used when deciding which adapter to call.
 
@@ -70,11 +71,11 @@ When the **effective provider is local** (`LLM_PROVIDER=local` or `USE_LOCAL_LLM
 
 - `messages`: `[{"role": "system", "content": "<system prompt>"}, {"role": "user", "content": "<user text>"}]`
 - `temperature`: number (e.g. `0.2` for Plan 1A)
-- `max_tokens`: number (e.g. `8192` for Plan 1A)
+- `max_tokens`: number — AgentCeption **clamps** to ``LOCAL_LLM_COMPLETION_TOKEN_CEILING`` (default 4096) before sending; Plan 1A asks for 8192 on Anthropic but local mlx would 422 above 4096 without this cap.
 - `stream`: `false`
 - `model`: **only present if `LOCAL_LLM_MODEL` is set**. When unset, we omit `model` so servers like mlx_lm use their loaded model.
 
-Some OpenAI-compatible servers **require** a `model` field and return **422 Unprocessable Content** when it is missing. If you see 422, set `LOCAL_LLM_MODEL` to a value your server accepts (e.g. `default`, `local`, or the model name) and restart AgentCeption.
+**422 from mlx-openai-server — common causes:** (1) **`max_tokens` above 4096** — the server responds with `max_tokens too high`; AgentCeption clamps to `LOCAL_LLM_COMPLETION_TOKEN_CEILING` (default 4096) so Phase 1A no longer triggers this. (2) Some servers **require** a `model` field — set `LOCAL_LLM_MODEL` to a value your server accepts and restart AgentCeption.
 
 ---
 
@@ -358,7 +359,8 @@ Small local models are easily overloaded by the full task briefing and system pr
 |--------|---------|--------|
 | `LOCAL_LLM_MAX_CONTEXT_CHARS` | 12000 | Max characters for the first user message (task briefing). |
 | `LOCAL_LLM_MAX_SYSTEM_CHARS` | 6000 | Max characters for the system prompt (role + cognitive arch). |
-| `LOCAL_LLM_MAX_TOKENS` | 4096 | Max completion tokens per turn (avoid 32k for small models). |
+| `LOCAL_LLM_MAX_TOKENS` | 4096 | Desired max completion tokens (agent loop). |
+| `LOCAL_LLM_COMPLETION_TOKEN_CEILING` | 4096 | Max `max_tokens` sent to the server (mlx caps at 4096). |
 
 If the agent stalls or produces no tool calls, ensure the MLX server is reachable from the container (`host.docker.internal`; on Linux add `extra_hosts: ["host.docker.internal:host-gateway"]` in docker-compose) and consider lowering the caps further.
 
