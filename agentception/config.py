@@ -217,16 +217,67 @@ class AgentCeptionSettings(BaseSettings):
     ``local_llm_completion_token_ceiling`` when sending requests. Set via
     ``LOCAL_LLM_MAX_TOKENS``."""
 
-    local_llm_completion_token_ceiling: int = 4096
+    local_llm_completion_token_ceiling: int = 8192
     """Hard cap on ``max_tokens`` sent to the local OpenAI-compatible server.
-    mlx-openai-server rejects values above 4096 with HTTP 422. Other servers
-    can raise this if they allow larger generation budgets. Set via
+    Ollama (the recommended backend) supports full context lengths; 8192 is a
+    safe default for a 35B 4-bit model. If you still use mlx-openai-server,
+    lower this to 4096 to avoid HTTP 422 errors. Set via
     ``LOCAL_LLM_COMPLETION_TOKEN_CEILING``."""
 
     local_llm_max_system_chars: int = 6000
     """Max characters for the system prompt when using the local LLM. Truncates
     role + cognitive arch so small models get a digest. Set via
     ``LOCAL_LLM_MAX_SYSTEM_CHARS``."""
+
+    # ── Per-usecase overrides (Phase 3: two models, purpose-matched) ─────────
+    # When LiteLLM Proxy is in use, set these to different model names so the
+    # proxy routes planning calls to the large model and agent tool calls to the
+    # fast model.  When unset, fall back to LOCAL_LLM_BASE_URL / LOCAL_LLM_MODEL.
+
+    local_llm_base_url_plan: str = ""
+    """Base URL override for planning/streaming calls (Phase 1A YAML generation).
+    When set, overrides ``local_llm_base_url`` for ``completion_stream`` calls.
+    Useful when the 35B planning model is on a different port than the agent
+    tool-call model.  Leave empty to share one endpoint.  Set via
+    ``LOCAL_LLM_BASE_URL_PLAN``."""
+
+    local_llm_model_plan: str = ""
+    """Model name override for planning/streaming calls (Phase 1A).
+    When set, overrides ``local_llm_model`` so LiteLLM Proxy can route to the
+    large (35B) model instance.  Leave empty to use ``LOCAL_LLM_MODEL``.
+    Set via ``LOCAL_LLM_MODEL_PLAN``."""
+
+    local_llm_base_url_agent: str = ""
+    """Base URL override for agent tool-call turns.
+    When set, overrides ``local_llm_base_url`` for ``completion_with_tools``
+    calls.  Useful when the 8B agent model is on a different port.  Leave
+    empty to share one endpoint.  Set via ``LOCAL_LLM_BASE_URL_AGENT``."""
+
+    local_llm_model_agent: str = ""
+    """Model name override for agent tool-call turns.
+    When set, overrides ``local_llm_model`` so LiteLLM Proxy can route to the
+    fast (8B) model instance.  Leave empty to use ``LOCAL_LLM_MODEL``.
+    Set via ``LOCAL_LLM_MODEL_AGENT``."""
+
+    @property
+    def effective_local_base_url_plan(self) -> str:
+        """Base URL for planning/streaming calls (falls back to local_llm_base_url)."""
+        return (self.local_llm_base_url_plan or self.local_llm_base_url).rstrip("/")
+
+    @property
+    def effective_local_model_plan(self) -> str:
+        """Model name for planning/streaming calls (falls back to local_llm_model)."""
+        return self.local_llm_model_plan or self.local_llm_model
+
+    @property
+    def effective_local_base_url_agent(self) -> str:
+        """Base URL for agent tool-call turns (falls back to local_llm_base_url)."""
+        return (self.local_llm_base_url_agent or self.local_llm_base_url).rstrip("/")
+
+    @property
+    def effective_local_model_agent(self) -> str:
+        """Model name for agent tool-call turns (falls back to local_llm_model)."""
+        return self.local_llm_model_agent or self.local_llm_model
 
     github_token: str = ""
     """GitHub Personal Access Token for GitHub API calls and the GitHub MCP server.
