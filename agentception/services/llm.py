@@ -1234,6 +1234,8 @@ def _local_completion_payload(
         "temperature": temperature,
         "max_tokens": capped,
         "stream": stream,
+        "repetition_penalty": 1.1,
+        "frequency_penalty": 0.3,
     }
     if settings.local_llm_model:
         payload["model"] = settings.local_llm_model
@@ -1275,6 +1277,71 @@ async def call_local_completion(
     return _normalize_openai_message_content(msg)
 
 
+_THINK_OPEN = "<think>"
+_THINK_CLOSE = "</think>"
+
+
+async def _normalize_think_tags(
+    stream: AsyncGenerator[LLMChunk, None],
+) -> AsyncGenerator[LLMChunk, None]:
+    """Reclassify ``<think>``-tagged content as ``thinking`` chunks.
+
+    Models like Qwen3 and DeepSeek embed chain-of-thought reasoning inside
+    ``<think>...</think>`` tags in the ``content`` field.  Simpler serving
+    backends (mlx-openai-server, llama.cpp) pass these through as plain
+    ``content`` instead of mapping them to ``reasoning_content``.
+
+    This normalizer splits the stream so consumers always see a clean
+    ``thinking`` / ``content`` separation regardless of model or server.
+    Non-content chunks and content without ``<think>`` tags pass through
+    unchanged.
+    """
+    in_think = False
+    buf = ""
+
+    async for chunk in stream:
+        if chunk["type"] != "content":
+            yield chunk
+            continue
+
+        buf += chunk["text"]
+
+        while True:
+            tag = _THINK_CLOSE if in_think else _THINK_OPEN
+            idx = buf.find(tag)
+            if idx < 0:
+                break
+            before = buf[:idx]
+            if before:
+                yield LLMChunk(
+                    type="thinking" if in_think else "content",
+                    text=before,
+                )
+            buf = buf[idx + len(tag):]
+            in_think = not in_think
+
+        # Emit everything safe; hold back a tail that could be a partial tag.
+        if buf:
+            tag = _THINK_CLOSE if in_think else _THINK_OPEN
+            hold = 0
+            for k in range(1, min(len(tag), len(buf)) + 1):
+                if buf[-k:] == tag[:k]:
+                    hold = k
+            safe = buf[:-hold] if hold else buf
+            if safe:
+                yield LLMChunk(
+                    type="thinking" if in_think else "content",
+                    text=safe,
+                )
+            buf = buf[-hold:] if hold else ""
+
+    if buf:
+        yield LLMChunk(
+            type="thinking" if in_think else "content",
+            text=buf,
+        )
+
+
 async def _local_completion_stream(
     system: str,
     user_message: str,
@@ -1284,68 +1351,89 @@ async def _local_completion_stream(
 ) -> AsyncGenerator[LLMChunk, None]:
     """Stream completion from local server; maps delta.content / delta.reasoning_content to LLMChunk.
 
+    Handles two thinking conventions transparently:
+    1. ``reasoning_content`` / ``reasoning`` delta fields (vLLM, SGLang) → ``thinking`` chunks.
+    2. ``<think>...</think>`` tags in ``content`` (Qwen3, DeepSeek via mlx/llama.cpp) → split
+       by :func:`_normalize_think_tags` so consumers always see clean ``thinking`` vs ``content``.
+
     If the server does not support streaming (4xx, invalid SSE, etc.), falls back
     to a single completion and yields one content chunk so the contract is always satisfied.
     """
-    url = _local_chat_url()
-    payload = _local_completion_payload(
-        system,
-        user_message,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        stream=True,
-    )
-    timeout = httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=10.0)
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            async with client.stream("POST", url, json=payload) as resp:
-                resp.raise_for_status()
-                yielded_any = False
-                async for line in resp.aiter_lines():
-                    line = line.strip()
-                    if not line or not line.startswith("data: "):
-                        continue
-                    data_str = line[6:].strip()
-                    if data_str == "[DONE]":
-                        break
-                    try:
-                        data = json.loads(data_str)
-                    except json.JSONDecodeError:
-                        continue
-                    if not isinstance(data, dict):
-                        continue
-                    choices_inner: object = data.get("choices", [])
-                    if not isinstance(choices_inner, list) or not choices_inner:
-                        continue
-                    first_inner: object = choices_inner[0]
-                    if not isinstance(first_inner, dict):
-                        continue
-                    delta: object = first_inner.get("delta", {})
-                    if not isinstance(delta, dict):
-                        continue
-                    # reasoning_content (e.g. some servers) → thinking
-                    reasoning: object = delta.get("reasoning_content") or delta.get(
-                        "reasoning"
-                    )
-                    if isinstance(reasoning, str) and reasoning:
-                        yielded_any = True
-                        yield LLMChunk(type="thinking", text=reasoning)
-                    # content → content
-                    content_part: object = delta.get("content")
-                    if isinstance(content_part, str) and content_part:
-                        yielded_any = True
-                        yield LLMChunk(type="content", text=content_part)
-                if yielded_any:
-                    return
-    except (httpx.HTTPStatusError, httpx.RequestError, ValueError) as exc:
-        logger.debug(
-            "⚠️ Local LLM stream failed, falling back to one-shot: %s", exc
+    async def _raw_sse() -> AsyncGenerator[LLMChunk, None]:
+        """Parse raw SSE deltas into LLMChunk without think-tag normalisation."""
+        url = _local_chat_url()
+        payload = _local_completion_payload(
+            system,
+            user_message,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=True,
         )
-    # Fallback: single completion, one content chunk
-    text = await call_local_completion(
-        system,
-        user_message,
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
-    yield LLMChunk(type="content", text=text)
+        # read=90s is the inter-chunk idle timeout: if the server stops sending any
+        # SSE data for 90 seconds we abort.  At 870 tok/s (typical for mlx) the
+        # gap between tokens is milliseconds; 90 s is generous enough for a cold
+        # prefill (4 s for a 4 k-token prompt) while still catching a hung server
+        # on the second request instead of waiting the original 300 s.
+        timeout = httpx.Timeout(connect=10.0, read=90.0, write=30.0, pool=10.0)
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                async with client.stream("POST", url, json=payload) as resp:
+                    resp.raise_for_status()
+                    yielded_any = False
+                    async for line in resp.aiter_lines():
+                        line = line.strip()
+                        if not line or not line.startswith("data: "):
+                            continue
+                        data_str = line[6:].strip()
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            data = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+                        if not isinstance(data, dict):
+                            continue
+                        choices_inner: object = data.get("choices", [])
+                        if not isinstance(choices_inner, list) or not choices_inner:
+                            continue
+                        first_inner: object = choices_inner[0]
+                        if not isinstance(first_inner, dict):
+                            continue
+                        delta: object = first_inner.get("delta", {})
+                        if not isinstance(delta, dict):
+                            continue
+                        reasoning: object = delta.get("reasoning_content") or delta.get(
+                            "reasoning"
+                        )
+                        if isinstance(reasoning, str) and reasoning:
+                            yielded_any = True
+                            yield LLMChunk(type="thinking", text=reasoning)
+                        content_part: object = delta.get("content")
+                        if isinstance(content_part, str) and content_part:
+                            yielded_any = True
+                            yield LLMChunk(type="content", text=content_part)
+                    if yielded_any:
+                        return
+        except httpx.ReadTimeout:
+            logger.warning(
+                "⚠️ Local LLM stream idle for >90 s — server may be stuck; "
+                "falling back to one-shot completion"
+            )
+        except (httpx.HTTPStatusError, httpx.RequestError, ValueError) as exc:
+            logger.debug("⚠️ Local LLM stream failed, falling back to one-shot: %s", exc)
+        try:
+            text = await call_local_completion(
+                system,
+                user_message,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        except httpx.ReadTimeout:
+            raise RuntimeError(
+                "Local LLM server did not respond within 60 s on the one-shot "
+                "fallback. The server may be stuck — restart it and try again."
+            ) from None
+        yield LLMChunk(type="content", text=text)
+
+    async for chunk in _normalize_think_tags(_raw_sse()):
+        yield chunk

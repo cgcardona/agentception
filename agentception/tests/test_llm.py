@@ -4,6 +4,7 @@ Covers:
 - completion_with_tools branches on effective_llm_provider (local vs anthropic).
 - completion and completion_stream branch on effective_llm_provider.
 - Local adapter: OpenAI content normalization, streaming with fallback.
+- _normalize_think_tags: <think> tag splitting for model-agnostic thinking/content.
 
 Run targeted:
     pytest agentception/tests/test_llm.py -v
@@ -11,11 +12,13 @@ Run targeted:
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from agentception.config import LLMProviderChoice
+from agentception.services.llm import LLMChunk, _normalize_think_tags
 
 
 # ---------------------------------------------------------------------------
@@ -207,3 +210,90 @@ async def test_local_completion_stream_fallback_when_stream_fails() -> None:
         assert len(chunks) == 1
         assert chunks[0]["type"] == "content"
         assert chunks[0]["text"] == fallback_text
+
+
+# ---------------------------------------------------------------------------
+# _normalize_think_tags — model-agnostic <think> tag splitting
+# ---------------------------------------------------------------------------
+
+
+async def _chunks_from(items: list[LLMChunk]) -> AsyncGenerator[LLMChunk, None]:
+    """Helper: yield LLMChunks from a list."""
+    for item in items:
+        yield item
+
+
+async def _collect(stream: AsyncGenerator[LLMChunk, None]) -> list[LLMChunk]:
+    """Collect all chunks from an async generator."""
+    return [c async for c in stream]
+
+
+@pytest.mark.anyio
+async def test_think_tags_split_thinking_and_content() -> None:
+    """<think>...</think> content is reclassified as thinking; rest is content."""
+    raw = [LLMChunk(type="content", text="<think>reasoning</think>YAML output")]
+    result = await _collect(_normalize_think_tags(_chunks_from(raw)))
+    types = [c["type"] for c in result]
+    assert types == ["thinking", "content"]
+    assert result[0]["text"] == "reasoning"
+    assert result[1]["text"] == "YAML output"
+
+
+@pytest.mark.anyio
+async def test_think_tags_no_tags_passthrough() -> None:
+    """Content without <think> tags passes through unchanged."""
+    raw = [LLMChunk(type="content", text="initiative: foo\nphases: []")]
+    result = await _collect(_normalize_think_tags(_chunks_from(raw)))
+    assert len(result) == 1
+    assert result[0]["type"] == "content"
+    assert result[0]["text"] == "initiative: foo\nphases: []"
+
+
+@pytest.mark.anyio
+async def test_think_tags_preserves_thinking_type_chunks() -> None:
+    """Chunks already typed as thinking pass through without double-processing."""
+    raw = [
+        LLMChunk(type="thinking", text="already classified"),
+        LLMChunk(type="content", text="YAML here"),
+    ]
+    result = await _collect(_normalize_think_tags(_chunks_from(raw)))
+    assert result[0] == LLMChunk(type="thinking", text="already classified")
+    assert result[1] == LLMChunk(type="content", text="YAML here")
+
+
+@pytest.mark.anyio
+async def test_think_tags_split_across_chunks() -> None:
+    """<think> tag split across two content chunks is handled correctly."""
+    raw = [
+        LLMChunk(type="content", text="<think>start of thinking"),
+        LLMChunk(type="content", text=" more thinking</think>real content"),
+    ]
+    result = await _collect(_normalize_think_tags(_chunks_from(raw)))
+    thinking_text = "".join(c["text"] for c in result if c["type"] == "thinking")
+    content_text = "".join(c["text"] for c in result if c["type"] == "content")
+    assert "start of thinking" in thinking_text
+    assert "more thinking" in thinking_text
+    assert content_text == "real content"
+
+
+@pytest.mark.anyio
+async def test_think_tags_multiline_qwen_style() -> None:
+    """Typical Qwen3 output: <think>\\n...\\n</think>\\n\\nYAML."""
+    raw = [
+        LLMChunk(
+            type="content",
+            text=(
+                "<think>\nLet me plan this carefully.\n"
+                "I need 2 phases.\n</think>\n\n"
+                "initiative: my-plan\nphases: []"
+            ),
+        ),
+    ]
+    result = await _collect(_normalize_think_tags(_chunks_from(raw)))
+    types = [c["type"] for c in result]
+    assert "thinking" in types
+    assert "content" in types
+    content_text = "".join(c["text"] for c in result if c["type"] == "content")
+    assert "initiative: my-plan" in content_text
+    thinking_text = "".join(c["text"] for c in result if c["type"] == "thinking")
+    assert "Let me plan" in thinking_text

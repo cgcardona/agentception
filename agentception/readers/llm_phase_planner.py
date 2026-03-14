@@ -18,6 +18,7 @@ calls ``plan_get_labels()`` and similar tools as it files GitHub issues.
 """
 
 import logging
+import re
 from pathlib import Path
 
 import yaml as _yaml
@@ -48,27 +49,19 @@ logger = logging.getLogger(__name__)
 _IDENTITY = """\
 ## Identity
 
-You think the way Dijkstra thought about shortest paths: everything is a node,
-every hard dependency is a directed edge, and your only job is to find the
-critical path and eliminate it as fast as possible.
+You are a decisive planning engine. Read the input, produce the plan, stop.
 
-Your single obsession: **What is the minimum number of phases needed to deliver
-this work safely, in the right order, with maximum parallelism within each phase?**
+Every issue you output is executed verbatim by an autonomous AI agent — a git
+branch, an implementation, a PR, a merge. Be specific, be concrete, be done.
 
-You do not gold-plate plans. You do not invent work. You do not pad phases.
-You extract signal from the user's input and impose order on it.
+## Rules
 
-**The stakes:** every issue you produce is executed verbatim by an autonomous AI
-agent — a git branch, an implementation, a PR, a merge. Vague issues produce
-wrong code. Invented issues waste real compute. Over-sequenced phases serialize
-work that could ship in parallel. Get the structure right the first time.
-
-## Parallelism rule
-
-Issues within a phase are parallel by default. A `depends_on` at the issue level
-is the only thing that serializes two issues — use it only for hard data or API
-dependencies (e.g. a model must exist before a route that queries it). Never use
-`depends_on` for stylistic preference or convenience.
+- Read the user's input once. Decide the phases and issues. Output the YAML. Do
+  not reconsider, do not output alternatives, do not restart.
+- Issues within a phase run in parallel. Use `depends_on` only for hard data or
+  API dependencies (e.g. a model must exist before a route that queries it).
+- Do not invent work the user did not mention.
+- Do not pad phases. One phase is fine. Six is fine. Match the work.
 """
 
 # ---------------------------------------------------------------------------
@@ -77,17 +70,10 @@ dependencies (e.g. a model must exist before a route that queries it). Never use
 
 _YAML_SYSTEM_PROMPT = _IDENTITY + """\
 
-## Output format: PlanSpec YAML -- STRICT
+## Output format: PlanSpec YAML
 
-You are producing the COMPLETE plan specification. Every issue title and body
-you write will be created verbatim as a GitHub issue and executed by an
-autonomous AI agent with no human review. Write as if you are writing the
-actual GitHub issue — not a summary of it.
-
-Return ONLY valid YAML — no explanation, no markdown fences (no ```), no
-preamble. The response is passed directly to yaml.safe_load() and then
-PlanSpec.model_validate(). Any extra key, wrong type, or missing required
-field raises an exception and the entire plan is rejected.
+Your entire response is passed to yaml.safe_load() then PlanSpec.model_validate().
+Return ONLY valid YAML. No prose, no explanation, no markdown fences, no preamble.
 
 ## Phase naming
 
@@ -224,40 +210,20 @@ depends_on (issue level)
   Issue IDs (not titles) this issue waits for. Use sparingly — only for hard
   data or API dependencies. Reference only IDs defined earlier. Never self-reference.
 
-## Anti-patterns -- never do these
+## Validation constraints (any violation rejects the plan)
 
-- Do NOT use the initiative slug as the top-level YAML key.
-  WRONG:
-    tech-debt-sprint:
-      phases: ...
-  RIGHT:
-    initiative: tech-debt-sprint
-    phases: ...
-- Do NOT emit an empty phase.
-- Do NOT invent tasks the user did not mention.
-- Do NOT add markdown fences around the YAML output.
-- Do NOT write vague bodies. Every section must be specific and actionable.
-- Do NOT write 'TBD' or 'see description' in any section.
-- Do NOT reuse the same issue id twice.
-- Do NOT make issue depends_on reference a title — reference the id field only.
-- Do NOT make depends_on reference an id that does not exist in this plan, or
-  an id defined later in the plan (forward references). Only reference ids
-  that appear earlier in the YAML.
-- Do NOT omit any of the seven body sections, even if the content is brief.
-- Do NOT reorder the seven body sections — they must appear in this exact order:
-  ## Context, ## Objective, ## Implementation notes, ## Acceptance criteria,
-  ## Test coverage, ## Documentation, ## Out of scope.
-- Do NOT use bare phase-N labels (phase-0, phase-1). Always use {N}-{slug}.
-- Do NOT omit cognitive_arch from any issue. It is required on every issue.
-- Do NOT omit coordinator_arch from the plan. It is required at the top level.
-- Do NOT write a phase description longer than 100 characters. This is a hard
-  validation limit — exceeding it rejects the entire plan.
+- Top-level keys are `initiative`, `coordinator_arch`, `phases` — never nest phases under the initiative slug.
+- Every phase has at least one issue. No empty phases.
+- Phase labels use `{N}-{slug}` format (e.g. `0-foundation`), not bare `phase-0`.
+- Phase descriptions are 100 characters max.
+- Issue IDs are unique across the plan. `depends_on` references IDs only (not titles), and only IDs defined earlier (no forward references).
+- Every issue includes all seven body sections in order: Context, Objective, Implementation notes, Acceptance criteria, Test coverage, Documentation, Out of scope.
+- Every issue has `cognitive_arch`. The plan has `coordinator_arch`.
+- No markdown fences around the output.
 
-## CRITICAL: always output YAML -- no exceptions
+## Vague input
 
-You MUST output valid YAML regardless of how vague or short the input is.
-You MUST NOT ask for clarification. You MUST NOT output prose.
-If the input is too vague to extract real tasks, produce a minimal valid plan:
+If the input is too vague, output a minimal valid plan (never refuse, never ask for clarification):
 
 initiative: clarify-and-scope
 coordinator_arch:
@@ -474,6 +440,63 @@ def _build_yaml_system_prompt() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Fallback plan when LLM returns prose or no valid YAML (never push back)
+# ---------------------------------------------------------------------------
+
+_FALLBACK_CLARIFY_PLAN_YAML = """\
+initiative: clarify-and-scope
+coordinator_arch:
+  cto: margaret_hamilton:python
+  engineering-coordinator: linus_torvalds:python
+phases:
+  - label: 0-scope
+    description: "Define project scope and requirements"
+    depends_on: []
+    issues:
+      - id: clarify-and-scope-p0-001
+        title: "Define project scope and requirements"
+        skills: [python]
+        cognitive_arch: guido_van_rossum:python
+        body: |
+          ## Context
+          The project brief was too vague to extract concrete tasks.
+
+          ## Objective
+          Work with the team to define concrete scope, deliverables, and constraints.
+
+          ## Implementation notes
+          - Schedule a scope definition session.
+          - Document decisions in the project wiki.
+
+          ## Acceptance criteria
+          - [ ] Scope document approved by stakeholders.
+          - [ ] At least three concrete deliverables identified.
+
+          ## Test coverage
+          None required — this is a planning issue.
+
+          ## Documentation
+          Create initial project scope document.
+
+          ## Out of scope
+          Any implementation work until scope is approved.
+        depends_on: []
+"""
+
+
+def get_fallback_plan_spec() -> PlanSpec:
+    """Return the minimal clarify-and-scope PlanSpec when the LLM returns prose or no valid YAML.
+
+    We never push back with an error: if the model does not produce valid YAML,
+    we load this fallback so the user always gets a valid plan they can edit.
+    """
+    data: object = _yaml.safe_load(_FALLBACK_CLARIFY_PLAN_YAML)
+    if not isinstance(data, dict):
+        raise RuntimeError("Fallback plan YAML is invalid")
+    return PlanSpec.model_validate(data)
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -488,6 +511,33 @@ def _strip_fences(raw: str) -> str:
             inner = inner.rstrip()[:-3].rstrip()
         return inner.strip()
     return raw
+
+
+_FENCED_YAML_RE: re.Pattern[str] = re.compile(
+    r"```(?:ya?ml)?\s*\n(.*?)```", re.DOTALL
+)
+
+
+def _extract_yaml_from_mixed(text: str) -> str | None:
+    """Find a YAML plan inside text that mixes prose and code fences.
+
+    Local models (e.g. Qwen via mlx-openai-server) send thinking and content
+    in the same ``content`` stream.  When the accumulated buffer starts with
+    prose, ``_strip_fences`` returns it unchanged and parsing fails.
+
+    This function tries two strategies:
+    1. Extract the content of the first fenced code block (```yaml ... ```).
+    2. Find the first line starting with ``initiative:`` and take from there.
+
+    Returns the extracted YAML string, or None if nothing looks like a plan.
+    """
+    m = _FENCED_YAML_RE.search(text)
+    if m:
+        return m.group(1).strip()
+    for i, line in enumerate(text.splitlines()):
+        if line.lstrip().startswith("initiative:"):
+            return "\n".join(text.splitlines()[i:]).strip()
+    return None
 
 
 # ---------------------------------------------------------------------------
