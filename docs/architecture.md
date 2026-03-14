@@ -323,6 +323,7 @@ Five mechanisms in `agentception/services/agent_loop.py` keep the context window
 ## Further Reading
 
 - [Plan Spec format](plan-spec.md)
+- [Plan-scoped integration branch](architecture/plan-scoped-integration-branch.md)
 - [Agent tree protocol](agent-tree-protocol.md)
 - [Cursor-Free Agent Loop](guides/agent-loop.md)
 - [MCP integration guide](guides/mcp.md)

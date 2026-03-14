@@ -104,11 +104,12 @@ class SiblingRunRow(TypedDict):
 
 
 
-class AgentRunTeardownRow(TypedDict):
+class AgentRunTeardownRow(TypedDict, total=False):
     """Minimal agent run fields needed to tear down a worktree after completion."""
 
     worktree_path: str | None
     branch: str | None
+    plan_branch: str | None
 
 
 
@@ -616,7 +617,8 @@ class RunContextRow(TypedDict):
     spawned_at: str
     last_activity_at: str | None
     completed_at: str | None
-
+    pr_base_branch: str | None
+    """When set (plan-scoped run), open the PR against this branch instead of dev."""
 
 
 class StatusCountRow(TypedDict):

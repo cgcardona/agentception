@@ -33,7 +33,11 @@ from collections.abc import AsyncGenerator, Coroutine
 from typing import Literal, TypedDict
 
 from agentception.config import settings as _cfg
-from agentception.db.persist import persist_initiative_phases, persist_issue_depends_on
+from agentception.db.persist import (
+    persist_initiative_phases,
+    persist_issue_depends_on,
+    persist_plan_issues,
+)
 from agentception.models import PlanIssue, PlanSpec
 from agentception.readers.github import add_label_to_issue, ensure_label_exists
 from agentception.readers.plan_enricher import enrich_plan_with_codebase_context
@@ -473,6 +477,8 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
             for idx, p in enumerate(spec.phases)
         ],
     )
+
+    await persist_plan_issues(repo=repo, plan_id=batch_id, issue_numbers=[c["number"] for c in created])
 
     yield DoneEvent(
         t="done",

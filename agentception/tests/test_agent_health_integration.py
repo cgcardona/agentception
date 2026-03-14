@@ -72,6 +72,7 @@ def _make_run_context_row(
         spawned_at=spawned_at or now_iso,
         last_activity_at=last_activity_at,
         completed_at=None,
+        pr_base_branch=None,
     )
 
 

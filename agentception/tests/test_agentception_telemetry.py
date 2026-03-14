@@ -59,6 +59,7 @@ def _make_run(
         spawned_at=ts,
         last_activity_at=None,
         completed_at=None,
+        pr_base_branch=None,
     )
 
 

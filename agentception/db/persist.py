@@ -40,6 +40,8 @@ from agentception.db.models import (
     ACInitiativePhase,
     ACIssue,
     ACIssueWorkflowState,
+    ACPlanBranch,
+    ACPlanIssue,
     ACPipelineSnapshot,
     ACPRIssueLink,
     ACPullRequest,
@@ -1049,6 +1051,8 @@ async def persist_agent_run_dispatch(
     task_description: str | None = None,
     pr_number: int | None = None,
     prompt_variant: str | None = None,
+    plan_id: str | None = None,
+    plan_branch: str | None = None,
 ) -> None:
     """Insert an ``ACAgentRun`` row with status ``pending_launch`` at dispatch time.
 
@@ -1114,6 +1118,10 @@ async def persist_agent_run_dispatch(
                     existing.pr_number = pr_number
                 if prompt_variant is not None:
                     existing.prompt_variant = prompt_variant
+                if plan_id is not None:
+                    existing.plan_id = plan_id
+                if plan_branch is not None:
+                    existing.plan_branch = plan_branch
             else:
                 logger.warning(
                     "💾 persist_agent_run_dispatch: run_id=%r is new — inserting with status=pending_launch",
@@ -1141,6 +1149,8 @@ async def persist_agent_run_dispatch(
                         coord_fingerprint=coord_fingerprint,
                         task_description=task_description,
                         prompt_variant=prompt_variant,
+                        plan_id=plan_id,
+                        plan_branch=plan_branch,
                         spawned_at=_now(),
                         last_activity_at=_now(),
                     )
@@ -1503,6 +1513,58 @@ async def persist_initiative_phases(
         )
     except Exception as exc:
         logger.warning("⚠️  persist_initiative_phases failed (non-fatal): %s", exc)
+
+
+async def persist_plan_issues(repo: str, plan_id: str, issue_numbers: list[int]) -> None:
+    """Insert one row per issue that belongs to a plan (filing batch).
+
+    Called by ``file_issues`` after ``persist_initiative_phases`` so we know
+    which issues are in the plan for plan-scoped dispatch and "last issue merged"
+    detection.  Best-effort — swallows exceptions.
+    """
+    if not issue_numbers:
+        return
+    try:
+        async with get_session() as session:
+            for num in issue_numbers:
+                session.add(
+                    ACPlanIssue(plan_id=plan_id, repo=repo, issue_number=num)
+                )
+            await session.commit()
+        logger.info(
+            "✅ persist_plan_issues: plan_id=%s repo=%s — %d issues",
+            plan_id, repo, len(issue_numbers),
+        )
+    except Exception as exc:
+        logger.warning("⚠️  persist_plan_issues failed (non-fatal): %s", exc)
+
+
+async def persist_plan_branch(plan_id: str, repo: str, branch_name: str) -> None:
+    """Record the integration branch for a plan (created on first dispatch).
+
+    Idempotent: if a row exists for (plan_id, repo), it is updated to the given
+    branch_name.  Best-effort — swallows exceptions.
+    """
+    try:
+        async with get_session() as session:
+            existing = (
+                await session.execute(
+                    select(ACPlanBranch).where(
+                        ACPlanBranch.plan_id == plan_id,
+                        ACPlanBranch.repo == repo,
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing:
+                existing.branch_name = branch_name
+            else:
+                session.add(
+                    ACPlanBranch(plan_id=plan_id, repo=repo, branch_name=branch_name)
+                )
+            await session.commit()
+        logger.info("✅ persist_plan_branch: plan_id=%s branch=%s", plan_id, branch_name)
+    except Exception as exc:
+        logger.warning("⚠️  persist_plan_branch failed (non-fatal): %s", exc)
 
 
 async def reseed_missing_initiative_phases(repo: str) -> None:

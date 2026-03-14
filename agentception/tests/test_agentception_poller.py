@@ -71,6 +71,7 @@ def _make_worktree(issue_number: int | None = None, branch: str | None = None) -
         spawned_at="2024-01-01T00:00:00",
         last_activity_at=None,
         completed_at=None,
+        pr_base_branch=None,
     )
 
 
@@ -303,6 +304,7 @@ async def test_stuck_agent_alert_detected(tmp_path: Path) -> None:
             spawned_at="2024-01-01T00:00:00",
             last_activity_at=None,
             completed_at=None,
+            pr_base_branch=None,
         )
     ]
     board = _empty_board()
@@ -353,6 +355,7 @@ async def test_stall_detection_primary_signal_cold_heartbeat(tmp_path: Path) -> 
             spawned_at="2024-01-01T00:00:00",
             last_activity_at=stale_iso,
             completed_at=None,
+            pr_base_branch=None,
         )
     ]
     board = _empty_board()
@@ -413,6 +416,7 @@ async def test_stall_detection_no_stall_when_heartbeat_warm(tmp_path: Path) -> N
             spawned_at="2024-01-01T00:00:00",
             last_activity_at=recent_iso,
             completed_at=None,
+            pr_base_branch=None,
         )
     ]
     board = _empty_board()
@@ -571,6 +575,7 @@ async def test_merge_agents_passes_pr_number_from_task_file() -> None:
         spawned_at="2024-01-01T00:00:00",
         last_activity_at=None,
         completed_at=None,
+        pr_base_branch=None,
     )
     board = GitHubBoard(
         active_label=None,
