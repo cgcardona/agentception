@@ -445,7 +445,8 @@ def test_agent_max_iterations_default() -> None:
     assert s.agent_max_iterations == 100
 
 
-def test_ac_min_turn_delay_secs_default() -> None:
+def test_ac_min_turn_delay_secs_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("AC_MIN_TURN_DELAY_SECS", raising=False)
     s = AgentCeptionSettings()
     assert s.ac_min_turn_delay_secs == 0.5
 

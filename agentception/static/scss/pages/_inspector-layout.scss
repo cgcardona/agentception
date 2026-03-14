@@ -1890,3 +1890,29 @@ $preset-accents: (
   flex: 1 1 auto;
 }
 
+// ── Start agent block (pending_launch state) ──────────────────────────────────
+
+.build-inspector__start-agent {
+  margin-bottom: 0.75rem;
+
+  &-text {
+    margin: 0 0 0.5rem;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+  }
+
+  &-btn {
+    padding: 0.4rem 0.75rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--bg-base);
+    background: var(--text-primary);
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+
+    &:hover:not(:disabled) { background: var(--text-secondary); }
+    &:disabled { opacity: 0.7; cursor: not-allowed; }
+  }
+}
+
