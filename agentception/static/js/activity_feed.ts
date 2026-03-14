@@ -73,6 +73,40 @@ export function formatActivitySummary(subtype: string, payload: Record<string, u
   }
 }
 
+/**
+ * Map activity subtype to icon character.
+ * Pure function with switch statement for explicit subtype mapping.
+ */
+export function getSubtypeIcon(subtype: string): string {
+  switch (subtype) {
+    case 'llm_iter':
+    case 'llm_usage':
+    case 'llm_reply':
+    case 'llm_done':
+      return '🧠';
+    case 'tool_invoked':
+    case 'github_tool':
+      return '⚙️';
+    case 'file_read':
+      return '👁️';
+    case 'file_replaced':
+    case 'file_inserted':
+    case 'file_written':
+      return '✏️';
+    case 'shell_start':
+    case 'shell_done':
+      return '$';
+    case 'git_push':
+      return '⬆️';
+    case 'delay':
+      return '⏳';
+    case 'error':
+      return '❌';
+    default:
+      return '•';
+  }
+}
+
 /** Format recorded_at (ISO8601) to HH:MM:SS. */
 function formatTime(recordedAt: string): string {
   try {
@@ -101,7 +135,7 @@ export function appendActivityRow(msg: ActivityMessage): void {
   const icon = document.createElement('span');
   icon.className = 'activity-feed__icon';
   icon.setAttribute('aria-hidden', 'true');
-  icon.textContent = '•';
+  icon.textContent = getSubtypeIcon(msg.subtype);
 
   const summary = document.createElement('span');
   summary.className = 'activity-feed__summary';
