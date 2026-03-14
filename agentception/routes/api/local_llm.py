@@ -39,7 +39,6 @@ async def local_llm_hello() -> dict[str, str | bool]:
         reply = await completion(
             "Reply with exactly: hello world",
             system_prompt="You are a helpful assistant. Reply briefly.",
-            max_tokens=128,
         )
     except Exception as exc:
         raise HTTPException(502, detail=f"Local LLM request failed: {exc!s}") from exc

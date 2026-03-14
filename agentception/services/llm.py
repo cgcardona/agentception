@@ -998,9 +998,22 @@ def _normalize_openai_message_content(message: dict[str, object]) -> str:
     - If content is a list of parts (e.g. [{"type": "text", "text": "..."}] or
       reasoning + text), concatenate only non-reasoning text parts so the
       returned string is the final answer.
+
+    Emits a warning when content is empty but a ``reasoning`` field is present
+    (Ollama/Qwen3 non-streaming format), which indicates the token budget was
+    exhausted during chain-of-thought before the model could write its answer.
+    Raise ``LOCAL_LLM_COMPLETION_TOKEN_CEILING`` to fix.
     """
     raw: object = message.get("content")
-    if raw is None:
+    if raw is None or raw == "":
+        reasoning: object = message.get("reasoning")
+        if isinstance(reasoning, str) and reasoning:
+            logger.warning(
+                "⚠️ Local LLM returned empty content with non-empty reasoning — "
+                "token budget exhausted during chain-of-thought. "
+                "Raise LOCAL_LLM_COMPLETION_TOKEN_CEILING (currently %d).",
+                settings.local_llm_completion_token_ceiling,
+            )
         return ""
     if isinstance(raw, str):
         return raw.strip()
@@ -1072,9 +1085,6 @@ async def call_local_with_tools(
         "messages": request_messages,
         "temperature": temperature,
         "max_tokens": _local_cap_max_tokens(max_tokens),
-        # Disable Ollama/Qwen3 thinking mode for tool-call turns: agent decisions
-        # are short and latency-sensitive; CoT tokens are wasted here.
-        "think": False,
     }
     if tools:
         payload["tools"] = _tools_to_openai(tools)
@@ -1236,11 +1246,11 @@ def _local_completion_payload(
     changing the global ``LOCAL_LLM_MODEL`` setting.  When empty, falls back
     to ``settings.local_llm_model``.
 
-    ``think`` controls Ollama's chain-of-thought mode for Qwen3-family models.
-    When ``False`` (default), ``"think": false`` is sent so the model outputs
-    its answer directly into ``content`` without spending tokens on CoT.  Set
-    to ``True`` for planning/streaming calls where reasoning quality matters
-    more than latency.  Ignored by backends that do not recognise the field.
+    ``think`` is reserved for future use when Ollama properly honours the
+    ``"think": false`` field to skip CoT for Qwen3-family models.  Currently
+    Ollama ignores it; the field is included in the payload anyway so the
+    intent is visible and the behaviour will improve automatically when Ollama
+    adds support.  Set ``think=True`` for planning/streaming calls.
     """
     capped = _local_cap_max_tokens(max_tokens)
     payload: dict[str, object] = {
