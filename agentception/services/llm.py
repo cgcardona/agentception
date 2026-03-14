@@ -1072,6 +1072,9 @@ async def call_local_with_tools(
         "messages": request_messages,
         "temperature": temperature,
         "max_tokens": _local_cap_max_tokens(max_tokens),
+        # Disable Ollama/Qwen3 thinking mode for tool-call turns: agent decisions
+        # are short and latency-sensitive; CoT tokens are wasted here.
+        "think": False,
     }
     if tools:
         payload["tools"] = _tools_to_openai(tools)
@@ -1224,6 +1227,7 @@ def _local_completion_payload(
     max_tokens: int = 128,
     stream: bool = False,
     model_override: str = "",
+    think: bool = False,
 ) -> dict[str, object]:
     """Build request body for local single-turn completion (no tools).
 
@@ -1231,6 +1235,12 @@ def _local_completion_payload(
     (e.g. the large 35B planning model vs the fast 8B agent model) without
     changing the global ``LOCAL_LLM_MODEL`` setting.  When empty, falls back
     to ``settings.local_llm_model``.
+
+    ``think`` controls Ollama's chain-of-thought mode for Qwen3-family models.
+    When ``False`` (default), ``"think": false`` is sent so the model outputs
+    its answer directly into ``content`` without spending tokens on CoT.  Set
+    to ``True`` for planning/streaming calls where reasoning quality matters
+    more than latency.  Ignored by backends that do not recognise the field.
     """
     capped = _local_cap_max_tokens(max_tokens)
     payload: dict[str, object] = {
@@ -1242,6 +1252,7 @@ def _local_completion_payload(
         "max_tokens": capped,
         "stream": stream,
         "frequency_penalty": 0.3,
+        "think": think,
     }
     model = model_override or settings.local_llm_model
     if model:
@@ -1391,6 +1402,7 @@ async def _local_completion_stream(
             max_tokens=max_tokens,
             stream=True,
             model_override=plan_model,
+            think=True,
         )
         # read=90s is the inter-chunk idle timeout: if the server stops sending any
         # SSE data for 90 seconds we abort.  At 870 tok/s (typical for Ollama) the
