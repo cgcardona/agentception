@@ -998,9 +998,22 @@ def _normalize_openai_message_content(message: dict[str, object]) -> str:
     - If content is a list of parts (e.g. [{"type": "text", "text": "..."}] or
       reasoning + text), concatenate only non-reasoning text parts so the
       returned string is the final answer.
+
+    Emits a warning when content is empty but a ``reasoning`` field is present
+    (Ollama/Qwen3 non-streaming format), which indicates the token budget was
+    exhausted during chain-of-thought before the model could write its answer.
+    Raise ``LOCAL_LLM_COMPLETION_TOKEN_CEILING`` to fix.
     """
     raw: object = message.get("content")
-    if raw is None:
+    if raw is None or raw == "":
+        reasoning: object = message.get("reasoning")
+        if isinstance(reasoning, str) and reasoning:
+            logger.warning(
+                "⚠️ Local LLM returned empty content with non-empty reasoning — "
+                "token budget exhausted during chain-of-thought. "
+                "Raise LOCAL_LLM_COMPLETION_TOKEN_CEILING (currently %d).",
+                settings.local_llm_completion_token_ceiling,
+            )
         return ""
     if isinstance(raw, str):
         return raw.strip()
@@ -1224,6 +1237,7 @@ def _local_completion_payload(
     max_tokens: int = 128,
     stream: bool = False,
     model_override: str = "",
+    think: bool = False,
 ) -> dict[str, object]:
     """Build request body for local single-turn completion (no tools).
 
@@ -1231,6 +1245,12 @@ def _local_completion_payload(
     (e.g. the large 35B planning model vs the fast 8B agent model) without
     changing the global ``LOCAL_LLM_MODEL`` setting.  When empty, falls back
     to ``settings.local_llm_model``.
+
+    ``think`` is reserved for future use when Ollama properly honours the
+    ``"think": false`` field to skip CoT for Qwen3-family models.  Currently
+    Ollama ignores it; the field is included in the payload anyway so the
+    intent is visible and the behaviour will improve automatically when Ollama
+    adds support.  Set ``think=True`` for planning/streaming calls.
     """
     capped = _local_cap_max_tokens(max_tokens)
     payload: dict[str, object] = {
@@ -1242,6 +1262,7 @@ def _local_completion_payload(
         "max_tokens": capped,
         "stream": stream,
         "frequency_penalty": 0.3,
+        "think": think,
     }
     model = model_override or settings.local_llm_model
     if model:
@@ -1391,6 +1412,7 @@ async def _local_completion_stream(
             max_tokens=max_tokens,
             stream=True,
             model_override=plan_model,
+            think=True,
         )
         # read=90s is the inter-chunk idle timeout: if the server stops sending any
         # SSE data for 90 seconds we abort.  At 870 tok/s (typical for Ollama) the
