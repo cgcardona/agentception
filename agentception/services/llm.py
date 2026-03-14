@@ -225,6 +225,7 @@ async def completion(
         return await call_local_completion(
             system_prompt or "",
             user_prompt,
+            temperature=temperature,
             max_tokens=max_tokens,
         )
     return await call_anthropic(
@@ -251,12 +252,13 @@ async def completion_stream(
     streams thinking + content.
     """
     if settings.effective_llm_provider == LLMProviderChoice.local:
-        text = await call_local_completion(
+        async for chunk in _local_completion_stream(
             system_prompt or "",
             user_prompt,
+            temperature=temperature,
             max_tokens=max_tokens,
-        )
-        yield LLMChunk(type="content", text=text)
+        ):
+            yield chunk
         return
     async for chunk in call_anthropic_stream(
         user_prompt,
@@ -981,8 +983,40 @@ async def call_anthropic_with_tools(
 
 
 # ---------------------------------------------------------------------------
-# Local OpenAI-compatible server (e.g. mlx_lm.server) — used when effective_llm_provider is local
+# Local adapter — OpenAI-compatible server (e.g. mlx_lm.server)
+# Implements the same contract as the Anthropic path: completion → str,
+# completion_stream → AsyncGenerator[LLMChunk], completion_with_tools → ToolResponse.
+# Used when settings.effective_llm_provider is local.
 # ---------------------------------------------------------------------------
+
+
+def _normalize_openai_message_content(message: dict[str, object]) -> str:
+    """Extract final answer string from OpenAI-format message.content.
+
+    Contract: adapter returns only the final answer (thinking/reasoning stripped).
+    - If content is a string, return it stripped.
+    - If content is a list of parts (e.g. [{"type": "text", "text": "..."}] or
+      reasoning + text), concatenate only non-reasoning text parts so the
+      returned string is the final answer.
+    """
+    raw: object = message.get("content")
+    if raw is None:
+        return ""
+    if isinstance(raw, str):
+        return raw.strip()
+    if not isinstance(raw, list):
+        return str(raw).strip()
+    parts: list[str] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        # Skip reasoning blocks; contract is final answer only.
+        if item.get("type") == "reasoning":
+            continue
+        text = item.get("text")
+        if isinstance(text, str) and text:
+            parts.append(text)
+    return "".join(parts).strip()
 
 
 def _tools_to_openai(tools: list[ToolDefinition]) -> list[dict[str, object]]:
@@ -1088,7 +1122,7 @@ async def call_local_with_tools(
     else:
         stop_reason = "stop"
 
-    content = str(msg.get("content") or "").strip()
+    content = _normalize_openai_message_content(msg)
     raw_calls: object = msg.get("tool_calls") or []
     tool_calls: list[ToolCall] = []
     if isinstance(raw_calls, list):
@@ -1159,29 +1193,55 @@ async def call_local_with_tools(
     )
 
 
-async def call_local_completion(
+def _local_base_url() -> str:
+    """Base URL for local adapter (no trailing slash)."""
+    return settings.local_llm_base_url.rstrip("/")
+
+
+def _local_chat_url() -> str:
+    """Full URL for chat completions."""
+    return f"{_local_base_url()}{settings.local_llm_chat_path}"
+
+
+def _local_completion_payload(
     system: str,
     user_message: str,
     *,
+    temperature: float = 0.0,
     max_tokens: int = 128,
-) -> str:
-    """Single-turn completion against the local OpenAI-compatible server (no tools).
-
-    Used by the ``GET /api/local-llm/hello`` endpoint to verify the local model
-    responds. Returns the assistant's text content.
-    """
-    base = settings.local_llm_base_url.rstrip("/")
-    url = f"{base}{settings.local_llm_chat_path}"
+    stream: bool = False,
+) -> dict[str, object]:
+    """Build request body for local single-turn completion (no tools)."""
     payload: dict[str, object] = {
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user_message},
         ],
-        "temperature": 0.0,
+        "temperature": temperature,
         "max_tokens": max_tokens,
+        "stream": stream,
     }
     if settings.local_llm_model:
         payload["model"] = settings.local_llm_model
+    return payload
+
+
+async def call_local_completion(
+    system: str,
+    user_message: str,
+    *,
+    temperature: float = 0.0,
+    max_tokens: int = 128,
+) -> str:
+    """Single-turn completion against the local OpenAI-compatible server (no tools).
+
+    Returns the assistant's text content, normalized (thinking/reasoning stripped).
+    Used by the public completion() and as fallback for completion_stream().
+    """
+    url = _local_chat_url()
+    payload = _local_completion_payload(
+        system, user_message, temperature=temperature, max_tokens=max_tokens
+    )
     timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(url, json=payload)
@@ -1195,8 +1255,83 @@ async def call_local_completion(
     first: object = choices[0]
     if not isinstance(first, dict):
         raise ValueError("Local LLM first choice not a dict")
-    msg: object = first.get("message", {})
+    msg = first.get("message", {})
     if not isinstance(msg, dict):
         raise ValueError("Local LLM message not a dict")
-    content: object = msg.get("content")
-    return str(content).strip() if content else ""
+    return _normalize_openai_message_content(msg)
+
+
+async def _local_completion_stream(
+    system: str,
+    user_message: str,
+    *,
+    temperature: float = 1.0,
+    max_tokens: int = 16000,
+) -> AsyncGenerator[LLMChunk, None]:
+    """Stream completion from local server; maps delta.content / delta.reasoning_content to LLMChunk.
+
+    If the server does not support streaming (4xx, invalid SSE, etc.), falls back
+    to a single completion and yields one content chunk so the contract is always satisfied.
+    """
+    url = _local_chat_url()
+    payload = _local_completion_payload(
+        system,
+        user_message,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        stream=True,
+    )
+    timeout = httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=10.0)
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream("POST", url, json=payload) as resp:
+                resp.raise_for_status()
+                yielded_any = False
+                async for line in resp.aiter_lines():
+                    line = line.strip()
+                    if not line or not line.startswith("data: "):
+                        continue
+                    data_str = line[6:].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        data = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(data, dict):
+                        continue
+                    choices_inner: object = data.get("choices", [])
+                    if not isinstance(choices_inner, list) or not choices_inner:
+                        continue
+                    first_inner: object = choices_inner[0]
+                    if not isinstance(first_inner, dict):
+                        continue
+                    delta: object = first_inner.get("delta", {})
+                    if not isinstance(delta, dict):
+                        continue
+                    # reasoning_content (e.g. some servers) → thinking
+                    reasoning: object = delta.get("reasoning_content") or delta.get(
+                        "reasoning"
+                    )
+                    if isinstance(reasoning, str) and reasoning:
+                        yielded_any = True
+                        yield LLMChunk(type="thinking", text=reasoning)
+                    # content → content
+                    content_part: object = delta.get("content")
+                    if isinstance(content_part, str) and content_part:
+                        yielded_any = True
+                        yield LLMChunk(type="content", text=content_part)
+                if yielded_any:
+                    return
+    except (httpx.HTTPStatusError, httpx.RequestError, ValueError) as exc:
+        logger.debug(
+            "⚠️ Local LLM stream failed, falling back to one-shot: %s", exc
+        )
+    # Fallback: single completion, one content chunk
+    text = await call_local_completion(
+        system,
+        user_message,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+    yield LLMChunk(type="content", text=text)

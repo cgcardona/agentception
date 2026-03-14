@@ -2,7 +2,7 @@
 
 **Goal:** AgentCeption should support plugging in any model (Anthropic, Qwen/local, future providers) without tight coupling. Streaming, chain-of-thought, and response shape must be in a **universal format** the rest of the app consumes. Operators should be able to swap providers via config, not code.
 
-**Status:** Phases 1–3 implemented (public API, callers wired, provider selection in config). Phase 4 (local adapter behind contract) and 5 (tests, docs) in progress.
+**Status:** Phases 1–4 implemented (public API, callers wired, provider selection, local adapter behind contract). Phase 5 (docs, deployment guide) in progress.
 
 ---
 
@@ -162,11 +162,14 @@ This gives a clean “plug in a model” story: add a new adapter and config val
 2. **Implement Anthropic adapter**  
    Move current `call_anthropic`, `call_anthropic_stream`, `call_anthropic_with_tools` behind an adapter that implements the above. No change in behavior; just call the adapter from the new public API when `LLM_PROVIDER=anthropic`.
 
-3. **Implement Local adapter**  
-   Move `call_local_plan_completion`, `call_local_with_tools`, and any plan-stream logic into a “local” adapter that:  
-   - Reads `choices[0].message.content` (string or list; if list, concatenate non-reasoning parts).  
-   - For streaming, if server supports it, stream and map `delta.content` / `delta.reasoning_content` to `LLMChunk`; otherwise do a single completion and yield one content chunk.  
-   - Optionally: use LiteLLM for the HTTP/streaming call and map its output to our Chunk/str.
+3. **Implement Local adapter** ✅  
+   Implemented: Local adapter in `agentception/services/llm.py` (same contract as Anthropic).  
+   - **Content normalization:** `_normalize_openai_message_content()` — `choices[0].message.content` as string or list of parts; reasoning parts stripped, text parts concatenated to final answer.  
+   - **Completion:** `call_local_completion()` with temperature/max_tokens; used by public `completion()` and as stream fallback.  
+   - **Streaming:** `_local_completion_stream()` — POST with `stream: true`, parse SSE, map `delta.content` / `delta.reasoning_content` to `LLMChunk`; on failure or unsupported server, fall back to one-shot and yield one content chunk.  
+   - **Tools:** `call_local_with_tools()` uses same normalizer for message content.  
+   - **Callers:** `/api/local-llm/hello` uses public `completion()`; no direct `call_local_*` outside llm.py.  
+   - Optionally (later): use LiteLLM inside the local adapter for 100+ backends.
 
 4. **Provider selection in config** ✅  
    Implemented: `LLM_PROVIDER` (env: `anthropic` | `local`, default `anthropic`) and `effective_llm_provider` (property: `USE_LOCAL_LLM=true` → local overrides). In the LLM layer, `completion`, `completion_stream`, and `completion_with_tools` branch only on `settings.effective_llm_provider`; no provider-specific logic in plan_ui, llm_phase_planner, or agent_loop.

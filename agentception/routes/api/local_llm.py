@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from agentception.config import LLMProviderChoice, settings
 from agentception.db.persist import acknowledge_agent_run, persist_agent_run_dispatch
 from agentception.services.agent_loop import run_agent_loop
-from agentception.services.llm import call_local_completion
+from agentception.services.llm import completion
 
 router = APIRouter(prefix="/local-llm", tags=["local-llm"])
 
@@ -36,9 +36,9 @@ async def local_llm_hello() -> dict[str, str | bool]:
             detail="Local LLM is disabled. Set LLM_PROVIDER=local or USE_LOCAL_LLM=true and restart.",
         )
     try:
-        reply = await call_local_completion(
-            system="You are a helpful assistant. Reply briefly.",
-            user_message="Reply with exactly: hello world",
+        reply = await completion(
+            "Reply with exactly: hello world",
+            system_prompt="You are a helpful assistant. Reply briefly.",
             max_tokens=128,
         )
     except Exception as exc:
