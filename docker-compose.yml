@@ -62,6 +62,14 @@ services:
       # Disable HuggingFace tokenizers Rust parallelism — it spawns its own
       # thread pool that stacks on top of ORT's, making contention worse.
       TOKENIZERS_PARALLELISM: "false"
+      # HOME inside the container is inherited from the host (/Users/gabriel),
+      # which makes huggingface_hub and FastEmbed resolve their cache to a host
+      # path that is not mounted in the container.  HF_HOME overrides the
+      # HOME-derived default and points to the persistent model_cache volume.
+      HF_HOME: /root/.cache/huggingface
+      # Optional: set HF_TOKEN in .env to avoid HuggingFace rate-limit warnings
+      # on model downloads and enable authenticated access to private models.
+      HF_TOKEN: ${HF_TOKEN:-}
       WORKTREE_INDEX_ENABLED: ${WORKTREE_INDEX_ENABLED:-false}
       # No Anthropic rate limits with local Ollama — remove the pacing delay.
       AC_MIN_TURN_DELAY_SECS: ${AC_MIN_TURN_DELAY_SECS:-0}
