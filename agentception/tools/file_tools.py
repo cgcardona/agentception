@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast as _ast
 import logging
 import re as _re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Union
 
@@ -49,7 +50,7 @@ def _emit_activity(
     session: Union[Session, AsyncSession],
     run_id: str,
     subtype: str,
-    payload: dict[str, object],
+    payload: Mapping[str, object],
 ) -> None:
     """Persist one activity event, catching and logging any DB error.
 
@@ -145,7 +146,7 @@ def write_file(
     logger.info("✅ write_file — %s (%d bytes)", p, bytes_written)
     # activity event — see docs/reference/activity-events.md
     if run_id is not None and session is not None:
-        payload: FileWrittenPayload = {  # type: ignore[assignment]
+        payload: FileWrittenPayload = {
             "path": _shorten_path(p, run_id),
             "byte_count": bytes_written,
         }
@@ -249,7 +250,7 @@ def replace_in_file(
     logger.info("✅ replace_in_file — %s (%d replacement(s))", p, replacements)
     # activity event — see docs/reference/activity-events.md
     if run_id is not None and session is not None:
-        rp_payload: FileReplacedPayload = {  # type: ignore[assignment]
+        rp_payload: FileReplacedPayload = {
             "path": _shorten_path(p, run_id),
             "replacement_count": replacements,
         }
@@ -315,7 +316,7 @@ def read_file_lines(
     )
     # activity event — see docs/reference/activity-events.md
     if run_id is not None and session is not None:
-        fr_payload: FileReadPayload = {  # type: ignore[assignment]
+        fr_payload: FileReadPayload = {
             "path": _shorten_path(p, run_id),
             "start_line": clamped_start,
             "end_line": clamped_end,
@@ -422,7 +423,7 @@ def insert_after_in_file(
     logger.info("✅ insert_after_in_file — %s (inserted at byte %d)", p, insert_pos)
     # activity event — see docs/reference/activity-events.md
     if run_id is not None and session is not None:
-        fi_payload: FileInsertedPayload = {  # type: ignore[assignment]
+        fi_payload: FileInsertedPayload = {
             "path": _shorten_path(p, run_id),
         }
         _emit_activity(session, run_id, "file_inserted", fi_payload)

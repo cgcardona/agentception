@@ -14,10 +14,10 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from agentception.config import settings
+from agentception.config import LLMProviderChoice, settings
 from agentception.db.persist import acknowledge_agent_run, persist_agent_run_dispatch
 from agentception.services.agent_loop import run_agent_loop
-from agentception.services.llm import call_local_completion
+from agentception.services.llm import completion
 
 router = APIRouter(prefix="/local-llm", tags=["local-llm"])
 
@@ -26,18 +26,19 @@ router = APIRouter(prefix="/local-llm", tags=["local-llm"])
 async def local_llm_hello() -> dict[str, str | bool]:
     """One-shot completion: ask the local LLM to reply 'hello world'.
 
-    Requires ``USE_LOCAL_LLM=true``. Returns the model's reply so you can
-    confirm the pipeline works without running a full developer agent.
+    Requires effective provider ``local`` (e.g. ``USE_LOCAL_LLM=true`` or
+    ``LLM_PROVIDER=local``). Returns the model's reply so you can confirm the
+    pipeline works without running a full developer agent.
     """
-    if not settings.use_local_llm:
+    if settings.effective_llm_provider != LLMProviderChoice.local:
         raise HTTPException(
             503,
-            detail="Local LLM is disabled. Set USE_LOCAL_LLM=true and restart.",
+            detail="Local LLM is disabled. Set LLM_PROVIDER=local or USE_LOCAL_LLM=true and restart.",
         )
     try:
-        reply = await call_local_completion(
-            system="You are a helpful assistant. Reply briefly.",
-            user_message="Reply with exactly: hello world",
+        reply = await completion(
+            "Reply with exactly: hello world",
+            system_prompt="You are a helpful assistant. Reply briefly.",
             max_tokens=128,
         )
     except Exception as exc:
@@ -56,12 +57,12 @@ async def local_llm_hello_agent() -> HelloAgentResponse:
 
     Creates a run with run_id ``local-hello-<uuid>``, a minimal task (no tools,
     one user message), and fires the agent loop. The agent responds with text
-    only and the run completes. Requires ``USE_LOCAL_LLM=true``.
+    only and the run completes. Requires effective provider ``local``.
     """
-    if not settings.use_local_llm:
+    if settings.effective_llm_provider != LLMProviderChoice.local:
         raise HTTPException(
             503,
-            detail="Local LLM is disabled. Set USE_LOCAL_LLM=true and restart.",
+            detail="Local LLM is disabled. Set LLM_PROVIDER=local or USE_LOCAL_LLM=true and restart.",
         )
     run_id = f"local-hello-{uuid.uuid4().hex[:8]}"
     worktree_path = str(Path(settings.worktrees_dir) / run_id)

@@ -24,6 +24,7 @@ from agentception.readers.llm_phase_planner import (
     _build_skill_ids,
     _build_yaml_system_prompt,
     _strip_fences,
+    get_fallback_plan_spec,
 )
 
 
@@ -211,14 +212,14 @@ def test_build_yaml_system_prompt_no_sentinel_remains(tmp_path: Path) -> None:
 
 
 def test_build_yaml_system_prompt_includes_identity_block() -> None:
-    """The built prompt includes the Identity block (parallelism rules, Dijkstra framing)."""
+    """The built prompt includes the Identity block (decisive planning engine, parallelism rules)."""
     with patch(
         "agentception.readers.llm_phase_planner._COGNITIVE_ARCH_SECTION", ""
     ):
         prompt = _build_yaml_system_prompt()
 
     assert "## Identity" in prompt
-    assert "Parallelism" in prompt or "parallelism" in prompt
+    assert "parallel" in prompt
 
 
 def test_build_yaml_system_prompt_is_non_empty() -> None:
@@ -229,3 +230,14 @@ def test_build_yaml_system_prompt_is_non_empty() -> None:
         prompt = _build_yaml_system_prompt()
 
     assert len(prompt) > 500, "System prompt must be substantive"
+
+
+def test_get_fallback_plan_spec_returns_clarify_and_scope() -> None:
+    """Fallback plan is valid PlanSpec with initiative clarify-and-scope, one phase, one issue."""
+    spec = get_fallback_plan_spec()
+    assert spec.initiative == "clarify-and-scope"
+    assert len(spec.phases) == 1
+    assert spec.phases[0].label == "0-scope"
+    assert len(spec.phases[0].issues) == 1
+    assert spec.phases[0].issues[0].id == "clarify-and-scope-p0-001"
+    assert "too vague" in spec.phases[0].issues[0].body

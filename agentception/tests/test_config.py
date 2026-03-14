@@ -27,7 +27,12 @@ from unittest.mock import patch
 
 import pytest
 
-from agentception.config import AgentCeptionSettings, TaskRunnerChoice, _resolve_project
+from agentception.config import (
+    AgentCeptionSettings,
+    LLMProviderChoice,
+    TaskRunnerChoice,
+    _resolve_project,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -389,4 +394,52 @@ def test_agent_max_iterations_default() -> None:
 def test_ac_min_turn_delay_secs_default() -> None:
     s = AgentCeptionSettings()
     assert s.ac_min_turn_delay_secs == 0.5
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — LLM_PROVIDER and effective_llm_provider
+# ---------------------------------------------------------------------------
+
+
+def test_effective_llm_provider_default_anthropic(tmp_path: Path) -> None:
+    """When use_local_llm is False and LLM_PROVIDER unset, effective_llm_provider is anthropic."""
+    s = AgentCeptionSettings(repo_dir=tmp_path, use_local_llm=False)
+    assert s.llm_provider == LLMProviderChoice.anthropic
+    assert s.effective_llm_provider == LLMProviderChoice.anthropic
+
+
+def test_effective_llm_provider_local_when_use_local_llm_true(tmp_path: Path) -> None:
+    """When use_local_llm is True, effective_llm_provider is local (USE_LOCAL_LLM overrides)."""
+    s = AgentCeptionSettings(repo_dir=tmp_path, use_local_llm=True)
+    assert s.effective_llm_provider == LLMProviderChoice.local
+
+
+def test_effective_llm_provider_local_via_llm_provider(tmp_path: Path) -> None:
+    """When LLM_PROVIDER=local and use_local_llm False, effective_llm_provider is local."""
+    s = AgentCeptionSettings(
+        repo_dir=tmp_path,
+        llm_provider=LLMProviderChoice.local,
+        use_local_llm=False,
+    )
+    assert s.effective_llm_provider == LLMProviderChoice.local
+
+
+def test_llm_provider_env_local(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """When LLM_PROVIDER=local in env, llm_provider parses to local."""
+    monkeypatch.setenv("LLM_PROVIDER", "local")
+    s = _make_settings(tmp_path)
+    assert s.llm_provider == LLMProviderChoice.local
+
+
+def test_llm_provider_env_anthropic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """When LLM_PROVIDER=anthropic in env, llm_provider parses to anthropic."""
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    s = _make_settings(tmp_path)
+    assert s.llm_provider == LLMProviderChoice.anthropic
+
+
+def test_local_llm_completion_token_ceiling_default(tmp_path: Path) -> None:
+    """mlx-openai-server max_tokens ceiling default matches adapter clamp."""
+    s = AgentCeptionSettings(repo_dir=tmp_path)
+    assert s.local_llm_completion_token_ceiling == 4096
 

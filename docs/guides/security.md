@@ -8,7 +8,7 @@ AgentCeption is an orchestration engine that calls external APIs, executes shell
 
 | Layer | Status | What protects it |
 |-------|--------|-----------------|
-| LLM calls (AgentCeption → Anthropic) | **Secure by default** | HTTPS; TLS enforced by httpx |
+| LLM calls (AgentCeption → Anthropic or local) | **Secure by default** | Anthropic: HTTPS via httpx. Local: traffic stays between AgentCeption and your server (no third-party LLM). |
 | AgentCeption HTTP service | **Localhost-only by default** | Docker binds to `127.0.0.1`; no public port |
 | `/api/*` routes | **Auth opt-in** | `AC_API_KEY` middleware; disabled when key is empty |
 | MCP stdio transport | **Secure by default** | No network socket; communicates over Docker exec pipe |
@@ -18,17 +18,15 @@ AgentCeption is an orchestration engine that calls external APIs, executes shell
 
 ---
 
-## LLM Communication (Anthropic)
+## LLM Communication
 
-All LLM calls are made by `agentception/services/llm.py` using `httpx` to:
+LLM calls are made by `agentception/services/llm.py` through a **provider-agnostic** API (`completion`, `completion_stream`, `completion_with_tools`). The effective provider is chosen via config (`LLM_PROVIDER` or `USE_LOCAL_LLM`); see [LLM contract and provider abstraction](../reference/llm-contract.md).
 
-```
-https://api.anthropic.com/v1/messages
-```
+**Anthropic provider (default):** All requests go to `https://api.anthropic.com/v1/messages` over HTTPS. `httpx` enforces TLS; there is no HTTP fallback. Your API key is sent in the `Authorization: Bearer <key>` header. The key is never logged.
 
-`httpx` enforces TLS by default. There is no HTTP fallback. Your API key travels inside the `Authorization: Bearer <key>` header over the encrypted channel. No LLM traffic ever leaves HTTPS.
+**Local provider:** When `LLM_PROVIDER=local` (or `USE_LOCAL_LLM=true`), all LLM traffic is between AgentCeption and your OpenAI-compatible server (e.g. MLX on the host). No data is sent to Anthropic. Use a private base URL (e.g. `http://host.docker.internal:8080`); see [Local LLM with MLX](local-llm-mlx.md).
 
-**What you must do:** Set `ANTHROPIC_API_KEY` in `docker-compose.override.yml`. The key is never logged.
+**What you must do for Anthropic:** Set `ANTHROPIC_API_KEY` when using the anthropic provider. For local, set `LLM_PROVIDER=local` and configure `LOCAL_LLM_BASE_URL` (and optional caps).
 
 ---
 

@@ -2,7 +2,7 @@
 
 **Goal:** AgentCeption should support plugging in any model (Anthropic, Qwen/local, future providers) without tight coupling. Streaming, chain-of-thought, and response shape must be in a **universal format** the rest of the app consumes. Operators should be able to swap providers via config, not code.
 
-**Status:** Planning (not yet implemented).
+**Status:** Phases 1–5 implemented. Public API, callers wired, provider selection in config, local adapter behind contract; documentation and deployment guide complete.
 
 ---
 
@@ -162,22 +162,25 @@ This gives a clean “plug in a model” story: add a new adapter and config val
 2. **Implement Anthropic adapter**  
    Move current `call_anthropic`, `call_anthropic_stream`, `call_anthropic_with_tools` behind an adapter that implements the above. No change in behavior; just call the adapter from the new public API when `LLM_PROVIDER=anthropic`.
 
-3. **Implement Local adapter**  
-   Move `call_local_plan_completion`, `call_local_with_tools`, and any plan-stream logic into a “local” adapter that:  
-   - Reads `choices[0].message.content` (string or list; if list, concatenate non-reasoning parts).  
-   - For streaming, if server supports it, stream and map `delta.content` / `delta.reasoning_content` to `LLMChunk`; otherwise do a single completion and yield one content chunk.  
-   - Optionally: use LiteLLM for the HTTP/streaming call and map its output to our Chunk/str.
+3. **Implement Local adapter** ✅  
+   Implemented: Local adapter in `agentception/services/llm.py` (same contract as Anthropic).  
+   - **Content normalization:** `_normalize_openai_message_content()` — `choices[0].message.content` as string or list of parts; reasoning parts stripped, text parts concatenated to final answer.  
+   - **Completion:** `call_local_completion()` with temperature/max_tokens; used by public `completion()` and as stream fallback.  
+   - **Streaming:** `_local_completion_stream()` — POST with `stream: true`, parse SSE, map `delta.content` / `delta.reasoning_content` to `LLMChunk`; on failure or unsupported server, fall back to one-shot and yield one content chunk.  
+   - **Tools:** `call_local_with_tools()` uses same normalizer for message content.  
+   - **Callers:** `/api/local-llm/hello` uses public `completion()`; no direct `call_local_*` outside llm.py.  
+   - Optionally (later): use LiteLLM inside the local adapter for 100+ backends.
 
-4. **Provider selection in config**  
-   Add `LLM_PROVIDER` (and optional plan/agent overrides). In the LLM layer, branch only on provider when choosing which adapter to call; keep no provider-specific logic in plan_ui, llm_phase_planner, or agent_loop.
+4. **Provider selection in config** ✅  
+   Implemented: `LLM_PROVIDER` (env: `anthropic` | `local`, default `anthropic`) and `effective_llm_provider` (property: `USE_LOCAL_LLM=true` → local overrides). In the LLM layer, `completion`, `completion_stream`, and `completion_with_tools` branch only on `settings.effective_llm_provider`; no provider-specific logic in plan_ui, llm_phase_planner, or agent_loop.
 
 5. **Extract “response normalization” for plan**  
    Move “extract YAML from blob” (<think>/</think>, ```yaml, “Thinking Process” strip) into the **local adapter** for the plan use case, so the adapter returns (or streams) only the final YAML when possible. Alternatively, keep extraction in the reader but document that the adapter should return “content” that is as close to final answer as the server allows; then we have one place (adapter vs reader) for that policy.
 
-6. **Document and test**  
-   - Document the AgentCeption LLM contract and how to add a provider.  
-   - Add tests that mock the adapter and assert plan_ui and agent_loop behave the same for any provider.  
-   - Update `docs/guides/local-llm-mlx.md` (and any deployment docs) to describe the new config and the fact that “thinking vs content” is normalized by the adapter.
+6. **Document and test** ✅  
+   - **Contract:** [LLM contract and provider abstraction](../reference/llm-contract.md) — entry points, types, provider selection, how to add a provider.  
+   - **Tests:** `test_llm.py` and `test_config.py` cover provider selection and adapter behaviour; plan and agent_loop tests use the public API only.  
+   - **Deployment:** [Local LLM with MLX](../guides/local-llm-mlx.md) — config table, how the local adapter works, full MLX runbook; setup and security guides updated for both providers.
 
 ---
 

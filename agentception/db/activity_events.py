@@ -28,7 +28,8 @@ fields documented in ``docs/reference/activity-events.md``.
 import datetime
 import json
 import logging
-from typing import Union
+from collections.abc import Mapping
+from typing import TypedDict, Union
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
@@ -144,7 +145,7 @@ class ShellDonePayload(dict[str, object]):
     stderr_bytes: int
 
 
-class FileReadPayload(dict[str, object]):
+class FileReadPayload(TypedDict):
     """Payload for ``file_read`` activity events.
 
     Emitted when the agent reads a file or a line range from a file.
@@ -156,7 +157,7 @@ class FileReadPayload(dict[str, object]):
     total_lines: int
 
 
-class FileReplacedPayload(dict[str, object]):
+class FileReplacedPayload(TypedDict):
     """Payload for ``file_replaced`` activity events.
 
     Emitted after a ``replace_in_file`` / ``str_replace`` operation completes.
@@ -166,7 +167,7 @@ class FileReplacedPayload(dict[str, object]):
     replacement_count: int
 
 
-class FileInsertedPayload(dict[str, object]):
+class FileInsertedPayload(TypedDict):
     """Payload for ``file_inserted`` activity events.
 
     Emitted after an ``insert_after_in_file`` operation completes.
@@ -175,7 +176,7 @@ class FileInsertedPayload(dict[str, object]):
     path: str
 
 
-class FileWrittenPayload(dict[str, object]):
+class FileWrittenPayload(TypedDict):
     """Payload for ``file_written`` activity events.
 
     Emitted after a full ``write_file`` operation completes.
@@ -257,7 +258,7 @@ def persist_activity_event(
     session: Union[Session, AsyncSession],
     run_id: str,
     subtype: str,
-    payload: dict[str, object],
+    payload: Mapping[str, object],
 ) -> None:
     """Write one ``ACAgentEvent`` row with ``event_type="activity"``.
 

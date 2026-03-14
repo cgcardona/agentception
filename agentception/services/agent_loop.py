@@ -13,7 +13,7 @@ Pipeline
    runtime environment note (Python commands run directly, not via docker exec).
 5. Build the combined tool catalogue: local file/shell tools + all MCP tools.
 6. Run the multi-turn conversation loop via
-   :func:`~agentception.services.llm.call_anthropic_with_tools`, dispatching
+   :func:`~agentception.services.llm.completion_with_tools`, dispatching
    tool calls until the model returns ``stop_reason == "stop"`` or the
    iteration ceiling is hit.
 7. On completion: call :func:`~agentception.mcp.build_commands.build_complete_run`.
@@ -34,7 +34,7 @@ from pathlib import Path
 
 from sqlalchemy import select
 
-from agentception.config import settings
+from agentception.config import LLMProviderChoice, settings
 from agentception.db.engine import get_session
 from agentception.db.models import ACAgentRun
 from agentception.db.queries import get_run_by_id
@@ -58,9 +58,8 @@ from agentception.services.llm import (
     ToolResponse,
     _HAIKU_MODEL,
     _MODEL,
-    call_anthropic,
-    call_anthropic_with_tools,
-    call_local_with_tools,
+    completion,
+    completion_with_tools,
 )
 from agentception.services.code_indexer import search_codebase
 from agentception.services.github_mcp_client import GitHubMCPClient
@@ -407,7 +406,7 @@ async def _enforce_turn_delay(
 ) -> None:
     """Sleep until settings.ac_min_turn_delay_secs has elapsed since the last LLM call.
 
-    The timestamp is updated by the caller *after* call_anthropic_with_tools
+    The timestamp is updated by the caller *after* completion_with_tools
     returns, so retry backoff inside the LLM call does not eat into the next
     window.  If the previous turn's tool dispatch already consumed the full
     window this returns immediately.
@@ -526,7 +525,7 @@ async def run_agent_loop(
     else:
         tool_defs = all_tool_defs
 
-    if run_id.startswith("local-hello") and settings.use_local_llm:
+    if run_id.startswith("local-hello") and settings.effective_llm_provider == LLMProviderChoice.local:
         initial_message = "Reply with exactly: hello world."
         tool_defs = []
     else:
@@ -621,7 +620,7 @@ async def run_agent_loop(
             return
 
         # Proactive inter-turn pacing.  _last_llm_call_at is stamped *after*
-        # call_anthropic_with_tools returns (including any retry backoff), so
+        # completion_with_tools returns (including any retry backoff), so
         # the full _MIN_TURN_DELAY_SECS gap is always preserved between the end
         # of one LLM interaction and the start of the next.
         # Session scoped to this iteration for activity-event persists (issue 940).
@@ -760,7 +759,7 @@ async def run_agent_loop(
             try:
                 bounded = await _prune_history(_truncate_tool_results(messages), last_input_tokens=last_input_tokens)
                 _active_model = _HAIKU_MODEL if task.role == "reviewer" else _MODEL
-                if settings.use_local_llm and task.role == "developer":
+                if settings.effective_llm_provider == LLMProviderChoice.local and task.role == "developer":
                     # Same pipeline as Anthropic: full system prompt (role + cognitive arch + runtime
                     # note), same tools, same extra_system_blocks. Only the LLM endpoint and context
                     # caps differ. Cap context so small local models (e.g. Qwen 4B) aren't overloaded.
@@ -779,7 +778,7 @@ async def run_agent_loop(
                             len(system_prompt),
                             settings.local_llm_max_system_chars,
                         )
-                    response = await call_local_with_tools(
+                    response = await completion_with_tools(
                         local_messages,
                         system=system_for_local,
                         tools=active_tool_defs,
@@ -792,7 +791,7 @@ async def run_agent_loop(
                         iteration=iteration,
                     )
                 else:
-                    response = await call_anthropic_with_tools(
+                    response = await completion_with_tools(
                         bounded,
                         system=system_prompt,
                         tools=active_tool_defs,
@@ -847,7 +846,11 @@ async def run_agent_loop(
             messages.append(assistant_msg)
     
             await persist_agent_messages_async(run_id, messages)
-    
+
+            # So that bookkeeping below (pytest arm, etc.) can always iterate; set when we have tool_calls.
+            tc_to_dispatch: list[ToolCall] = []
+            tool_results: list[dict[str, object]] = []
+
             if response["stop_reason"] == "stop":
                 logger.info("✅ agent_loop complete — run_id=%s iterations=%d", run_id, iteration)
                 await github_client.close()
@@ -865,7 +868,7 @@ async def run_agent_loop(
                 # tools from prior iterations and may call them even when they are
                 # absent from active_tool_defs — returning an error forces it to
                 # acknowledge the constraint and switch to a write tool.
-                tc_to_dispatch: list[ToolCall] = []
+                tc_to_dispatch = []
                 synthetic_errors: list[dict[str, object]] = []
                 if guard_active:
                     for tc in response["tool_calls"]:
@@ -928,8 +931,8 @@ async def run_agent_loop(
                             len(tc_to_dispatch) - len(unblocked), run_id, iteration,
                         )
                     tc_to_dispatch = unblocked
-    
-                tool_results: list[dict[str, object]] = []
+
+                tool_results = []
                 if tc_to_dispatch:
                     tool_results = await _dispatch_tool_calls(
                         tc_to_dispatch,
@@ -1792,7 +1795,7 @@ async def _run_recon_phase(
         # No explicitly named files — fall back to LLM planning so the agent
         # at least starts with *some* codebase context for free-form tasks.
         try:
-            raw_plan = await call_anthropic(
+            raw_plan = await completion(
                 task_text,
                 system_prompt=system_prompt + _RECON_SYSTEM_ADDENDUM,
                 max_tokens=500,
@@ -2048,7 +2051,7 @@ async def _summarise_history(
     """
     try:
         payload = json.dumps(dropped_messages, indent=0)[-20_000:]
-        return await call_anthropic(
+        return await completion(
             payload,
             system_prompt=(
                 "You are a concise summariser. Summarise the agent's actions "

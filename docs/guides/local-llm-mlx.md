@@ -1,8 +1,140 @@
 # Local LLM with MLX (Qwen 3.5 on Apple Silicon)
 
-This guide describes how to run **Qwen 3.5 35B** (or a quantized variant) locally on macOS using the MLX framework, and how to capture CPU, GPU, and Neural Engine usage during inference. It supports the prototype in [issue #964](https://github.com/cgcardona/agentception/issues/964) and the later AgentCeption local-provider integration.
+This guide describes how to run **Qwen 3.5 35B** (or a quantized variant) locally on macOS using the MLX framework, and how to capture CPU, GPU, and Neural Engine usage during inference. It supports the prototype in [issue #964](https://github.com/cgcardona/agentception/issues/964) and the AgentCeption **local provider** integration.
 
 **Target hardware:** Apple Silicon Mac (M1/M2/M3/M4) with at least 24 GB unified memory; 48 GB recommended for the 35B 4-bit model.
+
+AgentCeption uses a **provider-agnostic LLM contract**. When the effective provider is **local**, all LLM calls (planning, streaming preview, agent loop) go to your **Chat Completions–compatible** HTTP server on the host instead of Anthropic. Thinking vs content is **normalized by the adapter**: stream chunks always have `type: "thinking"` or `type: "content"`; completion returns only the final answer string. See [LLM contract and provider abstraction](../reference/llm-contract.md) for the full contract and config model.
+
+### Naming: “OpenAI” in tooling — not OpenAI’s cloud
+
+You will see names like **OpenAI-compatible** and the package **`mlx-openai-server`**. Here is what that means:
+
+| Phrase / name | Meaning |
+|---------------|--------|
+| **OpenAI-compatible / Chat Completions API** | The HTTP shape many tools use: `POST /v1/chat/completions`, JSON body with `messages`, response with `choices[].message`. It is a **wire format**—not a claim that traffic goes to OpenAI Inc. AgentCeption’s local adapter speaks that format to **whatever server you run** (MLX on your Mac). |
+| **`mlx-openai-server`** | Upstream CLI and PyPI package name for a **local** MLX server that implements that API. Model weights and inference stay **on your machine**. The name reflects API compatibility, not vendor. |
+| **`mlx_lm.server`** | Another local server (text models) with the same style of API—also **not** OpenAI’s service. |
+
+So: **no OpenAI account or cloud call is required** for the local provider. You are the datacenter; the “OpenAI” wording is only about **request/response shape**, so the same client code can talk to many backends.
+
+---
+
+## Config and environment
+
+Provider selection is the **single source of truth** in config. Use one of the following.
+
+| Env var | Values | Default | Purpose |
+|---------|--------|---------|--------|
+| `LLM_PROVIDER` | `anthropic`, `local` | `anthropic` | Which LLM backend to use. Set to `local` to use the local server for all LLM calls (planning, streaming, agent loop). |
+| `USE_LOCAL_LLM` | `true`, `false` | `false` | **Legacy.** When `true`, overrides `LLM_PROVIDER` to `local`. Prefer `LLM_PROVIDER=local` for new setups. |
+
+When the effective provider is **local**, the following env vars apply. Set them in `.env` or in `docker-compose.override.yml` under `agentception.environment`.
+
+| Env var | Default | Purpose |
+|---------|---------|--------|
+| `LOCAL_LLM_BASE_URL` | `http://host.docker.internal:8080` | Base URL of your **local** Chat Completions–compatible server (no trailing slash). From Docker, use `host.docker.internal` to reach a server on the host. |
+| `LOCAL_LLM_CHAT_PATH` | `/v1/chat/completions` | Path appended to the base URL for chat completions. Some servers use `/chat/completions` without `/v1`. |
+| `LOCAL_LLM_MODEL` | *(empty)* | Model name sent in requests. If empty, the field is omitted so servers like mlx_lm use their loaded model (avoids 404). |
+| `LOCAL_LLM_MAX_CONTEXT_CHARS` | `12000` | Max characters for the first user message (task briefing) when using the local LLM. Reduces load on small models. |
+| `LOCAL_LLM_MAX_SYSTEM_CHARS` | `6000` | Max characters for the system prompt (role + cognitive arch). Truncation is applied when using the local provider. |
+| `LOCAL_LLM_MAX_TOKENS` | `4096` | Desired max completion tokens per turn (agent loop). Never sent above the ceiling below. |
+| `LOCAL_LLM_COMPLETION_TOKEN_CEILING` | `4096` | Hard cap on `max_tokens` in every local chat request. **mlx-openai-server** rejects larger values with **422** (`max_tokens too high`). Raise only if your server allows it. |
+
+**Effective provider:** If `USE_LOCAL_LLM=true`, the effective provider is **local** regardless of `LLM_PROVIDER`. Otherwise the effective provider is the value of `LLM_PROVIDER`. Only the effective provider is used when deciding which adapter to call.
+
+---
+
+## How the local adapter works
+
+The local adapter in `agentception/services/llm.py` implements the same **contract** as the Anthropic path:
+
+- **Completion:** Single request to your server; response `choices[0].message.content` is normalized (string or list of parts; reasoning parts stripped) and returned as a single final-answer string.
+- **Streaming:** If the server supports `stream: true`, the adapter parses SSE and maps `delta.content` / `delta.reasoning_content` to `LLMChunk(type="content", ...)` and `LLMChunk(type="thinking", ...)`. If streaming is not supported or fails, it falls back to one completion and yields one content chunk so the contract is always satisfied.
+- **Tools:** Same request/response shape as completion but with `tools` and `tool_choice`; response content and `tool_calls` are normalized to the shared `ToolResponse` type.
+
+No caller code (plan UI, phase planner, agent loop) branches on provider; they all use `completion()`, `completion_stream()`, or `completion_with_tools()`. See [LLM contract](../reference/llm-contract.md) for details.
+
+---
+
+## How Plan 1A uses the local provider
+
+When the **effective provider is local** (`LLM_PROVIDER=local` or `USE_LOCAL_LLM=true`), every LLM call goes to your server:
+
+| Use case | Entry point | Request to your server |
+|----------|-------------|-------------------------|
+| **Plan 1A (generate YAML)** | Phase planner → `completion()` | POST to `LOCAL_LLM_BASE_URL` + `LOCAL_LLM_CHAT_PATH` with a **non-streaming** body (see below). |
+| **Plan 1A preview (Build UI)** | Plan UI → `completion_stream()` | First tries POST with `"stream": true`; if the server errors (e.g. 422), falls back to the same non-streaming body and yields one chunk. |
+| **Agent loop (tools)** | Agent loop → `completion_with_tools()` | POST with `tools` and `tool_choice`; same URL. |
+
+**Non-streaming body** (what Plan 1A and the stream fallback send):
+
+- `messages`: `[{"role": "system", "content": "<system prompt>"}, {"role": "user", "content": "<user text>"}]`
+- `temperature`: number (e.g. `0.2` for Plan 1A)
+- `max_tokens`: number — AgentCeption **clamps** to ``LOCAL_LLM_COMPLETION_TOKEN_CEILING`` (default 4096) before sending; Plan 1A asks for 8192 on Anthropic but local mlx would 422 above 4096 without this cap.
+- `stream`: `false`
+- `model`: **only present if `LOCAL_LLM_MODEL` is set**. When unset, we omit `model` so servers like mlx_lm use their loaded model.
+
+**422 from mlx-openai-server — common causes:** (1) **`max_tokens` above 4096** — the server responds with `max_tokens too high`; AgentCeption clamps to `LOCAL_LLM_COMPLETION_TOKEN_CEILING` (default 4096) so Phase 1A no longer triggers this. (2) Some servers **require** a `model` field — set `LOCAL_LLM_MODEL` to a value your server accepts and restart AgentCeption.
+
+---
+
+## Verify with curl
+
+Use these from the **host** (same machine as the MLX server). Replace `http://localhost:8080` with your server URL if different.
+
+**1. Minimal request (no `model`)** — matches AgentCeption when `LOCAL_LLM_MODEL` is unset:
+
+```bash
+curl -s http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "Reply with exactly: hello world"}
+    ],
+    "temperature": 0.2,
+    "max_tokens": 128,
+    "stream": false
+  }'
+```
+
+If you get **422**, your server likely requires `model`. Try **2** with a `model` field.
+
+**2. With `model`** — use this if your server requires a model name. Set `LOCAL_LLM_MODEL` to the same value in `.env`:
+
+```bash
+curl -s http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "Reply with exactly: hello world"}
+    ],
+    "temperature": 0.2,
+    "max_tokens": 128,
+    "stream": false,
+    "model": "default"
+  }'
+```
+
+Common values servers accept: `default`, `local`, or the exact model id (e.g. `Qwen/Qwen2.5-7B-Instruct-MLX`). If **2** returns 200 and a JSON body with `choices[0].message.content`, set in `.env`:
+
+```bash
+LOCAL_LLM_MODEL=default
+```
+
+(or the value that worked), then restart AgentCeption and retry Plan 1A.
+
+**3. From inside Docker** (to match AgentCeption’s network path), use the same URL the container uses:
+
+```bash
+docker compose exec agentception curl -s http://host.docker.internal:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"Say hi"}],"temperature":0,"max_tokens":64,"stream":false}'
+```
+
+If **1** or **2** works on the host but **3** fails, the container cannot reach the server (e.g. `host.docker.internal` not resolving or server bound only to localhost). Ensure the server listens on `0.0.0.0` or that Docker has `extra_hosts: ["host.docker.internal:host-gateway"]`.
 
 ---
 
@@ -86,17 +218,17 @@ mlx_lm.chat --model Qwen/Qwen2.5-7B-Instruct-MLX
 
 Type prompts at the prompt; exit with your shell’s EOF (e.g. Ctrl+D).
 
-### Option C: OpenAI-compatible server (for AgentCeption integration)
+### Option C: Local Chat Completions server (for AgentCeption integration)
 
-Start a local HTTP server that exposes `/v1/chat/completions`:
+Start a **local** HTTP server that exposes the same routes as OpenAI’s Chat Completions API (`/v1/chat/completions`). Inference runs on your Mac; nothing is sent to OpenAI’s cloud.
 
-**mlx-lm** (text models, e.g. 4B/9B):
+**mlx-lm** (text models, e.g. 4B/9B) — `mlx_lm.server`:
 
 ```bash
 mlx_lm.server --model Qwen/Qwen2.5-7B-Instruct-MLX --host 0.0.0.0 --port 8080
 ```
 
-**Qwen 3.5 35B (48 GB Mac)** — use **mlx-openai-server** (multimodal). Command below works on all versions (e.g. 1.1.x and 1.4+). If you see “No such option: --reasoning-parser”.
+**Qwen 3.5 35B (48 GB Mac)** — use **`mlx-openai-server`** (multimodal). That is the **package name** for a local OpenAI Chat Completions–compatible server; it does not call OpenAI. Command below works on all versions (e.g. 1.1.x and 1.4+). If you see “No such option: --reasoning-parser”, omit those flags.
 
 ```bash
 pip install -U mlx-openai-server
@@ -176,9 +308,9 @@ When the local server is running, you can point the **developer** agent at it so
 
    Leave this running. From inside Docker, the agent reaches it at `host.docker.internal:8080`.
 
-2. **Enable the local LLM** in AgentCeption:
+2. **Enable the local provider** in AgentCeption:
 
-   - Set `USE_LOCAL_LLM=true` in `.env` (or in `docker-compose.override.yml` under `agentception.environment`).
+   - Set **either** `LLM_PROVIDER=local` **or** `USE_LOCAL_LLM=true` in `.env` (or in `docker-compose.override.yml` under `agentception.environment`). See [Config and environment](#config-and-environment) for the full table.
    - Optionally set `LOCAL_LLM_BASE_URL=http://host.docker.internal:8080` (this is the default).
    - Restart the stack: `docker compose restart agentception`.
 
@@ -200,7 +332,7 @@ When the local server is running, you can point the **developer** agent at it so
 
 5. **Dispatch a developer agent** as usual (e.g. from the Build dashboard or `POST /api/dispatch/issue`). Only the **developer** role uses the local model; the planner and reviewer still use Anthropic. The local path uses the **same pipeline** as Anthropic: full system prompt (role file + cognitive architecture + runtime note), same task briefing, same tools, and same extra blocks (context pressure, pytest stop, etc.). Only the LLM endpoint and context caps differ, so real tickets run identically—just against your local Qwen instead of Claude.
 
-6. **Scale up: basic coding** — Use the same local model for a small coding task. Keep `USE_LOCAL_LLM=true`. Dispatch a developer for a minimal issue (e.g. "In `docs/guides/dispatch.md` add one sentence in the Request shape section: 'Always pass issue_body.'"). Example:
+6. **Scale up: basic coding** — Use the same local model for a small coding task. Keep the effective provider as **local** (`LLM_PROVIDER=local` or `USE_LOCAL_LLM=true`). Dispatch a developer for a minimal issue (e.g. "In `docs/guides/dispatch.md` add one sentence in the Request shape section: 'Always pass issue_body.'"). Example:
 
    ```bash
    # From repo root; replace 969 with your small issue number
@@ -217,17 +349,18 @@ When the local server is running, you can point the **developer** agent at it so
 
    The agent gets the full tool set (read_file, search_codebase, replace_in_file, etc.) with context truncated to `LOCAL_LLM_MAX_CONTEXT_CHARS` / `LOCAL_LLM_MAX_SYSTEM_CHARS`. If the model stalls or loops, lower those caps or try an even smaller task.
 
-7. **Turn off** when done: set `USE_LOCAL_LLM=false` (or remove it) and restart so the next run uses Anthropic again.
+7. **Turn off** when done: set `LLM_PROVIDER=anthropic` (or `USE_LOCAL_LLM=false` / remove it) and restart so the next run uses Anthropic again.
 
 ### Small models (e.g. Qwen 4B) — context caps
 
-Small local models are easily overloaded by the full task briefing and system prompt. AgentCeption truncates context when using the local LLM so a "hello world" run can complete. You can tune these in `.env`:
+Small local models are easily overloaded by the full task briefing and system prompt. AgentCeption truncates context when the **effective provider is local** so a "hello world" run can complete. Tune these in `.env`; see [Config and environment](#config-and-environment) for the full list:
 
 | Env var | Default | Purpose |
 |--------|---------|--------|
 | `LOCAL_LLM_MAX_CONTEXT_CHARS` | 12000 | Max characters for the first user message (task briefing). |
 | `LOCAL_LLM_MAX_SYSTEM_CHARS` | 6000 | Max characters for the system prompt (role + cognitive arch). |
-| `LOCAL_LLM_MAX_TOKENS` | 4096 | Max completion tokens per turn (avoid 32k for small models). |
+| `LOCAL_LLM_MAX_TOKENS` | 4096 | Desired max completion tokens (agent loop). |
+| `LOCAL_LLM_COMPLETION_TOKEN_CEILING` | 4096 | Max `max_tokens` sent to the server (mlx caps at 4096). |
 
 If the agent stalls or produces no tool calls, ensure the MLX server is reachable from the container (`host.docker.internal`; on Linux add `extra_hosts: ["host.docker.internal:host-gateway"]` in docker-compose) and consider lowering the caps further.
 
@@ -267,7 +400,7 @@ mlx-openai-server launch \
   --port 8080
 ```
 
-For 35B we recommend [mlx-openai-server](https://github.com/cubist38/mlx-openai-server) (multimodal + tool-call parsing). A dedicated runbook for 48 GB Macs is in the next subsection.
+For 35B we recommend [mlx-openai-server](https://github.com/cubist38/mlx-openai-server) — **local** multimodal server with Chat Completions–compatible HTTP (name = API shape, not OpenAI Inc.). A dedicated runbook for 48 GB Macs is in the next subsection.
 
 **2. Raise context caps** in `.env` so the larger model gets more of the briefing and system prompt (optional but recommended for 9B/35B):
 
@@ -277,7 +410,7 @@ LOCAL_LLM_MAX_SYSTEM_CHARS=12000
 LOCAL_LLM_MAX_TOKENS=8192
 ```
 
-Restart AgentCeption, then dispatch developer agents as usual. They will use the new model at `host.docker.internal:8080` with no code changes.
+Restart AgentCeption, then dispatch developer agents as usual. With the effective provider set to **local**, they will use the new model at `host.docker.internal:8080` with no code changes.
 
 ### 48 GB Mac: Qwen 3.5 35B with AgentCeption
 
@@ -320,14 +453,15 @@ First run downloads the model from Hugging Face. If the server only binds to loc
 In `.env`:
 
 ```bash
-USE_LOCAL_LLM=true
+LLM_PROVIDER=local
+# Or: USE_LOCAL_LLM=true
 LOCAL_LLM_BASE_URL=http://host.docker.internal:8080
 LOCAL_LLM_MAX_CONTEXT_CHARS=24000
 LOCAL_LLM_MAX_SYSTEM_CHARS=12000
 LOCAL_LLM_MAX_TOKENS=8192
 ```
 
-Leave `LOCAL_LLM_MODEL` unset (or empty) so the server uses its loaded model.
+Leave `LOCAL_LLM_MODEL` unset (or empty) so the server uses its loaded model. See [Config and environment](#config-and-environment) for all local-provider env vars.
 
 **4. Ensure Docker can reach the host**
 
@@ -348,7 +482,7 @@ Expect `{"ok": true, "reply": "..."}`. Then dispatch a developer agent (e.g. fro
 
 ### Sample coding task (test code generation)
 
-Use the following as a GitHub issue to see what code the local model can produce. Create the issue, then dispatch a developer with `USE_LOCAL_LLM=true` and watch with `python3 scripts/watch_run.py issue-<N>`.
+Use the following as a GitHub issue to see what code the local model can produce. Create the issue, ensure the effective provider is **local** (`LLM_PROVIDER=local` or `USE_LOCAL_LLM=true`), then dispatch a developer and watch with `python3 scripts/watch_run.py issue-<N>`.
 
 **Title:** `Add clamp() helper and test (local LLM code gen)`
 
@@ -396,6 +530,7 @@ gh pr create --base dev --fill                        # create PR from the branc
 
 ## References
 
+- [LLM contract and provider abstraction](../reference/llm-contract.md) — AgentCeption’s LLM contract, provider selection, and how to add a provider.
 - [MLX LM](https://github.com/ml-explore/mlx-lm) — run LLMs with MLX (text).
 - [MLX VLM](https://github.com/ml-explore/mlx-vlm) — vision/language models, used for Qwen 3.5 35B 4-bit.
 - [mlx-community/Qwen3.5-35B-A3B-4bit](https://huggingface.co/mlx-community/Qwen3.5-35B-A3B-4bit) — 4-bit quantized Qwen 3.5 35B for MLX.
