@@ -42,7 +42,7 @@ from starlette.requests import Request
 
 from agentception.readers.llm_phase_planner import _strip_fences
 from agentception.readers.plan_enricher import enrich_plan_with_codebase_context
-from agentception.services.llm import LLMChunk, call_anthropic_stream
+from agentception.services.llm import LLMChunk, completion_stream
 from ._shared import _TEMPLATES
 
 if TYPE_CHECKING:
@@ -321,7 +321,7 @@ async def plan_preview(body: PlanDraftRequest) -> StreamingResponse:
         accumulated = ""
         try:
             chunk: LLMChunk
-            async for chunk in call_anthropic_stream(
+            async for chunk in completion_stream(
                 augmented_dump,
                 system_prompt=_build_yaml_system_prompt(),
                 temperature=0.2,

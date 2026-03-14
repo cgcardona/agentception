@@ -212,7 +212,7 @@ async def test_preview_valid_input_streams_chunk_and_done_events(
 
     with (
         patch(
-            "agentception.routes.ui.plan_ui.call_anthropic_stream",
+            "agentception.routes.ui.plan_ui.completion_stream",
             side_effect=fake_llm_stream,
         ),
         patch(
@@ -256,7 +256,7 @@ async def test_preview_thinking_chunks_are_discarded(async_client: AsyncClient) 
 
     with (
         patch(
-            "agentception.routes.ui.plan_ui.call_anthropic_stream",
+            "agentception.routes.ui.plan_ui.completion_stream",
             side_effect=fake_llm_stream,
         ),
         patch(
@@ -292,7 +292,7 @@ async def test_preview_prose_response_yields_error_event(async_client: AsyncClie
 
     with (
         patch(
-            "agentception.routes.ui.plan_ui.call_anthropic_stream",
+            "agentception.routes.ui.plan_ui.completion_stream",
             side_effect=fake_llm_stream,
         ),
         patch(
@@ -332,7 +332,7 @@ async def test_preview_context_pack_is_prepended_to_dump(async_client: AsyncClie
 
     with (
         patch(
-            "agentception.routes.ui.plan_ui.call_anthropic_stream",
+            "agentception.routes.ui.plan_ui.completion_stream",
             side_effect=capture_stream,
         ),
         patch(

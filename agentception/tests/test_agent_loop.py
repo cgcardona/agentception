@@ -1,7 +1,7 @@
 """Unit tests for agentception.services.agent_loop.
 
 All external I/O is mocked:
-  - call_anthropic_with_tools   → controlled ToolResponse stubs
+  - completion_with_tools       → controlled ToolResponse stubs
   - build_complete_run / build_cancel_run / log_run_step / log_run_error → AsyncMock
   - call_tool_async             → AsyncMock returning valid ACToolResult
   - _load_task                  → AsyncMock returning a minimal AgentTaskSpec from DB
@@ -122,12 +122,12 @@ class TestRunAgentLoop:
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 new_callable=AsyncMock,
                 return_value=_stop_response("All done."),
             ),
@@ -185,12 +185,12 @@ class TestRunAgentLoop:
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 new_callable=AsyncMock,
                 side_effect=responses,
             ),
@@ -245,12 +245,12 @@ class TestRunAgentLoop:
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 new_callable=AsyncMock,
                 side_effect=responses,
             ),
@@ -304,12 +304,12 @@ class TestRunAgentLoop:
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 new_callable=AsyncMock,
                 return_value=_tool_response("log_run_step", {"issue_number": 42, "step_name": "x"}),
             ),
@@ -398,12 +398,12 @@ class TestRunAgentLoop:
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 new_callable=AsyncMock,
                 side_effect=RuntimeError("Anthropic API is down"),
             ),
@@ -897,7 +897,7 @@ class TestTerminalStateGuard:
                 return_value=terminal_row,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 new_callable=AsyncMock,
                 return_value=_stop_response("should not be called"),
             ) as mock_llm,
@@ -1008,12 +1008,12 @@ class TestLoopGuard:
             ),
             # Prevent the recon phase from hitting the real Anthropic API.
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -1121,12 +1121,12 @@ class TestLoopGuard:
                 return_value=None,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -1229,12 +1229,12 @@ class TestLoopGuard:
                 return_value=None,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -1326,12 +1326,12 @@ class TestLoopGuard:
                 return_value=None,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -1437,12 +1437,12 @@ class TestLoopGuard:
                 return_value=None,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -1578,14 +1578,14 @@ class TestLoopGuardReviewer:
                 new_callable=AsyncMock,
                 return_value=None,
             ),
-            # Patch call_anthropic so the recon phase doesn't hit the real API.
+            # Patch completion so the recon phase doesn't hit the real API.
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -1689,12 +1689,12 @@ class TestReviewerToolAllowlist:
                 return_value=None,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -1802,12 +1802,12 @@ class TestReviewerToolAllowlist:
                 return_value=None,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -1908,12 +1908,12 @@ class TestDeveloperToolAllowlist:
                 return_value=None,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -2211,7 +2211,7 @@ class TestReviewerWarmup:
                 return_value=None,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -2280,12 +2280,12 @@ class TestAgentLoopPersistsMessages:
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 new_callable=AsyncMock,
                 side_effect=responses,
             ),
@@ -2440,12 +2440,12 @@ class TestStopReasonLengthRecovery:
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 new_callable=AsyncMock,
                 side_effect=responses,
             ),
@@ -2515,12 +2515,12 @@ class TestStopReasonLengthRecovery:
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 new_callable=AsyncMock,
                 side_effect=responses,
             ),
@@ -2616,12 +2616,12 @@ class TestFileEditQueue:
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 new_callable=AsyncMock,
                 side_effect=responses,
             ),
@@ -2706,12 +2706,12 @@ class TestFileEditQueue:
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 new_callable=AsyncMock,
                 side_effect=responses,
             ),
@@ -2851,12 +2851,12 @@ class TestFinalStretchWarning:
                 return_value=None,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -3020,12 +3020,12 @@ class TestFinalStretchWarning:
                 return_value=None,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -3103,11 +3103,11 @@ class TestFinalStretchWarning:
 
 
 class TestModelSelection:
-    """call_anthropic_with_tools must receive model=haiku for reviewer, sonnet otherwise."""
+    """completion_with_tools must receive model=haiku for reviewer, sonnet otherwise."""
 
     @pytest.mark.anyio
     async def test_reviewer_uses_haiku_model(self, tmp_path: Path) -> None:
-        """When task.role == 'reviewer', call_anthropic_with_tools gets model='claude-haiku-4-5'."""
+        """When task.role == 'reviewer', completion_with_tools gets model='claude-haiku-4-5'."""
         worktree = tmp_path / "test-run-1"
         worktree.mkdir()
         task_spec = _make_task_spec(worktree)
@@ -3128,12 +3128,12 @@ class TestModelSelection:
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 mock_llm,
             ),
             patch(
@@ -3160,7 +3160,7 @@ class TestModelSelection:
 
             await run_agent_loop("test-run-1")
 
-        assert mock_llm.called, "call_anthropic_with_tools was never invoked"
+        assert mock_llm.called, "completion_with_tools was never invoked"
         _, kwargs = mock_llm.call_args
         assert kwargs.get("model") == "claude-haiku-4-5", (
             f"Expected model='claude-haiku-4-5' for reviewer, got {kwargs.get('model')!r}"
@@ -3168,7 +3168,7 @@ class TestModelSelection:
 
     @pytest.mark.anyio
     async def test_developer_uses_sonnet_model(self, tmp_path: Path) -> None:
-        """When task.role == 'developer', call_anthropic_with_tools gets model='claude-sonnet-4-6'."""
+        """When task.role == 'developer', completion_with_tools gets model='claude-sonnet-4-6'."""
         worktree = tmp_path / "test-run-1"
         worktree.mkdir()
         task_spec = _make_task_spec(worktree)  # role defaults to "developer"
@@ -3187,12 +3187,12 @@ class TestModelSelection:
                 return_value=task_spec,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 mock_llm,
             ),
             patch(
@@ -3219,7 +3219,7 @@ class TestModelSelection:
 
             await run_agent_loop("test-run-1")
 
-        assert mock_llm.called, "call_anthropic_with_tools was never invoked"
+        assert mock_llm.called, "completion_with_tools was never invoked"
         _, kwargs = mock_llm.call_args
         assert kwargs.get("model") == "claude-sonnet-4-6", (
             f"Expected model='claude-sonnet-4-6' for developer, got {kwargs.get('model')!r}"
@@ -3320,12 +3320,12 @@ class TestPytestHardStop:
                 return_value=None,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -3443,12 +3443,12 @@ class TestPytestHardStop:
                 return_value=None,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": [], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -3637,11 +3637,11 @@ class TestPruneHistoryTokenBudget:
 
     @pytest.mark.anyio
     async def test_summarise_history_returns_empty_on_exception(self) -> None:
-        """_summarise_history returns '' and does not propagate when call_anthropic raises."""
+        """_summarise_history returns '' and does not propagate when completion raises."""
         from agentception.services.agent_loop import _summarise_history
 
         with patch(
-            "agentception.services.agent_loop.call_anthropic",
+            "agentception.services.agent_loop.completion",
             side_effect=RuntimeError("api down"),
         ):
             result = await _summarise_history([{}])
@@ -3722,12 +3722,12 @@ class TestContextPressureWarning:
                 return_value=None,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(
@@ -3832,12 +3832,12 @@ class TestContextPressureWarning:
                 return_value=None,
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic",
+                "agentception.services.agent_loop.completion",
                 new_callable=AsyncMock,
                 return_value='{"files": ["agentception/models.py"], "searches": [], "plan": "no-op"}',
             ),
             patch(
-                "agentception.services.agent_loop.call_anthropic_with_tools",
+                "agentception.services.agent_loop.completion_with_tools",
                 side_effect=fake_llm,
             ),
             patch(

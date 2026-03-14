@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-"""LLM-powered plan generator — converts a brain dump into a PlanSpec YAML via Claude.
+"""LLM-powered plan generator — converts a brain dump into a PlanSpec YAML.
 
 Public entry point:
 
 ``generate_plan_yaml(dump)``
-    Step 1.A: calls Claude, returns a validated PlanSpec YAML string ready for
-    the Monaco editor.  This is the production path when ANTHROPIC_API_KEY
-    is set.
+    Step 1.A: calls the configured LLM via :func:`~agentception.services.llm.completion`,
+    returns a validated PlanSpec YAML string ready for the Monaco editor.
+    Provider is selected in the LLM layer (e.g. Anthropic when ANTHROPIC_API_KEY is set).
 
 Architecture note
 -----------------
@@ -23,7 +23,7 @@ from pathlib import Path
 import yaml as _yaml
 
 from agentception.models import PlanSpec
-from agentception.services.llm import call_anthropic
+from agentception.services.llm import completion
 
 # Paths to the cognitive architecture assets (resolved relative to this file).
 _FIGURES_DIR: Path = (
@@ -521,7 +521,7 @@ async def generate_plan_yaml(dump: str, label_prefix: str = "") -> str:
     if not dump:
         raise ValueError("Plan text must not be empty.")
 
-    raw = await call_anthropic(
+    raw = await completion(
         dump,
         system_prompt=_build_yaml_system_prompt(),
         temperature=0.2,
