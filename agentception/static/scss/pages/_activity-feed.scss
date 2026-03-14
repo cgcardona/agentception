@@ -4,17 +4,26 @@
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.2rem 0.5rem;
+  padding: 0.3rem 0.5rem;
   font-size: 0.75rem;
   color: var(--text-secondary, #888);
   max-width: 100%;
   overflow-x: hidden;
   word-break: break-word;
+  border-radius: 6px;
+  transition: background-color 0.15s ease;
+
+  &:hover {
+    background-color: var(--bg-elevated);
+  }
 
   .activity-feed__icon {
     flex-shrink: 0;
+    font-size: 0.85rem;
+    width: 1.2rem;
+    text-align: center;
     &[aria-hidden='true'] {
-      opacity: 0.7;
+      opacity: 1;
     }
   }
 
@@ -31,4 +40,65 @@
     font-variant-numeric: tabular-nums;
     opacity: 0.8;
   }
+}
+
+// Left border color coding by subtype
+.activity-feed__row[data-subtype='tool_invoked'] {
+  border-left: 3px solid var(--warning);
+}
+
+.activity-feed__row[data-subtype='shell_start'] {
+  border-left: 3px solid var(--info);
+}
+
+.activity-feed__row[data-subtype='shell_done'] {
+  border-left: 3px solid var(--success);
+}
+
+.activity-feed__row[data-subtype='file_read'] {
+  border-left: 3px solid var(--accent);
+}
+
+.activity-feed__row[data-subtype='file_replaced'] {
+  border-left: 3px solid var(--warning);
+}
+
+.activity-feed__row[data-subtype='file_inserted'] {
+  border-left: 3px solid var(--success);
+}
+
+.activity-feed__row[data-subtype='file_written'] {
+  border-left: 3px solid var(--accent);
+}
+
+.activity-feed__row[data-subtype='git_push'] {
+  border-left: 3px solid var(--success);
+}
+
+.activity-feed__row[data-subtype='github_tool'] {
+  border-left: 3px solid var(--accent);
+}
+
+.activity-feed__row[data-subtype='llm_iter'] {
+  border-left: 3px solid var(--info);
+}
+
+.activity-feed__row[data-subtype='llm_usage'] {
+  border-left: 3px solid var(--text-secondary);
+}
+
+.activity-feed__row[data-subtype='llm_reply'] {
+  border-left: 3px solid var(--text-secondary);
+}
+
+.activity-feed__row[data-subtype='llm_done'] {
+  border-left: 3px solid var(--success);
+}
+
+.activity-feed__row[data-subtype='delay'] {
+  border-left: 3px solid var(--warning);
+}
+
+.activity-feed__row[data-subtype='error'] {
+  border-left: 3px solid var(--danger);
 }

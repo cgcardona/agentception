@@ -3,6 +3,7 @@ import {
   formatActivitySummary,
   appendActivityRow,
   attachActivityFeedHandler,
+  getSubtypeIcon,
   type ActivityMessage,
 } from '../activity_feed';
 
@@ -13,6 +14,76 @@ function makeSource(): EventSource {
 function dispatch(src: EventTarget, data: object): void {
   src.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(data) }));
 }
+
+describe('getSubtypeIcon', () => {
+  it('returns correct icon for tool_invoked', () => {
+    expect(getSubtypeIcon('tool_invoked')).toBe('🔧');
+  });
+
+  it('returns correct icon for shell_start', () => {
+    expect(getSubtypeIcon('shell_start')).toBe('💻');
+  });
+
+  it('returns correct icon for shell_done', () => {
+    expect(getSubtypeIcon('shell_done')).toBe('✅');
+  });
+
+  it('returns correct icon for file_read', () => {
+    expect(getSubtypeIcon('file_read')).toBe('📖');
+  });
+
+  it('returns correct icon for file_replaced', () => {
+    expect(getSubtypeIcon('file_replaced')).toBe('🔄');
+  });
+
+  it('returns correct icon for file_inserted', () => {
+    expect(getSubtypeIcon('file_inserted')).toBe('📝');
+  });
+
+  it('returns correct icon for file_written', () => {
+    expect(getSubtypeIcon('file_written')).toBe('💾');
+  });
+
+  it('returns correct icon for git_push', () => {
+    expect(getSubtypeIcon('git_push')).toBe('🚀');
+  });
+
+  it('returns correct icon for github_tool', () => {
+    expect(getSubtypeIcon('github_tool')).toBe('🐙');
+  });
+
+  it('returns correct icon for llm_iter', () => {
+    expect(getSubtypeIcon('llm_iter')).toBe('🧠');
+  });
+
+  it('returns correct icon for llm_usage', () => {
+    expect(getSubtypeIcon('llm_usage')).toBe('📊');
+  });
+
+  it('returns correct icon for llm_reply', () => {
+    expect(getSubtypeIcon('llm_reply')).toBe('💬');
+  });
+
+  it('returns correct icon for llm_done', () => {
+    expect(getSubtypeIcon('llm_done')).toBe('🏁');
+  });
+
+  it('returns correct icon for delay', () => {
+    expect(getSubtypeIcon('delay')).toBe('⏳');
+  });
+
+  it('returns correct icon for error', () => {
+    expect(getSubtypeIcon('error')).toBe('❌');
+  });
+
+  it('returns bullet for unknown subtype', () => {
+    expect(getSubtypeIcon('unknown_subtype')).toBe('•');
+  });
+
+  it('returns bullet for empty string', () => {
+    expect(getSubtypeIcon('')).toBe('•');
+  });
+});
 
 describe('formatActivitySummary', () => {
   it('formats tool_invoked', () => {

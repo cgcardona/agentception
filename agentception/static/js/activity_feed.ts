@@ -32,6 +32,47 @@ function num(p: Record<string, unknown>, key: string): number {
 }
 
 /**
+ * Returns an emoji icon for a given activity subtype.
+ * Pure function — no side effects.
+ */
+export function getSubtypeIcon(subtype: string): string {
+  switch (subtype) {
+    case 'tool_invoked':
+      return '🔧';
+    case 'shell_start':
+      return '💻';
+    case 'shell_done':
+      return '✅';
+    case 'file_read':
+      return '📖';
+    case 'file_replaced':
+      return '🔄';
+    case 'file_inserted':
+      return '📝';
+    case 'file_written':
+      return '💾';
+    case 'git_push':
+      return '🚀';
+    case 'github_tool':
+      return '🐙';
+    case 'llm_iter':
+      return '🧠';
+    case 'llm_usage':
+      return '📊';
+    case 'llm_reply':
+      return '💬';
+    case 'llm_done':
+      return '🏁';
+    case 'delay':
+      return '⏳';
+    case 'error':
+      return '❌';
+    default:
+      return '•';
+  }
+}
+
+/**
  * Human-readable one-line summary from subtype and payload.
  * Uses textContent-safe strings only (no innerHTML with payload).
  */
@@ -101,7 +142,7 @@ export function appendActivityRow(msg: ActivityMessage): void {
   const icon = document.createElement('span');
   icon.className = 'activity-feed__icon';
   icon.setAttribute('aria-hidden', 'true');
-  icon.textContent = '•';
+  icon.textContent = getSubtypeIcon(msg.subtype);
 
   const summary = document.createElement('span');
   summary.className = 'activity-feed__summary';
