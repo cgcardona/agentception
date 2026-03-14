@@ -22,6 +22,7 @@ import { attachEventCardHandler } from './event_card';
 interface AgentRun {
   id: string;
   status: string;
+  agent_status?: string;
   tier: string | null;
   role: string | null;
 }
@@ -131,6 +132,11 @@ export function buildPage() {
     chatError: null as string | null,
     agentStopping: false,
 
+    // ── Start agent (inspector: run in pending_launch) ───────────────────
+    startAgentLoading: false,
+    startAgentError: null as string | null,
+    startAgentDone: false,
+
     // ── agent tree computed groupings ────────────────────────────────────
 
     get treeTiers(): TreeTierGroup[] {
@@ -175,6 +181,9 @@ export function buildPage() {
       this._closeStream();
       this.activeIssue = issue;
       this.thoughts = [];
+      this.startAgentLoading = false;
+      this.startAgentError = null;
+      this.startAgentDone = false;
       if (issue.run) {
         this._openStream(issue.run.id);
         this._startTreePoll(`/ship/runs/${encodeURIComponent(issue.run.id)}/tree`);
@@ -219,6 +228,35 @@ export function buildPage() {
         this.chatError = `Network error: ${(err as Error).message}`;
       } finally {
         this.chatSending = false;
+      }
+    },
+
+    // ── start agent (pending_launch → executing) ──────────────────────────
+
+    async startAgent(): Promise<void> {
+      if (!this.activeIssue?.run) return;
+      const runId = this.activeIssue.run.id;
+      this.startAgentLoading = true;
+      this.startAgentError = null;
+      try {
+        const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/execute`, {
+          method: 'POST',
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          try {
+            const data = JSON.parse(text) as ApiErrorBody;
+            this.startAgentError = (data.detail ?? text.slice(0, 200)) || `Error ${res.status}`;
+          } catch {
+            this.startAgentError = text.slice(0, 200) || `Error ${res.status}`;
+          }
+        } else {
+          this.startAgentDone = true;
+        }
+      } catch (err) {
+        this.startAgentError = (err as Error).message;
+      } finally {
+        this.startAgentLoading = false;
       }
     },
 

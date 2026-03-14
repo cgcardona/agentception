@@ -15,8 +15,10 @@
   {%- elif lane == 'reviewing' %} build-issue--review
   {%- endif %}
   {%- if active_run %} build-issue--has-run{%- endif %}
+  {%- if not group_complete and lane != 'done' %} build-issue--selectable{%- endif %}
   {%- if issue.depends_on and lane == 'todo' and 'ticket-blocked' in issue.labels %} build-issue--ticket-blocked{%- endif %}"
-  {%- if not group_complete and active_run and lane != 'done' %}@click='$dispatch("inspect-issue", {{ issue | tojson }})'{% endif %}
+  {# Every open-lane card is clickable so Mission Control is never stuck Idle when a run is missing — user can open inspector and see Design org / Start agent. #}
+  {%- if not group_complete and lane != 'done' %}@click='$dispatch("inspect-issue", {{ issue | tojson }})'{% endif %}
 >
 
   {# ── Icon links (agent + cog-arch) — shown in active/pr/reviewing lanes only #}

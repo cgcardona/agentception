@@ -1879,6 +1879,44 @@ $preset-accents: (
   }
 }
 
+// ── Start agent (inspector: run in pending_launch) ───────────────────────────
+
+.build-inspector__start-agent {
+  margin-bottom: 0.75rem;
+
+  .build-inspector__start-agent-text {
+    margin: 0 0 0.5rem;
+    font-size: 0.9rem;
+    color: var(--color-text-muted, #999);
+  }
+
+  .build-inspector__start-agent-btn {
+    padding: 0.4rem 0.75rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #111;
+    background: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+      background: #eee;
+    }
+
+    &:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+    }
+  }
+
+  .build-inspector__launch-err {
+    margin: 0.5rem 0 0;
+    font-size: 0.85rem;
+    color: var(--color-error, #e74c3c);
+  }
+}
+
 // ── Activity feed container ───────────────────────────────────────────────────
 
 .build-inspector__activity {

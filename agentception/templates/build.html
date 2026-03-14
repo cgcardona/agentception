@@ -94,7 +94,7 @@
         <div class="build-inspector__empty">
           <div class="build-inspector__empty-icon">🛰</div>
           <p class="build-inspector__empty-title">Mission Control Idle</p>
-          <p class="build-inspector__empty-sub">Select an issue to inspect agent runs, live logs, and reasoning traces.</p>
+          <p class="build-inspector__empty-sub">Click any issue card on the board (TODO / Active / …) to open the inspector. If a run exists but never started, use <strong>Start agent</strong> there. To launch, use <strong>Design org →</strong> in the header.</p>
         </div>
       </template>
 
@@ -117,7 +117,30 @@
 
           <template x-if="!activeIssue.run">
             <div class="build-inspector__no-agent">
-              <p>No agent assigned yet. Use the <strong>Launch →</strong> button on the phase row to start an agent wave.</p>
+              <p>No agent assigned yet. Use <strong>Design org →</strong> to design and launch, or open the org designer from the header.</p>
+            </div>
+          </template>
+
+          {# Start agent — when run is dispatched but not yet executing (stuck state) #}
+          <template x-if="activeIssue.run && activeIssue.run.agent_status === 'pending_launch'">
+            <div class="build-inspector__start-agent">
+              <p class="build-inspector__start-agent-text">Run dispatched. Click <strong>Start agent</strong> to begin the agent loop.</p>
+              <button type="button"
+                      class="build-inspector__start-agent-btn"
+                      :disabled="startAgentLoading || startAgentDone"
+                      @click="startAgent()"
+                      x-text="startAgentDone ? 'Agent started' : (startAgentLoading ? 'Starting…' : 'Start agent')">
+              </button>
+              <template x-if="startAgentError">
+                <p class="build-inspector__launch-err" x-text="startAgentError"></p>
+              </template>
+            </div>
+          </template>
+
+          {# Run failed — show next step so user is not stuck #}
+          <template x-if="activeIssue.run && activeIssue.run.agent_status === 'failed'">
+            <div class="build-inspector__no-agent">
+              <p>This run failed. Use <strong>Design org →</strong> to launch again and create a new run.</p>
             </div>
           </template>
 
@@ -219,7 +242,16 @@
     <template x-if="launchSuccess && launchResult">
       <span class="od-header__launch-ok">
         ✅ Dispatched <code x-text="launchResult.run_id"></code>
+        <button type="button"
+                class="od-header__btn od-header__btn--start-agent"
+                :disabled="startAgentLoading || startAgentDone"
+                @click="startAgent()"
+                x-text="startAgentDone ? 'Agent started' : (startAgentLoading ? 'Starting…' : 'Start agent')">
+        </button>
       </span>
+    </template>
+    <template x-if="launchSuccess && launchResult && startAgentError">
+      <span class="od-header__launch-err" x-text="startAgentError"></span>
     </template>
 
     {# Back to presets (canvas view only) #}

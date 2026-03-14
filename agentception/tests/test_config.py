@@ -27,7 +27,7 @@ from unittest.mock import patch
 
 import pytest
 
-from agentception.config import AgentCeptionSettings, TaskRunnerChoice, _resolve_project
+from agentception.config import AgentCeptionSettings, TaskRunnerChoice, get_repo_dir_for, _resolve_project
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +180,59 @@ def test_ac_dir_returns_repo_dir_slash_agentception(tmp_path: Path) -> None:
     """ac_dir property returns repo_dir / '.agentception'."""
     s = _make_settings(tmp_path)
     assert s.ac_dir == tmp_path / ".agentception"
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — get_repo_dir_for
+# ---------------------------------------------------------------------------
+
+
+def test_get_repo_dir_for_returns_fallback_when_config_absent(tmp_path: Path) -> None:
+    """get_repo_dir_for returns fallback when pipeline-config.json does not exist."""
+    assert get_repo_dir_for("owner/repo", tmp_path) == tmp_path
+    assert get_repo_dir_for("owner/repo", str(tmp_path)) == tmp_path
+
+
+def test_get_repo_dir_for_returns_fallback_when_no_matching_gh_repo(tmp_path: Path) -> None:
+    """get_repo_dir_for returns fallback when no project has the given gh_repo."""
+    _write_config(
+        tmp_path,
+        {
+            "active_project": "A",
+            "projects": [
+                {"name": "A", "gh_repo": "other/repo", "repo_dir": str(tmp_path / "other")},
+            ],
+        },
+    )
+    assert get_repo_dir_for("owner/target", tmp_path) == tmp_path
+
+
+def test_get_repo_dir_for_returns_project_repo_dir_when_set(tmp_path: Path) -> None:
+    """get_repo_dir_for returns the project's repo_dir when it matches gh_repo and sets repo_dir."""
+    other = tmp_path / "other_repo"
+    other.mkdir()
+    _write_config(
+        tmp_path,
+        {
+            "active_project": "B",
+            "projects": [
+                {"name": "B", "gh_repo": "owner/target", "repo_dir": str(other)},
+            ],
+        },
+    )
+    assert get_repo_dir_for("owner/target", tmp_path) == other
+
+
+def test_get_repo_dir_for_returns_fallback_when_match_has_no_repo_dir(tmp_path: Path) -> None:
+    """get_repo_dir_for returns fallback when the matching project does not set repo_dir."""
+    _write_config(
+        tmp_path,
+        {
+            "active_project": "C",
+            "projects": [{"name": "C", "gh_repo": "owner/target"}],
+        },
+    )
+    assert get_repo_dir_for("owner/target", tmp_path) == tmp_path
 
 
 # ---------------------------------------------------------------------------

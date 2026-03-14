@@ -98,7 +98,7 @@ Replace `AGENTCEPTION_REPO_ROOT` with the absolute path to your local clone of t
 
 ## Running alongside other MCP servers
 
-If you also run other MCP servers (e.g. a music composition backend, or [Knowtation](knowtation-integration.md) for the org-brain vault), add them as independent top-level keys — they do not interfere with each other:
+If you also run other MCP servers (e.g. a music composition backend), add them as independent top-level keys — they do not interfere with each other:
 
 ```json
 {

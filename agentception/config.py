@@ -73,6 +73,41 @@ def _resolve_project(raw: dict[str, object], target: AgentCeptionSettings) -> No
         break
 
 
+def get_repo_dir_for(gh_repo: str, fallback: Path | str) -> Path:
+    """Return the repo directory to use for git operations for *gh_repo*.
+
+    Reads pipeline-config.json (from *fallback* / ".agentception") and returns
+    the project's ``repo_dir`` when the project has ``gh_repo`` matching
+    *gh_repo* and explicitly sets ``repo_dir``.  Otherwise returns *fallback*.
+
+    Use this for reviewer (and continuation) dispatch so git fetch runs in the
+    correct repository when the active project is a different repo (e.g.
+    GeodesicDomeDesigner) and has ``repo_dir`` set in pipeline-config.
+    """
+    base = Path(fallback) if isinstance(fallback, str) else fallback
+    config_path = base / ".agentception" / "pipeline-config.json"
+    if not config_path.exists():
+        return base
+    try:
+        raw: object = json.loads(config_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.debug("get_repo_dir_for: could not read pipeline-config: %s", exc)
+        return base
+    if not isinstance(raw, dict):
+        return base
+    projects: object = raw.get("projects")
+    if not isinstance(projects, list):
+        return base
+    for proj in projects:
+        if not isinstance(proj, dict) or proj.get("gh_repo") != gh_repo:
+            continue
+        repo_dir_val = proj.get("repo_dir")
+        if isinstance(repo_dir_val, str) and repo_dir_val.strip():
+            return Path(repo_dir_val.strip())
+        break
+    return base
+
+
 class AgentCeptionSettings(BaseSettings):
     """Runtime configuration for the AgentCeption dashboard service.
 
