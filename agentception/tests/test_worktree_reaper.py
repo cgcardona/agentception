@@ -2,8 +2,11 @@ from __future__ import annotations
 
 """Tests for the worktree reaper.
 
-Critical invariant: the reaper must call release_worktree (dir removal only),
-never teardown_agent_worktree (which deletes remote branches and closes open PRs).
+Critical invariants:
+- The reaper must call release_worktree (dir removal only), never
+  teardown_agent_worktree (which deletes remote branches and closes open PRs).
+- When a worktree directory is already gone, the reaper must clear the DB ref
+  so the run never appears in future reaper passes (the stale-loop bug).
 """
 
 from pathlib import Path
@@ -50,8 +53,14 @@ async def test_reaper_calls_release_not_teardown(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
-async def test_reaper_skips_missing_dirs(tmp_path: Path) -> None:
-    """Reaper skips runs whose worktree directory no longer exists on disk."""
+async def test_reaper_clears_db_ref_for_missing_dirs(tmp_path: Path) -> None:
+    """Reaper clears the DB ref when the directory is already gone.
+
+    Regression for the stale-loop bug: when a worktree directory no longer
+    exists on disk, the old code did `continue` without clearing the DB.
+    get_terminal_runs_with_worktrees() would then return the same run on every
+    subsequent pass, spamming the log indefinitely.
+    """
     absent = str(tmp_path / "issue-100")  # directory not created
 
     with (
@@ -65,6 +74,10 @@ async def test_reaper_skips_missing_dirs(tmp_path: Path) -> None:
             new_callable=AsyncMock,
         ) as mock_release,
         patch(
+            "agentception.services.worktree_reaper.clear_run_worktree_path",
+            new_callable=AsyncMock,
+        ) as mock_clear,
+        patch(
             "agentception.services.worktree_reaper.settings",
             new_callable=MagicMock,
             repo_dir="/app",
@@ -74,8 +87,11 @@ async def test_reaper_skips_missing_dirs(tmp_path: Path) -> None:
 
         count = await reap_stale_worktrees()
 
+    # Directory already gone — release_worktree is never called, but the DB
+    # reference IS cleared so the run never reappears in future passes.
     assert count == 0
     mock_release.assert_not_called()
+    mock_clear.assert_awaited_once_with("issue-100")
 
 
 @pytest.mark.anyio
@@ -212,3 +228,70 @@ async def test_reaper_does_not_clear_db_when_release_fails(tmp_path: Path) -> No
 
     assert count == 0
     mock_clear.assert_not_called()
+
+
+# ── release_worktree fallback tests ───────────────────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_release_worktree_falls_back_to_rmtree_when_git_rejects(tmp_path: Path) -> None:
+    """release_worktree uses shutil.rmtree when git worktree remove fails.
+
+    Regression for the 'is not a working tree' loop: after a container restart
+    git's worktree registry is reset, so git worktree remove --force fails even
+    though the directory exists.  The old code returned False, the reaper never
+    cleared the DB, and the same run appeared in every subsequent pass.
+    """
+    stale_dir = tmp_path / "issue-824"
+    stale_dir.mkdir()
+
+    import asyncio
+
+    async def fake_run(*args: object, **kwargs: object) -> object:  # noqa: ARG001
+        proc = MagicMock()
+        proc.returncode = 1
+        proc.communicate = AsyncMock(return_value=(b"", b"fatal: not a working tree"))
+        return proc
+
+    with (
+        patch("agentception.services.teardown.asyncio.create_subprocess_exec", side_effect=fake_run),
+        patch("agentception.services.teardown.shutil.rmtree") as mock_rmtree,
+    ):
+        from agentception.services.teardown import release_worktree
+
+        result = await release_worktree(
+            worktree_path=str(stale_dir),
+            repo_dir=str(tmp_path),
+        )
+
+    assert result is True
+    mock_rmtree.assert_called_once_with(str(stale_dir))
+
+
+@pytest.mark.anyio
+async def test_release_worktree_returns_false_when_both_git_and_rmtree_fail(tmp_path: Path) -> None:
+    """release_worktree returns False only when both git and shutil.rmtree fail."""
+    stale_dir = tmp_path / "issue-825"
+    stale_dir.mkdir()
+
+    async def fake_run(*args: object, **kwargs: object) -> object:  # noqa: ARG001
+        proc = MagicMock()
+        proc.returncode = 1
+        proc.communicate = AsyncMock(return_value=(b"", b"fatal: not a working tree"))
+        return proc
+
+    with (
+        patch("agentception.services.teardown.asyncio.create_subprocess_exec", side_effect=fake_run),
+        patch(
+            "agentception.services.teardown.shutil.rmtree",
+            side_effect=OSError("permission denied"),
+        ),
+    ):
+        from agentception.services.teardown import release_worktree
+
+        result = await release_worktree(
+            worktree_path=str(stale_dir),
+            repo_dir=str(tmp_path),
+        )
+
+    assert result is False

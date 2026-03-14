@@ -53,6 +53,16 @@ async def reap_stale_worktrees() -> int:
     for run in runs:
         worktree_path = run["worktree_path"]
         if not Path(worktree_path).exists():
+            # Directory is already gone — clear the stale DB reference so this
+            # run is never returned by get_terminal_runs_with_worktrees again.
+            # Without this, the reaper logs a "stale" entry on every pass for
+            # runs whose directories were cleaned up outside of release_worktree
+            # (e.g. container restart, manual deletion).
+            logger.info(
+                "ℹ️  worktree reaper: dir absent, clearing stale DB ref for run %r",
+                run["id"],
+            )
+            await clear_run_worktree_path(run["id"])
             continue
         logger.info(
             "⚠️  worktree reaper: releasing stale worktree dir for run %r at %s",
