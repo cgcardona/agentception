@@ -82,6 +82,21 @@ def _mock_github_client() -> MagicMock:
     return client
 
 
+def _mock_get_session() -> MagicMock:
+    """Return a MagicMock for get_session() so run_agent_loop can run without init_db."""
+    session = MagicMock()
+    session.commit = AsyncMock()
+    session.rollback = AsyncMock()
+    session.flush = AsyncMock()
+    session.scalar = AsyncMock(return_value=None)
+    session.execute = AsyncMock()
+    session.add = MagicMock()
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=session)
+    cm.__aexit__ = AsyncMock(return_value=None)
+    return MagicMock(return_value=cm)
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -97,6 +112,10 @@ class TestRunAgentLoop:
 
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
             patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
@@ -130,6 +149,7 @@ class TestRunAgentLoop:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services.agent_loop import run_agent_loop
 
@@ -155,6 +175,10 @@ class TestRunAgentLoop:
 
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
             patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
@@ -188,6 +212,7 @@ class TestRunAgentLoop:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services import agent_loop as al
 
@@ -210,6 +235,10 @@ class TestRunAgentLoop:
 
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
             patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
@@ -248,6 +277,7 @@ class TestRunAgentLoop:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services.agent_loop import run_agent_loop
 
@@ -264,6 +294,10 @@ class TestRunAgentLoop:
 
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
             patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
@@ -307,6 +341,7 @@ class TestRunAgentLoop:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services.agent_loop import run_agent_loop
 
@@ -320,6 +355,10 @@ class TestRunAgentLoop:
         """run_agent_loop cancels cleanly when the DB row is missing."""
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
             patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
@@ -349,6 +388,10 @@ class TestRunAgentLoop:
 
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
             patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
@@ -387,6 +430,7 @@ class TestRunAgentLoop:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services.agent_loop import run_agent_loop
 
@@ -839,6 +883,10 @@ class TestTerminalStateGuard:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
@@ -945,6 +993,10 @@ class TestLoopGuard:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
@@ -982,6 +1034,7 @@ class TestLoopGuard:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services import agent_loop as al
 
@@ -1054,6 +1107,10 @@ class TestLoopGuard:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
@@ -1090,6 +1147,7 @@ class TestLoopGuard:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services import agent_loop as al
 
@@ -1157,6 +1215,10 @@ class TestLoopGuard:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
@@ -1193,6 +1255,7 @@ class TestLoopGuard:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services import agent_loop as al
 
@@ -1249,6 +1312,10 @@ class TestLoopGuard:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
@@ -1285,6 +1352,7 @@ class TestLoopGuard:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services import agent_loop as al
 
@@ -1355,6 +1423,10 @@ class TestLoopGuard:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
@@ -1391,6 +1463,7 @@ class TestLoopGuard:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services import agent_loop as al
 
@@ -1492,6 +1565,10 @@ class TestLoopGuardReviewer:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=reviewer_spec,
@@ -1529,6 +1606,7 @@ class TestLoopGuardReviewer:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
             await run_agent_loop("review-run")
 
         # None of the captured extra_system_blocks should mention LOOP GUARD.
@@ -1597,6 +1675,10 @@ class TestReviewerToolAllowlist:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=reviewer_spec,
@@ -1633,6 +1715,7 @@ class TestReviewerToolAllowlist:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
             # Pass a high cap — must be overridden to _REVIEWER_MAX_ITERATIONS.
             await run_agent_loop("review-allowlist-run", max_iterations=100)
 
@@ -1705,6 +1788,10 @@ class TestReviewerToolAllowlist:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=reviewer_spec,
@@ -1740,6 +1827,7 @@ class TestReviewerToolAllowlist:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
             # Pass 100 — must be silently capped to _REVIEWER_MAX_ITERATIONS.
             await run_agent_loop("review-cap-run", max_iterations=100)
 
@@ -1806,6 +1894,10 @@ class TestDeveloperToolAllowlist:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=developer_spec,
@@ -1842,6 +1934,7 @@ class TestDeveloperToolAllowlist:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
             await run_agent_loop("dev-allowlist-run", max_iterations=100)
 
         assert captured_tools, "fake_llm must have been called at least once"
@@ -2104,6 +2197,10 @@ class TestReviewerWarmup:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=reviewer_spec,
@@ -2143,6 +2240,7 @@ class TestReviewerWarmup:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
             mock_settings.gh_repo = "cgcardona/agentception"
             await run_agent_loop("review-warmup-run")
 
@@ -2172,6 +2270,10 @@ class TestAgentLoopPersistsMessages:
 
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
             patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
@@ -2209,6 +2311,7 @@ class TestAgentLoopPersistsMessages:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services import agent_loop as al
 
@@ -2328,6 +2431,10 @@ class TestStopReasonLengthRecovery:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
@@ -2368,6 +2475,7 @@ class TestStopReasonLengthRecovery:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services import agent_loop as al
 
@@ -2398,6 +2506,10 @@ class TestStopReasonLengthRecovery:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
@@ -2438,6 +2550,7 @@ class TestStopReasonLengthRecovery:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services import agent_loop as al
 
@@ -2494,6 +2607,10 @@ class TestFileEditQueue:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
@@ -2543,6 +2660,7 @@ class TestFileEditQueue:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             await run_agent_loop("run-feq-write")
 
@@ -2578,6 +2696,10 @@ class TestFileEditQueue:
 
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
+            patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
             patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
@@ -2628,6 +2750,7 @@ class TestFileEditQueue:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             await run_agent_loop("run-feq-read")
 
@@ -2714,6 +2837,10 @@ class TestFinalStretchWarning:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
@@ -2750,6 +2877,7 @@ class TestFinalStretchWarning:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services import agent_loop as al
 
@@ -2878,6 +3006,10 @@ class TestFinalStretchWarning:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
@@ -2914,6 +3046,7 @@ class TestFinalStretchWarning:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services import agent_loop as al
 
@@ -2986,6 +3119,10 @@ class TestModelSelection:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
@@ -3017,6 +3154,7 @@ class TestModelSelection:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services.agent_loop import run_agent_loop
 
@@ -3040,6 +3178,10 @@ class TestModelSelection:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
@@ -3071,6 +3213,7 @@ class TestModelSelection:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services.agent_loop import run_agent_loop
 
@@ -3163,6 +3306,10 @@ class TestPytestHardStop:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
@@ -3199,6 +3346,7 @@ class TestPytestHardStop:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services import agent_loop as al
 
@@ -3281,6 +3429,10 @@ class TestPytestHardStop:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
@@ -3317,6 +3469,7 @@ class TestPytestHardStop:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services import agent_loop as al
 
@@ -3555,6 +3708,10 @@ class TestContextPressureWarning:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
@@ -3591,6 +3748,7 @@ class TestContextPressureWarning:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services import agent_loop as al
 
@@ -3660,6 +3818,10 @@ class TestContextPressureWarning:
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
             patch(
+                "agentception.services.agent_loop.get_session",
+                _mock_get_session(),
+            ),
+            patch(
                 "agentception.services.agent_loop._load_task",
                 new_callable=AsyncMock,
                 return_value=task_spec,
@@ -3696,6 +3858,7 @@ class TestContextPressureWarning:
             mock_settings.worktrees_dir = tmp_path
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
+            mock_settings.use_local_llm = False
 
             from agentception.services import agent_loop as al
 

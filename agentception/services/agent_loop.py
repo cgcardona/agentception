@@ -847,7 +847,11 @@ async def run_agent_loop(
             messages.append(assistant_msg)
     
             await persist_agent_messages_async(run_id, messages)
-    
+
+            # So that bookkeeping below (pytest arm, etc.) can always iterate; set when we have tool_calls.
+            tc_to_dispatch: list[ToolCall] = []
+            tool_results: list[dict[str, object]] = []
+
             if response["stop_reason"] == "stop":
                 logger.info("✅ agent_loop complete — run_id=%s iterations=%d", run_id, iteration)
                 await github_client.close()
@@ -865,7 +869,7 @@ async def run_agent_loop(
                 # tools from prior iterations and may call them even when they are
                 # absent from active_tool_defs — returning an error forces it to
                 # acknowledge the constraint and switch to a write tool.
-                tc_to_dispatch: list[ToolCall] = []
+                tc_to_dispatch = []
                 synthetic_errors: list[dict[str, object]] = []
                 if guard_active:
                     for tc in response["tool_calls"]:
@@ -928,8 +932,8 @@ async def run_agent_loop(
                             len(tc_to_dispatch) - len(unblocked), run_id, iteration,
                         )
                     tc_to_dispatch = unblocked
-    
-                tool_results: list[dict[str, object]] = []
+
+                tool_results = []
                 if tc_to_dispatch:
                     tool_results = await _dispatch_tool_calls(
                         tc_to_dispatch,
