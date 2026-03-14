@@ -14,9 +14,13 @@
     {
       "name": "agentception",
       "gh_repo": "cgcardona/agentception"
+    },
+    {
+      "name": "GeodesicDomeDesigner",
+      "gh_repo": "aaronrene/GeodesicDomeDesigner"
     }
   ],
-  "active_project": "agentception",
+  "active_project": "GeodesicDomeDesigner",
   "approval_required_labels": [
     "db-schema",
     "security",
