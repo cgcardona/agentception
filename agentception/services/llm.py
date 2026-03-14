@@ -199,6 +199,106 @@ class ToolResponse(TypedDict):
 
 
 # ---------------------------------------------------------------------------
+# Public API (provider-agnostic contract)
+# ---------------------------------------------------------------------------
+#
+# Callers (plan_ui, llm_phase_planner, agent_loop) should use these three
+# entry points only. Provider selection (Anthropic vs local) is done here;
+# no provider-specific logic in callers.
+# ---------------------------------------------------------------------------
+
+
+async def completion(
+    user_prompt: str,
+    *,
+    system_prompt: str | None = None,
+    temperature: float = 0.2,
+    max_tokens: int = 4096,
+    json_schema: dict[str, object] | None = None,
+) -> str:
+    """Single-turn completion; returns final answer text (thinking stripped by adapter).
+
+    Provider-agnostic. Currently delegates to Anthropic; local adapter can be
+    added and selected via config.
+    """
+    return await call_anthropic(
+        user_prompt,
+        system_prompt=system_prompt,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        json_schema=json_schema,
+    )
+
+
+async def completion_stream(
+    user_prompt: str,
+    *,
+    system_prompt: str | None = None,
+    temperature: float = 1.0,
+    max_tokens: int = 16000,
+    reasoning_fraction: float = 0.35,
+) -> AsyncGenerator[LLMChunk, None]:
+    """Stream completion chunks; each chunk has type \"thinking\" or \"content\".
+
+    Provider-agnostic. Callers discard thinking and accumulate content.
+    Currently delegates to Anthropic stream.
+    """
+    async for chunk in call_anthropic_stream(
+        user_prompt,
+        system_prompt=system_prompt,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        reasoning_fraction=reasoning_fraction,
+    ):
+        yield chunk
+
+
+async def completion_with_tools(
+    messages: list[dict[str, object]],
+    *,
+    system: str,
+    tools: list[ToolDefinition],
+    model: str = _MODEL,
+    temperature: float = 0.0,
+    max_tokens: int = 32000,
+    extra_system_blocks: list[dict[str, object]] | None = None,
+    session: AsyncSession | None = None,
+    run_id: str | None = None,
+    iteration: int = 0,
+) -> ToolResponse:
+    """Multi-turn tool-use completion; returns ToolResponse (content + tool_calls).
+
+    Provider-agnostic. When ``settings.use_local_llm`` is True, uses local
+    OpenAI-compatible server; otherwise Anthropic.
+    """
+    if settings.use_local_llm:
+        return await call_local_with_tools(
+            messages,
+            system=system,
+            tools=tools,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            extra_system_blocks=extra_system_blocks,
+            session=session,
+            run_id=run_id,
+            iteration=iteration,
+        )
+    return await call_anthropic_with_tools(
+        messages,
+        system=system,
+        tools=tools,
+        model=model,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        extra_system_blocks=extra_system_blocks,
+        session=session,
+        run_id=run_id,
+        iteration=iteration,
+    )
+
+
+# ---------------------------------------------------------------------------
 # HTTP client helpers
 # ---------------------------------------------------------------------------
 
