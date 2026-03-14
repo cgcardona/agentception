@@ -1,8 +1,46 @@
 # Local LLM with MLX (Qwen 3.5 on Apple Silicon)
 
-This guide describes how to run **Qwen 3.5 35B** (or a quantized variant) locally on macOS using the MLX framework, and how to capture CPU, GPU, and Neural Engine usage during inference. It supports the prototype in [issue #964](https://github.com/cgcardona/agentception/issues/964) and the later AgentCeption local-provider integration.
+This guide describes how to run **Qwen 3.5 35B** (or a quantized variant) locally on macOS using the MLX framework, and how to capture CPU, GPU, and Neural Engine usage during inference. It supports the prototype in [issue #964](https://github.com/cgcardona/agentception/issues/964) and the AgentCeption **local provider** integration.
 
 **Target hardware:** Apple Silicon Mac (M1/M2/M3/M4) with at least 24 GB unified memory; 48 GB recommended for the 35B 4-bit model.
+
+AgentCeption uses a **provider-agnostic LLM contract**. When the effective provider is **local**, all LLM calls (planning, streaming preview, agent loop) go to your OpenAI-compatible server instead of Anthropic. Thinking vs content is **normalized by the adapter**: stream chunks always have `type: "thinking"` or `type: "content"`; completion returns only the final answer string. See [LLM contract and provider abstraction](../reference/llm-contract.md) for the full contract and config model.
+
+---
+
+## Config and environment
+
+Provider selection is the **single source of truth** in config. Use one of the following.
+
+| Env var | Values | Default | Purpose |
+|---------|--------|---------|--------|
+| `LLM_PROVIDER` | `anthropic`, `local` | `anthropic` | Which LLM backend to use. Set to `local` to use the local server for all LLM calls (planning, streaming, agent loop). |
+| `USE_LOCAL_LLM` | `true`, `false` | `false` | **Legacy.** When `true`, overrides `LLM_PROVIDER` to `local`. Prefer `LLM_PROVIDER=local` for new setups. |
+
+When the effective provider is **local**, the following env vars apply. Set them in `.env` or in `docker-compose.override.yml` under `agentception.environment`.
+
+| Env var | Default | Purpose |
+|---------|---------|--------|
+| `LOCAL_LLM_BASE_URL` | `http://host.docker.internal:8080` | Base URL of the OpenAI-compatible server (no trailing slash). From Docker, use `host.docker.internal` to reach a server on the host. |
+| `LOCAL_LLM_CHAT_PATH` | `/v1/chat/completions` | Path appended to the base URL for chat completions. Some servers use `/chat/completions` without `/v1`. |
+| `LOCAL_LLM_MODEL` | *(empty)* | Model name sent in requests. If empty, the field is omitted so servers like mlx_lm use their loaded model (avoids 404). |
+| `LOCAL_LLM_MAX_CONTEXT_CHARS` | `12000` | Max characters for the first user message (task briefing) when using the local LLM. Reduces load on small models. |
+| `LOCAL_LLM_MAX_SYSTEM_CHARS` | `6000` | Max characters for the system prompt (role + cognitive arch). Truncation is applied when using the local provider. |
+| `LOCAL_LLM_MAX_TOKENS` | `4096` | Max completion tokens per turn. Use 4096 or 8192 for small models; avoid 32k. |
+
+**Effective provider:** If `USE_LOCAL_LLM=true`, the effective provider is **local** regardless of `LLM_PROVIDER`. Otherwise the effective provider is the value of `LLM_PROVIDER`. Only the effective provider is used when deciding which adapter to call.
+
+---
+
+## How the local adapter works
+
+The local adapter in `agentception/services/llm.py` implements the same **contract** as the Anthropic path:
+
+- **Completion:** Single request to your server; response `choices[0].message.content` is normalized (string or list of parts; reasoning parts stripped) and returned as a single final-answer string.
+- **Streaming:** If the server supports `stream: true`, the adapter parses SSE and maps `delta.content` / `delta.reasoning_content` to `LLMChunk(type="content", ...)` and `LLMChunk(type="thinking", ...)`. If streaming is not supported or fails, it falls back to one completion and yields one content chunk so the contract is always satisfied.
+- **Tools:** Same request/response shape as completion but with `tools` and `tool_choice`; response content and `tool_calls` are normalized to the shared `ToolResponse` type.
+
+No caller code (plan UI, phase planner, agent loop) branches on provider; they all use `completion()`, `completion_stream()`, or `completion_with_tools()`. See [LLM contract](../reference/llm-contract.md) for details.
 
 ---
 
@@ -176,9 +214,9 @@ When the local server is running, you can point the **developer** agent at it so
 
    Leave this running. From inside Docker, the agent reaches it at `host.docker.internal:8080`.
 
-2. **Enable the local LLM** in AgentCeption:
+2. **Enable the local provider** in AgentCeption:
 
-   - Set `USE_LOCAL_LLM=true` in `.env` (or in `docker-compose.override.yml` under `agentception.environment`).
+   - Set **either** `LLM_PROVIDER=local` **or** `USE_LOCAL_LLM=true` in `.env` (or in `docker-compose.override.yml` under `agentception.environment`). See [Config and environment](#config-and-environment) for the full table.
    - Optionally set `LOCAL_LLM_BASE_URL=http://host.docker.internal:8080` (this is the default).
    - Restart the stack: `docker compose restart agentception`.
 
@@ -200,7 +238,7 @@ When the local server is running, you can point the **developer** agent at it so
 
 5. **Dispatch a developer agent** as usual (e.g. from the Build dashboard or `POST /api/dispatch/issue`). Only the **developer** role uses the local model; the planner and reviewer still use Anthropic. The local path uses the **same pipeline** as Anthropic: full system prompt (role file + cognitive architecture + runtime note), same task briefing, same tools, and same extra blocks (context pressure, pytest stop, etc.). Only the LLM endpoint and context caps differ, so real tickets run identically—just against your local Qwen instead of Claude.
 
-6. **Scale up: basic coding** — Use the same local model for a small coding task. Keep `USE_LOCAL_LLM=true`. Dispatch a developer for a minimal issue (e.g. "In `docs/guides/dispatch.md` add one sentence in the Request shape section: 'Always pass issue_body.'"). Example:
+6. **Scale up: basic coding** — Use the same local model for a small coding task. Keep the effective provider as **local** (`LLM_PROVIDER=local` or `USE_LOCAL_LLM=true`). Dispatch a developer for a minimal issue (e.g. "In `docs/guides/dispatch.md` add one sentence in the Request shape section: 'Always pass issue_body.'"). Example:
 
    ```bash
    # From repo root; replace 969 with your small issue number
@@ -217,11 +255,11 @@ When the local server is running, you can point the **developer** agent at it so
 
    The agent gets the full tool set (read_file, search_codebase, replace_in_file, etc.) with context truncated to `LOCAL_LLM_MAX_CONTEXT_CHARS` / `LOCAL_LLM_MAX_SYSTEM_CHARS`. If the model stalls or loops, lower those caps or try an even smaller task.
 
-7. **Turn off** when done: set `USE_LOCAL_LLM=false` (or remove it) and restart so the next run uses Anthropic again.
+7. **Turn off** when done: set `LLM_PROVIDER=anthropic` (or `USE_LOCAL_LLM=false` / remove it) and restart so the next run uses Anthropic again.
 
 ### Small models (e.g. Qwen 4B) — context caps
 
-Small local models are easily overloaded by the full task briefing and system prompt. AgentCeption truncates context when using the local LLM so a "hello world" run can complete. You can tune these in `.env`:
+Small local models are easily overloaded by the full task briefing and system prompt. AgentCeption truncates context when the **effective provider is local** so a "hello world" run can complete. Tune these in `.env`; see [Config and environment](#config-and-environment) for the full list:
 
 | Env var | Default | Purpose |
 |--------|---------|--------|
@@ -277,7 +315,7 @@ LOCAL_LLM_MAX_SYSTEM_CHARS=12000
 LOCAL_LLM_MAX_TOKENS=8192
 ```
 
-Restart AgentCeption, then dispatch developer agents as usual. They will use the new model at `host.docker.internal:8080` with no code changes.
+Restart AgentCeption, then dispatch developer agents as usual. With the effective provider set to **local**, they will use the new model at `host.docker.internal:8080` with no code changes.
 
 ### 48 GB Mac: Qwen 3.5 35B with AgentCeption
 
@@ -320,14 +358,15 @@ First run downloads the model from Hugging Face. If the server only binds to loc
 In `.env`:
 
 ```bash
-USE_LOCAL_LLM=true
+LLM_PROVIDER=local
+# Or: USE_LOCAL_LLM=true
 LOCAL_LLM_BASE_URL=http://host.docker.internal:8080
 LOCAL_LLM_MAX_CONTEXT_CHARS=24000
 LOCAL_LLM_MAX_SYSTEM_CHARS=12000
 LOCAL_LLM_MAX_TOKENS=8192
 ```
 
-Leave `LOCAL_LLM_MODEL` unset (or empty) so the server uses its loaded model.
+Leave `LOCAL_LLM_MODEL` unset (or empty) so the server uses its loaded model. See [Config and environment](#config-and-environment) for all local-provider env vars.
 
 **4. Ensure Docker can reach the host**
 
@@ -348,7 +387,7 @@ Expect `{"ok": true, "reply": "..."}`. Then dispatch a developer agent (e.g. fro
 
 ### Sample coding task (test code generation)
 
-Use the following as a GitHub issue to see what code the local model can produce. Create the issue, then dispatch a developer with `USE_LOCAL_LLM=true` and watch with `python3 scripts/watch_run.py issue-<N>`.
+Use the following as a GitHub issue to see what code the local model can produce. Create the issue, ensure the effective provider is **local** (`LLM_PROVIDER=local` or `USE_LOCAL_LLM=true`), then dispatch a developer and watch with `python3 scripts/watch_run.py issue-<N>`.
 
 **Title:** `Add clamp() helper and test (local LLM code gen)`
 
@@ -396,6 +435,7 @@ gh pr create --base dev --fill                        # create PR from the branc
 
 ## References
 
+- [LLM contract and provider abstraction](../reference/llm-contract.md) — AgentCeption’s LLM contract, provider selection, and how to add a provider.
 - [MLX LM](https://github.com/ml-explore/mlx-lm) — run LLMs with MLX (text).
 - [MLX VLM](https://github.com/ml-explore/mlx-vlm) — vision/language models, used for Qwen 3.5 35B 4-bit.
 - [mlx-community/Qwen3.5-35B-A3B-4bit](https://huggingface.co/mlx-community/Qwen3.5-35B-A3B-4bit) — 4-bit quantized Qwen 3.5 35B for MLX.

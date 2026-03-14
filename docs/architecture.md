@@ -18,8 +18,8 @@ agentception/
 
   middleware/      → Starlette middleware (auth.py — API key validation)
   readers/         → LLM planner, GitHub client, worktree manager, transcript reader
-  services/        → LLM calls (Anthropic API), agent loop, code indexer
-    llm.py         → call_anthropic(), call_anthropic_with_tools()
+  services/        → LLM calls (provider-agnostic API), agent loop, code indexer
+    llm.py         → completion(), completion_stream(), completion_with_tools(); provider selection via config (Anthropic or local)
     agent_loop.py  → Cursor-free agent execution loop
     code_indexer.py → Qdrant codebase indexing + semantic search
   tools/           → Local agent tools (file I/O, shell, semantic search definitions)
@@ -53,7 +53,7 @@ FastAPI routes (thin HTTP handlers)
       ↓
 readers/ (LLM planner, GitHub, worktree)
       ↓
-services/llm.py (Anthropic API, HTTPS)
+services/llm.py (LLM provider: Anthropic or local via config)
       ↓
 GitHub API → Issues, PRs, Worktrees
       ↓
@@ -312,7 +312,7 @@ parallel-agent conflict-reduction reason as the query submodules.
 
 Five mechanisms in `agentception/services/agent_loop.py` keep the context window from overflowing:
 
-1. **Per-turn token logging** — `last_input_tokens` is captured from each `call_anthropic_with_tools` response and logged at INFO level with iteration number, input tokens, output tokens, and cache hit count (line ∼705).
+1. **Per-turn token logging** — `last_input_tokens` is captured from each `completion_with_tools()` response and logged at INFO level with iteration number, input tokens, output tokens, and cache hit count (line ∼705).
 2. **Token-aware history pruning** — `_prune_history()` applies a message-count guard (`_MAX_HISTORY_MESSAGES = 20`), then when `last_input_tokens > _MAX_INPUT_TOKEN_ESTIMATE` (140 000), runs a character-heuristic loop that drops messages from index 1 until the estimate falls below the threshold, always keeping `messages[0]` (task briefing) and the last `_HISTORY_TAIL = 14` messages.
 3. **Context pressure warning** — when `last_input_tokens > _CONTEXT_PRESSURE_THRESHOLD` (100 000), `_CONTEXT_PRESSURE_WARNING` is injected into `extra_blocks` each turn, advising targeted reads and `replace_in_file` and reporting the remaining context budget.
 4. **Context checkpoint summarisation** — when the token-budget loop drops more than 4 messages, `_summarise_history()` (async, max 1 000 tokens) compresses the dropped messages into a `[Context checkpoint]` user message inserted at index 1, preserving a compressed record of prior work.
