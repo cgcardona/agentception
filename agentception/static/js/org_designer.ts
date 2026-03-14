@@ -731,6 +731,9 @@ interface OrgDesignerComponent {
   launchError: string | null;
   launchSuccess: boolean;
   launchResult: DispatchResponse | null;
+  startAgentLoading: boolean;
+  startAgentError: string | null;
+  startAgentDone: boolean;
 
   // ── Internal (D3 / mutable tree — not Alpine-reactive)
   _root: OrgNode | null;
@@ -773,6 +776,7 @@ interface OrgDesignerComponent {
   _findParentRole(childId: string): string | null;
   _render(): void;
   launch(): Promise<void>;
+  startAgent(): Promise<void>;
 }
 
 // ── Alpine component factory ──────────────────────────────────────────────────
@@ -812,6 +816,9 @@ export function orgDesigner(): OrgDesignerComponent {
     launchError:  null,
     launchSuccess:false,
     launchResult: null,
+    startAgentLoading: false,
+    startAgentError:   null,
+    startAgentDone:    false,
 
     // ── Internal ──────────────────────────────────────────────────────────────
     _root:      null,
@@ -894,6 +901,9 @@ export function orgDesigner(): OrgDesignerComponent {
       this.launchSuccess  = false;
       this.launchResult   = null;
       this.launching      = false;
+      this.startAgentLoading = false;
+      this.startAgentError   = null;
+      this.startAgentDone    = false;
       this.selectedNodeId = null;
       this.saveAsMode     = false;
       this.saveAsName     = '';
@@ -1219,6 +1229,28 @@ export function orgDesigner(): OrgDesignerComponent {
         this.launchError = `Network error: ${err instanceof Error ? err.message : String(err)}`;
       } finally {
         this.launching = false;
+      }
+    },
+
+    /** Start the agent loop for the run created by Launch (calls POST /api/runs/{run_id}/execute). */
+    async startAgent(): Promise<void> {
+      if (!this.launchResult?.run_id || this.startAgentLoading) return;
+      this.startAgentLoading = true;
+      this.startAgentError   = null;
+      try {
+        const res = await fetch(`/api/runs/${encodeURIComponent(this.launchResult.run_id)}/execute`, {
+          method: 'POST',
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          this.startAgentError = text.slice(0, 200) || `Error ${res.status}`;
+          return;
+        }
+        this.startAgentDone = true;
+      } catch (err) {
+        this.startAgentError = err instanceof Error ? err.message : String(err);
+      } finally {
+        this.startAgentLoading = false;
       }
     },
   } as OrgDesignerComponent;

@@ -564,7 +564,9 @@ async def test_dispatch_reviewer_fetches_pr_branch_and_uses_it_as_base(tmp_path:
 
     captured_base: list[str] = []
 
-    async def mock_ensure_worktree(path: Path, branch: str, base: str = "origin/dev", reset: bool = False) -> bool:
+    async def mock_ensure_worktree(
+        path: Path, branch: str, base: str = "origin/dev", reset: bool = False, **kwargs: object
+    ) -> bool:
         captured_base.append(base)
         return True
 
@@ -609,7 +611,9 @@ async def test_dispatch_implementer_uses_origin_dev_as_base(tmp_path: Path) -> N
 
     captured_base: list[str] = []
 
-    async def mock_ensure_worktree(path: Path, branch: str, base: str = "origin/dev", reset: bool = False) -> bool:
+    async def mock_ensure_worktree(
+        path: Path, branch: str, base: str = "origin/dev", reset: bool = False, **kwargs: object
+    ) -> bool:
         captured_base.append(base)
         return True
 
@@ -660,7 +664,9 @@ async def test_dispatch_reviewer_pr_branch_override_respected(tmp_path: Path) ->
     captured_bases: list[str] = []
     captured_branches: list[str] = []
 
-    async def mock_ensure_worktree(path: Path, branch: str, base: str = "origin/dev", reset: bool = False) -> bool:
+    async def mock_ensure_worktree(
+        path: Path, branch: str, base: str = "origin/dev", reset: bool = False, **kwargs: object
+    ) -> bool:
         captured_bases.append(base)
         captured_branches.append(branch)
         return True
@@ -763,7 +769,9 @@ async def test_dispatch_resets_stale_working_memory_on_redispatch(tmp_path: Path
     )
     write_memory(worktree_path, stale)
 
-    async def mock_ensure_worktree(path: Path, branch: str, base: str = "origin/dev", reset: bool = False) -> bool:
+    async def mock_ensure_worktree(
+        path: Path, branch: str, base: str = "origin/dev", reset: bool = False, **kwargs: object
+    ) -> bool:
         return True  # worktree "already exists" — no-op
 
     with (
@@ -1000,7 +1008,9 @@ async def test_dispatch_agent_seeds_next_steps_from_ac_items(tmp_path: Path) -> 
     worktree_path = tmp_path / "worktrees" / "issue-77"
     worktree_path.mkdir(parents=True)
 
-    async def mock_ensure_worktree(path: Path, branch: str, base: str = "origin/dev", reset: bool = False) -> bool:
+    async def mock_ensure_worktree(
+        path: Path, branch: str, base: str = "origin/dev", reset: bool = False, **kwargs: object
+    ) -> bool:
         return True
 
     issue_body = (

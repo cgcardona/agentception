@@ -379,6 +379,35 @@ def test_build_board_partial_no_run_renders_without_error(
     assert "implementing" not in resp.text
 
 
+def test_build_board_active_lane_no_run_is_clickable_inspect_issue(
+    client: TestClient,
+) -> None:
+    """Active-lane cards without a run must dispatch inspect-issue so Mission Control is not stuck Idle."""
+    issue = _mock_issue(number=100, title="Active but no run yet")
+    with (
+        patch(
+            "agentception.routes.ui.build_ui.get_issues_grouped_by_phase",
+            new_callable=AsyncMock,
+            return_value=_mock_group(issues=[issue]),
+        ),
+        patch(
+            "agentception.routes.ui.build_ui.get_runs_for_issue_numbers",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
+        patch(
+            "agentception.routes.ui.build_ui.get_workflow_states_by_issue",
+            new_callable=AsyncMock,
+            return_value={100: {"lane": "active", "pr_number": None}},
+        ),
+    ):
+        resp = client.get("/ship/agentception/phase-1/board")
+
+    assert resp.status_code == 200
+    assert "inspect-issue" in resp.text
+    assert "build-issue--selectable" in resp.text
+
+
 # ---------------------------------------------------------------------------
 # Regression: complete phase — no Launch button, no @click on cards
 # ---------------------------------------------------------------------------
