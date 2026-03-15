@@ -1,5 +1,7 @@
 # Cursor Agent Spawning — Empirical Reference
 
+> **Legacy:** Agents now run via the Cursor-free loop (Anthropic/local LLM API). This document is historical.
+>
 > Ground truth derived from live stress tests run 2026-03-03.  
 > No inherited assumptions. Everything here was directly observed.
 >

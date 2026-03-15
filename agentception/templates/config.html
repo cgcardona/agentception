@@ -342,9 +342,9 @@
             </div>
 
             <div class="cfg-project-footer">
-              <span class="cfg-project-cursor-id"
-                    x-show="project.cursor_project_id"
-                    x-text="'cursor: ' + project.cursor_project_id"></span>
+              <span class="cfg-project-ide-id"
+                    x-show="project.ide_project_id"
+                    x-text="'Project ID: ' + project.ide_project_id"></span>
               <button class="btn btn-secondary btn-sm"
                       type="button"
                       :disabled="config.active_project === project.name || projectSaving === project.name"

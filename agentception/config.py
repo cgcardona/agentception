@@ -35,11 +35,9 @@ logger = logging.getLogger(__name__)
 class TaskRunnerChoice(str, enum.Enum):
     """Task runner backend for agent execution.
 
-    Determines which system executes agent tasks:
-    - ``cursor``: Cursor IDE with Composer agent
-    - ``anthropic``: Direct Anthropic API calls (default)
+    Agent tasks are executed by the Cursor-free loop (direct API calls).
+    Currently the only supported value is ``anthropic`` (default).
     """
-    cursor = "cursor"
     anthropic = "anthropic"
 
 
@@ -140,7 +138,7 @@ class AgentCeptionSettings(BaseSettings):
     Inside Docker, ``worktrees_dir`` is the container path (``/worktrees``).
     ``host_worktrees_dir`` is the corresponding path on the developer's machine
     (e.g. ``~/.agentception/worktrees``), used to generate paths that the
-    user can open directly in Cursor.
+    user can open in an IDE on the host.
     Set via ``HOST_WORKTREES_DIR`` in docker-compose.override.yml.
     """
     repo_dir: Path = Path.cwd()
@@ -150,8 +148,8 @@ class AgentCeptionSettings(BaseSettings):
     Inside Docker, ``repo_dir`` is the container path (``/app``).
     ``host_repo_dir`` is the corresponding path on the developer's machine
     (e.g. ``/Users/alice/dev/myproject``), used to generate ``ROLE_FILE``
-    and ``HOST_ROLE_FILE`` paths that Cursor agents running on the host can
-    actually read.  Set via ``HOST_REPO_DIR`` in docker-compose or .env.
+    and ``HOST_ROLE_FILE`` paths that agents running on the host can read.
+    Set via ``HOST_REPO_DIR`` in docker-compose or .env.
     """
     gh_repo: str = "cgcardona/agentception"
     poll_interval_seconds: int = 5
@@ -336,6 +334,11 @@ class AgentCeptionSettings(BaseSettings):
     tools are unavailable in the agent loop.
     """
     ac_task_runner: TaskRunnerChoice = TaskRunnerChoice.anthropic
+    """Task runner backend for agent execution.
+
+    Set via ``AC_TASK_RUNNER`` env var.  Valid value: ``anthropic`` (default).
+    Agent tasks run via the Cursor-free loop (direct Anthropic or local LLM API).
+    """
     ac_min_turn_delay_secs: float = 0.5
     """Minimum seconds between consecutive LLM calls in the agent loop.
 
@@ -346,12 +349,6 @@ class AgentCeptionSettings(BaseSettings):
     if observing 429 rate-limit errors in the logs.
 
     Set via ``AC_MIN_TURN_DELAY_SECS`` env var.
-    """
-    """Task runner backend for agent execution.
-    
-    Set via ``AC_TASK_RUNNER`` env var.  Valid values: ``cursor``, ``anthropic``.
-    Defaults to ``anthropic`` when unset.  Determines which system executes
-    agent tasks — Cursor IDE with Composer agent or direct Anthropic API calls.
     """
     # ── Qdrant / code search ────────────────────────────────────────────────
     qdrant_url: str = "http://agentception-qdrant:6333"

@@ -1,6 +1,6 @@
-# Dispatcher walkthrough — run agents from Cursor (step-by-step)
+# Dispatcher walkthrough — run agents from an MCP client (step-by-step)
 
-This guide gets you from “Mission Control Idle” to agents running on the Ship board by configuring Cursor to act as the **Dispatcher**: it claims pending runs and starts the agent loop. Follow every step in order.
+This guide gets you from “Mission Control Idle” to agents running on the Ship board by configuring an MCP client to act as the **Dispatcher** (this doc uses Cursor as the example): it claims pending runs and starts the agent loop. Follow every step in order.
 
 ---
 

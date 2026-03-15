@@ -4,6 +4,9 @@ This document defines which shell commands agents may run without confirmation,
 which require caution, and which are forbidden. Every parallel-agent workflow
 reads this policy before executing any command.
 
+> **When using Cursor as the MCP client:** The sections below describe Cursor's
+> allowlist and sandbox. Other MCP clients have their own mechanisms; adapt as needed.
+
 > **Why this exists:** With 5–8 agents running concurrently, per-command
 > confirmation dialogs create severe friction. This policy eliminates that
 > friction for safe commands while preserving human oversight for destructive ones.

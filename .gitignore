@@ -27,6 +27,9 @@ htmlcov/
 .docker/
 docker-compose.override.yml
 
+# IDE — AgentCeption does not read or write this directory
+.cursor/
+
 # IDE
 .idea/
 .vscode/

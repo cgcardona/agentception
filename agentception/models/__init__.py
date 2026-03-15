@@ -395,14 +395,15 @@ class ProjectConfig(BaseModel):
     service was started against — e.g. in a multi-repo setup.
     ``worktrees_dir`` supports ``~`` expansion.
 
-    ``cursor_project_id`` is the Cursor project slug used to locate transcript files.
+    ``ide_project_id`` is an optional client/IDE project slug (e.g. for transcript
+    or workspace lookup in an MCP client). Not used by the server at runtime.
     """
 
     name: str
     gh_repo: str
     repo_dir: str | None = None
     worktrees_dir: str | None = None
-    cursor_project_id: str | None = None
+    ide_project_id: str | None = None
 
 
 class PipelineConfig(BaseModel):
@@ -468,7 +469,7 @@ class SwitchProjectRequest(BaseModel):
 
 
 class RoleMeta(BaseModel):
-    """Metadata for a managed role or cursor configuration file.
+    """Metadata for a managed role file.
 
     Used by the Role Studio API (AC-301) to describe each file without
     returning full content — callers fetch content separately via GET /api/roles/{slug}.

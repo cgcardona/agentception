@@ -28,14 +28,14 @@ Implement the TaskRunner protocol — issue #267.
 
 `agentception/services/task_runner.py` does not exist yet. Create it.
 `agentception/services/__init__.py` is currently empty — export `TaskRunner` from it.
-`agentception/config.py` already defines `TaskRunnerChoice` (enum: cursor | anthropic)
+`agentception/config.py` already defines `TaskRunnerChoice` (currently ``anthropic`` only)
 and the `ac_task_runner` setting — you do not need to touch config.py.
 
 ## What to do
 
 1. Read `agentception/services/__init__.py` to see its current state.
    Read `agentception/config.py` around `TaskRunnerChoice` to understand
-   the existing config wiring (grep for TaskRunnerChoice).
+   the existing config wiring.
 
 2. Create `agentception/services/task_runner.py` with:
    - `from __future__ import annotations` as the first line

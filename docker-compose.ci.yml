@@ -39,8 +39,8 @@ services:
     # Instead we remap to paths that exist unconditionally in any runner.
     # The CI runner has no .env file, so the narrow bind-mount security
     # posture from docker-compose.yml is naturally satisfied here too.
+    # AgentCeption does not use .cursor/; only gh CLI auth is remapped.
     volumes:
-      - /tmp/ci-cursor:/root/.cursor
       - /tmp/ci-gh:/root/.config/gh
       - ./agentception:/app/agentception
       - ./.agentception:/app/.agentception

@@ -339,7 +339,7 @@ The canonical `AgentStatus` in `agentception/workflow/status.py` includes two ad
 | `gh_repo` | `str` | required | GitHub `owner/repo` string |
 | `repo_dir` | `str \| None` | `None` | Override for the local repo path |
 | `worktrees_dir` | `str \| None` | `None` | Override for worktrees directory |
-| `cursor_project_id` | `str \| None` | `None` | Cursor project slug for transcripts |
+| `ide_project_id` | `str \| None` | `None` | Optional IDE/client project slug (e.g. for transcript lookup) |
 
 #### `PipelineConfig`
 
@@ -664,12 +664,11 @@ Produced by the LLM coordinator after enriching a `PlanSpec` with full issue bod
 
 #### `TaskRunnerChoice`
 
-`str, Enum` — Task runner backend for agent execution.
+`str, Enum` — Task runner backend for agent execution. Agent tasks run via the Cursor-free loop.
 
 | Value | Description |
 |-------|-------------|
-| `"cursor"` | Cursor IDE with Composer agent |
-| `"anthropic"` | Direct Anthropic API calls (default) |
+| `"anthropic"` | Direct Anthropic (or local LLM) API calls (default) |
 
 #### `LLMProviderChoice`
 
@@ -694,7 +693,7 @@ Key fields (not exhaustive — see `config.py` for the full list):
 | `gh_repo` | `str` | `GH_REPO` | GitHub `owner/repo` string |
 | `ac_api_key` | `str \| None` | `AC_API_KEY` | API key for agent callback authentication |
 | `anthropic_api_key` | `str \| None` | `ANTHROPIC_API_KEY` | Anthropic API key |
-| `ac_task_runner` | `TaskRunnerChoice` | `AC_TASK_RUNNER` | Agent execution backend |
+| `ac_task_runner` | `TaskRunnerChoice` | `AC_TASK_RUNNER` | Agent execution backend (currently ``anthropic`` only) |
 | `llm_provider` | `LLMProviderChoice` | `LLM_PROVIDER` | LLM provider selection |
 | `database_url` | `str` | `DATABASE_URL` | PostgreSQL connection string |
 | `qdrant_url` | `str` | `QDRANT_URL` | Qdrant vector DB URL |
@@ -1626,7 +1625,7 @@ AgentCeption
 │   └── HealthSnapshot               — BaseModel: system metrics for /api/health/detailed
 │
 ├── Config (agentception/config.py)
-│   ├── TaskRunnerChoice             — str Enum: cursor | anthropic
+│   ├── TaskRunnerChoice             — str Enum: anthropic (Cursor-free loop)
 │   ├── LLMProviderChoice            — str Enum: anthropic | local
 │   └── AgentCeptionSettings         — BaseSettings: env-var config
 │

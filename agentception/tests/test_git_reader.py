@@ -30,7 +30,7 @@ _SHOULD_NOT_MATCH = [
     "dev",
     "main",
     "feature/something",
-    "fix/something",        # Cursor fix branches are NOT agent branches
+    "fix/something",        # fix/* branches are NOT agent branches
     "feat/issue-1",         # removed — legacy naming, no longer used
     "feat/issue-42",
     "feat/brain-dump-foo",  # removed — legacy naming, no longer used
