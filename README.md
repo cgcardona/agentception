@@ -33,6 +33,8 @@ Paste anything. The LLM converts it into a `PlanSpec`: phases, issues, dependenc
 
 The YAML opens in an editor. Adjust anything. Click **Create Issues** to file everything on GitHub.
 
+![Phase 1B — review and edit the generated plan spec before launching](docs/images/phase1b.png)
+
 ### Step 3 — Ship
 
 The board shows your phases. Click **Launch** on an unlocked phase. A CTO agent surveys the board and cascades work down to coordinators and engineers, each working in an isolated git worktree. PRs appear. Phases unlock. You watch.
