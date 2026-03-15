@@ -148,3 +148,20 @@ async def test_ab_metrics_days_clamped(client: AsyncClient) -> None:
     """days=0 is clamped to 1 (Query(ge=1)); invalid values return 422."""
     response = await client.get("/metrics/ab", params={"days": 0})
     assert response.status_code == 422
+
+
+def test_ab_metrics_sql_uses_cast_not_double_colon() -> None:
+    """Regression: asyncpg rejects :param::type syntax in textual SQL.
+
+    The named parameter :days must be written as CAST(:days AS integer) so
+    asyncpg does not see the :: cast operator as part of the parameter name.
+    """
+    from agentception.routes.api.ab_metrics import _AB_QUERY
+
+    sql = str(_AB_QUERY)
+    assert "CAST(:days AS integer)" in sql, (
+        "SQL must use CAST(:days AS integer) — asyncpg misparses :days::integer"
+    )
+    assert ":days::integer" not in sql, (
+        "Found :days::integer in SQL — this causes asyncpg PostgresSyntaxError"
+    )
