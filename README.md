@@ -39,6 +39,8 @@ The YAML opens in an editor. Adjust anything. Click **Create Issues** to file ev
 
 The board shows your phases. Click **Launch** on an unlocked phase. A CTO agent surveys the board and cascades work down to coordinators and engineers, each working in an isolated git worktree. PRs appear. Phases unlock. You watch.
 
+![Step 3 — Mission Control tracks issues across TODO → ACTIVE → PR OPEN → REVIEWING → DONE](docs/images/ship.png)
+
 Every agent has a **cognitive architecture** — a composed identity (historical thinkers + archetypes + skill domains + behavioral atoms) injected into its context. You are deploying *reasoners*, not LLM calls. This is the infrastructure for deploying **judgment at scale**.
 
 Most AI coding tools are power tools. They make individual developers faster. AgentCeption is not a power tool. It is a **force multiplier on the organizational unit itself** — what would a brilliant 10-person team look like if the team had no size limit? The creative renaissance that has always been one good team away is now one brain dump away.
