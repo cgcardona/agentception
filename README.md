@@ -104,6 +104,8 @@ See [docs/guides/local-llm-mlx.md](docs/guides/local-llm-mlx.md) for the full Ol
 
 See [docs/guides/setup.md](docs/guides/setup.md) for the full first-run walkthrough.
 
+> **Security note:** By default all `/api/*` endpoints are unauthenticated. If your machine is on a shared network (office LAN, cloud VM, dev box), set `AC_API_KEY` in `.env` before starting. Without it, anyone who can reach port 10003 can dispatch agents and burn your Anthropic credits. Generate a key with `openssl rand -hex 32`.
+
 ---
 
 ## MCP Integration (Cursor / Claude)
