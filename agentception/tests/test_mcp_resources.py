@@ -539,6 +539,14 @@ async def test_read_resource_batch_tree_unknown_uri_returns_not_found() -> None:
     assert "error" in payload
 
 
+@pytest.mark.anyio
+async def test_read_resource_batch_tree_malformed_empty_batch_id_returns_not_found() -> None:
+    """ac://batches//tree (empty batch_id) yields only one path segment and returns not-found."""
+    result = await read_resource("ac://batches//tree")
+    payload = _content(result)
+    assert "error" in payload
+
+
 # ---------------------------------------------------------------------------
 # ac://system/dispatcher
 # ---------------------------------------------------------------------------
