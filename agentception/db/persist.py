@@ -563,6 +563,10 @@ async def _recompute_workflow_state(session: object, repo: str) -> list[str]:
 
     # --- Build lookup structures ---
     runs_by_pr: dict[int, list[RunRow]] = {}
+    # Keyed by issue_number scoped to the current repo to avoid cross-repo
+    # collisions when two repos share the same issue number (e.g. both repos
+    # have an issue #42).  A run is considered "for this repo" when its
+    # gh_repo field matches OR when gh_repo is NULL (legacy rows pre-migration).
     latest_run_by_issue: dict[int, ACAgentRun] = {}
     run_pr_numbers: dict[str, int | None] = {}
 
@@ -575,7 +579,13 @@ async def _recompute_workflow_state(session: object, repo: str) -> list[str]:
                 pr_number=run.pr_number,
             )
             runs_by_pr.setdefault(run.pr_number, []).append(run_row)
-        if run.issue_number is not None and run.issue_number not in latest_run_by_issue:
+        # Only assign to latest_run_by_issue when the run belongs to this repo.
+        # gh_repo is NULL for runs created before migration 0012; those rows
+        # have no repo context and are treated as matching any repo (legacy
+        # fallback — will be resolved when the run next heartbeats and writes
+        # gh_repo).
+        run_repo_matches = run.gh_repo is None or run.gh_repo == repo
+        if run.issue_number is not None and run_repo_matches and run.issue_number not in latest_run_by_issue:
             latest_run_by_issue[run.issue_number] = run
 
     pr_info_map: dict[int, PRInfo] = {}
@@ -811,6 +821,7 @@ async def _recompute_workflow_state(session: object, repo: str) -> list[str]:
 
 
 from agentception.workflow.status import ACTIVE_STATUSES as _ACTIVE_STATUSES  # noqa: E402
+from agentception.workflow.status import TERMINAL_STATUSES  # noqa: E402
 
 
 async def _upsert_agent_runs(
@@ -852,17 +863,44 @@ async def _upsert_agent_runs(
                 )
             )
         else:
-            # Never overwrite pending_launch — only the Dispatcher's acknowledge
-            # endpoint may transition out of that state.  The poller can see the
-            # worktree on disk and would clobber it with "stale" otherwise, which
-            # would drain the queue before the Dispatcher ever reads it.
+            # Status write rules — order matters; first match wins:
             #
-            # Never overwrite adhoc runs (issue_number is None) — they are
-            # managed entirely by their asyncio task lifecycle.  The poller
-            # derives a synthetic display status for them that is not an accurate
-            # reflection of real run state, so writing it back would corrupt the
-            # DB row and cause the agent loop's terminal-state guard to fire.
-            if existing.status != "pending_launch" and existing.issue_number is not None:
+            # 1. Never overwrite ``pending_launch``.  Only the Dispatcher's
+            #    acknowledge endpoint may transition out of that state.  The
+            #    poller can see the worktree on disk and would clobber it with a
+            #    stale-derived status otherwise, which would drain the queue
+            #    before the Dispatcher ever reads it.
+            #
+            # 2. Never overwrite adhoc runs (issue_number is None).  They are
+            #    managed entirely by their asyncio task lifecycle.
+            #
+            # 3. Never overwrite a terminal state (completed, cancelled, stopped,
+            #    failed).  A mid-tick completion or cancellation must not be
+            #    reversed by a snapshot taken at tick start.
+            #
+            # 4. Never overwrite ``stalled`` with a live status.  The poller
+            #    watchdog writes ``stalled`` in a separate DB session
+            #    (detect_alerts → update_agent_status) that commits before
+            #    _upsert_agent_runs runs.  The snapshot used to build ``agents``
+            #    was taken before that commit and still shows ``implementing``; if
+            #    we allow the overwrite here the stall detection flip-flops every
+            #    tick and the card oscillates between ``active`` and ``todo``.
+            # Guard 4: don't overwrite "stalled" with a live snapshot status.
+            # agent.status.value comes from the tick-start snapshot and will be
+            # "implementing" (or similar); existing.status was written mid-tick
+            # by the watchdog.  "stalled" is not a terminal state so TERMINAL_STATUSES
+            # doesn't catch it — the explicit guard is required.
+            _stall_guard = (
+                existing.status == "stalled"
+                and agent.status.value != "stalled"
+            )
+            _may_write_status = (
+                existing.status != "pending_launch"
+                and existing.issue_number is not None
+                and existing.status not in TERMINAL_STATUSES
+                and not _stall_guard
+            )
+            if _may_write_status:
                 existing.status = agent.status.value
             # Only advance pr_number — never regress it to None.
             # persist_agent_event(done) writes pr_number from the agent's
