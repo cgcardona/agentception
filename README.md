@@ -23,9 +23,29 @@ One input. Zero boilerplate. The work happens.
 
 ## How It Works
 
-1. **Plan** — Paste anything. The LLM converts it into a `PlanSpec`: phases, issues, dependencies, acceptance criteria.
-2. **Review** — The YAML opens in an editor. Adjust anything. Click **Create Issues** to file everything on GitHub.
-3. **Ship** — The board shows your phases. Click **Launch** on an unlocked phase. A CTO agent surveys the board and cascades work down to coordinators and engineers, each working in an isolated git worktree. PRs appear. Phases unlock. You watch.
+### Step 1 — Plan
+
+Paste anything. The LLM converts it into a `PlanSpec`: phases, issues, dependencies, acceptance criteria.
+
+![Phase 1A — natural language input becomes a structured plan spec](docs/images/phase1a.png)
+
+### Step 2 — Review
+
+The YAML opens in an editor. Adjust anything. Click **Create Issues** to file everything on GitHub.
+
+![Phase 1B — review and edit the generated plan spec before launching](docs/images/phase1b.png)
+
+### Step 3 — Design the org
+
+Configure the agent hierarchy before launching. Each node is either a **Coordinator** (surveys scope, assembles a team) or a **Worker** (does the work directly). Assign roles and cognitive architecture figures to each node, save a preset, or start from the default CEO → CTO → Engineering Manager / QA Lead → developer / reviewer tree.
+
+![Step 3 — Agent Org designer showing CEO → CTO → Engineering Manager / QA Lead → developer / reviewer tree](docs/images/org.png)
+
+### Step 4 — Ship
+
+Click **Launch** on an unlocked phase. The org tree springs to life: coordinators cascade work down to engineers, each operating in an isolated git worktree. PRs appear. Phases unlock. You watch.
+
+![Step 4 — Mission Control tracks issues across TODO → ACTIVE → PR OPEN → REVIEWING → DONE](docs/images/ship.png)
 
 Every agent has a **cognitive architecture** — a composed identity (historical thinkers + archetypes + skill domains + behavioral atoms) injected into its context. You are deploying *reasoners*, not LLM calls. This is the infrastructure for deploying **judgment at scale**.
 

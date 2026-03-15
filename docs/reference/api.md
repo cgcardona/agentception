@@ -25,6 +25,7 @@ URLs are semantic: each path segment narrows the resource.
 /ship/{initiative}        ← Ship board for a specific initiative
 /api/plan/*               ← Plan pipeline (draft, file, launch)
 /api/dispatch/*           ← Agent dispatch (issue, label, context, prompt)
+/api/mcp                  ← MCP JSON-RPC 2.0 (tools, resources, prompts)
 /api/runs/{run_id}/*      ← Agent run lifecycle (step, blocker, done, …)
 /api/ship/{initiative}/*  ← Ship-level actions (advance phase)
 /api/agents/*             ← Agent pipeline state
@@ -116,6 +117,12 @@ Events and thoughts are merged by `recorded_at` so the client sees the same orde
 ## JSON API Routes
 
 All API routes are prefixed `/api`.
+
+### MCP — `POST /api/mcp`
+
+The [Model Context Protocol](https://modelcontextprotocol.io/) server is exposed over HTTP at `POST /api/mcp`. Clients send JSON-RPC 2.0 requests (single object or batch array); the server returns JSON-RPC 2.0 responses. Supported methods include `initialize`, `ping`, `tools/list`, `tools/call`, `resources/list`, `resources/templates/list`, `resources/read`, `prompts/list`, and `prompts/get`. Notifications (requests without `id`) return `202 Accepted` with no body.
+
+**Authentication:** When `AC_API_KEY` is set, the endpoint is protected by `ApiKeyMiddleware` like all `/api/*` routes. See the [Security Guide](../guides/security.md) and [MCP Reference](mcp.md) for transport details, client configuration, and the full tool/resource/prompt catalogue.
 
 ### Plan pipeline — `/api/plan/*`
 

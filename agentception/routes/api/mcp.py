@@ -33,8 +33,9 @@ Notes
 - No session management: each HTTP request is stateless.
 - No server-sent events: the current MCP surface is request/response only.
   SSE streaming can be added in a future iteration when subscriptions land.
-- No authentication: the endpoint is protected only by network access controls.
-  Add API-key middleware when exposing outside a trusted network.
+- Authentication: when ``AC_API_KEY`` is set, this endpoint is protected by
+  ``ApiKeyMiddleware`` (all ``/api/*`` routes). See the Security guide for
+  client configuration.
 """
 
 from __future__ import annotations

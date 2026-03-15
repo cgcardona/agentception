@@ -75,9 +75,11 @@ jobs:
             run --rm agentception \
             python tools/typing_audit.py --dirs agentception/ tests/ --max-any 0
 
-  # ── 3. Test suite ─────────────────────────────────────────────────────────
+  # ── 3. Test suite + smoke ──────────────────────────────────────────────────
+  # Smoke probes run in the same job so we reuse the image that was just
+  # built and the postgres that is already running — no second full rebuild.
   test:
-    name: pytest
+    name: pytest + smoke
     runs-on: ubuntu-latest
     needs: typecheck
     steps:
@@ -110,36 +112,19 @@ jobs:
             run --rm agentception \
             pytest tests/ -v --tb=short
 
-      - name: Tear down
-        if: always()
-        run: |
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
-
-  # ── 4. Smoke test ─────────────────────────────────────────────────────────
-  smoke:
-    name: Smoke test (GET /health)
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Start full stack and wait for health
-        # --wait blocks until all services pass their healthcheck or times out.
+      - name: Start agentception and probe health
+        # Image is already built; postgres is already running.
+        # Start the proxy (no-op in CI) + agentception, then poll /health
+        # until it responds — no second full rebuild needed.
         run: |
           docker compose -f docker-compose.yml -f docker-compose.ci.yml \
-            up -d --wait --timeout 120
-
-      - name: Run migrations
-        run: |
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml \
-            exec -T agentception \
-            alembic -c agentception/alembic.ini upgrade head
-
-      - name: Probe /health endpoint
-        run: curl -f --retry 5 --retry-delay 3 http://localhost:10003/health
-
-      - name: Probe dashboard root
-        run: curl -f --retry 3 --retry-delay 2 http://localhost:10003/
+            up -d proxy agentception
+          for i in $(seq 1 18); do
+            curl -sf http://localhost:10003/health && break
+            sleep 5
+          done
+          curl -f http://localhost:10003/health
+          curl -f http://localhost:10003/
 
       - name: Tear down
         if: always()
