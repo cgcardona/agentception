@@ -109,8 +109,6 @@ ROLE_DEFAULT_FIGURE: dict[str, str] = {
     "mobile-coordinator":        "wozniak",
     "security-coordinator":      "bruce_schneier",
     "product-coordinator":       "steve_jobs",
-    # Fallback
-    "engineer":                  "hopper",
 }
 
 
