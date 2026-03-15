@@ -1,8 +1,8 @@
 # AgentCeption — Type Contracts Reference
 
-> Updated: 2026-03-06 | Reflects the full entity surface after the Cursor-free agent loop, Qdrant code indexing, API key authentication, and workflow state machine additions. `Any` does not exist in any production file. Every type boundary is named.
+> Updated: 2026-03-15 | Reflects the full entity surface including the planner/executor architecture, stall detection, plan-scoped branches, daily metrics, org presets, working memory, and task runner protocol. `Any` does not exist in any production file. Every type boundary is named.
 
-This document is the single source of truth for every named entity (TypedDict, Pydantic BaseModel, SQLAlchemy ORM class, Enum) in the AgentCeption codebase. It covers the full contract of each type: fields, types, optionality, and intended use.
+This document is the single source of truth for every named entity (TypedDict, Pydantic BaseModel, SQLAlchemy ORM class, Enum, Protocol) in the AgentCeption codebase. It covers the full contract of each type: fields, types, optionality, and intended use.
 
 ---
 
@@ -12,7 +12,7 @@ This document is the single source of truth for every named entity (TypedDict, P
 2. [Domain Models (`agentception/models/`)](#domain-models)
    - [Agent Lifecycle](#agent-lifecycle)
    - [Pipeline State](#pipeline-state)
-   - [Task File](#task-file)
+   - [Agent Task Spec](#agent-task-spec)
    - [Pipeline Configuration](#pipeline-configuration)
    - [Spawn API](#spawn-api)
    - [Role Studio API](#role-studio-api)
@@ -21,24 +21,38 @@ This document is the single source of truth for every named entity (TypedDict, P
    - [Org Tree](#org-tree)
    - [PlanSpec — YAML Contract](#planspec--yaml-contract)
    - [EnrichedManifest — Coordinator Contract](#enrichedmanifest--coordinator-contract)
+   - [Execution Plan](#execution-plan)
 3. [Health Model](#health-model)
-4. [ORM Models (`agentception/db/models.py`)](#orm-models)
-5. [Query TypedDicts (`agentception/db/queries.py`)](#query-typeddicts)
+4. [Config Types (`agentception/config.py`)](#config-types)
+5. [ORM Models (`agentception/db/models.py`)](#orm-models)
+6. [Query TypedDicts (`agentception/db/queries/types.py`)](#query-typeddicts)
    - [Issue and PR Rows](#issue-and-pr-rows)
    - [Agent Run Rows](#agent-run-rows)
    - [Wave and Conductor Rows](#wave-and-conductor-rows)
    - [Phase and Board Rows](#phase-and-board-rows)
    - [Workflow and Dispatch Rows](#workflow-and-dispatch-rows)
    - [MCP Query Rows](#mcp-query-rows)
-6. [LLM Service Types (`agentception/services/llm.py`)](#llm-service-types)
-7. [Code Indexer Types (`agentception/services/code_indexer.py`)](#code-indexer-types)
-8. [MCP Protocol Types (`agentception/mcp/types.py`)](#mcp-protocol-types)
-9. [Workflow Types](#workflow-types)
-   - [State Machine (`workflow/state_machine.py`)](#state-machine)
-   - [Link Discovery (`workflow/linking.py`)](#link-discovery)
-10. [Intelligence Types](#intelligence-types)
-11. [Entity Hierarchy](#entity-hierarchy)
-12. [Entity Graphs (Mermaid)](#entity-graphs-mermaid)
+   - [Metrics Rows](#metrics-rows)
+7. [LLM Service Types (`agentception/services/llm.py`)](#llm-service-types)
+8. [Code Indexer Types (`agentception/services/code_indexer.py`)](#code-indexer-types)
+9. [Working Memory Types (`agentception/services/working_memory.py`)](#working-memory-types)
+10. [Task Runner Protocol (`agentception/services/task_runner.py`)](#task-runner-protocol)
+11. [MCP Protocol Types (`agentception/mcp/types.py`)](#mcp-protocol-types)
+12. [Workflow Types](#workflow-types)
+    - [Status (`workflow/status.py`)](#status)
+    - [State Machine (`workflow/state_machine.py`)](#state-machine)
+    - [Link Discovery (`workflow/linking.py`)](#link-discovery)
+    - [Invariants (`workflow/invariants.py`)](#invariants)
+13. [Intelligence Types](#intelligence-types)
+    - [Dependency DAG (`intelligence/dag.py`)](#dependency-dag)
+    - [Issue Analyzer (`intelligence/analyzer.py`)](#issue-analyzer)
+    - [Pipeline Guards (`intelligence/guards.py`)](#pipeline-guards)
+    - [Scaling (`intelligence/scaling.py`)](#scaling)
+    - [A/B Results (`intelligence/ab_results.py`)](#ab-results)
+14. [Telemetry Types (`agentception/telemetry.py`)](#telemetry-types)
+15. [Org Preset Types (`agentception/data/org_presets.py`)](#org-preset-types)
+16. [Entity Hierarchy](#entity-hierarchy)
+17. [Entity Graphs (Mermaid)](#entity-graphs-mermaid)
 
 ---
 
@@ -52,7 +66,7 @@ Every entity in this codebase follows four rules:
 
 3. **TypedDicts for read-only query results, Pydantic for validated I/O.** DB query functions return `TypedDict` rows — plain, fast, no validation overhead. HTTP request/response bodies and pipeline config use Pydantic `BaseModel` so validation errors surface at the boundary with clear messages.
 
-4. **ORM models stay in `db/`.** SQLAlchemy `Base` subclasses never cross into `routes/` or `services/`. They are converted to `TypedDict` rows by query functions in `db/queries.py`.
+4. **ORM models stay in `db/`.** SQLAlchemy `Base` subclasses never cross into `routes/` or `services/`. They are converted to `TypedDict` rows by query functions in `db/queries/`.
 
 ### What to use instead
 
@@ -78,11 +92,11 @@ All Pydantic `BaseModel` subclasses. Wire format is snake_case throughout.
 
 #### `AgentStatus`
 
-`str, Enum` — Lifecycle state of a single pipeline agent.
+`str, Enum` — Lifecycle state of a single pipeline agent. Mirror of `agentception.workflow.status.AgentStatus`.
 
 | Value | Meaning |
 |-------|---------|
-| `"pending_launch"` | Worktree created, Cursor task not yet started |
+| `"pending_launch"` | Worktree created, task runner not yet started |
 | `"implementing"` | Agent is actively writing code |
 | `"blocked"` | Agent reported a blocker via MCP |
 | `"reviewing"` | PR open, awaiting review |
@@ -90,6 +104,8 @@ All Pydantic `BaseModel` subclasses. Wire format is snake_case throughout.
 | `"cancelled"` | Run explicitly cancelled |
 | `"stopped"` | Run stopped (agent stopped itself) |
 | `"failed"` | Run failed with an error |
+
+The canonical `AgentStatus` in `agentception/workflow/status.py` includes two additional states not present in the models mirror: `"stalled"` (set by poller watchdog when no DB heartbeat progress) and `"recovering"` (set on auto-heal / re-dispatch attempts). See [Workflow Status](#status) for the full state machine.
 
 #### `AgentNode`
 
@@ -105,7 +121,6 @@ All Pydantic `BaseModel` subclasses. Wire format is snake_case throughout.
 | `branch` | `str \| None` | `None` | Git branch name |
 | `batch_id` | `str \| None` | `None` | Batch this run belongs to |
 | `worktree_path` | `str \| None` | `None` | Container-side worktree path |
-| `transcript_path` | `str \| None` | `None` | Path to Cursor transcript |
 | `message_count` | `int` | `0` | Number of transcript messages |
 | `last_activity_mtime` | `float` | `0.0` | File mtime of last transcript write |
 | `children` | `list[AgentNode]` | `[]` | Sub-agents spawned by this agent |
@@ -151,6 +166,18 @@ All Pydantic `BaseModel` subclasses. Wire format is snake_case throughout.
 | `yaml_text` | `str` | `""` | Raw YAML (filled for `plan_draft_ready`) |
 | `output_path` | `str` | required | Absolute path of the output file |
 
+#### `StalledAgentEvent`
+
+`BaseModel` — Structured record of a stalled agent emitted by the poller on every tick.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `run_id` | `str` | Agent run identifier |
+| `issue_number` | `int` | GitHub issue number |
+| `worktree_path` | `str` | Container-side worktree path |
+| `last_activity_at` | `str` | ISO-format UTC timestamp from the DB row |
+| `stalled_for_minutes` | `int` | Minutes since last DB heartbeat |
+
 #### `PipelineState`
 
 `BaseModel` — Snapshot of the entire pipeline at a point in time. Served to the dashboard via SSE.
@@ -170,12 +197,14 @@ All Pydantic `BaseModel` subclasses. Wire format is snake_case throughout.
 | `stale_branches` | `list[str]` | `[]` | Local branches without a live worktree |
 | `pending_approval` | `list[dict[str, object]]` | `[]` | Issues awaiting human approval |
 | `plan_draft_events` | `list[PlanDraftEvent]` | `[]` | New plan-draft events for this tick |
+| `loop_guard_triggered` | `list[str]` | `[]` | Run IDs flagged by loop guard |
+| `stalled_agents` | `list[StalledAgentEvent]` | `[]` | Agents with stale DB heartbeats |
 
-### Task File
+### Agent Task Spec
 
 #### `IssueSub`
 
-`BaseModel` — One entry from `[[issue_queue]]` in a TOML `DB context row.
+`BaseModel` — One entry in a coordinator's dispatch queue.
 
 | Field | Type | Default |
 |-------|------|---------|
@@ -189,7 +218,7 @@ All Pydantic `BaseModel` subclasses. Wire format is snake_case throughout.
 
 #### `PRSub`
 
-`BaseModel` — One entry from `[[pr_queue]]` in a TOML `DB context row.
+`BaseModel` — One entry in a QA coordinator's review queue.
 
 | Field | Type | Default |
 |-------|------|---------|
@@ -202,36 +231,52 @@ All Pydantic `BaseModel` subclasses. Wire format is snake_case throughout.
 | `merge_order` | `int` | `0` |
 | `closes_issues` | `list[int]` | `[]` |
 
-#### `TaskFile`
+#### `AgentTaskSpec`
 
-`BaseModel` — Parsed content of a `ac://runs/{run_id}/context` TOML file. All fields optional for lenient parsing.
+`BaseModel` — In-memory representation of all task context for one agent run. Populated exclusively from the `ACAgentRun` DB row. All fields are optional; the DB row is the single source of truth.
 
-| Section | Field | Type | Default | Description |
-|---------|-------|------|---------|-------------|
-| `[task]` | `task` | `str \| None` | `None` | Task description |
+| Group | Field | Type | Default | Description |
+|-------|-------|------|---------|-------------|
+| Core | `task` | `str \| None` | `None` | Task description |
 | | `id` | `str \| None` | `None` | Task identifier |
 | | `attempt_n` | `int` | `0` | Attempt number |
 | | `is_resumed` | `bool` | `False` | Whether this is a resumed task |
-| | `required_output` | `str \| None` | `None` | Output requirement |
-| | `on_block` | `str \| None` | `None` | Block handler instruction |
-| `[agent]` | `role` | `str \| None` | `None` | Role slug |
+| Agent | `role` | `str \| None` | `None` | Role slug |
 | | `tier` | `str \| None` | `None` | `"coordinator"` \| `"worker"` |
 | | `org_domain` | `str \| None` | `None` | `"c-suite"` \| `"engineering"` \| `"qa"` |
 | | `cognitive_arch` | `str \| None` | `None` | Arch string |
-| | `session_id` | `str \| None` | `None` | Cursor session ID |
-| `[repo]` | `gh_repo` | `str \| None` | `None` | `owner/name` |
+| Repo | `gh_repo` | `str \| None` | `None` | `owner/name` |
 | | `base` | `str \| None` | `None` | Base branch |
-| `[pipeline]` | `batch_id` | `str \| None` | `None` | Wave batch identifier |
+| Pipeline | `batch_id` | `str \| None` | `None` | Wave batch identifier |
 | | `parent_run_id` | `str \| None` | `None` | Spawning agent's run ID |
-| | `wave` | `str \| None` | `None` | Wave identifier |
-| `[spawn]` | `spawn_sub_agents` | `bool` | `False` | Whether to spawn children |
+| | `coord_fingerprint` | `str \| None` | `None` | Coordinator run_id that spawned this |
 | | `spawn_mode` | `str \| None` | `None` | Spawn mode string |
-| `[target]` | `issue_number` | `int \| None` | `None` | Target GitHub issue |
+| Target | `issue_number` | `int \| None` | `None` | Target GitHub issue |
 | | `pr_number` | `int \| None` | `None` | Target GitHub PR |
-| | `depends_on` | `list[int]` | `[]` | Dependency issue numbers |
-| `[worktree]` | `branch` | `str \| None` | `None` | Git branch name |
-| Queues | `issue_queue` | `list[IssueSub]` | `[]` | Issues to spawn |
+| | `closes_issues` | `list[int]` | `[]` | Issues closed by the PR |
+| Worktree | `worktree` | `str \| None` | `None` | Worktree path |
+| | `branch` | `str \| None` | `None` | Git branch name |
+| Ad-hoc | `task_description` | `str \| None` | `None` | Inline task description |
+| | `prompt_variant` | `str \| None` | `None` | A/B prompt variant tag |
+| Planning | `draft_id` | `str \| None` | `None` | Plan draft identifier |
+| | `output_path` | `str \| None` | `None` | Plan output file path |
+| | `output_format` | `str \| None` | `None` | Expected output format |
+| | `domain` | `str \| None` | `None` | Domain scope |
+| | `issue_queue` | `list[IssueSub]` | `[]` | Issues to spawn |
 | | `pr_queue` | `list[PRSub]` | `[]` | PRs to review |
+| Extended | `depends_on` | `list[int]` | `[]` | Dependency issue numbers |
+| | `spawn_sub_agents` | `bool` | `False` | Whether to spawn children |
+| | `wave` | `str \| None` | `None` | Wave identifier |
+| | `vp_fingerprint` | `str \| None` | `None` | VP run_id fingerprint |
+| | `session_id` | `str \| None` | `None` | Task runner session ID |
+| | `on_block` | `str \| None` | `None` | Block handler instruction |
+| | `required_output` | `str \| None` | `None` | Output requirement |
+| | `file_ownership` | `list[str]` | `[]` | Files this agent owns |
+| | `files_changed` | `list[str]` | `[]` | Files already changed |
+| | `grade_threshold` | `str \| None` | `None` | QA grade threshold |
+| | `has_migration` | `bool` | `False` | Whether issue involves DB migration |
+| | `merge_after` | `str \| None` | `None` | Merge order constraint |
+| | `linked_pr` | `int \| None` | `None` | Linked PR number |
 
 ### Pipeline Configuration
 
@@ -273,6 +318,16 @@ All Pydantic `BaseModel` subclasses. Wire format is snake_case throughout.
 | `approval_required_labels` | `list[str]` | `["db-schema", "security", "api-contract"]` | Labels that trigger approval gate |
 | `phase_advance_blocked_label` | `str` | `"pipeline/gated"` | Label removed on phase advance |
 | `phase_advance_active_label` | `str` | `"pipeline/active"` | Label added on phase advance |
+| `max_attempts` | `int` | `3` | Max message_count before loop guard triggers |
+| `stall_threshold_minutes` | `int` | `30` | Minutes of DB-heartbeat silence before STALLED |
+
+#### `SwitchProjectRequest`
+
+`BaseModel` — Request body for `POST /api/config/switch-project`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `project_name` | `str` | Must match the `name` field of a `ProjectConfig` entry |
 
 ### Spawn API
 
@@ -286,7 +341,7 @@ All Pydantic `BaseModel` subclasses. Wire format is snake_case throughout.
 | | `worktree` | `str` | Container-side worktree path |
 | | `host_worktree` | `str` | Host-side path for Cursor |
 | | `branch` | `str` | Git branch name |
-| | `agent_task` | `str` | Raw `DB context row content |
+| | `agent_task` | `str` | Raw DB context row content |
 | | `spawned_at` | `str` | ISO-8601 UTC timestamp |
 
 #### `SpawnConductorRequest` / `SpawnConductorResult`
@@ -319,7 +374,7 @@ All Pydantic `BaseModel` subclasses. Wire format is snake_case throughout.
 
 | Model | Key Fields | Description |
 |-------|------------|-------------|
-| `RoleMeta` | `slug`, `path`, `line_count`, `mtime`, `last_commit_sha` | File metadata without content |
+| `RoleMeta` | `slug`, `path`, `line_count`, `mtime`, `last_commit_sha`, `last_commit_message` | File metadata without content |
 | `RoleContent` | `slug`, `content`, `meta: RoleMeta` | Full file with metadata — `GET /api/roles/{slug}` |
 | `RoleUpdateRequest` | `content: str` | Request body for `PUT /api/roles/{slug}` |
 | `RoleUpdateResponse` | `slug`, `diff`, `meta: RoleMeta` | Diff and refreshed metadata |
@@ -330,6 +385,7 @@ All Pydantic `BaseModel` subclasses. Wire format is snake_case throughout.
 | `RoleVersionEntry` | `sha`, `label`, `timestamp: int` | One version in history |
 | `RoleVersionInfo` | `current: str`, `history: list[RoleVersionEntry]` | Version tracking data |
 | `RoleVersionsResponse` | `slug`, `versions: RoleVersionInfo` | `GET /api/roles/{slug}/versions` |
+| `RoleHistoryEntry` | `sha`, `date`, `subject` | One git log entry for a role file's revision history |
 
 ### Cognitive Architecture API
 
@@ -507,6 +563,44 @@ Produced by the LLM coordinator after enriching a `PlanSpec` with full issue bod
 | `total_issues` | `int` | Computed: `sum(len(p.issues) for p in phases)` |
 | `estimated_waves` | `int` | Computed: critical-path length through dep graph |
 
+### Execution Plan
+
+#### `PlanOperation`
+
+`BaseModel` — A single atomic file operation produced by the planner agent. Maps 1-to-1 to a tool call the executor agent will make.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `tool` | `Literal["replace_in_file", "insert_after_in_file", "write_file"]` | required | Operation type |
+| `file` | `str` | required | Relative path from worktree root |
+| `old_string` | `str \| None` | `None` | Text to replace (`replace_in_file`) |
+| `new_string` | `str \| None` | `None` | Replacement text (`replace_in_file`) |
+| `after` | `str \| None` | `None` | Line to insert after (`insert_after_in_file`) |
+| `text` | `str \| None` | `None` | Text to insert (`insert_after_in_file`) |
+| `content` | `str \| None` | `None` | File content (`write_file`) |
+
+#### `ExecutionPlan`
+
+`BaseModel` — Immutable ordered list of file operations for implementing a single GitHub issue.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `run_id` | `str` | required | Agent run identifier |
+| `issue_number` | `int` | required | Target GitHub issue |
+| `operations` | `list[PlanOperation]` | required | Non-empty ordered operations |
+| `created_at` | `datetime` | auto | UTC creation timestamp |
+
+#### `FileEditEvent`
+
+`BaseModel` (frozen) — A single file-edit event carrying a unified diff for inspector-panel rendering.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `timestamp` | `datetime` | required | When the edit occurred |
+| `path` | `str` | required | Relative path in the worktree |
+| `diff` | `str` | required | Unified diff string (max 120 visible lines) |
+| `lines_omitted` | `int` | `0` | Count of hidden lines when truncated |
+
 ---
 
 ## Health Model
@@ -526,11 +620,54 @@ Produced by the LLM coordinator after enriching a `PlanSpec` with full issue bod
 
 ---
 
+## Config Types
+
+**Path:** `agentception/config.py`
+
+#### `TaskRunnerChoice`
+
+`str, Enum` — Task runner backend for agent execution.
+
+| Value | Description |
+|-------|-------------|
+| `"cursor"` | Cursor IDE with Composer agent |
+| `"anthropic"` | Direct Anthropic API calls (default) |
+
+#### `LLMProviderChoice`
+
+`str, Enum` — Which LLM backend to use for completion, streaming, and tool-use.
+
+| Value | Description |
+|-------|-------------|
+| `"anthropic"` | Anthropic Messages API (default) |
+| `"local"` | OpenAI-compatible local server |
+
+#### `AgentCeptionSettings`
+
+`BaseSettings` — Service configuration mapped from environment variables.
+
+Key fields (not exhaustive — see `config.py` for the full list):
+
+| Field | Type | Env Var | Description |
+|-------|------|---------|-------------|
+| `worktrees_dir` | `str` | `WORKTREES_DIR` | Container-side worktrees directory |
+| `host_worktrees_dir` | `str` | `HOST_WORKTREES_DIR` | Host-side worktrees directory |
+| `repo_dir` | `str` | `REPO_DIR` | Container-side repo directory |
+| `gh_repo` | `str` | `GH_REPO` | GitHub `owner/repo` string |
+| `ac_api_key` | `str \| None` | `AC_API_KEY` | API key for agent callback authentication |
+| `anthropic_api_key` | `str \| None` | `ANTHROPIC_API_KEY` | Anthropic API key |
+| `ac_task_runner` | `TaskRunnerChoice` | `AC_TASK_RUNNER` | Agent execution backend |
+| `llm_provider` | `LLMProviderChoice` | `LLM_PROVIDER` | LLM provider selection |
+| `database_url` | `str` | `DATABASE_URL` | PostgreSQL connection string |
+| `qdrant_url` | `str` | `QDRANT_URL` | Qdrant vector DB URL |
+
+---
+
 ## ORM Models
 
 **Path:** `agentception/db/models.py`
 
-SQLAlchemy async `Base` subclasses. Never exposed directly to routes — consumed through `db/queries.py` functions that return named `TypedDict` rows.
+SQLAlchemy async `Base` subclasses. Never exposed directly to routes — consumed through `db/queries/` functions that return named `TypedDict` rows.
 
 | Table | Class | Primary Key | Purpose |
 |-------|-------|-------------|---------|
@@ -544,6 +681,9 @@ SQLAlchemy async `Base` subclasses. Never exposed directly to routes — consume
 | `pipeline_snapshots` | `ACPipelineSnapshot` | `id: int (autoincrement)` | Time-series tick state |
 | `pr_issue_links` | `ACPRIssueLink` | `id: int (autoincrement)` | PR↔Issue linkage with provenance |
 | `issue_workflow_state` | `ACIssueWorkflowState` | `(repo, issue_number)` | Canonical swim-lane state per issue |
+| `plan_issues` | `ACPlanIssue` | `(plan_id, repo, issue_number)` | Issues belonging to a plan batch |
+| `plan_branches` | `ACPlanBranch` | `(plan_id, repo)` | Integration branch per plan |
+| `execution_plans` | `ACExecutionPlan` | `run_id: str` | Planner/executor immutable plan |
 
 ### Key field contracts
 
@@ -557,6 +697,17 @@ SQLAlchemy async `Base` subclasses. Never exposed directly to routes — consume
 | `org_domain` | `String(64) \| None` | `c-suite \| engineering \| qa` |
 | `parent_run_id` | `String(512) \| None` | Spawning agent's run ID |
 | `cognitive_arch` | `String(256) \| None` | Arch string at spawn |
+| `task_description` | `Text \| None` | Inline task description for ad-hoc runs |
+| `gh_repo` | `String(256) \| None` | GitHub `owner/repo` slug |
+| `plan_id` | `String(128) \| None` | Plan-scoped integration branch ID |
+| `plan_branch` | `String(256) \| None` | Branch name for this plan |
+| `is_resumed` | `Boolean` | Whether this run is a retry |
+| `coord_fingerprint` | `String(256) \| None` | Coordinator run_id fingerprint |
+| `total_input_tokens` | `Integer` | Cumulative input tokens |
+| `total_output_tokens` | `Integer` | Cumulative output tokens |
+| `total_cache_write_tokens` | `Integer` | Tokens written to prompt cache |
+| `total_cache_read_tokens` | `Integer` | Tokens read from prompt cache |
+| `prompt_variant` | `String(64) \| None` | A/B prompt variant tag |
 
 #### `ACIssueWorkflowState` — key fields
 
@@ -577,11 +728,36 @@ SQLAlchemy async `Base` subclasses. Never exposed directly to routes — consume
 | `run_pr_number` | 85 | Agent run's stored `pr_number` |
 | `title_mention` | varies | Title keyword match |
 
+#### `ACPlanIssue` — plan membership
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `plan_id` | `String(128)` | Filing batch identifier |
+| `repo` | `String(256)` | GitHub `owner/repo` |
+| `issue_number` | `Integer` | GitHub issue number |
+
+#### `ACPlanBranch` — integration branch
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `plan_id` | `String(128)` | Filing batch identifier |
+| `repo` | `String(256)` | GitHub `owner/repo` |
+| `branch_name` | `String(256)` | Integration branch name |
+
+#### `ACExecutionPlan` — planner/executor
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `run_id` | `String(512)` | FK-equivalent to `agent_runs.id` |
+| `issue_number` | `Integer` | Target issue |
+| `plan_json` | `Text` | Serialised `ExecutionPlan` JSON (immutable) |
+| `created_at` | `DateTime` | Plan creation timestamp |
+
 ---
 
 ## Query TypedDicts
 
-**Path:** `agentception/db/queries.py`
+**Path:** `agentception/db/queries/types.py`
 
 All query functions return plain `TypedDict` instances. No SQLAlchemy ORM objects cross this boundary. All datetime fields are serialised as ISO-8601 UTC strings.
 
@@ -591,15 +767,15 @@ All query functions return plain `TypedDict` instances. No SQLAlchemy ORM object
 |-----------|--------|-------------|
 | `LabelEntry` | `name: str` | Embedded in board rows |
 | `BoardIssueRow` | `number`, `title`, `state`, `labels: list[LabelEntry]`, `claimed`, `phase_label`, `last_synced_at` | `get_board_issues()` |
-| `AllIssueRow` | `number`, `title`, `state`, `labels: list[str]`, `phase_label` | `get_all_issues()` |
+| `AllIssueRow` | `number`, `title`, `state`, `labels: list[str]`, `phase_label`, `closed_at`, `last_synced_at` | `get_all_issues()` |
 | `LinkedIssueRow` | `number`, `title`, `state` | Embedded in `PRDetailRow` |
-| `IssueDetailRow` | `number`, `title`, `body`, `state`, `labels`, `linked_pr: LinkedPRRow \| None`, `linked_runs: list[IssueAgentRunRow]`, `depends_on` | `get_issue_detail()` |
-| `IssueAgentRunRow` | `id`, `role`, `status`, `branch` | Embedded in `IssueDetailRow` |
-| `AllPRRow` | `number`, `title`, `state`, `head_ref`, `base_ref`, `labels` | `get_all_prs_db()` |
-| `OpenPRRow` | `number`, `title`, `state`, `headRefName`, `labels` | `get_open_prs_db()` |
-| `LinkedPRRow` | `number`, `title`, `state`, `head_ref` | Embedded in `IssueDetailRow` |
-| `PRDetailRow` | `number`, `title`, `state`, `head_ref`, `base_ref`, `linked_issues: list[LinkedIssueRow]`, `linked_runs: list[PRAgentRunRow]` | `get_pr_detail()` |
-| `PRAgentRunRow` | `id`, `role`, `status`, `branch` | Embedded in `PRDetailRow` |
+| `IssueDetailRow` | `number`, `title`, `body`, `state`, `labels: list[str]`, `phase_label`, `claimed`, `first_seen_at`, `last_synced_at`, `closed_at`, `linked_prs: list[LinkedPRRow]`, `agent_runs: list[IssueAgentRunRow]` | `get_issue_detail()` |
+| `IssueAgentRunRow` | `id`, `role`, `status`, `branch`, `pr_number`, `spawned_at`, `last_activity_at` | Embedded in `IssueDetailRow` |
+| `AllPRRow` | `number`, `title`, `state`, `head_ref`, `labels: list[str]`, `closes_issue_number`, `merged_at`, `last_synced_at` | `get_all_prs_db()` |
+| `OpenPRRow` | `number`, `title`, `state`, `headRefName`, `labels: list[LabelEntry]` | `get_open_prs_db()` |
+| `LinkedPRRow` | `number`, `title`, `state`, `head_ref`, `merged_at` | Embedded in `IssueDetailRow` |
+| `PRDetailRow` | `number`, `title`, `state`, `head_ref`, `labels: list[str]`, `closes_issue_number`, `merged_at`, `first_seen_at`, `last_synced_at`, `linked_issue: LinkedIssueRow \| None`, `agent_runs: list[PRAgentRunRow]` | `get_pr_detail()` |
+| `PRAgentRunRow` | `id`, `role`, `status`, `branch`, `issue_number`, `spawned_at`, `last_activity_at` | Embedded in `PRDetailRow` |
 | `OpenPRForIssueRow` | `pr_number: int`, `head_ref: str \| None` | `get_open_prs_by_issue()` |
 
 ### Agent Run Rows
@@ -608,19 +784,20 @@ All query functions return plain `TypedDict` instances. No SQLAlchemy ORM object
 |-----------|--------|-------------|
 | `AgentRunRow` | `id`, `wave_id`, `issue_number`, `pr_number`, `branch`, `worktree_path`, `role`, `status`, `attempt_number`, `spawn_mode`, `batch_id`, `spawned_at`, `last_activity_at`, `completed_at`, `tier`, `org_domain`, `parent_run_id` | `get_agent_run_history()` |
 | `AgentMessageRow` | `role`, `content`, `tool_name`, `sequence_index`, `recorded_at` | Embedded in `AgentRunDetail` |
-| `AgentRunDetail` | All `AgentRunRow` fields plus `cognitive_arch`, `messages: list[AgentMessageRow]` | `get_agent_run_detail()` |
-| `SiblingRunRow` | `id`, `role`, `status`, `issue_number`, `pr_number`, `batch_id` | `get_sibling_runs()` |
-| `AgentRunTeardownRow` | `worktree_path: str \| None`, `branch: str \| None` | `get_agent_run_for_teardown()` |
+| `AgentRunDetail` | `id`, `issue_number`, `pr_number`, `branch`, `role`, `status`, `spawned_at`, `last_activity_at`, `completed_at`, `batch_id`, `cognitive_arch`, `tier`, `org_domain`, `parent_run_id`, `messages: list[AgentMessageRow]` | `get_agent_run_detail()` |
+| `SiblingRunRow` | `id`, `role`, `status`, `issue_number`, `tier` | `get_sibling_runs()` |
+| `AgentRunTeardownRow` | `worktree_path: str \| None`, `branch: str \| None`, `plan_branch: str \| None` | `get_agent_run_for_teardown()` (all fields optional — `total=False`) |
 | `AgentEventRow` | `id: int`, `event_type`, `payload: str` (raw JSON), `recorded_at` | `get_agent_events_tail()` |
-| `AgentThoughtRow` | `seq: int`, `role`, `content`, `recorded_at` | `get_agent_thoughts_tail()` |
+| `AgentThoughtRow` | `seq: int`, `role`, `content`, `tool_name`, `recorded_at` | `get_agent_thoughts_tail()` |
 | `PendingLaunchRow` | `run_id`, `issue_number`, `role`, `branch`, `worktree_path`, `host_worktree_path`, `batch_id`, `spawned_at`, `tier`, `org_domain`, `parent_run_id` | `get_pending_launches()` |
+| `BatchSummaryRow` | `batch_id`, `spawned_at`, `total_count`, `active_count` | `get_batch_summaries_for_initiative()` |
 
 ### Wave and Conductor Rows
 
 | TypedDict | Fields | Description |
 |-----------|--------|-------------|
 | `WaveAgentRow` | `id`, `role`, `status`, `issue_number`, `pr_number`, `branch`, `batch_id`, `worktree_path`, `cognitive_arch`, `message_count` | Agent entry inside a wave |
-| `WaveRow` | `batch_id`, `started_at`, `ended_at`, `issues_worked`, `prs_opened`, `prs_merged`, `estimated_tokens`, `estimated_cost_usd`, `agents: list[WaveAgentRow]` | `get_waves_from_db()` |
+| `WaveRow` | `batch_id`, `started_at: float`, `ended_at: float \| None`, `issues_worked: list[int]`, `prs_opened`, `prs_merged`, `estimated_tokens`, `estimated_cost_usd`, `agents: list[WaveAgentRow]` | `get_waves_from_db()` |
 | `ConductorHistoryRow` | `wave_id`, `worktree`, `host_worktree`, `started_at`, `status` | `get_conductor_history()` |
 
 ### Phase and Board Rows
@@ -630,9 +807,9 @@ All query functions return plain `TypedDict` instances. No SQLAlchemy ORM object
 | `PipelineTrendRow` | `polled_at`, `active_label`, `issues_open`, `prs_open`, `agents_active`, `alert_count` | `get_pipeline_trend()` |
 | `PhasedIssueRow` | `number`, `title`, `body_excerpt`, `state`, `url`, `labels`, `depends_on: list[int]` | Issue in a phase group |
 | `PhaseGroupRow` | `label`, `issues: list[PhasedIssueRow]`, `locked: bool`, `complete: bool`, `depends_on: list[str]` | `get_issues_grouped_by_phase()` |
-| `ShipReviewerRunRow` | `run_id`, `role`, `status`, `agent_status` | Reviewer run in ship board |
-| `ShipPRRow` | `pr_number`, `state`, `head_ref`, `reviewer_runs: list[ShipReviewerRunRow]` | PR in ship board |
-| `ShipPhaseGroupRow` | `label`, `issues`, `locked`, `complete`, `depends_on`, `prs: list[ShipPRRow]` | `get_issues_for_ship_board()` |
+| `ShipReviewerRunRow` | `id`, `status`, `spawned_at`, `last_activity_at` | Latest reviewer run on Ship board |
+| `ShipPRRow` | `number`, `title`, `state`, `head_ref`, `url`, `labels: list[str]`, `closes_issue_number`, `merged_at`, `phase_label`, `reviewer_run: ShipReviewerRunRow \| None` | PR on Ship board |
+| `ShipPhaseGroupRow` | `label`, `prs: list[ShipPRRow]` | Phase group on Ship board |
 | `InitiativePhaseMeta` | `label`, `order: int`, `depends_on: list[str]` | `get_initiative_phase_meta()` |
 | `PhaseSummary` | `label`, `count: int` | Phase count for launch modal |
 | `IssueSummary` | `number: int`, `title: str` | Issue for launch modal picker |
@@ -652,11 +829,18 @@ All query functions return plain `TypedDict` instances. No SQLAlchemy ORM object
 | TypedDict | Fields | Description |
 |-----------|--------|-------------|
 | `RunSummaryRow` | `run_id`, `status`, `role`, `issue_number`, `pr_number`, `branch`, `worktree_path`, `batch_id`, `tier`, `org_domain`, `parent_run_id`, `spawned_at`, `last_activity_at`, `completed_at` | `get_run_by_id()`, `get_children_by_parent_id()` |
+| `RunContextRow` | `run_id`, `status`, `role`, `cognitive_arch`, `task_description`, `issue_number`, `pr_number`, `branch`, `worktree_path`, `batch_id`, `tier`, `org_domain`, `parent_run_id`, `gh_repo`, `is_resumed`, `coord_fingerprint`, `spawned_at`, `last_activity_at`, `completed_at`, `pr_base_branch` | `get_run_context()` — full task context for MCP resource `ac://runs/{run_id}/context` |
 | `StatusCountRow` | `status: str`, `count: int` | `get_status_counts()` |
 | `TerminalRunRow` | `id`, `worktree_path: str`, `branch: str \| None` | `get_terminal_runs_with_worktrees()` |
 | `InitiativeIssueRow` | `number`, `title`, `url`, `state` | Embedded in `InitiativePhaseRow` |
 | `InitiativePhaseRow` | `label`, `short_label`, `order: int`, `is_active: bool`, `is_complete: bool`, `issues: list[InitiativeIssueRow]` | Embedded in `InitiativeSummary` |
 | `InitiativeSummary` | `repo`, `initiative`, `batch_id`, `phase_count`, `issue_count`, `open_count`, `closed_count`, `filed_at`, `phases: list[InitiativePhaseRow]` | `get_initiative_summary()` |
+
+### Metrics Rows
+
+| TypedDict | Fields | Description |
+|-----------|--------|-------------|
+| `DailyMetrics` | `date`, `issues_closed`, `prs_merged`, `reviewer_runs`, `grade_a_count`, `grade_b_count`, `grade_c_count`, `grade_d_count`, `grade_f_count`, `first_pass_rate`, `rework_rate`, `avg_iterations`, `max_iter_hit_count`, `avg_cycle_time_seconds`, `cost_usd`, `cost_per_issue_usd`, `redispatch_count`, `auto_merge_rate` | `get_daily_metrics()` |
 
 ---
 
@@ -688,9 +872,11 @@ The LLM layer exposes a **provider-agnostic contract**: the same three entry poi
 |-----------|--------|-------------|
 | `ToolCallFunction` | `name: str`, `arguments: str` | Function call detail — `arguments` is JSON-encoded |
 | `ToolCall` | `id: str`, `type: Literal["function"]`, `function: ToolCallFunction` | One tool invocation returned by the model |
-| `ToolResponse` | `stop_reason: str`, `content: str`, `tool_calls: list[ToolCall]` | Return value from `completion_with_tools()` |
+| `ToolResponse` | `stop_reason: str`, `content: str`, `tool_calls: list[ToolCall]`, `input_tokens: NotRequired[int]`, `output_tokens: NotRequired[int]`, `cache_creation_input_tokens: NotRequired[int]`, `cache_read_input_tokens: NotRequired[int]` | Return value from `completion_with_tools()` |
 
 **`ToolResponse.stop_reason` values:** `"stop"` (model finished), `"tool_calls"` (model wants to call tools), `"length"` (max tokens hit).
+
+**Token counting fields (all `NotRequired`):** `input_tokens` covers all tokens billed this turn (including cached reads at their discounted rate). `cache_creation_input_tokens` and `cache_read_input_tokens` are non-zero only when prompt caching is active; used by telemetry to confirm cache hits and quantify per-turn discount.
 
 **Three public entry points (provider-agnostic):**
 
@@ -719,6 +905,7 @@ Qdrant-backed semantic code search — the self-hosted replacement for Cursor's 
 | `ok` | `bool` | Whether indexing succeeded |
 | `files_indexed` | `int` | Number of files processed |
 | `chunks_indexed` | `int` | Number of vector chunks upserted |
+| `files_skipped` | `int` | Number of files skipped (too large, binary, etc.) |
 | `error` | `str \| None` | Error message on failure; `None` on success |
 
 #### `SearchMatch`
@@ -733,7 +920,7 @@ Qdrant-backed semantic code search — the self-hosted replacement for Cursor's 
 | `start_line` | `int` | 1-based starting line number |
 | `end_line` | `int` | 1-based ending line number |
 
-**`_ChunkSpec`** (internal): `chunk_id: int`, `file: str`, `text: str`, `start_line: int`, `end_line: int` — a raw chunk before embedding. Not part of the public API.
+**`_ChunkSpec`** (internal): `chunk_id: int`, `file: str`, `text: str`, `start_line: int`, `end_line: int`, `symbol: str`, `file_hash: str` — a raw chunk before embedding. `symbol` is the AST symbol name (e.g. `"class Foo"`; empty for char chunks). `file_hash` is a SHA-256 hex digest of the whole file. Not part of the public API.
 
 **Indexing parameters:**
 
@@ -742,6 +929,53 @@ Qdrant-backed semantic code search — the self-hosted replacement for Cursor's 
 | `_CHUNK_SIZE` | `1500` | Characters per chunk |
 | `_CHUNK_OVERLAP` | `200` | Overlap between consecutive chunks |
 | `_MAX_FILE_BYTES` | `200000` | Skip files larger than ~200 KB |
+
+---
+
+## Working Memory Types
+
+**Path:** `agentception/services/working_memory.py`
+
+#### `FileEditEventJSON`
+
+`TypedDict` — JSON-safe representation of `FileEditEvent`. All fields are plain scalars.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `timestamp` | `str` | ISO-format timestamp |
+| `path` | `str` | Relative file path |
+| `diff` | `str` | Unified diff string |
+| `lines_omitted` | `int` | Hidden line count |
+
+#### `WorkingMemoryJSON`
+
+`TypedDict` (`total=False`) — JSON-serialisable mirror of in-memory working memory state.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `plan` | `str` | Current execution plan text |
+| `files_written` | `list[FileEditEventJSON]` | File edit history |
+| `files_examined` | `list[str]` | Files read during execution |
+| `findings` | `dict[str, str]` | Key observations keyed by topic |
+| `decisions` | `list[str]` | Architectural decisions made |
+| `next_steps` | `list[str]` | Planned next actions |
+| `blockers` | `list[str]` | Identified blockers |
+
+---
+
+## Task Runner Protocol
+
+**Path:** `agentception/services/task_runner.py`
+
+#### `TaskRunner`
+
+`Protocol` — Abstraction for task execution engines. Implementations spawn agent processes with the given prompt and context.
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `run` | `(prompt: str, worktree_path: Path, mcp_server: str, role: str, run_id: str) -> str \| None` | Spawn an agent; returns session ID or `None` |
+
+Implementations: `CursorTaskRunner` (Cursor IDE), `AnthropicTaskRunner` (direct API).
 
 ---
 
@@ -787,7 +1021,7 @@ Named `TypedDict` for every shape in the MCP JSON-RPC 2.0 wire protocol. No `dic
 | `ac://runs/{run_id}` | Single run metadata |
 | `ac://runs/{run_id}/children` | Child runs |
 | `ac://runs/{run_id}/events` | Structured event log (append `?after_id=N` to paginate) |
-| `ac://runs/{run_id}/context` | Full task context for a run — RunContextRow with status, role, cognitive_arch, task_description, issue_number, worktree_path and related fields |
+| `ac://runs/{run_id}/context` | Full task context — `RunContextRow` with status, role, cognitive_arch, task_description, issue_number, worktree_path, pr_base_branch and related fields |
 | `ac://batches/{batch_id}/tree` | Full batch run tree |
 | `ac://system/dispatcher` | Dispatcher counters |
 | `ac://system/health` | DB reachability + status counts |
@@ -825,6 +1059,57 @@ Named `TypedDict` for every shape in the MCP JSON-RPC 2.0 wire protocol. No `dic
 ---
 
 ## Workflow Types
+
+### Status
+
+**Path:** `agentception/workflow/status.py`
+
+The canonical agent status definitions — single source of truth for the lifecycle state machine.
+
+#### `AgentStatus` (canonical)
+
+`str, Enum` — 10 lifecycle states stored in `agent_runs.status`. The models-layer enum mirrors all values except `stalled` and `recovering`.
+
+| Value | Meaning |
+|-------|---------|
+| `"pending_launch"` | Worktree created, task runner not yet started |
+| `"implementing"` | Agent is actively writing code |
+| `"blocked"` | Agent reported a blocker via MCP |
+| `"reviewing"` | PR open, awaiting review |
+| `"stalled"` | Set by poller watchdog when no DB heartbeat progress |
+| `"recovering"` | Set on auto-heal / re-dispatch attempts |
+| `"completed"` | PR merged; work done |
+| `"cancelled"` | Run explicitly cancelled |
+| `"stopped"` | Run stopped (agent stopped itself) |
+| `"failed"` | Run failed with an error |
+
+**State machine transitions:**
+
+```
+pending_launch → implementing : build_claim_run
+pending_launch → cancelled    : build_cancel_run
+implementing   → blocked      : build_block_run
+implementing   → stalled      : poller watchdog (no commit progress)
+implementing   → completed    : build_complete_run
+implementing   → cancelled    : build_cancel_run
+implementing   → stopped      : build_stop_run
+blocked        → implementing : build_resume_run
+stalled        → recovering   : auto-heal / re-dispatch
+stalled        → failed       : max_attempts exceeded
+recovering     → implementing : re-dispatch succeeded
+stopped        → implementing : build_resume_run
+completed/cancelled/stopped/failed → terminal
+```
+
+**Status sets (frozenset constants):**
+
+| Constant | Values | Use |
+|----------|--------|-----|
+| `ACTIVE_STATUSES` | implementing, blocked, reviewing, stalled, recovering | Run has a live worktree |
+| `LIVE_STATUSES` | pending_launch + ACTIVE_STATUSES | Visible as "live" in the UI |
+| `TERMINAL_STATUSES` | completed, cancelled, stopped, failed | No further transitions |
+| `RESUMABLE_STATUSES` | blocked, stopped | Can be resumed |
+| `STALE_THRESHOLD` | 1800 seconds (30 min) | `compute_agent_status()` threshold |
 
 ### State Machine
 
@@ -925,11 +1210,47 @@ PR↔Issue link discovery and best-PR selection.
 
 **`PRInfo`**: `number`, `state`, `base_ref`, `head_ref` — minimal PR metadata for best-PR selection.
 
+### Invariants
+
+**Path:** `agentception/workflow/invariants.py`
+
+Tick-level invariant checks and alerts for the workflow state machine.
+
+#### `InvariantContext`
+
+`TypedDict` — Data snapshot passed to the invariant checker.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `repo` | `str` | GitHub `owner/repo` |
+| `issue_numbers` | `list[int]` | All tracked issue numbers |
+| `pr_numbers_in_db` | `set[int]` | PR numbers with DB rows |
+| `run_pr_numbers` | `dict[str, int \| None]` | Run ID → PR number mapping |
+| `link_issue_numbers_by_pr` | `dict[int, list[int]]` | PR → linked issue numbers |
+| `workflow_states` | `dict[int, WorkflowSnapshot]` | Issue → workflow state |
+| `pr_states` | `dict[int, str]` | PR → state string |
+| `pr_bases` | `dict[int, str \| None]` | PR → target branch |
+| `closes_refs_by_pr` | `dict[int, list[int]]` | PR → `Closes #N` references |
+
+#### `WorkflowSnapshot`
+
+`TypedDict` — Minimal workflow state fields for invariant checking.
+
+| Field | Type |
+|-------|------|
+| `lane` | `str` |
+| `pr_number` | `int \| None` |
+| `pr_state` | `str \| None` |
+| `agent_status` | `str \| None` |
+| `issue_state` | `str` |
+
 ---
 
 ## Intelligence Types
 
-**Path:** `agentception/intelligence/`
+### Dependency DAG
+
+**Path:** `agentception/intelligence/dag.py`
 
 #### `IssueNode`
 
@@ -953,6 +1274,10 @@ PR↔Issue link discovery and best-PR selection.
 | `nodes` | `list[IssueNode]` | All open issues |
 | `edges` | `list[tuple[int, int]]` | `(from, to)` — `from` depends on `to` |
 
+### Issue Analyzer
+
+**Path:** `agentception/intelligence/analyzer.py`
+
 #### `IssueAnalysis`
 
 `BaseModel` — Structured analysis of a GitHub issue body.
@@ -967,6 +1292,121 @@ PR↔Issue link discovery and best-PR selection.
 | `recommended_role` | `Literal["python-developer", "database-architect"]` | Role that should handle this issue |
 | `recommended_merge_after` | `int \| None` | Largest dependency number |
 
+### Pipeline Guards
+
+**Path:** `agentception/intelligence/guards.py`
+
+#### `PRViolation`
+
+`BaseModel` — A PR whose linked issue belongs to a pipeline phase that is no longer active.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `pr_number` | `int` | PR number |
+| `pr_title` | `str` | PR title |
+| `expected_label` | `str` | Currently active phase label |
+| `actual_label` | `str` | Label carried by the linked issue |
+| `linked_issue` | `int \| None` | Issue number parsed from `Closes #N` |
+
+### Scaling
+
+**Path:** `agentception/intelligence/scaling.py`
+
+#### `ScalingRecommendation`
+
+`BaseModel` — A single scaling recommendation produced by `compute_recommendation()`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `action` | `Literal["increase_coordinator_limit", "increase_pool", "no_change"]` | Machine-readable action verb |
+| `target_role` | `str \| None` | Coordinator role slug (for `increase_coordinator_limit`) |
+| `reason` | `str` | Human-readable explanation |
+| `current_value` | `int` | Current config value |
+| `recommended_value` | `int` | Suggested new value |
+| `confidence` | `Literal["high", "medium", "low"]` | Based on completed wave history |
+
+### A/B Results
+
+**Path:** `agentception/intelligence/ab_results.py`
+
+#### `ABVariantResult`
+
+`BaseModel` — Outcome metrics for one A/B role variant across all applicable batches.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `variant` | `Literal["A", "B"]` | Even-second = A, odd-second = B |
+| `role_sha` | `str` | Git SHA of the role file version |
+| `batch_ids` | `list[str]` | Batch IDs in this variant |
+| `prs_opened` | `int` | Total PRs opened |
+| `prs_merged` | `int` | Total PRs merged |
+| `avg_grade` | `str \| None` | Mean letter grade (None when no graded PRs) |
+| `merge_rate` | `float` | `prs_merged / prs_opened` |
+
+---
+
+## Telemetry Types
+
+**Path:** `agentception/telemetry.py`
+
+#### `WaveSummary`
+
+`BaseModel` — Aggregated telemetry for one VP/Engineering batch wave.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `batch_id` | `str` | Batch identifier |
+| `started_at` | `float` | UNIX timestamp (from worktree mtime) |
+| `ended_at` | `float \| None` | UNIX timestamp; `None` when still active |
+| `issues_worked` | `list[int]` | Issue numbers processed |
+| `prs_opened` | `int` | PRs opened in this wave |
+| `prs_merged` | `int` | PRs merged in this wave |
+| `estimated_tokens` | `int` | Estimated total tokens consumed |
+| `estimated_cost_usd` | `float` | Estimated cost in USD |
+
+---
+
+## Org Preset Types
+
+**Path:** `agentception/data/org_presets.py`
+
+#### `PresetGroup`
+
+`Literal` type alias — `"engineering" | "data" | "executive" | "product" | "marketing" | "security" | "operations"`.
+
+#### `PresetNodeTemplate`
+
+`BaseModel` — One node in an org tree template (recursive).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `role` | `str` | required | Role slug |
+| `figure` | `str` | `""` | Cognitive figure slug |
+| `children` | `list[PresetNodeTemplate]` | `[]` | Child nodes (recursive) |
+
+#### `OrgPresetSummary`
+
+`BaseModel` — Lightweight preset descriptor for list endpoint.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `str` | Preset identifier |
+| `name` | `str` | Display name |
+| `description` | `str` | Short description |
+| `icon` | `str` | Emoji icon |
+| `accent` | `str` | CSS colour accent |
+| `node_count` | `int` | Total nodes in template |
+| `group` | `PresetGroup` | Category group |
+
+#### `OrgPresetDetail`
+
+`OrgPresetSummary` (extends) — Full preset including the recursive tree template.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| _inherits all from `OrgPresetSummary`_ | | |
+| `template` | `PresetNodeTemplate` | Root template node |
+
 ---
 
 ## Entity Hierarchy
@@ -977,24 +1417,26 @@ AgentCeption
 ├── Domain Models (agentception/models/__init__.py)
 │   │
 │   ├── Agent Lifecycle
-│   │   ├── AgentStatus              — str Enum: 8 lifecycle values
+│   │   ├── AgentStatus              — str Enum: 8 lifecycle values (mirror)
 │   │   ├── AgentNode                — BaseModel: one agent in pipeline tree (recursive children)
 │   │   └── StaleClaim               — BaseModel: issue with dangling agent/wip label
 │   │
 │   ├── Pipeline State
 │   │   ├── BoardIssue               — BaseModel: lightweight issue card for sidebar
 │   │   ├── PlanDraftEvent           — BaseModel: plan-draft SSE event
+│   │   ├── StalledAgentEvent        — BaseModel: stalled agent record for SSE
 │   │   └── PipelineState            — BaseModel: full pipeline snapshot (SSE broadcast)
 │   │
-│   ├── Task File
+│   ├── Agent Task Spec
 │   │   ├── IssueSub                 — BaseModel: issue queue entry in coordinator dispatch
 │   │   ├── PRSub                    — BaseModel: PR review queue entry in coordinator dispatch
-│   │   └── TaskFile                 — BaseModel: full parsed DB context
+│   │   └── AgentTaskSpec            — BaseModel: full parsed DB task context
 │   │
 │   ├── Pipeline Configuration
 │   │   ├── AbModeConfig             — BaseModel: A/B role experimentation
 │   │   ├── ProjectConfig            — BaseModel: one project in pipeline-config.json
-│   │   └── PipelineConfig           — BaseModel: full pipeline-config.json shape
+│   │   ├── PipelineConfig           — BaseModel: full pipeline-config.json shape
+│   │   └── SwitchProjectRequest     — BaseModel: project switch request
 │   │
 │   ├── Spawn API
 │   │   ├── SpawnRequest / SpawnResult
@@ -1006,7 +1448,8 @@ AgentCeption
 │   │   ├── RoleUpdateRequest, RoleUpdateResponse
 │   │   ├── RoleDiffRequest, RoleDiffResponse
 │   │   ├── RoleCommitRequest, RoleCommitResponse
-│   │   └── RoleVersionEntry, RoleVersionInfo, RoleVersionsResponse
+│   │   ├── RoleVersionEntry, RoleVersionInfo, RoleVersionsResponse
+│   │   └── RoleHistoryEntry
 │   │
 │   ├── Cognitive Architecture API
 │   │   ├── TaxonomyRole, TaxonomyLevel, TaxonomyResponse
@@ -1015,7 +1458,7 @@ AgentCeption
 │   │
 │   ├── Template API
 │   │   ├── TemplateExportRequest, TemplateManifest
-│   │   ├── TemplateConflict, TemplateImportResult, TemplateListEntry
+│   │   └── TemplateConflict, TemplateImportResult, TemplateListEntry
 │   │
 │   ├── Org Tree
 │   │   ├── OrgTreeRole
@@ -1026,13 +1469,23 @@ AgentCeption
 │   │   ├── PlanPhase                — ordered phase group
 │   │   └── PlanSpec                 — root YAML contract (to_yaml / from_yaml)
 │   │
-│   └── EnrichedManifest Contract
-│       ├── EnrichedIssue            — fully-specified issue with acceptance criteria
-│       ├── EnrichedPhase            — phase with parallel groups
-│       └── EnrichedManifest         — root coordinator input contract
+│   ├── EnrichedManifest Contract
+│   │   ├── EnrichedIssue            — fully-specified issue with acceptance criteria
+│   │   ├── EnrichedPhase            — phase with parallel groups
+│   │   └── EnrichedManifest         — root coordinator input contract
+│   │
+│   └── Execution Plan
+│       ├── PlanOperation            — single atomic file operation
+│       ├── ExecutionPlan            — immutable ordered operation list
+│       └── FileEditEvent            — file-edit diff event (frozen)
 │
 ├── Health Model (agentception/models/health.py)
 │   └── HealthSnapshot               — BaseModel: system metrics for /api/health/detailed
+│
+├── Config (agentception/config.py)
+│   ├── TaskRunnerChoice             — str Enum: cursor | anthropic
+│   ├── LLMProviderChoice            — str Enum: anthropic | local
+│   └── AgentCeptionSettings         — BaseSettings: env-var config
 │
 ├── ORM Layer (agentception/db/models.py)
 │   ├── ACWave                       — one batch spawn
@@ -1044,25 +1497,36 @@ AgentCeption
 │   ├── ACInitiativePhase            — phase DAG per initiative+batch
 │   ├── ACPipelineSnapshot           — tick-level time series
 │   ├── ACPRIssueLink                — PR↔Issue link with provenance
-│   └── ACIssueWorkflowState         — canonical swim-lane state (computed)
+│   ├── ACIssueWorkflowState         — canonical swim-lane state (computed)
+│   ├── ACPlanIssue                  — issues belonging to a plan batch
+│   ├── ACPlanBranch                 — integration branch per plan
+│   └── ACExecutionPlan              — planner/executor immutable plan
 │
-├── Query TypedDicts (agentception/db/queries.py)
+├── Query TypedDicts (agentception/db/queries/types.py)
 │   ├── Issue/PR: LabelEntry, BoardIssueRow, AllIssueRow, IssueDetailRow, PRDetailRow, …
 │   ├── Runs: AgentRunRow, AgentRunDetail, AgentMessageRow, RunForIssueRow, RunTreeNodeRow, …
 │   ├── Waves: WaveAgentRow, WaveRow, ConductorHistoryRow
 │   ├── Phases: PhasedIssueRow, PhaseGroupRow, InitiativePhaseMeta, InitiativeSummary, …
 │   ├── Workflow: WorkflowStateRow, PendingLaunchRow, AgentEventRow
-│   └── MCP: RunSummaryRow, StatusCountRow, TerminalRunRow
+│   ├── MCP: RunSummaryRow, RunContextRow, StatusCountRow, TerminalRunRow
+│   └── Metrics: DailyMetrics
 │
 ├── LLM Service (agentception/services/llm.py)
 │   ├── LLMChunk                     — streaming event {type, text}
 │   ├── ToolFunction, ToolDefinition — OpenAI tool schema shapes
 │   ├── ToolCallFunction, ToolCall   — tool call response shapes
-│   └── ToolResponse                 — completion_with_tools() return value
+│   └── ToolResponse                 — completion_with_tools() return (incl. token counts)
 │
 ├── Code Indexer (agentception/services/code_indexer.py)
 │   ├── IndexStats                   — index_codebase() result
 │   └── SearchMatch                  — search_codebase() result item
+│
+├── Working Memory (agentception/services/working_memory.py)
+│   ├── FileEditEventJSON            — JSON-safe file edit event
+│   └── WorkingMemoryJSON            — JSON-safe working memory snapshot
+│
+├── Task Runner (agentception/services/task_runner.py)
+│   └── TaskRunner                   — Protocol: agent execution engine
 │
 ├── MCP Protocol (agentception/mcp/types.py)
 │   ├── Tools: ACToolDef, ACToolContent, ACToolResult
@@ -1071,25 +1535,38 @@ AgentCeption
 │   └── JSON-RPC: JsonRpcError, JsonRpcSuccessResponse, JsonRpcErrorResponse
 │
 ├── Workflow Layer (agentception/workflow/)
+│   ├── Status: AgentStatus (canonical, 10 values), ACTIVE_STATUSES, TERMINAL_STATUSES, …
 │   ├── State Machine: IssueInput, RunInput, WorkflowState
-│   └── Linking: CandidateLink, PRRow, RunRow, BestPR, PRInfo
+│   ├── Linking: CandidateLink, PRRow, RunRow, BestPR, PRInfo
+│   └── Invariants: InvariantContext, WorkflowSnapshot
 │
-└── Intelligence Layer (agentception/intelligence/)
-    ├── IssueNode, DependencyDAG     — dag.py
-    └── IssueAnalysis                — analyzer.py
+├── Intelligence Layer (agentception/intelligence/)
+│   ├── IssueNode, DependencyDAG     — dag.py
+│   ├── IssueAnalysis                — analyzer.py
+│   ├── PRViolation                  — guards.py
+│   ├── ScalingRecommendation        — scaling.py
+│   └── ABVariantResult              — ab_results.py
+│
+├── Telemetry (agentception/telemetry.py)
+│   └── WaveSummary                  — batch wave telemetry
+│
+└── Org Presets (agentception/data/org_presets.py)
+    ├── PresetNodeTemplate            — recursive org template node
+    ├── OrgPresetSummary              — lightweight preset descriptor
+    └── OrgPresetDetail               — full preset with template tree
 ```
 
 ---
 
 ## Entity Graphs (Mermaid)
 
-Arrow conventions and stereotype key follow the same pattern as the reference document. Stereotypes: `<<TypedDict>>`, `<<BaseModel>>`, `<<ORM>>`, `<<Enum>>`.
+Arrow conventions and stereotype key follow the same pattern as the reference document. Stereotypes: `<<TypedDict>>`, `<<BaseModel>>`, `<<ORM>>`, `<<Enum>>`, `<<Protocol>>`.
 
 ---
 
 ### Diagram 1 — PlanSpec YAML Contract
 
-The typed YAML contract between the LLM planner (Phase 1A) and the human review step (Phase 1B). `PlanSpec` is the root; it decomposes into phases and issues.
+The typed YAML contract between the LLM planner (Phase 1A) and the human review step (Phase 1B). `PlanSpec` is the root; it decomposes into phases and issues. `ExecutionPlan` is produced from the resolved plan.
 
 ```mermaid
 classDiagram
@@ -1141,19 +1618,36 @@ classDiagram
         +acceptance_criteria : list~str~
         +tests_required : list~str~
     }
+    class PlanOperation {
+        <<BaseModel>>
+        +tool : Literal
+        +file : str
+        +old_string : str | None
+        +new_string : str | None
+        +content : str | None
+    }
+    class ExecutionPlan {
+        <<BaseModel>>
+        +run_id : str
+        +issue_number : int
+        +operations : list~PlanOperation~
+        +created_at : datetime
+    }
 
     PlanSpec *-- PlanPhase : phases
     PlanPhase *-- PlanIssue : issues
     EnrichedManifest *-- EnrichedPhase : phases
     EnrichedPhase *-- EnrichedIssue : issues
     PlanSpec ..> EnrichedManifest : coordinator enriches
+    ExecutionPlan *-- PlanOperation : operations
+    PlanIssue ..> ExecutionPlan : planner produces
 ```
 
 ---
 
 ### Diagram 2 — Agent Lifecycle and Pipeline State
 
-The domain model for the Build dashboard SSE feed. `PipelineState` is the root broadcast; it composes `AgentNode` trees with `StaleClaim` and `BoardIssue` lists.
+The domain model for the Build dashboard SSE feed. `PipelineState` is the root broadcast; it composes `AgentNode` trees with `StaleClaim`, `BoardIssue`, and `StalledAgentEvent` lists.
 
 ```mermaid
 classDiagram
@@ -1202,6 +1696,14 @@ classDiagram
         +yaml_text : str
         +output_path : str
     }
+    class StalledAgentEvent {
+        <<BaseModel>>
+        +run_id : str
+        +issue_number : int
+        +worktree_path : str
+        +last_activity_at : str
+        +stalled_for_minutes : int
+    }
     class PipelineState {
         <<BaseModel>>
         +active_label : str | None
@@ -1212,12 +1714,15 @@ classDiagram
         +stale_claims : list~StaleClaim~
         +board_issues : list~BoardIssue~
         +plan_draft_events : list~PlanDraftEvent~
+        +loop_guard_triggered : list~str~
+        +stalled_agents : list~StalledAgentEvent~
     }
 
     PipelineState --> AgentNode : agents (tree)
     PipelineState --> StaleClaim : stale_claims
     PipelineState --> BoardIssue : board_issues
     PipelineState --> PlanDraftEvent : plan_draft_events
+    PipelineState --> StalledAgentEvent : stalled_agents
     AgentNode --> AgentStatus : status
     AgentNode --> AgentNode : children (recursive)
 ```
@@ -1226,7 +1731,7 @@ classDiagram
 
 ### Diagram 3 — ORM Entity Relationships
 
-The full database schema. All ORM models inherit from `Base`. Only `ACAgentRun` has an explicit FK relationship to `ACWave` and `ACAgentMessage`. The other inter-table relationships are maintained by queries (not SQLAlchemy `relationship()`).
+The full database schema. All ORM models inherit from `Base`. `ACAgentRun` has FK relationships to `ACWave` and `ACAgentMessage`. Plan-scoped tables (`ACPlanIssue`, `ACPlanBranch`, `ACExecutionPlan`) link to `ACAgentRun` by convention (not hard FK).
 
 ```mermaid
 classDiagram
@@ -1248,6 +1753,15 @@ classDiagram
         +org_domain : str | None
         +parent_run_id : str | None
         +cognitive_arch : str | None
+        +task_description : str | None
+        +gh_repo : str | None
+        +plan_id : str | None
+        +plan_branch : str | None
+        +is_resumed : bool
+        +coord_fingerprint : str | None
+        +total_input_tokens : int
+        +total_output_tokens : int
+        +prompt_variant : str | None
         +issue_number : int | None
         +pr_number : int | None
     }
@@ -1315,21 +1829,42 @@ classDiagram
         +prs_open : int
         +agents_active : int
     }
+    class ACPlanIssue {
+        <<ORM>>
+        +plan_id : str PK
+        +repo : str PK
+        +issue_number : int PK
+    }
+    class ACPlanBranch {
+        <<ORM>>
+        +plan_id : str PK
+        +repo : str PK
+        +branch_name : str
+    }
+    class ACExecutionPlan {
+        <<ORM>>
+        +run_id : str PK
+        +issue_number : int
+        +plan_json : str
+        +created_at : datetime
+    }
 
     ACWave *-- ACAgentRun : agent_runs
     ACAgentRun *-- ACAgentMessage : messages
     ACAgentRun --> ACAgentEvent : events
+    ACAgentRun ..> ACExecutionPlan : run_id
     ACPRIssueLink --> ACIssue : issue_number
     ACPRIssueLink --> ACPullRequest : pr_number
     ACIssueWorkflowState --> ACIssue : (repo, issue_number)
     ACIssueWorkflowState --> ACPRIssueLink : best link
+    ACPlanIssue ..> ACIssue : issue_number
 ```
 
 ---
 
 ### Diagram 4 — LLM Wire Types (Tool Use)
 
-The simplified OpenAI-compatible type surface for `completion_with_tools()`. The caller maintains the message history; the types below describe what the model sends back.
+The simplified OpenAI-compatible type surface for `completion_with_tools()`. Token counting fields on `ToolResponse` enable cost tracking and cache-hit verification.
 
 ```mermaid
 classDiagram
@@ -1365,6 +1900,10 @@ classDiagram
         +stop_reason : str
         +content : str
         +tool_calls : list~ToolCall~
+        +input_tokens : int (NotRequired)
+        +output_tokens : int (NotRequired)
+        +cache_creation_input_tokens : int (NotRequired)
+        +cache_read_input_tokens : int (NotRequired)
     }
 
     ToolDefinition --> ToolFunction : function
@@ -1385,6 +1924,7 @@ classDiagram
         +ok : bool
         +files_indexed : int
         +chunks_indexed : int
+        +files_skipped : int
         +error : str | None
     }
     class SearchMatch {
@@ -1402,6 +1942,8 @@ classDiagram
         +text : str
         +start_line : int
         +end_line : int
+        +symbol : str
+        +file_hash : str
     }
     class AsyncQdrantClient {
         <<external>>
@@ -1515,7 +2057,7 @@ classDiagram
 
 ### Diagram 7 — Workflow State Machine
 
-The deterministic swim-lane computation. `IssueInput` + `RunInput` + `BestPR` → `WorkflowState`. The `CandidateLink` → `BestPR` selection runs first and is fed into the state machine.
+The deterministic swim-lane computation. `IssueInput` + `RunInput` + `BestPR` → `WorkflowState`. The `CandidateLink` → `BestPR` selection runs first and is fed into the state machine. `InvariantContext` drives tick-level consistency checks.
 
 ```mermaid
 classDiagram
@@ -1570,19 +2112,34 @@ classDiagram
         +lane : str
         +content_hash : str
     }
+    class InvariantContext {
+        <<TypedDict>>
+        +repo : str
+        +issue_numbers : list~int~
+        +workflow_states : dict
+        +pr_states : dict
+    }
+    class WorkflowSnapshot {
+        <<TypedDict>>
+        +lane : str
+        +pr_number : int | None
+        +agent_status : str | None
+        +issue_state : str
+    }
 
     IssueInput ..> WorkflowState : state machine input
     RunInput ..> WorkflowState : state machine input
     BestPR ..> WorkflowState : pr fields
     CandidateLink ..> BestPR : best_pr_for_issue()
     WorkflowState ..> ACIssueWorkflowState : persisted on change
+    InvariantContext --> WorkflowSnapshot : checks against
 ```
 
 ---
 
 ### Diagram 8 — Intelligence Layer
 
-The dependency DAG and issue analysis layer used by the Eng VP seed loop.
+The dependency DAG, issue analysis, pipeline guards, scaling recommendations, and A/B results.
 
 ```mermaid
 classDiagram
@@ -1610,6 +2167,33 @@ classDiagram
         +recommended_role : str
         +recommended_merge_after : int | None
     }
+    class PRViolation {
+        <<BaseModel>>
+        +pr_number : int
+        +pr_title : str
+        +expected_label : str
+        +actual_label : str
+        +linked_issue : int | None
+    }
+    class ScalingRecommendation {
+        <<BaseModel>>
+        +action : Literal
+        +target_role : str | None
+        +reason : str
+        +current_value : int
+        +recommended_value : int
+        +confidence : Literal~high,medium,low~
+    }
+    class ABVariantResult {
+        <<BaseModel>>
+        +variant : Literal~A,B~
+        +role_sha : str
+        +batch_ids : list~str~
+        +prs_opened : int
+        +prs_merged : int
+        +avg_grade : str | None
+        +merge_rate : float
+    }
 
     DependencyDAG *-- IssueNode : nodes
     IssueNode ..> IssueAnalysis : analyzed to produce
@@ -1619,7 +2203,7 @@ classDiagram
 
 ### Diagram 9 — Query Row Hierarchy
 
-The full TypedDict surface of `db/queries.py`. Rows are grouped by usage context. All datetime fields are ISO-8601 strings; no `datetime` objects cross this boundary.
+The full TypedDict surface of `db/queries/types.py`. Rows are grouped by usage context. All datetime fields are ISO-8601 strings; no `datetime` objects cross this boundary.
 
 ```mermaid
 classDiagram
@@ -1640,6 +2224,7 @@ classDiagram
         +tier : str | None
         +org_domain : str | None
         +parent_run_id : str | None
+        +cognitive_arch : str | None
         +messages : list~AgentMessageRow~
     }
     class AgentMessageRow {
@@ -1689,6 +2274,15 @@ classDiagram
         +org_domain : str | None
         +parent_run_id : str | None
     }
+    class RunContextRow {
+        <<TypedDict>>
+        +run_id : str
+        +status : str
+        +role : str
+        +cognitive_arch : str | None
+        +task_description : str | None
+        +pr_base_branch : str | None
+    }
     class InitiativeSummary {
         <<TypedDict>>
         +repo : str
@@ -1703,6 +2297,15 @@ classDiagram
         +is_active : bool
         +is_complete : bool
         +issues : list~InitiativeIssueRow~
+    }
+    class DailyMetrics {
+        <<TypedDict>>
+        +date : str
+        +issues_closed : int
+        +prs_merged : int
+        +cost_usd : float
+        +first_pass_rate : float
+        +auto_merge_rate : float
     }
 
     AgentRunDetail --> AgentMessageRow : messages
