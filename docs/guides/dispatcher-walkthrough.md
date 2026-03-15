@@ -91,7 +91,7 @@ docker compose up -d
 2. Paste this instruction (you can tweak the wording; the important part is to use the AgentCeption MCP to list and claim pending runs):
 
    ```text
-   Use the AgentCeption MCP server. Call the tool query_pending_runs. If the result has any pending runs, for each run call build_claim_run with that run’s run_id. Do not skip any pending run. After each build_claim_run, the agent loop for that run will start on the server.
+   Use the AgentCeption MCP server. Read the resource ac://runs/pending to list pending runs. If the result has any pending runs, for each run call build_claim_run with that run’s run_id. Do not skip any pending run. After each build_claim_run, the agent loop for that run will start on the server.
    ```
 
 3. Send the message.
@@ -100,13 +100,13 @@ docker compose up -d
    - Prefer **“Allowlist MCP Tool”** (or equivalent) so future Dispatcher runs don’t prompt again.
    - If you only see “Run”, click it; you can allowlist later when prompted again.
 
-   Tools you’ll see:
-   - `query_pending_runs` — lists runs waiting to be claimed
-   - `build_claim_run` — claims one run (pass `run_id` from the list)
+   Endpoints you’ll use:
+   - `ac://runs/pending` resource — lists runs waiting to be claimed (read via `resources/read`)
+   - `build_claim_run` tool — claims one run (pass `run_id` from the list)
 
    If Cursor keeps asking every time even after allowlisting, see the [Cursor bug workaround](#if-cursor-keeps-asking-after-allowlist) at the end of this guide.
 
-5. Wait until the model has finished calling the tools. It should call `query_pending_runs` once, then `build_claim_run` once per pending run.
+5. Wait until the model has finished. It should read `ac://runs/pending` once, then call `build_claim_run` once per pending run.
 
 ---
 
@@ -147,9 +147,9 @@ You don’t need to edit `mcp.json` or restart Cursor again unless you change th
 - Ensure the path in `mcp.json` is the **absolute** path to your AgentCeption repo and that `cwd` matches it.
 - Restart Cursor again after any `mcp.json` change.
 
-**Tools have different names**
+**Endpoints have different names**
 
-- The code may expose `query_pending_runs` (instead of `build_get_pending_launches`) and `build_claim_run` (instead of `build_acknowledge`). Use the names Cursor shows in the MCP tools list; the instruction in Step 5 still applies (list pending, then claim each by `run_id`).
+- Use the resource `ac://runs/pending` to list pending runs and the tool `build_claim_run` to claim each. Use the names Cursor shows in the MCP panel; the instruction in Step 5 still applies (list pending, then claim each by `run_id`).
 
 ---
 
@@ -171,7 +171,7 @@ Some Cursor versions don’t persist MCP allowlists. If you allowlist the tools 
 | 2 | Add `agentception` server with your repo path and `cwd` |
 | 3 | Restart Cursor |
 | 4 | Ensure `docker compose up -d` and containers are running |
-| 5 | In Chat, ask the model to use AgentCeption MCP: call `query_pending_runs`, then for each run call `build_claim_run` with that `run_id`; allowlist tools when prompted |
+| 5 | In Chat, ask the model to use AgentCeption MCP: read `ac://runs/pending`, then for each run call `build_claim_run` with that `run_id`; allowlist tools when prompted |
 | 6 | Refresh the Ship board and confirm runs are active |
 
 After that, “run the Dispatcher” in Cursor whenever you have new pending launches from the Plan/Ship flow.

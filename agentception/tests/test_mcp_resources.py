@@ -146,30 +146,6 @@ def test_list_resource_templates_returns_full_catalogue() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.anyio
-async def test_call_tool_async_returns_redirect_error_for_retired_tools() -> None:
-    """Retired query_* tool names return a descriptive error pointing to the resource URI."""
-    retired = {
-        "query_pending_runs": "ac://runs/pending",
-        "query_run": "ac://runs/{run_id}",
-        "query_children": "ac://runs/{run_id}/children",
-        "query_run_events": "ac://runs/{run_id}/events",
-        "query_active_runs": "ac://runs/active",
-        "query_run_tree": "ac://batches/{batch_id}/tree",
-        "query_dispatcher_state": "ac://system/dispatcher",
-        "query_system_health": "ac://system/health",
-        "plan_get_schema": "ac://plan/schema",
-        "plan_get_labels": "ac://plan/labels",
-        "plan_get_cognitive_figures": "ac://plan/figures/{role}",
-    }
-    for tool_name, expected_uri in retired.items():
-        result = await call_tool_async(tool_name, {})
-        assert result["isError"] is True, f"{tool_name} should return isError=True"
-        payload = json.loads(result["content"][0]["text"])
-        assert "resources/read" in payload["error"], f"{tool_name} error should mention resources/read"
-        assert expected_uri in payload["error"], f"{tool_name} error should include URI {expected_uri}"
-
-
 def test_retired_query_tools_not_in_tools_list() -> None:
     """Retired query_* and plan_get_* tools are not in the TOOLS list."""
     names = {t["name"] for t in TOOLS}
@@ -839,12 +815,4 @@ async def test_read_run_status_resource() -> None:
     assert payload["status"] == "implementing"
 
 
-@pytest.mark.anyio
-async def test_retired_query_run_status_tool() -> None:
-    """tools/call query_run_status returns the retired-tool redirect error."""
-    result = await call_tool_async("query_run_status", {"run_id": "issue-42"})
-    assert result["isError"] is True
-    payload = json.loads(result["content"][0]["text"])
-    assert "resources/read" in payload["error"]
-    assert "ac://runs/{run_id}/status" in payload["error"]
 

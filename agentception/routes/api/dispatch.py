@@ -8,7 +8,7 @@ Three endpoints drive the Ship page launch modal:
    label so the modal can populate its pickers.
 2. ``POST /api/dispatch/issue`` — create a worktree, fire the agent loop
    immediately, and return once the run is ``implementing``.  No Dispatcher
-   or Cursor session is required; the agent calls Anthropic directly via the
+   or external MCP client session is required; the agent calls Anthropic directly via the
    server-side asyncio loop.  This mirrors ``create_and_launch_run`` for
    issue-scoped leaf workers.
 3. ``POST /api/dispatch/label`` — same but scoped to an initiative label or
@@ -183,7 +183,7 @@ def _extract_ac_file_paths(issue_body: str) -> list[str]:
     Examples of matches (backtick-quoted or plain):
         ``agentception/db/models.py``
         agentception/mcp/__init__.py
-        ``.cursor/mcp.json``
+        MCP server configuration
     """
     paths: set[str] = set()
     for match in _AC_FILE_PATH_RE.finditer(issue_body):
@@ -682,7 +682,7 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
     6. Fire ``run_agent_loop`` as an asyncio background task (calls Anthropic).
     7. Fire worktree Qdrant indexing as an asyncio background task.
 
-    No Cursor session or external Dispatcher is required.
+    No external MCP client or Dispatcher is required.
 
     Raises:
         HTTPException 422: PR branch not found on remote (already deleted after merge,
@@ -1301,7 +1301,7 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
     # Prune stale worktree refs before creating a new one.
     # This removes .git/worktrees/<name>/ metadata for directories that no
     # longer exist (accumulated from past runs), keeping git's index lean and
-    # preventing Cursor's git extension from re-scanning a growing list of
+    # preventing IDE git extensions from re-scanning a growing list of
     # dead worktree pointers on every dispatch.
     prune_proc = await asyncio.create_subprocess_exec(
         "git", "worktree", "prune",
