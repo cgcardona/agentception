@@ -1,6 +1,6 @@
 # AgentCeption — MCP Integration
 
-AgentCeption exposes a best-in-class MCP (Model Context Protocol) server so Cursor, Claude, and any MCP-aware client can invoke tools, read resources, and fetch prompts directly.
+AgentCeption exposes a best-in-class MCP (Model Context Protocol) server so any MCP-aware client — IDEs, agent loops, CI/CD pipelines — can invoke tools, read resources, and fetch prompts directly.
 
 ## The two interfaces — HTTP and MCP
 
@@ -9,7 +9,7 @@ We believe every production AI application needs both:
 | Interface | Who uses it | How |
 |-----------|-------------|-----|
 | **HTTP REST** | Humans via browser, CI/CD scripts, integration tests | `GET`/`POST` to `/api/*` |
-| **MCP** | AI agents (Cursor, Claude, custom loops) | JSON-RPC 2.0 over stdio or HTTP |
+| **MCP** | AI agents (IDEs, Claude, custom loops) | JSON-RPC 2.0 over stdio or HTTP |
 
 AgentCeption implements both. The HTTP REST API is the service backbone; the MCP server is the agent interface on top of it. The two are complementary — the same planning pipeline, issue graph, and agent dispatch are accessible through both surfaces.
 
@@ -19,7 +19,7 @@ Two transports are available — both speak the same JSON-RPC 2.0 protocol:
 
 | Transport | Entry point | Best for |
 |-----------|-------------|----------|
-| **stdio** | `docker compose exec -T agentception python -m agentception.mcp.stdio_server` | Cursor IDE sessions |
+| **stdio** | `docker compose exec -T agentception python -m agentception.mcp.stdio_server` | IDE sessions (e.g. Cursor, VS Code) |
 | **HTTP** | `POST http://localhost:10003/api/mcp` | Web agents, CI/CD, curl, Anthropic remote MCP |
 
 The HTTP transport follows the [MCP 2025-03-26 Streamable HTTP spec](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports/): single or batch JSON-RPC request bodies, JSON responses. Notifications (requests without `id`) return `202 Accepted`.
@@ -35,7 +35,7 @@ See the full [Security Guide](security.md) for threat model, TLS configuration, 
 | stdio | No network socket; communicates over Docker exec pipe — safe by default |
 | HTTP (`/api/mcp`) | Protected by `ApiKeyMiddleware` when `AC_API_KEY` is set |
 
-When `AC_API_KEY` is configured, Cursor's HTTP MCP client must include the key:
+When `AC_API_KEY` is configured, the HTTP MCP client must include the key:
 
 ```json
 {
@@ -52,31 +52,9 @@ When `AC_API_KEY` is configured, Cursor's HTTP MCP client must include the key:
 
 LLM calls from AgentCeption to Anthropic always use HTTPS — there is no plaintext LLM traffic.
 
-## stdio configuration (`~/.cursor/mcp.json`)
+## Client configuration (stdio)
 
-Add an `agentception` entry to your `~/.cursor/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "agentception": {
-      "command": "docker",
-      "args": [
-        "compose", "-f", "AGENTCEPTION_REPO_ROOT/docker-compose.yml",
-        "exec", "-T", "agentception",
-        "python", "-m", "agentception.mcp.stdio_server"
-      ],
-      "cwd": "AGENTCEPTION_REPO_ROOT"
-    }
-  }
-}
-```
-
-Replace `AGENTCEPTION_REPO_ROOT` with the absolute path to your local clone.
-
-## `~/.cursor/mcp.json` configuration
-
-Add an `agentception` entry to your `~/.cursor/mcp.json`:
+Add an `agentception` entry to your MCP client's configuration file (e.g. `~/.cursor/mcp.json` for Cursor, or the equivalent for your IDE):
 
 ```json
 {
@@ -94,7 +72,7 @@ Add an `agentception` entry to your `~/.cursor/mcp.json`:
 }
 ```
 
-Replace `AGENTCEPTION_REPO_ROOT` with the absolute path to your local clone of this repo (e.g. `/Users/you/dev/agentception`).
+Replace `AGENTCEPTION_REPO_ROOT` with the absolute path to your local clone (e.g. `/Users/you/dev/agentception`).
 
 ## Running alongside other MCP servers
 
@@ -207,7 +185,7 @@ starting agents, advancing phase gates) always require an explicit human confirm
 **What this means for you:**
 
 - Resource reads (`FetchMcpResource`), prompt fetches, and observability tool calls happen without interruption.
-- `build_spawn_child` and `plan_advance_phase` always show a Cursor confirmation dialog — a mis-fire creates real GitHub issues and running agent processes that are hard to undo.
+- `build_spawn_adhoc_child` and `plan_advance_phase` always require explicit confirmation — a mis-fire creates real GitHub issues and running agent processes that are hard to undo.
 - The HTTP endpoint is available at `http://localhost:10003/api/mcp` once containers are running.
 
 ## Available tools, resources, and prompts
@@ -218,9 +196,9 @@ starting agents, advancing phase gates) always require an explicit human confirm
 | `agentception/mcp/resources.py` | Resource + template catalogue, `read_resource()` dispatcher |
 | `agentception/mcp/prompts.py` | Prompt catalogue, `get_prompt()` dispatcher |
 
-Cursor's MCP panel enumerates all three automatically once the server entry is in `mcp.json`.
+Any MCP-aware client enumerates all three automatically once the server entry is configured.
 
 ## Related guides
 
-- [Cursor-Free Agent Loop](agent-loop.md) — run agents without Cursor, using the MCP HTTP transport as the tool execution bridge
+- [Standalone Agent Loop](agent-loop.md) — run agents without an IDE, using the MCP HTTP transport as the tool execution bridge
 - [Security Guide](security.md) — API key auth, TLS, denylist, and threat model
