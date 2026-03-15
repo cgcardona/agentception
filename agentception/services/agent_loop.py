@@ -1649,10 +1649,22 @@ async def _run_reviewer_warmup(
     sections: list[str] = []
 
     # ── 1. Setup: fetch + checkout ──────────────────────────────────────────
-    await _shell_capture(
-        f"git fetch origin --quiet && git checkout {pr_branch} --quiet 2>&1 || true",
-        cwd=worktree_path,
-    )
+    # Use create_subprocess_exec (not shell=True) so pr_branch cannot inject
+    # shell metacharacters.  Two separate calls: fetch first, then checkout.
+    for _git_argv in (
+        ["git", "fetch", "origin", "--quiet"],
+        ["git", "checkout", pr_branch, "--quiet"],
+    ):
+        try:
+            _proc = await asyncio.create_subprocess_exec(
+                *_git_argv,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=worktree_path,
+            )
+            await asyncio.wait_for(_proc.communicate(), timeout=60.0)
+        except Exception:  # noqa: BLE001
+            pass  # non-fatal — reviewer degrades gracefully
 
     # ── 2. Changed file list ─────────────────────────────────────────────────
     changed_files_raw = await _shell_capture(

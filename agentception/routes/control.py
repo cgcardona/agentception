@@ -77,7 +77,12 @@ async def kill_agent(slug: str) -> JSONResponse:
     logged as a warning but does not abort the overall operation — the goal is
     best-effort cleanup rather than strict atomicity.
     """
-    worktree = settings.worktrees_dir / slug
+    worktree = (settings.worktrees_dir / slug).resolve()
+    # Guard against path traversal: a slug like "../../etc" must not escape
+    # the worktrees directory, which would allow rmtree to delete arbitrary
+    # host paths.
+    if not worktree.is_relative_to(settings.worktrees_dir.resolve()):
+        raise HTTPException(status_code=400, detail="Invalid worktree slug")
     if not worktree.exists():
         raise HTTPException(status_code=404, detail=f"Worktree '{slug}' not found")
 
