@@ -488,7 +488,7 @@ def test_llm_provider_env_anthropic(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
 
 def test_local_llm_completion_token_ceiling_default(tmp_path: Path) -> None:
-    """Ollama-compatible default ceiling; must be lowered to 4096 for mlx-openai-server."""
+    """Ollama-compatible default ceiling; lower via LOCAL_LLM_COMPLETION_TOKEN_CEILING if needed."""
     s = AgentCeptionSettings(repo_dir=tmp_path)
     assert s.local_llm_completion_token_ceiling == 8192
 
