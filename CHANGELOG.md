@@ -26,7 +26,7 @@ See [CONTRIBUTING](docs/guides/contributing.md) for commit conventions and PR gu
 
 ### Changed
 
-- `AC_` environment variable prefix applied to all configuration keys for namespace isolation.
+- `AC_` environment variable prefix applied to AgentCeption-specific configuration keys (`AC_API_KEY`, `AC_TASK_RUNNER`, `AC_MIN_TURN_DELAY_SECS`, `AC_PIPELINE_STALL_THRESHOLD_MINUTES`).
 - All paths made portable across host operating systems — no hardcoded absolute paths remain in configuration or tooling.
 
 ## [0.1.0] – 2026-03-04 <!-- TODO: fill in release date -->

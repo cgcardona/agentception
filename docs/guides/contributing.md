@@ -2,6 +2,8 @@
 
 This document is the single authoritative reference for contribution standards. It covers the full lifecycle of a change — from branching through merge — and the automated gates that every pull request must pass.
 
+> **Internal contributors and AgentCeption agents:** The draft-PR workflow below applies to **external contributors** who need review time. If you are an agent or a core maintainer working inside the AgentCeption pipeline, follow the **merge-immediately** policy in `AGENTS.md` instead: branch → verify locally → open PR → squash-merge immediately → delete branch. Do not leave PRs open.
+
 ---
 
 ## PR flow
