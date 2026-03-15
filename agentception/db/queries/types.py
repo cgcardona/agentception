@@ -418,6 +418,18 @@ class RunTreeNodeRow(TypedDict):
     current_step: str | None
 
 
+class BatchSummaryRow(TypedDict):
+    """Summary for one dispatch batch, used by the org live API.
+
+    Returned by ``get_batch_summaries_for_initiative``.  Ordered newest-first.
+    """
+
+    batch_id: str
+    spawned_at: str  # ISO datetime of the earliest run in the batch
+    total_count: int  # total number of runs in the batch
+    active_count: int  # runs currently in a live status
+
+
 
 class _RunStepData(TypedDict):
     """Internal shape returned by ``_get_step_data_for_runs``."""

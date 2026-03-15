@@ -273,8 +273,20 @@
       <span class="od-header__launch-err" x-text="startAgentError"></span>
     </template>
 
-    {# Back to presets (canvas view only) #}
-    <template x-if="!presetsOpen">
+    {# Live / Design mode toggle — only shown when there are known batches #}
+    <template x-if="activeBatches.length > 0">
+      <div class="od-header__mode-toggle">
+        <button class="od-header__mode-btn"
+                :class="liveMode ? 'od-header__mode-btn--active' : ''"
+                @click="enterLiveMode()">● Live</button>
+        <button class="od-header__mode-btn"
+                :class="!liveMode ? 'od-header__mode-btn--active' : ''"
+                @click="enterDesignMode()">Design</button>
+      </div>
+    </template>
+
+    {# Back to presets (canvas / design mode only) #}
+    <template x-if="!presetsOpen && !liveMode">
       <button class="od-header__btn od-header__btn--presets"
               @click="clearDesign()"
               title="Back to preset picker">
@@ -282,8 +294,8 @@
       </button>
     </template>
 
-    {# Launch button — canvas view only #}
-    <template x-if="!presetsOpen">
+    {# Launch button — design canvas only #}
+    <template x-if="!presetsOpen && !liveMode">
       <button class="od-header__btn od-header__btn--launch"
               :disabled="!launchReady"
               @click="launch()"
@@ -293,6 +305,20 @@
 
     <button class="od-header__btn od-header__btn--close" @click="close()">✕ Close</button>
   </div>
+
+  {# ── Sessions tab — shown in live mode when multiple batches exist ──────── #}
+  <template x-if="liveMode && activeBatches.length > 1">
+    <div class="od-sessions">
+      <span class="od-sessions__label">Sessions:</span>
+      <template x-for="(batch, idx) in activeBatches" :key="batch.batch_id">
+        <button class="od-session-pill"
+                :class="batch.batch_id === liveBatchId ? 'od-session-pill--active' : ''"
+                @click="switchBatch(batch.batch_id)"
+                x-text="'Session ' + (idx + 1) + ' · ' + batch.total_count + ' agents'">
+        </button>
+      </template>
+    </div>
+  </template>
 
   {# ── Preset picker ─────────────────────────────────────────────────────── #}
   <template x-if="presetsOpen">
@@ -354,8 +380,28 @@
     </div>
   </template>
 
-  {# ── Canvas + editor split ─────────────────────────────────────────────── #}
-  <template x-if="!presetsOpen">
+  {# ── Live agent tree canvas — shown in live mode ──────────────────────── #}
+  <template x-if="liveMode">
+    <div class="od-body od-body--live">
+      <div class="od-canvas od-canvas--live" id="od-live-canvas"></div>
+      {# Indexing status footer #}
+      <div class="od-footer">
+        <template x-if="worktreeIndexEnabled">
+          <span class="od-footer__indexing od-footer__indexing--on">
+            Code indexing enabled — higher startup CPU expected
+          </span>
+        </template>
+        <template x-if="!worktreeIndexEnabled">
+          <span class="od-footer__indexing od-footer__indexing--off">
+            Performance mode: code indexing disabled
+          </span>
+        </template>
+      </div>
+    </div>
+  </template>
+
+  {# ── Design canvas + editor split ──────────────────────────────────────── #}
+  <template x-if="!presetsOpen && !liveMode">
     <div class="od-body">
 
       {# D3 renders the tree inside this div #}
@@ -431,16 +477,17 @@
         </div>
       </template>
 
-    </div>{# /.od-body #}
+    </div>{# /.od-body (design) #}
   </template>
 
 </div>{# /.od-overlay #}
 
 <script>
-  window._buildRepo       = {{ repo | tojson }};
-  window._buildRepoName   = {{ repo_name | tojson }};
-  window._buildInitiative = {{ initiative | tojson }};
-  window._orgFigures      = {{ figures | tojson }};
-  window._roleFigureMap   = {{ role_figure_map | tojson }};
+  window._buildRepo             = {{ repo | tojson }};
+  window._buildRepoName         = {{ repo_name | tojson }};
+  window._buildInitiative       = {{ initiative | tojson }};
+  window._orgFigures            = {{ figures | tojson }};
+  window._roleFigureMap         = {{ role_figure_map | tojson }};
+  window._worktreeIndexEnabled  = {{ worktree_index_enabled | tojson }};
 </script>
 {% endblock %}

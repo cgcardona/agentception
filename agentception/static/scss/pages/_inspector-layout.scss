@@ -1883,6 +1883,202 @@ $preset-accents: (
   }
 }
 
+// ── Org Designer: Live / Design mode toggle ───────────────────────────────────
+
+.od-header__mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.od-header__mode-btn {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.35rem 0.75rem;
+  border: none;
+  background: transparent;
+  color: rgba(255,255,255,0.45);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+
+  &:hover:not(.od-header__mode-btn--active) {
+    background: rgba(255,255,255,0.08);
+    color: rgba(255,255,255,0.7);
+  }
+
+  &--active {
+    background: rgba(109,40,217,0.55);
+    color: #fff;
+  }
+}
+
+// ── Org Designer: Sessions tab ────────────────────────────────────────────────
+
+.od-sessions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1.5rem;
+  background: rgba(255,255,255,0.02);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.08) transparent;
+}
+
+.od-sessions__label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.3);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.od-session-pill {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.3rem 0.75rem;
+  border-radius: 100px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.5);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+
+  &:hover { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.8); }
+
+  &--active {
+    background: rgba(109,40,217,0.3);
+    color: #c4b5fd;
+    border-color: rgba(109,40,217,0.5);
+  }
+}
+
+// ── Org Designer: Live canvas body ────────────────────────────────────────────
+
+.od-body--live {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.od-canvas--live {
+  flex: 1;
+  position: relative;
+  overflow: auto;
+  background: $od-bg;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.08) transparent;
+}
+
+.od-live__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 200px;
+  font-size: 0.85rem;
+  color: rgba(255,255,255,0.25);
+}
+
+// ── Org Designer: Live node card contents ─────────────────────────────────────
+
+.od-node--live {
+  cursor: default;
+
+  &:hover { border-color: rgba(255,255,255,0.15); }
+}
+
+.od-live__tier {
+  font-size: 0.52rem;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.35);
+  margin-bottom: 0.25rem;
+}
+
+.od-live__role {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.od-live__chip {
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.45rem;
+  border-radius: 100px;
+
+  &--implementing { background: rgba(59,130,246,0.25); color: #93c5fd; }
+  &--reviewing    { background: rgba(139,92,246,0.25); color: #c4b5fd; }
+  &--done         { background: rgba(34,197,94,0.2);   color: #86efac; }
+  &--stale        { background: rgba(245,158,11,0.2);  color: #fcd34d; }
+  &--cancelled    { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.3); }
+  &--blocked      { background: rgba(239,68,68,0.2);   color: #fca5a5; }
+  &--pending      { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.25); }
+}
+
+.od-live__run-id {
+  font-size: 0.6rem;
+  font-family: var(--font-mono);
+  color: rgba(255,255,255,0.3);
+  margin: 0.2rem 0;
+}
+
+.od-live__issue-link {
+  color: rgba(167,139,250,0.8);
+  text-decoration: none;
+  margin-left: 0.35rem;
+  font-size: 0.65rem;
+
+  &:hover { color: #c4b5fd; text-decoration: underline; }
+}
+
+.od-live__step {
+  font-size: 0.62rem;
+  color: rgba(255,255,255,0.35);
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 140px;
+  margin-top: 0.15rem;
+}
+
+// ── Org Designer: Footer (indexing status) ────────────────────────────────────
+
+.od-footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0.4rem 1.5rem;
+  background: $od-surface;
+  border-top: 1px solid $od-border;
+}
+
+.od-footer__indexing {
+  font-size: 0.65rem;
+  font-weight: 600;
+
+  &--on  { color: rgba(245,158,11,0.8); }
+  &--off { color: rgba(134,239,172,0.7); }
+}
+
 // ── Activity feed container ───────────────────────────────────────────────────
 
 .build-inspector__activity {

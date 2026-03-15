@@ -312,6 +312,7 @@ async def build_page(
             "open_issues": open_issues,
             "figures": _FIGURES,
             "role_figure_map": _ROLE_FIGURE_MAP,
+            "worktree_index_enabled": settings.worktree_index_enabled,
         },
     )
 
