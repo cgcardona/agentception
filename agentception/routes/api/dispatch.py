@@ -854,9 +854,14 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
     #
     # Query: prefer the symbol-rich issue title + backtick-wrapped code refs
     # over a raw body slice, which for most issues is background prose.
+    #
+    # Gated on worktree_index_enabled: the ONNX embedding + reranking models
+    # are only loaded when code-search is active.  WORKTREE_INDEX_ENABLED=false
+    # (performance / local-LLM mode) skips this entire block to avoid loading
+    # ~2 GB of ONNX models before the agent even starts.
     from agentception.services.context_assembler import _extract_code_queries  # noqa: PLC0415
     code_matches: list[SearchMatch] = []
-    if task_description:
+    if task_description and settings.worktree_index_enabled:
         dispatch_queries = _extract_code_queries(req.issue_title or "", effective_issue_body)
         # Use the first (most signal-dense) query for the dispatch-time snippet.
         search_query = dispatch_queries[0] if dispatch_queries else (
