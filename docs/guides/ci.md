@@ -63,7 +63,7 @@ docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
 
 The CI override strips host-specific bind mounts that don't exist on GitHub Actions runners:
 
-- Removes the `~/.cursor` mount (Cursor is not installed on runners)
-- Removes the `~/.config/gh` mount (gh CLI auth is handled via `GITHUB_TOKEN`)
-- Remaps paths to runner-safe locations (`/root`, `/tmp`)
-- Sets `REPO_DIR=/app` (the built image already has the code at `/app`)
+- No `~/.cursor` mount — AgentCeption does not read or write the IDE config directory.
+- Remaps `~/.config/gh` to a runner-safe path (gh CLI auth is handled via `GITHUB_TOKEN`).
+- Remaps paths to runner-safe locations (`/root`, `/tmp`).
+- Sets `REPO_DIR=/app` (the built image already has the code at `/app`).

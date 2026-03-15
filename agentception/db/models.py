@@ -19,7 +19,7 @@ ACPullRequest
     Mirror of a GitHub PR, same hash-diff strategy as ACIssue.
 
 ACAgentMessage
-    One row per message in an agent's Cursor transcript.  Written async so it
+    One row per message in an agent's transcript.  Written async so it
     never blocks the tick loop.  Enables full-text search and heuristics.
 
 ACPipelineSnapshot
@@ -314,7 +314,7 @@ class ACPullRequest(Base):
 
 
 class ACAgentMessage(Base):
-    """One message from a Cursor agent transcript.
+    """One message from an agent transcript.
 
     Written asynchronously so reading + persisting transcripts never blocks
     the 5-second tick loop.  Enables full-text search and ML feature extraction.

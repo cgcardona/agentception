@@ -185,7 +185,7 @@ def _resolve_slug(slug: str) -> str:
     return rel_path
 
 
-@router.get("", summary="List all managed role and cursor files")
+@router.get("", summary="List all managed role files")
 async def list_roles() -> list[RoleMeta]:
     """Return metadata for every file in the managed allowlist.
 

@@ -109,7 +109,7 @@ The stdio MCP server communicates over a Docker exec pipe — no TCP socket, no 
 
 ### HTTP transport (`POST /api/mcp`)
 
-The HTTP MCP transport is served at `/api/mcp` — a path under `/api/`, so it is protected by `ApiKeyMiddleware` when `AC_API_KEY` is set. Configure the key in Cursor's `mcp.json` as shown above.
+The HTTP MCP transport is served at `/api/mcp` — a path under `/api/`, so it is protected by `ApiKeyMiddleware` when `AC_API_KEY` is set. Configure the key in your MCP client's config (e.g. Cursor's `mcp.json`) as shown in the setup guide.
 
 **How it works technically:** The HTTP transport follows the [MCP 2025-03-26 Streamable HTTP spec](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports/). Anthropic's remote MCP integration (currently in beta) can also call this endpoint directly — Claude running on Anthropic's infrastructure sends tool calls to your `POST /api/mcp` endpoint, which executes them locally and returns results. This is the mechanism that enables the Cursor-free agent loop without losing MCP capability.
 

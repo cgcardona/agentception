@@ -12,7 +12,7 @@ Covers:
     when the file is well-formed.
   - AgentCeptionSettings.reload() mirrors the validator's behaviour and
     handles every error path gracefully.
-  - AC_TASK_RUNNER env var is parsed correctly and defaults to anthropic.
+  - AC_TASK_RUNNER env var is parsed correctly (anthropic only) and defaults to anthropic.
 
 Run targeted:
     pytest agentception/tests/test_config.py -v
@@ -413,13 +413,6 @@ def test_ac_task_runner_defaults_to_anthropic(tmp_path: Path, monkeypatch: pytes
     monkeypatch.delenv("AC_TASK_RUNNER", raising=False)
     s = _make_settings(tmp_path)
     assert s.ac_task_runner == TaskRunnerChoice.anthropic
-
-
-def test_ac_task_runner_cursor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """When AC_TASK_RUNNER=cursor, ac_task_runner is TaskRunnerChoice.cursor."""
-    monkeypatch.setenv("AC_TASK_RUNNER", "cursor")
-    s = _make_settings(tmp_path)
-    assert s.ac_task_runner == TaskRunnerChoice.cursor
 
 
 def test_ac_task_runner_anthropic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -532,12 +532,10 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
 
     Data sources (in priority order):
     1. In-memory state — live status, branch, issue number from the poller.
-    2. Filesystem transcript — Cursor JSONL file for the full message log.
-    3. Postgres ``ac_agent_runs`` — historical run metadata and status.
-    4. Postgres ``ac_agent_messages`` — stored messages when no transcript
-       file is accessible (e.g. after the worktree is removed).
-    5. Postgres ``ac_agent_events`` — structured MCP events for the timeline.
-    6. GitHub API — issue body, PR checks, PR reviews (fetched in parallel).
+    2. Postgres ``ac_agent_runs`` — historical run metadata and status.
+    3. Postgres ``ac_agent_messages`` — transcript messages (stored by the agent loop).
+    4. Postgres ``ac_agent_events`` — structured MCP events for the timeline.
+    5. GitHub API — issue body, PR checks, PR reviews (fetched in parallel).
 
     Returns HTTP 404 only when the agent is absent from both in-memory state
     and the Postgres history.

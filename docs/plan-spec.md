@@ -22,7 +22,7 @@ User brain dump (free text)
   CodeMirror editor  ←── user reviews and edits
         │
         ▼  POST /api/plan/launch
-   Coordinator agent (Cursor / MCP)
+   Coordinator agent (MCP client, e.g. Cursor)
         │  creates GitHub issues from each PlanIssue
         ▼
   GitHub Issues tagged by phase label
