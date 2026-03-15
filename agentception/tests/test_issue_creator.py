@@ -131,10 +131,28 @@ async def test_file_issues_emits_start_event() -> None:
     spec = _make_spec()
 
     with (
+        patch(
+            "agentception.readers.issue_creator.enrich_plan_with_codebase_context",
+            new_callable=AsyncMock,
+            return_value=spec,
+        ),
         patch("agentception.readers.issue_creator.ensure_label_exists", new_callable=AsyncMock),
         patch(
             "asyncio.create_subprocess_exec",
             return_value=_mock_proc(stdout=_issue_url(42)),
+        ),
+        patch("agentception.readers.issue_creator.upsert_issues", new_callable=AsyncMock),
+        patch(
+            "agentception.readers.issue_creator.persist_initiative_phases",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agentception.readers.issue_creator.persist_issue_depends_on",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agentception.readers.issue_creator.persist_plan_issues",
+            new_callable=AsyncMock,
         ),
     ):
         events = await _collect(file_issues(spec))
@@ -742,6 +760,98 @@ async def test_file_issues_body_edit_failure_is_non_fatal() -> None:
     # Body edit failure must not abort the stream — done event must still arrive.
     done_events = [e for e in events if e["t"] == "done"]
     assert done_events, "done event must be emitted even when body edit fails"
+
+
+@pytest.mark.anyio
+async def test_file_issues_immediately_upserts_created_issues() -> None:
+    """upsert_issues is called before the done event so the Ship board is
+    pre-seeded without waiting for the next poller tick."""
+    spec = _make_spec()
+    call_count = 0
+
+    def fake_proc(*_args: object, **_kwargs: object) -> MagicMock:
+        nonlocal call_count
+        call_count += 1
+        return _mock_proc(stdout=_issue_url(1000 + call_count))
+
+    upsert_mock = AsyncMock(return_value=2)
+    with (
+        patch("agentception.readers.issue_creator.ensure_label_exists", new_callable=AsyncMock),
+        patch("asyncio.create_subprocess_exec", side_effect=fake_proc),
+        patch("agentception.readers.issue_creator.upsert_issues", upsert_mock),
+        patch(
+            "agentception.readers.issue_creator.persist_initiative_phases",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agentception.readers.issue_creator.persist_issue_depends_on",
+            new_callable=AsyncMock,
+        ),
+    ):
+        events = await _collect(file_issues(spec))
+
+    # upsert_issues must have been called exactly once, with the two created issues.
+    upsert_mock.assert_awaited_once()
+    call_kwargs = upsert_mock.call_args
+    assert call_kwargs is not None
+    issues_arg: list[object] = call_kwargs.kwargs.get("issues") or call_kwargs.args[0]
+    assert len(issues_arg) == 2, "both created issues must be pre-seeded"
+    for raw in issues_arg:
+        assert isinstance(raw, dict)
+        assert isinstance(raw.get("number"), int)
+        assert raw.get("state") == "open"
+        labels = raw.get("labels")
+        assert isinstance(labels, list) and labels  # at least initiative + phase labels
+
+    # Done event must still arrive.
+    done_events = [e for e in events if e["t"] == "done"]
+    assert done_events, "done event must be emitted after upsert"
+
+
+@pytest.mark.anyio
+async def test_file_issues_upsert_includes_blocked_deps_label() -> None:
+    """When an issue has depends_on and blocked/deps is stamped on GitHub,
+    the immediate upsert must include 'blocked/deps' in its label list."""
+    spec = _make_spec(with_depends_on=True)
+    create_count = 0
+
+    def fake_proc(*args: str, **_kwargs: object) -> MagicMock:
+        nonlocal create_count
+        cmd = list(args)
+        if "create" in cmd:
+            create_count += 1
+            return _mock_proc(stdout=_issue_url(1100 + create_count))
+        if "edit" in cmd:
+            return _mock_proc()
+        return _mock_proc()
+
+    upsert_mock = AsyncMock(return_value=2)
+    with (
+        patch("agentception.readers.issue_creator.ensure_label_exists", new_callable=AsyncMock),
+        patch("agentception.readers.issue_creator.add_label_to_issue", new_callable=AsyncMock),
+        patch("asyncio.create_subprocess_exec", side_effect=fake_proc),
+        patch("agentception.readers.issue_creator.upsert_issues", upsert_mock),
+        patch(
+            "agentception.readers.issue_creator.persist_initiative_phases",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agentception.readers.issue_creator.persist_issue_depends_on",
+            new_callable=AsyncMock,
+        ),
+    ):
+        await _collect(file_issues(spec))
+
+    upsert_mock.assert_awaited_once()
+    call_kwargs = upsert_mock.call_args
+    assert call_kwargs is not None
+    issues_arg: list[object] = call_kwargs.kwargs.get("issues") or call_kwargs.args[0]
+    # The blocked issue must include 'blocked/deps' in its label list.
+    blocked_entries = [
+        raw for raw in issues_arg
+        if isinstance(raw, dict) and "blocked/deps" in (raw.get("labels") or [])
+    ]
+    assert blocked_entries, "blocked issue must carry 'blocked/deps' in the upserted label list"
 
 
 # ── _scoped_label truncation ──────────────────────────────────────────────────
