@@ -346,13 +346,13 @@ class TestMcpServerCognitiveFigures:
         assert payload.get("role") == "cto"
 
     @pytest.mark.anyio
-    async def test_read_resource_call_tool_redirect_returns_error(self) -> None:
-        """Calling the retired plan_get_cognitive_figures tool returns a redirect error."""
+    async def test_removed_tool_returns_unknown_error(self) -> None:
+        """Calling the removed plan_get_cognitive_figures tool returns an unknown-tool error."""
         result = call_tool("plan_get_cognitive_figures", {})
         assert result["isError"] is True
         payload: JsonValue = json.loads(result["content"][0]["text"])
         assert isinstance(payload, dict)
-        assert "ac://plan/figures/{role}" in str(payload.get("error", ""))
+        assert "Unknown tool" in str(payload.get("error", ""))
 
     @pytest.mark.anyio
     async def test_read_resource_unknown_role_returns_error_in_payload(self, tmp_path: Path) -> None:

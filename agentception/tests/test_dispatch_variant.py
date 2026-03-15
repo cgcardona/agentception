@@ -18,7 +18,10 @@ async def test_dispatch_passes_prompt_variant_to_task_spec(tmp_path: Path) -> No
     async def mock_persist(**kwargs: str | int | None | bool) -> None:
         captured_kwargs.append(kwargs)
 
-    async def mock_ensure_worktree(path: Path, branch: str, base: str = "origin/dev", reset: bool = False) -> bool:
+    async def mock_ensure_worktree(
+        path: Path, branch: str, base: str = "origin/dev", reset: bool = False,
+        main_repo_dir: Path | None = None,
+    ) -> bool:
         return True
 
     with (
@@ -31,6 +34,7 @@ async def test_dispatch_passes_prompt_variant_to_task_spec(tmp_path: Path) -> No
         patch("agentception.routes.api.dispatch.run_agent_loop", new_callable=AsyncMock),
         patch("agentception.routes.api.dispatch.asyncio.create_task", return_value=asyncio.Future()),
         patch("agentception.routes.api.dispatch._index_worktree", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.assemble_developer_context", new_callable=AsyncMock, return_value=""),
         patch("agentception.routes.api.dispatch.settings") as mock_settings,
     ):
         mock_settings.worktrees_dir = str(tmp_path / "worktrees")
@@ -62,7 +66,10 @@ async def test_dispatch_prompt_variant_defaults_to_none(tmp_path: Path) -> None:
     async def mock_persist(**kwargs: str | int | None | bool) -> None:
         captured_kwargs.append(kwargs)
 
-    async def mock_ensure_worktree(path: Path, branch: str, base: str = "origin/dev", reset: bool = False) -> bool:
+    async def mock_ensure_worktree(
+        path: Path, branch: str, base: str = "origin/dev", reset: bool = False,
+        main_repo_dir: Path | None = None,
+    ) -> bool:
         return True
 
     with (
@@ -75,6 +82,7 @@ async def test_dispatch_prompt_variant_defaults_to_none(tmp_path: Path) -> None:
         patch("agentception.routes.api.dispatch.run_agent_loop", new_callable=AsyncMock),
         patch("agentception.routes.api.dispatch.asyncio.create_task", return_value=asyncio.Future()),
         patch("agentception.routes.api.dispatch._index_worktree", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.assemble_developer_context", new_callable=AsyncMock, return_value=""),
         patch("agentception.routes.api.dispatch.settings") as mock_settings,
     ):
         mock_settings.worktrees_dir = str(tmp_path / "worktrees")
