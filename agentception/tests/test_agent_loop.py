@@ -157,6 +157,7 @@ class TestRunAgentLoop:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
 
             from agentception.services.agent_loop import run_agent_loop
 
@@ -217,6 +218,7 @@ class TestRunAgentLoop:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
 
             from agentception.services import agent_loop as al
 
@@ -282,6 +284,7 @@ class TestRunAgentLoop:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
 
             from agentception.services.agent_loop import run_agent_loop
 
@@ -346,6 +349,7 @@ class TestRunAgentLoop:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
 
             from agentception.services.agent_loop import run_agent_loop
 
@@ -435,6 +439,7 @@ class TestRunAgentLoop:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
 
             from agentception.services.agent_loop import run_agent_loop
 
@@ -563,6 +568,147 @@ class TestDispatchLocalTool:
 
         result = await _dispatch_local_tool("run_command", {}, tmp_path)
         assert result["ok"] is False
+
+
+class TestPathSandbox:
+    """Path sandbox prevents agents from escaping the worktree or repo root."""
+
+    @pytest.mark.anyio
+    async def test_read_file_absolute_within_worktree_allowed(self, tmp_path: Path) -> None:
+        """Absolute path inside the worktree is permitted for reads."""
+        from agentception.services.agent_loop import _dispatch_local_tool
+
+        p = tmp_path / "safe.txt"
+        p.write_text("safe content")
+        result = await _dispatch_local_tool("read_file", {"path": str(p)}, tmp_path)
+        assert result["ok"] is True
+
+    @pytest.mark.anyio
+    async def test_read_file_escaping_worktree_blocked(self, tmp_path: Path) -> None:
+        """read_file with a path outside the worktree and repo root is rejected."""
+        from agentception.services.agent_loop import _dispatch_local_tool
+        import tempfile, os
+        # Create a temp file in an unrelated directory
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as f:
+            f.write(b"secret content")
+            outside_path = f.name
+        try:
+            result = await _dispatch_local_tool("read_file", {"path": outside_path}, tmp_path)
+            assert result["ok"] is False
+            assert "outside" in str(result["error"]).lower()
+        finally:
+            os.unlink(outside_path)
+
+    @pytest.mark.anyio
+    async def test_write_file_within_worktree_allowed(self, tmp_path: Path) -> None:
+        """write_file inside the worktree is permitted."""
+        from agentception.services.agent_loop import _dispatch_local_tool
+
+        result = await _dispatch_local_tool(
+            "write_file",
+            {"path": str(tmp_path / "new_file.txt"), "content": "hello"},
+            tmp_path,
+        )
+        assert result["ok"] is True
+
+    @pytest.mark.anyio
+    async def test_write_file_outside_worktree_blocked(self, tmp_path: Path) -> None:
+        """write_file outside the worktree is rejected even if path is absolute."""
+        from agentception.services.agent_loop import _dispatch_local_tool
+        import tempfile
+
+        outside = tempfile.mkdtemp()
+        target = outside + "/evil.txt"
+        try:
+            result = await _dispatch_local_tool(
+                "write_file",
+                {"path": target, "content": "evil"},
+                tmp_path,
+            )
+            assert result["ok"] is False
+            assert "worktree" in str(result["error"]).lower()
+        finally:
+            import shutil
+            shutil.rmtree(outside, ignore_errors=True)
+
+    @pytest.mark.anyio
+    async def test_list_directory_outside_scope_blocked(self, tmp_path: Path) -> None:
+        """list_directory on /etc or similar system paths is rejected."""
+        from agentception.services.agent_loop import _dispatch_local_tool
+
+        result = await _dispatch_local_tool("list_directory", {"path": "/etc"}, tmp_path)
+        assert result["ok"] is False
+        assert "outside" in str(result["error"]).lower()
+
+    @pytest.mark.anyio
+    async def test_search_text_outside_scope_blocked(self, tmp_path: Path) -> None:
+        """search_text with a directory outside the allowed roots is rejected."""
+        from agentception.services.agent_loop import _dispatch_local_tool
+
+        result = await _dispatch_local_tool(
+            "search_text",
+            {"pattern": "password", "directory": "/etc"},
+            tmp_path,
+        )
+        assert result["ok"] is False
+        assert "outside" in str(result["error"]).lower()
+
+    @pytest.mark.anyio
+    async def test_run_command_cwd_outside_scope_blocked(self, tmp_path: Path) -> None:
+        """run_command with cwd outside allowed roots is rejected."""
+        from agentception.services.agent_loop import _dispatch_local_tool
+
+        result = await _dispatch_local_tool(
+            "run_command",
+            {"command": "ls", "cwd": "/"},
+            tmp_path,
+        )
+        assert result["ok"] is False
+        assert "outside" in str(result["error"]).lower()
+
+    @pytest.mark.anyio
+    async def test_replace_in_file_outside_worktree_blocked(self, tmp_path: Path) -> None:
+        """replace_in_file outside the worktree is rejected."""
+        from agentception.services.agent_loop import _dispatch_local_tool
+        import tempfile, os
+
+        with tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=".txt") as f:
+            f.write("old text here")
+            outside_path = f.name
+        try:
+            result = await _dispatch_local_tool(
+                "replace_in_file",
+                {"path": outside_path, "old_string": "old text", "new_string": "new text"},
+                tmp_path,
+            )
+            assert result["ok"] is False
+            assert "worktree" in str(result["error"]).lower()
+        finally:
+            os.unlink(outside_path)
+
+    def test_is_safe_read_path_worktree_allowed(self, tmp_path: Path) -> None:
+        from agentception.services.agent_loop import _is_safe_read_path
+
+        with patch("agentception.services.agent_loop.settings") as s:
+            s.repo_dir = tmp_path / "repo"
+            s.repo_dir.mkdir()
+            assert _is_safe_read_path(tmp_path / "file.py", tmp_path) is True
+
+    def test_is_safe_write_path_worktree_allowed(self, tmp_path: Path) -> None:
+        from agentception.services.agent_loop import _is_safe_write_path
+
+        assert _is_safe_write_path(tmp_path / "subdir" / "file.py", tmp_path) is True
+
+    def test_is_safe_write_path_outside_worktree_denied(self, tmp_path: Path) -> None:
+        import tempfile
+        from agentception.services.agent_loop import _is_safe_write_path
+
+        other = Path(tempfile.mkdtemp())
+        try:
+            assert _is_safe_write_path(other / "evil.py", tmp_path) is False
+        finally:
+            import shutil
+            shutil.rmtree(str(other), ignore_errors=True)
 
 
 class TestDispatchToolCalls:
@@ -1039,6 +1185,7 @@ class TestLoopGuard:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
 
             from agentception.services import agent_loop as al
 
@@ -1152,6 +1299,7 @@ class TestLoopGuard:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
 
             from agentception.services import agent_loop as al
 
@@ -1260,6 +1408,7 @@ class TestLoopGuard:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
 
             from agentception.services import agent_loop as al
 
@@ -1357,6 +1506,7 @@ class TestLoopGuard:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
 
             from agentception.services import agent_loop as al
 
@@ -1468,6 +1618,7 @@ class TestLoopGuard:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
 
             from agentception.services import agent_loop as al
 
@@ -1611,6 +1762,7 @@ class TestLoopGuardReviewer:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
             await run_agent_loop("review-run")
 
         # None of the captured extra_system_blocks should mention LOOP GUARD.
@@ -1720,6 +1872,7 @@ class TestReviewerToolAllowlist:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
             # Pass a high cap — must be overridden to _REVIEWER_MAX_ITERATIONS.
             await run_agent_loop("review-allowlist-run", max_iterations=100)
 
@@ -1832,6 +1985,7 @@ class TestReviewerToolAllowlist:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
             # Pass 100 — must be silently capped to _REVIEWER_MAX_ITERATIONS.
             await run_agent_loop("review-cap-run", max_iterations=100)
 
@@ -1939,6 +2093,7 @@ class TestDeveloperToolAllowlist:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
             await run_agent_loop("dev-allowlist-run", max_iterations=100)
 
         assert captured_tools, "fake_llm must have been called at least once"
@@ -2245,6 +2400,7 @@ class TestReviewerWarmup:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
             mock_settings.gh_repo = "cgcardona/agentception"
             await run_agent_loop("review-warmup-run")
 
@@ -2316,6 +2472,7 @@ class TestAgentLoopPersistsMessages:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
 
             from agentception.services import agent_loop as al
 
@@ -2480,6 +2637,7 @@ class TestStopReasonLengthRecovery:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
 
             from agentception.services import agent_loop as al
 
@@ -2555,6 +2713,7 @@ class TestStopReasonLengthRecovery:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
 
             from agentception.services import agent_loop as al
 
@@ -2665,6 +2824,7 @@ class TestFileEditQueue:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
 
             await run_agent_loop("run-feq-write")
 
@@ -2755,6 +2915,7 @@ class TestFileEditQueue:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
 
             await run_agent_loop("run-feq-read")
 
@@ -2882,6 +3043,7 @@ class TestFinalStretchWarning:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
 
             from agentception.services import agent_loop as al
 
@@ -3051,6 +3213,7 @@ class TestFinalStretchWarning:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
 
             from agentception.services import agent_loop as al
 
@@ -3159,6 +3322,7 @@ class TestModelSelection:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
 
             from agentception.services.agent_loop import run_agent_loop
 
@@ -3218,6 +3382,7 @@ class TestModelSelection:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
 
             from agentception.services.agent_loop import run_agent_loop
 
@@ -3351,6 +3516,7 @@ class TestPytestHardStop:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
 
             from agentception.services import agent_loop as al
 
@@ -3474,6 +3640,7 @@ class TestPytestHardStop:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
 
             from agentception.services import agent_loop as al
 
@@ -3753,6 +3920,7 @@ class TestContextPressureWarning:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
 
             from agentception.services import agent_loop as al
 
@@ -3863,6 +4031,7 @@ class TestContextPressureWarning:
             mock_settings.repo_dir = tmp_path
             mock_settings.ac_min_turn_delay_secs = 0.0
             mock_settings.use_local_llm = False
+            mock_settings.agent_max_wall_seconds = 0
 
             from agentception.services import agent_loop as al
 

@@ -2,18 +2,34 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install git, curl, ripgrep, and the GitHub CLI (gh).
-# ripgrep (rg) is used by the search_text agent tool for fast codebase search.
+# Install system dependencies:
+#   git       — version control for worktree operations
+#   curl      — downloading tool binaries (gh, sass, MCP server)
+#   ripgrep   — fast codebase search used by the search_text agent tool
+#   gosu      — minimal setuid helper for privilege dropping in entrypoint.sh
+#               (purpose-built alternative to sudo/su; avoids TTY issues and
+#               signal-forwarding bugs that plague plain `su`)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     ripgrep \
+    gosu \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
        | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
        > /etc/apt/sources.list.d/github-cli.list \
     && apt-get update && apt-get install -y gh \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Create a non-root service user.  UID/GID 1001 is chosen to avoid collision
+# with common system UIDs (0=root, 1-999=system, 1000=typical first human
+# user).  The agentception user owns its home directory and the model cache;
+# /worktrees ownership is fixed at runtime by entrypoint.sh after the bind
+# mount is available.
+RUN groupadd -g 1001 agentception \
+    && useradd -r -u 1001 -g agentception -m -d /home/agentception -s /bin/bash agentception \
+    && mkdir -p /worktrees /root/.cache/huggingface \
+    && chown agentception:agentception /root/.cache/huggingface
 
 # Install Node.js 22.x — enables sass/esbuild builds at container startup
 # and npm run type-check / npm test inside the container.
@@ -24,21 +40,28 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
     && node --version \
     && npm --version
 
-# Install the GitHub askpass helper and configure system-wide git auth.
+# Install the GitHub askpass helper and configure system-wide git settings.
 #
 # Git's git-receive-pack (push) and git-upload-pack (fetch/clone) endpoints
-# only accept HTTP Basic auth — Bearer tokens are rejected with 401. The askpass
-# helper supplies "x-access-token" / $GITHUB_TOKEN so git generates a valid
-# Basic auth header without any token ever touching remote.origin.url or a
-# per-worktree git config file (which risks GitHub secret scanning revocation).
+# only accept HTTP Basic auth — Bearer tokens are rejected with 401.  The
+# askpass helper supplies "x-access-token" / $GITHUB_TOKEN so git generates a
+# valid Basic auth header without any token ever touching remote.origin.url or
+# a per-worktree git config file (which risks GitHub secret scanning revocation).
 #
 # --system writes to /etc/gitconfig (baked into the image layer), so it applies
-# regardless of which $HOME the container runs with. GIT_TERMINAL_PROMPT=0
+# regardless of which $HOME the container runs with.  GIT_TERMINAL_PROMPT=0
 # prevents git from falling back to an interactive TTY prompt when credentials
-# are missing — agents run non-interactively and must fail fast instead.
+# are missing — agents run non-interactively and must fail fast.
+#
+# http.proxy routes git HTTPS operations through the egress allowlist proxy.
+# The proxy service name resolves inside the Docker network at runtime; this
+# config has no effect during the Docker build phase (proxy not running then).
 COPY scripts/github-askpass /usr/local/bin/github-askpass
 RUN chmod +x /usr/local/bin/github-askpass \
-    && git config --system core.askPass /usr/local/bin/github-askpass
+    && git config --system core.askPass /usr/local/bin/github-askpass \
+    && git config --system user.email "agentception@localhost" \
+    && git config --system user.name "AgentCeption" \
+    && git config --system http.proxy "http://proxy:8888"
 
 # Install the GitHub MCP server binary — provides the agent loop with typed
 # GitHub tools (get_issue, list_issues, add_issue_comment, create_pull_request,
@@ -86,5 +109,11 @@ COPY pyproject.toml /app/pyproject.toml
 # Install the package itself so `agentception.*` imports resolve.
 RUN pip install --no-cache-dir -e /app
 
+# Entrypoint: performs privileged startup (resolv.conf, asset compilation,
+# DB migrations, ownership fixes) then drops to the agentception user via
+# gosu before exec'ing the server command.
+COPY scripts/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["uvicorn", "agentception.app:app", "--host", "0.0.0.0", "--port", "10003"]

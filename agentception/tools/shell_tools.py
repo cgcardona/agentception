@@ -16,6 +16,11 @@ accidents (``rm -rf /``, fork bombs, privilege escalation) are blocked.
 A second, smarter check blocks commands that are not destructive but are
 known to OOM-kill the container due to its memory profile (see
 ``_check_oom_risk``).
+
+Secret redaction is applied to all command output before it is returned to
+the agent.  This prevents credentials captured in stdout/stderr (e.g. ``env``
+output) from entering the agent's conversation history or being persisted to
+the DB.  See ``_redact_secrets``.
 """
 
 from __future__ import annotations
@@ -60,8 +65,81 @@ _BLOCKED_PATTERNS: frozenset[str] = frozenset(
         "dd if=",
         "chmod -r /",
         "chown -r /",
+        # Prevent agents from destroying the app or all worktrees in one shot.
+        "rm -rf /app",
+        "rm -rf /worktrees",
+        # Reverse-shell patterns.
+        "nc -e ",
+        "nc\t-e ",
+        "/dev/tcp/",
+        "/dev/udp/",
+        # Raw credential dumps (env alone is fine, but these are explicit exfil).
+        "curl.*env",
+        "wget.*env",
     }
 )
+
+# Names of environment variables whose values are sensitive.  Their values
+# are redacted from command output before it reaches the agent.
+_SECRET_ENV_VAR_NAMES: frozenset[str] = frozenset(
+    {
+        "ANTHROPIC_API_KEY",
+        "GITHUB_TOKEN",
+        "GITHUB_PERSONAL_ACCESS_TOKEN",
+        "DATABASE_URL",
+        "DB_PASSWORD",
+        "AC_API_KEY",
+        "HF_TOKEN",
+        "OPENAI_API_KEY",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+        "PRIVATE_KEY",
+        "SECRET_KEY",
+    }
+)
+
+# Pattern to redact KEY=VALUE pairs for known secret env vars.
+# Built once at module import from _SECRET_ENV_VAR_NAMES.
+_SECRET_KEY_VALUE_RE: re.Pattern[str] = re.compile(
+    r"(?m)^("
+    + "|".join(re.escape(k) for k in sorted(_SECRET_ENV_VAR_NAMES))
+    + r")=([^\n]*)",
+    re.IGNORECASE,
+)
+
+# GitHub PAT pattern: ghp_ followed by 36 base62 chars.
+_GH_PAT_RE: re.Pattern[str] = re.compile(r"\bghp_[A-Za-z0-9]{36,}\b")
+
+# Anthropic API key pattern: sk-ant- prefix.
+_ANTHROPIC_KEY_RE: re.Pattern[str] = re.compile(r"\bsk-ant-[A-Za-z0-9_-]{40,}\b")
+
+# Generic bearer token pattern (Authorization header leak).
+_BEARER_RE: re.Pattern[str] = re.compile(
+    r"\bBearer\s+[A-Za-z0-9._/+=-]{20,}\b", re.IGNORECASE
+)
+
+
+def _redact_secrets(text: str) -> str:
+    """Mask credential values in command output before returning to the agent.
+
+    Targets:
+    - ``KEY=value`` lines for known secret environment variable names.
+    - GitHub PAT tokens (``ghp_…``).
+    - Anthropic API keys (``sk-ant-…``).
+    - Bearer tokens in Authorization-style header lines.
+
+    This is a defence-in-depth measure.  The primary control is the path
+    sandbox that prevents agents from reading secret files.  This layer
+    ensures that if an agent issues a command that incidentally captures
+    credentials in output (e.g. ``env``, ``printenv``), those values are
+    stripped before they enter the conversation history or the DB.
+    """
+    text = _SECRET_KEY_VALUE_RE.sub(lambda m: f"{m.group(1)}=[REDACTED]", text)
+    text = _GH_PAT_RE.sub("[REDACTED_GH_TOKEN]", text)
+    text = _ANTHROPIC_KEY_RE.sub("[REDACTED_ANTHROPIC_KEY]", text)
+    text = _BEARER_RE.sub("Bearer [REDACTED_TOKEN]", text)
+    return text
 
 # Matches any mypy invocation that targets a directory rather than specific
 # files.  The container runs ONNX embedding models that consume ~5.7 GB RSS.
@@ -221,8 +299,8 @@ async def run_command(
 
     out_truncated = len(raw_out) > _MAX_OUTPUT_BYTES
     err_truncated = len(raw_err) > _MAX_OUTPUT_BYTES
-    stdout = raw_out[:_MAX_OUTPUT_BYTES].decode("utf-8", errors="replace")
-    stderr = raw_err[:_MAX_OUTPUT_BYTES].decode("utf-8", errors="replace")
+    stdout = _redact_secrets(raw_out[:_MAX_OUTPUT_BYTES].decode("utf-8", errors="replace"))
+    stderr = _redact_secrets(raw_err[:_MAX_OUTPUT_BYTES].decode("utf-8", errors="replace"))
     exit_code: int = proc.returncode if proc.returncode is not None else -1
 
     logger.info(

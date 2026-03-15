@@ -1,13 +1,25 @@
 # docker-compose.ci.yml — GitHub Actions override
 # Override the base docker-compose.yml for CI environments:
-#   - Strips host-specific bind mounts (cursor dir, gh auth, dev bind mount)
+#   - Remaps host-specific bind mounts to ephemeral CI paths
 #   - Sets CI-safe environment defaults
+#   - Disables the egress proxy (GitHub Actions runners have unrestricted
+#     internet access; tinyproxy adds latency without benefit in CI)
 #   - No port conflicts needed — runner is ephemeral
 #
 # Usage:
 #   docker compose -f docker-compose.yml -f docker-compose.ci.yml build
 #   docker compose -f docker-compose.yml -f docker-compose.ci.yml run --rm agentception <cmd>
 services:
+  # In CI the egress proxy is replaced with a no-op container so the
+  # agentception `depends_on: proxy: service_started` condition is satisfied
+  # without running tinyproxy.  GitHub Actions runners already have network
+  # policies enforced at the runner level; the proxy adds latency with no
+  # benefit here.
+  proxy:
+    image: alpine:latest
+    container_name: agentception-proxy-ci
+    command: ["/bin/true"]
+
   agentception:
     environment:
       HOME: /root
@@ -16,9 +28,27 @@ services:
       GH_REPO: ${GH_REPO:-cgcardona/agentception}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      # Disable the proxy in CI — no proxy service running.
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      NO_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      no_proxy: ""
     # volumes: [] does NOT work in Compose v2 to clear the base list.
-    # Instead we remap to paths that exist unconditionally in any runner:
+    # Instead we remap to paths that exist unconditionally in any runner.
+    # The CI runner has no .env file, so the narrow bind-mount security
+    # posture from docker-compose.yml is naturally satisfied here too.
     volumes:
       - /tmp/ci-cursor:/root/.cursor
       - /tmp/ci-gh:/root/.config/gh
-      - ./:/app
+      - ./agentception:/app/agentception
+      - ./.agentception:/app/.agentception
+      - ./pyproject.toml:/app/pyproject.toml
+      - ./org-presets.yaml:/app/org-presets.yaml
+      - ./scripts:/app/scripts
+      - ./tests:/app/tests
+      - ./tools:/app/tools
+    depends_on:
+      postgres:
+        condition: service_healthy

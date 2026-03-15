@@ -1,0 +1,38 @@
+# Tinyproxy domain allowlist — regular expressions matched against HOST:PORT
+# (for HTTPS CONNECT tunnels) and full URL (for plain HTTP requests).
+#
+# FilterDefaultDeny Yes means: if a domain does NOT match any pattern here,
+# tinyproxy returns HTTP 403 Forbidden and the connection is refused.
+#
+# Keep this list minimal.  Every addition increases the potential exfiltration
+# surface.  Audit any new addition before merging.
+
+# ── Anthropic API (LLM calls) ────────────────────────────────────────────────
+api\.anthropic\.com
+
+# ── GitHub (API, git push/fetch, gh CLI, GitHub MCP server) ──────────────────
+api\.github\.com
+github\.com
+objects\.githubusercontent\.com
+codeload\.github\.com
+raw\.githubusercontent\.com
+uploads\.github\.com
+
+# ── NPM registry (JavaScript package installs and agent npm commands) ─────────
+registry\.npmjs\.org
+cdn\.jsdelivr\.net
+
+# ── HuggingFace (ONNX model downloads — jina-v2, BM25, bge-reranker) ─────────
+# First-run download only; subsequent runs serve from the model_cache volume.
+huggingface\.co
+cdn-lfs\.huggingface\.co
+cdn-lfs-us-1\.huggingface\.co
+cdn-lfs-us-1\.hf\.co
+
+# ── Python Package Index (pip install inside agent worktrees) ─────────────────
+files\.pythonhosted\.org
+pypi\.org
+
+# ── Cloudflare DNS-over-HTTPS (used when ndots resolution falls back) ─────────
+1\.1\.1\.1
+cloudflare\.com
