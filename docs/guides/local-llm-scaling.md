@@ -1,6 +1,6 @@
 # Local LLM Scaling with LiteLLM Proxy
 
-This guide covers the multi-agent scaling architecture for running dozens to hundreds of AgentCeption agents against local models on Apple Silicon. It assumes you have completed the basic [Ollama setup](local-llm-mlx.md) (Phase 1) and now need to scale beyond a single Ollama instance.
+This guide covers the multi-agent scaling architecture for running dozens to hundreds of AgentCeption agents against local models. It assumes you have completed the basic [Ollama setup](local-llm.md) (Phase 1) and now need to scale beyond a single Ollama instance.
 
 ---
 
@@ -44,7 +44,7 @@ Each phase below is independent — implement only as far as your agent count re
 
 ## Phase 1: Single Ollama instance (1–10 agents)
 
-**Already covered in [local-llm-mlx.md](local-llm-mlx.md).** Ollama handles a request queue natively; up to ~5–10 concurrent agents can share one Ollama instance without degradation.
+**Already covered in [local-llm.md](local-llm.md).** Ollama handles a request queue natively; up to ~5–10 concurrent agents can share one Ollama instance without degradation.
 
 Configuration:
 
@@ -308,7 +308,7 @@ curl -s http://localhost:11434/v1/chat/completions \
 
 ## References
 
-- [Local LLM with Ollama setup](local-llm-mlx.md) — Phase 1 runbook.
+- [Local LLM with Ollama setup](local-llm.md) — Phase 1 runbook.
 - [LLM contract and provider abstraction](../reference/llm-contract.md) — AgentCeption's LLM contract.
 - [Ollama](https://ollama.com) — local inference server.
 - [LiteLLM Proxy docs](https://docs.litellm.ai/docs/proxy/quick_start) — full proxy configuration reference.
