@@ -88,6 +88,10 @@ RESET_STATUSES: frozenset[str] = frozenset({
 })
 
 #: States that place an issue card in the ``active`` swim lane (when no PR exists).
+#: ``"stale"`` is a computed display value (not stored in the DB) returned by
+#: :func:`compute_agent_status` when a live run has not heartbeated for
+#: :data:`STALE_THRESHOLD`.  It must appear here so that ``_compute_lane``
+#: keeps the card in ``active`` rather than falling through to ``todo``.
 LANE_ACTIVE_STATUSES: frozenset[str] = frozenset({
     AgentStatus.IMPLEMENTING.value,
     AgentStatus.PENDING_LAUNCH.value,
@@ -95,6 +99,7 @@ LANE_ACTIVE_STATUSES: frozenset[str] = frozenset({
     AgentStatus.REVIEWING.value,
     AgentStatus.STALLED.value,
     AgentStatus.RECOVERING.value,
+    "stale",  # computed — see compute_agent_status(); never stored in the DB
 })
 
 #: Terminal states — no further transitions are possible.
