@@ -22,7 +22,7 @@ from fastapi.testclient import TestClient
 
 from agentception.app import app
 from agentception.intelligence.pipeline_lanes import compute_phase_lanes
-from agentception.models import AgentNode, AgentStatus, BoardIssue, PipelineState
+from agentception.models import AgentNode, AgentStatus, BoardIssue, PipelineConfig, PipelineState
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -83,7 +83,7 @@ def empty_state() -> PipelineState:
 # ── HTTP route tests ──────────────────────────────────────────────────────────
 
 
-def _make_pipeline_cfg(labels: list[str]) -> object:
+def _make_pipeline_cfg(labels: list[str]) -> PipelineConfig:
     """Return a PipelineConfig mock with the required fields populated."""
     from agentception.models import PipelineConfig as _PC
 
@@ -215,7 +215,7 @@ def test_compute_phase_lanes_blockers_point_to_upstream(labels: list[str]) -> No
     assert waiting_lane["gate_status"] == "waiting"
     raw_blockers = waiting_lane["blockers"]
     assert isinstance(raw_blockers, list)
-    blocker_numbers = [b["number"] for b in raw_blockers]
+    blocker_numbers = [b["number"] for b in raw_blockers if isinstance(b, dict)]
     assert 10 in blocker_numbers
 
 

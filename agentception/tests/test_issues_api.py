@@ -27,6 +27,7 @@ from fastapi.testclient import TestClient
 
 from agentception.app import app
 from agentception.models import PipelineConfig
+from agentception.types import JsonValue
 
 
 @pytest.fixture(scope="module")
@@ -155,9 +156,10 @@ def test_pr_reviews_partial_gracefully_degrades_on_reader_error(
 _APPROVAL_CONFIG = PipelineConfig(approval_required_labels=["db-schema", "security"])
 
 
-def _make_issue(labels: list[str]) -> dict[str, object]:
+def _make_issue(labels: list[str]) -> dict[str, JsonValue]:
     """Build a minimal issue dict with string labels for use in queue tests."""
-    return {"number": 1, "title": "Test issue", "labels": labels}
+    lbl: JsonValue = json.loads(json.dumps(labels))
+    return {"number": 1, "title": "Test issue", "labels": lbl}
 
 
 def test_approval_queue_partial_returns_200(client: TestClient) -> None:
@@ -306,7 +308,7 @@ def test_approval_queue_gracefully_degrades_when_github_fails(
 
 def test_approval_queue_handles_dict_label_format(client: TestClient) -> None:
     """Labels supplied as GitHub API dicts {name: str} must be normalised correctly."""
-    issue: dict[str, object] = {
+    issue: dict[str, JsonValue] = {
         "number": 2,
         "title": "Dict label issue",
         "labels": [{"name": "db-schema"}, {"name": "priority/high"}],

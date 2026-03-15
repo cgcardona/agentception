@@ -49,7 +49,7 @@ def db_session() -> Generator[Session, None, None]:
 
 def test_persist_activity_event(db_session: Session) -> None:
     """persist_activity_event writes an ACAgentEvent row with correct fields."""
-    payload: dict[str, object] = {
+    payload: dict[str, str | int | float | bool | None] = {
         "cmd_preview": "python -m pytest agentception/tests/ -v",
         "cwd": "/worktrees/issue-938",
     }

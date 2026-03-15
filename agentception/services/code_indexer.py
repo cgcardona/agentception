@@ -90,8 +90,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
 from agentception.config import settings
+from agentception.types import JsonValue
 
 if TYPE_CHECKING:
+    from fastembed import TextEmbedding
+    from fastembed.rerank.cross_encoder import TextCrossEncoder
+    from fastembed.sparse import SparseTextEmbedding
     from qdrant_client import AsyncQdrantClient
 
 logger = logging.getLogger(__name__)
@@ -181,12 +185,12 @@ _INDEX_VERSION = "v6"
 # ── Module-level embedding model caches ───────────────────────────────────────
 # Lazily initialised on first use so tests can monkey-patch before loading.
 
-_cached_model: object = None    # TextEmbedding instance after first load
-_bm25_model: object = None      # SparseTextEmbedding instance after first load
-_rerank_model: object = None    # TextCrossEncoder instance after first load
+_cached_model: TextEmbedding | None = None
+_bm25_model: SparseTextEmbedding | None = None
+_rerank_model: TextCrossEncoder | None = None
 
 
-def _get_model() -> object:
+def _get_model() -> TextEmbedding | None:
     """Return the cached dense TextEmbedding model, initialising it on first call."""
     global _cached_model
     if _cached_model is None:
@@ -210,7 +214,7 @@ def _reset_model() -> None:
     _cached_model = None
 
 
-def _get_bm25_model() -> object:
+def _get_bm25_model() -> SparseTextEmbedding | None:
     """Return the cached SparseTextEmbedding BM25 model, initialising it on first call."""
     global _bm25_model
     if _bm25_model is None:
@@ -234,7 +238,7 @@ def _reset_bm25_model() -> None:
     _bm25_model = None
 
 
-def _get_rerank_model() -> object:
+def _get_rerank_model() -> TextCrossEncoder | None:
     """Return the cached TextCrossEncoder reranker, initialising it on first call."""
     global _rerank_model
     if _rerank_model is None:
@@ -614,7 +618,7 @@ def _compute_file_hash(path: Path) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _index_version_is_current(payload: dict[str, object]) -> bool:
+def _index_version_is_current(payload: dict[str, JsonValue]) -> bool:
     """Return True when *payload* contains the current :data:`_INDEX_VERSION`.
 
     Extracted from :func:`_needs_index_rebuild` so the version check logic

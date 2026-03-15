@@ -30,6 +30,8 @@ import logging
 from pathlib import Path
 from typing import Annotated, TypedDict
 
+from agentception.types import JsonValue
+
 import yaml
 from fastapi import APIRouter, Form, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -208,7 +210,7 @@ def _read_pipeline_config() -> PipelineConfig:
     if not path.exists():
         return PipelineConfig()
     try:
-        raw: object = json.loads(path.read_text(encoding="utf-8"))
+        raw: JsonValue = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             return PipelineConfig()
         config = PipelineConfig()
@@ -250,32 +252,24 @@ def _write_pipeline_config(data: PipelineConfig) -> None:
 def _read_active_org_roles(config: PipelineConfig) -> list[RoleEntry]:
     """Extract and validate the ``active_org_roles`` list from *config*.
 
-    Returns an empty list when the key is missing or malformed.  Each entry
-    is coerced to have at least ``slug`` (str) and ``assigned_phases`` (list).
+    Returns an empty list when the key is missing.  Each entry is coerced to
+    have at least ``slug`` (str) and ``assigned_phases`` (list).
     """
-    raw: object = config.get("active_org_roles", [])
-    if not isinstance(raw, list):
-        return []
+    raw_roles = config.get("active_org_roles", [])
     result: list[RoleEntry] = []
-    for item in raw:
-        if not isinstance(item, dict):
-            continue
+    for item in raw_roles:
         slug = item.get("slug")
         if not isinstance(slug, str) or not slug:
             continue
-        phases: object = item.get("assigned_phases", [])
-        if not isinstance(phases, list):
-            phases = []
-        result.append(RoleEntry(slug=slug, assigned_phases=list(phases)))
+        phases_raw = item.get("assigned_phases", [])
+        result.append(RoleEntry(slug=slug, assigned_phases=[p for p in phases_raw if isinstance(p, str)]))
     return result
 
 
 def _read_phases(config: PipelineConfig) -> list[str]:
     """Return phase label strings from *config*'s ``active_labels_order`` list."""
-    raw: object = config.get("active_labels_order", [])
-    if not isinstance(raw, list):
-        return []
-    return [p for p in raw if isinstance(p, str)]
+    raw_labels = config.get("active_labels_order", [])
+    return [p for p in raw_labels if isinstance(p, str)]
 
 
 # ---------------------------------------------------------------------------
@@ -290,10 +284,10 @@ def _load_presets() -> list[OrgPreset]:
     degrades gracefully rather than raising a 500.
     """
     try:
-        raw: object = yaml.safe_load(_PRESETS_PATH.read_text(encoding="utf-8"))
+        raw: JsonValue = yaml.safe_load(_PRESETS_PATH.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             return []
-        presets: object = raw.get("presets", [])
+        presets: JsonValue = raw.get("presets", [])
         if not isinstance(presets, list):
             return []
         result: list[OrgPreset] = []
@@ -302,9 +296,18 @@ def _load_presets() -> list[OrgPreset]:
                 continue
             pid = p.get("id", "")
             tiers_raw = p.get("tiers", {})
+            leadership_list: list[str] = []
+            workers_list: list[str] = []
+            if isinstance(tiers_raw, dict):
+                lead_raw: JsonValue = tiers_raw.get("leadership", [])
+                work_raw: JsonValue = tiers_raw.get("workers", [])
+                if isinstance(lead_raw, list):
+                    leadership_list = [str(s) for s in lead_raw]
+                if isinstance(work_raw, list):
+                    workers_list = [str(s) for s in work_raw]
             tiers: OrgPresetTiers = OrgPresetTiers(
-                leadership=[str(s) for s in tiers_raw.get("leadership", [])] if isinstance(tiers_raw, dict) else [],
-                workers=[str(s) for s in tiers_raw.get("workers", [])] if isinstance(tiers_raw, dict) else [],
+                leadership=leadership_list,
+                workers=workers_list,
             )
             result.append(OrgPreset(
                 id=str(pid),
@@ -370,21 +373,27 @@ def _load_taxonomy_role_index() -> dict[str, _RoleIndexEntry]:
     string) and ``compatible_figures`` (list of strings).
     """
     try:
-        raw: object = yaml.safe_load(_TAXONOMY_PATH.read_text(encoding="utf-8"))
+        raw: JsonValue = yaml.safe_load(_TAXONOMY_PATH.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             return {}
         index: dict[str, _RoleIndexEntry] = {}
-        for level in raw.get("levels", []):
+        raw_levels: JsonValue = raw.get("levels", [])
+        if not isinstance(raw_levels, list):
+            return {}
+        for level in raw_levels:
             if not isinstance(level, dict):
                 continue
             level_id = str(level.get("id", ""))
             tier_label = _TREE_TIER_LABELS.get(level_id, level_id)
-            for role in level.get("roles", []):
+            raw_roles: JsonValue = level.get("roles", [])
+            if not isinstance(raw_roles, list):
+                continue
+            for role in raw_roles:
                 if not isinstance(role, dict):
                     continue
                 slug = str(role.get("slug", ""))
                 if slug:
-                    figures: object = role.get("compatible_figures", [])
+                    figures: JsonValue = role.get("compatible_figures", [])
                     index[slug] = _RoleIndexEntry(
                         tier=tier_label,
                         compatible_figures=(
@@ -449,7 +458,7 @@ async def org_chart_page(request: Request) -> HTMLResponse:
     """
     presets = _load_presets()
     config = _read_pipeline_config()
-    active_org: object = config.get("active_org")
+    active_org: JsonValue = config.get("active_org")
     active_org_id: str | None = active_org if isinstance(active_org, str) else None
 
     return _TEMPLATES.TemplateResponse(
@@ -475,7 +484,7 @@ async def org_tree() -> JSONResponse:
     Returns HTTP 404 when no preset is selected or the active preset id is unknown.
     """
     config = _read_pipeline_config()
-    active_org: object = config.get("active_org")
+    active_org: JsonValue = config.get("active_org")
     if not isinstance(active_org, str) or not active_org:
         raise HTTPException(status_code=404, detail="No active org selected. Choose a preset first.")
 
@@ -760,7 +769,7 @@ async def save_template(
         raise HTTPException(status_code=500, detail="Failed to save template") from exc
 
     presets = _load_presets()
-    active_org: object = config.get("active_org")
+    active_org: JsonValue = config.get("active_org")
     active_org_id: str | None = active_org if isinstance(active_org, str) else None
 
     return _TEMPLATES.TemplateResponse(

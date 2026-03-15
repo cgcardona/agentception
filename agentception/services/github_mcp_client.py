@@ -24,6 +24,7 @@ import logging
 import os
 
 from agentception.config import settings
+from agentception.types import JsonValue
 from agentception.services.llm import ToolDefinition, ToolFunction
 
 logger = logging.getLogger(__name__)
@@ -117,12 +118,12 @@ class GitHubMCPClient:
         await self._notify("notifications/initialized", {})
         logger.info("✅ GitHub MCP server started — pid=%d", self._proc.pid)
 
-    async def _write(self, obj: dict[str, object]) -> None:
+    async def _write(self, obj: dict[str, JsonValue]) -> None:
         assert self._proc is not None and self._proc.stdin is not None
         self._proc.stdin.write((json.dumps(obj) + "\n").encode())
         await self._proc.stdin.drain()
 
-    async def _read_response(self, expected_id: int) -> dict[str, object]:
+    async def _read_response(self, expected_id: int) -> dict[str, JsonValue]:
         """Read lines until we find the JSON-RPC response with *expected_id*."""
         assert self._proc is not None and self._proc.stdout is not None
         while True:
@@ -132,7 +133,7 @@ class GitHubMCPClient:
             if not raw:
                 raise RuntimeError("GitHub MCP server closed stdout unexpectedly.")
             try:
-                msg: object = json.loads(raw.decode())
+                msg: JsonValue = json.loads(raw.decode())
             except json.JSONDecodeError:
                 continue
             if not isinstance(msg, dict):
@@ -142,16 +143,16 @@ class GitHubMCPClient:
                 continue
             if "error" in msg:
                 raise RuntimeError(f"GitHub MCP error: {msg['error']}")
-            result: object = msg.get("result", {})
+            result: JsonValue = msg.get("result", {})
             return result if isinstance(result, dict) else {}
 
-    async def _request(self, method: str, params: dict[str, object]) -> dict[str, object]:
+    async def _request(self, method: str, params: dict[str, JsonValue]) -> dict[str, JsonValue]:
         async with self._lock:
             req_id = self._bump_id()
             await self._write({"jsonrpc": "2.0", "id": req_id, "method": method, "params": params})
             return await self._read_response(req_id)
 
-    async def _notify(self, method: str, params: dict[str, object]) -> None:
+    async def _notify(self, method: str, params: dict[str, JsonValue]) -> None:
         await self._write({"jsonrpc": "2.0", "method": method, "params": params})
 
     # ------------------------------------------------------------------
@@ -165,7 +166,7 @@ class GitHubMCPClient:
 
         await self._ensure_started()
         result = await self._request("tools/list", {})
-        raw: object = result.get("tools", [])
+        raw: JsonValue = result.get("tools", [])
         if not isinstance(raw, list):
             raw = []
 
@@ -173,14 +174,14 @@ class GitHubMCPClient:
         for tool in raw:
             if not isinstance(tool, dict):
                 continue
-            name: object = tool.get("name")
+            name: JsonValue = tool.get("name")
             if not isinstance(name, str) or name in _SKIP_TOOLS:
                 continue
-            description: object = tool.get("description", "")
+            description: JsonValue = tool.get("description", "")
             if not isinstance(description, str):
                 description = ""
-            schema_raw: object = tool.get("inputSchema", {})
-            schema: dict[str, object] = (
+            schema_raw: JsonValue = tool.get("inputSchema", {})
+            schema: dict[str, JsonValue] = (
                 schema_raw if isinstance(schema_raw, dict) else {}
             )
             defs.append(
@@ -198,11 +199,11 @@ class GitHubMCPClient:
         logger.info("✅ GitHub MCP tools loaded — %d tools", len(defs))
         return defs
 
-    async def call_tool(self, name: str, arguments: dict[str, object]) -> str:
+    async def call_tool(self, name: str, arguments: dict[str, JsonValue]) -> str:
         """Call a GitHub MCP tool and return the text content of the result."""
         await self._ensure_started()
         result = await self._request("tools/call", {"name": name, "arguments": arguments})
-        content: object = result.get("content", [])
+        content: JsonValue = result.get("content", [])
         if isinstance(content, list):
             parts: list[str] = [
                 str(item.get("text", ""))

@@ -18,6 +18,7 @@ from agentception.readers.github import (
 )
 from agentception.readers.pipeline_config import read_pipeline_config
 from agentception.routes.ui._shared import _TEMPLATES
+from agentception.types import JsonValue
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ async def issue_comments_partial(request: Request, repo: str, number: int) -> HT
     The ``repo`` path segment is accepted for URL uniqueness in HTMX routing
     but the reader uses the globally configured repo from settings.
     """
-    comments: list[dict[str, object]] = []
+    comments: list[dict[str, JsonValue]] = []
     try:
         comments = await get_issue_comments(number)
     except Exception as exc:
@@ -54,7 +55,7 @@ async def pr_checks_partial(request: Request, repo: str, number: int) -> HTMLRes
     The ``repo`` path segment is accepted for URL uniqueness in HTMX routing
     but the reader uses the globally configured repo from settings.
     """
-    checks: list[dict[str, object]] = []
+    checks: list[dict[str, JsonValue]] = []
     error: str | None = None
     try:
         checks = await get_pr_checks(number)
@@ -76,7 +77,7 @@ async def pr_reviews_partial(request: Request, repo: str, number: int) -> HTMLRe
     The ``repo`` path segment is accepted for URL uniqueness in HTMX routing
     but the reader uses the globally configured repo from settings.
     """
-    reviews: list[dict[str, object]] = []
+    reviews: list[dict[str, JsonValue]] = []
     error: str | None = None
     try:
         reviews = await get_pr_reviews(number)
@@ -107,7 +108,7 @@ async def approval_queue_partial(request: Request) -> HTMLResponse:
     except Exception as exc:
         logger.warning("⚠️  Could not read pipeline config for approval labels: %s", exc)
 
-    issues: list[dict[str, object]] = []
+    issues: list[dict[str, JsonValue]] = []
     try:
         all_issues = await get_open_issues()
         for issue in all_issues:

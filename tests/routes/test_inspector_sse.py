@@ -14,6 +14,7 @@ import pytest
 from agentception.db.queries import AgentEventRow
 from agentception.db.queries.events import get_all_events_tail
 from agentception.routes.ui.build_ui import _inspector_sse
+from agentception.types import JsonValue
 
 _RUN_ID = "run-943"
 
@@ -21,7 +22,7 @@ _RUN_ID = "run-943"
 def _event_row(
     id: int,
     event_type: str,
-    payload: dict[str, object] | str,
+    payload: dict[str, JsonValue] | str,
     recorded_at: str = "2026-03-13T12:00:00Z",
 ) -> AgentEventRow:
     return AgentEventRow(
@@ -61,7 +62,7 @@ async def test_activity_events_in_sse_stream() -> None:
         side_effect=Exception("stop"),
     ):
         gen = _inspector_sse(_RUN_ID)
-        events: list[dict[str, object]] = []
+        events: list[dict[str, JsonValue]] = []
         try:
             async for chunk in gen:
                 if chunk.startswith("data:"):

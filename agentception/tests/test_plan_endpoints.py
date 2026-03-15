@@ -23,7 +23,9 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from agentception.app import app
+from agentception.models import PlanSpec
 from agentception.services.llm import LLMChunk
+from agentception.types import JsonValue
 
 
 # ---------------------------------------------------------------------------
@@ -45,9 +47,9 @@ async def async_client() -> AsyncGenerator[AsyncClient, None]:
 # ---------------------------------------------------------------------------
 
 
-def _parse_sse_events(body: str) -> list[dict[str, object]]:
+def _parse_sse_events(body: str) -> list[dict[str, JsonValue]]:
     """Parse a raw SSE response body into a list of decoded JSON event dicts."""
-    events: list[dict[str, object]] = []
+    events: list[dict[str, JsonValue]] = []
     for line in body.splitlines():
         if line.startswith("data: "):
             payload = line[len("data: "):]
@@ -206,12 +208,12 @@ async def test_preview_valid_input_streams_chunk_and_done_events(
     """A valid LLM response streams chunk events then a done event with PlanSpec metadata."""
 
     async def fake_llm_stream(
-        *_args: object, **_kwargs: object
+        *_args: str, **_kwargs: str | int | bool | float | None
     ) -> AsyncGenerator[LLMChunk, None]:
         yield LLMChunk(type="content", text="initiative: auth-rewrite\n")
         yield LLMChunk(type="content", text=_MINIMAL_VALID_YAML[len("initiative: auth-rewrite\n"):])
 
-    async def return_spec(spec: object) -> object:
+    async def return_spec(spec: PlanSpec) -> PlanSpec:
         return spec
 
     with (
@@ -259,12 +261,12 @@ async def test_preview_thinking_and_content_chunks_are_both_streamed(async_clien
     fenced_yaml = "```yaml\n" + _MINIMAL_VALID_YAML + "\n```\n"
 
     async def fake_llm_stream(
-        *_args: object, **_kwargs: object
+        *_args: str, **_kwargs: str | int | bool | float | None
     ) -> AsyncGenerator[LLMChunk, None]:
         yield LLMChunk(type="thinking", text="<internal reasoning>")
         yield LLMChunk(type="content", text=fenced_yaml)
 
-    async def return_spec(spec: object) -> object:
+    async def return_spec(spec: PlanSpec) -> PlanSpec:
         return spec
 
     with (
@@ -305,11 +307,11 @@ async def test_preview_prose_response_uses_fallback_plan(async_client: AsyncClie
     """When the LLM returns prose instead of YAML, we never push back — emit the fallback clarify-and-scope plan."""
 
     async def fake_llm_stream(
-        *_args: object, **_kwargs: object
+        *_args: str, **_kwargs: str | int | bool | float | None
     ) -> AsyncGenerator[LLMChunk, None]:
         yield LLMChunk(type="content", text="Sure, here are some ideas for your project...")
 
-    async def return_spec(spec: object) -> object:
+    async def return_spec(spec: PlanSpec) -> PlanSpec:
         return spec
 
     with (
@@ -356,7 +358,7 @@ async def test_preview_malformed_yaml_uses_fallback_plan_not_error(async_client:
     """
 
     async def fake_llm_stream(
-        *_args: object, **_kwargs: object
+        *_args: str, **_kwargs: str | int | bool | float | None
     ) -> AsyncGenerator[LLMChunk, None]:
         yield LLMChunk(
             type="content",
@@ -367,7 +369,7 @@ async def test_preview_malformed_yaml_uses_fallback_plan_not_error(async_client:
             ),
         )
 
-    async def return_spec(spec: object) -> object:
+    async def return_spec(spec: PlanSpec) -> PlanSpec:
         return spec
 
     with (
@@ -415,12 +417,12 @@ async def test_preview_local_model_think_tags_separated(async_client: AsyncClien
     fenced_yaml = "```yaml\n" + _MINIMAL_VALID_YAML + "\n```\n"
 
     async def fake_llm_stream(
-        *_args: object, **_kwargs: object
+        *_args: str, **_kwargs: str | int | bool | float | None
     ) -> AsyncGenerator[LLMChunk, None]:
         yield LLMChunk(type="thinking", text="Let me plan this carefully.")
         yield LLMChunk(type="content", text=fenced_yaml)
 
-    async def return_spec(spec: object) -> object:
+    async def return_spec(spec: PlanSpec) -> PlanSpec:
         return spec
 
     with (
@@ -477,11 +479,11 @@ async def test_preview_multi_issue_yaml_with_repeated_structure_not_truncated(
     """
 
     async def fake_llm_stream(
-        *_args: object, **_kwargs: object
+        *_args: str, **_kwargs: str | int | bool | float | None
     ) -> AsyncGenerator[LLMChunk, None]:
         yield LLMChunk(type="content", text=_TWO_PHASE_YAML)
 
-    async def return_spec(spec: object) -> object:
+    async def return_spec(spec: PlanSpec) -> PlanSpec:
         return spec
 
     with (
@@ -525,7 +527,7 @@ async def test_preview_context_pack_is_prepended_to_dump(async_client: AsyncClie
     received_prompt: list[str] = []
 
     async def capture_stream(
-        user_prompt: str, **_kwargs: object
+        user_prompt: str, **_kwargs: str | int | bool | float | None
     ) -> AsyncGenerator[LLMChunk, None]:
         received_prompt.append(user_prompt)
         yield LLMChunk(type="content", text=_MINIMAL_VALID_YAML)
@@ -685,7 +687,9 @@ async def test_file_issues_forwards_all_event_types(async_client: AsyncClient) -
     assert done["batch_id"] == "batch-abc123"
     issues = done.get("issues", [])
     assert isinstance(issues, list) and len(issues) == 1
-    assert issues[0]["number"] == 101
+    first_issue = issues[0]
+    assert isinstance(first_issue, dict)
+    assert first_issue["number"] == 101
 
 
 # ---------------------------------------------------------------------------
@@ -915,7 +919,7 @@ async def test_plan_initiative_page_shows_complete_phase(
 # ---------------------------------------------------------------------------
 
 
-def _passthrough_settings() -> dict[str, object]:
+def _passthrough_settings() -> dict[str, JsonValue]:
     """Return a dict of settings attributes needed by route handlers under test.
 
     When we replace ``agentception.config.settings`` with a ``MagicMock`` the

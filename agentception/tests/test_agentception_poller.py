@@ -33,6 +33,7 @@ from agentception.poller import (
     tick,
     unsubscribe,
 )
+from agentception.types import JsonValue
 
 
 # ---------------------------------------------------------------------------
@@ -652,13 +653,15 @@ def _phase_row(
     label: str,
     complete: bool,
     depends_on: list[str] | None = None,
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Minimal PhaseGroupRow-compatible dict for testing."""
+    deps: list[JsonValue] = []
+    deps.extend(depends_on or [])
     return {
         "label": label,
         "complete": complete,
         "locked": bool(depends_on and not complete),
-        "depends_on": depends_on or [],
+        "depends_on": deps,
         "issues": [],
     }
 

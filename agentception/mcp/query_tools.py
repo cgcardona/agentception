@@ -16,6 +16,16 @@ Rules
 """
 
 import logging
+from typing import TypedDict
+
+from agentception.db.queries.types import (
+    AgentEventRow,
+    PendingLaunchRow,
+    RunContextRow,
+    RunSummaryRow,
+    RunTreeNodeRow,
+    StatusCountRow,
+)
 
 from agentception.db.queries import (
     check_db_reachable,
@@ -33,7 +43,94 @@ from agentception.db.queries import (
 logger = logging.getLogger(__name__)
 
 
-async def query_pending_runs() -> dict[str, object]:
+class PendingRunsResult(TypedDict):
+    """Pending launch records from the AgentCeption DB."""
+
+    pending: list[PendingLaunchRow]
+    count: int
+
+
+class QueryRunFoundResult(TypedDict):
+    """Successful run lookup result."""
+
+    ok: bool
+    run: RunSummaryRow
+
+
+class QueryRunNotFoundResult(TypedDict):
+    """Failed run lookup — run does not exist."""
+
+    ok: bool
+    error: str
+
+
+class QueryContextFoundResult(TypedDict):
+    """Successful run context lookup result."""
+
+    ok: bool
+    context: RunContextRow
+
+
+class QueryChildrenResult(TypedDict):
+    """Result of querying child runs for a parent."""
+
+    ok: bool
+    children: list[RunSummaryRow]
+    count: int
+
+
+class QueryEventsResult(TypedDict):
+    """Result of querying structured events for a run."""
+
+    ok: bool
+    events: list[AgentEventRow]
+    count: int
+
+
+class QueryActiveRunsResult(TypedDict):
+    """Result of querying all currently active runs."""
+
+    ok: bool
+    runs: list[RunSummaryRow]
+    count: int
+
+
+class QueryRunTreeResult(TypedDict):
+    """Result of querying the full run tree for a batch."""
+
+    ok: bool
+    nodes: list[RunTreeNodeRow]
+    count: int
+
+
+class QueryDispatcherResult(TypedDict):
+    """Dispatcher state snapshot for supervisory agents."""
+
+    ok: bool
+    status_counts: list[StatusCountRow]
+    active_count: int
+    latest_batch_id: str | None
+
+
+class QueryRunStatusFoundResult(TypedDict):
+    """Successful run status lookup result."""
+
+    ok: bool
+    run_id: str
+    status: str
+    completed_at: str | None
+
+
+class QueryHealthResult(TypedDict):
+    """System health snapshot."""
+
+    ok: bool
+    db_ok: bool
+    status_counts: list[StatusCountRow]
+    total_runs: int
+
+
+async def query_pending_runs() -> PendingRunsResult:
     """Return all pending launch records from the AgentCeption DB.
 
     The Dispatcher calls this once to discover what the UI has queued.
@@ -65,7 +162,7 @@ async def query_pending_runs() -> dict[str, object]:
     return {"pending": launches, "count": len(launches)}
 
 
-async def query_run(run_id: str) -> dict[str, object]:
+async def query_run(run_id: str) -> QueryRunFoundResult | QueryRunNotFoundResult:
     """Return lightweight metadata for a single run.
 
     Agents call this on startup to determine their current state and decide
@@ -83,10 +180,10 @@ async def query_run(run_id: str) -> dict[str, object]:
         logger.warning("🔍 query_run: run_id=%r not found", run_id)
         return {"ok": False, "error": f"Run {run_id!r} not found"}
     logger.info("✅ query_run: found run_id=%r status=%r", run_id, row["status"])
-    return {"ok": True, "run": dict(row)}
+    return {"ok": True, "run": row}
 
 
-async def query_run_context(run_id: str) -> dict[str, object]:
+async def query_run_context(run_id: str) -> QueryContextFoundResult | QueryRunNotFoundResult:
     """Return the full task context for a single run.
 
     Unlike ``query_run``, this includes ``cognitive_arch`` and
@@ -106,10 +203,10 @@ async def query_run_context(run_id: str) -> dict[str, object]:
         logger.warning("🔍 query_run_context: run_id=%r not found", run_id)
         return {"ok": False, "error": f"Run {run_id!r} not found"}
     logger.info("✅ query_run_context: found run_id=%r role=%r", run_id, row["role"])
-    return {"ok": True, "context": dict(row)}
+    return {"ok": True, "context": row}
 
 
-async def query_children(run_id: str) -> dict[str, object]:
+async def query_children(run_id: str) -> QueryChildrenResult:
     """Return all runs spawned by *run_id*, ordered by spawn time.
 
     Coordinator and VP-tier agents use this to track the state of the
@@ -123,10 +220,10 @@ async def query_children(run_id: str) -> dict[str, object]:
     """
     children = await get_children_by_parent_id(run_id)
     logger.info("✅ query_children: run_id=%r → %d child(ren)", run_id, len(children))
-    return {"ok": True, "children": [dict(c) for c in children], "count": len(children)}
+    return {"ok": True, "children": list(children), "count": len(children)}
 
 
-async def query_run_events(run_id: str, after_id: int = 0) -> dict[str, object]:
+async def query_run_events(run_id: str, after_id: int = 0) -> QueryEventsResult:
     """Return structured MCP events for *run_id* with ``id > after_id``.
 
     Agents can use this to reconstruct what happened in a previous session
@@ -142,11 +239,11 @@ async def query_run_events(run_id: str, after_id: int = 0) -> dict[str, object]:
     """
     events = await get_agent_events_tail(run_id, after_id=after_id)
     logger.info("✅ query_run_events: run_id=%r after_id=%d → %d event(s)", run_id, after_id, len(events))
-    return {"ok": True, "events": [dict(e) for e in events], "count": len(events)}
+    return {"ok": True, "events": list(events), "count": len(events)}
 
 
 
-async def query_active_runs() -> dict[str, object]:
+async def query_active_runs() -> QueryActiveRunsResult:
     """Return all runs currently in a live or blocked state.
 
     Live statuses: ``pending_launch``, ``implementing``, ``reviewing``,
@@ -158,10 +255,10 @@ async def query_active_runs() -> dict[str, object]:
     """
     runs = await get_active_runs()
     logger.info("✅ query_active_runs: %d active run(s)", len(runs))
-    return {"ok": True, "runs": [dict(r) for r in runs], "count": len(runs)}
+    return {"ok": True, "runs": list(runs), "count": len(runs)}
 
 
-async def query_run_tree(batch_id: str) -> dict[str, object]:
+async def query_run_tree(batch_id: str) -> QueryRunTreeResult:
     """Return the full run tree for *batch_id* as a flat list.
 
     Each node contains ``id``, ``parent_run_id``, ``role``, ``status``,
@@ -176,10 +273,10 @@ async def query_run_tree(batch_id: str) -> dict[str, object]:
     """
     nodes = await get_run_tree_by_batch_id(batch_id)
     logger.info("✅ query_run_tree: batch_id=%r → %d node(s)", batch_id, len(nodes))
-    return {"ok": True, "nodes": [dict(n) for n in nodes], "count": len(nodes)}
+    return {"ok": True, "nodes": list(nodes), "count": len(nodes)}
 
 
-async def query_dispatcher_state() -> dict[str, object]:
+async def query_dispatcher_state() -> QueryDispatcherResult:
     """Return current dispatcher state for supervisory agents.
 
     Provides:
@@ -200,13 +297,13 @@ async def query_dispatcher_state() -> dict[str, object]:
     )
     return {
         "ok": True,
-        "status_counts": [dict(c) for c in counts],
+        "status_counts": list(counts),
         "active_count": active_count,
         "latest_batch_id": latest_batch_id,
     }
 
 
-async def query_run_status(run_id: str) -> dict[str, object]:
+async def query_run_status(run_id: str) -> QueryRunStatusFoundResult | QueryRunNotFoundResult:
     """Return the current status of a run — coordinators use this to poll children.
 
     Designed for coordinator agents that need to know when their dispatched
@@ -239,7 +336,7 @@ async def query_run_status(run_id: str) -> dict[str, object]:
     }
 
 
-async def query_system_health() -> dict[str, object]:
+async def query_system_health() -> QueryHealthResult:
     """Return a system-health snapshot for supervisory agents.
 
     Checks DB reachability and returns aggregate run counts per status.
@@ -250,11 +347,11 @@ async def query_system_health() -> dict[str, object]:
         ``{"ok": True, "db_ok": bool, "status_counts": [...], "total_runs": N}``
     """
     db_ok = await check_db_reachable()
-    counts: list[dict[str, object]] = []
+    counts: list[StatusCountRow] = []
     total = 0
     if db_ok:
         status_counts = await get_run_status_counts()
-        counts = [dict(c) for c in status_counts]
+        counts = list(status_counts)
         total = sum(c["count"] for c in status_counts)
     logger.info("✅ query_system_health: db_ok=%r total_runs=%d", db_ok, total)
     return {"ok": True, "db_ok": db_ok, "status_counts": counts, "total_runs": total}

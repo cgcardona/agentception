@@ -29,6 +29,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import agentception.db.persist as _persist
+from agentception.types import JsonValue
 from agentception.db.models import ACAgentRun, ACIssue, ACPullRequest
 
 
@@ -88,7 +89,7 @@ def _agent_run(issue_number: int, pr_number: int) -> ACAgentRun:
 @pytest.mark.anyio
 async def test_upsert_prs_parses_closes_keyword() -> None:
     """_upsert_prs extracts 'Closes #N' from PR body into closes_issue_number."""
-    raw_pr: dict[str, object] = {
+    raw_pr: dict[str, JsonValue] = {
         "number": 201,
         "title": "fix: something",
         "state": "merged",
@@ -115,7 +116,7 @@ async def test_upsert_prs_parses_closes_keyword() -> None:
 @pytest.mark.anyio
 async def test_upsert_prs_parses_fixes_keyword() -> None:
     """_upsert_prs recognises 'Fixes #N' as a closing keyword."""
-    raw_pr: dict[str, object] = {
+    raw_pr: dict[str, JsonValue] = {
         "number": 202,
         "title": "fix: another",
         "state": "open",
@@ -140,7 +141,7 @@ async def test_upsert_prs_parses_fixes_keyword() -> None:
 @pytest.mark.anyio
 async def test_upsert_prs_no_closing_keyword_leaves_null() -> None:
     """_upsert_prs sets closes_issue_number=None when no keyword is present."""
-    raw_pr: dict[str, object] = {
+    raw_pr: dict[str, JsonValue] = {
         "number": 203,
         "title": "chore: docs",
         "state": "open",

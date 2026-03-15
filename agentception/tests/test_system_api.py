@@ -41,7 +41,7 @@ def test_trigger_index_codebase_schedules_background_task(client: TestClient) ->
     """The endpoint must return immediately (202) and not wait for indexing."""
     call_count = 0
 
-    async def slow_index(**_: object) -> IndexStats:
+    async def slow_index(**_: str | int | bool | float | None) -> IndexStats:
         nonlocal call_count
         call_count += 1
         # In real use this would take seconds; in test just record the call.

@@ -21,6 +21,8 @@ Tool catalogue:
 
 import logging
 
+from agentception.types import JsonValue
+
 from agentception.readers.github import (
     add_comment_to_issue,
     add_label_to_issue,
@@ -34,7 +36,7 @@ from agentception.readers.github import (
 logger = logging.getLogger(__name__)
 
 
-async def github_add_label(issue_number: int, label: str) -> dict[str, object]:
+async def github_add_label(issue_number: int, label: str) -> dict[str, JsonValue]:
     """Add a label to a GitHub issue and invalidate the cache.
 
     Args:
@@ -53,7 +55,7 @@ async def github_add_label(issue_number: int, label: str) -> dict[str, object]:
     return {"ok": True, "issue_number": issue_number, "added": label}
 
 
-async def github_remove_label(issue_number: int, label: str) -> dict[str, object]:
+async def github_remove_label(issue_number: int, label: str) -> dict[str, JsonValue]:
     """Remove a label from a GitHub issue (idempotent — no error if absent).
 
     Args:
@@ -72,7 +74,7 @@ async def github_remove_label(issue_number: int, label: str) -> dict[str, object
     return {"ok": True, "issue_number": issue_number, "removed": label}
 
 
-async def github_claim_issue(issue_number: int) -> dict[str, object]:
+async def github_claim_issue(issue_number: int) -> dict[str, JsonValue]:
     """Claim an issue for this agent by adding the ``agent/wip`` label.
 
     Idiomatic pipeline action — call this before starting work on an issue
@@ -93,7 +95,7 @@ async def github_claim_issue(issue_number: int) -> dict[str, object]:
     return {"ok": True, "issue_number": issue_number, "claimed": True}
 
 
-async def github_unclaim_issue(issue_number: int) -> dict[str, object]:
+async def github_unclaim_issue(issue_number: int) -> dict[str, JsonValue]:
     """Release an issue claim by removing the ``agent/wip`` label.
 
     Call this when finishing work or when aborting so the issue becomes
@@ -114,7 +116,7 @@ async def github_unclaim_issue(issue_number: int) -> dict[str, object]:
     return {"ok": True, "issue_number": issue_number, "claimed": False}
 
 
-async def github_add_comment(issue_number: int, body: str) -> dict[str, object]:
+async def github_add_comment(issue_number: int, body: str) -> dict[str, JsonValue]:
     """Post a Markdown comment on a GitHub issue.
 
     Use this instead of shelling out to ``gh issue comment`` so that every
@@ -139,7 +141,7 @@ async def github_add_comment(issue_number: int, body: str) -> dict[str, object]:
     return {"ok": True, "issue_number": issue_number, "comment_url": comment_url}
 
 
-async def github_approve_pr(pr_number: int) -> dict[str, object]:
+async def github_approve_pr(pr_number: int) -> dict[str, JsonValue]:
     """Submit an approving review on a GitHub pull request.
 
     Use this instead of shelling out to ``gh pr review --approve`` directly.
@@ -164,7 +166,7 @@ async def github_approve_pr(pr_number: int) -> dict[str, object]:
 async def github_merge_pr(
     pr_number: int,
     delete_branch: bool = True,
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Squash-merge a GitHub pull request and optionally delete the head branch.
 
     Use this instead of shelling out to ``gh pr merge`` directly. Routing

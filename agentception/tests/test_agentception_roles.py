@@ -20,6 +20,7 @@ Run targeted:
 
 from collections.abc import Generator
 from pathlib import Path
+from typing import Protocol
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -27,6 +28,11 @@ from fastapi.testclient import TestClient
 
 from agentception.app import app
 from agentception.models import RoleMeta
+
+
+class _FakeSubprocess(Protocol):
+    returncode: int
+    async def communicate(self) -> tuple[bytes, bytes]: ...
 
 
 @pytest.fixture(scope="module")
@@ -135,7 +141,7 @@ def test_update_role_writes_file(
             new=AsyncMock(return_value=("", "")),
         ):
             # Patch git diff subprocess so it doesn't require a real git repo
-            async def fake_diff(*args: object, **kwargs: object) -> object:
+            async def fake_diff(*args: str, **kwargs: str | int | bool | float | None) -> _FakeSubprocess:
                 class FakeProc:
                     returncode = 0
 
@@ -269,7 +275,7 @@ def test_diff_endpoint_returns_unified_diff(
     with patch("agentception.routes.roles.settings") as mock_settings:
         mock_settings.repo_dir = tmp_repo
 
-        async def fake_diff(*args: object, **kwargs: object) -> object:
+        async def fake_diff(*args: str, **kwargs: str | int | bool | float | None) -> _FakeSubprocess:
             class FakeProc:
                 returncode = 1  # git diff --no-index exits 1 when files differ
 
@@ -299,7 +305,7 @@ def test_diff_identical_content_returns_empty(
     with patch("agentception.routes.roles.settings") as mock_settings:
         mock_settings.repo_dir = tmp_repo
 
-        async def fake_no_diff(*args: object, **kwargs: object) -> object:
+        async def fake_no_diff(*args: str, **kwargs: str | int | bool | float | None) -> _FakeSubprocess:
             class FakeProc:
                 returncode = 0  # exit 0 means no differences
 
@@ -335,7 +341,7 @@ def test_commit_writes_file_and_creates_commit(
 
         _SHA = b"abcdef1234567890abcdef1234567890abcdef12\n"
 
-        async def fake_git(*args: object, **kwargs: object) -> object:
+        async def fake_git(*args: str, **kwargs: str | int | bool | float | None) -> _FakeSubprocess:
             # Return the commit SHA for rev-parse; empty stdout for add/commit.
             is_rev_parse = len(args) >= 1 and "rev-parse" in args
 
@@ -372,7 +378,7 @@ def test_commit_creates_correct_message(
     with patch("agentception.routes.roles.settings") as mock_settings:
         mock_settings.repo_dir = tmp_repo
 
-        async def fake_git(*args: object, **kwargs: object) -> object:
+        async def fake_git(*args: str, **kwargs: str | int | bool | float | None) -> _FakeSubprocess:
             class FakeProc:
                 returncode = 0
 

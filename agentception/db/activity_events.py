@@ -69,7 +69,7 @@ ACTIVITY_SUBTYPES: frozenset[str] = frozenset(
 # ---------------------------------------------------------------------------
 
 
-class ToolInvokedPayload(dict[str, object]):
+class ToolInvokedPayload(dict[str, str | int | float | bool | None]):
     """Payload for ``tool_invoked`` activity events.
 
     Emitted when the agent loop dispatches a tool call to the tool executor.
@@ -80,7 +80,7 @@ class ToolInvokedPayload(dict[str, object]):
     arg_preview: str  # ≤120 chars
 
 
-class LlmIterPayload(dict[str, object]):
+class LlmIterPayload(dict[str, str | int | float | bool | None]):
     """Payload for ``llm_iter`` activity events.
 
     Emitted at the start of each LLM iteration (one call to the model).
@@ -91,7 +91,7 @@ class LlmIterPayload(dict[str, object]):
     turns: int
 
 
-class LlmUsagePayload(dict[str, object]):
+class LlmUsagePayload(dict[str, str | int | float | bool | None]):
     """Payload for ``llm_usage`` activity events.
 
     Emitted after each LLM response with token-level billing data.
@@ -102,7 +102,7 @@ class LlmUsagePayload(dict[str, object]):
     cache_read: int
 
 
-class LlmReplyPayload(dict[str, object]):
+class LlmReplyPayload(dict[str, str | int | float | bool | None]):
     """Payload for ``llm_reply`` activity events.
 
     Emitted when the model returns a text reply (non-tool-call content block).
@@ -113,7 +113,7 @@ class LlmReplyPayload(dict[str, object]):
     text_preview: str  # ≤200 chars
 
 
-class LlmDonePayload(dict[str, object]):
+class LlmDonePayload(dict[str, str | int | float | bool | None]):
     """Payload for ``llm_done`` activity events.
 
     Emitted when the model signals it has finished (stop_reason received).
@@ -123,7 +123,7 @@ class LlmDonePayload(dict[str, object]):
     tool_call_count: int
 
 
-class ShellStartPayload(dict[str, object]):
+class ShellStartPayload(dict[str, str | int | float | bool | None]):
     """Payload for ``shell_start`` activity events.
 
     Emitted immediately before a shell command is executed.
@@ -134,7 +134,7 @@ class ShellStartPayload(dict[str, object]):
     cwd: str
 
 
-class ShellDonePayload(dict[str, object]):
+class ShellDonePayload(dict[str, str | int | float | bool | None]):
     """Payload for ``shell_done`` activity events.
 
     Emitted after a shell command exits (success or failure).
@@ -186,7 +186,7 @@ class FileWrittenPayload(TypedDict):
     byte_count: int
 
 
-class GitPushPayload(dict[str, object]):
+class GitPushPayload(dict[str, str | int | float | bool | None]):
     """Payload for ``git_push`` activity events.
 
     Emitted after a successful ``git push`` to the remote.
@@ -195,7 +195,7 @@ class GitPushPayload(dict[str, object]):
     branch: str
 
 
-class GithubToolPayload(dict[str, object]):
+class GithubToolPayload(dict[str, str | int | float | bool | None]):
     """Payload for ``github_tool`` activity events.
 
     Emitted when the agent calls a GitHub MCP tool (e.g. ``create_pull_request``).
@@ -206,7 +206,7 @@ class GithubToolPayload(dict[str, object]):
     arg_preview: str  # ≤120 chars
 
 
-class DelayPayload(dict[str, object]):
+class DelayPayload(dict[str, str | int | float | bool | None]):
     """Payload for ``delay`` activity events.
 
     Emitted when the agent deliberately sleeps (e.g. rate-limit back-off).
@@ -215,7 +215,7 @@ class DelayPayload(dict[str, object]):
     secs: float
 
 
-class ErrorPayload(dict[str, object]):
+class ErrorPayload(dict[str, str | int | float | bool | None]):
     """Payload for ``error`` activity events.
 
     Emitted when a recoverable error is caught and logged by the agent loop.
@@ -258,7 +258,7 @@ def persist_activity_event(
     session: Union[Session, AsyncSession],
     run_id: str,
     subtype: str,
-    payload: Mapping[str, object],
+    payload: Mapping[str, str | int | float | bool | None],
 ) -> None:
     """Write one ``ACAgentEvent`` row with ``event_type="activity"``.
 
@@ -285,7 +285,7 @@ def persist_activity_event(
             f"Valid subtypes: {sorted(ACTIVITY_SUBTYPES)}"
         )
 
-    full_payload: dict[str, object] = {**payload, "subtype": subtype}
+    full_payload: dict[str, str | int | float | bool | None] = {**payload, "subtype": subtype}
 
     session.add(
         ACAgentEvent(

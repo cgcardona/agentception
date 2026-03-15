@@ -31,6 +31,7 @@ from fastapi.responses import StreamingResponse
 from starlette.requests import Request
 
 from agentception.config import settings
+from agentception.types import JsonValue
 from agentception.db.queries import (
     BatchSummaryRow,
     RunTreeNodeRow,
@@ -47,7 +48,7 @@ _POLL_INTERVAL_S = 5.0  # seconds between DB polls
 _PING_EVERY = 4         # emit ping every N polls (~20 s)
 
 
-def _sse(payload: object) -> str:
+def _sse(payload: JsonValue) -> str:
     """Serialise a JSON payload as an SSE data frame."""
     return f"data: {json.dumps(payload)}\n\n"
 

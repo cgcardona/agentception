@@ -32,6 +32,7 @@ from agentception.data.org_presets import (
     get_preset,
     list_presets,
 )
+from agentception.types import JsonValue
 
 
 def _all_ids() -> list[str]:
@@ -145,10 +146,10 @@ def test_get_preset_node_count_matches_template_depth(client: TestClient) -> Non
     first_id = client.get("/api/org-presets").json()[0]["id"]
     body = client.get(f"/api/org-presets/{first_id}").json()
 
-    def _count_json(node: dict[str, object]) -> int:
+    def _count_json(node: dict[str, JsonValue]) -> int:
         children = node.get("children", [])
         assert isinstance(children, list)
-        return 1 + sum(_count_json(c) for c in children)
+        return 1 + sum(_count_json(c) for c in children if isinstance(c, dict))
 
     assert body["node_count"] == _count_json(body["template"])
 

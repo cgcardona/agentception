@@ -13,6 +13,8 @@ from pathlib import Path
 import jinja2
 import pytest
 
+from agentception.types import JsonValue
+
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 
@@ -26,7 +28,7 @@ class _StubRequest:
     url = _URL()
 
 
-def _render(template_name: str, ctx: dict[str, object]) -> str:
+def _render(template_name: str, ctx: dict[str, JsonValue]) -> str:
     """Render a Jinja2 template with a minimal stub context."""
     from urllib.parse import quote
     import json
@@ -96,7 +98,7 @@ def _has_load_trigger(html: str) -> bool:
 # Minimal stub context for build.html
 # ---------------------------------------------------------------------------
 
-_BUILD_CTX: dict[str, object] = {
+_BUILD_CTX: dict[str, JsonValue] = {
     "repo": "cgcardona/agentception",
     "repo_name": "agentception",
     "initiative": "test-initiative",

@@ -27,6 +27,8 @@ from pathlib import Path
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from agentception.types import JsonValue
+
 logger = logging.getLogger(__name__)
 
 
@@ -51,7 +53,7 @@ class LLMProviderChoice(str, enum.Enum):
     local = "local"
 
 
-def _resolve_project(raw: dict[str, object], target: AgentCeptionSettings) -> None:
+def _resolve_project(raw: dict[str, JsonValue], target: AgentCeptionSettings) -> None:
     """Apply the active project's overrides from *raw* onto *target* in-place.
 
     Only ``gh_repo`` is always applied from the project entry.  ``repo_dir``
@@ -64,8 +66,8 @@ def _resolve_project(raw: dict[str, object], target: AgentCeptionSettings) -> No
     :meth:`AgentCeptionSettings.reload` can share identical logic without
     duplication.
     """
-    active_name: object = raw.get("active_project")
-    projects: object = raw.get("projects", [])
+    active_name: JsonValue = raw.get("active_project")
+    projects: JsonValue = raw.get("projects", [])
     if not isinstance(projects, list) or not active_name:
         return
     for proj in projects:
@@ -99,13 +101,13 @@ def get_repo_dir_for(gh_repo: str, fallback: Path | str) -> Path:
     if not config_path.exists():
         return base
     try:
-        raw: object = json.loads(config_path.read_text(encoding="utf-8"))
+        raw: JsonValue = json.loads(config_path.read_text(encoding="utf-8"))
     except Exception as exc:
         logger.debug("get_repo_dir_for: could not read pipeline-config: %s", exc)
         return base
     if not isinstance(raw, dict):
         return base
-    projects: object = raw.get("projects")
+    projects: JsonValue = raw.get("projects")
     if not isinstance(projects, list):
         return base
     for proj in projects:
@@ -197,12 +199,12 @@ class AgentCeptionSettings(BaseSettings):
 
     @field_validator("use_local_llm", mode="before")
     @classmethod
-    def _parse_use_local_llm(cls, v: object) -> bool:
+    def _parse_use_local_llm(cls, v: str | bool | int) -> bool:
         if isinstance(v, bool):
             return v
         if isinstance(v, str):
             return v.strip().lower() in ("true", "1", "yes")
-        return False
+        return bool(v)
 
     llm_provider: LLMProviderChoice = LLMProviderChoice.anthropic
     """Which LLM backend to use. Set via ``LLM_PROVIDER`` (``anthropic`` or ``local``).
@@ -210,7 +212,7 @@ class AgentCeptionSettings(BaseSettings):
 
     @field_validator("llm_provider", mode="before")
     @classmethod
-    def _parse_llm_provider(cls, v: object) -> LLMProviderChoice:
+    def _parse_llm_provider(cls, v: str | LLMProviderChoice | int) -> LLMProviderChoice:
         if isinstance(v, LLMProviderChoice):
             return v
         if isinstance(v, str):
@@ -421,7 +423,7 @@ class AgentCeptionSettings(BaseSettings):
         if not config_path.exists():
             return self
         try:
-            raw: object = json.loads(config_path.read_text(encoding="utf-8"))
+            raw: JsonValue = json.loads(config_path.read_text(encoding="utf-8"))
         except Exception as exc:  # pragma: no cover — filesystem error path
             logger.warning("⚠️ Could not read pipeline-config.json for project override: %s", exc)
             return self
@@ -445,7 +447,7 @@ class AgentCeptionSettings(BaseSettings):
         if not config_path.exists():
             return
         try:
-            raw: object = json.loads(config_path.read_text(encoding="utf-8"))
+            raw: JsonValue = json.loads(config_path.read_text(encoding="utf-8"))
         except Exception as exc:
             logger.warning("⚠️ Could not read pipeline-config.json during reload: %s", exc)
             return

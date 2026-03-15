@@ -24,6 +24,7 @@ from agentception.db.queries import (
 from agentception.models import AgentNode, PipelineState, VALID_ROLES
 from agentception.poller import get_state
 from agentception.readers.pipeline_config import read_pipeline_config
+from agentception.types import JsonValue
 from ._shared import (
     _TEMPLATES,
     _CATEGORY_ORDER,
@@ -46,7 +47,7 @@ class AgentEnrichedRow(TypedDict):
     """Live agent node enriched with persona and timing metadata."""
 
     node: AgentNode
-    persona: dict[str, object]
+    persona: dict[str, JsonValue]
     elapsed: str
     is_stale_idle: bool
 
@@ -616,14 +617,14 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
     pr_number: int | None = node.pr_number if node else None
     batch_id: str | None = node.batch_id if node else None
 
-    async def _safe_get_pr_checks(n: int) -> list[dict[str, object]]:
+    async def _safe_get_pr_checks(n: int) -> list[dict[str, JsonValue]]:
         try:
             from agentception.readers.github import get_pr_checks as _get_pr_checks
             return await _get_pr_checks(n)
         except Exception:
             return []
 
-    async def _safe_get_pr_reviews(n: int) -> list[dict[str, object]]:
+    async def _safe_get_pr_reviews(n: int) -> list[dict[str, JsonValue]]:
         try:
             from agentception.readers.github import get_pr_reviews as _get_pr_reviews
             return await _get_pr_reviews(n)
@@ -639,7 +640,7 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
     async def _noop_none() -> IssueDetailRow | None:
         return None
 
-    async def _noop_list_dict() -> list[dict[str, object]]:
+    async def _noop_list_dict() -> list[dict[str, JsonValue]]:
         return []
 
     async def _noop_list_sibling() -> list[SiblingRunRow]:
@@ -654,8 +655,8 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
 
     events: list[AgentEventRow]
     issue_detail: IssueDetailRow | None
-    pr_checks: list[dict[str, object]]
-    pr_reviews: list[dict[str, object]]
+    pr_checks: list[dict[str, JsonValue]]
+    pr_reviews: list[dict[str, JsonValue]]
     siblings: list[SiblingRunRow]
 
     parent_run_id: str | None = node.parent_run_id if node else None
@@ -696,7 +697,7 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
     def _event_detail_text(ev: AgentEventRow) -> str:
         """Extract the human-readable summary string from an event payload."""
         try:
-            p: dict[str, object] = _json.loads(ev["payload"])
+            p: dict[str, JsonValue] = _json.loads(ev["payload"])
         except Exception:
             return ev["payload"]
         etype = ev["event_type"]

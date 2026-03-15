@@ -75,7 +75,7 @@ async def test_rebase_succeeds_force_pushes_and_dispatches_reviewer() -> None:
 
     subprocess_calls = iter([fetch_proc, rebase_proc, rev_parse_proc, push_proc])
 
-    async def fake_create_subprocess_exec(*args: object, **kwargs: object) -> AsyncMock:
+    async def fake_create_subprocess_exec(*args: str | int | bool | float | None, **kwargs: str | int | bool | float | None) -> AsyncMock:
         return next(subprocess_calls)
 
     with (
@@ -158,7 +158,7 @@ async def test_rebase_conflict_returns_error_and_aborts() -> None:
 
     subprocess_calls = iter([fetch_proc, rebase_proc, abort_proc])
 
-    async def fake_create_subprocess_exec(*args: object, **kwargs: object) -> AsyncMock:
+    async def fake_create_subprocess_exec(*args: str | int | bool | float | None, **kwargs: str | int | bool | float | None) -> AsyncMock:
         return next(subprocess_calls)
 
     with (

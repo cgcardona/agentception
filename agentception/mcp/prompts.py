@@ -40,6 +40,7 @@ from typing import TypedDict
 
 import yaml
 
+from agentception.types import JsonValue
 from agentception.db.queries import RunContextRow, get_run_context
 from agentception.mcp.types import (
     ACPromptArgument,
@@ -100,24 +101,28 @@ def _load_figure(figure_id: str) -> _FigureData:
         logger.warning("⚠️  briefing: figure '%s' not found at %s", figure_id, path)
         return {}
     try:
-        raw: object = yaml.safe_load(path.read_text(encoding="utf-8"))
+        raw: JsonValue = yaml.safe_load(path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             return {}
         data: _FigureData = {}
-        if isinstance(raw.get("display_name"), str):
-            data["display_name"] = raw["display_name"]
-        if isinstance(raw.get("heuristic"), str):
-            data["heuristic"] = raw["heuristic"]
+        dn = raw.get("display_name")
+        if isinstance(dn, str):
+            data["display_name"] = dn
+        h = raw.get("heuristic")
+        if isinstance(h, str):
+            data["heuristic"] = h
         fm = raw.get("failure_modes")
         if isinstance(fm, list):
             data["failure_modes"] = [str(m) for m in fm]
         pi = raw.get("prompt_injection")
         if isinstance(pi, dict):
             inj: _PromptInjection = {}
-            if isinstance(pi.get("prefix"), str):
-                inj["prefix"] = pi["prefix"]
-            if isinstance(pi.get("suffix"), str):
-                inj["suffix"] = pi["suffix"]
+            pfx = pi.get("prefix")
+            if isinstance(pfx, str):
+                inj["prefix"] = pfx
+            sfx = pi.get("suffix")
+            if isinstance(sfx, str):
+                inj["suffix"] = sfx
             data["prompt_injection"] = inj
         return data
     except Exception as exc:  # noqa: BLE001
@@ -135,16 +140,19 @@ def _load_skill(skill_id: str) -> _SkillData:
         logger.warning("⚠️  briefing: skill '%s' not found at %s", skill_id, path)
         return {}
     try:
-        raw: object = yaml.safe_load(path.read_text(encoding="utf-8"))
+        raw: JsonValue = yaml.safe_load(path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             return {}
         data: _SkillData = {}
-        if isinstance(raw.get("display_name"), str):
-            data["display_name"] = raw["display_name"]
-        if isinstance(raw.get("prompt_fragment"), str):
-            data["prompt_fragment"] = raw["prompt_fragment"]
-        if isinstance(raw.get("review_checklist"), str):
-            data["review_checklist"] = raw["review_checklist"]
+        dn = raw.get("display_name")
+        if isinstance(dn, str):
+            data["display_name"] = dn
+        pf = raw.get("prompt_fragment")
+        if isinstance(pf, str):
+            data["prompt_fragment"] = pf
+        rc = raw.get("review_checklist")
+        if isinstance(rc, str):
+            data["review_checklist"] = rc
         return data
     except Exception as exc:  # noqa: BLE001
         logger.error("❌ briefing: could not load skill '%s': %s", skill_id, exc)

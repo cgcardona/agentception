@@ -27,6 +27,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agentception.app import app
+from agentception.types import JsonValue
 
 _LIST_WT = "agentception.readers.git.list_git_worktrees"
 _SUBPROCESS = "agentception.routes.api.worktrees.asyncio.create_subprocess_exec"
@@ -46,7 +47,7 @@ def client() -> Generator[TestClient, None, None]:
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def _wt(slug: str, *, is_main: bool = False, locked: bool = False) -> dict[str, object]:
+def _wt(slug: str, *, is_main: bool = False, locked: bool = False) -> dict[str, JsonValue]:
     """Minimal worktree dict matching the shape returned by list_git_worktrees."""
     return {
         "path": f"/worktrees/{slug}",
@@ -136,9 +137,9 @@ def test_delete_non_locked_slug_in_response(client: TestClient) -> None:
 
 def test_delete_non_locked_spawns_exactly_two_subprocesses(client: TestClient) -> None:
     """Non-locked worktree triggers exactly 2 subprocess calls: remove + prune."""
-    calls: list[tuple[object, ...]] = []
+    calls: list[tuple[str | int | float | bool | None, ...]] = []
 
-    async def capture(*args: object, **_: object) -> MagicMock:
+    async def capture(*args: str | int | float | bool | None, **_: str | int | float | bool | None) -> MagicMock:
         calls.append(args)
         return _proc(0)
 
@@ -183,9 +184,9 @@ def test_delete_locked_deleted_and_pruned(client: TestClient) -> None:
 
 def test_delete_locked_spawns_three_subprocesses(client: TestClient) -> None:
     """Locked worktree triggers exactly 3 subprocess calls: unlock + remove + prune."""
-    calls: list[tuple[object, ...]] = []
+    calls: list[tuple[str | int | float | bool | None, ...]] = []
 
-    async def capture(*args: object, **_: object) -> MagicMock:
+    async def capture(*args: str | int | float | bool | None, **_: str | int | float | bool | None) -> MagicMock:
         calls.append(args)
         return _proc(0)
 
@@ -238,12 +239,12 @@ def test_delete_remove_failure_dir_already_gone_deleted_true(client: TestClient)
 
 def test_delete_remove_failure_prune_still_runs(client: TestClient) -> None:
     """Even when git remove fails and rmtree is used, git worktree prune still runs."""
-    calls: list[tuple[object, ...]] = []
+    calls: list[tuple[str | int | float | bool | None, ...]] = []
 
     path_mock = MagicMock()
     path_mock.return_value.exists.return_value = False  # dir already gone → skip rmtree
 
-    async def capture(*args: object, **_: object) -> MagicMock:
+    async def capture(*args: str | int | float | bool | None, **_: str | int | float | bool | None) -> MagicMock:
         calls.append(args)
         return _proc(1 if "remove" in args else 0)
 

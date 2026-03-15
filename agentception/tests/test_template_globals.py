@@ -31,14 +31,14 @@ def test_gh_base_url_global_injected() -> None:
 
 def test_gh_base_url_global_format() -> None:
     """``gh_base_url`` must start with ``https://github.com/``."""
-    base_url: object = _TEMPLATES.env.globals["gh_base_url"]
+    base_url = _TEMPLATES.env.globals["gh_base_url"]
     assert isinstance(base_url, str)
     assert base_url.startswith("https://github.com/")
 
 
 def test_gh_base_url_contains_repo_slug() -> None:
     """``gh_base_url`` must embed the repo slug from settings."""
-    base_url: object = _TEMPLATES.env.globals["gh_base_url"]
+    base_url = _TEMPLATES.env.globals["gh_base_url"]
     assert isinstance(base_url, str)
     assert base_url == f"https://github.com/{settings.gh_repo}"
 

@@ -12,6 +12,7 @@ from pathlib import Path
 import yaml
 
 from agentception.models import VALID_ROLES
+from agentception.types import JsonValue
 
 # Derive taxonomy path the same way models.py does — two levels up from agentception/.
 # This avoids importing the private _TAXONOMY_PATH symbol while still testing
@@ -26,13 +27,17 @@ def _spawnable_slugs_from_taxonomy() -> frozenset[str]:
     Used as a ground-truth reference in tests so any regression — e.g.
     someone accidentally re-introducing a hardcoded frozenset — is caught.
     """
-    raw: object = yaml.safe_load(_TAXONOMY_PATH.read_text(encoding="utf-8"))
+    raw: JsonValue = yaml.safe_load(_TAXONOMY_PATH.read_text(encoding="utf-8"))
     assert isinstance(raw, dict), "role-taxonomy.yaml must be a YAML mapping"
     slugs: set[str] = set()
-    for level in raw.get("levels", []):
+    levels = raw.get("levels", [])
+    assert isinstance(levels, list)
+    for level in levels:
         if not isinstance(level, dict):
             continue
-        for role in level.get("roles", []):
+        roles = level.get("roles", [])
+        assert isinstance(roles, list)
+        for role in roles:
             if isinstance(role, dict) and role.get("spawnable") is True:
                 slug = role.get("slug")
                 if isinstance(slug, str):

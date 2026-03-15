@@ -29,7 +29,7 @@ from agentception.intelligence.scaling import (
     _classify_confidence,
     compute_recommendation,
 )
-from agentception.models import AgentNode, AgentStatus, PipelineState
+from agentception.models import AgentNode, AgentStatus, PipelineConfig, PipelineState
 from agentception.telemetry import WaveSummary
 
 
@@ -74,7 +74,7 @@ def _make_wave(duration_minutes: float | None, batch_id: str = "eng-test") -> Wa
 def _make_pipeline_config(
     coordinator_limits: dict[str, int] | None = None,
     pool_size: int = 4,
-) -> object:
+) -> PipelineConfig:
     """Return a PipelineConfig instance with controllable allocation fields."""
     from agentception.models import PipelineConfig
 

@@ -19,6 +19,7 @@ from agentception.models import PipelineState
 from agentception.poller import get_state, tick as _poller_tick
 from agentception.readers.pipeline_config import read_pipeline_config
 from agentception.telemetry import WaveSummary, aggregate_waves
+from agentception.types import JsonValue
 from ._shared import _TEMPLATES
 
 logger = logging.getLogger(__name__)
@@ -62,7 +63,7 @@ async def overview(request: Request) -> HTMLResponse:
     try:
         _cfg_path = _settings.ac_dir / "pipeline-config.json"
         if _cfg_path.exists():
-            _raw_cfg: object = _json.loads(_cfg_path.read_text(encoding="utf-8"))
+            _raw_cfg: JsonValue = _json.loads(_cfg_path.read_text(encoding="utf-8"))
             if isinstance(_raw_cfg, dict):
                 _org_val = _raw_cfg.get("active_org")
                 active_org = _org_val if isinstance(_org_val, str) else None
@@ -109,7 +110,7 @@ async def overview(request: Request) -> HTMLResponse:
         board_issues_dicts,
         key=lambda i: i.get("phase_label") or "unassigned",
     )
-    grouped_board_issues: list[tuple[str, list[dict[str, object]]]] = [
+    grouped_board_issues: list[tuple[str, list[dict[str, JsonValue]]]] = [
         (batch_key, list(batch))
         for batch_key, batch in _groupby(
             sorted_for_grouping,

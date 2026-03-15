@@ -37,6 +37,8 @@ Templated resources (RFC 6570)
 """
 
 import json
+
+from agentception.types import JsonValue
 import logging
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -346,7 +348,7 @@ def _arch_dir(category: str) -> Path:
     return _ARCH_ROOT / subdir
 
 
-def _read_arch_yaml(category: str, item_id: str) -> dict[str, object]:
+def _read_arch_yaml(category: str, item_id: str) -> dict[str, JsonValue]:
     """Read and parse a single cognitive architecture YAML file.
 
     Args:
@@ -362,7 +364,7 @@ def _read_arch_yaml(category: str, item_id: str) -> dict[str, object]:
         return {"ok": False, "error": f"Arch item '{category}/{item_id}' not found"}
     try:
         raw = path.read_text(encoding="utf-8")
-        parsed: dict[str, object] = yaml.safe_load(raw) or {}
+        parsed: dict[str, JsonValue] = yaml.safe_load(raw) or {}
         parsed["ok"] = True
         return parsed
     except Exception as exc:  # noqa: BLE001
@@ -370,7 +372,7 @@ def _read_arch_yaml(category: str, item_id: str) -> dict[str, object]:
         return {"ok": False, "error": str(exc)}
 
 
-def _list_arch_items(category: str) -> dict[str, object]:
+def _list_arch_items(category: str) -> dict[str, JsonValue]:
     """Return a compact index of all items in an arch category directory.
 
     Each item includes ``id``, ``display_name``, and ``description`` (first line
@@ -382,10 +384,10 @@ def _list_arch_items(category: str) -> dict[str, object]:
     d = _arch_dir(category)
     if not d.is_dir():
         return {"ok": False, "error": f"Arch directory '{category}' not found at {d}"}
-    items: list[dict[str, object]] = []
+    items: list[JsonValue] = []
     for path in sorted(d.glob("*.yaml")):
         try:
-            data: dict[str, object] = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            data: dict[str, JsonValue] = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
             desc_raw = data.get("description", "")
             first_line = str(desc_raw).split("\n")[0].strip() if desc_raw else ""
             items.append({
@@ -398,7 +400,7 @@ def _list_arch_items(category: str) -> dict[str, object]:
     return {"ok": True, category: items, "count": len(items)}
 
 
-def _get_system_config() -> dict[str, object]:
+def _get_system_config() -> dict[str, JsonValue]:
     """Return current pipeline label configuration from settings."""
     return {
         "gh_repo": settings.gh_repo,
@@ -409,17 +411,18 @@ def _get_system_config() -> dict[str, object]:
     }
 
 
-def _get_roles_list() -> dict[str, object]:
+def _get_roles_list() -> dict[str, JsonValue]:
     """Return sorted list of all available role slugs."""
     roles_dir = _AGENTCEPTION_DIR / "roles"
     if not roles_dir.is_dir():
         logger.warning("⚠️  ac://roles/list: roles directory not found at %s", roles_dir)
         return {"roles": [], "error": "roles directory not found"}
-    slugs = sorted(p.stem for p in roles_dir.glob("*.md"))
+    slugs: list[JsonValue] = []
+    slugs.extend(sorted(p.stem for p in roles_dir.glob("*.md")))
     return {"roles": slugs, "count": len(slugs)}
 
 
-def _get_role(uri: str, slug: str) -> dict[str, object]:
+def _get_role(uri: str, slug: str) -> dict[str, JsonValue]:
     """Return the Markdown content of a role definition file."""
     path = _AGENTCEPTION_DIR / "roles" / f"{slug}.md"
     if not path.exists():
@@ -447,27 +450,27 @@ async def _handle_run_task(uri: str, run_id: str) -> ACResourceResult:
             row = result.scalar_one_or_none()
         if row is None:
             return _not_found(uri)
-        return _content(uri, {"run_id": run_id, "task_description": row.task_description})
+        return _content(uri, json.dumps({"run_id": run_id, "task_description": row.task_description}, ensure_ascii=False))
     except Exception as exc:
         logger.error("❌ _handle_run_task %r: %s", run_id, exc, exc_info=True)
-        return _content(uri, {"error": str(exc)})
+        return _content(uri, json.dumps({"error": str(exc)}, ensure_ascii=False))
 
 
-def _content(uri: str, data: dict[str, object]) -> ACResourceResult:
-    """Wrap a result dict into a single-item ACResourceResult."""
+def _content(uri: str, data: str) -> ACResourceResult:
+    """Wrap a pre-serialised JSON string into a single-item ACResourceResult."""
     return ACResourceResult(
         contents=[
             ACResourceContent(
                 uri=uri,
                 mimeType=_MIME,
-                text=json.dumps(data, ensure_ascii=False),
+                text=data,
             )
         ]
     )
 
 
 def _not_found(uri: str) -> ACResourceResult:
-    return _content(uri, {"error": f"Unknown resource URI: {uri!r}"})
+    return _content(uri, json.dumps({"error": f"Unknown resource URI: {uri!r}"}, ensure_ascii=False))
 
 
 async def read_resource(uri: str) -> ACResourceResult:
@@ -483,10 +486,10 @@ async def read_resource(uri: str) -> ACResourceResult:
         parsed = urlparse(uri)
     except Exception as exc:
         logger.warning("⚠️ read_resource: could not parse URI %r: %s", uri, exc)
-        return _content(uri, {"error": f"Invalid URI: {exc}"})
+        return _content(uri, json.dumps({"error": f"Invalid URI: {exc}"}, ensure_ascii=False))
 
     if parsed.scheme != "ac":
-        return _content(uri, {"error": f"Unsupported URI scheme {parsed.scheme!r} — expected 'ac'"})
+        return _content(uri, json.dumps({"error": f"Unsupported URI scheme {parsed.scheme!r} — expected 'ac'"}, ensure_ascii=False))
 
     domain = parsed.netloc  # e.g. "runs", "system", "plan", "batches"
     # path starts with '/' — strip it and split on remaining '/'
@@ -497,7 +500,7 @@ async def read_resource(uri: str) -> ACResourceResult:
         return await _dispatch(uri, domain, path_parts, query)
     except Exception as exc:
         logger.error("❌ read_resource: unexpected error for %r: %s", uri, exc, exc_info=True)
-        return _content(uri, {"error": f"Internal error: {exc}"})
+        return _content(uri, json.dumps({"error": f"Internal error: {exc}"}, ensure_ascii=False))
 
 
 async def _dispatch(
@@ -511,22 +514,22 @@ async def _dispatch(
     # ── ac://system/* ────────────────────────────────────────────────────────
     if domain == "system":
         if path_parts == ["health"]:
-            return _content(uri, await query_system_health())
+            return _content(uri, json.dumps(await query_system_health(), ensure_ascii=False))
         if path_parts == ["dispatcher"]:
-            return _content(uri, await query_dispatcher_state())
+            return _content(uri, json.dumps(await query_dispatcher_state(), ensure_ascii=False))
         if path_parts == ["config"]:
-            return _content(uri, _get_system_config())
+            return _content(uri, json.dumps(_get_system_config(), ensure_ascii=False))
         return _not_found(uri)
 
     # ── ac://plan/* ──────────────────────────────────────────────────────────
     if domain == "plan":
         if path_parts == ["schema"]:
-            return _content(uri, plan_get_schema())
+            return _content(uri, json.dumps(plan_get_schema(), ensure_ascii=False))
         if path_parts == ["labels"]:
-            return _content(uri, await plan_get_labels())
+            return _content(uri, json.dumps(await plan_get_labels(), ensure_ascii=False))
         if len(path_parts) == 2 and path_parts[0] == "figures":
             role = path_parts[1]
-            return _content(uri, plan_get_cognitive_figures(role))
+            return _content(uri, json.dumps(plan_get_cognitive_figures(role), ensure_ascii=False))
         return _not_found(uri)
 
     # ── ac://batches/* ───────────────────────────────────────────────────────
@@ -534,18 +537,18 @@ async def _dispatch(
         # ac://batches/{batch_id}/tree
         if len(path_parts) == 2 and path_parts[1] == "tree":
             batch_id = path_parts[0]
-            return _content(uri, await query_run_tree(batch_id))
+            return _content(uri, json.dumps(await query_run_tree(batch_id), ensure_ascii=False))
         return _not_found(uri)
 
     # ── ac://runs/* ──────────────────────────────────────────────────────────
     if domain == "runs":
         # ac://runs/active  (static — must check before treating "active" as run_id)
         if path_parts == ["active"]:
-            return _content(uri, await query_active_runs())
+            return _content(uri, json.dumps(await query_active_runs(), ensure_ascii=False))
 
         # ac://runs/pending
         if path_parts == ["pending"]:
-            return _content(uri, await query_pending_runs())
+            return _content(uri, json.dumps(await query_pending_runs(), ensure_ascii=False))
 
         # ac://runs/{run_id}  and  ac://runs/{run_id}/*
         if len(path_parts) >= 1:
@@ -553,18 +556,18 @@ async def _dispatch(
 
             if len(path_parts) == 1:
                 # ac://runs/{run_id}
-                return _content(uri, await query_run(run_id))
+                return _content(uri, json.dumps(await query_run(run_id), ensure_ascii=False))
 
             sub = path_parts[1]
 
             if sub == "children" and len(path_parts) == 2:
-                return _content(uri, await query_children(run_id))
+                return _content(uri, json.dumps(await query_children(run_id), ensure_ascii=False))
 
             if sub == "context" and len(path_parts) == 2:
-                return _content(uri, await query_run_context(run_id))
+                return _content(uri, json.dumps(await query_run_context(run_id), ensure_ascii=False))
 
             if sub == "status" and len(path_parts) == 2:
-                return _content(uri, await query_run_status(run_id))
+                return _content(uri, json.dumps(await query_run_status(run_id), ensure_ascii=False))
 
             if sub == "task" and len(path_parts) == 2:
                 return await _handle_run_task(uri, run_id)
@@ -577,43 +580,43 @@ async def _dispatch(
                         after_id = int(after_id_vals[0])
                     except ValueError:
                         pass
-                return _content(uri, await query_run_events(run_id, after_id))
+                return _content(uri, json.dumps(await query_run_events(run_id, after_id), ensure_ascii=False))
 
         return _not_found(uri)
 
     # ── ac://roles/* ─────────────────────────────────────────────────────────
     if domain == "roles":
         if path_parts == ["list"]:
-            return _content(uri, _get_roles_list())
+            return _content(uri, json.dumps(_get_roles_list(), ensure_ascii=False))
         if len(path_parts) == 1:
-            return _content(uri, _get_role(uri, path_parts[0]))
+            return _content(uri, json.dumps(_get_role(uri, path_parts[0]), ensure_ascii=False))
         return _not_found(uri)
 
     # ── ac://arch/* ──────────────────────────────────────────────────────────
     if domain == "arch":
         # ac://arch/figures  (index — no trailing segment)
         if path_parts == ["figures"]:
-            return _content(uri, _list_arch_items("figures"))
+            return _content(uri, json.dumps(_list_arch_items("figures"), ensure_ascii=False))
 
         # ac://arch/archetypes  (index)
         if path_parts == ["archetypes"]:
-            return _content(uri, _list_arch_items("archetypes"))
+            return _content(uri, json.dumps(_list_arch_items("archetypes"), ensure_ascii=False))
 
         # ac://arch/figures/{figure_id}
         if len(path_parts) == 2 and path_parts[0] == "figures":
-            return _content(uri, _read_arch_yaml("figures", path_parts[1]))
+            return _content(uri, json.dumps(_read_arch_yaml("figures", path_parts[1]), ensure_ascii=False))
 
         # ac://arch/archetypes/{archetype_id}
         if len(path_parts) == 2 and path_parts[0] == "archetypes":
-            return _content(uri, _read_arch_yaml("archetypes", path_parts[1]))
+            return _content(uri, json.dumps(_read_arch_yaml("archetypes", path_parts[1]), ensure_ascii=False))
 
         # ac://arch/skills/{skill_id}
         if len(path_parts) == 2 and path_parts[0] == "skills":
-            return _content(uri, _read_arch_yaml("skills", path_parts[1]))
+            return _content(uri, json.dumps(_read_arch_yaml("skills", path_parts[1]), ensure_ascii=False))
 
         # ac://arch/atoms/{atom_id}
         if len(path_parts) == 2 and path_parts[0] == "atoms":
-            return _content(uri, _read_arch_yaml("atoms", path_parts[1]))
+            return _content(uri, json.dumps(_read_arch_yaml("atoms", path_parts[1]), ensure_ascii=False))
 
         return _not_found(uri)
 

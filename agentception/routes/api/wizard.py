@@ -26,6 +26,7 @@ from agentception.db.engine import get_session
 from agentception.db.models import ACWave
 from agentception.readers.github import get_open_issues
 from agentception.routes.ui._shared import _TEMPLATES
+from agentception.types import JsonValue
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,7 @@ class WizardState(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _has_workflow_label(issue: dict[str, object]) -> bool:
+def _has_workflow_label(issue: dict[str, JsonValue]) -> bool:
     """Return True when an issue carries at least one ac-workflow/* label."""
     raw = issue.get("labels")
     if not isinstance(raw, list):
@@ -98,7 +99,7 @@ def _read_active_org() -> str | None:
     if not path.exists():
         return None
     try:
-        raw: object = json.loads(path.read_text(encoding="utf-8"))
+        raw: JsonValue = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             return None
         value = raw.get("active_org")

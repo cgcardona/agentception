@@ -13,30 +13,31 @@ from __future__ import annotations
 
 
 import json
-from collections.abc import Mapping
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from agentception.mcp.prompts import PROMPTS, get_static_prompt
+from agentception.mcp.types import JsonRpcErrorResponse, JsonRpcSuccessResponse
+from agentception.types import JsonValue
 from agentception.mcp.server import handle_request, handle_request_async, list_prompts
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _rpc(method: str, params: dict[str, object] | None = None, req_id: int = 1) -> dict[str, object]:
-    req: dict[str, object] = {"jsonrpc": "2.0", "id": req_id, "method": method}
+def _rpc(method: str, params: dict[str, JsonValue] | None = None, req_id: int = 1) -> dict[str, JsonValue]:
+    req: dict[str, JsonValue] = {"jsonrpc": "2.0", "id": req_id, "method": method}
     if params is not None:
         req["params"] = params
     return req
 
 
-def _unwrap(resp: Mapping[str, object] | None) -> Mapping[str, object]:
+def _unwrap(resp: JsonRpcSuccessResponse | JsonRpcErrorResponse | None) -> dict[str, JsonValue]:
     assert resp is not None
-    return resp
+    d: dict[str, JsonValue] = json.loads(json.dumps(resp))
+    return d
 
 
 # ---------------------------------------------------------------------------
@@ -181,11 +182,12 @@ class TestPromptsGetRpc:
         assert len(messages) == 1
 
     def test_unknown_prompt_returns_error_response(self) -> None:
-        resp = _unwrap(handle_request(_rpc("prompts/get", {"name": "role/xyzzy-not-real"})))
-        assert "error" in resp
-        error = resp["error"]
-        assert isinstance(error, dict)
-        assert error["code"] == -32602
+        m = _unwrap(handle_request(_rpc("prompts/get", {"name": "role/xyzzy-not-real"})))
+        assert "error" in m
+        error_raw = m["error"]
+        assert isinstance(error_raw, dict)
+        error_dict: dict[str, JsonValue] = json.loads(json.dumps(error_raw))
+        assert error_dict["code"] == -32602
 
     def test_missing_name_returns_error(self) -> None:
         resp = _unwrap(handle_request(_rpc("prompts/get", {})))
@@ -206,17 +208,17 @@ class TestPromptsGetRpc:
 
 class TestPing:
     def test_sync_ping_returns_empty_result(self) -> None:
-        resp = _unwrap(handle_request(_rpc("ping")))
-        assert "result" in resp
-        result = resp["result"]
+        m = _unwrap(handle_request(_rpc("ping")))
+        assert "result" in m
+        result = m["result"]
         assert isinstance(result, dict)
         assert result == {}
 
     @pytest.mark.anyio
     async def test_async_ping_returns_empty_result(self) -> None:
-        resp = _unwrap(await handle_request_async(_rpc("ping")))
-        assert "result" in resp
-        result = resp["result"]
+        m = _unwrap(await handle_request_async(_rpc("ping")))
+        assert "result" in m
+        result = m["result"]
         assert isinstance(result, dict)
         assert result == {}
 

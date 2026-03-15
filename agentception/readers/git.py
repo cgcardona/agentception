@@ -22,6 +22,7 @@ import time
 from pathlib import Path
 
 from agentception.config import settings
+from agentception.types import JsonValue
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,7 @@ def _relative_time(mtime: float) -> str:
     return f"{delta // 86400}d ago"
 
 
-async def list_git_worktrees() -> list[dict[str, object]]:
+async def list_git_worktrees() -> list[dict[str, JsonValue]]:
     """Return all git worktrees (linked + main).
 
     Each dict has:
@@ -88,9 +89,9 @@ async def list_git_worktrees() -> list[dict[str, object]]:
     - ``locked``          — True when git has locked the worktree from auto-prune
     """
     raw = await _git(["worktree", "list", "--porcelain"])
-    worktrees: list[dict[str, object]] = []
+    worktrees: list[dict[str, JsonValue]] = []
 
-    current: dict[str, object] = {}
+    current: dict[str, JsonValue] = {}
     for line in raw.splitlines():
         if line.startswith("worktree "):
             if current:
@@ -133,7 +134,7 @@ async def list_git_worktrees() -> list[dict[str, object]]:
     return worktrees
 
 
-async def get_worktree_detail(slug: str) -> dict[str, object]:
+async def get_worktree_detail(slug: str) -> dict[str, JsonValue]:
     """Fetch on-demand detail for a single worktree.
 
     Returns a dict with:
@@ -151,7 +152,7 @@ async def get_worktree_detail(slug: str) -> dict[str, object]:
 
     # Commits on this branch not yet in origin/dev.
     commits_raw = await _git(["log", "--oneline", f"origin/dev..{branch}"])
-    commits: list[dict[str, str]] = []
+    commits: list[JsonValue] = []
     for line in commits_raw.splitlines():
         parts = line.split(" ", 1)
         commits.append({
@@ -159,7 +160,6 @@ async def get_worktree_detail(slug: str) -> dict[str, object]:
             "message": parts[1] if len(parts) > 1 else "",
         })
 
-    # Diff stat vs the merge-base with origin/dev (triple-dot = symmetric difference).
     diff_stat = await _git(["diff", "--stat", f"origin/dev...{branch}"])
 
     return {
@@ -170,7 +170,7 @@ async def get_worktree_detail(slug: str) -> dict[str, object]:
     }
 
 
-async def list_git_branches() -> list[dict[str, object]]:
+async def list_git_branches() -> list[dict[str, JsonValue]]:
     """Return local branches with ahead/behind counts relative to origin.
 
     Each dict has: ``name``, ``head_sha``, ``head_message``, ``ahead``,
@@ -182,7 +182,7 @@ async def list_git_branches() -> list[dict[str, object]]:
         "%(HEAD)|%(refname:short)|%(objectname:short)|%(subject)|%(upstream:trackshort)",
     ])
 
-    branches: list[dict[str, object]] = []
+    branches: list[dict[str, JsonValue]] = []
     for line in raw.splitlines():
         parts = line.split("|", 4)
         if len(parts) < 5:
@@ -242,13 +242,13 @@ async def worktree_last_commit_time(worktree_path: Path) -> float:
         return 0.0
 
 
-async def list_git_stash() -> list[dict[str, object]]:
+async def list_git_stash() -> list[dict[str, JsonValue]]:
     """Return stash entries.
 
     Each dict has: ``ref`` (stash@{N}), ``branch``, ``message``.
     """
     raw = await _git(["stash", "list", "--format=%gd|%gs"])
-    entries: list[dict[str, object]] = []
+    entries: list[dict[str, JsonValue]] = []
     for line in raw.splitlines():
         parts = line.split("|", 1)
         ref = parts[0].strip() if parts else ""

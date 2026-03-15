@@ -25,6 +25,7 @@ import yaml as _yaml
 
 from agentception.models import PlanSpec
 from agentception.services.llm import completion
+from agentception.types import JsonValue
 
 # Paths to the cognitive architecture assets (resolved relative to this file).
 _FIGURES_DIR: Path = (
@@ -312,7 +313,7 @@ def _build_figure_catalog_section() -> str:
         return ""
 
     try:
-        raw_taxonomy: object = _yaml.safe_load(
+        raw_taxonomy: JsonValue = _yaml.safe_load(
             _TAXONOMY_PATH.read_text(encoding="utf-8")
         )
     except Exception:
@@ -323,17 +324,24 @@ def _build_figure_catalog_section() -> str:
 
     # Build a slug → compatible_figures mapping for coordinator roles.
     role_figures: dict[str, list[str]] = {}
-    for level in raw_taxonomy.get("levels", []):
+    raw_levels: JsonValue = raw_taxonomy.get("levels", [])
+    if not isinstance(raw_levels, list):
+        return ""
+    for level in raw_levels:
         if not isinstance(level, dict):
             continue
-        for role_entry in level.get("roles", []):
+        raw_roles: JsonValue = level.get("roles", [])
+        if not isinstance(raw_roles, list):
+            continue
+        for role_entry in raw_roles:
             if not isinstance(role_entry, dict):
                 continue
-            slug = role_entry.get("slug", "")
+            slug_val: JsonValue = role_entry.get("slug", "")
+            slug = str(slug_val) if isinstance(slug_val, str) else ""
             if slug in _COORDINATOR_ROLES:
-                figs = role_entry.get("compatible_figures", [])
-                if isinstance(figs, list):
-                    role_figures[slug] = [str(f) for f in figs]
+                raw_figs: JsonValue = role_entry.get("compatible_figures", [])
+                if isinstance(raw_figs, list):
+                    role_figures[slug] = [str(f) for f in raw_figs]
 
     def _describe_figures(fig_ids: list[str]) -> str:
         lines: list[str] = []
@@ -342,7 +350,7 @@ def _build_figure_catalog_section() -> str:
             if not path.exists():
                 continue
             try:
-                fig_raw: object = _yaml.safe_load(path.read_text(encoding="utf-8"))
+                fig_raw: JsonValue = _yaml.safe_load(path.read_text(encoding="utf-8"))
             except Exception:
                 continue
             if not isinstance(fig_raw, dict):
@@ -490,7 +498,7 @@ def get_fallback_plan_spec() -> PlanSpec:
     We never push back with an error: if the model does not produce valid YAML,
     we load this fallback so the user always gets a valid plan they can edit.
     """
-    data: object = _yaml.safe_load(_FALLBACK_CLARIFY_PLAN_YAML)
+    data: JsonValue = _yaml.safe_load(_FALLBACK_CLARIFY_PLAN_YAML)
     if not isinstance(data, dict):
         raise RuntimeError("Fallback plan YAML is invalid")
     return PlanSpec.model_validate(data)
@@ -580,7 +588,7 @@ async def generate_plan_yaml(dump: str, label_prefix: str = "") -> str:
     raw = _strip_fences(raw)
 
     try:
-        data: object = _yaml.safe_load(raw)
+        data: JsonValue = _yaml.safe_load(raw)
     except _yaml.YAMLError as exc:
         logger.error("LLM returned invalid YAML: %s\nRaw (first 500): %s", exc, raw[:500])
         raise ValueError(f"LLM returned invalid YAML: {exc}") from exc

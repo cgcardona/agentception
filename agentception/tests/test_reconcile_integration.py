@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agentception.db.models import ACAgentRun
 from agentception.reconcile import reconcile_stale_runs
+from agentception.types import JsonValue
 
 _UTC = datetime.timezone.utc
 
@@ -67,7 +68,7 @@ async def test_stale_row_completed_active_row_untouched() -> None:
     active = _make_run("issue-43", issue_number=43, minutes_old=0)
     session = _make_session([stale, active])
 
-    async def _get_issue(number: int) -> dict[str, object]:
+    async def _get_issue(number: int) -> dict[str, JsonValue]:
         """Issue 42 is closed; issue 43 is open."""
         if number == 42:
             return {"state": "closed", "number": 42}

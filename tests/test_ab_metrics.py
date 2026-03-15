@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from agentception.types import JsonValue
+
 
 @pytest.fixture()
 async def client() -> AsyncGenerator[AsyncClient, None]:
@@ -25,7 +27,7 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
         yield ac
 
 
-def _mock_result_two_rows() -> list[dict[str, object]]:
+def _mock_result_two_rows() -> list[dict[str, JsonValue]]:
     """Two rows: control and streamlined."""
     return [
         {
@@ -60,7 +62,7 @@ async def test_ab_metrics_response_shape(client: AsyncClient) -> None:
     mock_result = MagicMock()
     mock_result.mappings.return_value.all.return_value = mock_rows
 
-    async def fake_execute(*args: object, **kwargs: object) -> MagicMock:
+    async def fake_execute(*args: str | int | bool | float | None, **kwargs: str | int | bool | float | None) -> MagicMock:
         return mock_result
 
     mock_session = AsyncMock()
@@ -95,7 +97,7 @@ async def test_ab_metrics_empty_db(client: AsyncClient) -> None:
     mock_result = MagicMock()
     mock_result.mappings.return_value.all.return_value = []
 
-    async def fake_execute(*args: object, **kwargs: object) -> MagicMock:
+    async def fake_execute(*args: str | int | bool | float | None, **kwargs: str | int | bool | float | None) -> MagicMock:
         return mock_result
 
     mock_session = AsyncMock()
@@ -120,7 +122,7 @@ async def test_ab_metrics_days_param(client: AsyncClient) -> None:
     mock_result = MagicMock()
     mock_result.mappings.return_value.all.return_value = []
 
-    async def fake_execute(statement: object, params: object) -> MagicMock:
+    async def fake_execute(statement: JsonValue, params: JsonValue) -> MagicMock:
         # Ensure days param is passed (params may be dict or tuple)
         if isinstance(params, dict):
             assert params.get("days") == 30

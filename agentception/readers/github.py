@@ -26,13 +26,9 @@ import urllib.parse
 import httpx
 
 from agentception.config import settings
+from agentception.types import JsonValue
 
 logger = logging.getLogger(__name__)
-
-# JSON-compatible value union — the true return type of json.loads().
-# Using an explicit union avoids both bare `object` and `Any` while remaining
-# honest about what the GitHub REST API can produce.
-JsonValue = str | int | float | bool | list[object] | dict[str, object] | None
 
 # ---------------------------------------------------------------------------
 # Internal TTL cache
@@ -213,7 +209,7 @@ async def _api_get_all(
     params: dict[str, str | int],
     cache_key: str,
     limit: int = 100,
-) -> list[dict[str, object]]:
+) -> list[dict[str, JsonValue]]:
     """Paginated GET — fetches up to *limit* items across pages (max 100/page).
 
     Uses the GitHub REST API Link header pagination.  Stops when a page
@@ -227,7 +223,7 @@ async def _api_get_all(
         return []
 
     per_page = min(limit, 100)
-    all_items: list[dict[str, object]] = []
+    all_items: list[dict[str, JsonValue]] = []
     page = 1
 
     while len(all_items) < limit:
@@ -259,7 +255,7 @@ async def _api_get_all(
                 f"({exc.response.status_code}): {exc.response.text[:400]}"
             ) from exc
 
-        page_data: object = r.json()
+        page_data: JsonValue = r.json()
         if not isinstance(page_data, list) or not page_data:
             break
 
@@ -273,12 +269,12 @@ async def _api_get_all(
             break  # last page — no point requesting further
         page += 1
 
-    # Store as list[object] (the JsonValue-compatible supertype).
+    # Store as list[JsonValue] for cache compatibility.
     _cache_set(cache_key, list(all_items))
     return all_items
 
 
-async def _api_post(path: str, payload: dict[str, object]) -> dict[str, object]:
+async def _api_post(path: str, payload: dict[str, JsonValue]) -> dict[str, JsonValue]:
     """Authenticated POST. Always invalidates the cache on success."""
     for attempt in range(_MAX_RETRIES + 1):
         async with httpx.AsyncClient() as client:
@@ -299,7 +295,7 @@ async def _api_post(path: str, payload: dict[str, object]) -> dict[str, object]:
                 f"{exc.response.text[:400]}"
             ) from exc
         _cache_invalidate()
-        result: object = r.json()
+        result: JsonValue = r.json()
         return result if isinstance(result, dict) else {}
 
     raise RuntimeError(
@@ -307,7 +303,7 @@ async def _api_post(path: str, payload: dict[str, object]) -> dict[str, object]:
     )
 
 
-async def _api_patch(path: str, payload: dict[str, object]) -> dict[str, object]:
+async def _api_patch(path: str, payload: dict[str, JsonValue]) -> dict[str, JsonValue]:
     """Authenticated PATCH. Always invalidates the cache on success."""
     for attempt in range(_MAX_RETRIES + 1):
         async with httpx.AsyncClient() as client:
@@ -328,7 +324,7 @@ async def _api_patch(path: str, payload: dict[str, object]) -> dict[str, object]
                 f"{exc.response.text[:400]}"
             ) from exc
         _cache_invalidate()
-        result: object = r.json()
+        result: JsonValue = r.json()
         return result if isinstance(result, dict) else {}
 
     raise RuntimeError(
@@ -336,7 +332,7 @@ async def _api_patch(path: str, payload: dict[str, object]) -> dict[str, object]
     )
 
 
-async def _api_put(path: str, payload: dict[str, object]) -> dict[str, object]:
+async def _api_put(path: str, payload: dict[str, JsonValue]) -> dict[str, JsonValue]:
     """Authenticated PUT. Always invalidates the cache on success."""
     for attempt in range(_MAX_RETRIES + 1):
         async with httpx.AsyncClient() as client:
@@ -357,7 +353,7 @@ async def _api_put(path: str, payload: dict[str, object]) -> dict[str, object]:
                 f"{exc.response.text[:400]}"
             ) from exc
         _cache_invalidate()
-        result: object = r.json()
+        result: JsonValue = r.json()
         return result if isinstance(result, dict) else {}
 
     raise RuntimeError(
@@ -396,7 +392,7 @@ async def _api_delete(path: str) -> None:
 # Field-name normalisation helpers
 # ---------------------------------------------------------------------------
 
-def _normalize_pr(raw: dict[str, object]) -> dict[str, object]:
+def _normalize_pr(raw: dict[str, JsonValue]) -> dict[str, JsonValue]:
     """Map GitHub REST PR fields to the camelCase names our codebase expects.
 
     The GitHub REST API uses ``head.ref`` / ``base.ref`` / ``draft``; the rest
@@ -404,8 +400,8 @@ def _normalize_pr(raw: dict[str, object]) -> dict[str, object]:
     names that the ``gh`` CLI's ``--json`` output used).  Normalising here
     keeps every caller unchanged.
     """
-    head: object = raw.get("head")
-    base: object = raw.get("base")
+    head: JsonValue = raw.get("head")
+    base: JsonValue = raw.get("base")
     return {
         **raw,
         "headRefName": (head.get("ref") if isinstance(head, dict) else None),
@@ -419,7 +415,7 @@ def _normalize_pr(raw: dict[str, object]) -> dict[str, object]:
 # Public read API
 # ---------------------------------------------------------------------------
 
-async def get_closed_issues(limit: int = 1000) -> list[dict[str, object]]:
+async def get_closed_issues(limit: int = 1000) -> list[dict[str, JsonValue]]:
     """List recently closed issues (most recent first, capped at *limit*).
 
     Used by the poller to sync closed issues into the DB so it retains a
@@ -449,7 +445,7 @@ async def get_closed_issues(limit: int = 1000) -> list[dict[str, object]]:
     return [i for i in items if "pull_request" not in i]
 
 
-async def get_open_issues(label: str | None = None) -> list[dict[str, object]]:
+async def get_open_issues(label: str | None = None) -> list[dict[str, JsonValue]]:
     """List open issues, optionally filtered by a single label.
 
     Returns each issue as a dict with at minimum: ``number``, ``title``,
@@ -471,7 +467,7 @@ async def get_open_issues(label: str | None = None) -> list[dict[str, object]]:
     return [i for i in items if "pull_request" not in i]
 
 
-async def get_open_prs() -> list[dict[str, object]]:
+async def get_open_prs() -> list[dict[str, JsonValue]]:
     """List open pull requests targeting the ``dev`` branch.
 
     Returns each PR as a dict with: ``number``, ``title``, ``headRefName``,
@@ -489,7 +485,7 @@ async def get_open_prs() -> list[dict[str, object]]:
     return [_normalize_pr(i) for i in items]
 
 
-async def get_open_prs_any_base() -> list[dict[str, object]]:
+async def get_open_prs_any_base() -> list[dict[str, JsonValue]]:
     """List ALL open pull requests regardless of target branch.
 
     Ensures PRs opened against ``main``, ``staging``, or any other branch
@@ -505,7 +501,7 @@ async def get_open_prs_any_base() -> list[dict[str, object]]:
     return [_normalize_pr(i) for i in items]
 
 
-async def get_open_prs_with_body() -> list[dict[str, object]]:
+async def get_open_prs_with_body() -> list[dict[str, JsonValue]]:
     """List open PRs targeting ``dev`` including the body text.
 
     Delegates to ``get_open_prs()`` which always includes body.
@@ -513,7 +509,7 @@ async def get_open_prs_with_body() -> list[dict[str, object]]:
     return await get_open_prs()
 
 
-async def get_merged_prs() -> list[dict[str, object]]:
+async def get_merged_prs() -> list[dict[str, JsonValue]]:
     """List merged pull requests targeting the ``dev`` branch.
 
     Returns each PR as a dict with at minimum: ``number``, ``headRefName``,
@@ -531,7 +527,7 @@ async def get_merged_prs() -> list[dict[str, object]]:
     return [_normalize_pr(i) for i in merged]
 
 
-async def get_merged_prs_full(limit: int = 100) -> list[dict[str, object]]:
+async def get_merged_prs_full(limit: int = 100) -> list[dict[str, JsonValue]]:
     """List recently merged PRs with full metadata including labels and title.
 
     Like ``get_merged_prs`` but adds ``title`` and ``labels`` so results can
@@ -582,7 +578,7 @@ async def get_pr_comments(pr_number: int) -> list[str]:
     ]
 
 
-async def get_issue_comments(issue_number: int) -> list[dict[str, object]]:
+async def get_issue_comments(issue_number: int) -> list[dict[str, JsonValue]]:
     """Return comments posted on a GitHub issue.
 
     Each comment dict has: ``id``, ``author`` (login), ``body``,
@@ -602,11 +598,11 @@ async def get_issue_comments(issue_number: int) -> list[dict[str, object]]:
     )
     if not isinstance(result, list):
         return []
-    out: list[dict[str, object]] = []
+    out: list[dict[str, JsonValue]] = []
     for item in result:
         if not isinstance(item, dict):
             continue
-        user: object = item.get("user")
+        user: JsonValue = item.get("user")
         login = user.get("login") if isinstance(user, dict) else ""
         out.append(
             {
@@ -619,7 +615,7 @@ async def get_issue_comments(issue_number: int) -> list[dict[str, object]]:
     return out
 
 
-async def get_pr_checks(pr_number: int) -> list[dict[str, object]]:
+async def get_pr_checks(pr_number: int) -> list[dict[str, JsonValue]]:
     """Return CI check statuses for a pull request.
 
     Each check dict has: ``name``, ``state``, ``conclusion``, ``url``.
@@ -643,10 +639,10 @@ async def get_pr_checks(pr_number: int) -> list[dict[str, object]]:
 
     if not isinstance(result, dict):
         return []
-    check_runs: object = result.get("check_runs", [])
+    check_runs: JsonValue = result.get("check_runs", [])
     if not isinstance(check_runs, list):
         return []
-    out: list[dict[str, object]] = []
+    out: list[dict[str, JsonValue]] = []
     for run in check_runs:
         if isinstance(run, dict):
             out.append(
@@ -660,7 +656,7 @@ async def get_pr_checks(pr_number: int) -> list[dict[str, object]]:
     return out
 
 
-async def get_pr_reviews(pr_number: int) -> list[dict[str, object]]:
+async def get_pr_reviews(pr_number: int) -> list[dict[str, JsonValue]]:
     """Return review decisions for a pull request.
 
     Each review dict has: ``author``, ``state``, ``body``, ``submitted_at``.
@@ -681,11 +677,11 @@ async def get_pr_reviews(pr_number: int) -> list[dict[str, object]]:
     )
     if not isinstance(result, list):
         return []
-    out: list[dict[str, object]] = []
+    out: list[dict[str, JsonValue]] = []
     for item in result:
         if not isinstance(item, dict):
             continue
-        user: object = item.get("user")
+        user: JsonValue = item.get("user")
         login = user.get("login") if isinstance(user, dict) else ""
         out.append(
             {
@@ -698,7 +694,7 @@ async def get_pr_reviews(pr_number: int) -> list[dict[str, object]]:
     return out
 
 
-async def get_wip_issues() -> list[dict[str, object]]:
+async def get_wip_issues() -> list[dict[str, JsonValue]]:
     """Return issues currently labelled ``agent/wip``.
 
     An ``agent/wip`` label signals that a pipeline agent has claimed the
@@ -755,9 +751,12 @@ async def get_active_label() -> str | None:
         # Skip pull requests — GitHub issues endpoint includes them.
         if "pull_request" in issue:
             continue
-        for lbl in issue.get("labels", []):
+        raw_labels: JsonValue = issue.get("labels", [])
+        if not isinstance(raw_labels, list):
+            continue
+        for lbl in raw_labels:
             if isinstance(lbl, dict):
-                name: object = lbl.get("name")
+                name: JsonValue = lbl.get("name")
                 if isinstance(name, str):
                     open_labels.add(name)
 
@@ -768,7 +767,7 @@ async def get_active_label() -> str | None:
     return None
 
 
-async def get_issue(number: int) -> dict[str, object]:
+async def get_issue(number: int) -> dict[str, JsonValue]:
     """Fetch state, title, and labels for a single issue.
 
     Returns a dict with at minimum: ``number``, ``state``, ``title``,
@@ -795,20 +794,22 @@ async def get_issue(number: int) -> dict[str, object]:
             f"get_issue: expected dict from GitHub API, got {type(result).__name__}"
         )
     # Normalise labels to a list of name strings (same shape as before).
-    raw_labels: object = result.get("labels", [])
+    raw_labels: JsonValue = result.get("labels", [])
     label_names: list[str] = []
     if isinstance(raw_labels, list):
         for lbl in raw_labels:
             if isinstance(lbl, dict):
-                name: object = lbl.get("name")
+                name: JsonValue = lbl.get("name")
                 if isinstance(name, str):
                     label_names.append(name)
+    labels_jv: list[JsonValue] = []
+    labels_jv.extend(label_names)
     return {
         "number": result.get("number"),
         "state": result.get("state"),
         "title": result.get("title"),
         "body": result.get("body", ""),
-        "labels": label_names,
+        "labels": labels_jv,
     }
 
 
@@ -852,11 +853,11 @@ async def is_branch_merged_into(branch: str, base: str = "dev") -> bool:
     )
     if not isinstance(result, dict):
         return False
-    status: object = result.get("status")
+    status: JsonValue = result.get("status")
     return status in ("identical", "behind")
 
 
-async def get_repo_labels(limit: int = 100) -> list[dict[str, object]]:
+async def get_repo_labels(limit: int = 100) -> list[dict[str, JsonValue]]:
     """Return all labels defined in the repository.
 
     Each label dict has at minimum ``name``, ``color``, and ``description``
@@ -882,7 +883,7 @@ async def get_issues_with_all_labels(
     labels: list[str],
     state: str = "all",
     limit: int = 200,
-) -> list[dict[str, object]]:
+) -> list[dict[str, JsonValue]]:
     """Fetch issues that carry **every** label in *labels* (AND semantics).
 
     The GitHub REST API accepts a comma-separated ``labels`` query parameter
@@ -910,11 +911,11 @@ async def get_issues_with_all_labels(
     cache_key = f"get_issues_with_all_labels:labels={'|'.join(sorted(labels))}:state={state}"
     items = await _api_get_all(f"repos/{repo}/issues", params, cache_key, limit=limit)
     # Normalise state to uppercase to match the legacy gh CLI output shape.
-    normalised: list[dict[str, object]] = []
+    normalised: list[dict[str, JsonValue]] = []
     for item in items:
         if "pull_request" in item:
             continue
-        raw_state: object = item.get("state", "")
+        raw_state: JsonValue = item.get("state", "")
         normalised.append(
             {
                 **item,
@@ -1045,7 +1046,7 @@ async def ensure_label_exists(name: str, color: str, description: str) -> None:
         On any non-2xx GitHub API response other than 422 (already exists).
     """
     repo = settings.gh_repo
-    payload: dict[str, object] = {
+    payload: dict[str, JsonValue] = {
         "name": name,
         "color": color,
         "description": description,
@@ -1069,8 +1070,8 @@ async def ensure_label_exists(name: str, color: str, description: str) -> None:
             # validation errors (e.g. label name too long).  Only treat it as
             # "already exists" when the response body confirms this via the
             # "already_exists" error code; otherwise surface the real error.
-            body: object = r.json()
-            errors: object = body.get("errors", []) if isinstance(body, dict) else []
+            body: JsonValue = r.json()
+            errors: JsonValue = body.get("errors", []) if isinstance(body, dict) else []
             is_already_exists = isinstance(errors, list) and any(
                 isinstance(e, dict) and e.get("code") == "already_exists"
                 for e in errors
@@ -1253,9 +1254,9 @@ async def merge_pr(pr_number: int, delete_branch: bool = True) -> None:
             f"_pre_merge_pr:{pr_number}",
         )
         if isinstance(pr_data, dict):
-            head: object = pr_data.get("head")
+            head: JsonValue = pr_data.get("head")
             if isinstance(head, dict):
-                ref: object = head.get("ref")
+                ref: JsonValue = head.get("ref")
                 head_ref = str(ref) if isinstance(ref, str) else None
 
     await _api_put(
@@ -1328,12 +1329,16 @@ async def ensure_pull_request(
     )
     if isinstance(existing, list) and existing:
         first = existing[0]
-        pr_number = int(first["number"]) if isinstance(first, dict) else 0
+        if isinstance(first, dict):
+            raw_num = first.get("number", 0)
+            pr_number = int(raw_num) if isinstance(raw_num, (int, float, str)) else 0
+        else:
+            pr_number = 0
         logger.info("✅ Found existing PR #%d for branch %r — skipping creation", pr_number, head)
         return (pr_number, False)
 
     # No existing PR — create one via _api_post (handles 429 retries).
-    payload: dict[str, object] = {
+    payload: dict[str, JsonValue] = {
         "title": title,
         "body": body,
         "head": head,
@@ -1351,7 +1356,7 @@ async def create_issue(
     body: str,
     labels: list[str] | None = None,
     assignees: list[str] | None = None,
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Create a new GitHub issue and return the API response dict.
 
     Parameters
@@ -1367,7 +1372,7 @@ async def create_issue(
 
     Returns
     -------
-    dict[str, object]
+    dict[str, JsonValue]
         The GitHub API response for the created issue, including ``number``,
         ``html_url``, ``state``, ``title``, and ``body``.
 
@@ -1377,11 +1382,15 @@ async def create_issue(
         On any non-2xx GitHub API response.
     """
     repo = settings.gh_repo
-    payload: dict[str, object] = {"title": title, "body": body}
+    payload: dict[str, JsonValue] = {"title": title, "body": body}
     if labels:
-        payload["labels"] = labels
+        labels_jv: list[JsonValue] = []
+        labels_jv.extend(labels)
+        payload["labels"] = labels_jv
     if assignees:
-        payload["assignees"] = assignees
+        assignees_jv: list[JsonValue] = []
+        assignees_jv.extend(assignees)
+        payload["assignees"] = assignees_jv
     result = await _api_post(f"repos/{repo}/issues", payload)
     logger.info("✅ Created issue #%s: %s", result.get("number"), title)
     return result
@@ -1395,7 +1404,7 @@ async def update_issue(
     state: str | None = None,
     labels: list[str] | None = None,
     assignees: list[str] | None = None,
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Update fields on an existing GitHub issue.
 
     Only the keyword arguments that are not ``None`` are sent to the API,
@@ -1418,7 +1427,7 @@ async def update_issue(
 
     Returns
     -------
-    dict[str, object]
+    dict[str, JsonValue]
         The GitHub API response for the updated issue.
 
     Raises
@@ -1427,7 +1436,7 @@ async def update_issue(
         On any non-2xx GitHub API response.
     """
     repo = settings.gh_repo
-    payload: dict[str, object] = {}
+    payload: dict[str, JsonValue] = {}
     if title is not None:
         payload["title"] = title
     if body is not None:
@@ -1435,9 +1444,13 @@ async def update_issue(
     if state is not None:
         payload["state"] = state
     if labels is not None:
-        payload["labels"] = labels
+        lbl_jv: list[JsonValue] = []
+        lbl_jv.extend(labels)
+        payload["labels"] = lbl_jv
     if assignees is not None:
-        payload["assignees"] = assignees
+        asgn_jv: list[JsonValue] = []
+        asgn_jv.extend(assignees)
+        payload["assignees"] = asgn_jv
     result = await _api_patch(f"repos/{repo}/issues/{issue_number}", payload)
     logger.info("✅ Updated issue #%d", issue_number)
     return result

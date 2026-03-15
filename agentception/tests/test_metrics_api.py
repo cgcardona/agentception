@@ -6,6 +6,7 @@ All tests mock ``agentception.db.queries.get_daily_metrics`` so no real DB
 connection is required.
 """
 
+import datetime
 from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock, patch
 
@@ -142,7 +143,7 @@ async def test_get_metrics_daily_invalid_format_returns_400(client: AsyncClient)
 async def test_get_metrics_daily_range_three_days(client: AsyncClient) -> None:
     """start=2025-01-01&end=2025-01-03 → list of 3 objects, sorted ascending."""
 
-    async def _fake_get_daily_metrics(date: object) -> DailyMetrics:
+    async def _fake_get_daily_metrics(date: datetime.date) -> DailyMetrics:
         import datetime
 
         assert isinstance(date, datetime.date)
@@ -169,7 +170,7 @@ async def test_get_metrics_daily_range_three_days(client: AsyncClient) -> None:
 async def test_get_metrics_daily_range_single_day(client: AsyncClient) -> None:
     """start == end → list of 1 object."""
 
-    async def _fake(date: object) -> DailyMetrics:
+    async def _fake(date: datetime.date) -> DailyMetrics:
         import datetime
 
         assert isinstance(date, datetime.date)

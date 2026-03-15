@@ -24,6 +24,8 @@ Rules
 
 import logging
 
+from agentception.types import JsonValue
+
 from agentception.db.persist import persist_agent_event, persist_run_heartbeat
 from agentception.models import FileEditEvent
 
@@ -34,7 +36,7 @@ async def log_run_step(
     issue_number: int,
     step_name: str,
     agent_run_id: str | None = None,
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Record that the agent is starting a named execution step.
 
     Was: ``build_report_step``.
@@ -86,7 +88,7 @@ async def log_run_blocker(
     issue_number: int,
     description: str,
     agent_run_id: str | None = None,
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Record that the agent encountered a blocker.
 
     This tool appends a blocker event only.  To also transition the run to
@@ -118,7 +120,7 @@ async def log_run_decision(
     decision: str,
     rationale: str,
     agent_run_id: str | None = None,
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Record a significant architectural or implementation decision.
 
     Was: ``build_report_decision``.
@@ -148,7 +150,7 @@ async def log_run_message(
     issue_number: int,
     message: str,
     agent_run_id: str | None = None,
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Append a free-form message to the agent's event log.
 
     Use this for any noteworthy information that doesn't fit a structured
@@ -177,7 +179,7 @@ async def log_run_error(
     issue_number: int,
     error: str,
     agent_run_id: str | None = None,
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Record an unrecoverable error or crash with semantic distinction.
 
     Use this instead of :func:`log_run_message` when the agent is aborting
@@ -207,7 +209,7 @@ async def log_run_error(
     return {"ok": True, "event": "error"}
 
 
-async def log_run_heartbeat(run_id: str) -> dict[str, object]:
+async def log_run_heartbeat(run_id: str) -> dict[str, JsonValue]:
     """Update last_activity_at for the given run to prove liveness.
 
     Call this every 2–5 minutes while the agent is active so the stale
