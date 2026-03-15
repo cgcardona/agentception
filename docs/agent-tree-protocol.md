@@ -159,7 +159,7 @@ BATCH_ID      = "label-AC-UI-0-20260303T200000Z-a1b2"
 PARENT_RUN_ID = ""                  # empty for root; set by spawner for all other tiers
 
 # ── Callbacks ─────────────────────────────────────────────────────────────────
-AC_URL        = "http://localhost:10003"
+AC_URL        = "http://localhost:1337"
 # ROLE_FILE is the container-side path; HOST_ROLE_FILE is the host-side path.
 # Cursor agents running on the developer's machine should use HOST_ROLE_FILE.
 ROLE_FILE     = "<container-repo-root>/.agentception/roles/cto.md"
@@ -180,7 +180,7 @@ BRANCH        = "feat/issue-42"
 WORKTREE      = "$HOME/.agentception/worktrees/agentception/issue-42"
 BATCH_ID      = "label-AC-UI-0-20260303T200000Z-a1b2"
 PARENT_RUN_ID = "label-AC-UI-0-CRITICAL-BUGS-20260303T200000Z-a1b2"
-AC_URL        = "http://localhost:10003"
+AC_URL        = "http://localhost:1337"
 ROLE_FILE     = "<container-repo-root>/.agentception/roles/python-developer.md"
 HOST_ROLE_FILE = "<host-repo-root>/.agentception/roles/python-developer.md"
 ```
@@ -199,7 +199,7 @@ BRANCH        = ""
 WORKTREE      = "$HOME/.agentception/worktrees/agentception/pr-99"
 BATCH_ID      = "label-AC-UI-0-20260303T200000Z-a1b2"
 PARENT_RUN_ID = "issue-42-20260303T200100Z-c3d4"  # ← worker that spawned this reviewer
-AC_URL        = "http://localhost:10003"
+AC_URL        = "http://localhost:1337"
 ROLE_FILE     = "<container-repo-root>/.agentception/roles/reviewer.md"
 HOST_ROLE_FILE = "<host-repo-root>/.agentception/roles/reviewer.md"
 ```

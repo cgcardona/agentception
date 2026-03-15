@@ -112,7 +112,7 @@ docker compose up -d
 
 ## Step 6 — Check the Ship board
 
-1. In your browser, open the Ship page (e.g. `http://localhost:10003/ship/...` for your project/initiative).
+1. In your browser, open the Ship page (e.g. `http://localhost:1337/ship/...` for your project/initiative).
 2. Refresh the page.
 3. You should see:
    - The run(s) no longer stuck in “Mission Control Idle”

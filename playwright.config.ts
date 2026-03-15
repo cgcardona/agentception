@@ -3,7 +3,7 @@ import { defineConfig, devices } from '@playwright/test';
 /**
  * Playwright E2E configuration.
  *
- * Targets the AgentCeption server running in Docker at localhost:10003.
+ * Targets the AgentCeption server running in Docker at localhost:1337.
  * Start the stack first:  docker compose up -d
  *
  * Run all E2E tests:      npm run test:e2e
@@ -21,7 +21,7 @@ export default defineConfig({
   workers: process.env['CI'] ? 1 : undefined,
   reporter: [['html', { open: 'never' }], ['list']],
   use: {
-    baseURL: 'http://localhost:10003',
+    baseURL: 'http://localhost:1337',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',

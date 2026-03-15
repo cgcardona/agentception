@@ -60,7 +60,7 @@ async def test_spawn_child_forwards_cognitive_arch_without_resolving() -> None:
         mock_settings.host_worktrees_dir = MagicMock()
         mock_settings.host_worktrees_dir.__truediv__ = lambda s, x: MagicMock(__str__=lambda _: f"/host/worktrees/{x}")
         mock_settings.repo_dir = "/repo"
-        mock_settings.ac_url = "http://localhost:10003"
+        mock_settings.ac_url = "http://localhost:1337"
 
         # Mock git commands — rev-parse and worktree add both succeed
         git_proc = AsyncMock()
@@ -106,7 +106,7 @@ async def test_spawn_child_resolves_arch_when_not_provided() -> None:
         mock_settings.host_worktrees_dir = MagicMock()
         mock_settings.host_worktrees_dir.__truediv__ = lambda s, x: MagicMock(__str__=lambda _: f"/host/worktrees/{x}")
         mock_settings.repo_dir = "/repo"
-        mock_settings.ac_url = "http://localhost:10003"
+        mock_settings.ac_url = "http://localhost:1337"
 
         git_proc = AsyncMock()
         git_proc.returncode = 0
@@ -165,7 +165,7 @@ async def test_cognitive_arch_propagates_to_leaf() -> None:
         mock_settings_1.host_worktrees_dir = MagicMock()
         mock_settings_1.host_worktrees_dir.__truediv__ = lambda s, x: MagicMock(__str__=lambda _: f"/host/worktrees/{x}")
         mock_settings_1.repo_dir = "/repo"
-        mock_settings_1.ac_url = "http://localhost:10003"
+        mock_settings_1.ac_url = "http://localhost:1337"
 
         git_proc = AsyncMock()
         git_proc.returncode = 0
@@ -208,7 +208,7 @@ async def test_cognitive_arch_propagates_to_leaf() -> None:
         mock_settings_2.host_worktrees_dir = MagicMock()
         mock_settings_2.host_worktrees_dir.__truediv__ = lambda s, x: MagicMock(__str__=lambda _: f"/host/worktrees/{x}")
         mock_settings_2.repo_dir = "/repo"
-        mock_settings_2.ac_url = "http://localhost:10003"
+        mock_settings_2.ac_url = "http://localhost:1337"
 
         git_proc_2 = AsyncMock()
         git_proc_2.returncode = 0

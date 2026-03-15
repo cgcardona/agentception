@@ -139,7 +139,7 @@ docker compose exec agentception sh -c \
 
 # 4. Smoke test (from the host)
 docker compose up -d --wait
-curl -f http://localhost:10003/health
+curl -f http://localhost:1337/health
 ```
 
 > **Dev bind mounts are active.** `docker-compose.override.yml` bind-mounts `agentception/`, `tests/`, `scripts/`, and `pyproject.toml` into the container. Host file edits are instantly visible — no rebuild needed for code changes. Only rebuild (`docker compose build agentception && docker compose up -d`) when `requirements.txt`, `Dockerfile`, or `entrypoint.sh` change.

@@ -39,7 +39,7 @@ LLM calls are made by `agentception/services/llm.py` through a **provider-agnost
 
 ## AgentCeption HTTP Service
 
-The service listens on port `10003` bound to `127.0.0.1` by default (configured in `docker-compose.yml`). It is not reachable from the network without explicit port-forwarding or a reverse proxy. For a local developer machine, this is the only protection required.
+The service listens on port `1337` bound to `127.0.0.1` by default (configured in `docker-compose.yml`). It is not reachable from the network without explicit port-forwarding or a reverse proxy. For a local developer machine, this is the only protection required.
 
 ### API Key Authentication
 
@@ -82,7 +82,7 @@ Cursor's MCP client automatically sends `Authorization: Bearer <key>` when confi
 {
   "mcpServers": {
     "agentception": {
-      "url": "http://localhost:10003/api/mcp",
+      "url": "http://localhost:1337/api/mcp",
       "headers": {
         "Authorization": "Bearer your-generated-key-here"
       }
@@ -123,7 +123,7 @@ The Docker service itself speaks plain HTTP. For public-facing deployments, term
 
 ```caddy
 your.domain.example {
-    reverse_proxy localhost:10003
+    reverse_proxy localhost:1337
 }
 ```
 
@@ -140,7 +140,7 @@ server {
     ssl_certificate_key /path/to/privkey.pem;
 
     location / {
-        proxy_pass http://127.0.0.1:10003;
+        proxy_pass http://127.0.0.1:1337;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
