@@ -39,7 +39,7 @@ def _render_build() -> str:
     env.filters["title"] = lambda s: str(s).title()
     env.filters["truncate"] = lambda s, length, killwords, end: str(s)[:length]
 
-    ctx: dict[str, _StubRequest | str | int | list[str] | dict[str, str]] = {
+    ctx: dict[str, _StubRequest | str | int | bool | list[str] | dict[str, str]] = {
         "request": _StubRequest(),
         "repo": "cgcardona/agentception",
         "repo_name": "agentception",
@@ -50,6 +50,7 @@ def _render_build() -> str:
         "groups": [],
         "figures": [],
         "role_figure_map": {},
+        "worktree_index_enabled": False,
     }
     tmpl = env.get_template("build.html")
     return tmpl.render(ctx)

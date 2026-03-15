@@ -104,6 +104,7 @@ _BUILD_CTX: dict[str, JsonValue] = {
     "initiative": "test-initiative",
     "initiatives": ["test-initiative"],
     "open_issues": 0,
+    "worktree_index_enabled": False,
     "total_issues": 0,
     "groups": [],
     "figures": [],

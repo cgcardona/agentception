@@ -65,7 +65,7 @@ async def test_get_conductor_history_status_resolved_from_db(
     ]
 
     with patch(
-        "agentception.db.queries.get_session",
+        "agentception.db.queries.board.get_session",
         return_value=_mock_session_returning(rows),
     ):
         entries = await get_conductor_history(
@@ -89,7 +89,7 @@ async def test_get_conductor_history_reviewing_is_active(tmp_path: Path) -> None
     rows: list[tuple[MagicMock, str | None]] = [(_make_wave("conductor-review"), "reviewing")]
 
     with patch(
-        "agentception.db.queries.get_session",
+        "agentception.db.queries.board.get_session",
         return_value=_mock_session_returning(rows),
     ):
         entries = await get_conductor_history(limit=5, worktrees_dir=tmp_path, host_worktrees_dir=tmp_path)
@@ -105,7 +105,7 @@ async def test_get_conductor_history_no_run_is_completed(tmp_path: Path) -> None
     rows: list[tuple[MagicMock, str | None]] = [(_make_wave("conductor-orphan"), None)]
 
     with patch(
-        "agentception.db.queries.get_session",
+        "agentception.db.queries.board.get_session",
         return_value=_mock_session_returning(rows),
     ):
         entries = await get_conductor_history(limit=5, worktrees_dir=tmp_path, host_worktrees_dir=tmp_path)
@@ -121,7 +121,7 @@ async def test_get_conductor_history_no_fs_access(tmp_path: Path) -> None:
     rows: list[tuple[MagicMock, str | None]] = [(_make_wave("conductor-20260303-100000"), "implementing")]
 
     with patch(
-        "agentception.db.queries.get_session",
+        "agentception.db.queries.board.get_session",
         return_value=_mock_session_returning(rows),
     ), patch("pathlib.Path.exists") as mock_exists:
         await get_conductor_history(limit=5, worktrees_dir=tmp_path, host_worktrees_dir=tmp_path)
@@ -140,7 +140,7 @@ async def test_get_conductor_history_returns_empty_on_db_error(
     mock_session.__aenter__ = AsyncMock(side_effect=RuntimeError("DB unavailable"))
     mock_session.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("agentception.db.queries.get_session", return_value=mock_session):
+    with patch("agentception.db.queries.board.get_session", return_value=mock_session):
         entries = await get_conductor_history(
             limit=5,
             worktrees_dir=tmp_path,
