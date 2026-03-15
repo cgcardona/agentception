@@ -10,24 +10,35 @@
   max-width: 100%;
   overflow-x: hidden;
   word-break: break-word;
-  border-left: 2px solid transparent;
+  border-left: 3px solid transparent;
+  border-radius: 0 var(--radius-xs, 4px) var(--radius-xs, 4px) 0;
   transition: background 0.12s;
 
   &:hover {
     background: var(--bg-hover);
   }
 
+  // Color-coded left border by event category
   &[data-subtype^="llm"]   { border-left-color: var(--accent-purple, #9b6dff); }
   &[data-subtype^="file"]  { border-left-color: var(--accent-green,  #3ecf8e); }
   &[data-subtype="tool"],
   &[data-subtype="tool_invoked"],
   &[data-subtype="github_tool"] { border-left-color: var(--accent-orange, #f5a623); }
-  &[data-subtype^="shell"] { border-left-color: var(--text-muted,    #6a8aaa); }
-  &[data-subtype="git_push"]    { border-left-color: var(--accent-blue,   #4dabf7); }
-  &[data-subtype="error"]       { border-left-color: var(--error,         #e53e3e); }
+  &[data-subtype^="shell"] { border-left-color: var(--text-muted, #6a8aaa); }
+  &[data-subtype="git_push"]    { border-left-color: var(--accent-blue, #4dabf7); }
+  &[data-subtype="delay"]       { border-left-color: var(--warning, #f5a623); opacity: 0.7; }
+  &[data-subtype="error"]       { border-left-color: var(--error, #e53e3e); }
+
+  // Non-zero shell exit: override border to error red and tint background
+  &[data-subtype="shell_done"][data-exit-nonzero] {
+    border-left-color: var(--error, #e53e3e);
+    background: rgba(229, 62, 62, 0.06);
+    color: var(--error, #e53e3e);
+  }
 
   .activity-feed__icon {
     flex-shrink: 0;
+    line-height: 1;
     &[aria-hidden='true'] {
       opacity: 0.7;
     }
@@ -39,11 +50,16 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
   }
 
   .activity-feed__ts {
     flex-shrink: 0;
+    font-size: 0.65rem;
     font-variant-numeric: tabular-nums;
+    color: var(--text-faint, #555);
+    font-family: var(--font-mono);
     opacity: 0.8;
   }
 }

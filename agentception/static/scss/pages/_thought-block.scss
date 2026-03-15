@@ -1,51 +1,66 @@
 // ── Thought block ─────────────────────────────────────────────────────────────
-// Inspector accent palette:
-//   thought-block    #9b59b6  purple
-//   tool-call-card   #3498db  blue
-//   file-edit-card   #27ae60  green
-//   assistant-bubble rgba(255,255,255,0.6)  light
-//   event step_start #7f8c8d  grey
-//   event blocker    #e67e22  amber
-//   event decision   #2980b9  blue
-//   event done       #2ecc71  green
-// Monospace stack: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace)
+// Collapsible CoT block streamed token-by-token while the agent thinks.
+// Open state:    continuous text stream with animated cursor
+// Collapsed:     ◈ Thought for Xs ›  (click to re-expand)
 
 .thought-block {
-  border-left: 4px solid #9b59b6;
-  padding: 0.25rem 0.5rem;
+  border-left: 3px solid var(--accent-purple, #9b6dff);
+  padding: 0.3rem 0.5rem 0.3rem 0.625rem;
   max-width: 100%;
   overflow-x: hidden;
   word-break: break-word;
+  border-radius: 0 var(--radius-xs, 4px) var(--radius-xs, 4px) 0;
 
   &__header {
     background: none;
     border: none;
-    color: var(--color-text-muted, #888);
+    color: var(--text-muted, #888);
     cursor: pointer;
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 0.25rem;
+    gap: 0.3rem;
     width: 100%;
     text-align: left;
-    padding: 0;
+    padding: 0.15rem 0.25rem;
+    border-radius: var(--radius-xs, 4px);
+    font-size: 0.72rem;
+    font-family: var(--font-mono);
+    transition: background 0.12s, color 0.12s;
 
-    &:hover { color: var(--color-text, #eee); }
+    &:hover {
+      color: var(--text-primary, #eee);
+      background: var(--bg-hover, rgba(255,255,255,0.04));
+    }
   }
 
-  &__icon { aria-hidden: attr(aria-hidden); }
+  &__icon {
+    color: var(--accent-purple, #9b6dff);
+    opacity: 0.8;
+    flex-shrink: 0;
+  }
+
+  &__label {
+    font-weight: 500;
+    letter-spacing: 0.01em;
+  }
 
   &__chevron {
     margin-left: auto;
     transition: transform 0.2s ease;
+    opacity: 0.6;
+    font-size: 1rem;
+    line-height: 1;
   }
 
   &--open &__chevron { transform: rotate(90deg); }
 
   &__body {
     font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
+    font-size: 0.72rem;
+    line-height: 1.65;
     font-style: italic;
-    color: var(--color-text-muted, #888);
+    color: var(--text-muted, #888);
     white-space: pre-wrap;
     word-break: break-word;
     max-height: 0;
@@ -53,7 +68,29 @@
     transition: max-height 0.25s ease-out;
   }
 
-  &--open &__body  { max-height: 2000px; }
+  &--open &__body {
+    max-height: 480px; // cap to ~30 visible lines; overflows scroll internally
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-default, #333) transparent;
+  }
+
   &--collapsed &__body { max-height: 0; }
+
+  // Blinking text cursor shown while the block is actively streaming
+  &__cursor {
+    display: inline-block;
+    width: 0.5em;
+    height: 0.85em;
+    background: var(--accent-purple, #9b6dff);
+    opacity: 0.7;
+    vertical-align: text-bottom;
+    margin-left: 1px;
+    animation: thought-cursor-blink 1s step-end infinite;
+  }
 }
 
+@keyframes thought-cursor-blink {
+  0%, 100% { opacity: 0.7; }
+  50%       { opacity: 0; }
+}
