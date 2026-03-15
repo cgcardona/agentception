@@ -51,7 +51,10 @@ services:
     ports:
       - "127.0.0.1:10003:10003"
     environment:
-      HOME: ${HOME}
+      # Run as agentception (non-root). HOME must be writable so HuggingFace/fastembed
+      # can write ~/.cache/huggingface/token and model files; using /root causes
+      # [Errno 13] Permission denied when the process is non-root.
+      HOME: /home/agentception
       # Database: inject via .env (DATABASE_URL=postgresql+asyncpg://...)
       DATABASE_URL: "postgresql+asyncpg://agentception:${DB_PASSWORD}@postgres:5432/agentception"
       # gh CLI / git repo settings — override via .env or docker-compose.override.yml
@@ -101,9 +104,9 @@ services:
       # Disable HuggingFace tokenizers Rust parallelism — it spawns its own
       # thread pool that stacks on top of ORT's, making contention worse.
       TOKENIZERS_PARALLELISM: "false"
-      # HF_HOME points to the persistent model_cache volume.  entrypoint.sh
-      # chowns this directory to the agentception user before dropping privs.
-      HF_HOME: /root/.cache/huggingface
+      # HF_HOME under agentception's home so downloads and token file are writable.
+      # entrypoint.sh chowns the mounted model_cache volume here before dropping privs.
+      HF_HOME: /home/agentception/.cache/huggingface
       # Optional: set HF_TOKEN in .env to avoid HuggingFace rate-limit warnings
       # on model downloads and enable authenticated access to private models.
       HF_TOKEN: ${HF_TOKEN:-}
@@ -123,8 +126,8 @@ services:
       https_proxy: "http://proxy:8888"
       no_proxy: "localhost,127.0.0.1,postgres,qdrant,host.docker.internal,::1"
     volumes:
-      # gh CLI auth (read-only)
-      - ${HOME}/.config/gh:${HOME}/.config/gh:ro
+      # gh CLI auth (read-only). Container HOME is /home/agentception.
+      - ${HOME}/.config/gh:/home/agentception/.config/gh:ro
       # ── Narrow bind mounts (belt-and-suspenders for credential isolation) ──
       # Instead of mounting the full repo root (./:/app) — which would expose
       # .env, docker-compose secrets, and .git — we mount only the directories
@@ -154,7 +157,7 @@ services:
       # are re-downloaded from HuggingFace on every restart, adding ~50s to the
       # first dispatch after each restart.  With the volume they are loaded from
       # disk on first use (~5–10s) and stay warm for the lifetime of the volume.
-      - model_cache:/root/.cache/huggingface
+      - model_cache:/home/agentception/.cache/huggingface
     # Use Cloudflare DNS instead of Docker's embedded resolver.
     # Docker's embedded DNS caches whichever node it gets first, and GitHub
     # occasionally has dead nodes in rotation (e.g. 140.82.116.6) that refuse

@@ -28,8 +28,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # mount is available.
 RUN groupadd -g 1001 agentception \
     && useradd -r -u 1001 -g agentception -m -d /home/agentception -s /bin/bash agentception \
-    && mkdir -p /worktrees /root/.cache/huggingface \
-    && chown agentception:agentception /root/.cache/huggingface
+    && mkdir -p /worktrees /home/agentception/.cache/huggingface \
+    && chown -R agentception:agentception /home/agentception/.cache
 
 # Install Node.js 22.x — enables sass/esbuild builds at container startup
 # and npm run type-check / npm test inside the container.
