@@ -10,6 +10,21 @@
   max-width: 100%;
   overflow-x: hidden;
   word-break: break-word;
+  border-left: 2px solid transparent;
+  transition: background 0.12s;
+
+  &:hover {
+    background: var(--bg-hover);
+  }
+
+  &[data-subtype^="llm"]   { border-left-color: var(--accent-purple, #9b6dff); }
+  &[data-subtype^="file"]  { border-left-color: var(--accent-green,  #3ecf8e); }
+  &[data-subtype="tool"],
+  &[data-subtype="tool_invoked"],
+  &[data-subtype="github_tool"] { border-left-color: var(--accent-orange, #f5a623); }
+  &[data-subtype^="shell"] { border-left-color: var(--text-muted,    #6a8aaa); }
+  &[data-subtype="git_push"]    { border-left-color: var(--accent-blue,   #4dabf7); }
+  &[data-subtype="error"]       { border-left-color: var(--error,         #e53e3e); }
 
   .activity-feed__icon {
     flex-shrink: 0;
