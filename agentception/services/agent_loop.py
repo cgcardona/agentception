@@ -853,14 +853,23 @@ async def run_agent_loop(
             tool_results: list[dict[str, object]] = []
 
             if response["stop_reason"] == "stop":
-                logger.info("✅ agent_loop complete — run_id=%s iterations=%d", run_id, iteration)
-                await github_client.close()
-                await build_complete_run(
-                    issue_number=issue_number,
-                    pr_url="",
-                    summary=response["content"][:500] if response["content"] else "Agent completed.",
-                    agent_run_id=run_id,
+                # The model ended without calling build_complete_run as a tool.
+                # This typically means it declared "done" in prose after doing its
+                # work but forgot to git-commit, push, and open a PR.  Log a
+                # prominent warning so the operator can recover the worktree
+                # manually; do NOT call build_complete_run(pr_url="") because the
+                # pre-flight guard will reject it and leave the run stuck in
+                # "implementing" forever.
+                logger.warning(
+                    "⚠️ agent_loop: run %r ended with stop_reason=stop but never called "
+                    "create_pull_request + build_complete_run.  Work may be uncommitted in "
+                    "the worktree.  Operator action required: inspect the worktree, commit, "
+                    "push, open a PR manually, then UPDATE agent_runs SET status='completed', "
+                    "pr_number=<N> WHERE id=%r.",
+                    run_id, run_id,
                 )
+                logger.info("✅ agent_loop loop exited — run_id=%s iterations=%d", run_id, iteration)
+                await github_client.close()
                 return
     
             if response["stop_reason"] in ("tool_calls", "length") and response["tool_calls"]:
