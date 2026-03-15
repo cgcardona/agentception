@@ -17,7 +17,7 @@ Step-by-step instructions for humans.
 | [Developer Workflow](guides/developer-workflow.md) | Bind-mount loop, mypy → tests → docs verification order, JS/CSS build pipeline |
 | [Contributing](guides/contributing.md) | Branch naming, commit conventions, PR checklist, code review expectations |
 | [CI](guides/ci.md) | GitHub Actions pipeline — what runs, how to reproduce locally |
-| [Local LLM with MLX](guides/local-llm-mlx.md) | Run the local LLM provider (Qwen/MLX on Apple Silicon): config, env vars, server, probes |
+| [Local LLM / Ollama](guides/local-llm.md) | Run the local LLM provider (Ollama on macOS, Linux, or Windows): config, env vars, server, probes |
 
 ---
 

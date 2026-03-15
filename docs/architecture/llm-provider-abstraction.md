@@ -180,7 +180,7 @@ This gives a clean “plug in a model” story: add a new adapter and config val
 6. **Document and test** ✅  
    - **Contract:** [LLM contract and provider abstraction](../reference/llm-contract.md) — entry points, types, provider selection, how to add a provider.  
    - **Tests:** `test_llm.py` and `test_config.py` cover provider selection and adapter behaviour; plan and agent_loop tests use the public API only.  
-   - **Deployment:** [Local LLM with MLX](../guides/local-llm-mlx.md) — config table, how the local adapter works, full MLX runbook; setup and security guides updated for both providers.
+   - **Deployment:** [Local LLM / Ollama](../guides/local-llm.md) — config table, how the local adapter works, Ollama runbook; setup and security guides updated for both providers.
 
 ---
 
