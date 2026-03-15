@@ -89,6 +89,6 @@ To add a new backend (e.g. OpenAI, Azure, or another API):
 | Doc | Content |
 |-----|--------|
 | [LLM provider abstraction (architecture)](../architecture/llm-provider-abstraction.md) | Rationale, options, target architecture, implementation steps. |
-| [Local LLM with MLX (deployment)](../guides/local-llm-mlx.md) | End-to-end local provider setup: config, env vars, MLX server, probes. |
+| [Local LLM / Ollama (deployment)](../guides/local-llm.md) | End-to-end local provider setup: config, env vars, Ollama, probes. |
 | [Type contracts — LLM Service Types](type-contracts.md#llm-service-types) | TypedDict and function signatures in detail. |
 | [Setup](../guides/setup.md) | First-run env vars; optional local LLM subsection. |

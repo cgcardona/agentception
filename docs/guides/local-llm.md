@@ -1,10 +1,21 @@
-# Local LLM with Ollama (and MLX) on Apple Silicon
+# Local LLM with Ollama
 
-This guide explains how to run **Qwen 3.5 35B** (or a quantized variant) locally on macOS and connect it to AgentCeption's **local provider**. **Ollama is the recommended inference backend.** `mlx-openai-server` is documented as a developer-only footnote.
+This guide explains how to run a local inference server and connect it to AgentCeption's **local provider**. **Ollama is the recommended backend.**
 
-**Target hardware:** Apple Silicon Mac (M1/M2/M3/M4) with at least 24 GB unified memory; 48 GB recommended for the 35B 4-bit model.
+AgentCeption works on **macOS, Linux, and Windows** with any [Ollama](https://ollama.com)-compatible server — no API key, no cloud bill, no data leaving your machine.
 
-AgentCeption uses a **provider-agnostic LLM contract**. When the effective provider is **local**, all LLM calls (planning, streaming preview, agent loop) go to your **Chat Completions–compatible** HTTP server on the host instead of Anthropic. Thinking vs content is **normalized by the adapter**: stream chunks always have `type: "thinking"` or `type: "content"`; completion returns only the final answer string. See [LLM contract and provider abstraction](../reference/llm-contract.md) for the full contract and config model.
+**Recommended hardware (any platform):**
+- 8 GB RAM minimum (4B parameter models)
+- 16–24 GB for 9B models (good for real coding tasks)
+- 48 GB+ for 35B models (best planning quality)
+
+GPU acceleration is automatic:
+- **Apple Silicon** — Metal
+- **NVIDIA** — CUDA
+- **AMD** — ROCm
+- **CPU-only** — works, but slower
+
+AgentCeption uses a **provider-agnostic LLM contract**. When the effective provider is **local**, all LLM calls (planning, streaming preview, agent loop) go to your Chat Completions–compatible HTTP server instead of Anthropic. See [LLM contract and provider abstraction](../reference/llm-contract.md) for the full contract and config model.
 
 ### Naming: "OpenAI" in tooling — not OpenAI's cloud
 
@@ -14,7 +25,7 @@ You will see names like **OpenAI-compatible** and the package **`mlx-openai-serv
 |---------------|--------|
 | **OpenAI-compatible / Chat Completions API** | The HTTP shape many tools use: `POST /v1/chat/completions`, JSON body with `messages`, response with `choices[].message`. It is a **wire format** — not a claim that traffic goes to OpenAI Inc. |
 | **Ollama** | Production-grade local inference server. Implements the OpenAI-compatible API. **Recommended.** |
-| **`mlx-openai-server`** | Developer-preview local MLX server. Single-process, no request queue, KV cache saturates after large generations. **For development and one-off tests only.** |
+| **`mlx-openai-server`** | Developer-preview local MLX server (Apple Silicon only). Single-process, no request queue, KV cache saturates after large generations. **For development and one-off tests only.** |
 
 So: **no OpenAI account or cloud call is required** for the local provider. You are the datacenter; the "OpenAI" wording is only about **request/response shape**, so the same client code can talk to many backends.
 
@@ -35,7 +46,7 @@ When the effective provider is **local**, the following env vars apply. Set them
 |---------|---------|--------|
 | `LOCAL_LLM_BASE_URL` | `http://host.docker.internal:11434` | Base URL of your local Chat Completions–compatible server (no trailing slash). From Docker, use `host.docker.internal` to reach a server on the host. Ollama default port is **11434**. |
 | `LOCAL_LLM_CHAT_PATH` | `/v1/chat/completions` | Path appended to the base URL for chat completions. Ollama exposes this path. |
-| `LOCAL_LLM_MODEL` | *(empty)* | Model name sent in requests. For Ollama, set this to the exact tag (e.g. `qwen3.5:35b-a3b-q4_K_M`). If empty, some servers use their loaded model; Ollama requires a model name. |
+| `LOCAL_LLM_MODEL` | *(empty)* | Model name sent in requests. For Ollama, set this to the exact tag (e.g. `qwen2.5-coder:7b`). If empty, some servers use their loaded model; Ollama requires a model name. |
 | `LOCAL_LLM_MAX_CONTEXT_CHARS` | `12000` | Max characters for the first user message (task briefing) when using the local LLM. Reduces load on small models. |
 | `LOCAL_LLM_MAX_SYSTEM_CHARS` | `6000` | Max characters for the system prompt (role + cognitive arch). Truncation is applied when using the local provider. |
 | `LOCAL_LLM_MAX_TOKENS` | `4096` | Desired max completion tokens per turn (agent loop). Never sent above the ceiling below. |
@@ -83,30 +94,39 @@ Ollama is the recommended local inference backend. It is production-grade:
 ### Install Ollama
 
 ```bash
-# macOS (via Homebrew)
-brew install ollama
+# macOS (Homebrew)
+brew install ollama && brew services start ollama
 
-# Or download from https://ollama.com/download
+# Linux (one-line installer)
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Windows
+# Download the installer from https://ollama.com/download
 ```
 
 ### Pull a model
 
 ```bash
-# Qwen 3.5 35B (MoE, 4-bit) — requires ~20 GB unified memory for weights
+# Qwen 2.5 Coder 7B — fast, good quality (~4 GB), works on 8 GB+ RAM
+ollama pull qwen2.5-coder:7b
+
+# Qwen 3.5 35B (MoE, 4-bit) — best quality; requires ~20 GB RAM for weights
 ollama pull qwen3.5:35b-a3b-q4_K_M
 
-# Qwen 3.5 9B (4-bit) — for 16–24 GB Macs
+# Qwen 3.5 9B (4-bit) — good for real coding tasks, 16–24 GB RAM
 ollama pull qwen3.5:9b
 
-# Qwen 3.5 4B (4-bit) — for 8–16 GB Macs
+# Qwen 3.5 4B (4-bit) — for 8–16 GB RAM
 ollama pull qwen3.5:4b
 ```
 
 ### Start the Ollama server
 
 ```bash
-# Start in the background (listens on 0.0.0.0:11434 by default)
+# macOS/Linux: start in the background (listens on 0.0.0.0:11434 by default)
 ollama serve
+
+# Windows: Ollama runs as a system service after installation; no manual start needed.
 ```
 
 Ollama binds to `0.0.0.0:11434` by default, so Docker containers reach it at `host.docker.internal:11434`.
@@ -119,7 +139,7 @@ In `.env`:
 LLM_PROVIDER=local
 LOCAL_LLM_BASE_URL=http://host.docker.internal:11434
 LOCAL_LLM_CHAT_PATH=/v1/chat/completions
-LOCAL_LLM_MODEL=qwen3.5:35b-a3b-q4_K_M
+LOCAL_LLM_MODEL=qwen2.5-coder:7b
 LOCAL_LLM_COMPLETION_TOKEN_CEILING=8192
 LOCAL_LLM_MAX_CONTEXT_CHARS=24000
 LOCAL_LLM_MAX_SYSTEM_CHARS=12000
@@ -139,7 +159,7 @@ docker compose restart agentception
 curl -s http://localhost:11434/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "qwen3.5:35b-a3b-q4_K_M",
+    "model": "qwen2.5-coder:7b",
     "messages": [{"role": "user", "content": "Reply with exactly: hello world"}],
     "temperature": 0.0,
     "max_tokens": 32,
@@ -149,7 +169,7 @@ curl -s http://localhost:11434/v1/chat/completions \
 # From inside Docker
 docker compose exec agentception curl -s http://host.docker.internal:11434/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model":"qwen3.5:35b-a3b-q4_K_M","messages":[{"role":"user","content":"Say hi"}],"temperature":0,"max_tokens":16,"stream":false}'
+  -d '{"model":"qwen2.5-coder:7b","messages":[{"role":"user","content":"Say hi"}],"temperature":0,"max_tokens":16,"stream":false}'
 
 # Confirm AgentCeption reaches the local model
 curl -s http://localhost:10003/api/local-llm/hello
@@ -197,10 +217,11 @@ When Ollama is running, point the agent at it so it uses the local model instead
 
 ---
 
-## Model choice by Mac RAM
+## Model choice by available RAM
 
-| Mac RAM (unified) | Model | Ollama tag | Notes |
-|-------------------|-------|------------|-------|
+| RAM | Model | Ollama tag | Notes |
+|-----|-------|------------|-------|
+| 8–16 GB | Qwen 2.5 Coder 7B | `qwen2.5-coder:7b` | Fast; good for coding tasks |
 | 8–16 GB | Qwen 3.5 4B | `qwen3.5:4b` | Fast; limited context |
 | 16–24 GB | Qwen 3.5 9B | `qwen3.5:9b` | Good for real coding tasks |
 | 48 GB+ | Qwen 3.5 35B (MoE) | `qwen3.5:35b-a3b-q4_K_M` | Best quality; preferred for planning |
@@ -213,7 +234,7 @@ LOCAL_LLM_MAX_CONTEXT_CHARS=24000
 LOCAL_LLM_MAX_SYSTEM_CHARS=12000
 LOCAL_LLM_MAX_TOKENS=8192
 
-# Qwen 3.5 4B (8–16 GB) — more conservative
+# Qwen 3.5 4B / Qwen 2.5 Coder 7B (8–16 GB) — more conservative
 LOCAL_LLM_MAX_CONTEXT_CHARS=12000
 LOCAL_LLM_MAX_SYSTEM_CHARS=6000
 LOCAL_LLM_MAX_TOKENS=4096
@@ -221,40 +242,34 @@ LOCAL_LLM_MAX_TOKENS=4096
 
 ---
 
-## Capturing resource usage (CPU, GPU, Neural Engine)
+## Capturing resource usage
 
-Use **Activity Monitor** for a quick view, or **powermetrics** for detailed, script-friendly logs.
+### macOS — Activity Monitor and powermetrics
 
-### Activity Monitor
+Use **Activity Monitor** for a quick visual view: Window → CPU History, GPU History.
 
-1. Open **Activity Monitor** (Applications → Utilities).
-2. Window → **CPU History**, **GPU History** (if available).
-3. Run your inference in a terminal; watch **CPU**, **Memory**, and **GPU** during the run.
-
-### powermetrics (command line)
-
-Requires `sudo`. Sample every 1 second, 60 samples (~1 minute), and write to a file:
+For scripted logs, use **powermetrics** (requires `sudo`):
 
 ```bash
+# Sample every 1 second, 60 samples (~1 minute)
 sudo powermetrics -i 1000 -n 60 -o powermetrics_run.txt -s cpu_power,gpu_power,ane_power
 ```
 
-Then start your inference in another terminal. When the run finishes, stop powermetrics (Ctrl+C if running in foreground). The file will contain CPU, GPU, and ANE (Neural Engine) power estimates.
+Useful samplers: `cpu_power`, `gpu_power`, `ane_power` (Apple Neural Engine), `all`.
 
-**Useful samplers:**
-
-- `cpu_power` — CPU usage and power
-- `gpu_power` — GPU
-- `ane_power` — Apple Neural Engine
-- `all` — everything (noisier, larger output)
-
-**Example (minimal, 10 samples at 2 s):**
+### Linux — nvidia-smi / rocm-smi
 
 ```bash
-sudo powermetrics -i 2000 -n 10 -o ~/mlx_resource_run.txt -s cpu_power,gpu_power,ane_power
+# NVIDIA
+watch -n 1 nvidia-smi
+
+# AMD
+watch -n 1 rocm-smi
 ```
 
-Open `~/mlx_resource_run.txt` after the run to inspect CPU/GPU/ANE utilization during inference.
+### Windows
+
+Use **Task Manager → Performance** for a quick view, or install **GPU-Z** / **HWiNFO** for detailed GPU metrics.
 
 ---
 
@@ -274,7 +289,7 @@ These work for any OpenAI-compatible backend (Ollama or otherwise). Replace the 
 curl -s http://localhost:11434/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "qwen3.5:35b-a3b-q4_K_M",
+    "model": "qwen2.5-coder:7b",
     "messages": [
       {"role": "system", "content": "You are a helpful assistant."},
       {"role": "user", "content": "Reply with exactly: hello world"}
@@ -290,16 +305,16 @@ curl -s http://localhost:11434/v1/chat/completions \
 ```bash
 docker compose exec agentception curl -s http://host.docker.internal:11434/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model":"qwen3.5:35b-a3b-q4_K_M","messages":[{"role":"user","content":"Say hi"}],"temperature":0,"max_tokens":64,"stream":false}'
+  -d '{"model":"qwen2.5-coder:7b","messages":[{"role":"user","content":"Say hi"}],"temperature":0,"max_tokens":64,"stream":false}'
 ```
 
 If the host call works but the Docker call fails, check that Ollama is not bound only to `127.0.0.1`. Ollama binds to `0.0.0.0` by default, so this should work without extra config.
 
 ---
 
-## Developer footnote: mlx-openai-server
+## Apple Silicon: MLX (developer footnote)
 
-`mlx-openai-server` is a developer preview tool. It is **not suitable for multi-agent workloads** because:
+`mlx-openai-server` is an Apple Silicon–only developer preview tool. It is **not suitable for multi-agent workloads** because:
 
 - Single-process, no request queue — one request at a time
 - No KV cache management — cache saturates after a large generation (~4000 tok); subsequent requests hang until server restart
@@ -308,7 +323,7 @@ If the host call works but the Docker call fails, check that Ollama is not bound
 
 Use it only for one-off tests or model exploration on a Mac that does not have Ollama installed. If you must use it, set `LOCAL_LLM_COMPLETION_TOKEN_CEILING=4096` and expect to restart it between large generations.
 
-**Quick start (mlx-openai-server, developer use only):**
+**Quick start (mlx-openai-server, developer use only, Apple Silicon):**
 
 ```bash
 pip install -U mlx-openai-server
@@ -361,5 +376,5 @@ After the run, verify: `docker compose exec agentception pytest agentception/tes
 - [Local LLM Scaling](local-llm-scaling.md) — multi-agent scaling with LiteLLM Proxy and multiple Ollama instances.
 - [LLM contract and provider abstraction](../reference/llm-contract.md) — AgentCeption's LLM contract, provider selection, and how to add a provider.
 - [Ollama](https://ollama.com) — local inference server (recommended).
-- [mlx-community/Qwen3.5-35B-A3B-4bit](https://huggingface.co/mlx-community/Qwen3.5-35B-A3B-4bit) — 4-bit quantized Qwen 3.5 35B for MLX.
+- [mlx-community/Qwen3.5-35B-A3B-4bit](https://huggingface.co/mlx-community/Qwen3.5-35B-A3B-4bit) — 4-bit quantized Qwen 3.5 35B for MLX (Apple Silicon only).
 - [powermetrics(1)](https://keith.github.io/xcode-man-pages/powermetrics.1.html) — macOS power and usage sampling.

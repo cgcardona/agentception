@@ -67,14 +67,17 @@ docker compose exec agentception alembic upgrade head
 open http://localhost:10003
 ```
 
-### Option B — Local models on macOS (free, private)
+### Option B — Local models (free, private)
 
-Run agents entirely on your own hardware with [Ollama](https://ollama.com). No API key, no cloud, no usage bill. Runs on Apple Silicon via Metal — GPU-accelerated.
+Run agents entirely on your own hardware with [Ollama](https://ollama.com). No API key, no cloud, no usage bill. Works on **macOS, Linux, and Windows** — GPU-accelerated on Apple Silicon (Metal), NVIDIA (CUDA), and AMD (ROCm).
 
 ```bash
-# 1. Install Ollama and pull a model
-brew install ollama
-brew services start ollama
+# 1. Install Ollama — https://ollama.com/download
+#    macOS:   brew install ollama && brew services start ollama
+#    Linux:   curl -fsSL https://ollama.com/install.sh | sh
+#    Windows: download the installer from https://ollama.com/download
+
+# Pull a model
 ollama pull qwen2.5-coder:7b      # fast, good quality (~4 GB)
 # ollama pull qwen2.5-coder:32b   # better quality, needs 16 GB+ RAM
 
@@ -99,12 +102,13 @@ HOST_WORKTREES_DIR=/path/to/worktrees
 # 3. Start
 docker compose up -d
 docker compose exec agentception alembic upgrade head
-open http://localhost:10003
+# macOS: open http://localhost:10003
+# Linux/Windows: navigate to http://localhost:10003
 ```
 
 > **Performance tip:** Set `WORKTREE_INDEX_ENABLED=false` in `.env` to skip per-agent code indexing (saves ~2 GB RSS and significant CPU) when running on constrained hardware.
 
-See [docs/guides/local-llm-mlx.md](docs/guides/local-llm-mlx.md) for the full Ollama setup guide and model recommendations.
+See [docs/guides/local-llm.md](docs/guides/local-llm.md) for the full Ollama setup guide and model recommendations.
 
 ---
 
@@ -153,7 +157,7 @@ See [docs/guides/integrate.md](docs/guides/integrate.md) for the full tool refer
 | Guide | What it covers |
 |-------|----------------|
 | [Setup](docs/guides/setup.md) | First-run, Docker, environment variables |
-| [Local LLM / Ollama](docs/guides/local-llm-mlx.md) | Running agents on local hardware with Ollama |
+| [Local LLM / Ollama](docs/guides/local-llm.md) | Running agents on local hardware with Ollama (macOS, Linux, Windows) |
 | [Local LLM Scaling](docs/guides/local-llm-scaling.md) | Multi-agent concurrency and LiteLLM proxy |
 | [MCP Integration](docs/guides/integrate.md) | Cursor / Claude tool integration |
 | [Dispatching Agents](docs/guides/dispatch.md) | How to launch, monitor, and cancel agent runs |

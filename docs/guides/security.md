@@ -31,7 +31,7 @@ LLM calls are made by `agentception/services/llm.py` through a **provider-agnost
 
 **Anthropic provider (default):** All requests go to `https://api.anthropic.com/v1/messages` over HTTPS. `httpx` enforces TLS; there is no HTTP fallback. Your API key is sent in the `Authorization: Bearer <key>` header. The key is never logged.
 
-**Local provider:** When `LLM_PROVIDER=local`, all LLM traffic is between AgentCeption and your Ollama server on the host. No data is sent to Anthropic. Use a private base URL (e.g. `http://host.docker.internal:11434`); see [Local LLM / Ollama guide](local-llm-mlx.md).
+**Local provider:** When `LLM_PROVIDER=local`, all LLM traffic is between AgentCeption and your Ollama server on the host. No data is sent to Anthropic. Use a private base URL (e.g. `http://host.docker.internal:11434`); see [Local LLM / Ollama guide](local-llm.md).
 
 **What you must do for Anthropic:** Set `ANTHROPIC_API_KEY` when using the anthropic provider. For local, set `LLM_PROVIDER=local` and configure `LOCAL_LLM_BASE_URL` (and optional caps).
 
