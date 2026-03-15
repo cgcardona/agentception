@@ -1,4 +1,4 @@
-// ── Activity feed row (SSE activity messages) ─────────────────────────────────
+// ── Activity feed row (SSE activity messages) ───────────────────
 
 .activity-feed__row {
   display: flex;
@@ -10,6 +10,44 @@
   max-width: 100%;
   overflow-x: hidden;
   word-break: break-word;
+  border-left: 2px solid transparent;
+  transition: background 0.12s;
+
+  &:hover {
+    background: var(--bg-hover);
+  }
+
+  // LLM events — purple
+  &[data-subtype^="llm"] {
+    border-left-color: #9b6dff;
+  }
+
+  // File events — green
+  &[data-subtype^="file"] {
+    border-left-color: #3ecf8e;
+  }
+
+  // Tool events — orange
+  &[data-subtype="tool"],
+  &[data-subtype="tool_invoked"],
+  &[data-subtype="github_tool"] {
+    border-left-color: #f5a623;
+  }
+
+  // Shell events — gray
+  &[data-subtype^="shell"] {
+    border-left-color: #555;
+  }
+
+  // Git push events — blue
+  &[data-subtype="git_push"] {
+    border-left-color: #4dabf7;
+  }
+
+  // Error events — red
+  &[data-subtype="error"] {
+    border-left-color: #e53e3e;
+  }
 
   .activity-feed__icon {
     flex-shrink: 0;
