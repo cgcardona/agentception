@@ -42,6 +42,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agentception.config import LLMProviderChoice, settings
+from agentception.types import JsonSchemaObj, JsonValue
 from agentception.db.activity_events import persist_activity_event
 
 logger = logging.getLogger(__name__)
@@ -93,14 +94,14 @@ def _log_http_error(exc: httpx.HTTPStatusError) -> None:
     """
     status = exc.response.status_code
     try:
-        body: object = exc.response.json()
+        body: JsonValue = exc.response.json()
     except Exception:
         body = exc.response.text
 
     if isinstance(body, dict):
-        error_block: object = body.get("error", {})
+        error_block: JsonValue = body.get("error", {})
         if isinstance(error_block, dict):
-            msg: object = error_block.get("message", "")
+            msg: JsonValue = error_block.get("message", "")
             if isinstance(msg, str) and "credit balance" in msg.lower():
                 logger.error(
                     "❌ Anthropic billing error (HTTP %d): credit balance exhausted — "
@@ -154,7 +155,7 @@ class ToolFunction(TypedDict):
 
     name: str
     description: str
-    parameters: dict[str, object]
+    parameters: JsonSchemaObj
 
 
 class ToolDefinition(TypedDict):
@@ -214,7 +215,7 @@ async def completion(
     system_prompt: str | None = None,
     temperature: float = 0.2,
     max_tokens: int = 4096,
-    json_schema: dict[str, object] | None = None,
+    json_schema: JsonSchemaObj | None = None,
 ) -> str:
     """Single-turn completion; returns final answer text (thinking stripped by adapter).
 
@@ -271,14 +272,14 @@ async def completion_stream(
 
 
 async def completion_with_tools(
-    messages: list[dict[str, object]],
+    messages: list[dict[str, JsonValue]],
     *,
     system: str,
     tools: list[ToolDefinition],
     model: str = _MODEL,
     temperature: float = 0.0,
     max_tokens: int = 32000,
-    extra_system_blocks: list[dict[str, object]] | None = None,
+    extra_system_blocks: list[dict[str, JsonValue]] | None = None,
     session: AsyncSession | None = None,
     run_id: str | None = None,
     iteration: int = 0,
@@ -391,7 +392,7 @@ def _get_client() -> httpx.AsyncClient:
 # ---------------------------------------------------------------------------
 
 
-def _tools_to_anthropic(tools: list[ToolDefinition]) -> list[dict[str, object]]:
+def _tools_to_anthropic(tools: list[ToolDefinition]) -> list[JsonValue]:
     """Convert OpenAI-format tool definitions to Anthropic's input_schema format.
 
     The last tool in the converted list receives ``cache_control: ephemeral`` so
@@ -403,7 +404,7 @@ def _tools_to_anthropic(tools: list[ToolDefinition]) -> list[dict[str, object]]:
     This is the server-side answer to "on-demand tool discovery": tools are
     loaded once, cached, and referenced cheaply on every subsequent turn.
     """
-    result: list[dict[str, object]] = []
+    result: list[JsonValue] = []
     for tool in tools:
         fn = tool["function"]
         result.append(
@@ -413,15 +414,16 @@ def _tools_to_anthropic(tools: list[ToolDefinition]) -> list[dict[str, object]]:
                 "input_schema": fn["parameters"],
             }
         )
-    # Mark the last tool as the cache boundary so the full list is cached.
     if result:
-        result[-1] = {**result[-1], "cache_control": {"type": "ephemeral"}}
+        last = result[-1]
+        if isinstance(last, dict):
+            result[-1] = {**last, "cache_control": {"type": "ephemeral"}}
     return result
 
 
 def _messages_to_anthropic(
-    messages: list[dict[str, object]],
-) -> list[dict[str, object]]:
+    messages: list[dict[str, JsonValue]],
+) -> list[JsonValue]:
     """Convert OpenAI-format message history to Anthropic Messages format.
 
     Key differences handled here:
@@ -431,11 +433,11 @@ def _messages_to_anthropic(
     - ``role: "assistant"`` messages with ``tool_calls`` become assistant
       messages whose ``content`` is an array of ``tool_use`` blocks.
     """
-    out: list[dict[str, object]] = []
+    out: list[JsonValue] = []
     i = 0
     while i < len(messages):
         msg = messages[i]
-        role: object = msg.get("role", "")
+        role: JsonValue = msg.get("role", "")
 
         if role == "user":
             raw = msg.get("content", "")
@@ -443,7 +445,7 @@ def _messages_to_anthropic(
             i += 1
 
         elif role == "assistant":
-            blocks: list[dict[str, object]] = []
+            blocks: list[JsonValue] = []
             text = msg.get("content") or ""
             if isinstance(text, str) and text:
                 blocks.append({"type": "text", "text": text})
@@ -458,7 +460,7 @@ def _messages_to_anthropic(
                         continue
                     args_raw = fn.get("arguments", "{}")
                     try:
-                        args: object = (
+                        args: JsonValue = (
                             json.loads(args_raw)
                             if isinstance(args_raw, str)
                             else args_raw
@@ -474,14 +476,13 @@ def _messages_to_anthropic(
                         }
                     )
             # Anthropic requires non-empty content; send empty string if no blocks.
-            out.append(
-                {"role": "assistant", "content": blocks if blocks else ""}
-            )
+            content_val: JsonValue = blocks if blocks else ""
+            out.append({"role": "assistant", "content": content_val})
             i += 1
 
         elif role == "tool":
             # Collapse consecutive tool-result messages into one user turn.
-            results: list[dict[str, object]] = []
+            results: list[JsonValue] = []
             while i < len(messages) and messages[i].get("role") == "tool":
                 tr = messages[i]
                 results.append(
@@ -511,7 +512,7 @@ async def call_anthropic(
     system_prompt: str | None = None,
     temperature: float = 0.2,
     max_tokens: int = 4096,
-    json_schema: dict[str, object] | None = None,
+    json_schema: JsonSchemaObj | None = None,
 ) -> str:
     """Call Claude via the Anthropic API and return the full text response.
 
@@ -533,7 +534,7 @@ async def call_anthropic(
         httpx.HTTPStatusError: On non-2xx responses after retries.
         httpx.TimeoutException: When the request exceeds ``_DEFAULT_TIMEOUT``.
     """
-    payload: dict[str, object] = {
+    payload: dict[str, JsonValue] = {
         "model": _MODEL,
         "max_tokens": max_tokens,
         "temperature": temperature,
@@ -590,11 +591,11 @@ async def call_anthropic(
     else:
         raise last_error or RuntimeError("LLM request failed after retries")
 
-    data: object = resp.json()
+    data: JsonValue = resp.json()
     if not isinstance(data, dict):
         raise ValueError(f"Unexpected Anthropic response type: {type(data)}")
 
-    content_blocks: object = data.get("content", [])
+    content_blocks: JsonValue = data.get("content", [])
     if not isinstance(content_blocks, list):
         raise ValueError(f"Anthropic returned unexpected content: {data}")
 
@@ -653,11 +654,11 @@ async def call_anthropic_stream(
     """
     thinking_budget = max(int(max_tokens * reasoning_fraction), 1024)
 
-    messages: list[dict[str, object]] = [
+    messages: list[JsonValue] = [
         {"role": "user", "content": user_prompt}
     ]
 
-    payload: dict[str, object] = {
+    payload: dict[str, JsonValue] = {
         "model": _MODEL,
         "max_tokens": max_tokens,
         # temperature must be 1 when extended thinking is active (Anthropic requirement).
@@ -693,25 +694,25 @@ async def call_anthropic_stream(
             if raw == "[DONE]":
                 break
             try:
-                event: object = json.loads(raw)
+                event: JsonValue = json.loads(raw)
                 if not isinstance(event, dict):
                     continue
                 if event.get("type") != "content_block_delta":
                     continue
-                delta: object = event.get("delta")
+                delta: JsonValue = event.get("delta")
                 if not isinstance(delta, dict):
                     continue
 
-                delta_type: object = delta.get("type")
+                delta_type: JsonValue = delta.get("type")
 
                 if delta_type == "thinking_delta":
-                    thinking: object = delta.get("thinking", "")
+                    thinking: JsonValue = delta.get("thinking", "")
                     if isinstance(thinking, str) and thinking:
                         total_thinking += len(thinking)
                         yield LLMChunk(type="thinking", text=thinking)
 
                 elif delta_type == "text_delta":
-                    text: object = delta.get("text", "")
+                    text: JsonValue = delta.get("text", "")
                     if isinstance(text, str) and text:
                         total_content += len(text)
                         yield LLMChunk(type="content", text=text)
@@ -732,14 +733,14 @@ async def call_anthropic_stream(
 
 
 async def call_anthropic_with_tools(
-    messages: list[dict[str, object]],
+    messages: list[dict[str, JsonValue]],
     *,
     system: str,
     tools: list[ToolDefinition],
     model: str = _MODEL,
     temperature: float = 0.0,
     max_tokens: int = 32000,
-    extra_system_blocks: list[dict[str, object]] | None = None,
+    extra_system_blocks: list[dict[str, JsonValue]] | None = None,
     session: AsyncSession | None = None,
     run_id: str | None = None,
     iteration: int = 0,
@@ -783,7 +784,7 @@ async def call_anthropic_with_tools(
     # cache_control: ephemeral → 5-minute TTL; charged at ~10% on cache hits.
     # extra_system_blocks (e.g. working memory) are appended WITHOUT cache_control
     # so they are re-evaluated fresh every turn without busting the main cache.
-    system_block: list[dict[str, object]] = [
+    system_block: list[JsonValue] = [
         {
             "type": "text",
             "text": system,
@@ -793,7 +794,7 @@ async def call_anthropic_with_tools(
     if extra_system_blocks:
         system_block.extend(extra_system_blocks)
 
-    payload: dict[str, object] = {
+    payload: dict[str, JsonValue] = {
         "model": model,
         "system": system_block,
         "messages": anthropic_messages,
@@ -855,14 +856,14 @@ async def call_anthropic_with_tools(
     else:
         raise last_error or RuntimeError("LLM tool-use request failed after retries")
 
-    data: object = resp.json()
+    data: JsonValue = resp.json()
     if not isinstance(data, dict):
         raise ValueError(f"Unexpected Anthropic response type: {type(data)}")
 
     # Map Anthropic stop reasons to the internal convention the agent loop expects.
     # Anthropic: "tool_use" | "end_turn" | "max_tokens"
     # Internal:  "tool_calls" | "stop"   | "length"
-    raw_stop: object = data.get("stop_reason", "end_turn")
+    raw_stop: JsonValue = data.get("stop_reason", "end_turn")
     if raw_stop == "tool_use":
         stop_reason = "tool_calls"
     elif raw_stop == "max_tokens":
@@ -870,7 +871,7 @@ async def call_anthropic_with_tools(
     else:
         stop_reason = "stop"
 
-    content_blocks: object = data.get("content", [])
+    content_blocks: JsonValue = data.get("content", [])
     if not isinstance(content_blocks, list):
         content_blocks = []
 
@@ -886,7 +887,7 @@ async def call_anthropic_with_tools(
             if isinstance(t, str):
                 text_parts.append(t)
         elif btype == "tool_use":
-            tool_input: object = block.get("input", {})
+            tool_input: JsonValue = block.get("input", {})
             # Convert input dict back to JSON string (OpenAI ToolCallFunction expects it).
             args_str = (
                 json.dumps(tool_input)
@@ -905,7 +906,7 @@ async def call_anthropic_with_tools(
             )
 
     # Extract token counts — used for rate-limit accounting and cost tracking.
-    usage: object = data.get("usage", {})
+    usage: JsonValue = data.get("usage", {})
     input_tokens: int = 0
     output_tokens: int = 0
     cache_creation_tokens: int = 0
@@ -990,7 +991,7 @@ async def call_anthropic_with_tools(
 # ---------------------------------------------------------------------------
 
 
-def _normalize_openai_message_content(message: dict[str, object]) -> str:
+def _normalize_openai_message_content(message: dict[str, JsonValue]) -> str:
     """Extract final answer string from OpenAI-format message.content.
 
     Contract: adapter returns only the final answer (thinking/reasoning stripped).
@@ -1004,9 +1005,9 @@ def _normalize_openai_message_content(message: dict[str, object]) -> str:
     exhausted during chain-of-thought before the model could write its answer.
     Raise ``LOCAL_LLM_COMPLETION_TOKEN_CEILING`` to fix.
     """
-    raw: object = message.get("content")
+    raw: JsonValue = message.get("content")
     if raw is None or raw == "":
-        reasoning: object = message.get("reasoning")
+        reasoning: JsonValue = message.get("reasoning")
         if isinstance(reasoning, str) and reasoning:
             logger.warning(
                 "⚠️ Local LLM returned empty content with non-empty reasoning — "
@@ -1032,9 +1033,9 @@ def _normalize_openai_message_content(message: dict[str, object]) -> str:
     return "".join(parts).strip()
 
 
-def _tools_to_openai(tools: list[ToolDefinition]) -> list[dict[str, object]]:
+def _tools_to_openai(tools: list[ToolDefinition]) -> list[JsonValue]:
     """Convert internal tool definitions to OpenAI /v1/chat/completions format."""
-    out: list[dict[str, object]] = []
+    out: list[JsonValue] = []
     for t in tools:
         fn = t["function"]
         out.append(
@@ -1051,14 +1052,14 @@ def _tools_to_openai(tools: list[ToolDefinition]) -> list[dict[str, object]]:
 
 
 async def call_local_with_tools(
-    messages: list[dict[str, object]],
+    messages: list[dict[str, JsonValue]],
     *,
     system: str,
     tools: list[ToolDefinition],
     model: str = "local",
     temperature: float = 0.0,
     max_tokens: int = 32000,
-    extra_system_blocks: list[dict[str, object]] | None = None,
+    extra_system_blocks: list[dict[str, JsonValue]] | None = None,
     session: AsyncSession | None = None,
     run_id: str | None = None,
     iteration: int = 0,
@@ -1077,11 +1078,11 @@ async def call_local_with_tools(
                 text = blk.get("text", "")
                 if isinstance(text, str) and text:
                     system_content = f"{system_content}\n\n{text}"
-    request_messages: list[dict[str, object]] = [
+    request_messages: list[JsonValue] = [
         {"role": "system", "content": system_content},
         *messages,
     ]
-    payload: dict[str, object] = {
+    payload: dict[str, JsonValue] = {
         "messages": request_messages,
         "temperature": temperature,
         "max_tokens": _local_cap_max_tokens(max_tokens),
@@ -1113,21 +1114,21 @@ async def call_local_with_tools(
         resp = await client.post(url, json=payload)
         resp.raise_for_status()
 
-    data: object = resp.json()
+    data: JsonValue = resp.json()
     if not isinstance(data, dict):
         raise ValueError(f"Local LLM response not a dict: {type(data)}")
 
-    choices: object = data.get("choices", [])
+    choices: JsonValue = data.get("choices", [])
     if not isinstance(choices, list) or not choices:
         raise ValueError("Local LLM response has no choices")
-    first: object = choices[0]
+    first: JsonValue = choices[0]
     if not isinstance(first, dict):
         raise ValueError("Local LLM first choice not a dict")
-    msg: object = first.get("message", {})
+    msg: JsonValue = first.get("message", {})
     if not isinstance(msg, dict):
         raise ValueError("Local LLM message not a dict")
 
-    finish: object = first.get("finish_reason", "stop")
+    finish: JsonValue = first.get("finish_reason", "stop")
     if finish == "tool_calls":
         stop_reason = "tool_calls"
     elif finish == "length":
@@ -1136,7 +1137,7 @@ async def call_local_with_tools(
         stop_reason = "stop"
 
     content = _normalize_openai_message_content(msg)
-    raw_calls: object = msg.get("tool_calls") or []
+    raw_calls: JsonValue = msg.get("tool_calls") or []
     tool_calls: list[ToolCall] = []
     if isinstance(raw_calls, list):
         for tc in raw_calls:
@@ -1157,12 +1158,16 @@ async def call_local_with_tools(
                 )
             )
 
-    usage: object = data.get("usage", {})
+    usage: JsonValue = data.get("usage", {})
     input_tokens = 0
     output_tokens = 0
     if isinstance(usage, dict):
-        input_tokens = int(usage.get("prompt_tokens", 0) or 0)
-        output_tokens = int(usage.get("completion_tokens", 0) or 0)
+        raw_in: JsonValue = usage.get("prompt_tokens", 0)
+        raw_out: JsonValue = usage.get("completion_tokens", 0)
+        if isinstance(raw_in, (int, float, str)):
+            input_tokens = int(raw_in)
+        if isinstance(raw_out, (int, float, str)):
+            output_tokens = int(raw_out)
     # Same log shape as Anthropic path so watch_run.py shows reply and done.
     if content.strip():
         snippet = content.replace("\n", " ").strip()
@@ -1238,7 +1243,7 @@ def _local_completion_payload(
     stream: bool = False,
     model_override: str = "",
     think: bool = False,
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Build request body for local single-turn completion (no tools).
 
     ``model_override`` lets call sites specify a use-case-specific model name
@@ -1253,7 +1258,7 @@ def _local_completion_payload(
     adds support.  Set ``think=True`` for planning/streaming calls.
     """
     capped = _local_cap_max_tokens(max_tokens)
-    payload: dict[str, object] = {
+    payload: dict[str, JsonValue] = {
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user_message},
@@ -1301,13 +1306,13 @@ async def call_local_completion(
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(url, json=payload)
         resp.raise_for_status()
-    data: object = resp.json()
+    data: JsonValue = resp.json()
     if not isinstance(data, dict):
         raise ValueError(f"Local LLM response not a dict: {type(data)}")
-    choices: object = data.get("choices", [])
+    choices: JsonValue = data.get("choices", [])
     if not isinstance(choices, list) or not choices:
         raise ValueError("Local LLM response has no choices")
-    first: object = choices[0]
+    first: JsonValue = choices[0]
     if not isinstance(first, dict):
         raise ValueError("Local LLM first choice not a dict")
     msg = first.get("message", {})
@@ -1441,22 +1446,22 @@ async def _local_completion_stream(
                             continue
                         if not isinstance(data, dict):
                             continue
-                        choices_inner: object = data.get("choices", [])
+                        choices_inner: JsonValue = data.get("choices", [])
                         if not isinstance(choices_inner, list) or not choices_inner:
                             continue
-                        first_inner: object = choices_inner[0]
+                        first_inner: JsonValue = choices_inner[0]
                         if not isinstance(first_inner, dict):
                             continue
-                        delta: object = first_inner.get("delta", {})
+                        delta: JsonValue = first_inner.get("delta", {})
                         if not isinstance(delta, dict):
                             continue
-                        reasoning: object = delta.get("reasoning_content") or delta.get(
+                        reasoning: JsonValue = delta.get("reasoning_content") or delta.get(
                             "reasoning"
                         )
                         if isinstance(reasoning, str) and reasoning:
                             yielded_any = True
                             yield LLMChunk(type="thinking", text=reasoning)
-                        content_part: object = delta.get("content")
+                        content_part: JsonValue = delta.get("content")
                         if isinstance(content_part, str) and content_part:
                             yielded_any = True
                             yield LLMChunk(type="content", text=content_part)

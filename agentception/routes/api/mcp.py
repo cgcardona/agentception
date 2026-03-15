@@ -46,6 +46,8 @@ from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 
 from agentception.mcp.server import handle_request_async
+from agentception.mcp.types import JsonRpcErrorResponse, JsonRpcSuccessResponse
+from agentception.types import JsonValue
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +89,7 @@ async def mcp_http_endpoint(request: Request) -> Response:
     return await _handle_single(body)
 
 
-async def _handle_single(raw: object) -> Response:
+async def _handle_single(raw: JsonValue) -> Response:
     """Process a single JSON-RPC 2.0 request dict."""
     if not isinstance(raw, dict):
         return JSONResponse(
@@ -98,7 +100,7 @@ async def _handle_single(raw: object) -> Response:
                 "error": {"code": -32600, "message": "Invalid Request: body must be an object or array"},
             },
         )
-    request_dict: dict[str, object] = {k: v for k, v in raw.items()}
+    request_dict: dict[str, JsonValue] = {k: v for k, v in raw.items()}
     try:
         result = await handle_request_async(request_dict)
     except Exception as exc:
@@ -116,14 +118,14 @@ async def _handle_single(raw: object) -> Response:
     return JSONResponse(content=result)
 
 
-async def _handle_batch(items: list[object]) -> Response:
+async def _handle_batch(items: list[JsonValue]) -> Response:
     """Process a JSON-RPC 2.0 batch request array.
 
     Processes each item sequentially and collects results.  Notifications
     within a batch are silently dropped (no ``None`` entries in the output).
     Returns ``202 Accepted`` only when every item in the batch is a notification.
     """
-    results: list[object] = []
+    results: list[JsonRpcSuccessResponse | JsonRpcErrorResponse | dict[str, JsonValue]] = []
     for item in items:
         if not isinstance(item, dict):
             results.append({
@@ -132,7 +134,7 @@ async def _handle_batch(items: list[object]) -> Response:
                 "error": {"code": -32600, "message": "Invalid Request: batch item must be an object"},
             })
             continue
-        item_dict: dict[str, object] = {k: v for k, v in item.items()}
+        item_dict: dict[str, JsonValue] = {k: v for k, v in item.items()}
         try:
             result = await handle_request_async(item_dict)
         except Exception as exc:

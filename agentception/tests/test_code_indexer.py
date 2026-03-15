@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from qdrant_client.models import ScoredPoint
 
 from agentception.services.code_indexer import (
     _INDEX_VERSION,
@@ -42,7 +43,7 @@ def _make_scored_point(
     score: float = 0.9,
     start_line: int = 1,
     end_line: int = 10,
-) -> object:
+) -> ScoredPoint:
     """Build a minimal ScoredPoint-like object for mocking search results."""
     from qdrant_client.models import ScoredPoint
 
@@ -824,7 +825,7 @@ async def test_index_codebase_skips_unchanged_files(tmp_path: Path) -> None:
     )
     mock_client.get_collection.return_value = SimpleNamespace(
         config=SimpleNamespace(
-            params=SimpleNamespace(vectors={"dense": object(), "sparse": object()})
+            params=SimpleNamespace(vectors={"dense": SimpleNamespace(), "sparse": SimpleNamespace()})
         )
     )
     mock_client.scroll.return_value = ([existing_point], None)
@@ -858,7 +859,7 @@ async def test_index_codebase_rehashes_changed_files(tmp_path: Path) -> None:
     )
     mock_client.get_collection.return_value = SimpleNamespace(
         config=SimpleNamespace(
-            params=SimpleNamespace(vectors={"dense": object(), "sparse": object()})
+            params=SimpleNamespace(vectors={"dense": SimpleNamespace(), "sparse": SimpleNamespace()})
         )
     )
     mock_client.scroll.return_value = ([stale_point], None)
@@ -924,7 +925,7 @@ async def test_incremental_unchanged_files_skipped(tmp_path: Path) -> None:
     )
     mock_client.get_collection.return_value = SimpleNamespace(
         config=SimpleNamespace(
-            params=SimpleNamespace(vectors={"dense": object(), "sparse": object()})
+            params=SimpleNamespace(vectors={"dense": SimpleNamespace(), "sparse": SimpleNamespace()})
         )
     )
     mock_client.scroll.return_value = ([existing_point], None)
@@ -958,7 +959,7 @@ async def test_incremental_changed_file_replaces_chunks(tmp_path: Path) -> None:
     )
     mock_client.get_collection.return_value = SimpleNamespace(
         config=SimpleNamespace(
-            params=SimpleNamespace(vectors={"dense": object(), "sparse": object()})
+            params=SimpleNamespace(vectors={"dense": SimpleNamespace(), "sparse": SimpleNamespace()})
         )
     )
     mock_client.scroll.return_value = ([stale_point], None)
@@ -998,7 +999,7 @@ async def test_incremental_deleted_file_removes_chunks(tmp_path: Path) -> None:
     )
     mock_client.get_collection.return_value = SimpleNamespace(
         config=SimpleNamespace(
-            params=SimpleNamespace(vectors={"dense": object(), "sparse": object()})
+            params=SimpleNamespace(vectors={"dense": SimpleNamespace(), "sparse": SimpleNamespace()})
         )
     )
     mock_client.scroll.return_value = ([remaining_point, deleted_point], None)
@@ -1094,7 +1095,7 @@ async def test_index_version_mismatch_triggers_full_rebuild(tmp_path: Path) -> N
     ]
     mock_client.get_collection.return_value = SimpleNamespace(
         config=SimpleNamespace(
-            params=SimpleNamespace(vectors={"dense": object(), "sparse": object()})
+            params=SimpleNamespace(vectors={"dense": SimpleNamespace(), "sparse": SimpleNamespace()})
         )
     )
     mock_client.scroll.return_value = ([], None)

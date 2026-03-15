@@ -22,6 +22,7 @@ import time
 from pathlib import Path
 
 from agentception.config import settings
+from agentception.types import JsonValue
 from agentception.reconcile import reconcile_stale_runs
 from agentception.db.engine import get_session
 from agentception.intelligence.guards import detect_out_of_order_prs, detect_stale_claims
@@ -72,11 +73,11 @@ class GitHubBoard:
     """
 
     active_label: str | None
-    open_issues: list[dict[str, object]]
-    open_prs: list[dict[str, object]]
-    wip_issues: list[dict[str, object]]
-    closed_issues: list[dict[str, object]] = dataclasses.field(default_factory=list)
-    merged_prs: list[dict[str, object]] = dataclasses.field(default_factory=list)
+    open_issues: list[dict[str, JsonValue]]
+    open_prs: list[dict[str, JsonValue]]
+    wip_issues: list[dict[str, JsonValue]]
+    closed_issues: list[dict[str, JsonValue]] = dataclasses.field(default_factory=list)
+    merged_prs: list[dict[str, JsonValue]] = dataclasses.field(default_factory=list)
 
 
 async def build_github_board() -> GitHubBoard:

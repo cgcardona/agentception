@@ -8,7 +8,7 @@ import logging
 import re as _re
 from pathlib import Path
 
-from sqlalchemy import select, text
+from sqlalchemy import case, func, select, text
 
 from agentception.db.engine import get_session
 from agentception.db.models import (
@@ -37,6 +37,7 @@ from agentception.db.queries.types import (
     AgentRunTeardownRow,
     RunForIssueRow,
     RunTreeNodeRow,
+    BatchSummaryRow,
     _RunStepData,
     PendingLaunchRow,
     TerminalRunRow,
@@ -460,6 +461,69 @@ async def get_latest_active_batch_id(
         return None
 
 
+async def get_batch_summaries_for_initiative(
+    repo: str,
+    issue_numbers: list[int],
+) -> list[BatchSummaryRow]:
+    """Return one summary row per distinct batch that has runs for *issue_numbers*.
+
+    Each row contains the batch_id, the timestamp of the earliest run in the
+    batch, the total run count, and the count of runs currently in a live status
+    (``pending_launch | implementing | reviewing``).  Ordered newest-first by
+    earliest spawn time.
+
+    Returns ``[]`` when no batches are found or on DB error.
+    """
+    if not issue_numbers:
+        return []
+    try:
+        async with get_session() as session:
+            # Subquery: distinct batch_ids whose worker runs touch these issues.
+            batch_ids_sq = (
+                select(ACAgentRun.batch_id.distinct())
+                .where(
+                    ACAgentRun.batch_id.is_not(None),
+                    ACAgentRun.issue_number.in_(issue_numbers),
+                )
+                .scalar_subquery()
+            )
+
+            live_statuses = list(_LIVE_STATUSES)
+            result = await session.execute(
+                select(
+                    ACAgentRun.batch_id,
+                    func.min(ACAgentRun.spawned_at).label("first_spawned_at"),
+                    func.count(ACAgentRun.id).label("total_count"),
+                    func.sum(
+                        case((ACAgentRun.status.in_(live_statuses), 1), else_=0)
+                    ).label("active_count"),
+                )
+                .where(ACAgentRun.batch_id.in_(batch_ids_sq))
+                .group_by(ACAgentRun.batch_id)
+                .order_by(func.min(ACAgentRun.spawned_at).desc())
+            )
+            rows = result.all()
+
+        out: list[BatchSummaryRow] = []
+        for row in rows:
+            if row.batch_id is None:
+                continue
+            out.append(
+                BatchSummaryRow(
+                    batch_id=str(row.batch_id),
+                    spawned_at=row.first_spawned_at.isoformat(),
+                    total_count=int(row.total_count),
+                    active_count=int(row.active_count),
+                )
+            )
+        return out
+    except Exception as exc:
+        logger.warning(
+            "⚠️  get_batch_summaries_for_initiative DB query failed (non-fatal): %s", exc
+        )
+        return []
+
+
 async def get_pending_launches() -> list[PendingLaunchRow]:
     """Return all agent runs with ``status='pending_launch'``, oldest first.
 
@@ -643,6 +707,28 @@ async def get_terminal_runs_with_worktrees() -> list[TerminalRunRow]:
             "⚠️  get_terminal_runs_with_worktrees DB query failed (non-fatal): %s", exc
         )
         return []
+
+
+async def get_run_id_for_worktree_path(worktree_path: str) -> str | None:
+    """Return the run_id whose worktree_path matches *worktree_path*, or None.
+
+    Used by the manual worktree deletion API to clear the DB reference after
+    removing the directory so the reaper never re-processes it.  Returns the
+    most-recently-spawned match in the unlikely event of duplicates.
+    """
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun.id)
+                .where(ACAgentRun.worktree_path == worktree_path)
+                .order_by(ACAgentRun.spawned_at.desc())
+                .limit(1)
+            )
+            row = result.scalar_one_or_none()
+        return str(row) if row is not None else None
+    except Exception as exc:
+        logger.warning("⚠️  get_run_id_for_worktree_path failed (non-fatal): %s", exc)
+        return None
 
 
 def _run_to_summary(row: ACAgentRun) -> RunSummaryRow:

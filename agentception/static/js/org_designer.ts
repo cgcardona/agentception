@@ -74,7 +74,10 @@ interface D3TreeLayout {
 
 interface D3Lib {
   hierarchy(root: OrgNode, children?: (d: OrgNode) => OrgNode[] | null): D3HierarchyNode;
+  // Generic overload used by the live tree renderer.
+  hierarchy<T>(root: T, children?: (d: T) => T[] | null): D3HierarchyNode;
   tree(): D3TreeLayout;
+  tree<T>(): D3TreeLayout;
   select(el: Element): D3SVGSelection;
   linkVertical(): D3LinkVertical;
 }
@@ -158,6 +161,58 @@ interface DispatchResponse {
 interface DispatchError {
   detail?: string;
 }
+
+// ── Live mode types (from GET /api/org/batches and SSE /api/org/live) ─────────
+
+/** One node from the DB agent-run tree (flat list, assembled client-side). */
+interface RunTreeNodeRow {
+  id: string;
+  role: string;
+  status: string;
+  agent_status: string;
+  tier: string | null;
+  org_domain: string | null;
+  parent_run_id: string | null;
+  issue_number: number | null;
+  pr_number: number | null;
+  batch_id: string | null;
+  spawned_at: string;
+  last_activity_at: string | null;
+  current_step: string | null;
+}
+
+/** Summary of one dispatch batch from GET /api/org/batches. */
+interface BatchSummaryRow {
+  batch_id: string;
+  spawned_at: string;
+  total_count: number;
+  active_count: number;
+}
+
+/** Internal tree node used for D3 live-mode rendering. */
+interface LiveOrgNode {
+  data: RunTreeNodeRow;
+  children: LiveOrgNode[];
+}
+
+/** SSE tree event from /api/org/live. */
+interface LiveTreeEvent {
+  t: 'tree';
+  nodes: RunTreeNodeRow[];
+  batch_id: string;
+}
+
+/** SSE idle event — no active batch. */
+interface LiveIdleEvent {
+  t: 'idle';
+}
+
+/** SSE ping keepalive. */
+interface LivePingEvent {
+  t: 'ping';
+}
+
+type LiveSseEvent = LiveTreeEvent | LiveIdleEvent | LivePingEvent;
 
 // ── Role catalog ──────────────────────────────────────────────────────────────
 
@@ -463,6 +518,155 @@ function clearStorage(repo: string, initiative: string): void {
   try { localStorage.removeItem(storageKey(repo, initiative)); } catch { /* ignore */ }
 }
 
+// ── Live mode D3 helpers ───────────────────────────────────────────────────────
+
+/** Build a hierarchical tree from a flat RunTreeNodeRow list. */
+function buildLiveTree(nodes: RunTreeNodeRow[]): LiveOrgNode | null {
+  if (!nodes.length) return null;
+  const byId = new Map<string, LiveOrgNode>();
+  nodes.forEach(n => byId.set(n.id, { data: n, children: [] }));
+
+  let root: LiveOrgNode | null = null;
+  nodes.forEach(n => {
+    if (n.parent_run_id && byId.has(n.parent_run_id)) {
+      byId.get(n.parent_run_id)!.children.push(byId.get(n.id)!);
+    } else if (!root) {
+      root = byId.get(n.id) ?? null;
+    }
+  });
+  return root;
+}
+
+/** Return a CSS class name for an agent_status value. */
+function liveStatusClass(agentStatus: string): string {
+  const map: Record<string, string> = {
+    implementing: 'od-live__chip--implementing',
+    reviewing:    'od-live__chip--reviewing',
+    done:         'od-live__chip--done',
+    stale:        'od-live__chip--stale',
+    cancelled:    'od-live__chip--cancelled',
+    blocked:      'od-live__chip--blocked',
+  };
+  return map[agentStatus] ?? 'od-live__chip--pending';
+}
+
+/** HTML card for one live RunTreeNodeRow. */
+function liveNodeCardHtml(row: RunTreeNodeRow, repo: string, initiative: string): string {
+  const tierLabel = row.tier ? row.tier.toUpperCase() : 'AGENT';
+  const roleLabel_ = roleLabel(row.role);
+  const statusChip = `<span class="od-live__chip ${liveStatusClass(row.agent_status)}">${row.agent_status}</span>`;
+  const step = row.current_step
+    ? `<div class="od-live__step" title="${row.current_step}">↳ ${row.current_step.slice(0, 40)}</div>`
+    : '';
+  const issueLink = row.issue_number
+    ? `<a class="od-live__issue-link" href="/ship/${encodeURIComponent(repo)}/${encodeURIComponent(initiative)}?run=${encodeURIComponent(row.id)}" target="_blank">#${row.issue_number}</a>`
+    : '';
+  const runIdTrunc = row.id.length > 14 ? row.id.slice(0, 14) + '…' : row.id;
+  return `
+    <div class="od-live__tier">${tierLabel}</div>
+    <div class="od-live__role">${roleLabel_} ${statusChip}</div>
+    <div class="od-live__run-id">${runIdTrunc}${issueLink}</div>
+    ${step}`;
+}
+
+// Separate SVG/card layer maps for the live canvas.
+const _liveSvgMap  = new Map<HTMLElement, D3SVGSelection>();
+const _liveCardMap = new Map<HTMLElement, D3Selection>();
+
+/** Render the live agent tree into *container* using D3. */
+function renderLiveD3(
+  nodes: RunTreeNodeRow[],
+  container: HTMLElement,
+  repo: string,
+  initiative: string,
+): void {
+  const root = buildLiveTree(nodes);
+  if (!root) {
+    container.innerHTML = '<div class="od-live__empty">No agents in this batch yet.</div>';
+    return;
+  }
+
+  // Initialise SVG and card layers once per container.
+  if (!_liveSvgMap.has(container)) {
+    container.innerHTML = '';
+    container.style.position = 'relative';
+    container.style.overflow = 'auto';
+
+    const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svgEl.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;overflow:visible;';
+    container.appendChild(svgEl);
+    _liveSvgMap.set(container, window.d3.select(svgEl));
+
+    const cardLayerEl = document.createElement('div');
+    cardLayerEl.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
+    container.appendChild(cardLayerEl);
+    _liveCardMap.set(container, window.d3.select(cardLayerEl) as unknown as D3Selection);
+  }
+
+  const svg       = _liveSvgMap.get(container)!;
+  const cardLayer = _liveCardMap.get(container)!;
+
+  const d3Root = window.d3.hierarchy<LiveOrgNode>(root, d => d.children.length ? d.children : null);
+
+  const treeLayout = window.d3.tree<LiveOrgNode>().nodeSize([NODE_W + NODE_GAP_X, NODE_H + NODE_GAP_Y]);
+  (treeLayout as unknown as D3TreeLayout)(d3Root as unknown as D3HierarchyNode);
+
+  let minX = Infinity, maxX = -Infinity, maxY = -Infinity;
+  (d3Root as unknown as D3HierarchyNode).each(d => {
+    if (d.x < minX) minX = d.x;
+    if (d.x > maxX) maxX = d.x;
+    if (d.y > maxY) maxY = d.y;
+  });
+
+  const treeW   = maxX - minX + NODE_W + 80;
+  const treeH   = maxY + NODE_H + 80;
+  const canvasW = Math.max(container.clientWidth || 900, treeW);
+  const canvasH = Math.max(400, treeH);
+  const offsetX = canvasW / 2 - (minX + maxX) / 2;
+  const offsetY = 48;
+
+  container.style.minHeight = `${canvasH}px`;
+  svg.attr('width', canvasW).attr('height', canvasH);
+
+  const linkGen = window.d3.linkVertical()
+    .x((d: D3HierarchyNode) => d.x + offsetX)
+    .y((d: D3HierarchyNode) => d.y + offsetY + NODE_H);
+
+  svg.selectAll('.od-link')
+    .data((d3Root as unknown as D3HierarchyNode).links() as unknown as D3HierarchyNode[], (d: D3HierarchyNode) => {
+      const lnk = d as unknown as D3HierarchyLink;
+      return `${lnk.source?.data?.id}-${lnk.target?.data?.id}`;
+    })
+    .join('path')
+    .attr('class', 'od-link')
+    .attr('d', (d: D3HierarchyNode) => linkGen(d as unknown as D3HierarchyLink) ?? '');
+
+  const descendants = (d3Root as unknown as D3HierarchyNode).descendants();
+  const cards = cardLayer.selectAll('.od-node')
+    .data(descendants, (d: D3HierarchyNode) => d.data.id);
+
+  const entered = cards.enter().append('div').attr('class', 'od-node od-node--live');
+  const all     = entered.merge(cards);
+
+  all
+    .style('left', (d: D3HierarchyNode) => `${d.x + offsetX - NODE_W / 2}px`)
+    .style('top',  (d: D3HierarchyNode) => `${d.y + offsetY}px`)
+    .classed('od-node--coordinator', (d: D3HierarchyNode) => {
+      const row = d.data as unknown as RunTreeNodeRow;
+      return !!row.role && isCoordinator(row.role);
+    })
+    .classed('od-node--worker', (d: D3HierarchyNode) => {
+      const row = d.data as unknown as RunTreeNodeRow;
+      return !!row.role && !isCoordinator(row.role);
+    })
+    .html((d: D3HierarchyNode) => {
+      const row = d.data as unknown as RunTreeNodeRow;
+      return liveNodeCardHtml(row, repo, initiative);
+    });
+
+  cards.exit().remove();
+}
+
 // ── Org preset types + storage ────────────────────────────────────────────────
 
 interface OrgPreset {
@@ -735,9 +939,18 @@ interface OrgDesignerComponent {
   startAgentError: string | null;
   startAgentDone: boolean;
 
+  // ── Live mode (not Alpine-reactive — kept in plain object fields)
+  liveMode: boolean;
+  liveNodes: RunTreeNodeRow[];
+  activeBatches: BatchSummaryRow[];
+  liveBatchId: string | null;
+  worktreeIndexEnabled: boolean;
+
   // ── Internal (D3 / mutable tree — not Alpine-reactive)
   _root: OrgNode | null;
   _container: HTMLElement | null;
+  _liveEs: EventSource | null;
+  _liveContainer: HTMLElement | null;
 
   // ── Static data exposed to template
   roleGroups: RoleGroup[];
@@ -777,6 +990,13 @@ interface OrgDesignerComponent {
   _render(): void;
   launch(): Promise<void>;
   startAgent(): Promise<void>;
+  // ── Live mode methods
+  enterLiveMode(): void;
+  enterDesignMode(): void;
+  switchBatch(batchId: string): void;
+  _connectLiveSSE(batchId: string): void;
+  _disconnectLiveSSE(): void;
+  _renderLive(): void;
 }
 
 // ── Alpine component factory ──────────────────────────────────────────────────
@@ -820,9 +1040,20 @@ export function orgDesigner(): OrgDesignerComponent {
     startAgentError:   null,
     startAgentDone:    false,
 
+    // ── Live mode state ───────────────────────────────────────────────────────
+    liveMode:       false,
+    liveNodes:      [] as RunTreeNodeRow[],
+    activeBatches:  [] as BatchSummaryRow[],
+    liveBatchId:    null as string | null,
+    worktreeIndexEnabled: (typeof window !== 'undefined' && '_worktreeIndexEnabled' in window
+      ? (window as unknown as Record<string, unknown>)['_worktreeIndexEnabled'] as boolean
+      : false),
+
     // ── Internal ──────────────────────────────────────────────────────────────
-    _root:      null,
-    _container: null,
+    _root:          null,
+    _container:     null,
+    _liveEs:        null as EventSource | null,
+    _liveContainer: null as HTMLElement | null,
     roleGroups: ROLE_GROUPS,
 
     // ── Computed ──────────────────────────────────────────────────────────────
@@ -866,6 +1097,20 @@ export function orgDesigner(): OrgDesignerComponent {
       const extra   = countNodes(this._root) - 1;
       const note    = extra > 0 ? ` + ${extra} child${extra === 1 ? '' : 'ren'}` : '';
       return `Launch ${roleLabel(this._root.role)} (${figName})${note} →`;
+    },
+
+    /** True when the root is a lone worker (no coordinator) with full_initiative scope.
+     *
+     * A standalone worker dispatched against a full initiative won't automatically
+     * pick up any tickets — it needs a coordinator above it to survey issues and
+     * assign work.  Show a warning but don't block launch (advanced users may
+     * know what they're doing).
+     */
+    get loneWorkerWarning(): string {
+      if (!this._root || !this._root.role) return '';
+      if (isCoordinator(this._root.role)) return '';
+      if (this._root.scope !== 'full_initiative') return '';
+      return `⚠️ "${roleLabel(this._root.role)}" is a worker, not a coordinator. Workers don't pick up tickets automatically. Add a coordinator (e.g. CTO) as the root, or change scope to a specific issue.`;
     },
 
     get activePresetName(): string {
@@ -921,21 +1166,43 @@ export function orgDesigner(): OrgDesignerComponent {
         .catch(() => { /* non-critical — grid will be empty */ })
         .finally(() => { this.presetsLoading = false; });
 
-      // If there is a saved in-progress session for this initiative, jump
-      // straight to the canvas.  Otherwise show the preset picker first.
-      const saved = loadFromStorage(repo, label);
-      if (saved) {
-        this._root        = saved;
-        this.presetsOpen  = false;
-        this._openCanvas();
-      } else {
-        this._root          = null;
-        this.activePresetId = null;
-        this.presetsOpen    = true;
-      }
+      // Check for active batches — if any exist, default to Live mode.
+      void (async () => {
+        try {
+          const r = await fetch(
+            `/api/org/batches/${encodeURIComponent(label)}`
+          );
+          if (r.ok) {
+            this.activeBatches = await r.json() as BatchSummaryRow[];
+          }
+        } catch {
+          // Non-critical — live mode just won't activate automatically.
+        }
+
+        if (this.activeBatches.length > 0) {
+          // There are known dispatch batches — enter Live mode immediately.
+          const newest = this.activeBatches[0];
+          this.presetsOpen = false;
+          this.enterLiveMode();
+          this._connectLiveSSE(newest.batch_id);
+        } else {
+          // No active batches — restore design canvas or show preset picker.
+          const saved = loadFromStorage(repo, label);
+          if (saved) {
+            this._root       = saved;
+            this.presetsOpen = false;
+            this._openCanvas();
+          } else {
+            this._root          = null;
+            this.activePresetId = null;
+            this.presetsOpen    = true;
+          }
+        }
+      })();
     },
 
     close(): void {
+      this._disconnectLiveSSE();
       this.open = false;
     },
 
@@ -1224,6 +1491,8 @@ export function orgDesigner(): OrgDesignerComponent {
           this._root.launched = true;
           this._root.runId    = dispatched.run_id;
           this._render();
+          // Immediately start the agent loop — no separate button needed.
+          await this.startAgent();
         }
       } catch (err) {
         this.launchError = `Network error: ${err instanceof Error ? err.message : String(err)}`;
@@ -1232,7 +1501,11 @@ export function orgDesigner(): OrgDesignerComponent {
       }
     },
 
-    /** Start the agent loop for the run created by Launch (calls POST /api/runs/{run_id}/execute). */
+    /** Start the agent loop for a run in pending_launch state (POST /api/runs/{run_id}/execute).
+     *
+     * Called automatically by launch() after a successful dispatch.  Also available
+     * directly from the inspector panel for runs stuck in pending_launch.
+     */
     async startAgent(): Promise<void> {
       if (!this.launchResult?.run_id || this.startAgentLoading) return;
       this.startAgentLoading = true;
@@ -1252,6 +1525,92 @@ export function orgDesigner(): OrgDesignerComponent {
       } finally {
         this.startAgentLoading = false;
       }
+    },
+
+    // ── Live mode ─────────────────────────────────────────────────────────────
+
+    /** Switch to Live mode (real-time agent tree). */
+    enterLiveMode(): void {
+      this.liveMode = true;
+      void (this as unknown as AlpineMagics).$nextTick(() => {
+        this._liveContainer = document.getElementById('od-live-canvas');
+        if (this._liveContainer && this.liveNodes.length) {
+          this._renderLive();
+        }
+      });
+    },
+
+    /** Switch back to Design mode (editable org tree). */
+    enterDesignMode(): void {
+      this._disconnectLiveSSE();
+      this.liveMode = false;
+      // Re-open design canvas if we have a root, otherwise show preset picker.
+      void (this as unknown as AlpineMagics).$nextTick(() => {
+        if (this._root) {
+          this._openCanvas();
+        } else {
+          const saved = loadFromStorage(this.repo, this.initiative);
+          if (saved) {
+            this._root       = saved;
+            this.presetsOpen = false;
+            this._openCanvas();
+          } else {
+            this.presetsOpen = true;
+          }
+        }
+      });
+    },
+
+    /** Switch the live view to a different historical batch. */
+    switchBatch(batchId: string): void {
+      this.liveBatchId = batchId;
+      this._disconnectLiveSSE();
+      this._connectLiveSSE(batchId);
+    },
+
+    /** Open an EventSource for the live agent tree SSE stream. */
+    _connectLiveSSE(batchId: string): void {
+      this._disconnectLiveSSE();
+      this.liveBatchId = batchId;
+      const url = `/api/org/live/${encodeURIComponent(this.initiative)}?batch_id=${encodeURIComponent(batchId)}`;
+      const es = new EventSource(url);
+      this._liveEs = es;
+
+      es.onmessage = (ev: MessageEvent<string>) => {
+        let parsed: LiveSseEvent;
+        try {
+          parsed = JSON.parse(ev.data) as LiveSseEvent;
+        } catch {
+          return;
+        }
+        if (parsed.t === 'tree') {
+          this.liveNodes = parsed.nodes;
+          this._renderLive();
+        }
+        // idle and ping: no-op in UI
+      };
+
+      es.onerror = () => {
+        // EventSource auto-reconnects on transient failures; no action needed.
+      };
+    },
+
+    /** Close the live SSE connection if open. */
+    _disconnectLiveSSE(): void {
+      if (this._liveEs) {
+        this._liveEs.close();
+        this._liveEs = null;
+      }
+    },
+
+    /** Re-render the live D3 canvas from the latest liveNodes. */
+    _renderLive(): void {
+      if (!this.liveMode) return;
+      // Ensure the container is resolved each time (Alpine may recreate it).
+      const el = document.getElementById('od-live-canvas');
+      if (el) this._liveContainer = el;
+      if (!this._liveContainer) return;
+      renderLiveD3(this.liveNodes, this._liveContainer, this.repo, this.initiative);
     },
   } as OrgDesignerComponent;
 }

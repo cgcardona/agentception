@@ -2,9 +2,8 @@ from __future__ import annotations
 
 """Protocol TypedDicts for the AgentCeption MCP layer.
 
-All types defined here are self-contained — zero imports from external packages.
-They map 1-to-1 with the MCP JSON-RPC 2.0 wire protocol so callers can rely
-on them for type-safe serialisation.
+These types map 1-to-1 with the MCP JSON-RPC 2.0 wire protocol so callers
+can rely on them for type-safe serialisation.
 
 JSON-RPC 2.0 error codes (JSONRPC_ERR_*) are defined as module-level
 constants rather than an Enum so they remain plain ``int`` values that
@@ -30,7 +29,9 @@ Resource URIs follow the ``ac://`` scheme with REST-like path segments:
     ac://plan/figures/{role}          — cognitive-arch figures for a role
 """
 
-from typing import TypedDict
+from typing import TypeAlias, TypedDict
+
+from agentception.types import JsonSchemaObj, JsonValue
 
 # ---------------------------------------------------------------------------
 # JSON-RPC 2.0 error codes
@@ -59,7 +60,7 @@ class ACToolDef(TypedDict):
 
     name: str
     description: str
-    inputSchema: dict[str, object]
+    inputSchema: JsonSchemaObj
 
 
 class ACToolContent(TypedDict):
@@ -205,6 +206,74 @@ class ACPromptResult(TypedDict):
 
 
 # ---------------------------------------------------------------------------
+# MCP method-level result TypedDicts
+# ---------------------------------------------------------------------------
+
+
+class McpServerInfo(TypedDict):
+    """Server identity advertised in the ``initialize`` response."""
+
+    name: str
+    version: str
+
+
+class McpCapabilities(TypedDict):
+    """Server capability flags advertised in the ``initialize`` response."""
+
+    tools: dict[str, str]
+    resources: dict[str, str]
+    prompts: dict[str, str]
+
+
+class InitializeResult(TypedDict):
+    """Result payload of the ``initialize`` MCP handshake."""
+
+    protocolVersion: str
+    capabilities: McpCapabilities
+    serverInfo: McpServerInfo
+
+
+class ToolListResult(TypedDict):
+    """Result payload of ``tools/list``."""
+
+    tools: list[ACToolDef]
+
+
+class PromptListResult(TypedDict):
+    """Result payload of ``prompts/list``."""
+
+    prompts: list[ACPromptDef]
+
+
+class ResourceListResult(TypedDict):
+    """Result payload of ``resources/list``."""
+
+    resources: list[ACResourceDef]
+
+
+class ResourceTemplateListResult(TypedDict):
+    """Result payload of ``resources/templates/list``."""
+
+    resourceTemplates: list[ACResourceTemplate]
+
+
+# ---------------------------------------------------------------------------
+# MCP result union — covers every type that can appear as a JSON-RPC result
+# ---------------------------------------------------------------------------
+
+McpResultPayload: TypeAlias = (
+    ACToolResult
+    | ACPromptResult
+    | ACResourceResult
+    | InitializeResult
+    | ToolListResult
+    | PromptListResult
+    | ResourceListResult
+    | ResourceTemplateListResult
+    | dict[str, str | int | float | bool | None]
+)
+
+# ---------------------------------------------------------------------------
 # JSON-RPC 2.0 envelope types
 # ---------------------------------------------------------------------------
 
@@ -219,7 +288,7 @@ class JsonRpcError(TypedDict):
 
     code: int
     message: str
-    data: object
+    data: JsonValue
 
 
 class JsonRpcSuccessResponse(TypedDict):
@@ -227,7 +296,7 @@ class JsonRpcSuccessResponse(TypedDict):
 
     jsonrpc: str
     id: int | str | None
-    result: object
+    result: McpResultPayload
 
 
 class JsonRpcErrorResponse(TypedDict):

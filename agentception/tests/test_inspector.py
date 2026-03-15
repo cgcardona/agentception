@@ -12,7 +12,6 @@ from pathlib import Path
 
 import jinja2
 
-
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 
 
@@ -40,7 +39,7 @@ def _render_build() -> str:
     env.filters["title"] = lambda s: str(s).title()
     env.filters["truncate"] = lambda s, length, killwords, end: str(s)[:length]
 
-    ctx: dict[str, object] = {
+    ctx: dict[str, _StubRequest | str | int | list[str] | dict[str, str]] = {
         "request": _StubRequest(),
         "repo": "cgcardona/agentception",
         "repo_name": "agentception",

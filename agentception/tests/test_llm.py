@@ -19,6 +19,7 @@ import pytest
 
 from agentception.config import LLMProviderChoice
 from agentception.services.llm import LLMChunk, _normalize_think_tags
+from agentception.types import JsonValue
 
 
 # ---------------------------------------------------------------------------
@@ -37,7 +38,7 @@ def test_normalize_openai_message_content_list_of_text_parts() -> None:
     """Content as list of text parts is concatenated."""
     from agentception.services.llm import _normalize_openai_message_content
 
-    msg: dict[str, object] = {
+    msg: dict[str, JsonValue] = {
         "content": [
             {"type": "text", "text": "Hello "},
             {"type": "text", "text": "world."},
@@ -50,7 +51,7 @@ def test_normalize_openai_message_content_strips_reasoning() -> None:
     """Reasoning parts are omitted; only text parts form the final answer."""
     from agentception.services.llm import _normalize_openai_message_content
 
-    msg: dict[str, object] = {
+    msg: dict[str, JsonValue] = {
         "content": [
             {"type": "reasoning", "text": "Let me think..."},
             {"type": "text", "text": "The answer is 42."},
@@ -103,7 +104,7 @@ async def test_completion_with_tools_uses_local_adapter_when_effective_provider_
     """When effective_llm_provider is local, completion_with_tools calls call_local_with_tools."""
     from agentception.services.llm import completion_with_tools
 
-    tool_response: dict[str, object] = {
+    tool_response: dict[str, JsonValue] = {
         "stop_reason": "stop",
         "content": "ok",
         "tool_calls": [],
@@ -136,7 +137,7 @@ async def test_completion_with_tools_uses_anthropic_adapter_when_effective_provi
     """When effective_llm_provider is anthropic, completion_with_tools calls call_anthropic_with_tools."""
     from agentception.services.llm import completion_with_tools
 
-    tool_response: dict[str, object] = {
+    tool_response: dict[str, JsonValue] = {
         "stop_reason": "stop",
         "content": "ok",
         "tool_calls": [],
@@ -182,7 +183,7 @@ async def test_local_completion_stream_fallback_when_stream_fails() -> None:
         async def __aenter__(self) -> None:
             raise httpx.RequestError("stream not supported")
 
-        async def __aexit__(self, *args: object) -> None:
+        async def __aexit__(self, *args: str | int | bool | float | None) -> None:
             return None
 
     fallback_text = "one-shot reply"

@@ -9,6 +9,7 @@ from starlette.requests import Request
 
 from agentception.intelligence.dag import DependencyDAG, IssueNode, build_dag
 from agentception.readers.pipeline_config import read_pipeline_config
+from agentception.types import JsonValue
 from ._shared import _TEMPLATES
 
 logger = logging.getLogger(__name__)
@@ -70,9 +71,9 @@ async def dag_page(request: Request) -> HTMLResponse:
         return result
 
     # Build enriched dicts for the Jinja2 template (adds blocking_count + depth).
-    nodes: list[dict[str, object]] = []
+    nodes: list[dict[str, JsonValue]] = []
     for node in issue_nodes:
-        nd: dict[str, object] = node.model_dump()
+        nd: dict[str, JsonValue] = node.model_dump()
         nd["blocking_count"] = blocking.get(node.number, 0)
         nd["depth"] = _depth(node.number, set())
         nodes.append(nd)

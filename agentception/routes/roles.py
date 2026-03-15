@@ -25,6 +25,7 @@ import yaml
 from fastapi import APIRouter, HTTPException
 
 from agentception.config import settings
+from agentception.types import JsonValue
 from agentception.intelligence.role_versions import (
     read_role_versions,
     record_version_bump,
@@ -373,7 +374,7 @@ _ATOM_LABELS: dict[str, str] = {
 }
 
 
-def resolve_cognitive_arch(cognitive_arch_str: str | None) -> dict[str, object]:
+def resolve_cognitive_arch(cognitive_arch_str: str | None) -> dict[str, JsonValue]:
     """Parse a COGNITIVE_ARCH string and return a rich display dict.
 
     The string format is ``figure_id:skill1:skill2`` where the first token
@@ -407,16 +408,19 @@ def resolve_cognitive_arch(cognitive_arch_str: str | None) -> dict[str, object]:
     skill_parts = parts[1:] if figure_yaml.exists() else parts
     figure_id = first if figure_yaml.exists() else None
 
-    result: dict[str, object] = {
+    skills_jv: list[JsonValue] = []
+    skills_jv.extend(skill_parts)
+    atoms_jv: dict[str, JsonValue] = {k: v for k, v in _ATOM_LABELS.items()}
+    result: dict[str, JsonValue] = {
         "raw": cognitive_arch_str,
         "figure_id": figure_id,
-        "skill_domains": skill_parts,
+        "skill_domains": skills_jv,
         "display_name": figure_id or "Custom",
         "archetype": None,
         "archetype_emoji": "🤖",
         "description": "",
         "overrides": {},
-        "atom_labels": _ATOM_LABELS,
+        "atom_labels": atoms_jv,
         "prompt_prefix": "",
         "is_named_figure": False,
     }
@@ -435,7 +439,8 @@ def resolve_cognitive_arch(cognitive_arch_str: str | None) -> dict[str, object]:
                 result["archetype"] = archetype
                 result["archetype_emoji"] = _ARCHETYPE_EMOJI.get(archetype, "🤖")
                 result["description"] = str(raw.get("description", "")).strip()
-                result["overrides"] = overrides
+                ov_jv: dict[str, JsonValue] = {k: v for k, v in overrides.items()}
+                result["overrides"] = ov_jv
                 result["prompt_prefix"] = prefix.strip()
                 result["is_named_figure"] = True
         except Exception:
@@ -444,7 +449,8 @@ def resolve_cognitive_arch(cognitive_arch_str: str | None) -> dict[str, object]:
     return result
 
 
-def _empty_arch() -> dict[str, object]:
+def _empty_arch() -> dict[str, JsonValue]:
+    atoms_jv: dict[str, JsonValue] = {k: v for k, v in _ATOM_LABELS.items()}
     return {
         "raw": None,
         "figure_id": None,
@@ -454,7 +460,7 @@ def _empty_arch() -> dict[str, object]:
         "archetype_emoji": "🤖",
         "description": "",
         "overrides": {},
-        "atom_labels": _ATOM_LABELS,
+        "atom_labels": atoms_jv,
         "prompt_prefix": "",
         "is_named_figure": False,
     }
@@ -633,14 +639,14 @@ async def role_versions_api(slug: str) -> RoleVersionsResponse:
     _resolve_slug(slug)  # raises 404 for unknown slugs
 
     data = await read_role_versions()
-    versions_map_raw: object = data.get("versions", {})
-    versions_map: dict[str, object] = versions_map_raw if isinstance(versions_map_raw, dict) else {}
+    versions_map_raw: JsonValue = data.get("versions", {})
+    versions_map: dict[str, JsonValue] = versions_map_raw if isinstance(versions_map_raw, dict) else {}
 
     raw_entry = versions_map.get(slug)
     if isinstance(raw_entry, dict):
         current = str(raw_entry.get("current", "v1"))
-        raw_history_raw: object = raw_entry.get("history", [])
-        raw_history: list[object] = raw_history_raw if isinstance(raw_history_raw, list) else []
+        raw_history_raw: JsonValue = raw_entry.get("history", [])
+        raw_history: list[JsonValue] = raw_history_raw if isinstance(raw_history_raw, list) else []
         history = []
         for h in raw_history:
             if not isinstance(h, dict):

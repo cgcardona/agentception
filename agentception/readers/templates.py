@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from agentception.config import settings
+from agentception.types import JsonValue
 from agentception.models import (
     TemplateConflict,
     TemplateImportResult,
@@ -194,7 +195,7 @@ def import_template(archive_bytes: bytes, target_repo: str) -> TemplateImportRes
         manifest_file = tar.extractfile(manifest_member)
         if manifest_file is None:
             raise ValueError("Cannot read template-manifest.json from archive")
-        manifest_data: object = json.loads(manifest_file.read())
+        manifest_data: JsonValue = json.loads(manifest_file.read())
         if not isinstance(manifest_data, dict):
             raise ValueError("template-manifest.json is not a JSON object")
         manifest = TemplateManifest.model_validate(manifest_data)
@@ -261,7 +262,7 @@ def list_stored_templates() -> list[TemplateListEntry]:
                 mf = tar.extractfile("template-manifest.json")
                 if mf is None:
                     continue
-                raw: object = json.loads(mf.read())
+                raw: JsonValue = json.loads(mf.read())
             if not isinstance(raw, dict):
                 continue
             manifest = TemplateManifest.model_validate(raw)

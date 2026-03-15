@@ -4,6 +4,9 @@
  * Consumes {"t": "activity", "subtype", "payload", "recorded_at", "id"} from
  * the inspector stream and appends one row per message to #activity-feed.
  * All text is set via textContent/setAttribute; no innerHTML with payload data.
+ *
+ * Smart scroll: new rows scroll the feed only when the user is already near
+ * the bottom — reading old content is never interrupted.
  */
 
 /** SSE activity message shape from the inspector stream. */
@@ -32,6 +35,14 @@ function num(p: Record<string, unknown>, key: string): number {
 }
 
 /**
+ * Returns true when the feed scroll position is within 80px of the bottom.
+ * Used to decide whether appending a new row should auto-scroll.
+ */
+export function shouldAutoScroll(feed: HTMLElement): boolean {
+  return feed.scrollHeight - feed.scrollTop - feed.clientHeight < 80;
+}
+
+/**
  * Human-readable one-line summary from subtype and payload.
  * Uses textContent-safe strings only (no innerHTML with payload).
  */
@@ -42,8 +53,11 @@ export function formatActivitySummary(subtype: string, payload: Record<string, u
       return `→ ${str(p, 'tool_name')} ${str(p, 'arg_preview')}`.trim();
     case 'shell_start':
       return `$ ${str(p, 'cmd_preview')}`.trim();
-    case 'shell_done':
-      return `exit=${num(p, 'exit_code')} stdout:${num(p, 'stdout_bytes')}B`;
+    case 'shell_done': {
+      const code = num(p, 'exit_code');
+      const prefix = code !== 0 ? `✗ exit=${code}` : `exit=${code}`;
+      return `${prefix} stdout:${num(p, 'stdout_bytes')}B`;
+    }
     case 'file_read':
       return `read ${str(p, 'path')} lines ${num(p, 'start_line')}–${num(p, 'end_line')}/${num(p, 'total_lines')}`.trim();
     case 'file_replaced':
@@ -132,6 +146,14 @@ export function appendActivityRow(msg: ActivityMessage): void {
   row.className = 'activity-feed__row';
   row.setAttribute('data-subtype', msg.subtype);
 
+  // Mark non-zero shell exits for CSS error highlighting
+  if (msg.subtype === 'shell_done') {
+    const code = num(msg.payload, 'exit_code');
+    if (code !== 0) {
+      row.dataset['exitNonzero'] = 'true';
+    }
+  }
+
   const icon = document.createElement('span');
   icon.className = 'activity-feed__icon';
   icon.setAttribute('aria-hidden', 'true');
@@ -150,7 +172,10 @@ export function appendActivityRow(msg: ActivityMessage): void {
   row.appendChild(summary);
   row.appendChild(ts);
   feed.appendChild(row);
-  row.scrollIntoView?.({ block: 'end', behavior: 'smooth' });
+
+  if (shouldAutoScroll(feed)) {
+    feed.scrollTop = feed.scrollHeight;
+  }
 }
 
 /**

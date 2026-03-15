@@ -87,7 +87,7 @@ async def test_ensure_worktree_reset_removes_stale_dir_and_branch(tmp_path: Path
 
     calls: list[list[str]] = []
 
-    async def capture_proc(*args: str, **kwargs: object) -> AsyncMock:
+    async def capture_proc(*args: str, **kwargs: str | int | bool | float | None) -> AsyncMock:
         calls.append(list(args))
         return success_proc
 
@@ -128,7 +128,7 @@ async def test_ensure_worktree_reset_deletes_remote_branch_stale_state(tmp_path:
 
     push_delete_calls: list[list[str]] = []
 
-    async def capture_proc(*args: str, **kwargs: object) -> AsyncMock:
+    async def capture_proc(*args: str, **kwargs: str | int | bool | float | None) -> AsyncMock:
         if "push" in args and "--delete" in args:
             push_delete_calls.append(list(args))
         return success_proc
@@ -366,7 +366,7 @@ async def test_dispatch_redispatch_cleans_stale_worktree(tmp_path: Path) -> None
 
     call_order: list[tuple[str, str]] = []
 
-    async def capture_proc(*args: str, **kwargs: object) -> AsyncMock:
+    async def capture_proc(*args: str, **kwargs: str | int | bool | float | None) -> AsyncMock:
         # Record (verb, subcommand) pairs for ordering assertions.
         if len(args) >= 5:
             call_order.append((args[3], args[4]))
@@ -565,7 +565,7 @@ async def test_dispatch_reviewer_fetches_pr_branch_and_uses_it_as_base(tmp_path:
     captured_base: list[str] = []
 
     async def mock_ensure_worktree(
-        path: Path, branch: str, base: str = "origin/dev", reset: bool = False, **kwargs: object
+        path: Path, branch: str, base: str = "origin/dev", reset: bool = False, **kwargs: str | int | bool | float | None
     ) -> bool:
         captured_base.append(base)
         return True
@@ -612,7 +612,7 @@ async def test_dispatch_implementer_uses_origin_dev_as_base(tmp_path: Path) -> N
     captured_base: list[str] = []
 
     async def mock_ensure_worktree(
-        path: Path, branch: str, base: str = "origin/dev", reset: bool = False, **kwargs: object
+        path: Path, branch: str, base: str = "origin/dev", reset: bool = False, **kwargs: str | int | bool | float | None
     ) -> bool:
         captured_base.append(base)
         return True
@@ -665,7 +665,7 @@ async def test_dispatch_reviewer_pr_branch_override_respected(tmp_path: Path) ->
     captured_branches: list[str] = []
 
     async def mock_ensure_worktree(
-        path: Path, branch: str, base: str = "origin/dev", reset: bool = False, **kwargs: object
+        path: Path, branch: str, base: str = "origin/dev", reset: bool = False, **kwargs: str | int | bool | float | None
     ) -> bool:
         captured_bases.append(base)
         captured_branches.append(branch)
@@ -770,7 +770,7 @@ async def test_dispatch_resets_stale_working_memory_on_redispatch(tmp_path: Path
     write_memory(worktree_path, stale)
 
     async def mock_ensure_worktree(
-        path: Path, branch: str, base: str = "origin/dev", reset: bool = False, **kwargs: object
+        path: Path, branch: str, base: str = "origin/dev", reset: bool = False, **kwargs: str | int | bool | float | None
     ) -> bool:
         return True  # worktree "already exists" — no-op
 
@@ -1009,7 +1009,7 @@ async def test_dispatch_agent_seeds_next_steps_from_ac_items(tmp_path: Path) -> 
     worktree_path.mkdir(parents=True)
 
     async def mock_ensure_worktree(
-        path: Path, branch: str, base: str = "origin/dev", reset: bool = False, **kwargs: object
+        path: Path, branch: str, base: str = "origin/dev", reset: bool = False, **kwargs: str | int | bool | float | None
     ) -> bool:
         return True
 
@@ -1082,7 +1082,7 @@ async def test_dispatch_agent_reviewer_does_not_seed_ac_items(tmp_path: Path) ->
     fetch_proc.returncode = 0
     fetch_proc.communicate = AsyncMock(return_value=(b"", b""))
 
-    async def _fake_subprocess(*args: object, **kwargs: object) -> MagicMock:
+    async def _fake_subprocess(*args: str | int | bool | float | None, **kwargs: str | int | bool | float | None) -> MagicMock:
         return fetch_proc
 
     issue_body = (

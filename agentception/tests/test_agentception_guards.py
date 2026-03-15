@@ -26,6 +26,7 @@ from agentception.app import app
 from agentception.intelligence.guards import PRViolation, detect_out_of_order_prs, detect_stale_claims
 from agentception.db.queries import RunContextRow
 from agentception.models import StaleClaim
+from agentception.types import JsonValue
 from agentception.poller import GitHubBoard, detect_alerts
 
 
@@ -38,19 +39,21 @@ def _make_pr(
     number: int,
     title: str = "feat: something",
     body: str = "",
-    labels: list[dict[str, str]] | None = None,
-) -> dict[str, object]:
+    labels: list[dict[str, JsonValue]] | None = None,
+) -> dict[str, JsonValue]:
     """Build a minimal PR dict matching the shape returned by get_open_prs_with_body."""
+    lbl_jv: list[JsonValue] = []
+    lbl_jv.extend(labels or [])
     return {
         "number": number,
         "title": title,
         "headRefName": f"feat/issue-{number}",
-        "labels": labels or [],
+        "labels": lbl_jv,
         "body": body,
     }
 
 
-def _make_issue(number: int, label: str) -> dict[str, object]:
+def _make_issue(number: int, label: str) -> dict[str, JsonValue]:
     """Build a minimal issue dict matching the shape returned by get_issue."""
     return {
         "number": number,
@@ -76,7 +79,7 @@ async def test_detect_no_violations_when_all_in_order() -> None:
     issue_200 = _make_issue(200, active)
     issue_201 = _make_issue(201, active)
 
-    def _fake_get_issue(number: int) -> dict[str, object]:
+    def _fake_get_issue(number: int) -> dict[str, JsonValue]:
         return {200: issue_200, 201: issue_201}[number]
 
     with (
@@ -198,7 +201,7 @@ def test_close_violating_pr_calls_gh() -> None:
 @pytest.mark.anyio
 async def test_detect_stale_claim_missing_worktree(tmp_path: Path) -> None:
     """detect_stale_claims() should flag an issue whose expected worktree is absent."""
-    wip_issues = [{"number": 100, "title": "Fix the thing"}]
+    wip_issues: list[dict[str, JsonValue]] = [{"number": 100, "title": "Fix the thing"}]
     # tmp_path/issue-100 does NOT exist → stale claim expected
     claims = await detect_stale_claims(wip_issues, tmp_path)
 
@@ -211,10 +214,9 @@ async def test_detect_stale_claim_missing_worktree(tmp_path: Path) -> None:
 @pytest.mark.anyio
 async def test_detect_no_stale_when_worktree_exists(tmp_path: Path) -> None:
     """detect_stale_claims() must not flag issues whose worktree directory exists."""
-    # Create the worktree directory so the issue is considered live.
     (tmp_path / "issue-200").mkdir()
 
-    wip_issues = [{"number": 200, "title": "Already working"}]
+    wip_issues: list[dict[str, JsonValue]] = [{"number": 200, "title": "Already working"}]
     claims = await detect_stale_claims(wip_issues, tmp_path)
 
     assert claims == []
@@ -223,8 +225,7 @@ async def test_detect_no_stale_when_worktree_exists(tmp_path: Path) -> None:
 @pytest.mark.anyio
 async def test_detect_stale_claims_returns_sorted(tmp_path: Path) -> None:
     """detect_stale_claims() returns results sorted ascending by issue number."""
-    # Neither worktree exists — both should be stale.
-    wip_issues = [
+    wip_issues: list[dict[str, JsonValue]] = [
         {"number": 300, "title": "Third"},
         {"number": 100, "title": "First"},
         {"number": 200, "title": "Second"},
@@ -237,7 +238,7 @@ async def test_detect_stale_claims_returns_sorted(tmp_path: Path) -> None:
 @pytest.mark.anyio
 async def test_detect_stale_claims_skips_non_int_number(tmp_path: Path) -> None:
     """detect_stale_claims() should skip issues where number is not an int."""
-    wip_issues: list[dict[str, object]] = [{"number": "not-a-number", "title": "Bad issue"}]
+    wip_issues: list[dict[str, JsonValue]] = [{"number": "not-a-number", "title": "Bad issue"}]
     claims = await detect_stale_claims(wip_issues, tmp_path)
 
     assert claims == []

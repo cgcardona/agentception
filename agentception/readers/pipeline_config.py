@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 
 from agentception.config import settings
+from agentception.types import JsonValue
 from agentception.models import PipelineConfig
 
 # Default values mirror the spec exactly — used when the config file is absent.
@@ -60,7 +61,7 @@ async def read_pipeline_config() -> PipelineConfig:
     path = _config_path()
     if not path.exists():
         return PipelineConfig.model_validate(_DEFAULTS)
-    raw: object = json.loads(path.read_text(encoding="utf-8"))
+    raw: JsonValue = json.loads(path.read_text(encoding="utf-8"))
     return PipelineConfig.model_validate(raw)
 
 

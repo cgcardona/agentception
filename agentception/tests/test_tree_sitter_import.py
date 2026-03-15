@@ -1,4 +1,5 @@
 from __future__ import annotations
+from types import ModuleType
 import tree_sitter_python
 import tree_sitter_typescript
 import tree_sitter_javascript
@@ -9,7 +10,7 @@ import tree_sitter_ruby
 from tree_sitter import Language, Parser
 
 def test_all_grammars_load() -> None:
-    cases: list[tuple[object, str]] = [
+    cases: list[tuple[ModuleType, str]] = [
         (tree_sitter_python, "language"),
         (tree_sitter_typescript, "language_typescript"),
         (tree_sitter_javascript, "language"),

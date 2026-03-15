@@ -24,6 +24,7 @@ import pytest_asyncio
 from fastapi.testclient import TestClient
 
 from agentception.app import app
+from agentception.types import JsonValue
 from agentception.intelligence.role_versions import (
     get_version_for_batch,
     read_role_versions,
@@ -75,11 +76,13 @@ async def test_record_version_bump_appends_to_history(tmp_path: Path) -> None:
     assert isinstance(versions, dict)
     cto_entry = versions.get("cto")
     assert isinstance(cto_entry, dict)
-    history: list[dict[str, object]] = cto_entry.get("history", [])
-    assert len(history) == 1
-    assert history[0]["sha"] == sha_1
-    assert history[0]["label"] == "v1"
-    assert isinstance(history[0]["timestamp"], int)
+    history = cto_entry.get("history")
+    assert isinstance(history, list) and len(history) == 1
+    entry = history[0]
+    assert isinstance(entry, dict)
+    assert entry["sha"] == sha_1
+    assert entry["label"] == "v1"
+    assert isinstance(entry["timestamp"], int)
     assert cto_entry["current"] == "v1"
 
 
@@ -105,8 +108,8 @@ async def test_record_version_bump_idempotent_on_same_sha(tmp_path: Path) -> Non
     assert isinstance(versions, dict)
     cto = versions.get("cto")
     assert isinstance(cto, dict)
-    cto_history: list[object] = cto.get("history", [])
-    assert len(cto_history) == 1, "Duplicate SHA must not produce two history entries"
+    cto_history = cto.get("history")
+    assert isinstance(cto_history, list) and len(cto_history) == 1, "Duplicate SHA must not produce two history entries"
 
 
 # ── get_version_for_batch ──────────────────────────────────────────────────────
@@ -171,7 +174,7 @@ async def test_role_versions_file_created_on_first_write(tmp_path: Path) -> None
         target = tmp_path / ".agentception" / "role-versions.json"
         assert not target.exists(), "Pre-condition: file must not exist before first write"
 
-        scaffold: dict[str, object] = {"versions": {}, "ab_mode": {"enabled": False}}
+        scaffold: dict[str, JsonValue] = {"versions": {}, "ab_mode": {"enabled": False}}
         await write_role_versions(scaffold)
 
     assert target.exists(), ".agentception/role-versions.json must be created on first write"

@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import TypedDict
 
 from agentception.models import FileEditEvent
+from agentception.types import JsonValue
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +93,7 @@ def _memory_path(worktree_path: Path) -> Path:
     return worktree_path / _MEMORY_FILENAME
 
 
-def _deserialize_file_edit_event(raw: object) -> FileEditEvent | None:
+def _deserialize_file_edit_event(raw: JsonValue) -> FileEditEvent | None:
     """Attempt to deserialize a raw dict into a :class:`FileEditEvent`.
 
     Returns ``None`` when the value is not a valid dict or is missing required
@@ -148,7 +149,7 @@ def read_memory(worktree_path: Path) -> WorkingMemory | None:
     if not path.exists():
         return None
     try:
-        raw: object = json.loads(path.read_text(encoding="utf-8"))
+        raw: JsonValue = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             return None
         result = WorkingMemory()
@@ -162,25 +163,33 @@ def read_memory(worktree_path: Path) -> WorkingMemory | None:
             if valid_events:
                 result["files_written"] = valid_events
         files_examined = raw.get("files_examined")
-        if (
-            isinstance(files_examined, list)
-            and all(isinstance(f, str) for f in files_examined)
-        ):
-            result["files_examined"] = list(files_examined)
+        if isinstance(files_examined, list):
+            str_files = [f for f in files_examined if isinstance(f, str)]
+            if str_files:
+                result["files_examined"] = str_files
         findings = raw.get("findings")
-        if isinstance(findings, dict) and all(
-            isinstance(k, str) and isinstance(v, str) for k, v in findings.items()
-        ):
-            result["findings"] = dict(findings)
+        if isinstance(findings, dict):
+            str_findings = {
+                k: v for k, v in findings.items()
+                if isinstance(k, str) and isinstance(v, str)
+            }
+            if str_findings:
+                result["findings"] = str_findings
         decisions = raw.get("decisions")
-        if isinstance(decisions, list) and all(isinstance(d, str) for d in decisions):
-            result["decisions"] = list(decisions)
+        if isinstance(decisions, list):
+            str_decisions = [d for d in decisions if isinstance(d, str)]
+            if str_decisions:
+                result["decisions"] = str_decisions
         next_steps = raw.get("next_steps")
-        if isinstance(next_steps, list) and all(isinstance(s, str) for s in next_steps):
-            result["next_steps"] = list(next_steps)
+        if isinstance(next_steps, list):
+            str_steps = [s for s in next_steps if isinstance(s, str)]
+            if str_steps:
+                result["next_steps"] = str_steps
         blockers = raw.get("blockers")
-        if isinstance(blockers, list) and all(isinstance(b, str) for b in blockers):
-            result["blockers"] = list(blockers)
+        if isinstance(blockers, list):
+            str_blockers = [b for b in blockers if isinstance(b, str)]
+            if str_blockers:
+                result["blockers"] = str_blockers
         return result or None
     except (json.JSONDecodeError, OSError) as exc:
         logger.warning("⚠️ working_memory.read — error: %s", exc)

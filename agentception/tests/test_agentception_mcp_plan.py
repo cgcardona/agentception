@@ -14,7 +14,6 @@ Boundary: zero imports from external packages.
 """
 
 import json
-from collections.abc import Mapping
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -34,6 +33,7 @@ from agentception.mcp.server import (
     list_resources,
     list_tools,
 )
+from agentception.types import JsonValue
 from agentception.mcp.types import (
     ACResourceDef,
     ACResourceResult,
@@ -42,6 +42,8 @@ from agentception.mcp.types import (
     JSONRPC_ERR_INVALID_PARAMS,
     JSONRPC_ERR_INVALID_REQUEST,
     JSONRPC_ERR_METHOD_NOT_FOUND,
+    JsonRpcErrorResponse,
+    JsonRpcSuccessResponse,
 )
 
 # ---------------------------------------------------------------------------
@@ -71,9 +73,9 @@ def _minimal_plan_spec_json() -> str:
     })
 
 
-def _minimal_manifest_dict() -> dict[str, object]:
+def _minimal_manifest_dict() -> dict[str, JsonValue]:
     """Return a minimal valid EnrichedManifest as a plain dict."""
-    return {
+    raw = {
         "initiative": "test-init",
         "phases": [
             {
@@ -97,6 +99,8 @@ def _minimal_manifest_dict() -> dict[str, object]:
             }
         ],
     }
+    result: dict[str, JsonValue] = json.loads(json.dumps(raw))
+    return result
 
 
 def _minimal_manifest_json() -> str:
@@ -104,27 +108,29 @@ def _minimal_manifest_json() -> str:
     return json.dumps(_minimal_manifest_dict())
 
 
-def _list_request(req_id: int | str | None = 1) -> dict[str, object]:
+def _list_request(req_id: int | str | None = 1) -> dict[str, JsonValue]:
     return {"jsonrpc": "2.0", "id": req_id, "method": "tools/list"}
 
 
 def _call_request(
     tool_name: str,
-    arguments: dict[str, object],
+    arguments: dict[str, JsonValue],
     req_id: int = 1,
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
+    params: dict[str, JsonValue] = {"name": tool_name, "arguments": arguments}
     return {
         "jsonrpc": "2.0",
         "id": req_id,
         "method": "tools/call",
-        "params": {"name": tool_name, "arguments": arguments},
+        "params": params,
     }
 
 
-def _unwrap(resp: Mapping[str, object] | None) -> Mapping[str, object]:
+def _unwrap(resp: JsonRpcSuccessResponse | JsonRpcErrorResponse | None) -> dict[str, JsonValue]:
     """Assert that handle_request returned a response (not a notification None) and narrow the type."""
     assert resp is not None, "handle_request returned None — expected a response dict"
-    return resp
+    d: dict[str, JsonValue] = json.loads(json.dumps(resp))
+    return d
 
 
 def _make_process(stdout: bytes, returncode: int = 0, stderr: bytes = b"") -> MagicMock:
@@ -481,8 +487,14 @@ def test_handle_request_tools_call_plan_get_schema_returns_redirect() -> None:
     result = resp["result"]
     assert isinstance(result, dict)
     assert result.get("isError") is True
-    payload = json.loads(result["content"][0]["text"])
-    assert "ac://plan/schema" in payload["error"]
+    content = result["content"]
+    assert isinstance(content, list)
+    first = content[0]
+    assert isinstance(first, dict)
+    text = first["text"]
+    assert isinstance(text, str)
+    payload: dict[str, JsonValue] = json.loads(text)
+    assert "ac://plan/schema" in str(payload["error"])
 
 
 def test_handle_request_tools_call_plan_validate_spec_valid() -> None:
@@ -619,7 +631,7 @@ async def test_plan_get_labels_empty_repo() -> None:
 @pytest.mark.anyio
 async def test_plan_get_labels_filters_non_dict_items() -> None:
     """plan_get_labels() skips items without a name field."""
-    mixed: list[dict[str, object]] = [
+    mixed: list[dict[str, JsonValue]] = [
         {"name": "valid", "description": "ok"},
         {"description": "missing name"},
     ]
@@ -689,7 +701,7 @@ def test_plan_validate_manifest_multi_issue_total() -> None:
     assert isinstance(phase, dict)
     issue_list = phase["issues"]
     assert isinstance(issue_list, list)
-    issue_list.append({
+    second: dict[str, JsonValue] = json.loads(json.dumps({
         "title": "Second issue",
         "body": "## Second\n\nDo this.",
         "labels": ["enhancement"],
@@ -699,8 +711,10 @@ def test_plan_validate_manifest_multi_issue_total() -> None:
         "acceptance_criteria": ["AC 1"],
         "tests_required": ["test_second"],
         "docs_required": [],
-    })
-    phase["parallel_groups"] = [["Bootstrap repo", "Second issue"]]
+    }))
+    issue_list.append(second)
+    groups: list[JsonValue] = [["Bootstrap repo", "Second issue"]]
+    phase["parallel_groups"] = groups
     result = plan_validate_manifest(json.dumps(manifest))
     assert result.get("valid") is True
     assert result.get("total_issues") == 2

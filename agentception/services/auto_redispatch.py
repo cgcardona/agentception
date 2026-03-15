@@ -26,6 +26,7 @@ import re
 import httpx
 
 from agentception.config import settings
+from agentception.types import JsonValue
 from agentception.db.queries import get_agent_run_task_description
 from agentception.readers.github import add_comment_to_issue, get_issue
 
@@ -175,7 +176,7 @@ async def auto_redispatch_after_rejection(
     original_body = str(issue.get("body") or "")
     enhanced_body = _build_enhanced_body(original_body, reviewer_feedback, grade, attempt)
 
-    payload: dict[str, object] = {
+    payload: dict[str, JsonValue] = {
         "issue_number": issue_number,
         "issue_title": issue_title,
         "issue_body": enhanced_body,

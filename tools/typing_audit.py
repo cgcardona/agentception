@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Typing audit — find and count all Any-ish patterns in the codebase.
+"""Typing audit — find and count all banned type patterns in the codebase.
+
+Checks every rule from .cursorrules and AGENTS.md:
+  - Any as a type (param, return, collection value)
+  - object as a type (same severity as Any)
+  - cast() usage (all usage banned — fix the callee)
+  - # type: ignore (blanket and specific)
+  - Bare collections (list, dict, set, tuple without type parameters)
+  - Optional[X] (use X | None instead)
+  - Legacy typing imports (List, Dict, Set, Tuple — use lowercase builtins)
 
 Outputs JSON (machine-readable) + a human summary to stdout.
 
@@ -23,18 +32,55 @@ from typing import Any
 
 
 # ── Pattern matchers ──────────────────────────────────────────────────────────
+# Grouped by category. Every key contributes to the total violation count.
 
 _PATTERNS: dict[str, re.Pattern[str]] = {
-    "dict_str_any": re.compile(r"\bdict\[str,\s*Any\]|\bDict\[str,\s*Any\]", re.IGNORECASE),
+    # ── Any-as-type ──────────────────────────────────────────────────────
+    "dict_str_any": re.compile(
+        r"\bdict\[str,\s*Any\]|\bDict\[str,\s*Any\]", re.IGNORECASE
+    ),
     "list_any": re.compile(r"\blist\[Any\]|\bList\[Any\]", re.IGNORECASE),
-    "cast_any": re.compile(r"\bcast\(\s*Any\b"),
     "return_any": re.compile(r"->\s*Any\b"),
     "param_any": re.compile(r":\s*Any\b"),
-    "type_ignore": re.compile(r"#\s*type:\s*ignore"),
-    "mapping_any": re.compile(r"\bMapping\[str,\s*Any\]", re.IGNORECASE),
+    "mapping_any": re.compile(
+        r"\bMapping\[str,\s*Any\]", re.IGNORECASE
+    ),
     "optional_any": re.compile(r"\bOptional\[Any\]", re.IGNORECASE),
-    "sequence_any": re.compile(r"\bSequence\[Any\]|\bIterable\[Any\]", re.IGNORECASE),
+    "sequence_any": re.compile(
+        r"\bSequence\[Any\]|\bIterable\[Any\]", re.IGNORECASE
+    ),
     "tuple_any": re.compile(r"\btuple\[.*Any.*\]|\bTuple\[.*Any.*\]"),
+
+    # ── object-as-type (same severity as Any) ────────────────────────────
+    "param_object": re.compile(r":\s*object\b"),
+    "return_object": re.compile(r"->\s*object\b"),
+    "collection_object": re.compile(
+        r"\b(?:dict|list|set|tuple|Sequence|Mapping)\[[^]]*\bobject\b"
+    ),
+
+    # ── cast() — all usage banned ────────────────────────────────────────
+    "cast_usage": re.compile(r"\bcast\("),
+
+    # ── type: ignore — suppresses real errors ────────────────────────────
+    "type_ignore": re.compile(r"#\s*type:\s*ignore"),
+
+    # ── Bare collections (no type parameters) ────────────────────────────
+    # Negative lookaheads: exclude parameterized [, constructor calls (,
+    # and prose patterns (": list of items" in docstrings).
+    "bare_list": re.compile(r"(?::\s*|->\s*)list\b(?!\[|\(|\s+[a-z])"),
+    "bare_dict": re.compile(r"(?::\s*|->\s*)dict\b(?!\[|\(|\s+[a-z])"),
+    "bare_set": re.compile(r"(?::\s*|->\s*)set\b(?!\[|\(|\s+[a-z])"),
+    "bare_tuple": re.compile(r"(?::\s*|->\s*)tuple\b(?!\[|\(|\s+[a-z])"),
+
+    # ── Optional[X] — use X | None instead ───────────────────────────────
+    # Excludes Optional[Any] which is already caught by optional_any.
+    "optional_usage": re.compile(r"\bOptional\[(?!Any\b)"),
+
+    # ── Legacy typing imports (use lowercase builtins) ───────────────────
+    "legacy_List": re.compile(r"\bList\["),
+    "legacy_Dict": re.compile(r"\bDict\["),
+    "legacy_Set": re.compile(r"\bSet\["),
+    "legacy_Tuple": re.compile(r"\bTuple\["),
 }
 
 
@@ -90,7 +136,7 @@ def _find_untyped_defs(source: str, filepath: str) -> list[dict[str, Any]]:
 
 
 def scan_file(filepath: Path) -> dict[str, Any]:
-    """Scan a single Python file for Any-ish patterns."""
+    """Scan a single Python file for typing violations."""
     try:
         source = filepath.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
@@ -140,6 +186,26 @@ def scan_directory(directory: Path) -> list[dict[str, Any]]:
 
 
 # ── Report generation ─────────────────────────────────────────────────────────
+
+# Display order: group patterns into logical categories for the report.
+_CATEGORY_ORDER: list[tuple[str, list[str]]] = [
+    ("Any-as-type", [
+        "dict_str_any", "list_any", "return_any", "param_any",
+        "mapping_any", "optional_any", "sequence_any", "tuple_any",
+    ]),
+    ("object-as-type", [
+        "param_object", "return_object", "collection_object",
+    ]),
+    ("cast() usage", ["cast_usage"]),
+    ("type: ignore", ["type_ignore"]),
+    ("Bare collections", [
+        "bare_list", "bare_dict", "bare_set", "bare_tuple",
+    ]),
+    ("Optional (use X | None)", ["optional_usage"]),
+    ("Legacy typing imports", [
+        "legacy_List", "legacy_Dict", "legacy_Set", "legacy_Tuple",
+    ]),
+]
 
 
 def generate_report(results: list[dict[str, Any]]) -> dict[str, Any]:
@@ -192,18 +258,31 @@ def generate_report(results: list[dict[str, Any]]) -> dict[str, Any]:
 def print_human_summary(report: dict[str, Any]) -> None:
     """Print a human-readable summary."""
     s = report["summary"]
+    totals = report["pattern_totals"]
     print("\n" + "=" * 70)
-    print("  TYPING AUDIT — Any Usage Report")
+    print("  TYPING AUDIT — Violation Report")
     print("=" * 70)
     print(f"  Files scanned:        {s['total_files_scanned']}")
     print(f"  Files importing Any:  {s['files_importing_any']}")
-    print(f"  Total Any patterns:   {s['total_any_patterns']}")
+    print(f"  Total violations:     {s['total_any_patterns']}")
     print(f"  Untyped defs:         {s['untyped_defs']}")
     print()
-    print("  Pattern breakdown:")
-    for pattern, count in sorted(report["pattern_totals"].items(), key=lambda x: -x[1]):
-        print(f"    {pattern:30s} {count:5d}")
-    print()
+
+    for category, pattern_names in _CATEGORY_ORDER:
+        category_total = sum(totals.get(p, 0) for p in pattern_names)
+        if category_total == 0:
+            continue
+        print(f"  {category}:")
+        for p in pattern_names:
+            count = totals.get(p, 0)
+            if count > 0:
+                print(f"    {p:30s} {count:5d}")
+        print()
+
+    if not any(totals.get(p, 0) for _, pats in _CATEGORY_ORDER for p in pats):
+        print("  Pattern breakdown:    (none)")
+        print()
+
     if report["type_ignore_variants"]:
         print("  # type: ignore variants:")
         for variant, count in sorted(report["type_ignore_variants"].items(), key=lambda x: -x[1]):
@@ -219,7 +298,10 @@ def print_human_summary(report: dict[str, Any]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Audit Any usage in the codebase")
+    parser = argparse.ArgumentParser(
+        description="Audit typing violations: Any, object, cast, bare collections, "
+        "Optional, legacy imports, type: ignore, untyped defs",
+    )
     parser.add_argument(
         "--dirs",
         nargs="+",
@@ -231,7 +313,7 @@ def main() -> None:
         "--max-any",
         type=int,
         default=None,
-        help="Fail (exit 1) if total Any patterns exceed this threshold",
+        help="Fail (exit 1) if total violations exceed this threshold",
     )
     args = parser.parse_args()
 
@@ -258,14 +340,14 @@ def main() -> None:
         total = report["summary"]["total_any_patterns"]
         if total > args.max_any:
             print(
-                f"\n❌ RATCHET FAILED: {total} Any patterns exceed "
+                f"\n❌ RATCHET FAILED: {total} violations exceed "
                 f"threshold of {args.max_any}",
                 file=sys.stderr,
             )
             sys.exit(1)
         else:
             print(
-                f"\n✅ RATCHET OK: {total} Any patterns within "
+                f"\n✅ RATCHET OK: {total} violations within "
                 f"threshold of {args.max_any}",
             )
 

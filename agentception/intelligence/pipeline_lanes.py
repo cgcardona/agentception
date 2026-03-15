@@ -25,6 +25,7 @@ Given ``labels = [L0, L1, L2, ...]``:
 import logging
 
 from agentception.models import AgentNode, BoardIssue
+from agentception.types import JsonValue
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +43,8 @@ _PHASE_COLORS: list[str] = [
 
 GateStatus = str  # "waiting" | "ready" | "done"
 
-BlockerItem = dict[str, object]   # {number: int, title: str}
-PhaseLane = dict[str, object]     # see compute_phase_lanes docstring
+BlockerItem = dict[str, JsonValue]   # {number: int, title: str}
+PhaseLane = dict[str, JsonValue]     # see compute_phase_lanes docstring
 
 
 def compute_phase_lanes(
@@ -113,13 +114,12 @@ def compute_phase_lanes(
         upstream_labels = labels[:idx]
 
         gate_status: GateStatus
-        blockers: list[BlockerItem]
+        blockers: list[JsonValue]
 
         if open_count == 0:
             gate_status = "done"
             blockers = []
         else:
-            # Find first upstream phase that still has open issues.
             blocking_phase_issues: list[BoardIssue] = []
             for up_label in upstream_labels:
                 if open_by_label[up_label]:

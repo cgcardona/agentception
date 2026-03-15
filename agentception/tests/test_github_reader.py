@@ -10,6 +10,7 @@ import pytest
 
 import agentception.readers.github as gh_module
 from agentception.readers.github import _cache_invalidate
+from agentception.types import JsonValue
 
 
 # ---------------------------------------------------------------------------
@@ -17,7 +18,7 @@ from agentception.readers.github import _cache_invalidate
 # ---------------------------------------------------------------------------
 
 
-def _make_response(items: list[object], status: int = 200) -> httpx.Response:
+def _make_response(items: list[JsonValue], status: int = 200) -> httpx.Response:
     """Build a minimal httpx.Response carrying a JSON list payload."""
     import json
 
@@ -55,7 +56,7 @@ async def test_api_get_all_cache_expires_before_poll() -> None:
         f"< poll_interval_seconds ({settings.poll_interval_seconds})"
     )
 
-    fake_items: list[object] = [{"number": 1, "title": "test issue"}]
+    fake_items: list[JsonValue] = [{"number": 1, "title": "test issue"}]
     response = _make_response(fake_items)
 
     mock_client = MagicMock()
@@ -127,7 +128,7 @@ async def test_get_closed_issues_default_limit() -> None:
     from agentception.readers.github import get_closed_issues
 
     # Build 150 fake closed issues (no pull_request key → all pass the filter).
-    fake_issues: list[object] = [
+    fake_issues: list[JsonValue] = [
         {"number": i, "title": f"issue {i}", "state": "closed"}
         for i in range(1, 151)
     ]
@@ -136,7 +137,7 @@ async def test_get_closed_issues_default_limit() -> None:
     page1 = fake_issues[:100]
     page2 = fake_issues[100:]
 
-    def _make_page(items: list[object]) -> httpx.Response:
+    def _make_page(items: list[JsonValue]) -> httpx.Response:
         request = httpx.Request("GET", "https://api.github.com/repos/owner/repo/issues")
         return httpx.Response(
             status_code=200,
@@ -148,7 +149,7 @@ async def test_get_closed_issues_default_limit() -> None:
     responses = [_make_page(page1), _make_page(page2), _make_page([])]
     call_index = 0
 
-    async def _fake_get(*args: object, **kwargs: object) -> httpx.Response:
+    async def _fake_get(*args: str | int | float | bool | None, **kwargs: str | int | float | bool | None) -> httpx.Response:
         nonlocal call_index
         resp = responses[min(call_index, len(responses) - 1)]
         call_index += 1

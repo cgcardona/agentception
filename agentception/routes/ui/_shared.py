@@ -17,6 +17,7 @@ from fastapi.templating import Jinja2Templates
 
 from agentception.config import settings as _settings
 from agentception.models import AgentNode, PipelineState
+from agentception.types import JsonValue
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,7 @@ def _md_to_html(text: str) -> str:
     return Markup(result)
 
 
-def _parse_iso(s: object) -> datetime.datetime | None:
+def _parse_iso(s: JsonValue) -> datetime.datetime | None:
     """Parse an ISO-8601 datetime string, returning a UTC-aware datetime or None.
 
     Python 3.11+ ``fromisoformat`` handles the trailing ``Z`` natively.
@@ -137,7 +138,7 @@ def _fmt_role(role: str) -> str:
     )
 
 
-def _fmt_elapsed(spawned_iso: object) -> str:
+def _fmt_elapsed(spawned_iso: JsonValue) -> str:
     """Return a human-readable elapsed time string from an ISO spawn timestamp to now."""
     dt = _parse_iso(spawned_iso)
     if dt is None:
@@ -164,7 +165,7 @@ def _dirname(path: str) -> str:
     return os.path.dirname(path)
 
 
-def _issue_is_claimed(iss: dict[str, object]) -> bool:
+def _issue_is_claimed(iss: dict[str, JsonValue]) -> bool:
     """Return True when an issue carries the ``agent/wip`` label.
 
     Handles both list-of-strings and list-of-label-objects shapes so the

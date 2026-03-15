@@ -17,14 +17,9 @@ from typing import Union
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
-from agentception.db.activity_events import (
-    FileInsertedPayload,
-    FileReadPayload,
-    FileReplacedPayload,
-    FileWrittenPayload,
-    persist_activity_event,
-)
+from agentception.db.activity_events import persist_activity_event
 from agentception.config import settings
+from agentception.types import JsonValue
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +45,7 @@ def _emit_activity(
     session: Union[Session, AsyncSession],
     run_id: str,
     subtype: str,
-    payload: Mapping[str, object],
+    payload: Mapping[str, str | int | float | bool | None],
 ) -> None:
     """Persist one activity event, catching and logging any DB error.
 
@@ -76,7 +71,7 @@ _MAX_READ_BYTES = 131_072  # 128 KiB
 _CLASS_DEF_RE: _re.Pattern[str] = _re.compile(r"^\s*(class|def)\s+\w+")
 
 
-def read_file(path: str | Path) -> dict[str, object]:
+def read_file(path: str | Path) -> dict[str, JsonValue]:
     """Return the text content of *path*.
 
     Args:
@@ -116,7 +111,7 @@ def write_file(
     *,
     run_id: str | None = None,
     session: Union[Session, AsyncSession] | None = None,
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Write *content* to *path*, creating parent directories as needed.
 
     Args:
@@ -146,15 +141,14 @@ def write_file(
     logger.info("✅ write_file — %s (%d bytes)", p, bytes_written)
     # activity event — see docs/reference/activity-events.md
     if run_id is not None and session is not None:
-        payload: FileWrittenPayload = {
+        _emit_activity(session, run_id, "file_written", {
             "path": _shorten_path(p, run_id),
             "byte_count": bytes_written,
-        }
-        _emit_activity(session, run_id, "file_written", payload)
+        })
     return {"ok": True, "bytes_written": bytes_written}
 
 
-def list_directory(path: str | Path) -> dict[str, object]:
+def list_directory(path: str | Path) -> dict[str, JsonValue]:
     """Return a sorted list of entries in *path*.
 
     Args:
@@ -180,7 +174,9 @@ def list_directory(path: str | Path) -> dict[str, object]:
         logger.warning("⚠️ list_directory — OS error: %s", exc)
         return {"ok": False, "error": str(exc)}
 
-    return {"ok": True, "entries": entries}
+    entries_jv: list[JsonValue] = []
+    entries_jv.extend(entries)
+    return {"ok": True, "entries": entries_jv}
 
 
 def replace_in_file(
@@ -191,7 +187,7 @@ def replace_in_file(
     allow_multiple: bool = False,
     run_id: str | None = None,
     session: Union[Session, AsyncSession] | None = None,
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Replace an exact string in *path* with *new_string*.
 
     Safer than ``write_file`` for targeted edits because only the matched
@@ -250,11 +246,10 @@ def replace_in_file(
     logger.info("✅ replace_in_file — %s (%d replacement(s))", p, replacements)
     # activity event — see docs/reference/activity-events.md
     if run_id is not None and session is not None:
-        rp_payload: FileReplacedPayload = {
+        _emit_activity(session, run_id, "file_replaced", {
             "path": _shorten_path(p, run_id),
             "replacement_count": replacements,
-        }
-        _emit_activity(session, run_id, "file_replaced", rp_payload)
+        })
     return {"ok": True, "replacements": replacements}
 
 
@@ -265,7 +260,7 @@ def read_file_lines(
     *,
     run_id: str | None = None,
     session: Union[Session, AsyncSession] | None = None,
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Return lines *start_line* through *end_line* (1-indexed, inclusive) from *path*.
 
     Cheaper than ``read_file`` for large files when only a specific region is
@@ -316,13 +311,12 @@ def read_file_lines(
     )
     # activity event — see docs/reference/activity-events.md
     if run_id is not None and session is not None:
-        fr_payload: FileReadPayload = {
+        _emit_activity(session, run_id, "file_read", {
             "path": _shorten_path(p, run_id),
             "start_line": clamped_start,
             "end_line": clamped_end,
             "total_lines": total,
-        }
-        _emit_activity(session, run_id, "file_read", fr_payload)
+        })
     return {
         "ok": True,
         "content": content,
@@ -339,7 +333,7 @@ def insert_after_in_file(
     *,
     run_id: str | None = None,
     session: Union[Session, AsyncSession] | None = None,
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Insert *new_content* immediately after the first occurrence of *anchor* in *path*.
 
     Complements ``replace_in_file`` for pure-insertion tasks where the anchor
@@ -423,10 +417,9 @@ def insert_after_in_file(
     logger.info("✅ insert_after_in_file — %s (inserted at byte %d)", p, insert_pos)
     # activity event — see docs/reference/activity-events.md
     if run_id is not None and session is not None:
-        fi_payload: FileInsertedPayload = {
+        _emit_activity(session, run_id, "file_inserted", {
             "path": _shorten_path(p, run_id),
-        }
-        _emit_activity(session, run_id, "file_inserted", fi_payload)
+        })
     return {"ok": True, "inserted_at": insert_pos}
 
 
@@ -458,7 +451,7 @@ async def search_text(
     directory: str | Path,
     *,
     n_results: int = 30,
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Search *directory* for lines matching *pattern* using ripgrep.
 
     Uses ``rg`` (ripgrep) for fast, .gitignore-aware searching.  Falls back
@@ -542,7 +535,7 @@ def _find_symbol_lines_py(text: str, symbol_name: str) -> tuple[int, int] | None
     return None
 
 
-def read_symbol(path: str | Path, symbol_name: str) -> dict[str, object]:
+def read_symbol(path: str | Path, symbol_name: str) -> dict[str, JsonValue]:
     """Return the complete body of a function or class by name.
 
     For ``.py`` files, uses the Python AST to find exact symbol boundaries
@@ -631,7 +624,7 @@ def read_window(
     *,
     before: int = 80,
     after: int = 120,
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Read a window of lines centered on *center_line*.
 
     More ergonomic than ``read_file_lines`` for exploration: plug in a line
@@ -682,7 +675,7 @@ async def find_call_sites(
     directory: str | Path,
     *,
     n_results: int = 30,
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Find all call sites of *symbol_name* using ripgrep.
 
     Searches for ``symbol_name(`` to catch function calls, plus ``symbol_name``

@@ -29,6 +29,7 @@ from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agentception.db import activity_events
+from agentception.types import JsonValue
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +145,7 @@ async def run_command(
     timeout: int = _DEFAULT_TIMEOUT,
     run_id: str | None = None,
     session: AsyncSession | None = None,
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Execute *command* in a subprocess and return structured output.
 
     The command is run via the system shell (``/bin/sh -c``), which allows
@@ -280,7 +281,7 @@ async def git_commit_and_push(
     base: str = "origin/dev",
     run_id: str | None = None,
     session: AsyncSession | None = None,
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Create a branch, stage files, commit, and push in one atomic call.
 
     Replaces the four-turn run_command pattern::

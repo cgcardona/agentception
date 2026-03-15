@@ -48,7 +48,7 @@ async def init_db() -> None:
     display_url = url.split("@")[-1] if "@" in url else url
     logger.info("✅ AgentCeption DB initialising: %s", display_url)
 
-    connect_args: dict[str, object] = {}
+    connect_args: dict[str, bool] = {}
     if url.startswith("sqlite"):
         connect_args["check_same_thread"] = False
 

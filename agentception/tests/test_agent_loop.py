@@ -20,6 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from agentception.mcp.types import ACToolContent, ACToolResult
+from agentception.types import JsonValue
 from agentception.models import AgentTaskSpec
 from agentception.services.llm import (
     ToolCall,
@@ -59,7 +60,7 @@ def _stop_response(content: str = "Task complete.") -> ToolResponse:
     return ToolResponse(stop_reason="stop", content=content, tool_calls=[])
 
 
-def _tool_response(name: str, args: dict[str, object]) -> ToolResponse:
+def _tool_response(name: str, args: dict[str, JsonValue]) -> ToolResponse:
     tc = ToolCall(
         id="call_123",
         type="function",
@@ -675,7 +676,7 @@ class TestLLMSSLRetry:
             ),
         )
     ]
-    _MESSAGES: list[dict[str, object]] = [{"role": "user", "content": "hello"}]
+    _MESSAGES: list[dict[str, JsonValue]] = [{"role": "user", "content": "hello"}]
 
     @pytest.mark.anyio
     async def test_ssl_error_is_retried_call_anthropic_with_tools(self) -> None:
@@ -687,7 +688,7 @@ class TestLLMSSLRetry:
         call_count = 0
 
         async def _flaky_post(
-            url: str, *, json: object, headers: dict[str, str]
+            url: str, *, json: JsonValue, headers: dict[str, str]
         ) -> httpx.Response:
             nonlocal call_count
             call_count += 1
@@ -730,7 +731,7 @@ class TestLLMSSLRetry:
         from agentception.services.llm import call_anthropic_with_tools
 
         async def _always_fails(
-            url: str, *, json: object, headers: dict[str, str]
+            url: str, *, json: JsonValue, headers: dict[str, str]
         ) -> httpx.Response:
             raise ssl.SSLError("SSLV3_ALERT_BAD_RECORD_MAC")
 
@@ -760,7 +761,7 @@ class TestLLMSSLRetry:
         call_count = 0
 
         async def _flaky_post(
-            url: str, *, json: object, headers: dict[str, str]
+            url: str, *, json: JsonValue, headers: dict[str, str]
         ) -> httpx.Response:
             nonlocal call_count
             call_count += 1
@@ -816,7 +817,7 @@ class TestLLMSSLRetry:
         call_count = 0
 
         async def _flaky_post(
-            url: str, *, json: object, headers: dict[str, str]
+            url: str, *, json: JsonValue, headers: dict[str, str]
         ) -> httpx.Response:
             nonlocal call_count
             call_count += 1
@@ -878,7 +879,7 @@ class TestTerminalStateGuard:
 
         # Simulate a run that is already cancelled in the DB (e.g. the agent
         # called build_cancel_run as a tool in the previous turn).
-        terminal_row: dict[str, object] = {"status": "cancelled"}
+        terminal_row: dict[str, JsonValue] = {"status": "cancelled"}
 
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
@@ -976,19 +977,19 @@ class TestLoopGuard:
 
         # Capture both the tools offered to the model and any extra_system_blocks.
         captured_tools: list[list[ToolDefinition]] = []
-        captured_extra: list[list[dict[str, object]] | None] = []
+        captured_extra: list[list[dict[str, JsonValue]] | None] = []
 
         async def fake_llm(
-            *args: object,
+            *args: str,
             tools: list[ToolDefinition] | None = None,
-            extra_system_blocks: list[dict[str, object]] | None = None,
-            **kwargs: object,
+            extra_system_blocks: list[dict[str, JsonValue]] | None = None,
+            **kwargs: str | int | bool | float | None,
         ) -> ToolResponse:
             captured_tools.append(list(tools or []))
             captured_extra.append(extra_system_blocks)
             return all_responses[len(captured_tools) - 1]
 
-        file_result: dict[str, object] = {"ok": True, "content": "# stub", "truncated": False}
+        file_result: dict[str, JsonValue] = {"ok": True, "content": "# stub", "truncated": False}
 
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
@@ -1091,18 +1092,18 @@ class TestLoopGuard:
             + [_stop_response("Done.")]
         )
 
-        captured_extra: list[list[dict[str, object]] | None] = []
+        captured_extra: list[list[dict[str, JsonValue]] | None] = []
 
         async def fake_llm(
-            *args: object,
-            extra_system_blocks: list[dict[str, object]] | None = None,
-            **kwargs: object,
+            *args: str,
+            extra_system_blocks: list[dict[str, JsonValue]] | None = None,
+            **kwargs: str | int | bool | float | None,
         ) -> ToolResponse:
             captured_extra.append(extra_system_blocks)
             return all_responses[len(captured_extra) - 1]
 
-        file_result: dict[str, object] = {"ok": True, "content": "# stub", "truncated": False}
-        write_result: dict[str, object] = {"ok": True}
+        file_result: dict[str, JsonValue] = {"ok": True, "content": "# stub", "truncated": False}
+        write_result: dict[str, JsonValue] = {"ok": True}
 
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
@@ -1199,18 +1200,18 @@ class TestLoopGuard:
             + [_stop_response("Done.")]
         )
 
-        captured_extra: list[list[dict[str, object]] | None] = []
+        captured_extra: list[list[dict[str, JsonValue]] | None] = []
 
         async def fake_llm(
-            *args: object,
-            extra_system_blocks: list[dict[str, object]] | None = None,
-            **kwargs: object,
+            *args: str,
+            extra_system_blocks: list[dict[str, JsonValue]] | None = None,
+            **kwargs: str | int | bool | float | None,
         ) -> ToolResponse:
             captured_extra.append(extra_system_blocks)
             return all_responses[len(captured_extra) - 1]
 
-        file_result: dict[str, object] = {"ok": True, "content": "# stub", "truncated": False}
-        write_result: dict[str, object] = {"ok": True}
+        file_result: dict[str, JsonValue] = {"ok": True, "content": "# stub", "truncated": False}
+        write_result: dict[str, JsonValue] = {"ok": True}
 
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
@@ -1297,17 +1298,17 @@ class TestLoopGuard:
             _stop_response("Done."),
         ]
 
-        captured_extra: list[list[dict[str, object]] | None] = []
+        captured_extra: list[list[dict[str, JsonValue]] | None] = []
 
         async def fake_llm(
-            *args: object,
-            extra_system_blocks: list[dict[str, object]] | None = None,
-            **kwargs: object,
+            *args: str,
+            extra_system_blocks: list[dict[str, JsonValue]] | None = None,
+            **kwargs: str | int | bool | float | None,
         ) -> ToolResponse:
             captured_extra.append(extra_system_blocks)
             return all_responses[len(captured_extra) - 1]
 
-        search_result: dict[str, object] = {"ok": True, "results": []}
+        search_result: dict[str, JsonValue] = {"ok": True, "results": []}
 
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
@@ -1408,17 +1409,17 @@ class TestLoopGuard:
         ]
         all_responses = read_responses + [_stop_response("Done.")]
 
-        captured_extra: list[list[dict[str, object]] | None] = []
+        captured_extra: list[list[dict[str, JsonValue]] | None] = []
 
         async def fake_llm(
-            *args: object,
-            extra_system_blocks: list[dict[str, object]] | None = None,
-            **kwargs: object,
+            *args: str,
+            extra_system_blocks: list[dict[str, JsonValue]] | None = None,
+            **kwargs: str | int | bool | float | None,
         ) -> ToolResponse:
             captured_extra.append(extra_system_blocks)
             return all_responses[len(captured_extra) - 1]
 
-        file_result: dict[str, object] = {"ok": True, "content": "# stub", "truncated": False}
+        file_result: dict[str, JsonValue] = {"ok": True, "content": "# stub", "truncated": False}
 
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
@@ -1551,13 +1552,13 @@ class TestLoopGuardReviewer:
         ]
         all_responses = read_responses + [_stop_response("Review done.")]
 
-        captured_extra: list[list[dict[str, object]] | None] = []
+        captured_extra: list[list[dict[str, JsonValue]] | None] = []
 
         async def fake_llm(
-            *args: object,
+            *args: str,
             tools: list[ToolDefinition] | None = None,
-            extra_system_blocks: list[dict[str, object]] | None = None,
-            **kwargs: object,
+            extra_system_blocks: list[dict[str, JsonValue]] | None = None,
+            **kwargs: str | int | bool | float | None,
         ) -> ToolResponse:
             captured_extra.append(extra_system_blocks)
             return all_responses[len(captured_extra) - 1]
@@ -1663,10 +1664,10 @@ class TestReviewerToolAllowlist:
         captured_tools: list[list[ToolDefinition]] = []
 
         async def fake_llm(
-            *args: object,
+            *args: str,
             tools: list[ToolDefinition] | None = None,
-            extra_system_blocks: list[dict[str, object]] | None = None,
-            **kwargs: object,
+            extra_system_blocks: list[dict[str, JsonValue]] | None = None,
+            **kwargs: str | int | bool | float | None,
         ) -> ToolResponse:
             if tools is not None:
                 captured_tools.append(tools)
@@ -1768,17 +1769,17 @@ class TestReviewerToolAllowlist:
         iteration_labels: list[str] = []
 
         async def fake_log_step(
-            issue_number: int, label: str, run_id: str, **kwargs: object
-        ) -> dict[str, object]:
+            issue_number: int, label: str, run_id: str, **kwargs: str | int | bool | float | None
+        ) -> dict[str, JsonValue]:
             if label.startswith("Step "):
                 iteration_labels.append(label)
             return {"ok": True}
 
         async def fake_llm(
-            *args: object,
+            *args: str,
             tools: list[ToolDefinition] | None = None,
-            extra_system_blocks: list[dict[str, object]] | None = None,
-            **kwargs: object,
+            extra_system_blocks: list[dict[str, JsonValue]] | None = None,
+            **kwargs: str | int | bool | float | None,
         ) -> ToolResponse:
             # Always return a tool read so the loop keeps going until capped.
             return _tool_response(
@@ -1882,10 +1883,10 @@ class TestDeveloperToolAllowlist:
         captured_tools: list[list[ToolDefinition]] = []
 
         async def fake_llm(
-            *args: object,
+            *args: str,
             tools: list[ToolDefinition] | None = None,
-            extra_system_blocks: list[dict[str, object]] | None = None,
-            **kwargs: object,
+            extra_system_blocks: list[dict[str, JsonValue]] | None = None,
+            **kwargs: str | int | bool | float | None,
         ) -> ToolResponse:
             if tools is not None:
                 captured_tools.append(tools)
@@ -1959,7 +1960,7 @@ def test_build_tool_id_map_extracts_tool_names() -> None:
     """_build_tool_id_map should produce id → name for every tool_call in history."""
     from agentception.services.agent_loop import _build_tool_id_map
 
-    messages: list[dict[str, object]] = [
+    messages: list[dict[str, JsonValue]] = [
         {
             "role": "assistant",
             "content": "",
@@ -1978,7 +1979,7 @@ def test_build_tool_id_map_extracts_tool_names() -> None:
 def test_build_tool_id_map_ignores_non_assistant_messages() -> None:
     from agentception.services.agent_loop import _build_tool_id_map
 
-    messages: list[dict[str, object]] = [
+    messages: list[dict[str, JsonValue]] = [
         {"role": "user", "content": "hello"},
         {"role": "tool", "tool_call_id": "tc_1", "content": "result"},
     ]
@@ -1990,7 +1991,7 @@ def test_truncate_applies_generous_limit_for_read_file() -> None:
     from agentception.services.agent_loop import _truncate_tool_results
 
     big_content = "x" * 20_000
-    messages: list[dict[str, object]] = [
+    messages: list[dict[str, JsonValue]] = [
         {
             "role": "assistant",
             "content": "",
@@ -2016,7 +2017,7 @@ def test_truncate_applies_tight_limit_for_unknown_tool() -> None:
     from agentception.services.agent_loop import _truncate_tool_results
 
     big_content = "y" * 4_000
-    messages: list[dict[str, object]] = [
+    messages: list[dict[str, JsonValue]] = [
         {
             "role": "assistant",
             "content": "",
@@ -2038,7 +2039,7 @@ def test_truncate_does_not_modify_short_content() -> None:
     """Results under the per-tool limit are passed through unchanged."""
     from agentception.services.agent_loop import _truncate_tool_results
 
-    messages: list[dict[str, object]] = [
+    messages: list[dict[str, JsonValue]] = [
         {
             "role": "assistant",
             "content": "",
@@ -2058,7 +2059,7 @@ def test_truncate_search_codebase_limit() -> None:
     from agentception.services.agent_loop import _truncate_tool_results
 
     big_content = "s" * 9_000
-    messages: list[dict[str, object]] = [
+    messages: list[dict[str, JsonValue]] = [
         {
             "role": "assistant",
             "content": "",
@@ -2101,7 +2102,7 @@ class TestReviewerWarmup:
         worktree = tmp_path / "wt"
         worktree.mkdir()
 
-        messages: list[dict[str, object]] = [
+        messages: list[dict[str, JsonValue]] = [
             {"role": "user", "content": "initial briefing"}
         ]
 
@@ -2180,17 +2181,17 @@ class TestReviewerWarmup:
         warmup_called: list[bool] = []
         recon_called: list[bool] = []
 
-        async def fake_warmup(**kwargs: object) -> None:
+        async def fake_warmup(**kwargs: str | int | bool | float | None) -> None:
             warmup_called.append(True)
 
-        async def fake_recon(*args: object, **kwargs: object) -> None:
+        async def fake_recon(*args: str, **kwargs: str | int | bool | float | None) -> None:
             recon_called.append(True)
 
         async def fake_llm(
-            *args: object,
+            *args: str,
             tools: list[ToolDefinition] | None = None,
-            extra_system_blocks: list[dict[str, object]] | None = None,
-            **kwargs: object,
+            extra_system_blocks: list[dict[str, JsonValue]] | None = None,
+            **kwargs: str | int | bool | float | None,
         ) -> ToolResponse:
             return _stop_response("done")
 
@@ -2261,11 +2262,11 @@ class TestAgentLoopPersistsMessages:
             _stop_response("Done."),
         ]
 
-        file_result: dict[str, object] = {"ok": True, "content": "# stub", "truncated": False}
+        file_result: dict[str, JsonValue] = {"ok": True, "content": "# stub", "truncated": False}
 
-        persist_calls: list[tuple[str, list[dict[str, object]]]] = []
+        persist_calls: list[tuple[str, list[dict[str, JsonValue]]]] = []
 
-        async def fake_persist(agent_run_id: str, messages: list[dict[str, object]]) -> None:
+        async def fake_persist(agent_run_id: str, messages: list[dict[str, JsonValue]]) -> None:
             persist_calls.append((agent_run_id, list(messages)))
 
         with (
@@ -2421,10 +2422,10 @@ class TestStopReasonLengthRecovery:
             ],
         )
         responses = [length_with_tc, _stop_response("Done after recovery.")]
-        file_result: dict[str, object] = {"ok": True, "content": "# stub", "truncated": False}
+        file_result: dict[str, JsonValue] = {"ok": True, "content": "# stub", "truncated": False}
         cancel_calls: list[str] = []
 
-        async def fake_cancel(run_id: str) -> dict[str, object]:
+        async def fake_cancel(run_id: str) -> dict[str, JsonValue]:
             cancel_calls.append(run_id)
             return {"ok": True}
 
@@ -2499,7 +2500,7 @@ class TestStopReasonLengthRecovery:
         responses = [length_no_tc, _stop_response("Recovered.")]
         cancel_calls: list[str] = []
 
-        async def fake_cancel(run_id: str) -> dict[str, object]:
+        async def fake_cancel(run_id: str) -> dict[str, JsonValue]:
             cancel_calls.append(run_id)
             return {"ok": True}
 
@@ -2816,23 +2817,23 @@ class TestFinalStretchWarning:
             + [stop_resp]
         )
 
-        captured_extra: list[list[dict[str, object]] | None] = []
+        captured_extra: list[list[dict[str, JsonValue]] | None] = []
 
         async def fake_llm(
-            *args: object,
-            extra_system_blocks: list[dict[str, object]] | None = None,
-            **kwargs: object,
+            *args: str,
+            extra_system_blocks: list[dict[str, JsonValue]] | None = None,
+            **kwargs: str | int | bool | float | None,
         ) -> ToolResponse:
             captured_extra.append(extra_system_blocks)
             idx = len(captured_extra) - 1
             return all_responses[idx]
 
-        file_result: dict[str, object] = {
+        file_result: dict[str, JsonValue] = {
             "ok": True,
             "content": "# stub",
             "truncated": False,
         }
-        write_result: dict[str, object] = {"ok": True}
+        write_result: dict[str, JsonValue] = {"ok": True}
 
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
@@ -2892,7 +2893,7 @@ class TestFinalStretchWarning:
         )
 
         def _has_final_stretch_warning(
-            blocks: list[dict[str, object]] | None,
+            blocks: list[dict[str, JsonValue]] | None,
         ) -> bool:
             if blocks is None:
                 return False
@@ -2909,7 +2910,7 @@ class TestFinalStretchWarning:
             return _FINAL_STRETCH_WARNING.format(remaining=remaining)
 
         def _blocks_contain_text(
-            blocks: list[dict[str, object]] | None, text: str
+            blocks: list[dict[str, JsonValue]] | None, text: str
         ) -> bool:
             if blocks is None:
                 return False
@@ -2985,23 +2986,23 @@ class TestFinalStretchWarning:
             + [stop_resp]
         )
 
-        captured_extra: list[list[dict[str, object]] | None] = []
+        captured_extra: list[list[dict[str, JsonValue]] | None] = []
 
         async def fake_llm(
-            *args: object,
-            extra_system_blocks: list[dict[str, object]] | None = None,
-            **kwargs: object,
+            *args: str,
+            extra_system_blocks: list[dict[str, JsonValue]] | None = None,
+            **kwargs: str | int | bool | float | None,
         ) -> ToolResponse:
             captured_extra.append(extra_system_blocks)
             idx = len(captured_extra) - 1
             return all_responses[idx]
 
-        file_result: dict[str, object] = {
+        file_result: dict[str, JsonValue] = {
             "ok": True,
             "content": "# stub",
             "truncated": False,
         }
-        write_result: dict[str, object] = {"ok": True}
+        write_result: dict[str, JsonValue] = {"ok": True}
 
         with (
             patch("agentception.services.agent_loop.settings") as mock_settings,
@@ -3269,7 +3270,7 @@ class TestPytestHardStop:
         worktree.mkdir()
         task_spec = _make_task_spec(worktree)
 
-        pytest_cmd_result: dict[str, object] = {
+        pytest_cmd_result: dict[str, JsonValue] = {
             "ok": True,
             "stdout": "1 passed",
             "stderr": "",
@@ -3284,12 +3285,12 @@ class TestPytestHardStop:
             _stop_response("Done."),
         ]
 
-        captured_extra: list[list[dict[str, object]] | None] = []
+        captured_extra: list[list[dict[str, JsonValue]] | None] = []
 
         async def fake_llm(
-            *args: object,
-            extra_system_blocks: list[dict[str, object]] | None = None,
-            **kwargs: object,
+            *args: str,
+            extra_system_blocks: list[dict[str, JsonValue]] | None = None,
+            **kwargs: str | int | bool | float | None,
         ) -> ToolResponse:
             captured_extra.append(extra_system_blocks)
             return responses[len(captured_extra) - 1]
@@ -3298,7 +3299,7 @@ class TestPytestHardStop:
 
         # read_file is synchronous in _dispatch_local_tool — use a plain callable
         # (not AsyncMock) so the return value is a dict, not a coroutine.
-        def fake_read_file_sync(*args: object, **kwargs: object) -> dict[str, object]:
+        def fake_read_file_sync(*args: str, **kwargs: str | int | bool | float | None) -> dict[str, JsonValue]:
             nonlocal read_file_called
             read_file_called = True
             return {"ok": True, "content": "stub", "truncated": False}
@@ -3388,7 +3389,7 @@ class TestPytestHardStop:
         worktree.mkdir()
         task_spec = _make_task_spec(worktree)
 
-        pytest_cmd_result: dict[str, object] = {
+        pytest_cmd_result: dict[str, JsonValue] = {
             "ok": True,
             "stdout": "1 passed",
             "stderr": "",
@@ -3396,8 +3397,8 @@ class TestPytestHardStop:
             "stdout_truncated": False,
             "stderr_truncated": False,
         }
-        replace_result: dict[str, object] = {"ok": True}
-        read_result: dict[str, object] = {"ok": True, "content": "stub", "truncated": False}
+        replace_result: dict[str, JsonValue] = {"ok": True}
+        read_result: dict[str, JsonValue] = {"ok": True, "content": "stub", "truncated": False}
 
         responses = [
             _run_command_response("pytest agentception/tests/test_foo.py -v"),
@@ -3406,12 +3407,12 @@ class TestPytestHardStop:
             _stop_response("Done."),
         ]
 
-        captured_extra: list[list[dict[str, object]] | None] = []
+        captured_extra: list[list[dict[str, JsonValue]] | None] = []
 
         async def fake_llm(
-            *args: object,
-            extra_system_blocks: list[dict[str, object]] | None = None,
-            **kwargs: object,
+            *args: str,
+            extra_system_blocks: list[dict[str, JsonValue]] | None = None,
+            **kwargs: str | int | bool | float | None,
         ) -> ToolResponse:
             captured_extra.append(extra_system_blocks)
             return responses[len(captured_extra) - 1]
@@ -3421,7 +3422,7 @@ class TestPytestHardStop:
         # read_file and replace_in_file are synchronous in _dispatch_local_tool —
         # use plain MagicMock (not AsyncMock) so the return value is a dict, not
         # a coroutine.
-        def fake_read_file_sync(*args: object, **kwargs: object) -> dict[str, object]:
+        def fake_read_file_sync(*args: str, **kwargs: str | int | bool | float | None) -> dict[str, JsonValue]:
             nonlocal read_file_called
             read_file_called = True
             return read_result
@@ -3514,8 +3515,8 @@ class TestPruneHistoryTokenBudget:
         # → contributes ~5_012 estimated tokens each.
         # 30 × 5_012 = 150_360 > 140_000, so token pruning must fire.
         large_content = "x" * 20_000
-        briefing: dict[str, object] = {"role": "user", "content": "Task briefing"}
-        body: list[dict[str, object]] = [
+        briefing: dict[str, JsonValue] = {"role": "user", "content": "Task briefing"}
+        body: list[dict[str, JsonValue]] = [
             {"role": "assistant" if i % 2 == 0 else "user", "content": large_content}
             for i in range(30)
         ]
@@ -3545,9 +3546,9 @@ class TestPruneHistoryTokenBudget:
             _MAX_INPUT_TOKEN_ESTIMATE,
         )
 
-        briefing: dict[str, object] = {"role": "user", "content": "Task briefing"}
+        briefing: dict[str, JsonValue] = {"role": "user", "content": "Task briefing"}
         # 25 messages > _MAX_HISTORY_MESSAGES (20), triggering the count guard
-        body: list[dict[str, object]] = [
+        body: list[dict[str, JsonValue]] = [
             {"role": "assistant" if i % 2 == 0 else "user", "content": "small"}
             for i in range(25)
         ]
@@ -3579,8 +3580,8 @@ class TestPruneHistoryTokenBudget:
         # Use 30_000-char messages so that many messages must be dropped to reach
         # the token threshold, ensuring dropped count > 4.
         large_content = "y" * 30_000
-        briefing: dict[str, object] = {"role": "user", "content": "Task briefing"}
-        body: list[dict[str, object]] = [
+        briefing: dict[str, JsonValue] = {"role": "user", "content": "Task briefing"}
+        body: list[dict[str, JsonValue]] = [
             {"role": "assistant" if i % 2 == 0 else "user", "content": large_content}
             for i in range(30)
         ]
@@ -3614,10 +3615,10 @@ class TestPruneHistoryTokenBudget:
         # Strategy: briefing + _HISTORY_TAIL messages that are just over threshold
         # when combined, so only a few need to be removed.
         large_content = "z" * 20_000
-        briefing: dict[str, object] = {"role": "user", "content": "Task briefing"}
+        briefing: dict[str, JsonValue] = {"role": "user", "content": "Task briefing"}
         # Use exactly _HISTORY_TAIL + 3 body messages so the tail is _HISTORY_TAIL
         # and 3 extra messages sit at the front (indices 1-3) to be dropped.
-        body: list[dict[str, object]] = [
+        body: list[dict[str, JsonValue]] = [
             {"role": "assistant" if i % 2 == 0 else "user", "content": large_content}
             for i in range(_HISTORY_TAIL + 3)
         ]
@@ -3689,17 +3690,17 @@ class TestContextPressureWarning:
             _stop_response("Done."),
         ]
 
-        captured_extra: list[list[dict[str, object]] | None] = []
+        captured_extra: list[list[dict[str, JsonValue]] | None] = []
 
         async def fake_llm(
-            *args: object,
-            extra_system_blocks: list[dict[str, object]] | None = None,
-            **kwargs: object,
+            *args: str,
+            extra_system_blocks: list[dict[str, JsonValue]] | None = None,
+            **kwargs: str | int | bool | float | None,
         ) -> ToolResponse:
             captured_extra.append(extra_system_blocks)
             return all_responses[len(captured_extra) - 1]
 
-        file_result: dict[str, object] = {
+        file_result: dict[str, JsonValue] = {
             "ok": True,
             "content": "",
             "truncated": False,
@@ -3799,17 +3800,17 @@ class TestContextPressureWarning:
             _stop_response("Done."),
         ]
 
-        captured_extra: list[list[dict[str, object]] | None] = []
+        captured_extra: list[list[dict[str, JsonValue]] | None] = []
 
         async def fake_llm(
-            *args: object,
-            extra_system_blocks: list[dict[str, object]] | None = None,
-            **kwargs: object,
+            *args: str,
+            extra_system_blocks: list[dict[str, JsonValue]] | None = None,
+            **kwargs: str | int | bool | float | None,
         ) -> ToolResponse:
             captured_extra.append(extra_system_blocks)
             return all_responses[len(captured_extra) - 1]
 
-        file_result: dict[str, object] = {
+        file_result: dict[str, JsonValue] = {
             "ok": True,
             "content": "",
             "truncated": False,

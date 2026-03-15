@@ -20,15 +20,16 @@ from agentception.mcp.plan_advance_phase import (
 )
 from agentception.mcp.server import call_tool_async
 from agentception.models import PipelineConfig
+from agentception.types import JsonValue
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_pipeline_config(**overrides: object) -> PipelineConfig:
+def _make_pipeline_config(**overrides: str | int | bool | float | None) -> PipelineConfig:
     """Return a minimal PipelineConfig suitable for tests."""
-    defaults: dict[str, object] = {
+    defaults: dict[str, JsonValue] = {
         "max_eng_vps": 1,
         "max_qa_vps": 1,
         "pool_size_per_vp": 4,
@@ -154,7 +155,7 @@ async def test_plan_advance_phase_no_to_phase_issues_returns_zero_unlocked() -> 
     config = _make_pipeline_config()
 
     from_phase_data = [{"number": 10, "state": "CLOSED"}]
-    to_phase_data: list[dict[str, object]] = []
+    to_phase_data: list[dict[str, JsonValue]] = []
 
     with (
         patch(
@@ -192,7 +193,7 @@ async def test_plan_advance_phase_no_from_phase_issues_unlocks_to_phase() -> Non
     """When from_phase has zero issues (trivially all closed), advance succeeds."""
     config = _make_pipeline_config()
 
-    from_phase_data: list[dict[str, object]] = []
+    from_phase_data: list[dict[str, JsonValue]] = []
     to_phase_data = [{"number": 30, "state": "OPEN"}]
 
     with (
@@ -259,7 +260,7 @@ async def test_unlock_issue_calls_remove_then_add() -> None:
 @pytest.mark.anyio
 async def test_call_tool_async_routes_plan_advance_phase() -> None:
     """call_tool_async dispatches plan_advance_phase and returns ACToolResult."""
-    expected_result: dict[str, object] = {"advanced": True, "unlocked_count": 3}
+    expected_result: dict[str, JsonValue] = {"advanced": True, "unlocked_count": 3}
 
     with patch(
         "agentception.mcp.server.plan_advance_phase",
@@ -300,7 +301,7 @@ async def test_call_tool_async_plan_advance_phase_missing_args_returns_error() -
 @pytest.mark.anyio
 async def test_call_tool_async_plan_advance_phase_open_issues_is_error() -> None:
     """When the tool returns advanced=False (gate blocked), isError is True."""
-    blocked_result: dict[str, object] = {
+    blocked_result: dict[str, JsonValue] = {
         "advanced": False,
         "error": "2 open issues remain in phase 'phase-1'",
         "open_issues": [11, 12],

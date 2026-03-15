@@ -61,7 +61,8 @@ from agentception.services.llm import (
     completion,
     completion_with_tools,
 )
-from agentception.services.code_indexer import search_codebase
+from agentception.services.code_indexer import SearchMatch, search_codebase
+from agentception.types import JsonSchemaObj, JsonValue
 from agentception.services.github_mcp_client import GitHubMCPClient
 from agentception.tools.definitions import (
     FILE_TOOL_DEFS,
@@ -531,7 +532,7 @@ async def run_agent_loop(
     else:
         initial_message = await _fetch_task_briefing(run_id, task, worktree_path)
 
-    messages: list[dict[str, object]] = [{"role": "user", "content": initial_message}]
+    messages: list[dict[str, JsonValue]] = [{"role": "user", "content": initial_message}]
 
     logger.info(
         "✅ agent_loop start — run_id=%s issue=%d tools=%d (github_mcp=%d)",
@@ -633,7 +634,7 @@ async def run_agent_loop(
             # have been pruned.  The main system-prompt cache is not invalidated
             # because the working memory is a separate, un-cached block.
             memory = read_memory(worktree_path)
-            extra_blocks: list[dict[str, object]] = []
+            extra_blocks: list[dict[str, JsonValue]] = []
             if memory:
                 extra_blocks.append({"type": "text", "text": render_memory(memory)})
     
@@ -841,16 +842,26 @@ async def run_agent_loop(
             # Append assistant message to history before persisting so the full
             # conversation (including the new assistant reply) is written to DB.
             # persist_agent_messages_async is fire-and-forget via asyncio.create_task.
-            assistant_msg: dict[str, object] = {"role": "assistant", "content": response["content"]}
+            assistant_msg: dict[str, JsonValue] = {"role": "assistant", "content": response["content"]}
             if response["tool_calls"]:
-                assistant_msg["tool_calls"] = list(response["tool_calls"])
+                assistant_msg["tool_calls"] = [
+                    {
+                        "id": tc["id"],
+                        "type": tc["type"],
+                        "function": {
+                            "name": tc["function"]["name"],
+                            "arguments": tc["function"]["arguments"],
+                        },
+                    }
+                    for tc in response["tool_calls"]
+                ]
             messages.append(assistant_msg)
     
             await persist_agent_messages_async(run_id, messages)
 
             # So that bookkeeping below (pytest arm, etc.) can always iterate; set when we have tool_calls.
             tc_to_dispatch: list[ToolCall] = []
-            tool_results: list[dict[str, object]] = []
+            tool_results: list[dict[str, JsonValue]] = []
 
             if response["stop_reason"] == "stop":
                 # The model ended without calling build_complete_run as a tool.
@@ -879,7 +890,7 @@ async def run_agent_loop(
                 # absent from active_tool_defs — returning an error forces it to
                 # acknowledge the constraint and switch to a write tool.
                 tc_to_dispatch = []
-                synthetic_errors: list[dict[str, object]] = []
+                synthetic_errors: list[dict[str, JsonValue]] = []
                 if guard_active:
                     for tc in response["tool_calls"]:
                         tc_name = tc["function"]["name"]
@@ -970,7 +981,7 @@ async def run_agent_loop(
                 if tc["function"]["name"] not in _FILE_MUTATING_TOOL_NAMES:
                     continue
                 try:
-                    write_args: dict[str, object] = json.loads(tc["function"]["arguments"])
+                    write_args: dict[str, JsonValue] = json.loads(tc["function"]["arguments"])
                     fp = str(write_args.get("file_path", "")).strip()
                     if fp:
                         files_written[fp] = files_written.get(fp, 0) + 1
@@ -981,16 +992,13 @@ async def run_agent_loop(
             # them up. One event per file write, in tool-call order.
             # event_type: "file_edit" | payload: FileEditEvent.model_dump()
             mem = read_memory(worktree_path)
-            raw_written: object = mem.get("files_written", []) if mem else []
-            written_events: list[FileEditEvent] = (
-                [e for e in raw_written if isinstance(e, FileEditEvent)]
-                if isinstance(raw_written, list) else []
-            )
+            raw_written_list: list[FileEditEvent] = list(mem.get("files_written", [])) if mem else []
+            written_events: list[FileEditEvent] = raw_written_list
             for tc in response["tool_calls"]:
                 if tc["function"]["name"] not in _FILE_MUTATING_TOOL_NAMES:
                     continue
                 try:
-                    tc_args: dict[str, object] = json.loads(tc["function"]["arguments"])
+                    tc_args: dict[str, JsonValue] = json.loads(tc["function"]["arguments"])
                     path_raw = str(
                         tc_args.get("path", tc_args.get("file_path", ""))
                     ).strip()
@@ -1011,7 +1019,7 @@ async def run_agent_loop(
                 if tc["function"]["name"] not in _SEARCH_TOOL_NAMES:
                     continue
                 try:
-                    search_args: dict[str, object] = json.loads(tc["function"]["arguments"])
+                    search_args: dict[str, JsonValue] = json.loads(tc["function"]["arguments"])
                     raw_query = search_args.get("query", search_args.get("pattern", ""))
                     query_str = str(raw_query).strip()[:100]
                     if query_str:
@@ -1030,14 +1038,14 @@ async def run_agent_loop(
                 if tc["function"]["name"] != "run_command":
                     continue
                 try:
-                    cmd_args: dict[str, object] = json.loads(tc["function"]["arguments"])
+                    cmd_args: dict[str, JsonValue] = json.loads(tc["function"]["arguments"])
                     cmd_str = str(cmd_args.get("command", ""))
                 except (json.JSONDecodeError, AttributeError):
                     continue
                 if "pytest" not in cmd_str:
                     continue
                 try:
-                    result_data: dict[str, object] = json.loads(
+                    result_data: dict[str, JsonValue] = json.loads(
                         str(tr.get("content", "{}"))
                     )
                     exit_code = result_data.get("exit_code")
@@ -1384,7 +1392,7 @@ async def _fetch_task_briefing(run_id: str, task: AgentTaskSpec, worktree_path: 
     try:
         result = await get_prompt("task/briefing", {"run_id": run_id})
         if result is not None and result["messages"]:
-            text: object = result["messages"][0]["content"]["text"]
+            text: JsonValue = result["messages"][0]["content"]["text"]
             if isinstance(text, str) and text.strip():
                 logger.info("✅ agent_loop — task/briefing prompt resolved for run_id=%s", run_id)
                 return text
@@ -1410,7 +1418,7 @@ async def _fetch_task_briefing(run_id: str, task: AgentTaskSpec, worktree_path: 
 # ---------------------------------------------------------------------------
 
 
-def _mcp_tool_to_openai(tool_name: str, description: str, input_schema: dict[str, object]) -> ToolDefinition:
+def _mcp_tool_to_openai(tool_name: str, description: str, input_schema: JsonSchemaObj) -> ToolDefinition:
     """Convert an MCP ACToolDef to an OpenAI-format ToolDefinition."""
     return ToolDefinition(
         type="function",
@@ -1442,11 +1450,11 @@ def _build_tool_definitions(
     seen: set[str] = {t["function"]["name"] for t in tool_defs}
 
     for mcp_tool in TOOLS:
-        name: object = mcp_tool.get("name")
+        name: JsonValue = mcp_tool.get("name")
         if not isinstance(name, str) or name in seen:
             continue
-        description: object = mcp_tool.get("description", "")
-        input_schema: object = mcp_tool.get("inputSchema", {})
+        description: JsonValue = mcp_tool.get("description", "")
+        input_schema: JsonValue = mcp_tool.get("inputSchema", {})
         if not isinstance(description, str) or not isinstance(input_schema, dict):
             continue
         tool_defs.append(_mcp_tool_to_openai(name, description, input_schema))
@@ -1557,7 +1565,7 @@ def _parse_recon_json(raw: str) -> _ReconPlan | None:
     if start == -1 or end <= start:
         return None
     try:
-        data: object = json.loads(text[start:end])
+        data: JsonValue = json.loads(text[start:end])
     except json.JSONDecodeError:
         return None
 
@@ -1617,7 +1625,7 @@ async def _run_reviewer_warmup(
     worktree_path: Path,
     pr_branch: str,
     issue_number: int,
-    messages: list[dict[str, object]],
+    messages: list[dict[str, JsonValue]],
     github_client: GitHubMCPClient | None,
     owner: str,
     repo: str,
@@ -1773,7 +1781,7 @@ async def _run_reviewer_warmup(
 async def _run_recon_phase(
     run_id: str,
     worktree_path: Path,
-    messages: list[dict[str, object]],
+    messages: list[dict[str, JsonValue]],
     system_prompt: str,
 ) -> None:
     """Execute a structured recon phase before the main agent loop begins.
@@ -1853,7 +1861,7 @@ async def _run_recon_phase(
         except OSError:
             return None
 
-    async def _search_one(query: str) -> list[dict[str, object]]:
+    async def _search_one(query: str) -> list[dict[str, JsonValue]]:
         import os
         import psutil as _psutil
         _p = _psutil.Process(os.getpid())
@@ -1900,7 +1908,7 @@ async def _run_recon_phase(
         await asyncio.gather(*file_tasks, return_exceptions=True)
     )
     logger.warning("📊 recon: after file gather RSS=%dMB", _p_recon.memory_info().rss // 1024 // 1024)
-    raw_search_results: list[object] = list(
+    raw_search_results: list[list[dict[str, JsonValue]] | BaseException] = list(
         await asyncio.gather(*search_tasks, return_exceptions=True)
     )
     logger.warning("📊 recon: after search gather RSS=%dMB", _p_recon.memory_info().rss // 1024 // 1024)
@@ -1924,7 +1932,7 @@ async def _run_recon_phase(
     for query, raw_sr in zip(plan.searches, raw_search_results):
         if not isinstance(raw_sr, list):
             continue
-        search_hits: list[dict[str, object]] = [
+        search_hits: list[dict[str, JsonValue]] = [
             item for item in raw_sr if isinstance(item, dict)
         ]
         if search_hits:
@@ -1973,9 +1981,9 @@ async def _run_recon_phase(
 
 
 def _truncate_first_user_message_for_local_llm(
-    messages: list[dict[str, object]],
+    messages: list[dict[str, JsonValue]],
     max_chars: int,
-) -> list[dict[str, object]]:
+) -> list[dict[str, JsonValue]]:
     """Truncate the first user message to max_chars when using a small local LLM.
 
     Avoids overloading models like Qwen 4B with a 50k+ character task briefing.
@@ -2004,7 +2012,7 @@ def _truncate_first_user_message_for_local_llm(
     return out
 
 
-def _build_tool_id_map(messages: list[dict[str, object]]) -> dict[str, str]:
+def _build_tool_id_map(messages: list[dict[str, JsonValue]]) -> dict[str, str]:
     """Build a mapping from tool_call_id → tool_name by scanning assistant messages.
 
     Required by :func:`_truncate_tool_results` to look up which tool produced
@@ -2030,8 +2038,8 @@ def _build_tool_id_map(messages: list[dict[str, object]]) -> dict[str, str]:
 
 
 def _truncate_tool_results(
-    messages: list[dict[str, object]],
-) -> list[dict[str, object]]:
+    messages: list[dict[str, JsonValue]],
+) -> list[dict[str, JsonValue]]:
     """Truncate oversized tool-result content using per-tool character limits.
 
     Applies generous but finite caps per tool type so the agent is never
@@ -2047,7 +2055,7 @@ def _truncate_tool_results(
     of every result with a clear truncation marker at the cut point.
     """
     tool_id_map = _build_tool_id_map(messages)
-    out: list[dict[str, object]] = []
+    out: list[dict[str, JsonValue]] = []
     for msg in messages:
         if msg.get("role") == "tool":
             tc_id = str(msg.get("tool_call_id", ""))
@@ -2065,7 +2073,7 @@ def _truncate_tool_results(
 
 
 async def _summarise_history(
-    dropped_messages: list[dict[str, object]],
+    dropped_messages: list[dict[str, JsonValue]],
 ) -> str:
     """Summarise dropped messages via a single non-streaming LLM call.
 
@@ -2088,10 +2096,10 @@ async def _summarise_history(
 
 
 async def _prune_history(
-    messages: list[dict[str, object]],
+    messages: list[dict[str, JsonValue]],
     *,
     last_input_tokens: int = 0,
-) -> list[dict[str, object]]:
+) -> list[dict[str, JsonValue]]:
     """Drop old turns from the middle of the message history.
 
     Keeps:
@@ -2133,7 +2141,7 @@ async def _prune_history(
     if last_input_tokens > _MAX_INPUT_TOKEN_ESTIMATE:
         prunable = list(messages)  # work on a copy; messages[0] is anchored
         estimated = sum(len(json.dumps(m)) // 4 for m in prunable)
-        dropped: list[dict[str, object]] = []
+        dropped: list[dict[str, JsonValue]] = []
         while estimated > _MAX_INPUT_TOKEN_ESTIMATE and len(prunable) > _HISTORY_TAIL + 1:
             msg = prunable.pop(1)  # index 0 = task briefing, always kept
             dropped.append(msg)
@@ -2240,7 +2248,7 @@ async def _dispatch_tool_calls(
     session: AsyncSession | None = None,
     github_client: GitHubMCPClient | None = None,
     github_tool_names: frozenset[str] = frozenset(),
-) -> list[dict[str, object]]:
+) -> list[dict[str, JsonValue]]:
     """Execute each tool call and return a list of tool-result messages.
 
     Routing priority:
@@ -2264,7 +2272,7 @@ async def _dispatch_tool_calls(
     dispatched concurrently via :func:`asyncio.gather` so the wall-clock
     time equals the slowest single call rather than the sum of all calls.
     """
-    async def _run_one(tc: ToolCall) -> dict[str, object]:
+    async def _run_one(tc: ToolCall) -> dict[str, JsonValue]:
         try:
             result = await _dispatch_single_tool(
                 tc,
@@ -2287,13 +2295,13 @@ async def _dispatch_tool_calls(
             "content": json.dumps(result),
         }
 
-    results: list[dict[str, object]] = await asyncio.gather(
+    results: list[dict[str, JsonValue]] = await asyncio.gather(
         *(_run_one(tc) for tc in tool_calls)
     )
     return list(results)
 
 
-def _mcp_result_to_dict(result: ACToolResult) -> dict[str, object]:
+def _mcp_result_to_dict(result: ACToolResult) -> dict[str, JsonValue]:
     """Convert an :class:`~agentception.mcp.types.ACToolResult` to a plain dict.
 
     The model receives the text extracted from the content list so it can
@@ -2315,7 +2323,7 @@ async def _dispatch_single_tool(
     session: AsyncSession | None = None,
     github_client: GitHubMCPClient | None = None,
     github_tool_names: frozenset[str] = frozenset(),
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Dispatch a single tool call and return its result dict.
 
     Returns ``{"ok": False, "error": str}`` on argument parse failure so the
@@ -2325,7 +2333,7 @@ async def _dispatch_single_tool(
     args_str = tool_call["function"]["arguments"]
 
     try:
-        args: dict[str, object] = json.loads(args_str)
+        args: dict[str, JsonValue] = json.loads(args_str)
     except json.JSONDecodeError as exc:
         return {"ok": False, "error": f"Invalid tool arguments (JSON parse error): {exc}"}
 
@@ -2392,15 +2400,15 @@ async def _dispatch_single_tool(
 
 async def _dispatch_local_tool(
     name: str,
-    args: dict[str, object],
+    args: dict[str, JsonValue],
     worktree_path: Path,
     *,
     run_id: str | None = None,
     session: AsyncSession | None = None,
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Route a local tool call to the appropriate file or shell function."""
 
-    def _resolve(raw: object, default: Path) -> Path:
+    def _resolve(raw: JsonValue, default: Path) -> Path:
         """Resolve *raw* as a path, falling back to *default*."""
         if not isinstance(raw, str) or not raw:
             return default
@@ -2547,7 +2555,13 @@ async def _dispatch_local_tool(
         collection_raw = args.get("collection")
         collection_arg: str | None = collection_raw if isinstance(collection_raw, str) else None
         matches = await search_codebase(query_raw, n_results, collection=collection_arg)
-        return {"ok": True, "matches": matches}
+        return {
+            "ok": True,
+            "matches": [
+                {"file": m["file"], "chunk": m["chunk"], "score": m["score"]}
+                for m in matches
+            ],
+        }
 
     if name == "read_symbol":
         path_raw = args.get("path")
@@ -2593,22 +2607,33 @@ async def _dispatch_local_tool(
         if isinstance(plan_raw, str):
             update["plan"] = plan_raw
         files_raw = args.get("files_examined")
-        if isinstance(files_raw, list) and all(isinstance(f, str) for f in files_raw):
-            update["files_examined"] = list(files_raw)
+        if isinstance(files_raw, list):
+            str_files = [f for f in files_raw if isinstance(f, str)]
+            if str_files:
+                update["files_examined"] = str_files
         findings_raw = args.get("findings")
-        if isinstance(findings_raw, dict) and all(
-            isinstance(k, str) and isinstance(v, str) for k, v in findings_raw.items()
-        ):
-            update["findings"] = dict(findings_raw)
+        if isinstance(findings_raw, dict):
+            str_findings = {
+                k: v for k, v in findings_raw.items()
+                if isinstance(k, str) and isinstance(v, str)
+            }
+            if str_findings:
+                update["findings"] = str_findings
         decisions_raw = args.get("decisions")
-        if isinstance(decisions_raw, list) and all(isinstance(d, str) for d in decisions_raw):
-            update["decisions"] = list(decisions_raw)
+        if isinstance(decisions_raw, list):
+            str_decisions = [d for d in decisions_raw if isinstance(d, str)]
+            if str_decisions:
+                update["decisions"] = str_decisions
         next_steps_raw = args.get("next_steps")
-        if isinstance(next_steps_raw, list) and all(isinstance(s, str) for s in next_steps_raw):
-            update["next_steps"] = list(next_steps_raw)
+        if isinstance(next_steps_raw, list):
+            str_steps = [s for s in next_steps_raw if isinstance(s, str)]
+            if str_steps:
+                update["next_steps"] = str_steps
         blockers_raw = args.get("blockers")
-        if isinstance(blockers_raw, list) and all(isinstance(b, str) for b in blockers_raw):
-            update["blockers"] = list(blockers_raw)
+        if isinstance(blockers_raw, list):
+            str_blockers = [b for b in blockers_raw if isinstance(b, str)]
+            if str_blockers:
+                update["blockers"] = str_blockers
         existing = read_memory(worktree_path)
         merged = merge_memory(existing, update)
         write_memory(worktree_path, merged)

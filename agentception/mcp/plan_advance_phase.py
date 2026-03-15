@@ -28,6 +28,7 @@ from agentception.readers.github import (
     remove_label_from_issue,
 )
 from agentception.readers.pipeline_config import read_pipeline_config
+from agentception.types import JsonValue
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ async def plan_advance_phase(
     initiative: str,
     from_phase: str,
     to_phase: str,
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Advance a phase gate by unlocking all *to_phase* issues.
 
     Steps:
@@ -90,13 +91,15 @@ async def plan_advance_phase(
             from_phase,
             open_issues,
         )
+        open_jv: list[JsonValue] = []
+        open_jv.extend(open_issues)
         return {
             "advanced": False,
             "error": (
                 f"Cannot advance: {len(open_issues)} open issue(s) remain in "
                 f"phase {from_phase!r} for initiative {initiative!r}."
             ),
-            "open_issues": open_issues,
+            "open_issues": open_jv,
         }
 
     # 3. Fetch all to_phase + initiative issues.
@@ -134,7 +137,7 @@ async def plan_advance_phase(
 
 async def _fetch_issues_with_labels(
     repo: str, labels: list[str]
-) -> list[dict[str, object]]:
+) -> list[dict[str, JsonValue]]:
     """Fetch GitHub issues that carry every label in *labels* (AND semantics).
 
     Delegates to :func:`~agentception.readers.github.get_issues_with_all_labels`

@@ -34,6 +34,7 @@ from agentception.config import (
     _resolve_project,
     get_repo_dir_for,
 )
+from agentception.types import JsonValue
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +47,7 @@ def _make_settings(tmp_path: Path) -> AgentCeptionSettings:
     return AgentCeptionSettings(repo_dir=tmp_path)
 
 
-def _write_config(tmp_path: Path, data: dict[str, object]) -> Path:
+def _write_config(tmp_path: Path, data: dict[str, JsonValue]) -> Path:
     """Write *data* as pipeline-config.json inside *tmp_path*/.agentception/."""
     ac = tmp_path / ".agentception"
     ac.mkdir(parents=True, exist_ok=True)

@@ -98,7 +98,7 @@ async def clear_stale_claim(issue_number: int) -> dict[str, int]:
 
 
 @router.post("/scaling-advice/apply")
-async def apply_scaling_advice() -> dict[str, object]:
+async def apply_scaling_advice() -> dict[str, str | int]:
     """Apply the current scaling recommendation to ``pipeline-config.json``.
 
     Re-computes the recommendation from live pipeline state, then writes the

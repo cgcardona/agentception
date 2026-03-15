@@ -71,7 +71,7 @@ async def test_ab_metrics_htmx_returns_html(client: AsyncClient) -> None:
         },
     ]
 
-    async def fake_execute(*args: object, **kwargs: object) -> MagicMock:
+    async def fake_execute(*args: str | int | bool | float | None, **kwargs: str | int | bool | float | None) -> MagicMock:
         return mock_result
 
     mock_session = AsyncMock()
@@ -100,7 +100,7 @@ async def test_ab_metrics_json_unaffected(client: AsyncClient) -> None:
     mock_result = MagicMock()
     mock_result.mappings.return_value.all.return_value = []
 
-    async def fake_execute(*args: object, **kwargs: object) -> MagicMock:
+    async def fake_execute(*args: str | int | bool | float | None, **kwargs: str | int | bool | float | None) -> MagicMock:
         return mock_result
 
     mock_session = AsyncMock()

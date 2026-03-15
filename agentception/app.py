@@ -25,6 +25,7 @@ import signal
 import sys
 import traceback
 from collections.abc import AsyncGenerator, AsyncIterator
+from types import FrameType
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -131,7 +132,7 @@ def _on_exit() -> None:
         pass
 
 
-def _on_sigterm(signum: int, frame: object) -> None:
+def _on_sigterm(signum: int, frame: FrameType | None) -> None:
     """SIGTERM: log RSS + stack before uvicorn's shutdown handler takes over."""
     _log_rss("SIGTERM")
     frames = sys._current_frames()
@@ -164,10 +165,17 @@ async def _memory_monitor_loop() -> None:
 
 
 async def _reaper_loop() -> None:
-    """Periodic worktree reaper — runs every 15 minutes for the process lifetime."""
+    """Periodic worktree reaper — runs every 15 minutes for the process lifetime.
+
+    Wrapped in try/except so a single bad reap pass (e.g. git binary missing,
+    transient DB error) logs a warning and continues — it never kills the loop.
+    """
     while True:
         await asyncio.sleep(900)
-        await reap_stale_worktrees()
+        try:
+            await reap_stale_worktrees()
+        except Exception as exc:
+            logger.warning("⚠️  reaper_loop: unhandled exception — will retry in 15 min: %s", exc)
 
 
 @asynccontextmanager

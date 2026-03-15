@@ -22,10 +22,11 @@ import asyncio
 import json
 import logging
 import sys
-from collections.abc import Mapping
 
+from agentception.types import JsonValue
 from agentception.db.engine import init_db
 from agentception.mcp.server import handle_request_async
+from agentception.mcp.types import JsonRpcErrorResponse, JsonRpcSuccessResponse
 
 logger = logging.getLogger(__name__)
 
@@ -49,9 +50,9 @@ async def _run() -> None:
         if not raw_line:
             continue
         try:
-            request: dict[str, object] = json.loads(raw_line)
+            request: dict[str, JsonValue] = json.loads(raw_line)
         except json.JSONDecodeError as exc:
-            response: dict[str, object] = {
+            response: dict[str, JsonValue] = {
                 "jsonrpc": "2.0",
                 "id": None,
                 "error": {"code": -32700, "message": f"Parse error: {exc}"},
@@ -70,7 +71,7 @@ async def _run() -> None:
             request.get("id"),
         )
 
-        maybe_response: Mapping[str, object] | None = await handle_request_async(request)
+        maybe_response: JsonRpcSuccessResponse | JsonRpcErrorResponse | None = await handle_request_async(request)
         if maybe_response is None:
             # JSON-RPC notification — no response on the wire.
             logger.warning("📭 MCP notification (no response): method=%r", method)

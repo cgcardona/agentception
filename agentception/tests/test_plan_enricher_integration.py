@@ -89,7 +89,7 @@ async def test_filed_issue_body_contains_codebase_locations() -> None:
 
     captured_bodies: list[str] = []
 
-    def fake_proc(*args: object, **kwargs: object) -> MagicMock:
+    def fake_proc(*args: str | int | bool | float | None, **kwargs: str | int | bool | float | None) -> MagicMock:
         # Capture the --body argument from the gh CLI command.
         arg_list = list(args)
         if "--body" in arg_list:
@@ -139,7 +139,7 @@ async def test_enrichment_failure_does_not_block_filing() -> None:
 
     gh_called = False
 
-    def fake_proc(*args: object, **kwargs: object) -> MagicMock:
+    def fake_proc(*args: str | int | bool | float | None, **kwargs: str | int | bool | float | None) -> MagicMock:
         nonlocal gh_called
         gh_called = True
         return _mock_proc(stdout=_issue_url(99))

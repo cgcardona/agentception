@@ -25,6 +25,7 @@ from fastapi.responses import HTMLResponse
 from starlette.requests import Request
 
 from agentception.config import settings as _settings
+from agentception.types import JsonValue
 from ._shared import _TEMPLATES
 
 logger = logging.getLogger(__name__)
@@ -81,21 +82,21 @@ def _load_figures(root_dir: Path) -> list[FigureEntry]:
 
     for path in sorted(figures_dir.glob("*.yaml")):
         try:
-            raw: object = yaml.safe_load(path.read_text(encoding="utf-8"))
+            raw: JsonValue = yaml.safe_load(path.read_text(encoding="utf-8"))
             if not isinstance(raw, dict):
                 logger.warning("⚠️ Skipping %s — unexpected YAML shape", path.name)
                 continue
 
-            display_name_raw: object = raw.get("display_name")
+            display_name_raw: JsonValue = raw.get("display_name")
             if not display_name_raw:
                 logger.warning("⚠️ Skipping %s — missing display_name", path.name)
                 continue
 
-            skill_domains_raw: object = raw.get("skill_domains", {})
+            skill_domains_raw: JsonValue = raw.get("skill_domains", {})
             compatible: list[str] = []
             if isinstance(skill_domains_raw, dict):
                 for key in ("primary", "secondary"):
-                    bucket: object = skill_domains_raw.get(key, [])
+                    bucket: JsonValue = skill_domains_raw.get(key, [])
                     if isinstance(bucket, list):
                         compatible.extend(str(x) for x in bucket)
 
@@ -133,12 +134,12 @@ def _load_skill_domains(root_dir: Path) -> list[SkillDomainEntry]:
 
     for path in sorted(skill_domains_dir.glob("*.yaml")):
         try:
-            raw: object = yaml.safe_load(path.read_text(encoding="utf-8"))
+            raw: JsonValue = yaml.safe_load(path.read_text(encoding="utf-8"))
             if not isinstance(raw, dict):
                 logger.warning("⚠️ Skipping %s — unexpected YAML shape", path.name)
                 continue
 
-            display_name_raw: object = raw.get("display_name")
+            display_name_raw: JsonValue = raw.get("display_name")
             if not display_name_raw:
                 logger.warning("⚠️ Skipping %s — missing display_name", path.name)
                 continue

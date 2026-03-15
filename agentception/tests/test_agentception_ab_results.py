@@ -27,6 +27,7 @@ from agentception.intelligence.ab_results import (
 )
 from agentception.models import AgentNode, AgentStatus
 from agentception.telemetry import WaveSummary
+from agentception.types import JsonValue
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -108,9 +109,9 @@ def test_average_grade_mixed() -> None:
 @pytest.mark.anyio
 async def test_compute_ab_results_empty() -> None:
     """compute_ab_results returns zero-value results for both variants when there are no waves."""
-    empty_versions: dict[str, object] = {"versions": {}, "ab_mode": {}}
+    empty_versions: dict[str, JsonValue] = {"versions": {}, "ab_mode": {}}
     empty_waves: list[WaveSummary] = []
-    empty_prs: list[dict[str, object]] = []
+    empty_prs: list[dict[str, JsonValue]] = []
 
     with (
         patch(
@@ -160,7 +161,7 @@ async def test_compute_ab_results_assigns_correct_variant() -> None:
     # Odd second (01) → variant B.
     wave_b = _make_wave("eng-20260302T120001Z-bbbb", [200], prs_opened=2)
 
-    merged_prs: list[dict[str, object]] = [
+    merged_prs: list[dict[str, JsonValue]] = [
         {
             "number": 50,
             "headRefName": "feat/issue-100",
@@ -181,7 +182,7 @@ async def test_compute_ab_results_assigns_correct_variant() -> None:
             return ["✅ Review complete — Grade: `B`\nMerged at: 2026-03-02T12:02:30Z"]
         return []
 
-    empty_versions: dict[str, object] = {
+    empty_versions: dict[str, JsonValue] = {
         "versions": {},
         "ab_mode": {"variant_a_sha": "abc123", "variant_b_sha": "def456"},
     }

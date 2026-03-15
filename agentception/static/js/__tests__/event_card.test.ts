@@ -53,4 +53,40 @@ describe('attachEventCardHandler', () => {
     dispatch(src, { t: 'event', event_type: 'file_edit', payload: {}, recorded_at: '' });
     expect(document.querySelector('.event-card')).toBeNull();
   });
+
+  it('renders message card with 💬 icon and message text', () => {
+    const src = makeSource();
+    attachEventCardHandler(src);
+    dispatch(src, { t: 'event', event_type: 'message', payload: { message: 'Branch created' }, recorded_at: '' });
+    const card = document.querySelector('.event-card');
+    expect(card).not.toBeNull();
+    expect(card?.getAttribute('data-event-type')).toBe('message');
+    expect(card?.querySelector('.event-card__icon')?.textContent).toBe('💬');
+    expect(card?.querySelector('.event-card__text')?.textContent).toBe('Branch created');
+  });
+
+  it('renders error card with ❌ icon and error text', () => {
+    const src = makeSource();
+    attachEventCardHandler(src);
+    dispatch(src, { t: 'event', event_type: 'error', payload: { error: 'Rate limit hit' }, recorded_at: '' });
+    const card = document.querySelector('.event-card');
+    expect(card).not.toBeNull();
+    expect(card?.getAttribute('data-event-type')).toBe('error');
+    expect(card?.querySelector('.event-card__icon')?.textContent).toBe('❌');
+    expect(card?.querySelector('.event-card__text')?.textContent).toBe('Rate limit hit');
+  });
+
+  it('renders decision card with 💡 icon', () => {
+    const src = makeSource();
+    attachEventCardHandler(src);
+    dispatch(src, {
+      t: 'event',
+      event_type: 'decision',
+      payload: { decision: 'Use TypeScript', rationale: 'type safety' },
+      recorded_at: '',
+    });
+    const card = document.querySelector('.event-card');
+    expect(card?.querySelector('.event-card__icon')?.textContent).toBe('💡');
+    expect(card?.querySelector('.event-card__text')?.textContent).toBe('Use TypeScript — type safety');
+  });
 });

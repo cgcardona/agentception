@@ -13,6 +13,7 @@ Coverage:
 - build board template: does NOT render button when prev phase is not complete
 """
 
+import json
 from collections.abc import Generator
 from unittest.mock import AsyncMock, patch
 
@@ -20,6 +21,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agentception.app import app
+from agentception.types import JsonValue
 
 
 # ---------------------------------------------------------------------------
@@ -38,16 +40,17 @@ def client() -> Generator[TestClient, None, None]:
 # ---------------------------------------------------------------------------
 
 
-def _ok_result(unlocked_count: int = 2) -> dict[str, object]:
+def _ok_result(unlocked_count: int = 2) -> dict[str, JsonValue]:
     return {"advanced": True, "unlocked_count": unlocked_count}
 
 
-def _blocked_result(open_issues: list[int] | None = None) -> dict[str, object]:
+def _blocked_result(open_issues: list[int] | None = None) -> dict[str, JsonValue]:
     issues: list[int] = open_issues or [11, 12]
+    issues_val: JsonValue = json.loads(json.dumps(issues))
     return {
         "advanced": False,
         "error": f"Cannot advance: {len(issues)} open issue(s) remain in phase 'phase-1'.",
-        "open_issues": issues,
+        "open_issues": issues_val,
     }
 
 
@@ -59,7 +62,7 @@ def _advance_body(
     return {"from_phase": from_phase, "to_phase": to_phase}
 
 
-def _mock_issue() -> dict[str, object]:
+def _mock_issue() -> dict[str, JsonValue]:
     return {
         "number": 1,
         "title": "Test issue",
@@ -76,11 +79,12 @@ def _mock_group(
     label: str = "phase-1",
     locked: bool = False,
     complete: bool = False,
-    issues: list[dict[str, object]] | None = None,
-) -> dict[str, object]:
+    issues: list[dict[str, JsonValue]] | None = None,
+) -> dict[str, JsonValue]:
+    issues_val: JsonValue = json.loads(json.dumps(issues if issues is not None else [_mock_issue()]))
     return {
         "label": label,
-        "issues": issues if issues is not None else [_mock_issue()],
+        "issues": issues_val,
         "locked": locked,
         "complete": complete,
         "depends_on": [],

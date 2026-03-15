@@ -32,6 +32,7 @@ from agentception.services.cognitive_arch import (
     _extract_cognitive_arch_from_body,
     _resolve_cognitive_arch,
 )
+from agentception.types import JsonValue
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -103,41 +104,56 @@ class TestPlanSpecCoordinatorArch:
 class TestPlanSpecToYaml:
     def test_coordinator_arch_omitted_when_empty(self) -> None:
         spec = _make_spec()
-        data: object = yaml.safe_load(spec.to_yaml())
+        data: JsonValue = yaml.safe_load(spec.to_yaml())
         assert isinstance(data, dict)
         assert "coordinator_arch" not in data
 
     def test_coordinator_arch_present_when_set(self) -> None:
         spec = _make_spec(coordinator_arch={"cto": "jeff_dean:python"})
-        data: object = yaml.safe_load(spec.to_yaml())
+        data: JsonValue = yaml.safe_load(spec.to_yaml())
         assert isinstance(data, dict)
         assert data.get("coordinator_arch") == {"cto": "jeff_dean:python"}
 
     def test_issue_cognitive_arch_present_when_set(self) -> None:
         spec = _make_spec(cognitive_arch="barbara_liskov:fastapi:python")
-        data: object = yaml.safe_load(spec.to_yaml())
+        data: JsonValue = yaml.safe_load(spec.to_yaml())
         assert isinstance(data, dict)
         phases = data.get("phases", [])
         assert isinstance(phases, list)
-        issue = phases[0]["issues"][0]
+        phase0 = phases[0]
+        assert isinstance(phase0, dict)
+        issues = phase0["issues"]
+        assert isinstance(issues, list)
+        issue = issues[0]
+        assert isinstance(issue, dict)
         assert issue["cognitive_arch"] == "barbara_liskov:fastapi:python"
 
     def test_issue_cognitive_arch_absent_when_empty(self) -> None:
         spec = _make_spec(cognitive_arch="")
-        data: object = yaml.safe_load(spec.to_yaml())
+        data: JsonValue = yaml.safe_load(spec.to_yaml())
         assert isinstance(data, dict)
         phases = data.get("phases", [])
         assert isinstance(phases, list)
-        issue = phases[0]["issues"][0]
+        phase0 = phases[0]
+        assert isinstance(phase0, dict)
+        issues = phase0["issues"]
+        assert isinstance(issues, list)
+        issue = issues[0]
+        assert isinstance(issue, dict)
         assert "cognitive_arch" not in issue
 
     def test_skills_present_when_set(self) -> None:
         spec = _make_spec(skills=["fastapi", "python"])
-        data: object = yaml.safe_load(spec.to_yaml())
-        assert isinstance(data, dict)
+        data: JsonValue = yaml.safe_load(spec.to_yaml())
         assert isinstance(data, dict)
         phases = data["phases"]
-        issue = phases[0]["issues"][0]
+        assert isinstance(phases, list)
+        phase0 = phases[0]
+        assert isinstance(phase0, dict)
+        issues = phase0["issues"]
+        assert isinstance(issues, list)
+        issue = issues[0]
+        assert isinstance(issue, dict)
         assert issue["skills"] == ["fastapi", "python"]
 
     def test_round_trip_preserves_coordinator_arch(self) -> None:
@@ -163,12 +179,21 @@ class TestPlanSpecToYaml:
 # ---------------------------------------------------------------------------
 
 
-def _fake_taxonomy(roles: dict[str, list[str]]) -> dict[str, object]:
+def _fake_taxonomy(roles: dict[str, list[str]]) -> dict[str, JsonValue]:
     """Build a minimal taxonomy dict for test stubs."""
-    level_roles: list[dict[str, object]] = [
-        {"slug": slug, "compatible_figures": figs} for slug, figs in roles.items()
-    ]
-    return {"levels": [{"id": "test-level", "roles": level_roles}]}
+    raw = {
+        "levels": [
+            {
+                "id": "test-level",
+                "roles": [
+                    {"slug": slug, "compatible_figures": figs}
+                    for slug, figs in roles.items()
+                ],
+            }
+        ]
+    }
+    result: dict[str, JsonValue] = json.loads(json.dumps(raw))
+    return result
 
 
 def _fake_figure_yaml(fig_id: str, display_name: str, description: str) -> str:
@@ -316,7 +341,7 @@ class TestMcpServerCognitiveFigures:
         ):
             result = await read_resource("ac://plan/figures/cto")
 
-        payload: object = json.loads(result["contents"][0]["text"])
+        payload: JsonValue = json.loads(result["contents"][0]["text"])
         assert isinstance(payload, dict)
         assert payload.get("role") == "cto"
 
@@ -325,7 +350,7 @@ class TestMcpServerCognitiveFigures:
         """Calling the retired plan_get_cognitive_figures tool returns a redirect error."""
         result = call_tool("plan_get_cognitive_figures", {})
         assert result["isError"] is True
-        payload: object = json.loads(result["content"][0]["text"])
+        payload: JsonValue = json.loads(result["content"][0]["text"])
         assert isinstance(payload, dict)
         assert "ac://plan/figures/{role}" in str(payload.get("error", ""))
 
@@ -343,7 +368,7 @@ class TestMcpServerCognitiveFigures:
         ):
             result = await read_resource("ac://plan/figures/unknown-role-xyz")
 
-        payload: object = json.loads(result["contents"][0]["text"])
+        payload: JsonValue = json.loads(result["contents"][0]["text"])
         assert isinstance(payload, dict)
         assert "error" in payload or payload.get("figures") == []
 

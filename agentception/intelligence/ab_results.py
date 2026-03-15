@@ -26,6 +26,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from agentception.intelligence.ab_mode import _is_even_batch
+from agentception.types import JsonValue
 from agentception.intelligence.role_versions import read_role_versions
 from agentception.readers.github import get_merged_prs, get_pr_comments
 from agentception.telemetry import aggregate_waves
@@ -86,7 +87,7 @@ def _average_grade(grades: list[str]) -> str | None:
     return _NUM_TO_GRADE.get(round(sum(nums) / len(nums)), "F")
 
 
-async def _fetch_grade_for_pr(pr: dict[str, object]) -> str | None:
+async def _fetch_grade_for_pr(pr: dict[str, JsonValue]) -> str | None:
     """Try to extract a reviewer grade for the given PR.
 
     First checks the PR body, then falls back to fetching PR comments.

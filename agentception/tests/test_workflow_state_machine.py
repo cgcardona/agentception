@@ -436,6 +436,11 @@ class TestAgentStatusEnum:
         assert "pending_launch" in LANE_ACTIVE_STATUSES
         assert "blocked" in LANE_ACTIVE_STATUSES
         assert "reviewing" in LANE_ACTIVE_STATUSES
+        # "stale" is a computed display value (not a DB-stored AgentStatus).
+        # It must be in LANE_ACTIVE_STATUSES so that cards for runs that have
+        # not heartbeated for >30 min stay in the "active" lane rather than
+        # bouncing back to "todo".  Regression for the card-bounce bug.
+        assert "stale" in LANE_ACTIVE_STATUSES
 
     def test_reset_statuses(self) -> None:
         assert RESET_STATUSES == {
@@ -472,6 +477,26 @@ class TestComputeAgentStatus:
 
     def test_unknown_status_normalised(self) -> None:
         assert compute_agent_status("garbage_status", None) == "failed"
+
+    def test_stale_agent_stays_in_active_lane(self) -> None:
+        """Regression: a run whose compute_agent_status returns 'stale' must
+        keep its card in the 'active' swim lane, not bounce it to 'todo'."""
+        import datetime
+        from agentception.workflow.state_machine import _compute_lane
+        now = datetime.datetime.now(datetime.timezone.utc)
+        old = now - datetime.timedelta(hours=2)
+        stale_status = compute_agent_status("implementing", old, now=now)
+        assert stale_status == "stale"
+        lane = _compute_lane(
+            issue_state="open",
+            agent_status=stale_status,
+            pr_state=None,
+            pr_merged_recently=False,
+        )
+        assert lane == "active", (
+            f"Stale agent returned lane={lane!r}; expected 'active'. "
+            "Card-bounce regression: 'stale' must be in LANE_ACTIVE_STATUSES."
+        )
 
 
 # ===========================================================================
