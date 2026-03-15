@@ -238,10 +238,10 @@ class AgentCeptionSettings(BaseSettings):
             return LLMProviderChoice.local
         return self.llm_provider
 
-    local_llm_base_url: str = "http://host.docker.internal:8080"
-    """Base URL of the local OpenAI-compatible server (e.g. mlx_lm.server).
+    local_llm_base_url: str = "http://host.docker.internal:11434"
+    """Base URL of the local OpenAI-compatible server (Ollama default port 11434).
     Used when ``use_local_llm`` is True. From Docker, use host.docker.internal
-    to reach a server running on the host. Set via ``LOCAL_LLM_BASE_URL``."""
+    to reach Ollama running on the host. Set via ``LOCAL_LLM_BASE_URL``."""
 
     local_llm_chat_path: str = "/v1/chat/completions"
     """Path appended to ``local_llm_base_url`` for chat requests. Some servers
@@ -249,8 +249,8 @@ class AgentCeptionSettings(BaseSettings):
     ``LOCAL_LLM_CHAT_PATH``."""
 
     local_llm_model: str = ""
-    """Model name sent in the request. If empty, omit so the server uses its
-    loaded model (avoids 404 from mlx_lm.server when it doesn't know \"local\").
+    """Model name sent in the request. If empty, omit from the payload; some
+    servers use their loaded model in that case. Ollama requires a model name.
     Set via ``LOCAL_LLM_MODEL``."""
 
     local_llm_max_context_chars: int = 12_000
@@ -265,9 +265,8 @@ class AgentCeptionSettings(BaseSettings):
 
     local_llm_completion_token_ceiling: int = 8192
     """Hard cap on ``max_tokens`` sent to the local OpenAI-compatible server.
-    Ollama (the recommended backend) supports full context lengths; 8192 is a
-    safe default for a 35B 4-bit model. If you still use mlx-openai-server,
-    lower this to 4096 to avoid HTTP 422 errors. Set via
+    Ollama supports full context lengths; 8192 is a safe default for a 35B
+    4-bit model. Lower if your server imposes a stricter limit. Set via
     ``LOCAL_LLM_COMPLETION_TOKEN_CEILING``."""
 
     local_llm_max_system_chars: int = 6000
