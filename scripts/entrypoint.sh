@@ -51,11 +51,11 @@ alembic -c agentception/alembic.ini upgrade head || {
 echo "[entrypoint] fixing ownership of /worktrees …"
 chown agentception:agentception /worktrees
 
-# /root/.cache/huggingface — named volume (agentception-model-cache).
+# /home/agentception/.cache/huggingface — named volume (agentception-model-cache).
 #   FastEmbed downloads ONNX models on first dispatch; the agentception user
-#   must be able to write to this directory.
+#   must be able to write here (and to the hub token file under it).
 echo "[entrypoint] fixing ownership of model cache …"
-chown -R agentception:agentception /root/.cache/huggingface
+chown -R agentception:agentception /home/agentception/.cache/huggingface
 
 # ── 5. Drop to non-root user ─────────────────────────────────────────────────
 # gosu is a purpose-built setuid helper (analogous to sudo -u but without the

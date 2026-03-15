@@ -284,7 +284,7 @@ services:
 
 `scripts/entrypoint.sh` implements a two-phase startup:
 
-1. **Root phase** — writes `/etc/resolv.conf`, compiles SCSS/JS assets, runs Alembic migrations, and fixes ownership of mutable mount points (`/worktrees`, `/root/.cache/huggingface`).
+1. **Root phase** — writes `/etc/resolv.conf`, compiles SCSS/JS assets, runs Alembic migrations, and fixes ownership of mutable mount points (`/worktrees`, `/home/agentception/.cache/huggingface`).
 2. **Unprivileged phase** — `exec gosu agentception "$@"` drops to UID 1001 (`agentception` user) for the long-running `uvicorn` process. Every Python coroutine, agent loop iteration, and tool call runs as this non-root user.
 
 `gosu` is a purpose-built setuid helper (analogous to `sudo -u` but signal-transparent and without shell overhead). After the `exec`, no process in the container runs as root.
