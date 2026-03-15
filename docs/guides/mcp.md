@@ -185,9 +185,6 @@ starting agents, advancing phase gates) always require an explicit human confirm
         "plan_validate_spec",
         "plan_validate_manifest",
         "log_run_step",
-        "log_run_blocker",
-        "log_run_decision",
-        "log_run_message",
         "log_run_error"
       ]
     }
@@ -202,10 +199,10 @@ starting agents, advancing phase gates) always require an explicit human confirm
 | **Auto — resources** | All `ac://` URIs | Pure reads — no external effects, always safe. |
 | **Auto — prompts** | All `role/*` and `agent/*` | Static file reads — no effects. |
 | **Auto — tools** | `plan_validate_spec`, `plan_validate_manifest` | In-memory validation only. |
-| **Auto — tools** | `log_run_step`, `log_run_blocker`, `log_run_decision`, `log_run_message`, `log_run_error` | Append-only DB writes — no external effects. |
-| **Prompt** | `build_claim_run`, `build_complete_run`, `build_cancel_run`, `build_stop_run`, `build_block_run`, `build_resume_run` | Pipeline state transitions in the DB — recoverable but worth confirming. |
-| **Prompt** | `github_add_label`, `github_remove_label`, `github_claim_issue`, `github_unclaim_issue`, `github_add_comment` | External GitHub API mutations. |
-| **Always prompt** | `build_spawn_adhoc_child`, `plan_advance_phase`, `build_teardown_worktree` | Create real GitHub issues, git worktrees, and live agents — irreversible side effects. |
+| **Auto — tools** | `log_run_step`, `log_run_error` | Append-only DB writes — no external effects. |
+| **Prompt** | `build_claim_run`, `build_complete_run`, `build_cancel_run` | Pipeline state transitions in the DB — recoverable but worth confirming. |
+| **Prompt** | `github_add_label`, `github_remove_label`, `github_add_comment` | External GitHub API mutations. |
+| **Always prompt** | `build_spawn_adhoc_child`, `plan_advance_phase` | Create real GitHub issues, git worktrees, and live agents — irreversible side effects. |
 
 **What this means for you:**
 

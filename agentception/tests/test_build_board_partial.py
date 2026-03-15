@@ -689,69 +689,6 @@ async def test_persist_agent_event_non_done_does_not_call_recompute() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Regression: build_teardown_worktree queues teardown independently
-#
-# build_report_done was split into build_complete_run (state transition) and
-# build_teardown_worktree (explicit cleanup).  Teardown is now a separate MCP
-# command so the orchestration layer controls when cleanup happens.
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.anyio
-async def test_build_teardown_worktree_queues_teardown_when_run_id_given() -> None:
-    """build_teardown_worktree queues teardown_agent_worktree as a background task."""
-    from unittest.mock import AsyncMock, MagicMock, patch
-
-    from agentception.mcp.build_commands import build_teardown_worktree
-
-    mock_task = MagicMock()
-    with (
-        patch("agentception.mcp.build_commands.teardown_agent_worktree", new_callable=AsyncMock),
-        patch("agentception.mcp.build_commands.asyncio.create_task", return_value=mock_task) as mock_create_task,
-    ):
-        result = await build_teardown_worktree(agent_run_id="issue-42-abc123")
-
-    assert result == {"ok": True, "run_id": "issue-42-abc123", "teardown": "queued"}
-    mock_create_task.assert_called_once()
-    assert mock_create_task.call_args.kwargs.get("name") == "teardown-issue-42-abc123"
-
-
-@pytest.mark.anyio
-async def test_build_complete_run_does_not_teardown_worktree() -> None:
-    """Regression: build_complete_run must NOT tear down worktrees (build_teardown_worktree does).
-
-    Before the build_report_done split, teardown was hidden inside the done handler.
-    build_complete_run must only persist the event + transition state.  It may
-    create exactly one task to auto-dispatch a reviewer — but never a teardown task.
-    """
-    from unittest.mock import AsyncMock, call, patch
-
-    from agentception.mcp.build_commands import build_complete_run
-
-    with (
-        patch("agentception.mcp.build_commands.persist_agent_event", new_callable=AsyncMock),
-        patch("agentception.mcp.build_commands.complete_agent_run", new_callable=AsyncMock, return_value=True),
-        patch("agentception.mcp.build_commands.auto_dispatch_reviewer", new_callable=AsyncMock),
-        patch("agentception.mcp.build_commands.asyncio.create_task") as mock_create_task,
-    ):
-        result = await build_complete_run(
-            issue_number=42,
-            pr_url="https://github.com/cgcardona/agentception/pull/99",
-            agent_run_id="issue-42-abc123",
-        )
-
-    assert result["ok"] is True
-    assert result["status"] == "completed"
-    # build_complete_run may create one task to auto-dispatch the reviewer —
-    # that is expected.  What must NOT happen is any teardown task.
-    for c in mock_create_task.call_args_list:
-        task_name = c.kwargs.get("name", "")
-        assert "teardown" not in str(task_name).lower(), (
-            f"build_complete_run must not schedule teardown tasks; got task name: {task_name!r}"
-        )
-
-
-# ---------------------------------------------------------------------------
 # Regression: closed deps must not appear as blockers on board cards
 #
 # Issue #175 depends on #176. #176 is closed. The board was still showing

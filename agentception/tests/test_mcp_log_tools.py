@@ -1,9 +1,8 @@
 """Tests for the MCP log-tools layer.
 
-Covers all five log tools (log_run_step, log_run_blocker, log_run_decision,
-log_run_message, log_run_error) exercised through the full call_tool_async /
-handle_request_async dispatch path so the routing, argument validation, and
-result shaping are all exercised together.
+Covers the remaining log tools (log_run_step, log_run_error) and log_file_edit_event,
+exercised through the full call_tool_async / handle_request_async dispatch path so
+the routing, argument validation, and result shaping are all exercised together.
 
 Test categories:
   - Direct function calls (unit)
@@ -14,7 +13,7 @@ Test categories:
 
 from __future__ import annotations
 
-
+import datetime
 import json
 from unittest.mock import AsyncMock, patch
 
@@ -63,15 +62,10 @@ class TestLogToolsAreAsyncOnly:
 
     @pytest.mark.parametrize("name", [
         "log_run_step",
-        "log_run_blocker",
-        "log_run_decision",
-        "log_run_message",
         "log_run_error",
-        "log_run_heartbeat",
     ])
     def test_call_tool_sync_returns_error(self, name: str) -> None:
-        result = call_tool(name, {"issue_number": 1, "step_name": "x", "description": "x",
-                                   "decision": "x", "rationale": "x", "message": "x", "error": "x"})
+        result = call_tool(name, {"issue_number": 1, "step_name": "x", "error": "x"})
         assert result["isError"] is True
         text = result["content"][0]["text"]
         assert isinstance(text, str)
@@ -132,105 +126,7 @@ class TestLogRunStep:
 
 
 # ---------------------------------------------------------------------------
-# log_run_blocker
-# ---------------------------------------------------------------------------
-
-
-class TestLogRunBlocker:
-    @pytest.mark.anyio
-    async def test_happy_path(self) -> None:
-        with patch(
-            "agentception.mcp.log_tools.persist_agent_event",
-            new_callable=AsyncMock,
-        ) as mock_persist:
-            resp = await _dispatch(
-                "log_run_blocker",
-                {"issue_number": 99, "description": "Waiting for DB migration"},
-            )
-        payload = _result_payload(resp)
-        assert payload == {"ok": True, "event": "blocker"}
-        call_kwargs = mock_persist.call_args.kwargs
-        assert call_kwargs["event_type"] == "blocker"
-        assert call_kwargs["payload"] == {"description": "Waiting for DB migration"}
-
-    @pytest.mark.anyio
-    async def test_missing_description_returns_error(self) -> None:
-        resp = await _dispatch("log_run_blocker", {"issue_number": 1})
-        result = resp.get("result")
-        assert isinstance(result, dict)
-        assert result["isError"] is True
-
-
-# ---------------------------------------------------------------------------
-# log_run_decision
-# ---------------------------------------------------------------------------
-
-
-class TestLogRunDecision:
-    @pytest.mark.anyio
-    async def test_happy_path(self) -> None:
-        with patch(
-            "agentception.mcp.log_tools.persist_agent_event",
-            new_callable=AsyncMock,
-        ) as mock_persist:
-            resp = await _dispatch(
-                "log_run_decision",
-                {
-                    "issue_number": 5,
-                    "decision": "Use SQLAlchemy 2.x",
-                    "rationale": "Better async support",
-                    "agent_run_id": "issue-5",
-                },
-            )
-        payload = _result_payload(resp)
-        assert payload == {"ok": True, "event": "decision"}
-        call_kwargs = mock_persist.call_args.kwargs
-        assert call_kwargs["event_type"] == "decision"
-        assert call_kwargs["payload"]["decision"] == "Use SQLAlchemy 2.x"
-        assert call_kwargs["payload"]["rationale"] == "Better async support"
-
-    @pytest.mark.anyio
-    async def test_missing_rationale_returns_error(self) -> None:
-        resp = await _dispatch(
-            "log_run_decision", {"issue_number": 1, "decision": "x"}
-        )
-        result = resp.get("result")
-        assert isinstance(result, dict)
-        assert result["isError"] is True
-
-
-# ---------------------------------------------------------------------------
-# log_run_message
-# ---------------------------------------------------------------------------
-
-
-class TestLogRunMessage:
-    @pytest.mark.anyio
-    async def test_happy_path(self) -> None:
-        with patch(
-            "agentception.mcp.log_tools.persist_agent_event",
-            new_callable=AsyncMock,
-        ) as mock_persist:
-            resp = await _dispatch(
-                "log_run_message",
-                {"issue_number": 10, "message": "Found 3 related files"},
-            )
-        payload = _result_payload(resp)
-        assert payload == {"ok": True, "event": "message"}
-        call_kwargs = mock_persist.call_args.kwargs
-        assert call_kwargs["event_type"] == "message"
-        assert call_kwargs["payload"] == {"message": "Found 3 related files"}
-
-    @pytest.mark.anyio
-    async def test_missing_message_returns_error(self) -> None:
-        resp = await _dispatch("log_run_message", {"issue_number": 1})
-        result = resp.get("result")
-        assert isinstance(result, dict)
-        assert result["isError"] is True
-
-
-# ---------------------------------------------------------------------------
-# log_run_error (new)
+# log_run_error
 # ---------------------------------------------------------------------------
 
 
@@ -300,57 +196,6 @@ class TestLogRunError:
         payload = json.loads(text)
         assert isinstance(payload, dict)
         assert payload["event"] == "error"
-
-
-# ---------------------------------------------------------------------------
-# log_run_heartbeat
-# ---------------------------------------------------------------------------
-
-import datetime
-
-
-class TestLogRunHeartbeat:
-    @pytest.mark.anyio
-    async def test_log_run_heartbeat_updates_timestamp(self) -> None:
-        """Valid run_id: persist_run_heartbeat returns a timestamp; tool returns ok=True."""
-        fixed_ts = datetime.datetime(2024, 1, 15, 12, 0, 0, tzinfo=datetime.timezone.utc)
-        with patch(
-            "agentception.mcp.log_tools.persist_run_heartbeat",
-            new_callable=AsyncMock,
-            return_value=fixed_ts,
-        ) as mock_heartbeat:
-            resp = await _dispatch("log_run_heartbeat", {"run_id": "issue-275"})
-
-        payload = _result_payload(resp)
-        assert payload["ok"] is True
-        assert payload["last_activity_at"] == fixed_ts.isoformat()
-        mock_heartbeat.assert_awaited_once_with("issue-275")
-
-    @pytest.mark.anyio
-    async def test_log_run_heartbeat_missing_run(self) -> None:
-        """Unknown run_id: persist_run_heartbeat returns None; tool returns ok=False, no raise."""
-        with patch(
-            "agentception.mcp.log_tools.persist_run_heartbeat",
-            new_callable=AsyncMock,
-            return_value=None,
-        ):
-            resp = await _dispatch("log_run_heartbeat", {"run_id": "bogus-run-id"})
-
-        payload = _result_payload(resp)
-        assert payload["ok"] is False
-        assert payload["error"] == "run not found"
-
-    @pytest.mark.anyio
-    async def test_log_run_heartbeat_missing_run_id_returns_error(self) -> None:
-        resp = await _dispatch("log_run_heartbeat", {})
-        result = resp.get("result")
-        assert isinstance(result, dict)
-        assert result["isError"] is True
-
-    def test_log_run_heartbeat_is_in_tools_list(self) -> None:
-        from agentception.mcp.server import list_tools
-        names = [t["name"] for t in list_tools()]
-        assert "log_run_heartbeat" in names
 
 
 # ---------------------------------------------------------------------------

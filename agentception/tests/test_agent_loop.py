@@ -106,7 +106,13 @@ def _mock_get_session() -> MagicMock:
 class TestRunAgentLoop:
     @pytest.mark.anyio
     async def test_single_turn_stop(self, tmp_path: Path) -> None:
-        """Agent loop completes in one turn when the model returns stop."""
+        """Agent loop exits without calling build_complete_run when model returns stop.
+
+        When the model returns stop_reason=stop without having called
+        create_pull_request + build_complete_run as a tool, the loop logs a
+        warning and exits — it does NOT auto-call build_complete_run because
+        that would leave the run in a broken state (no PR, no commit).
+        """
         worktree = tmp_path / "test-run-1"
         worktree.mkdir()
         task_spec = _make_task_spec(worktree)
@@ -156,10 +162,7 @@ class TestRunAgentLoop:
 
             await run_agent_loop("test-run-1")
 
-        mock_complete.assert_called_once()
-        call_kwargs = mock_complete.call_args.kwargs
-        assert call_kwargs["issue_number"] == 42
-        assert "All done." in call_kwargs["summary"]
+        mock_complete.assert_not_called()
 
     @pytest.mark.anyio
     async def test_tool_call_then_stop(self, tmp_path: Path) -> None:
@@ -220,7 +223,7 @@ class TestRunAgentLoop:
             with patch.object(al, "read_file", return_value=tool_result):
                 await al.run_agent_loop("test-run-1")
 
-        mock_complete.assert_called_once()
+        mock_complete.assert_not_called()
 
     @pytest.mark.anyio
     async def test_mcp_tool_dispatched_to_call_tool_async(self, tmp_path: Path) -> None:

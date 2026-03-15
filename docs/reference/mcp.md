@@ -14,7 +14,6 @@ AgentCeption exposes a full [Model Context Protocol](https://modelcontextprotoco
   - [GitHub tools](#github-tools)
   - [Build tools](#build-tools)
   - [Log tools](#log-tools)
-  - [Retired tools](#retired-tools)
 - [Resources](#resources)
   - [Static resources](#static-resources)
   - [Resource templates](#resource-templates)
@@ -52,9 +51,6 @@ Cursor discovers and spawns the server via `.cursor/mcp.json`. The entry looks l
         "prompts/list",
         "prompts/get",
         "log_run_step",
-        "log_run_blocker",
-        "log_run_decision",
-        "log_run_message",
         "log_run_error"
       ]
     }
@@ -77,9 +73,6 @@ Replace `/path/to/agentception` with the absolute path to your local clone.
 | `prompts/list` | Pure read |
 | `prompts/get` | Pure read |
 | `log_run_step` | Append-only DB write, no external effects |
-| `log_run_blocker` | Append-only DB write, no external effects |
-| `log_run_decision` | Append-only DB write, no external effects |
-| `log_run_message` | Append-only DB write, no external effects |
 | `log_run_error` | Append-only DB write, no external effects |
 
 All other tools require a Cursor confirmation dialog before execution.
@@ -113,7 +106,7 @@ The HTTP transport is available at `POST /api/mcp` once the containers are runni
 
 ## Tools
 
-Tools are actions with side effects. Read-only state inspection is exposed as [Resources](#resources), not tools.
+The server exposes **12 tools** — actions with side effects. Read-only state inspection is exposed as [Resources](#resources), not tools.
 
 ### Plan tools
 
@@ -129,11 +122,7 @@ Tools are actions with side effects. Read-only state inspection is exposed as [R
 |-----------|-------------|-----------------|--------------|
 | `github_add_label` | Add a label to a GitHub issue. | `issue_number: int`, `label: str` | `{ok: bool, issue_number: int}` |
 | `github_remove_label` | Remove a label from a GitHub issue. | `issue_number: int`, `label: str` | `{ok: bool, issue_number: int}` |
-| `github_claim_issue` | Claim an issue by adding the `agent/wip` label. | `issue_number: int` | `{ok: bool, issue_number: int}` |
-| `github_unclaim_issue` | Release an issue by removing the `agent/wip` label. | `issue_number: int` | `{ok: bool, issue_number: int}` |
 | `github_add_comment` | Post a Markdown comment on a GitHub issue. Routes through the typed, logged interface — do not shell out to `gh issue comment`. | `issue_number: int`, `body: str` | `{ok: bool, issue_number: int, comment_url: str}` |
-| `github_approve_pr` | Submit an approving review on a GitHub pull request. Call after grading A or B. | `pr_number: int` | `{ok: bool, pr_number: int}` |
-| `github_merge_pr` | Squash-merge a GitHub pull request. Call only after `github_approve_pr` succeeds. | `pr_number: int` | `{ok: bool, pr_number: int, delete_branch: bool}` |
 
 ### Build tools
 
@@ -142,61 +131,14 @@ Tools are actions with side effects. Read-only state inspection is exposed as [R
 | `build_claim_run` | Transition a run from `pending_launch` to `implementing`. Called by the agent on startup. | `run_id: str` | `{ok: bool, run_id: str, status: str}` |
 | `build_spawn_adhoc_child` | Spawn a new child run for a given issue. Creates a git worktree and DB row. Irreversible. | `run_id: str`, `issue_number: int`, `role: str` | `{ok: bool, child_run_id: str, worktree: str, branch: str}` |
 | `build_complete_run` | Mark a run as `completed`, release its worktree, and trigger the auto-reviewer. | `run_id: str`, `issue_number: int`, `pr_url: str` | `{ok: bool, run_id: str, status: str}` |
-| `build_teardown_worktree` | Remove a run's worktree directory. Irreversible. | `run_id: str` | `{ok: bool, run_id: str}` |
-| `build_block_run` | Transition a run to `blocked` state with a reason. | `run_id: str`, `reason: str` | `{ok: bool, run_id: str, status: str}` |
-| `build_resume_run` | Transition a blocked run back to `implementing`. | `run_id: str` | `{ok: bool, run_id: str, status: str}` |
 | `build_cancel_run` | Permanently cancel a run (terminal — cannot resume). | `run_id: str` | `{ok: bool, run_id: str, status: str}` |
-| `build_stop_run` | Stop a run (terminal — marks it `stopped`). | `run_id: str` | `{ok: bool, run_id: str, status: str}` |
 
 ### Log tools
 
 | Tool name | Description | Required inputs | Return shape |
 |-----------|-------------|-----------------|--------------|
 | `log_run_step` | Record a step-start event in the run's event log. | `run_id: str`, `step: str` | `{ok: bool, event_id: int}` |
-| `log_run_blocker` | Record a blocker event with a description. | `run_id: str`, `blocker: str` | `{ok: bool, event_id: int}` |
-| `log_run_decision` | Record a design decision with rationale. | `run_id: str`, `decision: str` | `{ok: bool, event_id: int}` |
-| `log_run_message` | Record a free-form message in the event log. | `run_id: str`, `message: str` | `{ok: bool, event_id: int}` |
 | `log_run_error` | Record an error event with optional traceback. | `run_id: str`, `error: str` | `{ok: bool, event_id: int}` |
-| `log_run_heartbeat` | Update `last_activity_at` without changing run state. Non-blocking on DB failure. | `run_id: str` | `{ok: bool, last_activity_at: str}` or `{ok: false, error: str}` |
-
-### Retired tools
-
-The following tools have been superseded by MCP Resources. Calling a retired tool name returns a structured `isError=true` result with the replacement resource URI embedded in the error message. Use `resources/read` with the listed URI instead.
-
-| Retired tool name | Replacement resource URI |
-|-------------------|--------------------------|
-| `query_pending_runs` | `ac://runs/pending` |
-| `query_run` | `ac://runs/{run_id}` |
-| `query_children` | `ac://runs/{run_id}/children` |
-| `query_run_events` | `ac://runs/{run_id}/events` |
-| `query_active_runs` | `ac://runs/active` |
-| `query_run_tree` | `ac://batches/{batch_id}/tree` |
-| `query_dispatcher_state` | `ac://system/dispatcher` |
-| `query_system_health` | `ac://system/health` |
-| `plan_get_schema` | `ac://plan/schema` |
-| `plan_get_labels` | `ac://plan/labels` |
-| `plan_get_cognitive_figures` | `ac://plan/figures/{role}` |
-| `query_run_status` | `ac://runs/{run_id}/status` |
-
-**Error shape for retired tools:**
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "result": {
-    "content": [
-      {
-        "type": "text",
-        "text": "{\"error\": \"Tool 'query_run_status' is now a Resource. Use resources/read with URI: ac://runs/{run_id}/status\"}"
-      }
-    ],
-    "isError": true
-  }
-}
-```
-
-Note: the server returns this as a JSON-RPC *success* response (no top-level `error` key) with `isError: true` inside the tool result. This follows the MCP spec — tool errors are reported in the result envelope, not as JSON-RPC protocol errors.
 
 ---
 
@@ -237,7 +179,7 @@ These URIs contain path parameters following [RFC 6570 Level 1](https://www.rfc-
 | URI template | What it returns |
 |--------------|----------------|
 | `ac://runs/{run_id}` | Lightweight metadata for a single run: `status`, `issue_number`, `parent_run_id`, `worktree_path`, `tier`, `role`, `batch_id`. Returns `{ok: false}` when the run does not exist. |
-| `ac://runs/{run_id}/status` | Current status and `completed_at` timestamp for a single run. Returns `{ok: bool, run_id: str, status: str, completed_at: str\|null}`. This is the canonical replacement for the retired `query_run_status` tool. |
+| `ac://runs/{run_id}/status` | Current status and `completed_at` timestamp for a single run. Returns `{ok: bool, run_id: str, status: str, completed_at: str\|null}`. |
 | `ac://runs/{run_id}/children` | All runs spawned by a given `parent_run_id`, ordered by spawn time. Returns `{ok: true, count: int, children: [...]}`. |
 | `ac://runs/{run_id}/events` | Structured MCP events for a run (`log_run_step`, `log_run_blocker`, etc.). Append `?after_id=N` to page through events incrementally (returns only events with DB id > N). Returns `{ok: true, count: int, events: [...]}`. |
 | `ac://runs/{run_id}/context` | Full task context — the authoritative DB-sourced `RunContextRow`. Includes `run_id`, `status`, `role`, `cognitive_arch`, `task_description`, `issue_number`, `pr_number`, `worktree_path`, `branch`, `tier`, `org_domain`, `batch_id`, `parent_run_id`, `gh_repo`, `spawned_at`, `last_activity_at`, `completed_at`. |
@@ -317,24 +259,6 @@ The server uses standard JSON-RPC 2.0 error codes for protocol-level errors. The
     "code": -32602,
     "message": "resources/read requires params.uri",
     "data": null
-  }
-}
-```
-
-**Example: retired-tool redirect (tool-level error, not a protocol error)**
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "result": {
-    "content": [
-      {
-        "type": "text",
-        "text": "{\"error\": \"Tool 'query_run_status' is now a Resource. Use resources/read with URI: ac://runs/{run_id}/status\"}"
-      }
-    ],
-    "isError": true
   }
 }
 ```

@@ -627,6 +627,7 @@ async def test_dispatch_implementer_uses_origin_dev_as_base(tmp_path: Path) -> N
         patch("agentception.routes.api.dispatch.run_agent_loop", new_callable=AsyncMock),
         patch("agentception.routes.api.dispatch.asyncio.create_task", return_value=asyncio.Future()),
         patch("agentception.routes.api.dispatch._index_worktree", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.assemble_developer_context", new_callable=AsyncMock, return_value=""),
         patch("agentception.routes.api.dispatch.settings") as mock_settings,
     ):
         mock_settings.worktrees_dir = str(tmp_path / "worktrees")

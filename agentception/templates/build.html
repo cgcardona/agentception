@@ -261,7 +261,7 @@
     <template x-if="launchSuccess && launchResult">
       <span class="od-header__launch-ok">
         <template x-if="!startAgentDone && startAgentLoading">
-          <span>⏳ Starting agent…</span>
+          <span class="spinner-inline"></span> Starting agent…
         </template>
         <template x-if="startAgentDone">
           <span>✅ Agent running — <code x-text="launchResult.run_id"></code></span>
