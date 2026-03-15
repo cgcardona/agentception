@@ -34,6 +34,7 @@ from .ab_metrics import router as _ab_metrics
 from .local_llm import router as _local_llm
 from .metrics import router as _metrics
 from .worktrees import router as _worktrees
+from .org_live import router as _org_live
 
 router = APIRouter(prefix="/api", tags=["api"])
 router.include_router(_agent_run)
@@ -58,3 +59,4 @@ router.include_router(_presets)
 router.include_router(_metrics)
 router.include_router(_ab_metrics)
 router.include_router(_local_llm)
+router.include_router(_org_live)
