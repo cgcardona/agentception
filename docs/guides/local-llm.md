@@ -19,15 +19,14 @@ AgentCeption uses a **provider-agnostic LLM contract**. When the effective provi
 
 ### Naming: "OpenAI" in tooling — not OpenAI's cloud
 
-You will see names like **OpenAI-compatible** and the package **`mlx-openai-server`**. Here is what that means:
+You will see the term **OpenAI-compatible** throughout. Here is what it means:
 
 | Phrase / name | Meaning |
 |---------------|--------|
 | **OpenAI-compatible / Chat Completions API** | The HTTP shape many tools use: `POST /v1/chat/completions`, JSON body with `messages`, response with `choices[].message`. It is a **wire format** — not a claim that traffic goes to OpenAI Inc. |
 | **Ollama** | Production-grade local inference server. Implements the OpenAI-compatible API. **Recommended.** |
-| **`mlx-openai-server`** | Developer-preview local MLX server (Apple Silicon only). Single-process, no request queue, KV cache saturates after large generations. **For development and one-off tests only.** |
 
-So: **no OpenAI account or cloud call is required** for the local provider. You are the datacenter; the "OpenAI" wording is only about **request/response shape**, so the same client code can talk to many backends.
+**No OpenAI account or cloud call is required** for the local provider. You are the datacenter; the "OpenAI" wording is only about **request/response shape**, so the same client code can talk to many backends.
 
 ---
 
@@ -50,7 +49,7 @@ When the effective provider is **local**, the following env vars apply. Set them
 | `LOCAL_LLM_MAX_CONTEXT_CHARS` | `12000` | Max characters for the first user message (task briefing) when using the local LLM. Reduces load on small models. |
 | `LOCAL_LLM_MAX_SYSTEM_CHARS` | `6000` | Max characters for the system prompt (role + cognitive arch). Truncation is applied when using the local provider. |
 | `LOCAL_LLM_MAX_TOKENS` | `4096` | Desired max completion tokens per turn (agent loop). Never sent above the ceiling below. |
-| `LOCAL_LLM_COMPLETION_TOKEN_CEILING` | `8192` | Hard cap on `max_tokens` in every local chat request. Ollama supports 8192+; lower to 4096 only if you are using `mlx-openai-server` (which returns 422 above 4096). |
+| `LOCAL_LLM_COMPLETION_TOKEN_CEILING` | `8192` | Hard cap on `max_tokens` in every local chat request. Ollama supports 8192+; lower if your server imposes a stricter limit. |
 
 ### Per-usecase model overrides (Phase 3 — two models)
 
@@ -312,35 +311,6 @@ If the host call works but the Docker call fails, check that Ollama is not bound
 
 ---
 
-## Apple Silicon: MLX (developer footnote)
-
-`mlx-openai-server` is an Apple Silicon–only developer preview tool. It is **not suitable for multi-agent workloads** because:
-
-- Single-process, no request queue — one request at a time
-- No KV cache management — cache saturates after a large generation (~4000 tok); subsequent requests hang until server restart
-- Hard max-token cap of 4096 (returns HTTP 422 above this)
-- No model keep-alive between requests
-
-Use it only for one-off tests or model exploration on a Mac that does not have Ollama installed. If you must use it, set `LOCAL_LLM_COMPLETION_TOKEN_CEILING=4096` and expect to restart it between large generations.
-
-**Quick start (mlx-openai-server, developer use only, Apple Silicon):**
-
-```bash
-pip install -U mlx-openai-server
-# For the 35B 4-bit model, also upgrade mlx-vlm:
-pip install -U "mlx-vlm>=0.3.12"
-
-mlx-openai-server launch \
-  --model-path mlx-community/Qwen3.5-35B-A3B-4bit \
-  --model-type multimodal \
-  --host 0.0.0.0 \
-  --port 8080
-```
-
-Then set `LOCAL_LLM_BASE_URL=http://host.docker.internal:8080` and `LOCAL_LLM_COMPLETION_TOKEN_CEILING=4096` in `.env`.
-
----
-
 ## Sample coding task (test code generation)
 
 Use the following as a GitHub issue to see what code the local model can produce. Create the issue, ensure the effective provider is **local** (`LLM_PROVIDER=local` or `USE_LOCAL_LLM=true`), then dispatch a developer and watch with `python3 scripts/watch_run.py issue-<N>`.
@@ -376,5 +346,4 @@ After the run, verify: `docker compose exec agentception pytest agentception/tes
 - [Local LLM Scaling](local-llm-scaling.md) — multi-agent scaling with LiteLLM Proxy and multiple Ollama instances.
 - [LLM contract and provider abstraction](../reference/llm-contract.md) — AgentCeption's LLM contract, provider selection, and how to add a provider.
 - [Ollama](https://ollama.com) — local inference server (recommended).
-- [mlx-community/Qwen3.5-35B-A3B-4bit](https://huggingface.co/mlx-community/Qwen3.5-35B-A3B-4bit) — 4-bit quantized Qwen 3.5 35B for MLX (Apple Silicon only).
 - [powermetrics(1)](https://keith.github.io/xcode-man-pages/powermetrics.1.html) — macOS power and usage sampling.

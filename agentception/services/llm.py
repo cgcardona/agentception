@@ -984,7 +984,7 @@ async def call_anthropic_with_tools(
 
 
 # ---------------------------------------------------------------------------
-# Local adapter — OpenAI-compatible server (e.g. mlx_lm.server)
+# Local adapter — OpenAI-compatible server (Ollama or any Chat Completions endpoint)
 # Implements the same contract as the Anthropic path: completion → str,
 # completion_stream → AsyncGenerator[LLMChunk], completion_with_tools → ToolResponse.
 # Used when settings.effective_llm_provider is local.
@@ -1064,7 +1064,7 @@ async def call_local_with_tools(
     run_id: str | None = None,
     iteration: int = 0,
 ) -> ToolResponse:
-    """Call a local OpenAI-compatible server (e.g. mlx_lm.server) with tool use.
+    """Call a local OpenAI-compatible server (Ollama) with tool use.
 
     Same contract as :func:`call_anthropic_with_tools`: accepts OpenAI-format
     messages and tools, returns :class:`ToolResponse`. Used when
@@ -1093,7 +1093,7 @@ async def call_local_with_tools(
     agent_model = settings.effective_local_model_agent
     if agent_model:
         payload["model"] = agent_model
-    # Else omit model so servers like mlx_lm.server use their loaded model (avoids 404).
+    # Else omit model; some servers use their loaded model in that case.
     if session is not None and run_id is not None:
         persist_activity_event(
             session,
@@ -1224,9 +1224,8 @@ def _local_chat_url() -> str:
 def _local_cap_max_tokens(requested: int) -> int:
     """Clamp generation budget for local OpenAI-compatible servers.
 
-    mlx-openai-server returns 422 when ``max_tokens`` exceeds its ceiling
-    (default 4096). Callers may pass Anthropic-scale values (8k, 16k); we
-    never send above the configured ceiling.
+    Callers may pass Anthropic-scale values (8k, 16k); we never send above
+    the configured ceiling (``local_llm_completion_token_ceiling``).
     """
     ceiling = settings.local_llm_completion_token_ceiling
     if ceiling < 1:
@@ -1332,7 +1331,7 @@ async def _normalize_think_tags(
 
     Models like Qwen3 and DeepSeek embed chain-of-thought reasoning inside
     ``<think>...</think>`` tags in the ``content`` field.  Simpler serving
-    backends (mlx-openai-server, llama.cpp) pass these through as plain
+    backends (Ollama, llama.cpp) pass these through as plain
     ``content`` instead of mapping them to ``reasoning_content``.
 
     This normalizer splits the stream so consumers always see a clean
