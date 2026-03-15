@@ -75,7 +75,7 @@ LEFT JOIN (
 ) e ON e.agent_run_id = r.id
 WHERE r.role = 'developer'
   AND r.status = 'completed'
-  AND r.spawned_at > NOW() - (:days::integer * INTERVAL '1 day')
+  AND r.spawned_at > NOW() - (CAST(:days AS integer) * INTERVAL '1 day')
 GROUP BY COALESCE(r.prompt_variant, 'control'), r.role
 ORDER BY 1, 2
 """)

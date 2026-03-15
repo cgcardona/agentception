@@ -998,3 +998,88 @@ async def test_stamp_missing_blocked_deps_skips_when_no_candidates() -> None:
 
     closed_mock.assert_not_awaited()
     add_mock.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# polling_loop() — network / DNS error backoff
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_polling_loop_oserror_triggers_backoff() -> None:
+    """OSError (socket.gaierror, connection refused, DNS failure) triggers
+    exponential backoff instead of sleeping at the normal poll interval.
+
+    Regression: [Errno -2] Name or service not known was being logged as a
+    plain 'Polling loop error' with no backoff, causing the poller to hammer
+    an unreachable GitHub API on every poll cycle.
+    """
+    import socket
+
+    sleep_calls: list[float] = []
+    call_count = 0
+
+    async def fake_tick() -> None:
+        nonlocal call_count
+        call_count += 1
+        # First call raises a DNS error; second call cancels the loop.
+        if call_count == 1:
+            raise socket.gaierror(-2, "Name or service not known")
+        raise asyncio.CancelledError
+
+    async def fake_sleep(seconds: float) -> None:
+        sleep_calls.append(seconds)
+
+    with (
+        patch("agentception.poller.tick", side_effect=fake_tick),
+        patch("agentception.poller.asyncio.sleep", side_effect=fake_sleep),
+        patch("agentception.poller.settings") as mock_settings,
+    ):
+        mock_settings.poll_interval_seconds = 5
+        mock_settings.stale_run_threshold_minutes = 60
+        try:
+            await polling_loop()
+        except asyncio.CancelledError:
+            pass
+
+    # The backoff sleep must be the initial net-error backoff (30 s), not the
+    # normal poll interval (5 s).
+    assert len(sleep_calls) >= 1
+    assert sleep_calls[0] == 30, (
+        f"Expected 30 s net backoff on OSError, got {sleep_calls[0]} s"
+    )
+
+
+@pytest.mark.anyio
+async def test_polling_loop_oserror_backoff_doubles_on_repeat() -> None:
+    """Second consecutive OSError doubles the backoff sleep."""
+    import socket
+
+    sleep_calls: list[float] = []
+    call_count = 0
+
+    async def fake_tick() -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 2:
+            raise socket.gaierror(-2, "Name or service not known")
+        raise asyncio.CancelledError
+
+    async def fake_sleep(seconds: float) -> None:
+        sleep_calls.append(seconds)
+
+    with (
+        patch("agentception.poller.tick", side_effect=fake_tick),
+        patch("agentception.poller.asyncio.sleep", side_effect=fake_sleep),
+        patch("agentception.poller.settings") as mock_settings,
+    ):
+        mock_settings.poll_interval_seconds = 5
+        mock_settings.stale_run_threshold_minutes = 60
+        try:
+            await polling_loop()
+        except asyncio.CancelledError:
+            pass
+
+    assert len(sleep_calls) >= 2
+    assert sleep_calls[0] == 30, f"First backoff should be 30 s, got {sleep_calls[0]}"
+    assert sleep_calls[1] == 60, f"Second backoff should be 60 s, got {sleep_calls[1]}"
