@@ -1,28 +1,65 @@
 // ── Event card ────────────────────────────────────────────────────────────────
+// Structured MCP lifecycle events: step_start, blocker, decision, done,
+// message (free-form agent note), error (structured MCP error).
 
 .event-card {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.2rem 0.5rem;
-  border-left: 4px solid #7f8c8d;
+  padding: 0.25rem 0.5rem;
+  border-left: 3px solid var(--text-muted, #6a8aaa);
+  border-radius: 0 var(--radius-xs, 4px) var(--radius-xs, 4px) 0;
   font-size: 0.75rem;
-  color: var(--text-secondary, #888);
+  color: var(--text-secondary, #aaa);
   max-width: 100%;
   overflow-x: hidden;
   word-break: break-word;
 
-  &[data-event-type='step_start'] { border-left-color: #7f8c8d; }
-  &[data-event-type='blocker']    { border-left-color: #e67e22; }
-  &[data-event-type='decision']   { border-left-color: #2980b9; }
-  &[data-event-type='done']       { border-left-color: #2ecc71; }
+  &[data-event-type='step_start'] {
+    border-left-color: var(--text-muted, #6a8aaa);
+    color: var(--text-secondary, #aaa);
+  }
 
-  &__icon { flex-shrink: 0; }
+  &[data-event-type='blocker'] {
+    border-left-color: var(--warning, #f5a623);
+    color: var(--warning, #f5a623);
+    background: rgba(245, 166, 35, 0.05);
+  }
+
+  &[data-event-type='decision'] {
+    border-left-color: var(--accent-blue, #4dabf7);
+    color: var(--text-secondary, #aaa);
+  }
+
+  &[data-event-type='done'] {
+    border-left-color: var(--success, #3ecf8e);
+    color: var(--success, #3ecf8e);
+    font-weight: 600;
+    font-size: 0.8rem;
+    background: rgba(62, 207, 142, 0.05);
+  }
+
+  &[data-event-type='message'] {
+    border-left-color: var(--border-default, #444);
+    color: var(--text-secondary, #aaa);
+  }
+
+  &[data-event-type='error'] {
+    border-left-color: var(--error, #e53e3e);
+    color: var(--error, #e53e3e);
+    background: rgba(229, 62, 62, 0.05);
+  }
+
+  &__icon {
+    flex-shrink: 0;
+    opacity: 0.85;
+  }
 
   &__text {
-    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
-

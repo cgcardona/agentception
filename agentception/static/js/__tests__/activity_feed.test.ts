@@ -28,10 +28,16 @@ describe('formatActivitySummary', () => {
     );
   });
 
-  it('formats shell_done', () => {
+  it('formats shell_done exit=0', () => {
     expect(
       formatActivitySummary('shell_done', { exit_code: 0, stdout_bytes: 10, stderr_bytes: 0 })
     ).toBe('exit=0 stdout:10B');
+  });
+
+  it('formats shell_done non-zero exit with error prefix', () => {
+    expect(
+      formatActivitySummary('shell_done', { exit_code: 1, stdout_bytes: 0, stderr_bytes: 5 })
+    ).toBe('✗ exit=1 stdout:0B');
   });
 
   it('formats file_read', () => {
@@ -80,6 +86,28 @@ describe('appendActivityRow', () => {
     expect(row?.querySelector('.activity-feed__ts')?.getAttribute('datetime')).toBe(
       '2026-03-13T14:30:00Z'
     );
+  });
+
+  it('sets data-exit-nonzero on shell_done rows with non-zero exit', () => {
+    appendActivityRow({
+      t: 'activity',
+      subtype: 'shell_done',
+      payload: { exit_code: 1, stdout_bytes: 0, stderr_bytes: 10 },
+      recorded_at: '',
+    });
+    const row = document.querySelector('.activity-feed__row');
+    expect(row?.getAttribute('data-exit-nonzero')).toBe('true');
+  });
+
+  it('does NOT set data-exit-nonzero on shell_done rows with exit=0', () => {
+    appendActivityRow({
+      t: 'activity',
+      subtype: 'shell_done',
+      payload: { exit_code: 0, stdout_bytes: 0, stderr_bytes: 0 },
+      recorded_at: '',
+    });
+    const row = document.querySelector('.activity-feed__row');
+    expect(row?.hasAttribute('data-exit-nonzero')).toBe(false);
   });
 
   it('does nothing when #activity-feed is missing', () => {

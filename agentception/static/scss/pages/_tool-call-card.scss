@@ -1,8 +1,12 @@
 // ── Tool call card ────────────────────────────────────────────────────────────
+// Shows tool invocations and their results inline.
+// tool_call:   icon · name · args preview
+// tool_result: result preview appended below, separated by subtle rule
 
 .tool-call-card {
-  border-left: 4px solid #3498db;
-  padding: 0.2rem 0.5rem;
+  border-left: 3px solid var(--accent-blue, #4dabf7);
+  border-radius: 0 var(--radius-xs, 4px) var(--radius-xs, 4px) 0;
+  padding: 0.25rem 0.5rem 0.25rem 0.625rem;
   display: flex;
   flex-direction: row;
   align-items: baseline;
@@ -12,32 +16,43 @@
   overflow-x: hidden;
   word-break: break-word;
 
-  &__icon { flex-shrink: 0; }
+  &__icon {
+    flex-shrink: 0;
+    opacity: 0.8;
+    line-height: 1;
+  }
 
   &__name {
     font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
+    font-size: 0.75rem;
     font-weight: 600;
-    color: var(--color-text, #eee);
+    color: var(--accent-bright, #a78bfa);
+    white-space: nowrap;
   }
 
   &__args {
     font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
-    font-size: 0.85em;
-    color: var(--color-text-muted, #888);
+    font-size: 0.7rem;
+    color: var(--text-muted, #888);
     word-break: break-all;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
   }
 
   &__result {
     flex-basis: 100%;
     font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
-    font-size: 0.82em;
-    color: var(--color-text-muted, #888);
-    padding-left: 1.4rem;
+    font-size: 0.7rem;
+    color: var(--text-muted, #888);
+    padding: 0.2rem 0 0 1.4rem;
+    margin-top: 0.15rem;
+    border-top: 1px solid var(--border-subtle, #2a2a2a);
     word-break: break-word;
+    white-space: pre-wrap;
   }
 
   &--result-only {
-    border-left-color: var(--color-border-muted, #444);
+    border-left-color: var(--border-subtle, #2a2a2a);
   }
 }
-

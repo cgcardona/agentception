@@ -18,8 +18,35 @@ describe("attachThoughtHandler", () => {
     const src = makeSource();
     attachThoughtHandler(src);
     dispatch(src, { t: "thought", role: "thinking", content: "hello", recorded_at: "" });
-    const text = document.querySelector(".thought-block__body")?.textContent;
-    expect(text).toBe("hello");
+    // textContent includes both the text node and the cursor span
+    const body = document.querySelector(".thought-block__body");
+    expect(body?.textContent).toContain("hello");
+  });
+
+  it("streaming cursor span present while block is open", () => {
+    const src = makeSource();
+    attachThoughtHandler(src);
+    dispatch(src, { t: "thought", role: "thinking", content: "abc", recorded_at: "" });
+    expect(document.querySelector(".thought-block__cursor")).not.toBeNull();
+  });
+
+  it("cursor span removed after collapse", () => {
+    const src = makeSource();
+    attachThoughtHandler(src);
+    dispatch(src, { t: "thought", role: "thinking", content: "abc", recorded_at: "" });
+    dispatch(src, { t: "event", event_type: "step_start", payload: { step: "S" }, recorded_at: "" });
+    expect(document.querySelector(".thought-block__cursor")).toBeNull();
+  });
+
+  it("uses recorded_at timestamps for duration label", () => {
+    const src = makeSource();
+    attachThoughtHandler(src);
+    // 5 seconds apart
+    dispatch(src, { t: "thought", role: "thinking", content: "a", recorded_at: "2026-01-01T00:00:00Z" });
+    dispatch(src, { t: "thought", role: "thinking", content: "b", recorded_at: "2026-01-01T00:00:05Z" });
+    dispatch(src, { t: "event", event_type: "step_start", payload: { step: "S" }, recorded_at: "" });
+    const label = document.querySelector(".thought-block__label");
+    expect(label?.textContent).toBe("Thought for 5s");
   });
 
   it("test_thought_icon_present_after_collapse", () => {
