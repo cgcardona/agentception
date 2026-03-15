@@ -23,9 +23,19 @@ One input. Zero boilerplate. The work happens.
 
 ## How It Works
 
-1. **Plan** — Paste anything. The LLM converts it into a `PlanSpec`: phases, issues, dependencies, acceptance criteria.
-2. **Review** — The YAML opens in an editor. Adjust anything. Click **Create Issues** to file everything on GitHub.
-3. **Ship** — The board shows your phases. Click **Launch** on an unlocked phase. A CTO agent surveys the board and cascades work down to coordinators and engineers, each working in an isolated git worktree. PRs appear. Phases unlock. You watch.
+### Step 1 — Plan
+
+Paste anything. The LLM converts it into a `PlanSpec`: phases, issues, dependencies, acceptance criteria.
+
+![Phase 1A — natural language input becomes a structured plan spec](docs/images/phase1a.png)
+
+### Step 2 — Review
+
+The YAML opens in an editor. Adjust anything. Click **Create Issues** to file everything on GitHub.
+
+### Step 3 — Ship
+
+The board shows your phases. Click **Launch** on an unlocked phase. A CTO agent surveys the board and cascades work down to coordinators and engineers, each working in an isolated git worktree. PRs appear. Phases unlock. You watch.
 
 Every agent has a **cognitive architecture** — a composed identity (historical thinkers + archetypes + skill domains + behavioral atoms) injected into its context. You are deploying *reasoners*, not LLM calls. This is the infrastructure for deploying **judgment at scale**.
 
