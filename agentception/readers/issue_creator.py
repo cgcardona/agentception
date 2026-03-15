@@ -37,6 +37,7 @@ from agentception.db.persist import (
     persist_initiative_phases,
     persist_issue_depends_on,
     persist_plan_issues,
+    upsert_issues,
 )
 from agentception.models import PlanIssue, PlanSpec
 from agentception.readers.github import add_label_to_issue, ensure_label_exists
@@ -294,14 +295,14 @@ async def _create_one(
     issue: PlanIssue,
     labels: list[str],
     prev_phase_label: str | None = None,
-) -> tuple[str, int, str]:
-    """Create a single issue; return (issue.id, github_number, html_url)."""
+) -> tuple[str, int, str, str]:
+    """Create a single issue; return (issue.id, github_number, html_url, final_body)."""
     body = _embed_skills(issue.body, issue.skills)
     body = _embed_cognitive_arch(body, issue.cognitive_arch)
     if prev_phase_label is not None:
         body = _embed_phase_gate(body, prev_phase_label)
     number, url = await _gh_create_issue(repo, issue.title, body, labels)
-    return issue.id, number, url
+    return issue.id, number, url, body
 
 
 # ── Public async generator ────────────────────────────────────────────────
@@ -327,12 +328,12 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
     batch_id = f"batch-{uuid.uuid4().hex[:12]}"
     total_issues = sum(len(p.issues) for p in spec.phases)
     id_to_number: dict[str, int] = {}
-    id_to_body: dict[str, str] = {
-        issue.id: issue.body
-        for phase in spec.phases
-        for issue in phase.issues
-    }
     created: list[CreatedIssue] = []
+    # Track final (post-embedding) bodies and labels per GitHub issue number so we
+    # can immediately upsert the new rows into ac_issues after creation — without
+    # waiting for the next poller tick.
+    number_to_body: dict[int, str] = {}
+    number_to_labels: dict[int, list[str]] = {}
 
     yield StartEvent(t="start", total=total_issues, initiative=spec.initiative)
 
@@ -357,14 +358,14 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
             if phase_idx > 0
             else None
         )
-        phase_tasks: list[asyncio.Task[tuple[str, int, str]]] = [
+        phase_tasks: list[asyncio.Task[tuple[str, int, str, str]]] = [
             asyncio.create_task(_create_one(repo, issue, labels, prev_phase_label))
             for issue in phase.issues
         ]
 
         for task in asyncio.as_completed(phase_tasks):
             try:
-                issue_id, number, url = await task
+                issue_id, number, url, final_body = await task
             except Exception as exc:
                 yield FilingErrorEvent(t="error", detail=str(exc))
                 # Cancel remaining tasks in this phase before aborting.
@@ -374,6 +375,8 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
 
             index += 1
             id_to_number[issue_id] = number
+            number_to_body[number] = final_body
+            number_to_labels[number] = list(labels)
 
             # Find the title for this issue_id.
             title = next(
@@ -422,7 +425,7 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
 
             issue_deps[our_number] = blocker_numbers
 
-            original_body = id_to_body.get(issue.id, issue.body)
+            original_body = number_to_body.get(our_number, issue.body)
             blocked_line = (
                 "\n\n---\n**Blocked by:** "
                 + ", ".join(f"#{n}" for n in blocker_numbers)
@@ -451,12 +454,35 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
                     our_number,
                     [f"#{n}" for n in blocker_numbers],
                 )
+                # Reflect the blocked/deps label in our local tracking so the
+                # immediate upsert below records the correct label set.
+                if "blocked/deps" not in number_to_labels.get(our_number, []):
+                    number_to_labels.setdefault(our_number, []).append("blocked/deps")
 
             yield BlockedEvent(
                 t="blocked",
                 number=our_number,
                 blocked_by=blocker_numbers,
             )
+
+    # Immediately upsert newly created issues into ac_issues so the Ship board
+    # is populated the moment the user navigates there — without waiting for the
+    # next poller tick (which could take up to 5 seconds).
+    issue_gh_dicts: list[dict[str, object]] = [
+        {
+            "number": c["number"],
+            "title": c["title"],
+            "state": "open",
+            "labels": number_to_labels.get(c["number"], []),
+            "body": number_to_body.get(c["number"], ""),
+        }
+        for c in created
+    ]
+    try:
+        await upsert_issues(issues=issue_gh_dicts, active_label=None, repo=repo)
+        logger.info("✅ issue_creator: pre-seeded %d issues into ac_issues", len(issue_gh_dicts))
+    except Exception as exc:
+        logger.warning("⚠️ issue_creator: pre-seed upsert failed (poller will recover): %s", exc)
 
     # Persist dep relationships to DB so the Build board can display them.
     await persist_issue_depends_on(repo, issue_deps)
