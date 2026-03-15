@@ -37,8 +37,7 @@ Open `.env` and fill in the required values:
 | `GH_REPO` | **Yes** | The `owner/repo` this AgentCeption instance orchestrates. | Your GitHub repo |
 | `GITHUB_TOKEN` | Optional | GitHub PAT with `repo` + `issues` scope. If you have `~/.config/gh` configured (via `gh auth login`), the container volume-mounts it and you can leave this blank. | [github.com/settings/tokens](https://github.com/settings/tokens) |
 | `ANTHROPIC_API_KEY` | Optional | Anthropic API key. Required when using the **anthropic** LLM provider (default). Used for Phase 1A planning and the agent loop. Without it the service starts, but planning and agent execution are unavailable when `LLM_PROVIDER=anthropic`. | [console.anthropic.com](https://console.anthropic.com/) |
-| `LLM_PROVIDER` | Optional | Which LLM backend to use: `anthropic` (default) or `local`. When `local`, all LLM calls go to a **local** Chat Completions–compatible server on the host (see [Local LLM with MLX](local-llm-mlx.md); not OpenAI’s cloud). | Default: `anthropic` |
-| `USE_LOCAL_LLM` | Optional | Legacy. When `true`, overrides `LLM_PROVIDER` to `local`. Prefer `LLM_PROVIDER=local` for new setups. | Default: `false` |
+| `LLM_PROVIDER` | Optional | Which LLM backend to use: `anthropic` (default) or `local`. When `local`, all LLM calls go to an Ollama-compatible server on the host (see [Local LLM guide](local-llm-mlx.md)). | Default: `anthropic` |
 | `AC_API_KEY` | Optional | Shared secret for authenticating all `/api/*` requests. Leave empty for local-only deployments. Required when exposing the service on a shared server or the public internet. | Generate with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `QDRANT_URL` | Optional | Internal Qdrant REST endpoint. | Default: `http://agentception-qdrant:6333` |
 | `QDRANT_COLLECTION` | Optional | Qdrant collection for code vectors. | Default: `code` |
@@ -50,7 +49,7 @@ Open `.env` and fill in the required values:
 | `LOG_LEVEL` | Optional | Log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`. | Default: `INFO` |
 | `AC_PIPELINE_STALL_THRESHOLD_MINUTES` | Optional | Minutes of DB-heartbeat silence before a worker agent is promoted to `STALLED`. Stored in `PipelineConfig.stall_threshold_minutes`; also settable via `pipeline-config.json`. | Default: `30` |
 
-**Local LLM:** To use a local OpenAI-compatible server (e.g. MLX on Apple Silicon), set `LLM_PROVIDER=local` (or `USE_LOCAL_LLM=true`) and configure `LOCAL_LLM_BASE_URL`, `LOCAL_LLM_CHAT_PATH`, and optional context caps. See [Local LLM with MLX](local-llm-mlx.md) for the full deployment guide and [LLM contract and provider abstraction](../reference/llm-contract.md) for the config model.
+**Local LLM (free, private):** To run agents entirely on your own hardware using [Ollama](https://ollama.com), set `LLM_PROVIDER=local` and configure `LOCAL_LLM_BASE_URL` and `LOCAL_LLM_MODEL`. See [Local LLM / Ollama guide](local-llm-mlx.md) for the full setup walkthrough (model recommendations, performance tips) and [LLM contract and provider abstraction](../reference/llm-contract.md) for the config model.
 
 Minimal `.env` that works for a basic smoke test (no LLM features):
 
@@ -67,7 +66,7 @@ GH_REPO=owner/your-repo
 docker compose build
 ```
 
-First build downloads the Python 3.11 slim image, installs system packages (git, curl, gh CLI, Dart Sass), installs Python dependencies, and compiles SCSS. Expect **2–5 minutes** on a cold build.
+First build downloads the Python 3.12 slim image, installs system packages (git, curl, gh CLI, Dart Sass), installs Python dependencies, and compiles SCSS. Expect **2–5 minutes** on a cold build.
 
 A successful build ends with:
 ```
@@ -86,7 +85,7 @@ This starts three services:
 
 | Container | Host port | Purpose |
 |-----------|-----------|---------|
-| `agentception-app` | 10003 | FastAPI dashboard + API |
+| `agentception` | 10003 | FastAPI dashboard + API |
 | `agentception-postgres` | 5433 | Persistent database (to avoid collision with other local Postgres instances) |
 | `agentception-qdrant` | 6335 / 6336 | Vector store for semantic search |
 

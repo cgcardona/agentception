@@ -2,6 +2,11 @@
 
 > Ground truth derived from live stress tests run 2026-03-03.  
 > No inherited assumptions. Everything here was directly observed.
+>
+> **Note (2026-03):** The primary agent dispatch path in AgentCeption is now the
+> Anthropic API–driven `agent_loop.py` (via `build_spawn_child` MCP tool), not
+> Cursor's `Task` tool directly. This document remains useful for understanding
+> Cursor's parallelism model, but reflects an earlier architectural phase.
 
 ---
 
@@ -250,8 +255,8 @@ This gives the web dashboard live visibility without polling filesystem state.
 | Test | Date | Files | Result |
 |---|---|---|---|
 | Depth test (3 layers) | 2026-03-03 | `/tmp/depth-test/layer*.{start,end,done}` | ✅ All 3 layers confirmed |
-| Parallelism stress test (10 agents × 4 runs) | 2026-03-03 | `.agentception/stress-test-parallelism.md` | Peak concurrency = 3 |
-| Hierarchical test (failed) | 2026-03-03 | `.agentception/stress-test-parallelism.md` | ❌ Shell child tried bash bg → sandbox blocked |
+| Parallelism stress test (10 agents × 4 runs) | 2026-03-03 | _(raw output log — not committed)_ | Peak concurrency = 3 |
+| Hierarchical test (failed) | 2026-03-03 | _(raw output log — not committed)_ | ❌ Shell child tried bash bg → sandbox blocked |
 | Tree test 1 (3 branches × 3 leaves) | 2026-03-03 | `/tmp/tree-test-1/` | ✅ All 38 files present — leaves ran parallel within each branch |
 | Tree test 2 (4 branches, wider) | 2026-03-03 | `/tmp/tree-test-2/` | 🔲 Pending |
 

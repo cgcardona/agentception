@@ -93,7 +93,7 @@ User input (brain dump)
 
 ```
 agentception/
-  config.py          → Pydantic Settings (all AC_* env vars)
+  config.py          → Pydantic Settings (environment-variable-driven config)
   models/            → Domain models: PlanSpec, PlanPhase, PlanIssue, TaskFile
   db/
     models.py        → SQLAlchemy ORM (ACIssue, ACAgentRun, ACInitiativePhase, …)
