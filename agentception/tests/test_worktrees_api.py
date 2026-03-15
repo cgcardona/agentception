@@ -6,13 +6,14 @@ Covers DELETE /api/worktrees/{slug} — the single HTTP endpoint in the module:
 - 400 when slug refers to the main worktree
 - Success: non-locked worktree → only remove + prune spawned (2 subprocesses)
 - Success: locked worktree → unlock + remove + prune spawned (3 subprocesses)
-- Remove failure → deleted=False, error populated from stderr, prune still runs
+- Remove failure → falls back to shutil.rmtree; if rmtree also fails, deleted=False
+- Both git and shutil fail → deleted=False, pruned=False, error set
 - Prune failure → pruned=False, deleted status reflects remove outcome
-- Both remove and prune fail → deleted=False, pruned=False, error set
-- Response shape: DeleteWorktreeResult has exactly {slug, deleted, pruned, error}
+- Response shape: DeleteWorktreeResult has {slug, deleted, pruned, db_cleared, error}
 - slug in response always matches the path parameter
 
-All calls to list_git_worktrees and asyncio.create_subprocess_exec are mocked.
+All calls to list_git_worktrees, asyncio.create_subprocess_exec, Path.exists,
+and shutil.rmtree are mocked so no real filesystem ops occur.
 
 Run targeted:
     pytest agentception/tests/test_worktrees_api.py -v
@@ -29,6 +30,10 @@ from agentception.app import app
 
 _LIST_WT = "agentception.readers.git.list_git_worktrees"
 _SUBPROCESS = "agentception.routes.api.worktrees.asyncio.create_subprocess_exec"
+_PATH_EXISTS = "agentception.routes.api.worktrees.Path"
+_RMTREE = "agentception.routes.api.worktrees.shutil.rmtree"
+_GET_RUN_ID = "agentception.routes.api.worktrees.get_run_id_for_worktree_path"
+_CLEAR_WP = "agentception.routes.api.worktrees.clear_run_worktree_path"
 
 
 @pytest.fixture(scope="module")
@@ -196,33 +201,47 @@ def test_delete_locked_spawns_three_subprocesses(client: TestClient) -> None:
     assert "prune" in calls[2]
 
 
-# ── Failure: remove fails ─────────────────────────────────────────────────────
+# ── Failure: remove fails → shutil.rmtree fallback ───────────────────────────
 
 
-def test_delete_remove_failure_deleted_false(client: TestClient) -> None:
-    """When git worktree remove exits non-zero, deleted=False."""
+def test_delete_remove_failure_rmtree_fallback_succeeds(client: TestClient) -> None:
+    """When git remove fails but the dir exists, shutil.rmtree is tried and deleted=True."""
+    path_mock = MagicMock()
+    path_mock.return_value.exists.return_value = True
     with (
         patch(_LIST_WT, new=AsyncMock(return_value=[_wt("issue-500")])),
         patch(_SUBPROCESS, side_effect=[_proc(1, b"fatal: not a worktree"), _proc(0)]),
+        patch(_PATH_EXISTS, path_mock),
+        patch(_RMTREE),  # rmtree succeeds (no exception)
+        patch(_GET_RUN_ID, new=AsyncMock(return_value=None)),
     ):
         resp = client.delete("/api/worktrees/issue-500")
     assert resp.status_code == 200
-    assert resp.json()["deleted"] is False
+    assert resp.json()["deleted"] is True
+    assert resp.json()["error"] is None
 
 
-def test_delete_remove_failure_error_from_stderr(client: TestClient) -> None:
-    """When remove fails, error field is populated with the decoded stderr output."""
+def test_delete_remove_failure_dir_already_gone_deleted_true(client: TestClient) -> None:
+    """When git remove fails and the dir is gone, the worktree is treated as deleted."""
+    path_mock = MagicMock()
+    path_mock.return_value.exists.return_value = False
     with (
         patch(_LIST_WT, new=AsyncMock(return_value=[_wt("issue-500")])),
         patch(_SUBPROCESS, side_effect=[_proc(1, b"fatal: not a worktree"), _proc(0)]),
+        patch(_PATH_EXISTS, path_mock),
+        patch(_GET_RUN_ID, new=AsyncMock(return_value=None)),
     ):
         resp = client.delete("/api/worktrees/issue-500")
-    assert resp.json()["error"] == "fatal: not a worktree"
+    assert resp.status_code == 200
+    assert resp.json()["deleted"] is True
 
 
 def test_delete_remove_failure_prune_still_runs(client: TestClient) -> None:
-    """Even when remove fails, git worktree prune is still attempted."""
+    """Even when git remove fails and rmtree is used, git worktree prune still runs."""
     calls: list[tuple[object, ...]] = []
+
+    path_mock = MagicMock()
+    path_mock.return_value.exists.return_value = False  # dir already gone → skip rmtree
 
     async def capture(*args: object, **_: object) -> MagicMock:
         calls.append(args)
@@ -231,12 +250,34 @@ def test_delete_remove_failure_prune_still_runs(client: TestClient) -> None:
     with (
         patch(_LIST_WT, new=AsyncMock(return_value=[_wt("issue-501")])),
         patch(_SUBPROCESS, side_effect=capture),
+        patch(_PATH_EXISTS, path_mock),
+        patch(_GET_RUN_ID, new=AsyncMock(return_value=None)),
     ):
         client.delete("/api/worktrees/issue-501")
 
-    # remove + prune must both be called despite remove failing
     assert len(calls) == 2
     assert "prune" in calls[1]
+
+
+# ── Failure: both git and shutil fail ────────────────────────────────────────
+
+
+def test_delete_both_fail(client: TestClient) -> None:
+    """When git remove, shutil.rmtree, and prune all fail: deleted=False, error set."""
+    path_mock = MagicMock()
+    path_mock.return_value.exists.return_value = True
+    with (
+        patch(_LIST_WT, new=AsyncMock(return_value=[_wt("issue-300")])),
+        patch(_SUBPROCESS, side_effect=[_proc(1, b"worktree busy"), _proc(1)]),
+        patch(_PATH_EXISTS, path_mock),
+        patch(_RMTREE, side_effect=OSError("permission denied")),
+        patch(_GET_RUN_ID, new=AsyncMock(return_value=None)),
+    ):
+        resp = client.delete("/api/worktrees/issue-300")
+    body = resp.json()
+    assert body["deleted"] is False
+    assert body["pruned"] is False
+    assert "worktree busy" in (body["error"] or "")
 
 
 # ── Failure: prune fails ──────────────────────────────────────────────────────
@@ -247,6 +288,7 @@ def test_delete_prune_failure_pruned_false(client: TestClient) -> None:
     with (
         patch(_LIST_WT, new=AsyncMock(return_value=[_wt("issue-400")])),
         patch(_SUBPROCESS, side_effect=[_proc(0), _proc(1)]),
+        patch(_GET_RUN_ID, new=AsyncMock(return_value=None)),
     ):
         resp = client.delete("/api/worktrees/issue-400")
     body = resp.json()
@@ -254,34 +296,19 @@ def test_delete_prune_failure_pruned_false(client: TestClient) -> None:
     assert body["pruned"] is False
 
 
-# ── Failure: both remove and prune fail ───────────────────────────────────────
-
-
-def test_delete_both_fail(client: TestClient) -> None:
-    """When both remove and prune fail: deleted=False, pruned=False, error set."""
-    with (
-        patch(_LIST_WT, new=AsyncMock(return_value=[_wt("issue-300")])),
-        patch(_SUBPROCESS, side_effect=[_proc(1, b"worktree busy"), _proc(1)]),
-    ):
-        resp = client.delete("/api/worktrees/issue-300")
-    body = resp.json()
-    assert body["deleted"] is False
-    assert body["pruned"] is False
-    assert body["error"] == "worktree busy"
-
-
 # ── Response shape ────────────────────────────────────────────────────────────
 
 
 def test_delete_response_shape(client: TestClient) -> None:
-    """Response body has exactly the four DeleteWorktreeResult fields."""
+    """Response body has exactly the five DeleteWorktreeResult fields."""
     with (
         patch(_LIST_WT, new=AsyncMock(return_value=[_wt("issue-111")])),
         patch(_SUBPROCESS, side_effect=[_proc(0), _proc(0)]),
+        patch(_GET_RUN_ID, new=AsyncMock(return_value=None)),
     ):
         resp = client.delete("/api/worktrees/issue-111")
     assert resp.status_code == 200
-    assert set(resp.json().keys()) == {"slug", "deleted", "pruned", "error"}
+    assert set(resp.json().keys()) == {"slug", "deleted", "pruned", "db_cleared", "error"}
 
 
 def test_delete_error_is_none_on_success(client: TestClient) -> None:
@@ -289,6 +316,30 @@ def test_delete_error_is_none_on_success(client: TestClient) -> None:
     with (
         patch(_LIST_WT, new=AsyncMock(return_value=[_wt("issue-222")])),
         patch(_SUBPROCESS, side_effect=[_proc(0), _proc(0)]),
+        patch(_GET_RUN_ID, new=AsyncMock(return_value=None)),
     ):
         resp = client.delete("/api/worktrees/issue-222")
     assert resp.json()["error"] is None
+
+
+def test_delete_db_cleared_when_run_found(client: TestClient) -> None:
+    """db_cleared=True when a matching run_id is found and cleared in the DB."""
+    with (
+        patch(_LIST_WT, new=AsyncMock(return_value=[_wt("issue-555")])),
+        patch(_SUBPROCESS, side_effect=[_proc(0), _proc(0)]),
+        patch(_GET_RUN_ID, new=AsyncMock(return_value="issue-555")),
+        patch(_CLEAR_WP, new=AsyncMock(return_value=True)),
+    ):
+        resp = client.delete("/api/worktrees/issue-555")
+    assert resp.json()["db_cleared"] is True
+
+
+def test_delete_db_cleared_false_when_no_run_found(client: TestClient) -> None:
+    """db_cleared=False when no matching run_id exists in the DB."""
+    with (
+        patch(_LIST_WT, new=AsyncMock(return_value=[_wt("issue-556")])),
+        patch(_SUBPROCESS, side_effect=[_proc(0), _proc(0)]),
+        patch(_GET_RUN_ID, new=AsyncMock(return_value=None)),
+    ):
+        resp = client.delete("/api/worktrees/issue-556")
+    assert resp.json()["db_cleared"] is False

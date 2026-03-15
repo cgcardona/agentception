@@ -12,23 +12,68 @@ This module provides ``reap_stale_worktrees()``, which is called:
 - Every 15 minutes by a background asyncio task (catches orphans from the
   current session).
 
-**Important:** the reaper calls ``release_worktree`` (remove directory + prune
-refs only), NOT ``teardown_agent_worktree`` (which also deletes remote and
-local git branches).  Deleting the remote branch of a run that still has an
-open PR would cause GitHub to auto-close that PR — a side effect the reaper
-must never trigger.  Branch deletion is the responsibility of the merge/close
-workflow, not the disk-space cleanup pass.
+**Branch deletion policy:**
+
+- Issue-scoped runs (``issue-*`` run IDs) may have an open PR on their branch.
+  The reaper uses ``release_worktree`` (directory + prune only) and never
+  deletes the branch, so open PRs are not accidentally closed.
+
+- Label/coordinator runs (``label-*`` run IDs) dispatch against the full
+  initiative label and use ``agent/<slug>`` branches that never back a PR.
+  When the reaper finds a stale worktree for a label run it is safe to also
+  delete the remote and local branch to prevent accumulation on GitHub.
 """
 
+import asyncio
 import logging
 from pathlib import Path
 
 from agentception.config import settings
 from agentception.db.persist import clear_run_worktree_path
 from agentception.db.queries import get_terminal_runs_with_worktrees
-from agentception.services.teardown import release_worktree
+from agentception.services.teardown import _prune_worktree_refs, release_worktree
 
 logger = logging.getLogger(__name__)
+
+_LABEL_RUN_PREFIX = "label-"
+
+
+async def _delete_label_branch(branch: str, repo_dir: str) -> None:
+    """Delete the remote and local branch for a stale label/coordinator run.
+
+    Label agents use ``agent/<slug>`` branches that never back a PR, so it is
+    safe to delete them when the worktree is reaped.  Failures are non-fatal
+    and logged as info (branch may already be gone).
+    """
+    push_proc = await asyncio.create_subprocess_exec(
+        "git", "-C", repo_dir, "push", "origin", "--delete", branch,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, push_err = await push_proc.communicate()
+    if push_proc.returncode == 0:
+        logger.info("✅ reaper: deleted remote branch %r for stale label run", branch)
+    else:
+        logger.info(
+            "ℹ️  reaper: remote branch %r already gone or not pushed: %s",
+            branch,
+            push_err.decode().strip(),
+        )
+
+    branch_proc = await asyncio.create_subprocess_exec(
+        "git", "-C", repo_dir, "branch", "-D", branch,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, branch_err = await branch_proc.communicate()
+    if branch_proc.returncode == 0:
+        logger.info("✅ reaper: deleted local branch %r for stale label run", branch)
+    else:
+        logger.info(
+            "ℹ️  reaper: local branch %r already gone: %s",
+            branch,
+            branch_err.decode().strip(),
+        )
 
 
 async def reap_stale_worktrees() -> int:
@@ -36,9 +81,14 @@ async def reap_stale_worktrees() -> int:
 
     Queries the DB for runs with a terminal status (completed, failed,
     cancelled, stopped) that still have a ``worktree_path`` set, then releases
-    any whose directories are present on disk.  Uses ``release_worktree``
-    (directory removal + ref pruning only) — **never** deletes git branches,
-    so open PRs are not closed as a side effect.
+    any whose directories are present on disk.
+
+    For issue-scoped runs, uses ``release_worktree`` (directory removal + ref
+    pruning only) — branches are preserved so open PRs are not closed.
+
+    For label/coordinator runs (``label-*`` run IDs), also deletes the remote
+    and local ``agent/<slug>`` branch, which never backs a PR and would
+    otherwise accumulate on GitHub indefinitely.
 
     Returns:
         The number of worktree directories released in this pass.
@@ -51,26 +101,35 @@ async def reap_stale_worktrees() -> int:
     repo_dir = str(settings.repo_dir)
     reaped = 0
     for run in runs:
+        run_id = run["id"]
         worktree_path = run["worktree_path"]
+        branch = run["branch"]
+        is_label_run = run_id.startswith(_LABEL_RUN_PREFIX)
+
         if not Path(worktree_path).exists():
             # Directory is already gone — clear the stale DB reference so this
             # run is never returned by get_terminal_runs_with_worktrees again.
-            # Without this, the reaper logs a "stale" entry on every pass for
-            # runs whose directories were cleaned up outside of release_worktree
-            # (e.g. container restart, manual deletion).
             logger.info(
                 "ℹ️  worktree reaper: dir absent, clearing stale DB ref for run %r",
-                run["id"],
+                run_id,
             )
-            await clear_run_worktree_path(run["id"])
+            await clear_run_worktree_path(run_id)
+            if is_label_run and branch:
+                await _delete_label_branch(branch, repo_dir)
+            # Prune even when the dir was already gone — stale git metadata may remain.
+            await _prune_worktree_refs(repo_dir)
             continue
+
         logger.info(
-            "⚠️  worktree reaper: releasing stale worktree dir for run %r at %s",
-            run["id"],
+            "⚠️  worktree reaper: releasing stale worktree for run %r at %s (label_run=%s)",
+            run_id,
             worktree_path,
+            is_label_run,
         )
         if await release_worktree(worktree_path=worktree_path, repo_dir=repo_dir):
-            await clear_run_worktree_path(run["id"])
+            await clear_run_worktree_path(run_id)
+            if is_label_run and branch:
+                await _delete_label_branch(branch, repo_dir)
             reaped += 1
 
     if reaped:

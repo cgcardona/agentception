@@ -3,10 +3,14 @@ from __future__ import annotations
 """Tests for the worktree reaper.
 
 Critical invariants:
-- The reaper must call release_worktree (dir removal only), never
-  teardown_agent_worktree (which deletes remote branches and closes open PRs).
+- Issue-scoped runs (issue-*): reaper calls release_worktree only (no branch
+  deletion), never teardown_agent_worktree, so open PRs are not closed.
+- Label/coordinator runs (label-*): reaper also deletes the remote and local
+  branch, which never backs a PR and would otherwise accumulate on GitHub.
 - When a worktree directory is already gone, the reaper must clear the DB ref
   so the run never appears in future reaper passes (the stale-loop bug).
+- _reaper_loop wraps reap_stale_worktrees in try/except so one bad pass never
+  kills the background loop permanently.
 """
 
 from pathlib import Path
@@ -295,3 +299,197 @@ async def test_release_worktree_returns_false_when_both_git_and_rmtree_fail(tmp_
         )
 
     assert result is False
+
+
+# ── Label-run branch deletion ──────────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_reaper_deletes_branch_for_label_run(tmp_path: Path) -> None:
+    """Reaper deletes remote and local branches for stale label-* runs.
+
+    Label/coordinator agents use agent/<slug> branches that never back a PR,
+    so the reaper is safe (and responsible) for cleaning them up.
+    """
+    fake_worktree = tmp_path / "label-feature-abc123"
+    fake_worktree.mkdir()
+
+    with (
+        patch(
+            "agentception.services.worktree_reaper.get_terminal_runs_with_worktrees",
+            new_callable=AsyncMock,
+            return_value=[{
+                "id": "label-feature-abc123",
+                "worktree_path": str(fake_worktree),
+                "branch": "agent/feature",
+            }],
+        ),
+        patch(
+            "agentception.services.worktree_reaper.release_worktree",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.services.worktree_reaper.clear_run_worktree_path",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agentception.services.worktree_reaper._delete_label_branch",
+            new_callable=AsyncMock,
+        ) as mock_del_branch,
+        patch(
+            "agentception.services.worktree_reaper.settings",
+            new_callable=MagicMock,
+            repo_dir="/app",
+        ),
+    ):
+        from agentception.services.worktree_reaper import reap_stale_worktrees
+
+        count = await reap_stale_worktrees()
+
+    assert count == 1
+    mock_del_branch.assert_awaited_once_with("agent/feature", "/app")
+
+
+@pytest.mark.anyio
+async def test_reaper_does_not_delete_branch_for_issue_run(tmp_path: Path) -> None:
+    """Reaper does NOT delete branches for issue-* runs (they may have open PRs)."""
+    fake_worktree = tmp_path / "issue-999"
+    fake_worktree.mkdir()
+
+    with (
+        patch(
+            "agentception.services.worktree_reaper.get_terminal_runs_with_worktrees",
+            new_callable=AsyncMock,
+            return_value=[{
+                "id": "issue-999",
+                "worktree_path": str(fake_worktree),
+                "branch": "feat/issue-999",
+            }],
+        ),
+        patch(
+            "agentception.services.worktree_reaper.release_worktree",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.services.worktree_reaper.clear_run_worktree_path",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agentception.services.worktree_reaper._delete_label_branch",
+            new_callable=AsyncMock,
+        ) as mock_del_branch,
+        patch(
+            "agentception.services.worktree_reaper.settings",
+            new_callable=MagicMock,
+            repo_dir="/app",
+        ),
+    ):
+        from agentception.services.worktree_reaper import reap_stale_worktrees
+
+        count = await reap_stale_worktrees()
+
+    assert count == 1
+    mock_del_branch.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_reaper_deletes_label_branch_for_already_gone_dir(tmp_path: Path) -> None:
+    """Reaper deletes label branch even when the worktree dir is already gone."""
+    absent = str(tmp_path / "label-gone-abc")
+
+    with (
+        patch(
+            "agentception.services.worktree_reaper.get_terminal_runs_with_worktrees",
+            new_callable=AsyncMock,
+            return_value=[{
+                "id": "label-gone-abc",
+                "worktree_path": absent,
+                "branch": "agent/gone",
+            }],
+        ),
+        patch(
+            "agentception.services.worktree_reaper.release_worktree",
+            new_callable=AsyncMock,
+        ) as mock_release,
+        patch(
+            "agentception.services.worktree_reaper.clear_run_worktree_path",
+            new_callable=AsyncMock,
+        ) as mock_clear,
+        patch(
+            "agentception.services.worktree_reaper._delete_label_branch",
+            new_callable=AsyncMock,
+        ) as mock_del_branch,
+        patch(
+            "agentception.services.worktree_reaper._prune_worktree_refs",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agentception.services.worktree_reaper.settings",
+            new_callable=MagicMock,
+            repo_dir="/app",
+        ),
+    ):
+        from agentception.services.worktree_reaper import reap_stale_worktrees
+
+        count = await reap_stale_worktrees()
+
+    assert count == 0  # dir was already gone, reaped count is 0
+    mock_release.assert_not_called()
+    mock_clear.assert_awaited_once_with("label-gone-abc")
+    mock_del_branch.assert_awaited_once_with("agent/gone", "/app")
+
+
+# ── _reaper_loop exception guard ──────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_reaper_loop_continues_after_exception() -> None:
+    """_reaper_loop survives an unhandled exception and continues on the next tick.
+
+    Regression: without the try/except wrapper a single DB error at 3 AM
+    would kill the asyncio task permanently, leaving orphaned worktrees until
+    the next container restart.
+
+    The sleep mock uses the real asyncio.sleep(0) to actually yield to the
+    event loop so the background task makes progress.  On the 3rd sleep call
+    it raises CancelledError to terminate the loop gracefully.
+    """
+    import asyncio as _asyncio
+
+    # Capture the real sleep before any patching so yielding still works.
+    _real_sleep = _asyncio.sleep
+
+    call_count = 0
+    sleep_calls = 0
+
+    async def flaky_reap() -> int:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise RuntimeError("transient DB error")
+        return 0
+
+    async def counting_sleep(_seconds: float) -> None:
+        """Yield to the real event loop, then cancel after 3 calls (= 2 reap iterations)."""
+        nonlocal sleep_calls
+        sleep_calls += 1
+        if sleep_calls >= 3:
+            raise _asyncio.CancelledError()
+        await _real_sleep(0)  # real yield so the task actually progresses
+
+    with (
+        patch("agentception.app.reap_stale_worktrees", side_effect=flaky_reap),
+        patch("agentception.app.asyncio.sleep", side_effect=counting_sleep),
+    ):
+        from agentception.app import _reaper_loop
+
+        task = _asyncio.create_task(_reaper_loop())
+        try:
+            await task
+        except _asyncio.CancelledError:
+            pass
+
+    # Both iterations ran — the exception in the first did not kill the loop.
+    assert call_count >= 2

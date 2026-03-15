@@ -16,10 +16,38 @@ import shutil
 from pathlib import Path
 
 from agentception.config import settings
+from agentception.db.persist import clear_run_worktree_path
 from agentception.db.queries import get_agent_run_teardown
 from agentception.services.run_factory import _WORKTREE_COLLECTION_PREFIX
 
 logger = logging.getLogger(__name__)
+
+
+async def _unlock_worktree(worktree_path: str, repo: str) -> None:
+    """Unlock a worktree so that ``git worktree remove --force`` can proceed.
+
+    A single ``--force`` flag is not enough to remove a *locked* worktree —
+    git requires either ``--force --force`` or an explicit unlock first.
+    We prefer the explicit unlock because it is reversible and auditable.
+    Failure is silently swallowed (the worktree may not be registered or
+    may already be unlocked).
+    """
+    unlock_proc = await asyncio.create_subprocess_exec(
+        "git", "-C", repo, "worktree", "unlock", worktree_path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await unlock_proc.communicate()
+
+
+async def _prune_worktree_refs(repo: str) -> None:
+    """Run ``git worktree prune`` to remove stale .git/worktrees/<name>/ metadata."""
+    prune_proc = await asyncio.create_subprocess_exec(
+        "git", "-C", repo, "worktree", "prune",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await prune_proc.communicate()
 
 
 async def release_worktree(worktree_path: str, repo_dir: str) -> bool:
@@ -34,10 +62,13 @@ async def release_worktree(worktree_path: str, repo_dir: str) -> bool:
     Safe to call even if the worktree dir no longer exists (idempotent).
 
     Returns True if the worktree was removed or was already gone; False if
-    ``git worktree remove`` failed (caller may retry or clear DB anyway).
+    both ``git worktree remove`` and ``shutil.rmtree`` failed.
     """
     repo = repo_dir
     if Path(worktree_path).exists():
+        # Unlock first — a single --force is insufficient for locked worktrees.
+        await _unlock_worktree(worktree_path, repo)
+
         rm_proc = await asyncio.create_subprocess_exec(
             "git", "-C", repo, "worktree", "remove", "--force", worktree_path,
             stdout=asyncio.subprocess.PIPE,
@@ -66,22 +97,12 @@ async def release_worktree(worktree_path: str, repo_dir: str) -> bool:
                     worktree_path,
                     rm_exc,
                 )
-                prune_proc = await asyncio.create_subprocess_exec(
-                    "git", "-C", repo, "worktree", "prune",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                await prune_proc.communicate()
+                await _prune_worktree_refs(repo)
                 return False
     else:
         logger.info("ℹ️  release_worktree: %s already gone — skipping", worktree_path)
 
-    prune_proc = await asyncio.create_subprocess_exec(
-        "git", "-C", repo, "worktree", "prune",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    await prune_proc.communicate()
+    await _prune_worktree_refs(repo)
     return True  # removed or already gone
 
 
@@ -108,6 +129,9 @@ async def teardown_agent_worktree(run_id: str) -> None:
     branch = teardown["branch"]
 
     if worktree_path and Path(worktree_path).exists():
+        # Unlock first — a single --force is insufficient for locked worktrees.
+        await _unlock_worktree(worktree_path, repo_dir)
+
         rm_proc = await asyncio.create_subprocess_exec(
             "git", "-C", repo_dir, "worktree", "remove", "--force", worktree_path,
             stdout=asyncio.subprocess.PIPE,
@@ -118,17 +142,30 @@ async def teardown_agent_worktree(run_id: str) -> None:
             logger.info("✅ teardown[%s]: removed worktree %s", run_id, worktree_path)
         else:
             logger.warning(
-                "⚠️  teardown[%s]: worktree remove failed: %s",
+                "⚠️  teardown[%s]: worktree remove failed (%s) — "
+                "falling back to shutil.rmtree for %s",
                 run_id,
                 stderr.decode().strip(),
+                worktree_path,
             )
+            try:
+                shutil.rmtree(worktree_path)
+                logger.info(
+                    "✅ teardown[%s]: force-removed %s via shutil.rmtree",
+                    run_id, worktree_path,
+                )
+            except Exception as rm_exc:
+                logger.warning(
+                    "⚠️  teardown[%s]: shutil.rmtree also failed for %s: %s",
+                    run_id, worktree_path, rm_exc,
+                )
 
-    prune_proc = await asyncio.create_subprocess_exec(
-        "git", "-C", repo_dir, "worktree", "prune",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    await prune_proc.communicate()
+    # Always clear the DB ref so the reaper never re-processes this run, even
+    # if the directory removal above failed and the reaper handles it later.
+    if worktree_path:
+        await clear_run_worktree_path(run_id)
+
+    await _prune_worktree_refs(repo_dir)
 
     if branch:
         push_proc = await asyncio.create_subprocess_exec(

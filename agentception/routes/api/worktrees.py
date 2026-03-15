@@ -3,11 +3,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from agentception.config import settings
+from agentception.db.persist import clear_run_worktree_path
+from agentception.db.queries import get_run_id_for_worktree_path
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +24,7 @@ class DeleteWorktreeResult(BaseModel):
     slug: str
     deleted: bool
     pruned: bool
+    db_cleared: bool = False
     error: str | None = None
 
 
@@ -27,10 +32,14 @@ class DeleteWorktreeResult(BaseModel):
 async def delete_worktree(slug: str) -> DeleteWorktreeResult:
     """Remove a single linked worktree by its slug (directory name).
 
-    Runs ``git worktree remove --force <path>`` followed by
-    ``git worktree prune`` to keep git's internal reference list clean.
+    Runs ``git worktree unlock`` (if locked) then
+    ``git worktree remove --force <path>`` with a ``shutil.rmtree`` fallback,
+    followed by ``git worktree prune`` to keep git's internal reference list
+    clean.  Also NULLs the DB ``worktree_path`` for the corresponding run so
+    the reaper does not re-process it.
+
     The worktree's branch is intentionally left intact so history is
-    preserved; use the sweep endpoint to bulk-remove stale branches.
+    preserved.
     """
     from agentception.readers.git import list_git_worktrees
 
@@ -45,9 +54,10 @@ async def delete_worktree(slug: str) -> DeleteWorktreeResult:
     wt_path = str(wt["path"])
     deleted = False
     pruned = False
+    db_cleared = False
     error: str | None = None
 
-    # Unlock first — locked worktrees silently resist `remove --force`.
+    # Unlock first — a single --force is insufficient for locked worktrees.
     if wt.get("locked"):
         unlock_proc = await asyncio.create_subprocess_exec(
             "git", "-C", repo_dir, "worktree", "unlock", wt_path,
@@ -67,10 +77,21 @@ async def delete_worktree(slug: str) -> DeleteWorktreeResult:
         deleted = True
         logger.info("✅ Removed worktree %s", wt_path)
     else:
-        error = stderr.decode().strip()
-        logger.warning("⚠️  Failed to remove worktree %s: %s", wt_path, error)
+        git_err = stderr.decode().strip()
+        logger.warning("⚠️  git worktree remove failed for %s: %s — trying shutil.rmtree", wt_path, git_err)
+        if Path(wt_path).exists():
+            try:
+                shutil.rmtree(wt_path)
+                deleted = True
+                logger.info("✅ Force-removed worktree %s via shutil.rmtree", wt_path)
+            except Exception as rm_exc:
+                error = f"git: {git_err} | rmtree: {rm_exc}"
+                logger.warning("⚠️  shutil.rmtree also failed for %s: %s", wt_path, rm_exc)
+        else:
+            # Directory already gone — consider it deleted.
+            deleted = True
 
-    # Always attempt a prune pass to clean up git's internal metadata.
+    # Always prune git's internal metadata regardless of how the dir was removed.
     prune_proc = await asyncio.create_subprocess_exec(
         "git", "-C", repo_dir, "worktree", "prune",
         stdout=asyncio.subprocess.PIPE,
@@ -79,4 +100,10 @@ async def delete_worktree(slug: str) -> DeleteWorktreeResult:
     await prune_proc.communicate()
     pruned = prune_proc.returncode == 0
 
-    return DeleteWorktreeResult(slug=slug, deleted=deleted, pruned=pruned, error=error)
+    # Clear the DB worktree_path so the reaper never re-processes this run.
+    if deleted:
+        run_id = await get_run_id_for_worktree_path(wt_path)
+        if run_id:
+            db_cleared = await clear_run_worktree_path(run_id)
+
+    return DeleteWorktreeResult(slug=slug, deleted=deleted, pruned=pruned, db_cleared=db_cleared, error=error)

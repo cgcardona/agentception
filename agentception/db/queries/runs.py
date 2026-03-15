@@ -709,6 +709,28 @@ async def get_terminal_runs_with_worktrees() -> list[TerminalRunRow]:
         return []
 
 
+async def get_run_id_for_worktree_path(worktree_path: str) -> str | None:
+    """Return the run_id whose worktree_path matches *worktree_path*, or None.
+
+    Used by the manual worktree deletion API to clear the DB reference after
+    removing the directory so the reaper never re-processes it.  Returns the
+    most-recently-spawned match in the unlikely event of duplicates.
+    """
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun.id)
+                .where(ACAgentRun.worktree_path == worktree_path)
+                .order_by(ACAgentRun.spawned_at.desc())
+                .limit(1)
+            )
+            row = result.scalar_one_or_none()
+        return str(row) if row is not None else None
+    except Exception as exc:
+        logger.warning("⚠️  get_run_id_for_worktree_path failed (non-fatal): %s", exc)
+        return None
+
+
 def _run_to_summary(row: ACAgentRun) -> RunSummaryRow:
     """Convert an ACAgentRun ORM row to a RunSummaryRow."""
     return RunSummaryRow(

@@ -98,6 +98,7 @@ from agentception.db.queries.runs import (
     get_agent_run_role as get_agent_run_role,
     get_agent_run_task_description as get_agent_run_task_description,
     get_terminal_runs_with_worktrees as get_terminal_runs_with_worktrees,
+    get_run_id_for_worktree_path as get_run_id_for_worktree_path,
     get_run_by_id as get_run_by_id,
     get_run_context as get_run_context,
     list_active_runs as list_active_runs,

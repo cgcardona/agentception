@@ -164,10 +164,17 @@ async def _memory_monitor_loop() -> None:
 
 
 async def _reaper_loop() -> None:
-    """Periodic worktree reaper — runs every 15 minutes for the process lifetime."""
+    """Periodic worktree reaper — runs every 15 minutes for the process lifetime.
+
+    Wrapped in try/except so a single bad reap pass (e.g. git binary missing,
+    transient DB error) logs a warning and continues — it never kills the loop.
+    """
     while True:
         await asyncio.sleep(900)
-        await reap_stale_worktrees()
+        try:
+            await reap_stale_worktrees()
+        except Exception as exc:
+            logger.warning("⚠️  reaper_loop: unhandled exception — will retry in 15 min: %s", exc)
 
 
 @asynccontextmanager
