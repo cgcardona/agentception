@@ -1,5 +1,26 @@
 services:
   # ==========================================================================
+  # Egress proxy — tinyproxy with a strict domain allowlist
+  #
+  # Intercepts all outbound HTTP/HTTPS from the agentception container for
+  # processes that honour HTTP_PROXY / HTTPS_PROXY environment variables
+  # (Python httpx, requests, curl, git, npm, gh CLI).  Any domain NOT in
+  # scripts/tinyproxy/filter is rejected with HTTP 403.
+  #
+  # This is a belt-and-suspenders control on top of the shell denylist and
+  # secret redaction: it prevents a prompt-injected agent from exfiltrating
+  # data to an arbitrary attacker-controlled URL via standard HTTP clients.
+  # ==========================================================================
+  proxy:
+    build:
+      context: ./scripts/tinyproxy
+      dockerfile: Dockerfile.proxy
+    container_name: agentception-proxy
+    restart: unless-stopped
+    networks:
+      - agentception-net
+
+  # ==========================================================================
   # AgentCeption — multi-agent orchestration dashboard
   # Port 10003 — the AgentCeption service port.
   # ==========================================================================
@@ -10,9 +31,15 @@ services:
     container_name: agentception-app
     restart: unless-stopped
     # Security hardening: prevent privilege escalation inside the container.
+    # The entrypoint starts as root, performs privileged setup, then drops to
+    # the agentception user (UID 1001) via gosu before starting uvicorn.
     security_opt:
       - no-new-privileges:true
-    # Drop all Linux capabilities and re-add only those needed for git and npm.
+    # Drop all Linux capabilities; re-add only those the entrypoint needs for
+    # the brief root phase (chown, sass/npm build).  After gosu drops to
+    # agentception, these capabilities are present in the process's bounding
+    # set but the non-root uvicorn process has no way to acquire new privs
+    # (no-new-privileges + no setuid binaries owned by root).
     cap_drop:
       - ALL
     cap_add:
@@ -74,10 +101,8 @@ services:
       # Disable HuggingFace tokenizers Rust parallelism — it spawns its own
       # thread pool that stacks on top of ORT's, making contention worse.
       TOKENIZERS_PARALLELISM: "false"
-      # HOME inside the container is inherited from the host (/Users/gabriel),
-      # which makes huggingface_hub and FastEmbed resolve their cache to a host
-      # path that is not mounted in the container.  HF_HOME overrides the
-      # HOME-derived default and points to the persistent model_cache volume.
+      # HF_HOME points to the persistent model_cache volume.  entrypoint.sh
+      # chowns this directory to the agentception user before dropping privs.
       HF_HOME: /root/.cache/huggingface
       # Optional: set HF_TOKEN in .env to avoid HuggingFace rate-limit warnings
       # on model downloads and enable authenticated access to private models.
@@ -85,15 +110,40 @@ services:
       WORKTREE_INDEX_ENABLED: ${WORKTREE_INDEX_ENABLED:-false}
       # No Anthropic rate limits with local Ollama — remove the pacing delay.
       AC_MIN_TURN_DELAY_SECS: ${AC_MIN_TURN_DELAY_SECS:-0}
+      # ── Egress proxy ──────────────────────────────────────────────────────
+      # Route all outbound HTTP/HTTPS through the tinyproxy allowlist.
+      # Standard-case and uppercase variants are both set for maximum tool
+      # coverage (curl, git, npm, Python httpx/requests all check one or both).
+      # NO_PROXY excludes internal Docker services that must not go through the
+      # proxy: postgres, qdrant, and the local LLM server on the host.
+      HTTP_PROXY: "http://proxy:8888"
+      HTTPS_PROXY: "http://proxy:8888"
+      NO_PROXY: "localhost,127.0.0.1,postgres,qdrant,host.docker.internal,::1"
+      http_proxy: "http://proxy:8888"
+      https_proxy: "http://proxy:8888"
+      no_proxy: "localhost,127.0.0.1,postgres,qdrant,host.docker.internal,::1"
     volumes:
       # gh CLI auth (read-only)
       - ${HOME}/.config/gh:${HOME}/.config/gh:ro
-      # Repo itself (for git operations)
-      - ./:/app
-      # Linux-native node_modules — sits on top of the ./:/app bind mount so the
-      # container's esbuild/tsc binaries (ELF) are never replaced by the host's
-      # macOS binaries. Populated from the image layer on first run via Docker's
-      # volume-init copy (image content wins when the named volume is empty).
+      # ── Narrow bind mounts (belt-and-suspenders for credential isolation) ──
+      # Instead of mounting the full repo root (./:/app) — which would expose
+      # .env, docker-compose secrets, and .git — we mount only the directories
+      # the container actually needs at runtime.  The .env file (which holds
+      # ANTHROPIC_API_KEY, GITHUB_TOKEN, DB_PASSWORD, etc.) is intentionally
+      # excluded.  Credentials reach the container only via environment
+      # variables, never via the filesystem.
+      - ./agentception:/app/agentception
+      - ./.agentception:/app/.agentception
+      - ./pyproject.toml:/app/pyproject.toml
+      - ./org-presets.yaml:/app/org-presets.yaml
+      - ./scripts:/app/scripts
+      - ./tests:/app/tests
+      - ./tools:/app/tools
+      # Linux-native node_modules — sits on top of the agentception bind mount
+      # so the container's esbuild/tsc binaries (ELF) are never replaced by the
+      # host's macOS binaries.  Populated from the image layer on first run via
+      # Docker's volume-init copy (image content wins when the named volume is
+      # empty).
       - node_modules:/app/node_modules
       # Agent worktrees: bind-mount the host directory into the container so that
       # git worktrees created inside the container are immediately visible to Cursor
@@ -121,17 +171,14 @@ services:
       - "host.docker.internal:host-gateway"
     networks:
       - agentception-net
-    command: >
-      sh -c 'printf "nameserver 127.0.0.11\nnameserver 1.1.1.1\nnameserver 8.8.8.8\noptions ndots:0 timeout:3 attempts:1 use-vc\n" > /etc/resolv.conf &&
-      cd /app &&
-      sass --style=compressed --no-source-map agentception/static/scss/app.scss agentception/static/app.css &&
-      npm run build:js &&
-      (alembic -c agentception/alembic.ini upgrade head ||
-        (echo "[startup] alembic failed, retrying in 5s" && sleep 5 && alembic -c agentception/alembic.ini upgrade head)) &&
-      exec uvicorn agentception.app:app --host 0.0.0.0 --port 10003'
+    # The startup command is the entrypoint's $@ argument — uvicorn.
+    # All privileged setup (resolv.conf, sass/npm builds, alembic, chown) is
+    # handled by /entrypoint.sh before gosu drops to the agentception user.
     depends_on:
       postgres:
         condition: service_healthy
+      proxy:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:10003/health"]
       interval: 30s
