@@ -529,9 +529,9 @@ _FENCED_YAML_RE: re.Pattern[str] = re.compile(
 def _extract_yaml_from_mixed(text: str) -> str | None:
     """Find a YAML plan inside text that mixes prose and code fences.
 
-    Local models (e.g. Qwen via mlx-openai-server) send thinking and content
-    in the same ``content`` stream.  When the accumulated buffer starts with
-    prose, ``_strip_fences`` returns it unchanged and parsing fails.
+    Local models (e.g. Qwen via Ollama) may send thinking and content in the
+    same ``content`` stream.  When the accumulated buffer starts with prose,
+    ``_strip_fences`` returns it unchanged and parsing fails.
 
     This function tries two strategies:
     1. Extract the content of the first fenced code block (```yaml ... ```).

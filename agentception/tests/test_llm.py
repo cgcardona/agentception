@@ -61,7 +61,7 @@ def test_normalize_openai_message_content_strips_reasoning() -> None:
 
 
 def test_local_cap_max_tokens_respects_ceiling() -> None:
-    """mlx-openai-server rejects max_tokens > 4096; adapter clamps to ceiling."""
+    """Adapter clamps requested max_tokens to the configured ceiling."""
     from agentception.services.llm import _local_cap_max_tokens
 
     with patch("agentception.services.llm.settings") as mock_settings:
