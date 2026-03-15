@@ -260,17 +260,27 @@
     </template>
     <template x-if="launchSuccess && launchResult">
       <span class="od-header__launch-ok">
-        ✅ Dispatched <code x-text="launchResult.run_id"></code>
-        <button type="button"
-                class="od-header__btn od-header__btn--start-agent"
-                :disabled="startAgentLoading || startAgentDone"
-                @click="startAgent()"
-                x-text="startAgentDone ? 'Agent started' : (startAgentLoading ? 'Starting…' : 'Start agent')">
-        </button>
+        <template x-if="!startAgentDone && startAgentLoading">
+          <span>⏳ Starting agent…</span>
+        </template>
+        <template x-if="startAgentDone">
+          <span>✅ Agent running — <code x-text="launchResult.run_id"></code></span>
+        </template>
+        <template x-if="!startAgentDone && !startAgentLoading">
+          <span>✅ Dispatched <code x-text="launchResult.run_id"></code></span>
+        </template>
       </span>
     </template>
     <template x-if="launchSuccess && launchResult && startAgentError">
-      <span class="od-header__launch-err" x-text="startAgentError"></span>
+      <span class="od-header__launch-err">
+        ⚠️ Agent start failed: <span x-text="startAgentError"></span>
+        <button type="button"
+                class="od-header__btn od-header__btn--start-agent"
+                :disabled="startAgentLoading"
+                @click="startAgent()"
+                x-text="startAgentLoading ? 'Retrying…' : 'Retry'">
+        </button>
+      </span>
     </template>
 
     {# Live / Design mode toggle — only shown when there are known batches #}
@@ -294,13 +304,18 @@
       </button>
     </template>
 
-    {# Launch button — design canvas only #}
+    {# Launch button + lone-worker warning — design canvas only #}
     <template x-if="!presetsOpen && !liveMode">
-      <button class="od-header__btn od-header__btn--launch"
-              :disabled="!launchReady"
-              @click="launch()"
-              x-text="launching ? 'Queuing…' : launchPreviewText">
-      </button>
+      <span class="od-header__launch-group">
+        <template x-if="loneWorkerWarning">
+          <span class="od-header__lone-worker-warn" x-text="loneWorkerWarning"></span>
+        </template>
+        <button class="od-header__btn od-header__btn--launch"
+                :disabled="!launchReady"
+                @click="launch()"
+                x-text="launching ? 'Launching…' : (startAgentLoading ? 'Starting agent…' : launchPreviewText)">
+        </button>
+      </span>
     </template>
 
     <button class="od-header__btn od-header__btn--close" @click="close()">✕ Close</button>

@@ -1,0 +1,23 @@
+# Cursor indexing exclusions
+#
+# These paths are excluded so Cursor's language server and git integration
+# do not re-index on every agent dispatch.  The primary trigger for the CPU
+# spike on Launch is git writing worktree metadata into .git/worktrees/ and
+# the bind-mounted worktree directory outside the repo root.
+
+# Git worktree metadata written by `git worktree add` on every dispatch.
+# Without this, Cursor's git extension re-runs `git status` / `git log`
+# across the whole repo whenever a new worktree is registered.
+.git/worktrees/
+
+# Compiled bundles — never want language server errors here.
+agentception/static/app.js
+agentception/static/app.css
+
+# Python bytecode
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+
+# Node artifacts
+node_modules/
