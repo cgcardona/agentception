@@ -190,13 +190,13 @@ Uses `context_files` to inject:
 
 | Step | Phase | Owner | Status |
 |------|-------|-------|--------|
-| Update `search_codebase` tool description | 0A | Cursor | ⬜ |
-| Add batching + search-first rules to `worker-base.md.j2` | 0B/0C | Cursor | ⬜ |
-| Regenerate `.agentception/*.md` | 0 | Cursor | ⬜ |
-| PR: Phase 0 | 0 | Cursor | ⬜ |
-| `asyncio.gather` in `_dispatch_tool_calls` | 1A | Cursor | ⬜ |
-| PR: Phase 1 | 1 | Cursor | ⬜ |
-| `context_files` in `AdhocRunRequest` | 2A/2B/2C | Cursor | ⬜ |
-| PR: Phase 2 | 2 | Cursor | ⬜ |
-| Redispatch #36 | 4 | Cursor | ⬜ |
+| Update `search_codebase` tool description | 0A | MCP/IDE | ⬜ |
+| Add batching + search-first rules to `worker-base.md.j2` | 0B/0C | MCP/IDE | ⬜ |
+| Regenerate `.agentception/*.md` | 0 | MCP/IDE | ⬜ |
+| PR: Phase 0 | 0 | MCP/IDE | ⬜ |
+| `asyncio.gather` in `_dispatch_tool_calls` | 1A | MCP/IDE | ⬜ |
+| PR: Phase 1 | 1 | MCP/IDE | ⬜ |
+| `context_files` in `AdhocRunRequest` | 2A/2B/2C | MCP/IDE | ⬜ |
+| PR: Phase 2 | 2 | MCP/IDE | ⬜ |
+| Redispatch #36 | 4 | MCP/IDE | ⬜ |
 | Worktree indexing on spawn | 3A/3B/3C | AgentCeption | ⬜ |

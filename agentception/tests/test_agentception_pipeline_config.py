@@ -77,7 +77,7 @@ async def test_read_pipeline_config_reads_file_when_present(tmp_path: Path) -> N
 @pytest.mark.anyio
 async def test_write_pipeline_config_persists(tmp_path: Path) -> None:
     """write_pipeline_config writes the config to disk and returns it."""
-    config_file = tmp_path / ".cursor" / "pipeline-config.json"
+    config_file = tmp_path / ".agentception" / "pipeline-config.json"
     config = PipelineConfig(
         coordinator_limits=_COORD_LIMITS,
         pool_size=4,
@@ -245,7 +245,7 @@ async def test_settings_reads_active_project(tmp_path: Path) -> None:
                 "gh_repo": "cgcardona/agentception",
                 "repo_dir": str(tmp_path),
                 "worktrees_dir": "~/.agentception/worktrees/agentception",
-                "cursor_project_id": "Users-example-dev-cgcardona-example-project",
+                "ide_project_id": "Users-example-dev-cgcardona-example-project",
                 "active_labels_order": [],
             },
             {
@@ -253,7 +253,7 @@ async def test_settings_reads_active_project(tmp_path: Path) -> None:
                 "gh_repo": "acme/other",
                 "repo_dir": str(tmp_path / "other"),
                 "worktrees_dir": str(tmp_path / "other-worktrees"),
-                "cursor_project_id": "other-project-id",
+                "ide_project_id": "other-project-id",
                 "active_labels_order": [],
             },
         ],
@@ -282,7 +282,7 @@ async def test_switch_project_updates_config(tmp_path: Path) -> None:
                 "gh_repo": "cgcardona/agentception",
                 "repo_dir": "/dev/example-project",
                 "worktrees_dir": "~/.agentception/worktrees/agentception",
-                "cursor_project_id": "example-project-id",
+                "ide_project_id": "example-project-id",
                 "active_labels_order": [],
             },
             {
@@ -290,7 +290,7 @@ async def test_switch_project_updates_config(tmp_path: Path) -> None:
                 "gh_repo": "acme/other",
                 "repo_dir": "/dev/other",
                 "worktrees_dir": "~/.agentception/worktrees/other",
-                "cursor_project_id": "other-id",
+                "ide_project_id": "other-id",
                 "active_labels_order": [],
             },
         ],
@@ -320,7 +320,7 @@ async def test_switch_project_rejects_unknown_name(tmp_path: Path) -> None:
                 "gh_repo": "cgcardona/agentception",
                 "repo_dir": "/dev/example-project",
                 "worktrees_dir": "~/.agentception/worktrees/agentception",
-                "cursor_project_id": "example-project-id",
+                "ide_project_id": "example-project-id",
                 "active_labels_order": [],
             },
         ],

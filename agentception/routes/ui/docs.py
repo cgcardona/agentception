@@ -19,7 +19,7 @@ router = APIRouter()
 _AGENTCEPTION_DIR = Path(_settings.repo_dir) / ".agentception"
 
 
-def _scan_cursor_docs() -> list[dict[str, str]]:
+def _scan_agentception_docs() -> list[dict[str, str]]:
     """Auto-discover all markdown files in .agentception/ sorted alphabetically.
 
     Returns a list of {slug, label, file} dicts. Label is derived from the
@@ -41,7 +41,7 @@ def _render_doc(slug: str) -> tuple[str | None, str | None, str | None]:
     Returns (label, content_html, error). ``content_html`` is Markdown
     rendered to safe HTML; ``error`` is set on read failure.
     """
-    docs = _scan_cursor_docs()
+    docs = _scan_agentception_docs()
     doc_meta = next((d for d in docs if d["slug"] == slug), None)
     if doc_meta is None:
         return None, None, f"Unknown doc: {slug}"
@@ -58,7 +58,7 @@ def _render_doc(slug: str) -> tuple[str | None, str | None, str | None]:
 @router.get("/docs", response_class=HTMLResponse)
 async def docs_index(request: Request) -> Response:
     """Redirect to the first available doc."""
-    docs = _scan_cursor_docs()
+    docs = _scan_agentception_docs()
     if docs:
         return RedirectResponse(url=f"/docs/{docs[0]['slug']}", status_code=302)
     raise HTTPException(status_code=404, detail="No .agentception/ docs found")
@@ -80,7 +80,7 @@ async def docs_viewer(request: Request, slug: str) -> HTMLResponse:
             "error": error,
             "available_docs": [
                 {"slug": d["slug"], "label": d["label"]}
-                for d in _scan_cursor_docs()
+                for d in _scan_agentception_docs()
             ],
         },
     )

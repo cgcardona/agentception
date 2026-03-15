@@ -13,8 +13,8 @@ Architecture note
 -----------------
 MCP is NOT involved in this module.  The browser -> AgentCeption -> Anthropic
 loop is entirely self-contained.  MCP enters only after the user approves the
-YAML and a coordinator worktree is spawned -- the coordinator agent (in Cursor)
-calls ``plan_get_labels()`` and similar tools as it files GitHub issues.
+YAML and a coordinator worktree is spawned — the coordinator agent (e.g. in an
+MCP client) calls ``plan_get_labels()`` and similar tools as it files GitHub issues.
 """
 
 import logging

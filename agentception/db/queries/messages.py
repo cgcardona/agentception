@@ -23,7 +23,8 @@ async def get_agent_thoughts_tail(
     """Return transcript messages for *run_id* with ``sequence_index > after_seq``.
 
     Defaults to thinking + assistant messages — the raw chain-of-thought stream
-    captured from Cursor transcripts by the poller.  Falls back to ``[]`` on error.
+    stored by the agent loop (and optionally ingested from external sources).
+    Falls back to ``[]`` on error.
     """
     try:
         async with get_session() as session:

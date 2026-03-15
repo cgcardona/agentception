@@ -59,11 +59,11 @@ services:
       REPO_DIR: ${REPO_DIR:-/app}
       WORKTREES_DIR: ${WORKTREES_DIR:-/worktrees}
       # Host-side path to the worktrees directory.  Persisted to the DB context row
-      # so spawned Cursor agents (running on the host) can find the worktree at
+      # so agents running on the host can find the worktree at
       # the same path the container created it.  Must match the worktrees volume mount.
       HOST_WORKTREES_DIR: ${HOST_WORKTREES_DIR:-${HOME}/.agentception/worktrees/agentception}
       # Host-side path to the repository root — persisted to the DB context row
-      # so Cursor agents (on the host) can resolve role files.
+      # so agents on the host can resolve role files.
       # Override via HOST_REPO_DIR in .env when the repo is not at the default.
       HOST_REPO_DIR: ${HOST_REPO_DIR:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -146,8 +146,8 @@ services:
       # empty).
       - node_modules:/app/node_modules
       # Agent worktrees: bind-mount the host directory into the container so that
-      # git worktrees created inside the container are immediately visible to Cursor
-      # agents running on the host at the same absolute path.
+      # git worktrees created inside the container are immediately visible to
+      # processes on the host (e.g. an IDE) at the same absolute path.
       - ${HOME}/.agentception/worktrees/agentception:/worktrees
       # Persist FastEmbed / HuggingFace model files across container restarts.
       # Without this volume the three ONNX models (jina-v2, BM25, bge-reranker)

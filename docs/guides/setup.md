@@ -175,9 +175,9 @@ See the [Cursor-Free Agent Loop guide](agent-loop.md) for full documentation.
 
 ---
 
-## Step 8 — Configure Cursor MCP (optional)
+## Step 8 — Configure MCP client (optional, e.g. Cursor)
 
-To use AgentCeption tools from Cursor, add to `~/.cursor/mcp.json`:
+To use AgentCeption tools from an MCP client (e.g. Cursor), add the server to your client's config. For Cursor, that is `~/.cursor/mcp.json`:
 
 ```json
 {
@@ -258,13 +258,13 @@ This prevents Git from text-merging compiled frontend bundles (app.css, app.css.
 
 ---
 
-## Step N — Cursor MCP setup (one-time)
+## Step N — MCP client setup (one-time, e.g. Cursor)
 
-AgentCeption exposes its planning and dispatch tools over MCP. Cursor must be configured to connect to it and, ideally, to run those tools without prompting you on every call.
+AgentCeption exposes its planning and dispatch tools over MCP. Configure your MCP client to connect to it and, ideally, to run those tools without prompting on every call. The following uses Cursor as the example client.
 
-### Connecting Cursor to AgentCeption
+### Connecting your MCP client to AgentCeption
 
-Add the following to your `~/.cursor/mcp.json` (create the file if it does not exist):
+For Cursor: add the following to your `~/.cursor/mcp.json` (create the file if it does not exist):
 
 ```json
 {
