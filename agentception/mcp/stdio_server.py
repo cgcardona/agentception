@@ -3,19 +3,15 @@ from __future__ import annotations
 """AgentCeption MCP stdio transport entry point.
 
 Reads JSON-RPC 2.0 requests from stdin (one per line) and writes
-responses to stdout — the standard Cursor/Claude MCP stdio transport.
+responses to stdout — the standard MCP stdio transport.
 
 The event loop is owned here: :func:`_run` is a coroutine driven by
-:func:`asyncio.run` so that async MCP tools (build tools, plan_get_labels,
-plan_spawn_coordinator) are awaited correctly.  Using the sync
-:func:`~agentception.mcp.server.handle_request` path caused those tools to
-return an error instead of executing.
+:func:`asyncio.run` so that async MCP tools are awaited correctly.
+Using the sync :func:`~agentception.mcp.server.handle_request` path
+would cause async tools to return an error instead of executing.
 
-Usage (via Cursor mcp.json):
+Usage:
     docker compose exec -T agentception python -m agentception.mcp.stdio_server
-
-Or directly:
-    python -m agentception.mcp.stdio_server
 """
 
 import asyncio

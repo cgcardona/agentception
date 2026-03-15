@@ -55,31 +55,19 @@ from agentception.mcp.types import (
     ToolListResult,
 )
 from agentception.mcp.build_commands import (
-    build_block_run,
     build_cancel_run,
     build_claim_run,
     build_complete_run,
-    build_resume_run,
     build_spawn_adhoc_child,
-    build_stop_run,
-    build_teardown_worktree,
 )
 from agentception.mcp.log_tools import (
-    log_run_blocker,
-    log_run_decision,
     log_run_error,
-    log_run_heartbeat,
-    log_run_message,
     log_run_step,
 )
 from agentception.mcp.github_tools import (
     github_add_comment,
     github_add_label,
-    github_approve_pr,
-    github_claim_issue,
-    github_merge_pr,
     github_remove_label,
-    github_unclaim_issue,
 )
 from agentception.mcp.prompts import PROMPTS, get_prompt, get_static_prompt
 from agentception.mcp.plan_advance_phase import plan_advance_phase
@@ -116,24 +104,6 @@ _MCP_PROTOCOL_VERSION = "2025-03-26"
 
 #: Server identity advertised in the ``initialize`` response.
 _SERVER_INFO: McpServerInfo = {"name": "agentception", "version": "0.1.1"}
-
-#: Retired tool names mapped to the ``ac://`` resource URI that supersedes them.
-#: Reconstructed on every call_tool invocation in the old design; hoisted here
-#: so the dict is built once at import time.
-_RETIRED_TOOL_URIS: dict[str, str] = {
-    "query_pending_runs": "ac://runs/pending",
-    "query_run": "ac://runs/{run_id}",
-    "query_children": "ac://runs/{run_id}/children",
-    "query_run_events": "ac://runs/{run_id}/events",
-    "query_active_runs": "ac://runs/active",
-    "query_run_tree": "ac://batches/{batch_id}/tree",
-    "query_dispatcher_state": "ac://system/dispatcher",
-    "query_system_health": "ac://system/health",
-    "plan_get_schema": "ac://plan/schema",
-    "plan_get_labels": "ac://plan/labels",
-    "plan_get_cognitive_figures": "ac://plan/figures/{role}",
-    "query_run_status": "ac://runs/{run_id}/status",
-}
 
 # ---------------------------------------------------------------------------
 # Tool registry
@@ -258,38 +228,6 @@ TOOLS: list[ACToolDef] = [
             "additionalProperties": False,
         },
     ),
-    ACToolDef(
-        name="github_claim_issue",
-        description=(
-            "Claim a GitHub issue for this agent by adding the 'agent/wip' label. "
-            "Call this before starting work to prevent double-claiming. "
-            "Invalidates the read cache. Returns {ok, issue_number, claimed: true}."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "issue_number": {"type": "integer", "description": "GitHub issue number to claim."},
-            },
-            "required": ["issue_number"],
-            "additionalProperties": False,
-        },
-    ),
-    ACToolDef(
-        name="github_unclaim_issue",
-        description=(
-            "Release an issue claim by removing the 'agent/wip' label. "
-            "Call this when finishing or aborting work. "
-            "Invalidates the read cache. Returns {ok, issue_number, claimed: false}."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "issue_number": {"type": "integer", "description": "GitHub issue number to unclaim."},
-            },
-            "required": ["issue_number"],
-            "additionalProperties": False,
-        },
-    ),
     # ── Build commands — explicit state transitions only ──────────────────────
     ACToolDef(
         name="build_claim_run",
@@ -362,8 +300,6 @@ TOOLS: list[ACToolDef] = [
         description=(
             "Record that the agent has finished work and transition the run to completed. "
             "Persists the done event (linking the PR and updating workflow state). "
-            "Does NOT tear down the worktree — call build_teardown_worktree after this "
-            "if cleanup is needed (the Dispatcher controls teardown timing). "
             "Call this as your final action after pushing your branch and opening the PR."
         ),
         inputSchema={
@@ -407,90 +343,15 @@ TOOLS: list[ACToolDef] = [
         },
     ),
     ACToolDef(
-        name="build_teardown_worktree",
-        description=(
-            "Clean up the git worktree for a completed or stopped run. "
-            "Fires teardown as a background task and returns immediately. "
-            "The Dispatcher or orchestration layer should call this after build_complete_run. "
-            "Engineers should not call this directly."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "agent_run_id": {
-                    "type": "string",
-                    "description": "The run ID of the completed agent (must have a worktree).",
-                },
-            },
-            "required": ["agent_run_id"],
-            "additionalProperties": False,
-        },
-    ),
-    ACToolDef(
-        name="build_block_run",
-        description=(
-            "Transition an implementing run to blocked. "
-            "Call when the agent cannot proceed without external input. "
-            "The run stays blocked until build_resume_run is called. "
-            "Only valid from implementing state."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "run_id": {"type": "string", "description": "The run ID to block."},
-            },
-            "required": ["run_id"],
-            "additionalProperties": False,
-        },
-    ),
-    ACToolDef(
-        name="build_resume_run",
-        description=(
-            "Transition a blocked or stopped run back to implementing. "
-            "Idempotent: if the run is already implementing and agent_run_id matches, "
-            "returns ok=true without state change (restart-safe). "
-            "Valid from blocked or stopped states only."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "run_id": {"type": "string", "description": "The run ID to resume."},
-                "agent_run_id": {
-                    "type": "string",
-                    "description": "The caller's own run ID (used for idempotency check).",
-                },
-            },
-            "required": ["run_id", "agent_run_id"],
-            "additionalProperties": False,
-        },
-    ),
-    ACToolDef(
         name="build_cancel_run",
         description=(
             "Transition any active run to cancelled (terminal — cannot resume). "
-            "Use build_stop_run if you want to pause and later resume. "
             "Valid from any non-terminal state."
         ),
         inputSchema={
             "type": "object",
             "properties": {
                 "run_id": {"type": "string", "description": "The run ID to cancel."},
-            },
-            "required": ["run_id"],
-            "additionalProperties": False,
-        },
-    ),
-    ACToolDef(
-        name="build_stop_run",
-        description=(
-            "Transition any active run to stopped (resumable via build_resume_run). "
-            "Use this to pause a run for inspection without permanently closing it. "
-            "Valid from any non-terminal state."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "run_id": {"type": "string", "description": "The run ID to stop."},
             },
             "required": ["run_id"],
             "additionalProperties": False,
@@ -503,7 +364,7 @@ TOOLS: list[ACToolDef] = [
             "Signal that you are starting a new execution step. "
             "Call this whenever you begin a distinct phase of work so the "
             "mission-control dashboard can track your progress in real time. "
-            "This tool never changes run state — use build_block_run for state transitions."
+            "This tool never changes run state."
         ),
         inputSchema={
             "type": "object",
@@ -526,80 +387,13 @@ TOOLS: list[ACToolDef] = [
         },
     ),
     ACToolDef(
-        name="log_run_blocker",
-        description=(
-            "Append a blocker event to the run's event log. "
-            "This tool only records the event — it does NOT change run state. "
-            "To also transition the run to blocked state, call build_block_run separately."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "issue_number": {"type": "integer"},
-                "description": {
-                    "type": "string",
-                    "description": "What is blocking you and what you need to proceed.",
-                },
-                "agent_run_id": {"type": "string"},
-            },
-            "required": ["issue_number", "description"],
-            "additionalProperties": False,
-        },
-    ),
-    ACToolDef(
-        name="log_run_decision",
-        description=(
-            "Record a significant architectural or implementation decision you made. "
-            "Use this for choices that affect code structure, dependencies, or approach "
-            "so the team can review your reasoning. Never changes run state."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "issue_number": {"type": "integer"},
-                "decision": {
-                    "type": "string",
-                    "description": "One-sentence description of the decision.",
-                },
-                "rationale": {
-                    "type": "string",
-                    "description": "Why you made this decision.",
-                },
-                "agent_run_id": {"type": "string"},
-            },
-            "required": ["issue_number", "decision", "rationale"],
-            "additionalProperties": False,
-        },
-    ),
-    ACToolDef(
-        name="log_run_message",
-        description=(
-            "Append a free-form message to the agent's event log. "
-            "Use for noteworthy information that doesn't fit a structured event type. "
-            "Never changes run state."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "issue_number": {"type": "integer"},
-                "message": {
-                    "type": "string",
-                    "description": "The message text to log.",
-                },
-                "agent_run_id": {"type": "string"},
-            },
-            "required": ["issue_number", "message"],
-            "additionalProperties": False,
-        },
-    ),
-    ACToolDef(
         name="log_run_error",
         description=(
             "Record an unrecoverable error or crash with semantic distinction from a message. "
-            "Use this instead of log_run_message when the agent is aborting due to an "
+            "Use this when the agent is aborting due to an "
             "exception, API failure, or any condition it cannot recover from. "
             "The dashboard surfaces error events differently for operator triage. "
-            "After calling this, also call build_cancel_run or build_stop_run. "
+            "After calling this, also call build_cancel_run. "
             "Never changes run state on its own."
         ),
         inputSchema={
@@ -616,30 +410,7 @@ TOOLS: list[ACToolDef] = [
             "additionalProperties": False,
         },
     ),
-    ACToolDef(
-        name="log_run_heartbeat",
-        description=(
-            "Update last_activity_at for the given run to prove liveness. "
-            "Call this every 2–5 minutes while the agent is active so the stale "
-            "detector can distinguish a slow-but-alive agent from a crashed one. "
-            "Never changes run state — only touches last_activity_at. "
-            "Non-blocking on DB failure: returns {ok: false, error: ...} instead of raising. "
-            "Returns {ok: true, last_activity_at: '<iso8601>'} on success, "
-            "or {ok: false, error: 'run not found'} for an unknown run_id."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "run_id": {
-                    "type": "string",
-                    "description": "The agent run ID to heartbeat (e.g. 'issue-275').",
-                },
-            },
-            "required": ["run_id"],
-            "additionalProperties": False,
-        },
-    ),
-    # ── GitHub tools — post comments ──────────────────────────────────────────
+    # ── GitHub tools ────────────────────────────────────────────────────────────
     ACToolDef(
         name="github_add_comment",
         description=(
@@ -662,51 +433,6 @@ TOOLS: list[ACToolDef] = [
                 },
             },
             "required": ["issue_number", "body"],
-            "additionalProperties": False,
-        },
-    ),
-    ACToolDef(
-        name="github_approve_pr",
-        description=(
-            "Submit an approving review on a GitHub pull request. "
-            "Use this after grading the PR A or B — do NOT shell out to 'gh pr review --approve'. "
-            "Routes the approval through the typed, logged interface so it is auditable. "
-            "Returns {ok, pr_number}."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "pr_number": {
-                    "type": "integer",
-                    "description": "GitHub PR number to approve.",
-                },
-            },
-            "required": ["pr_number"],
-            "additionalProperties": False,
-        },
-    ),
-    ACToolDef(
-        name="github_merge_pr",
-        description=(
-            "Squash-merge a GitHub pull request. "
-            "Call this only after github_approve_pr succeeds and the grade is A or B. "
-            "Do NOT call this for C/D/F grades — fix in place or escalate first. "
-            "Do NOT shell out to 'gh pr merge' directly. "
-            "Returns {ok, pr_number, delete_branch}."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "pr_number": {
-                    "type": "integer",
-                    "description": "GitHub PR number to merge.",
-                },
-                "delete_branch": {
-                    "type": "boolean",
-                    "description": "Delete the head branch after merge. Defaults to true.",
-                },
-            },
-            "required": ["pr_number"],
             "additionalProperties": False,
         },
     ),
@@ -832,45 +558,17 @@ def call_tool(name: str, arguments: dict[str, JsonValue]) -> ACToolResult:
             isError=is_error,
         )
 
-    # ── Retired tool redirects — point callers at the resource URI ───────────
-    # These tools have been superseded by ac:// resources.  Return an isError
-    # result that tells the agent exactly which resource/read call to use.
-    if name in _RETIRED_TOOL_URIS:
-        uri = _RETIRED_TOOL_URIS[name]
-        err_text = _tool_result_to_text(
-            {"error": f"Tool '{name}' is now a Resource. Use resources/read with URI: {uri}"}
-        )
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=err_text)],
-            isError=True,
-        )
-
     if name in (
         "plan_advance_phase",
-        # Build commands
         "build_claim_run",
         "build_spawn_adhoc_child",
         "build_complete_run",
-        "build_teardown_worktree",
-        "build_block_run",
-        "build_resume_run",
         "build_cancel_run",
-        "build_stop_run",
-        # Log tools
         "log_run_step",
-        "log_run_blocker",
-        "log_run_decision",
-        "log_run_message",
         "log_run_error",
-        "log_run_heartbeat",
-        # GitHub tools
         "github_add_label",
         "github_remove_label",
-        "github_claim_issue",
-        "github_unclaim_issue",
         "github_add_comment",
-        "github_approve_pr",
-        "github_merge_pr",
     ):
         err_text = _tool_result_to_text(
             {"error": f"Tool {name!r} is async — use the async call path"}
@@ -1003,54 +701,6 @@ async def call_tool_async(
             isError=not bool(result.get("ok", True)),
         )
 
-    if name == "build_teardown_worktree":
-        run_id_arg2 = arguments.get("agent_run_id")
-        if not isinstance(run_id_arg2, str) or not run_id_arg2:
-            return ACToolResult(
-                content=[ACToolContent(
-                    type="text",
-                    text=_tool_result_to_text({"error": "build_teardown_worktree requires a non-empty agent_run_id"}),
-                )],
-                isError=True,
-            )
-        result = await build_teardown_worktree(run_id_arg2)
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=not bool(result.get("ok", False)),
-        )
-
-    if name == "build_block_run":
-        run_id_arg3 = arguments.get("run_id")
-        if not isinstance(run_id_arg3, str) or not run_id_arg3:
-            return ACToolResult(
-                content=[ACToolContent(type="text", text='{"error":"build_block_run requires a non-empty run_id"}')],
-                isError=True,
-            )
-        result = await build_block_run(run_id_arg3)
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=not bool(result.get("ok", False)),
-        )
-
-    if name == "build_resume_run":
-        run_id_arg4 = arguments.get("run_id")
-        agent_run_id_arg = arguments.get("agent_run_id")
-        if (
-            not isinstance(run_id_arg4, str)
-            or not run_id_arg4
-            or not isinstance(agent_run_id_arg, str)
-            or not agent_run_id_arg
-        ):
-            return ACToolResult(
-                content=[ACToolContent(type="text", text='{"error":"build_resume_run requires run_id and agent_run_id (non-empty strings)"}')],
-                isError=True,
-            )
-        result = await build_resume_run(run_id_arg4, agent_run_id_arg)
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=not bool(result.get("ok", False)),
-        )
-
     if name == "build_cancel_run":
         run_id_arg5 = arguments.get("run_id")
         if not isinstance(run_id_arg5, str) or not run_id_arg5:
@@ -1059,19 +709,6 @@ async def call_tool_async(
                 isError=True,
             )
         result = await build_cancel_run(run_id_arg5)
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=not bool(result.get("ok", False)),
-        )
-
-    if name == "build_stop_run":
-        run_id_arg6 = arguments.get("run_id")
-        if not isinstance(run_id_arg6, str) or not run_id_arg6:
-            return ACToolResult(
-                content=[ACToolContent(type="text", text='{"error":"build_stop_run requires a non-empty run_id"}')],
-                isError=True,
-            )
-        result = await build_stop_run(run_id_arg6)
         return ACToolResult(
             content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
             isError=not bool(result.get("ok", False)),
@@ -1094,54 +731,6 @@ async def call_tool_async(
             isError=False,
         )
 
-    if name == "log_run_blocker":
-        issue_num = arguments.get("issue_number")
-        desc = arguments.get("description")
-        if not isinstance(issue_num, int) or not isinstance(desc, str):
-            return ACToolResult(
-                content=[ACToolContent(type="text", text='{"error":"issue_number (int) and description (str) are required"}')],
-                isError=True,
-            )
-        run_id = arguments.get("agent_run_id")
-        result = await log_run_blocker(issue_num, desc, str(run_id) if run_id else None)
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=False,
-        )
-
-    if name == "log_run_decision":
-        issue_num = arguments.get("issue_number")
-        decision = arguments.get("decision")
-        rationale = arguments.get("rationale")
-        if not isinstance(issue_num, int) or not isinstance(decision, str) or not isinstance(rationale, str):
-            return ACToolResult(
-                content=[ACToolContent(type="text", text='{"error":"issue_number, decision, rationale are required"}')],
-                isError=True,
-            )
-        run_id = arguments.get("agent_run_id")
-        result = await log_run_decision(
-            issue_num, decision, rationale, str(run_id) if run_id else None
-        )
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=False,
-        )
-
-    if name == "log_run_message":
-        issue_num = arguments.get("issue_number")
-        msg = arguments.get("message")
-        if not isinstance(issue_num, int) or not isinstance(msg, str):
-            return ACToolResult(
-                content=[ACToolContent(type="text", text='{"error":"issue_number (int) and message (str) are required"}')],
-                isError=True,
-            )
-        run_id = arguments.get("agent_run_id")
-        result = await log_run_message(issue_num, msg, str(run_id) if run_id else None)
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=False,
-        )
-
     if name == "log_run_error":
         issue_num = arguments.get("issue_number")
         err_msg = arguments.get("error")
@@ -1155,19 +744,6 @@ async def call_tool_async(
         return ACToolResult(
             content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
             isError=False,
-        )
-
-    if name == "log_run_heartbeat":
-        run_id_hb = arguments.get("run_id")
-        if not isinstance(run_id_hb, str) or not run_id_hb:
-            return ACToolResult(
-                content=[ACToolContent(type="text", text='{"error":"log_run_heartbeat requires a non-empty run_id string"}')],
-                isError=True,
-            )
-        result = await log_run_heartbeat(run_id_hb)
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=not bool(result.get("ok", False)),
         )
 
     # ── GitHub tools ─────────────────────────────────────────────────────────
@@ -1200,32 +776,6 @@ async def call_tool_async(
             isError=not bool(result.get("ok", False)),
         )
 
-    if name == "github_claim_issue":
-        issue_num = arguments.get("issue_number")
-        if not isinstance(issue_num, int):
-            return ACToolResult(
-                content=[ACToolContent(type="text", text='{"error":"issue_number (int) is required"}')],
-                isError=True,
-            )
-        result = await github_claim_issue(issue_num)
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=not bool(result.get("ok", False)),
-        )
-
-    if name == "github_unclaim_issue":
-        issue_num = arguments.get("issue_number")
-        if not isinstance(issue_num, int):
-            return ACToolResult(
-                content=[ACToolContent(type="text", text='{"error":"issue_number (int) is required"}')],
-                isError=True,
-            )
-        result = await github_unclaim_issue(issue_num)
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=not bool(result.get("ok", False)),
-        )
-
     if name == "github_add_comment":
         issue_num = arguments.get("issue_number")
         body = arguments.get("body")
@@ -1235,35 +785,6 @@ async def call_tool_async(
                 isError=True,
             )
         result = await github_add_comment(issue_num, body)
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=not bool(result.get("ok", False)),
-        )
-
-    if name == "github_approve_pr":
-        pr_num = arguments.get("pr_number")
-        if not isinstance(pr_num, int):
-            return ACToolResult(
-                content=[ACToolContent(type="text", text='{"error":"pr_number (int) is required"}')],
-                isError=True,
-            )
-        result = await github_approve_pr(pr_num)
-        return ACToolResult(
-            content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
-            isError=not bool(result.get("ok", False)),
-        )
-
-    if name == "github_merge_pr":
-        pr_num = arguments.get("pr_number")
-        if not isinstance(pr_num, int):
-            return ACToolResult(
-                content=[ACToolContent(type="text", text='{"error":"pr_number (int) is required"}')],
-                isError=True,
-            )
-        delete_branch = arguments.get("delete_branch", True)
-        if not isinstance(delete_branch, bool):
-            delete_branch = True
-        result = await github_merge_pr(pr_num, delete_branch=delete_branch)
         return ACToolResult(
             content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
             isError=not bool(result.get("ok", False)),
@@ -1421,8 +942,7 @@ def handle_request(
         return _make_success_response(request_id, prompt_result)
 
     # ── Resource methods (sync server returns method-not-found for reads) ─────
-    # The sync handle_request is only used in tests and legacy callers; all
-    # resource reads require async I/O.  Direct async callers to handle_request_async.
+    # Resource reads require async I/O — callers must use handle_request_async.
 
     if method in ("resources/list", "resources/templates/list", "resources/read"):
         return _make_error_response(

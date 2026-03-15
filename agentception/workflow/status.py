@@ -11,17 +11,13 @@ Run lifecycle state machine
 
     pending_launch → implementing : build_claim_run
     pending_launch → cancelled    : build_cancel_run
-    implementing   → blocked      : build_block_run
     implementing   → stalled      : poller watchdog (no commit progress)
     implementing   → completed    : build_complete_run
     implementing   → cancelled    : build_cancel_run
-    implementing   → stopped      : build_stop_run
-    blocked        → implementing : build_resume_run
     stalled        → recovering   : auto-heal / re-dispatch
     stalled        → failed       : max_attempts exceeded
     recovering     → implementing : re-dispatch succeeded
-    stopped        → implementing : build_resume_run
-    completed/cancelled/stopped/failed → terminal
+    completed/cancelled/failed    → terminal
 
 ``stale`` is not stored in the DB.  It is computed on-demand from
 ``last_activity_at`` and the :data:`STALE_THRESHOLD` constant.

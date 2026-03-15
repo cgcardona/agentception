@@ -8,10 +8,9 @@ UI surfaces retained:
   POST /api/runs/{run_id}/cancel   — UI cancels a pending_launch before dispatch
   POST /api/runs/{run_id}/stop     — UI marks a run stopped from the inspector
 
-Agent-facing routes (GET /pending, POST /acknowledge, /children, /step,
-/blocker, /decision, /done) have been removed.  Use the MCP equivalents:
-  query_pending_runs, build_claim_run, build_spawn_adhoc_child,
-  log_run_step, log_run_blocker, log_run_decision, build_complete_run.
+Agent-facing routes have been removed.  Use the MCP equivalents:
+  ac://runs/pending resource, build_claim_run, build_spawn_adhoc_child,
+  log_run_step, log_run_error, build_complete_run.
 """
 from __future__ import annotations
 

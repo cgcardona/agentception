@@ -15,12 +15,12 @@ POST /api/mcp
     Notifications (messages without an ``id`` field) return ``202 Accepted``
     with no body.
 
-Why this matters
-----------------
-The stdio transport works well for Cursor IDE sessions, where the MCP server is
-spawned as a child process of the client.  The HTTP transport makes the same MCP
+Why two transports
+------------------
+The stdio transport works well for local MCP client sessions, where the MCP
+server is spawned as a child process.  The HTTP transport makes the same MCP
 surface available to:
-  - Web agents running outside Cursor
+  - Agents running server-side without a local MCP client
   - CI/CD pipelines that call MCP tools via ``curl`` or an HTTP client
   - Any MCP-aware client that supports the Streamable HTTP transport
   - Integration tests that use ``httpx.AsyncClient`` without Docker

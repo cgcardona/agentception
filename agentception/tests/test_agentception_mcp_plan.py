@@ -480,8 +480,8 @@ def test_handle_request_tools_list_string_id() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_handle_request_tools_call_plan_get_schema_returns_redirect() -> None:
-    """handle_request tools/call plan_get_schema returns redirect error (now a Resource)."""
+def test_handle_request_tools_call_plan_get_schema_returns_unknown() -> None:
+    """plan_get_schema was removed — calling it returns 'unknown tool' error."""
     resp = _unwrap(handle_request(_call_request("plan_get_schema", {})))
     assert "result" in resp
     result = resp["result"]
@@ -494,7 +494,7 @@ def test_handle_request_tools_call_plan_get_schema_returns_redirect() -> None:
     text = first["text"]
     assert isinstance(text, str)
     payload: dict[str, JsonValue] = json.loads(text)
-    assert "ac://plan/schema" in str(payload["error"])
+    assert "Unknown tool" in str(payload["error"])
 
 
 def test_handle_request_tools_call_plan_validate_spec_valid() -> None:

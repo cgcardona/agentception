@@ -1,9 +1,8 @@
 """Tests for the MCP github-tools layer.
 
-Covers all seven GitHub tools (github_add_label, github_remove_label,
-github_claim_issue, github_unclaim_issue, github_add_comment,
-github_approve_pr, github_merge_pr) exercised through
-the full call_tool_async / handle_request_async dispatch path.
+Covers the three GitHub tools (github_add_label, github_remove_label,
+github_add_comment) exercised through the full call_tool_async /
+handle_request_async dispatch path.
 
 Test categories:
   - Direct function calls (unit) with readers.github mocked
@@ -62,11 +61,7 @@ class TestGithubToolsAreAsyncOnly:
     @pytest.mark.parametrize("name", [
         "github_add_label",
         "github_remove_label",
-        "github_claim_issue",
-        "github_unclaim_issue",
         "github_add_comment",
-        "github_approve_pr",
-        "github_merge_pr",
     ])
     def test_sync_call_tool_returns_error(self, name: str) -> None:
         result = call_tool(name, {"issue_number": 1, "label": "x", "body": "x"})
@@ -165,71 +160,7 @@ class TestGithubRemoveLabel:
 
 
 # ---------------------------------------------------------------------------
-# github_claim_issue
-# ---------------------------------------------------------------------------
-
-class TestGithubClaimIssue:
-    @pytest.mark.anyio
-    async def test_happy_path(self) -> None:
-        with patch(
-            "agentception.mcp.github_tools.add_wip_label",
-            new_callable=AsyncMock,
-        ):
-            resp = await _dispatch("github_claim_issue", {"issue_number": 77})
-        payload = _result_payload(resp)
-        assert payload == {"ok": True, "issue_number": 77, "claimed": True}
-
-    @pytest.mark.anyio
-    async def test_runtime_error_returns_ok_false(self) -> None:
-        with patch(
-            "agentception.mcp.github_tools.add_wip_label",
-            new_callable=AsyncMock,
-            side_effect=RuntimeError("rate limit"),
-        ):
-            resp = await _dispatch("github_claim_issue", {"issue_number": 77})
-        payload = _result_payload(resp)
-        assert payload["ok"] is False
-        err = payload["error"]
-        assert isinstance(err, str)
-        assert "rate limit" in err
-
-    @pytest.mark.anyio
-    async def test_missing_issue_number_returns_error(self) -> None:
-        resp = await _dispatch("github_claim_issue", {})
-        result = resp.get("result")
-        assert isinstance(result, dict)
-        assert result["isError"] is True
-
-
-# ---------------------------------------------------------------------------
-# github_unclaim_issue
-# ---------------------------------------------------------------------------
-
-class TestGithubUnclaimIssue:
-    @pytest.mark.anyio
-    async def test_happy_path(self) -> None:
-        with patch(
-            "agentception.mcp.github_tools.clear_wip_label",
-            new_callable=AsyncMock,
-        ):
-            resp = await _dispatch("github_unclaim_issue", {"issue_number": 55})
-        payload = _result_payload(resp)
-        assert payload == {"ok": True, "issue_number": 55, "claimed": False}
-
-    @pytest.mark.anyio
-    async def test_runtime_error_returns_ok_false(self) -> None:
-        with patch(
-            "agentception.mcp.github_tools.clear_wip_label",
-            new_callable=AsyncMock,
-            side_effect=RuntimeError("network error"),
-        ):
-            resp = await _dispatch("github_unclaim_issue", {"issue_number": 55})
-        payload = _result_payload(resp)
-        assert payload["ok"] is False
-
-
-# ---------------------------------------------------------------------------
-# github_add_comment (new)
+# github_add_comment
 # ---------------------------------------------------------------------------
 
 class TestGithubAddComment:
@@ -311,130 +242,3 @@ class TestGithubAddComment:
         assert payload["comment_url"] == comment_url
 
 
-# ---------------------------------------------------------------------------
-# github_approve_pr
-# ---------------------------------------------------------------------------
-
-
-class TestGithubApprovePr:
-    @pytest.mark.anyio
-    async def test_happy_path(self) -> None:
-        with patch(
-            "agentception.mcp.github_tools.approve_pr",
-            new_callable=AsyncMock,
-        ):
-            resp = await _dispatch("github_approve_pr", {"pr_number": 99})
-        payload = _result_payload(resp)
-        assert payload == {"ok": True, "pr_number": 99}
-
-    @pytest.mark.anyio
-    async def test_runtime_error_returns_ok_false(self) -> None:
-        with patch(
-            "agentception.mcp.github_tools.approve_pr",
-            new_callable=AsyncMock,
-            side_effect=RuntimeError("already approved"),
-        ):
-            resp = await _dispatch("github_approve_pr", {"pr_number": 99})
-        payload = _result_payload(resp)
-        assert payload["ok"] is False
-        err = payload["error"]
-        assert isinstance(err, str)
-        assert "already approved" in err
-
-    @pytest.mark.anyio
-    async def test_missing_pr_number_returns_error(self) -> None:
-        resp = await _dispatch("github_approve_pr", {})
-        result = resp.get("result")
-        assert isinstance(result, dict)
-        assert result["isError"] is True
-
-    def test_github_approve_pr_is_in_tools_list(self) -> None:
-        from agentception.mcp.server import list_tools
-        names = [t["name"] for t in list_tools()]
-        assert "github_approve_pr" in names
-
-    @pytest.mark.anyio
-    async def test_call_tool_async_dispatches_correctly(self) -> None:
-        with patch(
-            "agentception.mcp.github_tools.approve_pr",
-            new_callable=AsyncMock,
-        ):
-            result = await call_tool_async("github_approve_pr", {"pr_number": 42})
-        assert result["isError"] is False
-        payload = json.loads(result["content"][0]["text"])
-        assert isinstance(payload, dict)
-        assert payload["ok"] is True
-        assert payload["pr_number"] == 42
-
-
-# ---------------------------------------------------------------------------
-# github_merge_pr
-# ---------------------------------------------------------------------------
-
-
-class TestGithubMergePr:
-    @pytest.mark.anyio
-    async def test_happy_path_default_delete_branch(self) -> None:
-        with patch(
-            "agentception.mcp.github_tools.merge_pr",
-            new_callable=AsyncMock,
-        ):
-            resp = await _dispatch("github_merge_pr", {"pr_number": 88})
-        payload = _result_payload(resp)
-        assert payload["ok"] is True
-        assert payload["pr_number"] == 88
-        assert payload["delete_branch"] is True
-
-    @pytest.mark.anyio
-    async def test_happy_path_no_delete_branch(self) -> None:
-        with patch(
-            "agentception.mcp.github_tools.merge_pr",
-            new_callable=AsyncMock,
-        ):
-            resp = await _dispatch(
-                "github_merge_pr", {"pr_number": 88, "delete_branch": False}
-            )
-        payload = _result_payload(resp)
-        assert payload["ok"] is True
-        assert payload["delete_branch"] is False
-
-    @pytest.mark.anyio
-    async def test_runtime_error_returns_ok_false(self) -> None:
-        with patch(
-            "agentception.mcp.github_tools.merge_pr",
-            new_callable=AsyncMock,
-            side_effect=RuntimeError("merge conflict"),
-        ):
-            resp = await _dispatch("github_merge_pr", {"pr_number": 88})
-        payload = _result_payload(resp)
-        assert payload["ok"] is False
-        err = payload["error"]
-        assert isinstance(err, str)
-        assert "merge conflict" in err
-
-    @pytest.mark.anyio
-    async def test_missing_pr_number_returns_error(self) -> None:
-        resp = await _dispatch("github_merge_pr", {})
-        result = resp.get("result")
-        assert isinstance(result, dict)
-        assert result["isError"] is True
-
-    def test_github_merge_pr_is_in_tools_list(self) -> None:
-        from agentception.mcp.server import list_tools
-        names = [t["name"] for t in list_tools()]
-        assert "github_merge_pr" in names
-
-    @pytest.mark.anyio
-    async def test_call_tool_async_dispatches_correctly(self) -> None:
-        with patch(
-            "agentception.mcp.github_tools.merge_pr",
-            new_callable=AsyncMock,
-        ):
-            result = await call_tool_async(
-                "github_merge_pr", {"pr_number": 7, "delete_branch": True}
-            )
-        assert result["isError"] is False
-        payload = json.loads(result["content"][0]["text"])
-        assert isinstance(payload, dict)
-        assert payload["ok"] is True
-        assert payload["pr_number"] == 7
