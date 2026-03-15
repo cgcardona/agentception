@@ -1099,6 +1099,20 @@ export function orgDesigner(): OrgDesignerComponent {
       return `Launch ${roleLabel(this._root.role)} (${figName})${note} →`;
     },
 
+    /** True when the root is a lone worker (no coordinator) with full_initiative scope.
+     *
+     * A standalone worker dispatched against a full initiative won't automatically
+     * pick up any tickets — it needs a coordinator above it to survey issues and
+     * assign work.  Show a warning but don't block launch (advanced users may
+     * know what they're doing).
+     */
+    get loneWorkerWarning(): string {
+      if (!this._root || !this._root.role) return '';
+      if (isCoordinator(this._root.role)) return '';
+      if (this._root.scope !== 'full_initiative') return '';
+      return `⚠️ "${roleLabel(this._root.role)}" is a worker, not a coordinator. Workers don't pick up tickets automatically. Add a coordinator (e.g. CTO) as the root, or change scope to a specific issue.`;
+    },
+
     get activePresetName(): string {
       if (!this.activePresetId) return '';
       const builtin = this.builtInPresets.find(t => t.id === this.activePresetId);
@@ -1477,6 +1491,8 @@ export function orgDesigner(): OrgDesignerComponent {
           this._root.launched = true;
           this._root.runId    = dispatched.run_id;
           this._render();
+          // Immediately start the agent loop — no separate button needed.
+          await this.startAgent();
         }
       } catch (err) {
         this.launchError = `Network error: ${err instanceof Error ? err.message : String(err)}`;
@@ -1485,7 +1501,11 @@ export function orgDesigner(): OrgDesignerComponent {
       }
     },
 
-    /** Start the agent loop for the run created by Launch (calls POST /api/runs/{run_id}/execute). */
+    /** Start the agent loop for a run in pending_launch state (POST /api/runs/{run_id}/execute).
+     *
+     * Called automatically by launch() after a successful dispatch.  Also available
+     * directly from the inspector panel for runs stuck in pending_launch.
+     */
     async startAgent(): Promise<void> {
       if (!this.launchResult?.run_id || this.startAgentLoading) return;
       this.startAgentLoading = true;

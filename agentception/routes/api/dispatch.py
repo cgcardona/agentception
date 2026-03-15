@@ -1298,6 +1298,20 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+    # Prune stale worktree refs before creating a new one.
+    # This removes .git/worktrees/<name>/ metadata for directories that no
+    # longer exist (accumulated from past runs), keeping git's index lean and
+    # preventing Cursor's git extension from re-scanning a growing list of
+    # dead worktree pointers on every dispatch.
+    prune_proc = await asyncio.create_subprocess_exec(
+        "git", "worktree", "prune",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=str(settings.repo_dir),
+    )
+    await prune_proc.communicate()
+    logger.info("✅ dispatch-label: git worktree prune done")
+
     proc = await asyncio.create_subprocess_exec(
         "git", "worktree", "add", worktree_path, "-b", branch, dev_sha,
         stdout=asyncio.subprocess.PIPE,
