@@ -17,7 +17,10 @@ AgentCeption is an orchestration engine that calls external APIs, executes shell
 | File tool path sandbox | **Enforced** | Reads restricted to worktree + repo root; writes restricted to worktree only |
 | Prompt injection | **Hardened** | System prompt explicitly warns agents to treat repo content as untrusted |
 | Agent wall-clock timeout | **Enforced** | `AGENT_MAX_WALL_SECONDS` (default 2 h) cancels runaway loops |
-| Docker container privileges | **Hardened** | `no-new-privileges`, capability drop, minimal capability re-add |
+| Docker container user | **Hardened** | `entrypoint.sh` drops from root → UID 1001 (`agentception`) via `gosu` before starting uvicorn |
+| Docker container privileges | **Hardened** | `no-new-privileges`, `cap_drop: ALL`, minimal capability re-add |
+| Repo bind mount | **Hardened** | Only source subdirectories mounted; `.env` and secrets are never present in the container filesystem |
+| Egress proxy | **Enforced** | `tinyproxy` sidecar with strict domain allowlist; all agent HTTP/HTTPS goes through it |
 | Qdrant (vector store) | **Localhost-only by default** | Docker binds to `127.0.0.1:6335` |
 
 ---
@@ -277,26 +280,104 @@ services:
 
 ## Docker Container Hardening
 
-`docker-compose.yml` applies container security hardening:
+### Non-root process user
+
+`scripts/entrypoint.sh` implements a two-phase startup:
+
+1. **Root phase** — writes `/etc/resolv.conf`, compiles SCSS/JS assets, runs Alembic migrations, and fixes ownership of mutable mount points (`/worktrees`, `/root/.cache/huggingface`).
+2. **Unprivileged phase** — `exec gosu agentception "$@"` drops to UID 1001 (`agentception` user) for the long-running `uvicorn` process. Every Python coroutine, agent loop iteration, and tool call runs as this non-root user.
+
+`gosu` is a purpose-built setuid helper (analogous to `sudo -u` but signal-transparent and without shell overhead). After the `exec`, no process in the container runs as root.
+
+The `agentception` user is created in the Dockerfile:
+
+```dockerfile
+RUN groupadd -g 1001 agentception \
+    && useradd -r -u 1001 -g agentception -m -d /home/agentception -s /bin/bash agentception
+```
+
+### Capability model
 
 ```yaml
 security_opt:
   - no-new-privileges:true   # prevents privilege escalation via setuid binaries
 cap_drop:
-  - ALL                      # drop all capabilities
+  - ALL                      # drop all capabilities at the container level
 cap_add:
-  - CHOWN                    # needed for file ownership operations
-  - SETGID
-  - SETUID
-  - DAC_OVERRIDE
-  - FOWNER
+  - CHOWN                    # needed for entrypoint chown of /worktrees and model cache
+  - SETGID                   # needed for gosu to switch GID
+  - SETUID                   # needed for gosu to switch UID
+  - DAC_OVERRIDE             # needed for sass/npm writes during root phase
+  - FOWNER                   # needed for git operations in worktrees
 ```
 
-**Remaining risks to be aware of:**
+After gosu drops to UID 1001, these capabilities remain in the bounding set but `no-new-privileges` prevents the non-root process from using `SETUID`/`SETGID` to re-acquire root.
 
-- The container runs as `root` (no `USER` directive in the Dockerfile). For production deployments, create a non-root user and switch to it.
-- `./:/app` bind-mounts the full repository (including `.env`) into the container. The file-tool path sandbox prevents agents from reading `/app/.env` via tool calls, but a shell command like `cat /app/.env` would succeed. The secret-redaction layer strips credential values from shell output before they reach the agent.
-- The container has full internet access. Network egress restrictions (e.g. iptables rules or an egress proxy) are recommended for high-security deployments.
+### Narrow bind mounts (`.env` isolation)
+
+Instead of mounting the full repository root (`./:/app`) — which would expose `.env`, `docker-compose.yml` secrets, `.git`, and other sensitive files — only the directories the container needs at runtime are mounted:
+
+```yaml
+volumes:
+  - ./agentception:/app/agentception   # Python source, templates, static
+  - ./.agentception:/app/.agentception # generated role prompt files
+  - ./pyproject.toml:/app/pyproject.toml
+  - ./org-presets.yaml:/app/org-presets.yaml
+  - ./scripts:/app/scripts
+  - ./tests:/app/tests
+  - ./tools:/app/tools
+```
+
+**Not mounted** (intentionally excluded):
+
+| File / Directory | Why excluded |
+|-----------------|-------------|
+| `.env` | Contains `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, `DB_PASSWORD` |
+| `docker-compose*.yml` | Contains environment variable references to secrets |
+| `.git/` | Contains git objects and config (no runtime need) |
+| `Dockerfile` | Build-time artifact; no runtime need |
+| `node_modules/` | Served from a named volume (ELF binaries); never from the host |
+| `AGENTS.md`, `README.md` | Documentation; no runtime need |
+
+Credentials reach the container **only via environment variables** (injected from the host shell or Docker secrets), never via the filesystem.
+
+---
+
+## Egress Proxy
+
+A `tinyproxy` sidecar container (`agentception-proxy`) enforces a domain allowlist for all outbound HTTP/HTTPS traffic from the `agentception` container.
+
+### How it works
+
+The `agentception` container has `HTTP_PROXY=http://proxy:8888` and `HTTPS_PROXY=http://proxy:8888` set. Every HTTP/HTTPS client that honours these environment variables — including Python `httpx`, `requests`, `curl`, `git`, `npm`, and the `gh` CLI — routes its connections through tinyproxy. For HTTPS, tinyproxy handles the `CONNECT` method: it checks the target hostname against the allowlist, then opens a transparent TCP tunnel if allowed (the TLS payload is never inspected).
+
+If the target domain is NOT in the allowlist, tinyproxy returns `HTTP 403 Filtered` and the connection is refused before a single byte of data leaves the Docker network.
+
+### Allowed domains
+
+| Domain pattern | Purpose |
+|---------------|---------|
+| `api.anthropic.com` | LLM API calls |
+| `api.github.com`, `github.com`, `*.githubusercontent.com`, `codeload.github.com` | GitHub API, git push/fetch, gh CLI |
+| `registry.npmjs.org`, `cdn.jsdelivr.net` | NPM package installs |
+| `huggingface.co`, `cdn-lfs*.huggingface.co`, `cdn-lfs-us-1.hf.co` | ONNX model downloads (first run) |
+| `files.pythonhosted.org`, `pypi.org` | pip installs in agent worktrees |
+| `1.1.1.1`, `cloudflare.com` | Cloudflare DNS |
+
+The allowlist lives in `scripts/tinyproxy/filter` (one regex per line). Review and audit every addition.
+
+### Bypass configuration
+
+`NO_PROXY=localhost,127.0.0.1,postgres,qdrant,host.docker.internal,::1` exempts internal Docker services from proxy routing. Connections to `postgres` (SQLAlchemy) and `qdrant` (vector store) are direct; they do not go through tinyproxy.
+
+### Limitation
+
+Tinyproxy intercepts only processes that honour `*_PROXY` environment variables. A process that opens a raw TCP socket without consulting the proxy env vars would bypass the allowlist. This vector is mitigated by:
+1. The shell denylist (blocks `/dev/tcp`, `nc -e`, reverse shells)
+2. The fact that uvicorn and all agent code use standard HTTP client libraries
+3. The non-root user reducing the surface area for privilege escalation
+
+For a fully locked-down deployment, combine the proxy with host-level iptables rules that drop traffic from the container's Docker network to anything other than `proxy:8888`.
 
 ---
 
@@ -309,12 +390,19 @@ This is an internal developer tool, not a multi-tenant SaaS. The threat model is
 | Attacker on the same machine | `AC_API_KEY` |
 | Attacker on the network (public server) | `AC_API_KEY` + TLS reverse proxy |
 | Agent loop runs destructive commands | Shell denylist |
-| Agent escapes worktree to read secrets | File-tool path sandbox |
-| Agent reads secrets via shell command | Secret redaction layer strips values from output |
+| Agent escapes worktree to read secrets via file tool | File-tool path sandbox |
+| Agent reads secrets via shell command | Secret redaction layer strips values from all shell output |
+| `.env` accessible inside container | Narrow bind mounts exclude `.env` — it never exists in the container filesystem |
+| Agent exfiltrates data to attacker-controlled URL | Egress proxy allowlist rejects non-allowlisted domains |
+| Agent escapes container, gains root | Non-root process user (UID 1001) + `no-new-privileges` |
 | LLM intercepts your API key in transit | HTTPS (httpx enforces TLS) |
-| Code chunks contain secrets | Indexer skips `.env`, `override.yml`; see note above |
+| Code chunks contain secrets | Indexer skips `.env`, `override.yml` |
 | Prompt injection via malicious repo content | System-prompt security contract + agent instruction hierarchy |
 | Runaway agent loop (cost explosion) | Hard iteration limit + wall-clock timeout |
-| Privilege escalation in container | `no-new-privileges` + capability drop |
+| Container privilege escalation | `no-new-privileges` + `cap_drop: ALL` + minimal caps |
 
-Prompt injection (malicious content in indexed files influencing agent behavior) is partially mitigated by the explicit security contract in the system prompt. The agent is instructed to treat all repository content as untrusted data and to ignore instructions embedded in it. Additionally, reviewing agent steps in the Build dashboard before they complete provides human oversight.
+**Residual risks (accepted for a developer tool):**
+
+- Raw TCP socket connections (bypassing `*_PROXY` env vars) are not blocked at the network level. Mitigated by the shell denylist.
+- Agents can still read environment variables from the process environment via Python (`os.environ`). The secret redaction layer strips these from shell tool output; direct Python access within the agent's own process is harder to intercept. Mitigation: secrets are injected per-run and never baked into the image.
+- The container still has outbound access to the allowlisted domains. A compromised agent could exfiltrate data to `api.github.com` (e.g. by creating a GitHub issue). This is a residual risk inherent to any agent that needs to push code and create PRs.
