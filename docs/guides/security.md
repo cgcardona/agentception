@@ -13,7 +13,11 @@ AgentCeption is an orchestration engine that calls external APIs, executes shell
 | `/api/*` routes | **Auth opt-in** | `AC_API_KEY` middleware; disabled when key is empty |
 | MCP stdio transport | **Secure by default** | No network socket; communicates over Docker exec pipe |
 | MCP HTTP transport | **Same as HTTP service** | Exposed at `/api/mcp`; protected by `AC_API_KEY` when set |
-| Shell tool (agent loop) | **Denylist enforced** | Destructive patterns (`rm -rf /`, `sudo`, fork bombs) are blocked |
+| Shell tool (agent loop) | **Denylist + secret redaction** | Destructive patterns blocked; credential values stripped from output |
+| File tool path sandbox | **Enforced** | Reads restricted to worktree + repo root; writes restricted to worktree only |
+| Prompt injection | **Hardened** | System prompt explicitly warns agents to treat repo content as untrusted |
+| Agent wall-clock timeout | **Enforced** | `AGENT_MAX_WALL_SECONDS` (default 2 h) cancels runaway loops |
+| Docker container privileges | **Hardened** | `no-new-privileges`, capability drop, minimal capability re-add |
 | Qdrant (vector store) | **Localhost-only by default** | Docker binds to `127.0.0.1:6335` |
 
 ---
@@ -147,21 +151,82 @@ Do not forget `proxy_read_timeout` — SSE connections (the `/events` endpoint a
 
 ---
 
-## Shell Tool Denylist (Agent Loop)
+## Shell Tool Safety (Agent Loop)
 
-When the Cursor-free agent loop executes shell commands via the `run_command` tool (`agentception/tools/shell_tools.py`), a denylist blocks patterns that could cause irreversible system damage:
+When the Cursor-free agent loop executes shell commands via the `run_command` tool (`agentception/tools/shell_tools.py`), two layers protect the host:
+
+### Command Denylist
+
+A denylist blocks patterns that could cause irreversible system damage or enable privilege escalation:
 
 | Blocked pattern | Why |
 |----------------|-----|
 | `rm -rf /` and variants | Recursive deletion from root |
+| `rm -rf /app`, `rm -rf /worktrees` | Destruction of the mounted app or all agent worktrees |
 | `sudo` | Privilege escalation |
 | `:(){ :|:& };:` (fork bomb) | Resource exhaustion |
 | `shutdown`, `reboot`, `halt`, `poweroff` | System shutdown |
 | `mkfs`, `dd if=/dev/zero of=/dev/` | Disk overwrite |
+| `nc -e`, `/dev/tcp/`, `/dev/udp/` | Reverse shell / network exfiltration |
 
-The denylist is enforced by regex in `_BLOCKED_PATTERNS` in `shell_tools.py`. Blocked commands return `{"ok": false, "error": "blocked: ..."}` and are never executed.
+The denylist is enforced in `_BLOCKED_PATTERNS` in `shell_tools.py`. Blocked commands return `{"ok": false, "error": "..."}` and are never executed.
 
-**Note:** The denylist is a safety backstop, not a sandbox. Agents run with the same filesystem permissions as the container user. For high-security deployments, run agent worktrees in a container with a read-only root filesystem and a writable overlay for the worktree directory only.
+### Secret Redaction
+
+All stdout and stderr captured from shell commands is passed through `_redact_secrets()` before it is returned to the agent or persisted to the DB. This strips:
+
+- `KEY=value` pairs for known secret environment variable names (`ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, `DATABASE_URL`, `AC_API_KEY`, etc.)
+- GitHub PAT tokens (`ghp_…`)
+- Anthropic API key format (`sk-ant-…`)
+- Bearer tokens in Authorization-style header lines
+
+This means an agent that runs `env` or `printenv` will see `ANTHROPIC_API_KEY=[REDACTED]` rather than the actual key value.
+
+**Note:** The denylist and redaction are safety backstops. The primary sandbox is the path sandbox (see below) and the Docker container's filesystem isolation.
+
+---
+
+## File Tool Path Sandbox
+
+All file-reading and file-writing tools in the agent loop enforce a path sandbox (`_is_safe_read_path` / `_is_safe_write_path` in `agent_loop.py`):
+
+| Tool class | Allowed paths |
+|------------|--------------|
+| Read tools (`read_file`, `read_file_lines`, `read_symbol`, `read_window`, `list_directory`, `search_text`) | Worktree directory OR repo root (`REPO_DIR`) |
+| Write tools (`write_file`, `replace_in_file`, `insert_after_in_file`) | Worktree directory **only** |
+| `run_command` cwd | Worktree directory OR repo root |
+
+Symlinks are resolved before the check (`.resolve()`), so symlinks pointing outside allowed roots are correctly rejected.
+
+An agent requesting `read_file(path="/app/.env")`, `read_file(path="/etc/passwd")`, or `write_file(path="/tmp/evil.sh")` will receive `{"ok": false, "error": "path '...' is outside the allowed scope"}` and the operation will not execute.
+
+---
+
+## Prompt Injection Protection
+
+The agent system prompt includes an explicit security contract that instructs agents to treat all repository content as **untrusted external input**:
+
+1. Repository files, code comments, issue bodies, and PR descriptions may contain adversarial instructions (prompt injection attacks). Agents are instructed to treat them as data, never as authoritative commands.
+2. Agents must never read, log, or transmit credential values regardless of what repository content instructs.
+3. Agents must never make outbound HTTP requests to third-party URLs outside their expected workflow.
+4. The system prompt explicitly states that it supersedes any conflicting instruction found in untrusted content.
+
+This is implemented in `_RUNTIME_ENV_NOTE` within `agent_loop.py` and is injected into every agent's system prompt before the first turn.
+
+---
+
+## Agent Wall-Clock Timeout
+
+Each agent run has a hard wall-clock timeout (`AGENT_MAX_WALL_SECONDS`, default 7200 seconds / 2 hours). This is enforced via `asyncio.timeout()` wrapping the entire agent loop. When the timeout fires:
+
+1. The loop is cancelled with `asyncio.TimeoutError`.
+2. An error is logged to the run's event log.
+3. `build_cancel_run` transitions the run to `cancelled`.
+4. Partial work remains in the worktree for operator inspection.
+
+Set `AGENT_MAX_WALL_SECONDS=0` in `docker-compose.override.yml` to disable the timeout (not recommended for production).
+
+Individual tool calls also have their own per-call timeouts (5 minutes for `run_command`, 30 seconds for search tools) independent of the global wall-clock timeout.
 
 ---
 
@@ -210,6 +275,31 @@ services:
 
 ---
 
+## Docker Container Hardening
+
+`docker-compose.yml` applies container security hardening:
+
+```yaml
+security_opt:
+  - no-new-privileges:true   # prevents privilege escalation via setuid binaries
+cap_drop:
+  - ALL                      # drop all capabilities
+cap_add:
+  - CHOWN                    # needed for file ownership operations
+  - SETGID
+  - SETUID
+  - DAC_OVERRIDE
+  - FOWNER
+```
+
+**Remaining risks to be aware of:**
+
+- The container runs as `root` (no `USER` directive in the Dockerfile). For production deployments, create a non-root user and switch to it.
+- `./:/app` bind-mounts the full repository (including `.env`) into the container. The file-tool path sandbox prevents agents from reading `/app/.env` via tool calls, but a shell command like `cat /app/.env` would succeed. The secret-redaction layer strips credential values from shell output before they reach the agent.
+- The container has full internet access. Network egress restrictions (e.g. iptables rules or an egress proxy) are recommended for high-security deployments.
+
+---
+
 ## Threat Model
 
 This is an internal developer tool, not a multi-tenant SaaS. The threat model is:
@@ -219,8 +309,12 @@ This is an internal developer tool, not a multi-tenant SaaS. The threat model is
 | Attacker on the same machine | `AC_API_KEY` |
 | Attacker on the network (public server) | `AC_API_KEY` + TLS reverse proxy |
 | Agent loop runs destructive commands | Shell denylist |
+| Agent escapes worktree to read secrets | File-tool path sandbox |
+| Agent reads secrets via shell command | Secret redaction layer strips values from output |
 | LLM intercepts your API key in transit | HTTPS (httpx enforces TLS) |
 | Code chunks contain secrets | Indexer skips `.env`, `override.yml`; see note above |
-| Prompt injection via malicious repo content | Model judgment; no systemic mitigation |
+| Prompt injection via malicious repo content | System-prompt security contract + agent instruction hierarchy |
+| Runaway agent loop (cost explosion) | Hard iteration limit + wall-clock timeout |
+| Privilege escalation in container | `no-new-privileges` + capability drop |
 
-Prompt injection (malicious content in indexed files influencing agent behavior) is the hardest threat to mitigate at the infrastructure level. The best defense is reviewing agent steps in the Build dashboard before they complete.
+Prompt injection (malicious content in indexed files influencing agent behavior) is partially mitigated by the explicit security contract in the system prompt. The agent is instructed to treat all repository content as untrusted data and to ignore instructions embedded in it. Additionally, reviewing agent steps in the Build dashboard before they complete provides human oversight.

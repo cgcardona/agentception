@@ -165,6 +165,17 @@ class AgentCeptionSettings(BaseSettings):
     marked stale during slow operations.
     """
     agent_max_iterations: int = 100
+    agent_max_wall_seconds: int = 7200
+    """Hard wall-clock timeout for a single agent run in seconds (default 2 h).
+
+    When the agent loop runs longer than this value, ``asyncio.timeout`` fires,
+    the run is cancelled, and partial work is left in the worktree for operator
+    inspection.  This catches runaway loops where individual tool calls are
+    short but the agent spins through many iterations.
+
+    Set via ``AGENT_MAX_WALL_SECONDS`` env var.  Setting to 0 disables the
+    timeout (not recommended for production).
+    """
     # TTL must be strictly less than poll_interval_seconds (currently 5) so every
     # poller tick sees live GitHub data.  Keep GITHUB_CACHE_SECONDS < POLL_INTERVAL_SECONDS.
     github_cache_seconds: int = 4

@@ -9,6 +9,18 @@ services:
       dockerfile: Dockerfile
     container_name: agentception-app
     restart: unless-stopped
+    # Security hardening: prevent privilege escalation inside the container.
+    security_opt:
+      - no-new-privileges:true
+    # Drop all Linux capabilities and re-add only those needed for git and npm.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - DAC_OVERRIDE
+      - FOWNER
     ports:
       - "127.0.0.1:10003:10003"
     environment:
