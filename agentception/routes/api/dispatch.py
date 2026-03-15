@@ -73,7 +73,7 @@ OrgNodeSpec.model_rebuild()
 
 import ast as _ast
 
-from agentception.config import settings
+from agentception.config import get_repo_dir_for, settings
 from agentception.db.persist import acknowledge_agent_run, persist_agent_run_dispatch
 from agentception.db.queries import get_label_context
 from agentception.services.agent_loop import run_agent_loop
@@ -718,6 +718,7 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
     batch_id = _make_batch_id(req.issue_number)
     worktree_path = str(Path(settings.worktrees_dir) / slug)
     host_worktree_path = str(Path(settings.host_worktrees_dir) / slug)
+    repo_dir = get_repo_dir_for(req.repo, settings.repo_dir)
 
     from agentception.readers.git import ensure_worktree  # noqa: PLC0415
 
@@ -732,7 +733,7 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
         # worktree from that ref.
         fetch_proc = await asyncio.create_subprocess_exec(
             "git", "fetch", "origin", branch,
-            cwd=str(settings.repo_dir),
+            cwd=str(repo_dir),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -797,6 +798,7 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
         await ensure_worktree(
             Path(worktree_path), branch, worktree_base,
             reset=not is_reviewer and not is_continuation,
+            main_repo_dir=repo_dir,
         )
         logger.info("✅ dispatch: worktree created at %s (base=%s)", worktree_path, worktree_base)
     except RuntimeError as exc:
@@ -852,9 +854,14 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
     #
     # Query: prefer the symbol-rich issue title + backtick-wrapped code refs
     # over a raw body slice, which for most issues is background prose.
+    #
+    # Gated on worktree_index_enabled: the ONNX embedding + reranking models
+    # are only loaded when code-search is active.  WORKTREE_INDEX_ENABLED=false
+    # (performance / local-LLM mode) skips this entire block to avoid loading
+    # ~2 GB of ONNX models before the agent even starts.
     from agentception.services.context_assembler import _extract_code_queries  # noqa: PLC0415
     code_matches: list[SearchMatch] = []
-    if task_description:
+    if task_description and settings.worktree_index_enabled:
         dispatch_queries = _extract_code_queries(req.issue_title or "", effective_issue_body)
         # Use the first (most signal-dense) query for the dispatch-time snippet.
         search_query = dispatch_queries[0] if dispatch_queries else (

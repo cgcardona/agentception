@@ -12,6 +12,7 @@ Keeping teardown here prevents the MCP layer from importing the routes layer
 
 import asyncio
 import logging
+import shutil
 from pathlib import Path
 
 from agentception.config import settings
@@ -46,17 +47,32 @@ async def release_worktree(worktree_path: str, repo_dir: str) -> bool:
         if rm_proc.returncode == 0:
             logger.info("✅ release_worktree: removed %s", worktree_path)
         else:
+            # git rejects directories that are no longer registered in its
+            # worktree list (e.g. after a container restart that reset the git
+            # process state).  Fall back to shutil.rmtree — the directory is
+            # orphaned and safe to force-remove.
             logger.warning(
-                "⚠️  release_worktree: worktree remove failed: %s",
+                "⚠️  release_worktree: git worktree remove failed (%s) — "
+                "falling back to shutil.rmtree for %s",
                 stderr.decode().strip(),
+                worktree_path,
             )
-            prune_proc = await asyncio.create_subprocess_exec(
-                "git", "-C", repo, "worktree", "prune",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await prune_proc.communicate()
-            return False
+            try:
+                shutil.rmtree(worktree_path)
+                logger.info("✅ release_worktree: force-removed %s via shutil.rmtree", worktree_path)
+            except Exception as rm_exc:
+                logger.warning(
+                    "⚠️  release_worktree: shutil.rmtree also failed for %s: %s",
+                    worktree_path,
+                    rm_exc,
+                )
+                prune_proc = await asyncio.create_subprocess_exec(
+                    "git", "-C", repo, "worktree", "prune",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await prune_proc.communicate()
+                return False
     else:
         logger.info("ℹ️  release_worktree: %s already gone — skipping", worktree_path)
 

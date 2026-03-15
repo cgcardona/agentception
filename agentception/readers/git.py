@@ -315,6 +315,7 @@ async def ensure_worktree(
     branch: str,
     base: str = "origin/dev",
     reset: bool = False,
+    main_repo_dir: Path | None = None,
 ) -> bool:
     """Create git worktree, optionally resetting any stale state first.
 
@@ -365,8 +366,13 @@ async def ensure_worktree(
     -----
     This function does NOT configure worktree auth. Callers must still call
     ``_configure_worktree_auth()`` separately after this returns ``True``.
+
+    main_repo_dir
+        When set, git commands run in this directory instead of
+        ``settings.repo_dir``.  Use for multi-repo dispatch so the worktree
+        is created in the repo that owns the branch (e.g. GeodesicDomeDesigner).
     """
-    repo = str(settings.repo_dir)
+    repo = str(main_repo_dir) if main_repo_dir is not None else str(settings.repo_dir)
 
     # Fast path: directory exists and no reset requested — fully idempotent.
     # Check outside the semaphore to avoid unnecessary contention.

@@ -3,6 +3,7 @@ import {
   formatActivitySummary,
   appendActivityRow,
   attachActivityFeedHandler,
+  getSubtypeIcon,
   type ActivityMessage,
 } from '../activity_feed';
 
@@ -90,6 +91,72 @@ describe('appendActivityRow', () => {
       recorded_at: '',
     });
     expect(document.querySelector('.activity-feed__row')).toBeNull();
+  });
+});
+
+describe('getSubtypeIcon', () => {
+  it('returns brain emoji for llm_iter', () => {
+    expect(getSubtypeIcon('llm_iter')).toBe('🧠');
+  });
+
+  it('returns brain emoji for llm_usage', () => {
+    expect(getSubtypeIcon('llm_usage')).toBe('🧠');
+  });
+
+  it('returns brain emoji for llm_reply', () => {
+    expect(getSubtypeIcon('llm_reply')).toBe('🧠');
+  });
+
+  it('returns brain emoji for llm_done', () => {
+    expect(getSubtypeIcon('llm_done')).toBe('🧠');
+  });
+
+  it('returns gear emoji for tool_invoked', () => {
+    expect(getSubtypeIcon('tool_invoked')).toBe('⚙️');
+  });
+
+  it('returns gear emoji for github_tool', () => {
+    expect(getSubtypeIcon('github_tool')).toBe('⚙️');
+  });
+
+  it('returns eye emoji for file_read', () => {
+    expect(getSubtypeIcon('file_read')).toBe('👁️');
+  });
+
+  it('returns pencil emoji for file_replaced', () => {
+    expect(getSubtypeIcon('file_replaced')).toBe('✏️');
+  });
+
+  it('returns pencil emoji for file_inserted', () => {
+    expect(getSubtypeIcon('file_inserted')).toBe('✏️');
+  });
+
+  it('returns pencil emoji for file_written', () => {
+    expect(getSubtypeIcon('file_written')).toBe('✏️');
+  });
+
+  it('returns dollar sign for shell_start', () => {
+    expect(getSubtypeIcon('shell_start')).toBe('$');
+  });
+
+  it('returns dollar sign for shell_done', () => {
+    expect(getSubtypeIcon('shell_done')).toBe('$');
+  });
+
+  it('returns up arrow for git_push', () => {
+    expect(getSubtypeIcon('git_push')).toBe('⬆️');
+  });
+
+  it('returns hourglass for delay', () => {
+    expect(getSubtypeIcon('delay')).toBe('⏳');
+  });
+
+  it('returns cross mark for error', () => {
+    expect(getSubtypeIcon('error')).toBe('❌');
+  });
+
+  it('returns bullet for unknown subtype', () => {
+    expect(getSubtypeIcon('unknown_subtype')).toBe('•');
   });
 });
 

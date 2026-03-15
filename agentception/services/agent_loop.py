@@ -759,7 +759,8 @@ async def run_agent_loop(
             try:
                 bounded = await _prune_history(_truncate_tool_results(messages), last_input_tokens=last_input_tokens)
                 _active_model = _HAIKU_MODEL if task.role == "reviewer" else _MODEL
-                if settings.effective_llm_provider == LLMProviderChoice.local and task.role == "developer":
+                if settings.effective_llm_provider == LLMProviderChoice.local:
+                    # All roles use the local provider when effective_llm_provider is local.
                     # Same pipeline as Anthropic: full system prompt (role + cognitive arch + runtime
                     # note), same tools, same extra_system_blocks. Only the LLM endpoint and context
                     # caps differ. Cap context so small local models (e.g. Qwen 4B) aren't overloaded.
@@ -852,14 +853,23 @@ async def run_agent_loop(
             tool_results: list[dict[str, object]] = []
 
             if response["stop_reason"] == "stop":
-                logger.info("✅ agent_loop complete — run_id=%s iterations=%d", run_id, iteration)
-                await github_client.close()
-                await build_complete_run(
-                    issue_number=issue_number,
-                    pr_url="",
-                    summary=response["content"][:500] if response["content"] else "Agent completed.",
-                    agent_run_id=run_id,
+                # The model ended without calling build_complete_run as a tool.
+                # This typically means it declared "done" in prose after doing its
+                # work but forgot to git-commit, push, and open a PR.  Log a
+                # prominent warning so the operator can recover the worktree
+                # manually; do NOT call build_complete_run(pr_url="") because the
+                # pre-flight guard will reject it and leave the run stuck in
+                # "implementing" forever.
+                logger.warning(
+                    "⚠️ agent_loop: run %r ended with stop_reason=stop but never called "
+                    "create_pull_request + build_complete_run.  Work may be uncommitted in "
+                    "the worktree.  Operator action required: inspect the worktree, commit, "
+                    "push, open a PR manually, then UPDATE agent_runs SET status='completed', "
+                    "pr_number=<N> WHERE id=%r.",
+                    run_id, run_id,
                 )
+                logger.info("✅ agent_loop loop exited — run_id=%s iterations=%d", run_id, iteration)
+                await github_client.close()
                 return
     
             if response["stop_reason"] in ("tool_calls", "length") and response["tool_calls"]:
@@ -1639,10 +1649,22 @@ async def _run_reviewer_warmup(
     sections: list[str] = []
 
     # ── 1. Setup: fetch + checkout ──────────────────────────────────────────
-    await _shell_capture(
-        f"git fetch origin --quiet && git checkout {pr_branch} --quiet 2>&1 || true",
-        cwd=worktree_path,
-    )
+    # Use create_subprocess_exec (not shell=True) so pr_branch cannot inject
+    # shell metacharacters.  Two separate calls: fetch first, then checkout.
+    for _git_argv in (
+        ["git", "fetch", "origin", "--quiet"],
+        ["git", "checkout", pr_branch, "--quiet"],
+    ):
+        try:
+            _proc = await asyncio.create_subprocess_exec(
+                *_git_argv,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=worktree_path,
+            )
+            await asyncio.wait_for(_proc.communicate(), timeout=60.0)
+        except Exception:  # noqa: BLE001
+            pass  # non-fatal — reviewer degrades gracefully
 
     # ── 2. Changed file list ─────────────────────────────────────────────────
     changed_files_raw = await _shell_capture(
