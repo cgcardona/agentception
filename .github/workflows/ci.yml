@@ -120,11 +120,11 @@ jobs:
           docker compose -f docker-compose.yml -f docker-compose.ci.yml \
             up -d proxy agentception
           for i in $(seq 1 18); do
-            curl -sf http://localhost:10003/health && break
+            curl -sf http://localhost:1337/health && break
             sleep 5
           done
-          curl -f http://localhost:10003/health
-          curl -f http://localhost:10003/
+          curl -f http://localhost:1337/health
+          curl -f http://localhost:1337/
 
       - name: Tear down
         if: always()

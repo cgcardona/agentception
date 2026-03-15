@@ -53,7 +53,7 @@ docker compose -f docker-compose.yml -f docker-compose.ci.yml \
 
 # Smoke test
 docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --wait
-curl -f http://localhost:10003/health
+curl -f http://localhost:1337/health
 docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
 ```
 

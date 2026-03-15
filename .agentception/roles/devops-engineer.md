@@ -29,7 +29,7 @@ Services in this repo:
 
 | Service | Container | Port |
 |---------|-----------|------|
-| AgentCeption | `agentception` | 10003 |
+| AgentCeption | `agentception` | 1337 |
 | Postgres | `agentception-postgres` | 5433 |
 | Qdrant | `agentception-qdrant` | 6335/6336 |
 | Nginx | `agentception-nginx` | 80/443 |

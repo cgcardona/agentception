@@ -64,7 +64,7 @@ cp .env.example .env
 # Set ANTHROPIC_API_KEY, GITHUB_TOKEN, GH_REPO, HOST_WORKTREES_DIR
 docker compose up -d
 docker compose exec agentception alembic upgrade head
-open http://localhost:10003
+open http://localhost:1337
 ```
 
 ### Option B — Local models (free, private)
@@ -102,8 +102,8 @@ HOST_WORKTREES_DIR=/path/to/worktrees
 # 3. Start
 docker compose up -d
 docker compose exec agentception alembic upgrade head
-# macOS: open http://localhost:10003
-# Linux/Windows: navigate to http://localhost:10003
+# macOS: open http://localhost:1337
+# Linux/Windows: navigate to http://localhost:1337
 ```
 
 > **Performance tip:** Set `WORKTREE_INDEX_ENABLED=false` in `.env` to skip per-agent code indexing (saves ~2 GB RSS and significant CPU) when running on constrained hardware.
@@ -128,7 +128,7 @@ See [docs/guides/local-llm.md](docs/guides/local-llm.md) for the full Ollama set
 
 See [docs/guides/setup.md](docs/guides/setup.md) for the full first-run walkthrough.
 
-> **Security note:** By default all `/api/*` endpoints are unauthenticated. If your machine is on a shared network (office LAN, cloud VM, dev box), set `AC_API_KEY` in `.env` before starting. Without it, anyone who can reach port 10003 can dispatch agents and burn your Anthropic credits. Generate a key with `openssl rand -hex 32`.
+> **Security note:** By default all `/api/*` endpoints are unauthenticated. If your machine is on a shared network (office LAN, cloud VM, dev box), set `AC_API_KEY` in `.env` before starting. Without it, anyone who can reach port 1337 can dispatch agents and burn your Anthropic credits. Generate a key with `openssl rand -hex 32`.
 
 ---
 

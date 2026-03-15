@@ -33,7 +33,7 @@ from agentception.readers.github import add_comment_to_issue, get_issue
 logger = logging.getLogger(__name__)
 
 _PR_URL_RE = re.compile(r"/pull/(\d+)")
-_SERVICE_URL = "http://localhost:10003/api/dispatch/issue"
+_SERVICE_URL = "http://localhost:1337/api/dispatch/issue"
 
 # Brief pause after worktree release before touching git/GitHub so git prune
 # has time to flush its ref locks.

@@ -180,7 +180,7 @@ curl -s http://localhost:4000/v1/chat/completions \
   }'
 
 # Confirm AgentCeption reaches local model through proxy
-curl -s http://localhost:10003/api/local-llm/hello
+curl -s http://localhost:1337/api/local-llm/hello
 ```
 
 ---

@@ -38,7 +38,7 @@ agentception/
 
 | Service    | Purpose                                 | Port  |
 |------------|-----------------------------------------|-------|
-| agentception | FastAPI application                   | 10003 |
+| agentception | FastAPI application                   | 1337 |
 | postgres   | Persistent store (runs, phases, issues) | 5433  |
 | qdrant     | Vector store (semantic search)          | 6335  |
 

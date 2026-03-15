@@ -45,7 +45,7 @@ Open `.env` and fill in the required values:
 | `WORKTREES_DIR` | Optional | Container-internal path that maps to `HOST_WORKTREES_DIR`. Add a matching volume in `docker-compose.override.yml` if you change this. | Default: `/worktrees` |
 | `HOST_REPO_DIR` | Optional | Absolute path to the repo on the host. Persisted to the DB context row so agents can resolve role files. Override in .env when the repo is outside the default Docker mount. | Default: unset |
 | `REPO_DIR` | Optional | Absolute path to the cloned agentception repo on the host. Used for git operations inside the container. | Default: `/app` (the container working directory) |
-| `PORT` | Optional | Port the FastAPI app listens on. | Default: `10003` |
+| `PORT` | Optional | Port the FastAPI app listens on. | Default: `1337` |
 | `LOG_LEVEL` | Optional | Log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`. | Default: `INFO` |
 | `AC_PIPELINE_STALL_THRESHOLD_MINUTES` | Optional | Minutes of DB-heartbeat silence before a worker agent is promoted to `STALLED`. Stored in `PipelineConfig.stall_threshold_minutes`; also settable via `pipeline-config.json`. | Default: `30` |
 
@@ -85,7 +85,7 @@ This starts three services:
 
 | Container | Host port | Purpose |
 |-----------|-----------|---------|
-| `agentception` | 10003 | FastAPI dashboard + API |
+| `agentception` | 1337 | FastAPI dashboard + API |
 | `agentception-postgres` | 5433 | Persistent database (to avoid collision with other local Postgres instances) |
 | `agentception-qdrant` | 6335 / 6336 | Vector store for semantic search |
 
@@ -122,17 +122,17 @@ If postgres is still starting, wait 5 seconds and retry.
 
 ## Step 6 — Verify the dashboard
 
-Open [http://localhost:10003](http://localhost:10003) in your browser. You should see the AgentCeption dashboard with **Build**, **Org Chart**, and **Cognitive Architecture** pages all rendering.
+Open [http://localhost:1337](http://localhost:1337) in your browser. You should see the AgentCeption dashboard with **Build**, **Org Chart**, and **Cognitive Architecture** pages all rendering.
 
 Quick smoke test from the command line:
 
 ```bash
 # Basic health ping
-curl -f http://localhost:10003/health
+curl -f http://localhost:1337/health
 # → {"status":"ok"}
 
 # Detailed health snapshot (uptime, memory, worktree count, GitHub API latency)
-curl -f http://localhost:10003/api/health/detailed
+curl -f http://localhost:1337/api/health/detailed
 # → {"uptime_seconds":..., "memory_rss_mb":..., "active_worktree_count":0, "github_api_latency_ms":...}
 ```
 
@@ -145,7 +145,7 @@ Both should return HTTP 200.
 The Cursor-free agent loop uses a Qdrant vector index to give agents `@Codebase`-style semantic search without Cursor. Trigger indexing with a single API call:
 
 ```bash
-curl -X POST http://localhost:10003/api/system/index-codebase
+curl -X POST http://localhost:1337/api/system/index-codebase
 # → {"ok": true, "message": "Codebase indexing started in the background."}
 ```
 
@@ -158,7 +158,7 @@ docker compose logs -f agentception | grep code_indexer
 Verify the index is populated:
 
 ```bash
-curl "http://localhost:10003/api/system/search?q=anthropic+api+key&n=3"
+curl "http://localhost:1337/api/system/search?q=anthropic+api+key&n=3"
 # → {"ok": true, "query": "anthropic api key", "n_results": 3, "matches": [...]}
 ```
 
@@ -167,7 +167,7 @@ Re-index after significant code changes (e.g. after merging a large PR).
 If `AC_API_KEY` is set, include it:
 
 ```bash
-curl -X POST http://localhost:10003/api/system/index-codebase \
+curl -X POST http://localhost:1337/api/system/index-codebase \
   -H "Authorization: Bearer your-key"
 ```
 
@@ -222,12 +222,12 @@ grep DB_PASSWORD .env   # should show a non-empty value
 
 This indicates a mismatch between pip and the build backend. Make sure your local `pyproject.toml` uses `build-backend = "setuptools.build_meta"` (not `setuptools.backends.legacy:build`). Pull the latest `main` — this was fixed in [#970](https://github.com/cgcardona/agentception/pull/970).
 
-**Port 10003 already in use**
+**Port 1337 already in use**
 
 Another service is occupying that port. Stop it, or change the host port in `docker-compose.yml`:
 ```yaml
 ports:
-  - "127.0.0.1:10004:10003"   # use 10004 on the host instead
+  - "127.0.0.1:10004:1337"   # use 10004 on the host instead
 ```
 
 **Alembic migration fails with "connection refused"**

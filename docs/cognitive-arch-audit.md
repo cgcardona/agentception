@@ -172,7 +172,7 @@ RUN_ID:      {run_id}
 SCOPE_TYPE:  label
 SCOPE_VALUE: {scope_value}
 GH_REPO:     {gh_repo}
-AC_URL:      http://localhost:10003
+AC_URL:      http://localhost:1337
 ```
 
 For leaf agents, the briefing is similarly arch-free.  The agent must read `COGNITIVE_ARCH` from its `ac://runs/{run_id}/context` on its own — which coordinator role files do (as part of STEP 0) but leaf role files do not (for the intro announcement).
