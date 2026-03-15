@@ -47,7 +47,10 @@ alembic/versions/__pycache__/
 # Node
 node_modules
 node_modules/
-package-lock.json
+# package-lock.json is intentionally committed.
+# npm ci (used in the Dockerfile) requires the lockfile to guarantee
+# reproducible installs in Docker builds and CI.  Excluding it causes
+# every Docker build in CI to fail at COPY package-lock.json.
 
 # Compiled frontend bundles — generated at Docker build time, never committed
 agentception/static/app.js
