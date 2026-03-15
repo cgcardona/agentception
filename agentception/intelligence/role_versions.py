@@ -39,6 +39,7 @@ import time
 from pathlib import Path
 
 from agentception.config import settings
+from agentception.types import JsonValue
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ def _versions_path() -> Path:
     return settings.repo_dir / _ROLE_VERSIONS_REL
 
 
-async def read_role_versions() -> dict[str, object]:
+async def read_role_versions() -> dict[str, JsonValue]:
     """Read and parse role-versions.json, returning an empty scaffold if absent.
 
     The returned dict always contains ``versions`` (dict) and ``ab_mode``
@@ -67,7 +68,7 @@ async def read_role_versions() -> dict[str, object]:
         text = await asyncio.get_running_loop().run_in_executor(
             None, lambda: path.read_text(encoding="utf-8")
         )
-        data: dict[str, object] = json.loads(text)
+        data: dict[str, JsonValue] = json.loads(text)
         # Ensure required top-level keys exist even if the file was hand-edited.
         if "versions" not in data:
             data["versions"] = {}
@@ -79,7 +80,7 @@ async def read_role_versions() -> dict[str, object]:
         return _empty_scaffold()
 
 
-async def write_role_versions(data: dict[str, object]) -> None:
+async def write_role_versions(data: dict[str, JsonValue]) -> None:
     """Atomically write ``data`` to role-versions.json with 2-space indentation.
 
     Creates the parent ``.agentception/`` directory if it does not yet exist so the
@@ -110,14 +111,14 @@ async def record_version_bump(slug: str, new_sha: str) -> None:
     change is permanently linked to a version label and timestamp.
     """
     data = await read_role_versions()
-    versions_raw: object = data.get("versions", {})
-    versions: dict[str, object] = versions_raw if isinstance(versions_raw, dict) else {}
+    versions_raw: JsonValue = data.get("versions", {})
+    versions: dict[str, JsonValue] = versions_raw if isinstance(versions_raw, dict) else {}
 
-    slug_entry_raw: object = versions.get(slug, {})
-    slug_entry: dict[str, object] = slug_entry_raw if isinstance(slug_entry_raw, dict) else {}
+    slug_entry_raw: JsonValue = versions.get(slug, {})
+    slug_entry: dict[str, JsonValue] = slug_entry_raw if isinstance(slug_entry_raw, dict) else {}
 
-    history_raw: object = slug_entry.get("history", [])
-    history: list[object] = history_raw if isinstance(history_raw, list) else []
+    history_raw: JsonValue = slug_entry.get("history", [])
+    history: list[JsonValue] = history_raw if isinstance(history_raw, list) else []
 
     # Idempotency guard: skip if the SHA is already the latest.
     if history and isinstance(history[-1], dict) and history[-1].get("sha") == new_sha:
@@ -152,19 +153,19 @@ async def get_version_for_batch(slug: str, batch_id: str) -> str | None:
     Callers should treat ``None`` as "version unknown at that time."
     """
     data = await read_role_versions()
-    versions_raw2: object = data.get("versions", {})
+    versions_raw2: JsonValue = data.get("versions", {})
     if not isinstance(versions_raw2, dict):
         return None
-    versions2: dict[str, object] = versions_raw2
+    versions2: dict[str, JsonValue] = versions_raw2
 
     slug_entry = versions2.get(slug)
     if not isinstance(slug_entry, dict):
         return None
 
-    history2_raw: object = slug_entry.get("history", [])
+    history2_raw: JsonValue = slug_entry.get("history", [])
     if not isinstance(history2_raw, list) or not history2_raw:
         return None
-    history2: list[object] = history2_raw
+    history2: list[JsonValue] = history2_raw
 
     batch_ts = _parse_batch_timestamp(batch_id)
     if batch_ts is None:
@@ -191,12 +192,12 @@ async def get_version_for_batch(slug: str, batch_id: str) -> str | None:
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 
-def _empty_scaffold() -> dict[str, object]:
+def _empty_scaffold() -> dict[str, JsonValue]:
     """Return the baseline empty role-versions structure."""
     return {"versions": {}, "ab_mode": _default_ab_mode()}
 
 
-def _default_ab_mode() -> dict[str, object]:
+def _default_ab_mode() -> dict[str, JsonValue]:
     """Return the default (disabled) A/B mode configuration."""
     return {
         "enabled": False,

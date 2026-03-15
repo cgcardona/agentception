@@ -29,6 +29,7 @@ from pydantic import BaseModel
 from agentception.config import settings
 from agentception.models import EnrichedManifest, EnrichedPhase
 from agentception.services.spawn_child import SpawnChildError, spawn_child
+from agentception.types import JsonValue
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +136,7 @@ async def post_plan_launch(request: PlanLaunchRequest) -> PlanLaunchResponse:
         200 with :class:`PlanLaunchResponse` on success.
     """
     try:
-        raw: object = yaml.safe_load(request.yaml_text)
+        raw: JsonValue = yaml.safe_load(request.yaml_text)
     except yaml.YAMLError as exc:
         detail = f"YAML parse error: {exc}"
         logger.warning("⚠️ /api/plan/launch — %s", detail)

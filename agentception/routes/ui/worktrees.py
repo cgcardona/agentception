@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse
 from starlette.requests import Request
 
 from agentception.config import settings as _settings
+from agentception.types import JsonValue
 from ._shared import _TEMPLATES
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ async def worktrees_page(request: Request) -> HTMLResponse:
     """Agent Sandboxes — live view of git worktrees as isolated code environments."""
     from agentception.readers.git import list_git_worktrees
 
-    worktrees: list[dict[str, object]] = []
+    worktrees: list[dict[str, JsonValue]] = []
 
     try:
         worktrees = await list_git_worktrees()

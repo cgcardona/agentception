@@ -41,6 +41,7 @@ from agentception.db.persist import (
 )
 from agentception.models import PlanIssue, PlanSpec
 from agentception.readers.github import add_label_to_issue, ensure_label_exists
+from agentception.types import JsonValue
 from agentception.readers.plan_enricher import enrich_plan_with_codebase_context
 
 logger = logging.getLogger(__name__)
@@ -468,16 +469,17 @@ async def file_issues(spec: PlanSpec) -> AsyncGenerator[IssueFileEvent, None]:
     # Immediately upsert newly created issues into ac_issues so the Ship board
     # is populated the moment the user navigates there — without waiting for the
     # next poller tick (which could take up to 5 seconds).
-    issue_gh_dicts: list[dict[str, object]] = [
-        {
+    issue_gh_dicts: list[dict[str, JsonValue]] = []
+    for c in created:
+        lbl_jv: list[JsonValue] = []
+        lbl_jv.extend(number_to_labels.get(c["number"], []))
+        issue_gh_dicts.append({
             "number": c["number"],
             "title": c["title"],
             "state": "open",
-            "labels": number_to_labels.get(c["number"], []),
+            "labels": lbl_jv,
             "body": number_to_body.get(c["number"], ""),
-        }
-        for c in created
-    ]
+        })
     try:
         await upsert_issues(issues=issue_gh_dicts, active_label=None, repo=repo)
         logger.info("✅ issue_creator: pre-seeded %d issues into ac_issues", len(issue_gh_dicts))

@@ -11,6 +11,7 @@ from starlette.requests import Request
 
 from agentception.config import settings as _settings
 from agentception.routes.roles import get_atoms, get_personas, get_taxonomy
+from agentception.types import JsonValue
 from ._shared import _TEMPLATES
 
 logger = logging.getLogger(__name__)
@@ -30,11 +31,11 @@ def _load_atom_descs(root: Path) -> dict[str, str]:
     result: dict[str, str] = {}
     for path in sorted(atoms_dir.glob("*.yaml")):
         try:
-            raw: object = yaml.safe_load(path.read_text(encoding="utf-8"))
+            raw: JsonValue = yaml.safe_load(path.read_text(encoding="utf-8"))
             if not isinstance(raw, dict):
                 continue
             dimension = str(raw.get("dimension", path.stem))
-            values_raw: object = raw.get("values", {})
+            values_raw: JsonValue = raw.get("values", {})
             if not isinstance(values_raw, dict):
                 continue
             for val_id, val_data in values_raw.items():
@@ -53,7 +54,7 @@ def _load_archetype_desc(root: Path, archetype_id: str) -> str:
     if not arch_file.exists():
         return ""
     try:
-        raw: object = yaml.safe_load(arch_file.read_text(encoding="utf-8"))
+        raw: JsonValue = yaml.safe_load(arch_file.read_text(encoding="utf-8"))
         if isinstance(raw, dict):
             return str(raw.get("description", "")).strip()
     except Exception:
@@ -67,7 +68,7 @@ def _load_skill_descs(root: Path) -> dict[str, str]:
     result: dict[str, str] = {}
     for path in sorted(skill_dir.glob("*.yaml")):
         try:
-            raw: object = yaml.safe_load(path.read_text(encoding="utf-8"))
+            raw: JsonValue = yaml.safe_load(path.read_text(encoding="utf-8"))
             if isinstance(raw, dict) and raw.get("display_name"):
                 result[str(raw.get("id", path.stem))] = str(
                     raw.get("description", "")

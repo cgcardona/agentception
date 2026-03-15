@@ -33,6 +33,7 @@ from agentception.db.queries import (
     _get_step_data_for_runs,
     get_runs_for_issue_numbers,
 )
+from agentception.types import JsonValue
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +58,7 @@ def _mock_run_dict(
     agent_status: str = "implementing",
     current_step: str | None = None,
     steps_completed: int = 0,
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Build a minimal RunForIssueRow-shaped dict for mock patching."""
     return {
         "id": "issue-82",
@@ -73,7 +74,7 @@ def _mock_run_dict(
     }
 
 
-def _mock_issue(number: int = 82, title: str = "Enrich build board") -> dict[str, object]:
+def _mock_issue(number: int = 82, title: str = "Enrich build board") -> dict[str, JsonValue]:
     return {
         "number": number,
         "title": title,
@@ -86,12 +87,14 @@ def _mock_issue(number: int = 82, title: str = "Enrich build board") -> dict[str
 
 
 def _mock_group(
-    issues: list[dict[str, object]] | None = None,
-) -> list[dict[str, object]]:
+    issues: list[dict[str, JsonValue]] | None = None,
+) -> list[dict[str, JsonValue]]:
+    issue_list: list[JsonValue] = []
+    issue_list.extend(issues or [_mock_issue()])
     return [
         {
             "label": "phase-1",
-            "issues": issues or [_mock_issue()],
+            "issues": issue_list,
             "locked": False,
             "complete": False,
             "depends_on": [],
@@ -417,7 +420,7 @@ def test_build_board_partial_complete_phase_hides_launch_button(
     client: TestClient,
 ) -> None:
     """GET /build/board must not render a Launch button for a complete phase."""
-    complete_group: list[dict[str, object]] = [
+    complete_group: list[dict[str, JsonValue]] = [
         {
             "label": "phase-0",
             "issues": [
@@ -464,7 +467,7 @@ def test_build_board_partial_complete_phase_cards_not_clickable(
     client: TestClient,
 ) -> None:
     """Issue cards in a complete phase must not have an inspect-issue @click handler."""
-    complete_group: list[dict[str, object]] = [
+    complete_group: list[dict[str, JsonValue]] = [
         {
             "label": "phase-0",
             "issues": [

@@ -251,7 +251,7 @@ async def test_release_worktree_falls_back_to_rmtree_when_git_rejects(tmp_path: 
 
     import asyncio
 
-    async def fake_run(*args: object, **kwargs: object) -> object:  # noqa: ARG001
+    async def fake_run(*args: str | int | float | bool | None, **kwargs: str | int | float | bool | None) -> MagicMock:  # noqa: ARG001
         proc = MagicMock()
         proc.returncode = 1
         proc.communicate = AsyncMock(return_value=(b"", b"fatal: not a working tree"))
@@ -278,7 +278,7 @@ async def test_release_worktree_returns_false_when_both_git_and_rmtree_fail(tmp_
     stale_dir = tmp_path / "issue-825"
     stale_dir.mkdir()
 
-    async def fake_run(*args: object, **kwargs: object) -> object:  # noqa: ARG001
+    async def fake_run(*args: str | int | float | bool | None, **kwargs: str | int | float | bool | None) -> MagicMock:  # noqa: ARG001
         proc = MagicMock()
         proc.returncode = 1
         proc.communicate = AsyncMock(return_value=(b"", b"fatal: not a working tree"))

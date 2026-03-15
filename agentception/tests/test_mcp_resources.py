@@ -24,11 +24,12 @@ Resources tested:
 """
 
 import json
-from collections.abc import Mapping
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
+from agentception.types import JsonValue
 
 from agentception.mcp.resources import (
     RESOURCES,
@@ -42,7 +43,7 @@ from agentception.mcp.server import (
     list_resources,
     list_resource_templates,
 )
-from agentception.mcp.types import ACResourceResult
+from agentception.mcp.types import ACResourceResult, JsonRpcErrorResponse, JsonRpcSuccessResponse
 
 
 # ---------------------------------------------------------------------------
@@ -50,40 +51,41 @@ from agentception.mcp.types import ACResourceResult
 # ---------------------------------------------------------------------------
 
 
-def _content(result: ACResourceResult) -> dict[str, object]:
+def _content(result: ACResourceResult) -> dict[str, JsonValue]:
     """Decode the first content item of an ACResourceResult as JSON."""
     raw: str = result["contents"][0]["text"]
-    out: dict[str, object] = json.loads(raw)
+    out: dict[str, JsonValue] = json.loads(raw)
     return out
 
 
-def _rpc(method: str, params: dict[str, object] | None = None) -> dict[str, object]:
-    req: dict[str, object] = {"jsonrpc": "2.0", "id": 1, "method": method}
+def _rpc(method: str, params: dict[str, JsonValue] | None = None) -> dict[str, JsonValue]:
+    req: dict[str, JsonValue] = {"jsonrpc": "2.0", "id": 1, "method": method}
     if params is not None:
         req["params"] = params
     return req
 
 
-def _unwrap_rpc(resp: Mapping[str, object] | None) -> Mapping[str, object]:
-    """Assert the RPC response is non-None and return it with narrowed type."""
+def _unwrap_rpc(resp: JsonRpcSuccessResponse | JsonRpcErrorResponse | None) -> dict[str, JsonValue]:
+    """Assert the RPC response is non-None and return as a wide dict."""
     assert resp is not None
-    return resp
+    d: dict[str, JsonValue] = json.loads(json.dumps(resp))
+    return d
 
 
-def _rpc_result(resp: Mapping[str, object] | None) -> Mapping[str, object]:
+def _rpc_result(resp: JsonRpcSuccessResponse | JsonRpcErrorResponse | None) -> dict[str, JsonValue]:
     """Extract and narrow the 'result' value from an RPC response."""
     unwrapped = _unwrap_rpc(resp)
-    result = unwrapped["result"]
+    result = unwrapped.get("result")
     assert isinstance(result, dict)
     return result
 
 
-def _rpc_contents(resp: Mapping[str, object] | None) -> list[dict[str, object]]:
+def _rpc_contents(resp: JsonRpcSuccessResponse | JsonRpcErrorResponse | None) -> list[dict[str, JsonValue]]:
     """Extract the 'contents' list from a resources/read RPC response."""
     result = _rpc_result(resp)
     raw_contents = result["contents"]
     assert isinstance(raw_contents, list)
-    contents: list[dict[str, object]] = [c for c in raw_contents if isinstance(c, dict)]
+    contents: list[dict[str, JsonValue]] = [c for c in raw_contents if isinstance(c, dict)]
     return contents
 
 
@@ -199,7 +201,7 @@ async def test_handle_request_async_resources_list() -> None:
     result = _rpc_result(resp)
     raw_resources = result["resources"]
     assert isinstance(raw_resources, list)
-    resources: list[dict[str, object]] = [r for r in raw_resources if isinstance(r, dict)]
+    resources: list[dict[str, JsonValue]] = [r for r in raw_resources if isinstance(r, dict)]
     uris = {str(r["uri"]) for r in resources}
     assert "ac://runs/active" in uris
     assert "ac://system/health" in uris
@@ -213,7 +215,7 @@ async def test_handle_request_async_resources_templates_list() -> None:
     result = _rpc_result(resp)
     raw_templates = result["resourceTemplates"]
     assert isinstance(raw_templates, list)
-    templates: list[dict[str, object]] = [t for t in raw_templates if isinstance(t, dict)]
+    templates: list[dict[str, JsonValue]] = [t for t in raw_templates if isinstance(t, dict)]
     uris = {str(t["uriTemplate"]) for t in templates}
     assert "ac://runs/{run_id}" in uris
     assert "ac://plan/figures/{role}" in uris
@@ -223,11 +225,12 @@ async def test_handle_request_async_resources_templates_list() -> None:
 async def test_handle_request_async_resources_read_missing_uri_returns_error() -> None:
     """resources/read with missing params.uri returns an invalid-params error."""
     resp = await handle_request_async(_rpc("resources/read", {}))
-    unwrapped = _unwrap_rpc(resp)
-    assert "error" in unwrapped
-    raw_error = unwrapped["error"]
+    m = _unwrap_rpc(resp)
+    assert "error" in m
+    raw_error = m["error"]
     assert isinstance(raw_error, dict)
-    assert raw_error["code"] == -32602
+    error_dict: dict[str, JsonValue] = json.loads(json.dumps(raw_error))
+    assert error_dict["code"] == -32602
 
 
 @pytest.mark.anyio

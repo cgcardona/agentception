@@ -28,9 +28,9 @@ async def test_configure_worktree_auth_enables_worktree_config() -> None:
     from agentception.services.run_factory import _configure_worktree_auth
 
     ext_proc = _make_proc()
-    call_args: list[tuple[object, ...]] = []
+    call_args: list[tuple[str | int | float | bool | None, ...]] = []
 
-    async def fake_exec(*args: object, **_kwargs: object) -> AsyncMock:
+    async def fake_exec(*args: str | int | float | bool | None, **_kwargs: str | int | float | bool | None) -> AsyncMock:
         call_args.append(args)
         return ext_proc
 
@@ -57,7 +57,7 @@ async def test_configure_worktree_auth_worktree_config_failure_logs_warning() ->
 
     ext_proc = _make_proc(returncode=1, stderr=b"error: not in a git repo")
 
-    async def fake_exec(*args: object, **_kwargs: object) -> AsyncMock:
+    async def fake_exec(*args: str | int | float | bool | None, **_kwargs: str | int | float | bool | None) -> AsyncMock:
         return ext_proc
 
     with patch("agentception.services.run_factory.asyncio.create_subprocess_exec", side_effect=fake_exec):
@@ -76,9 +76,9 @@ async def test_configure_worktree_auth_no_bearer_header_ever_set() -> None:
     from agentception.services.run_factory import _configure_worktree_auth
 
     ext_proc = _make_proc()
-    all_args: list[tuple[object, ...]] = []
+    all_args: list[tuple[str | int | float | bool | None, ...]] = []
 
-    async def fake_exec(*args: object, **_kwargs: object) -> AsyncMock:
+    async def fake_exec(*args: str | int | float | bool | None, **_kwargs: str | int | float | bool | None) -> AsyncMock:
         all_args.append(args)
         return ext_proc
 

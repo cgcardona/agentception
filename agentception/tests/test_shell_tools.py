@@ -282,7 +282,7 @@ class TestGitCommitAndPush:
         ]
         call_iter = iter(responses)
 
-        async def fake_exec(*_args: object, **_kwargs: object) -> MagicMock:
+        async def fake_exec(*_args: str | int | float | bool | None, **_kwargs: str | int | float | bool | None) -> MagicMock:
             return next(call_iter)
 
         with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
@@ -306,7 +306,7 @@ class TestGitCommitAndPush:
         ]
         call_iter = iter(responses)
 
-        async def fake_exec(*_args: object, **_kwargs: object) -> MagicMock:
+        async def fake_exec(*_args: str | int | float | bool | None, **_kwargs: str | int | float | bool | None) -> MagicMock:
             return next(call_iter)
 
         with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
@@ -327,7 +327,7 @@ class TestGitCommitAndPush:
         ]
         call_iter = iter(responses)
 
-        async def fake_exec(*_args: object, **_kwargs: object) -> MagicMock:
+        async def fake_exec(*_args: str | int | float | bool | None, **_kwargs: str | int | float | bool | None) -> MagicMock:
             return next(call_iter)
 
         with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):

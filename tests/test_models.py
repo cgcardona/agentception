@@ -10,8 +10,8 @@ from pydantic import ValidationError
 from agentception.models import FileEditEvent
 
 
-def _make_event(**overrides: object) -> FileEditEvent:
-    defaults: dict[str, object] = {
+def _make_event(**overrides: datetime.datetime | str | int) -> FileEditEvent:
+    defaults: dict[str, datetime.datetime | str | int] = {
         "timestamp": datetime.datetime(2024, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc),
         "path": "agentception/models/__init__.py",
         "diff": "@@ -1,3 +1,4 @@\n+from __future__ import annotations\n context\n",

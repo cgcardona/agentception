@@ -21,6 +21,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from agentception.models import PlanIssue, PlanPhase, PlanSpec
+from agentception.types import JsonValue
 from agentception.readers.issue_creator import (
     DoneEvent,
     FilingErrorEvent,
@@ -189,7 +190,7 @@ async def test_file_issues_emits_issue_events_for_each_issue() -> None:
     spec = _make_spec()
     call_count = 0
 
-    def fake_proc(*_args: object, **_kwargs: object) -> MagicMock:
+    def fake_proc(*_args: str, **_kwargs: str | int | bool | float | None) -> MagicMock:
         nonlocal call_count
         call_count += 1
         return _mock_proc(stdout=_issue_url(100 + call_count))
@@ -212,7 +213,7 @@ async def test_file_issues_emits_done_event_last() -> None:
     spec = _make_spec()
     call_count = 0
 
-    def fake_proc(*_args: object, **_kwargs: object) -> MagicMock:
+    def fake_proc(*_args: str, **_kwargs: str | int | bool | float | None) -> MagicMock:
         nonlocal call_count
         call_count += 1
         return _mock_proc(stdout=_issue_url(200 + call_count))
@@ -244,7 +245,7 @@ async def test_file_issues_edits_body_for_depends_on() -> None:
     create_count = 0
     edit_calls: list[list[str]] = []
 
-    def fake_proc(*args: str, **_kwargs: object) -> MagicMock:
+    def fake_proc(*args: str, **_kwargs: str | int | bool | float | None) -> MagicMock:
         nonlocal create_count
         cmd = list(args)
         if "create" in cmd:
@@ -294,7 +295,7 @@ async def test_file_issues_still_yields_blocked_event_when_label_stamp_fails() -
 
     create_count = 0
 
-    def fake_proc(*args: str, **_kwargs: object) -> MagicMock:
+    def fake_proc(*args: str, **_kwargs: str | int | bool | float | None) -> MagicMock:
         nonlocal create_count
         cmd = list(args)
         if "create" in cmd:
@@ -326,7 +327,7 @@ async def test_file_issues_no_edit_when_no_depends_on() -> None:
     edit_calls: list[list[str]] = []
     create_count = 0
 
-    def fake_proc(*args: str, **_kwargs: object) -> MagicMock:
+    def fake_proc(*args: str, **_kwargs: str | int | bool | float | None) -> MagicMock:
         nonlocal create_count
         cmd = list(args)
         if "create" in cmd:
@@ -376,7 +377,7 @@ async def test_file_issues_yields_error_on_create_failure() -> None:
     """A gh issue create failure yields an 'error' event and stops the stream."""
     spec = _make_spec()
 
-    def fake_proc(*args: str, **_kwargs: object) -> MagicMock:
+    def fake_proc(*args: str, **_kwargs: str | int | bool | float | None) -> MagicMock:
         if "create" in list(args):
             return _mock_proc(returncode=1, stderr=b"gh: repository not found")
         return _mock_proc()
@@ -438,7 +439,7 @@ async def test_file_issues_uses_scoped_labels_on_gh_create() -> None:
     create_calls: list[list[str]] = []
     call_count = 0
 
-    def fake_proc(*args: str, **_kwargs: object) -> MagicMock:
+    def fake_proc(*args: str, **_kwargs: str | int | bool | float | None) -> MagicMock:
         nonlocal call_count
         cmd = list(args)
         if "create" in cmd:
@@ -475,7 +476,7 @@ async def test_file_issues_phase_gate_labels_by_phase_position() -> None:
     # Capture (phase_scoped_label, gate_label) per create call.
     phase_gate_pairs: list[tuple[str, str]] = []
 
-    def fake_proc(*args: str, **_kwargs: object) -> MagicMock:
+    def fake_proc(*args: str, **_kwargs: str | int | bool | float | None) -> MagicMock:
         cmd = list(args)
         if "create" in cmd:
             label_args = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--label"]
@@ -513,7 +514,7 @@ async def test_file_issues_phase1_body_contains_phase_gate_notice() -> None:
     spec = _make_spec(initiative="ac-workflow")
     body_calls: list[tuple[str, str]] = []  # (scoped_phase_label, body_text)
 
-    def fake_proc(*args: str, **_kwargs: object) -> MagicMock:
+    def fake_proc(*args: str, **_kwargs: str | int | bool | float | None) -> MagicMock:
         cmd = list(args)
         if "create" in cmd:
             label_args = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--label"]
@@ -654,7 +655,7 @@ async def test_file_issues_calls_persist_initiative_phases() -> None:
     spec = _make_spec(initiative="ac-build")
     call_count = 0
 
-    def fake_proc(*_args: object, **_kwargs: object) -> MagicMock:
+    def fake_proc(*_args: str, **_kwargs: str | int | bool | float | None) -> MagicMock:
         nonlocal call_count
         call_count += 1
         return _mock_proc(stdout=_issue_url(700 + call_count))
@@ -681,7 +682,7 @@ async def test_file_issues_calls_persist_initiative_phases() -> None:
     assert initiative_arg == "ac-build"
     batch_id_arg: str = call_kwargs.kwargs.get("batch_id") or call_kwargs.args[2]
     assert batch_id_arg.startswith("batch-")
-    phases_arg: list[object] = (
+    phases_arg: list[JsonValue] = (
         call_kwargs.kwargs.get("phases") or call_kwargs.args[3]
     )
     assert len(phases_arg) == 2
@@ -693,7 +694,7 @@ async def test_file_issues_calls_persist_issue_depends_on_for_deps() -> None:
     spec = _make_spec(with_depends_on=True)
     create_count = 0
 
-    def fake_proc(*args: str, **_kwargs: object) -> MagicMock:
+    def fake_proc(*args: str, **_kwargs: str | int | bool | float | None) -> MagicMock:
         nonlocal create_count
         cmd = list(args)
         if "create" in cmd:
@@ -731,7 +732,7 @@ async def test_file_issues_body_edit_failure_is_non_fatal() -> None:
     spec = _make_spec(with_depends_on=True)
     create_count = 0
 
-    def fake_proc(*args: str, **_kwargs: object) -> MagicMock:
+    def fake_proc(*args: str, **_kwargs: str | int | bool | float | None) -> MagicMock:
         nonlocal create_count
         cmd = list(args)
         if "create" in cmd:
@@ -769,7 +770,7 @@ async def test_file_issues_immediately_upserts_created_issues() -> None:
     spec = _make_spec()
     call_count = 0
 
-    def fake_proc(*_args: object, **_kwargs: object) -> MagicMock:
+    def fake_proc(*_args: str, **_kwargs: str | int | bool | float | None) -> MagicMock:
         nonlocal call_count
         call_count += 1
         return _mock_proc(stdout=_issue_url(1000 + call_count))
@@ -794,7 +795,7 @@ async def test_file_issues_immediately_upserts_created_issues() -> None:
     upsert_mock.assert_awaited_once()
     call_kwargs = upsert_mock.call_args
     assert call_kwargs is not None
-    issues_arg: list[object] = call_kwargs.kwargs.get("issues") or call_kwargs.args[0]
+    issues_arg: list[JsonValue] = call_kwargs.kwargs.get("issues") or call_kwargs.args[0]
     assert len(issues_arg) == 2, "both created issues must be pre-seeded"
     for raw in issues_arg:
         assert isinstance(raw, dict)
@@ -815,7 +816,7 @@ async def test_file_issues_upsert_includes_blocked_deps_label() -> None:
     spec = _make_spec(with_depends_on=True)
     create_count = 0
 
-    def fake_proc(*args: str, **_kwargs: object) -> MagicMock:
+    def fake_proc(*args: str, **_kwargs: str | int | bool | float | None) -> MagicMock:
         nonlocal create_count
         cmd = list(args)
         if "create" in cmd:
@@ -845,12 +846,15 @@ async def test_file_issues_upsert_includes_blocked_deps_label() -> None:
     upsert_mock.assert_awaited_once()
     call_kwargs = upsert_mock.call_args
     assert call_kwargs is not None
-    issues_arg: list[object] = call_kwargs.kwargs.get("issues") or call_kwargs.args[0]
+    issues_arg: list[JsonValue] = call_kwargs.kwargs.get("issues") or call_kwargs.args[0]
     # The blocked issue must include 'blocked/deps' in its label list.
-    blocked_entries = [
-        raw for raw in issues_arg
-        if isinstance(raw, dict) and "blocked/deps" in (raw.get("labels") or [])
-    ]
+    blocked_entries: list[dict[str, JsonValue]] = []
+    for raw in issues_arg:
+        if not isinstance(raw, dict):
+            continue
+        labels = raw.get("labels")
+        if isinstance(labels, list) and "blocked/deps" in labels:
+            blocked_entries.append(raw)
     assert blocked_entries, "blocked issue must carry 'blocked/deps' in the upserted label list"
 
 

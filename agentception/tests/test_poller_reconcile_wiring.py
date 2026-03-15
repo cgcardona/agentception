@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from agentception.poller import polling_loop
+from agentception.types import JsonValue
 
 
 @pytest.fixture()
@@ -39,7 +40,7 @@ async def test_reconcile_called_each_cycle(
     """reconcile_stale_runs is invoked once per poller tick."""
     call_count = 0
 
-    async def _counting_reconcile(*args: object, **kwargs: object) -> list[str]:
+    async def _counting_reconcile(*args: str | int | bool | float | None, **kwargs: str | int | bool | float | None) -> list[str]:
         nonlocal call_count
         call_count += 1
         if call_count >= 2:
@@ -72,7 +73,7 @@ async def test_reconcile_exception_does_not_crash_poller(
         if tick_count >= 2:
             raise asyncio.CancelledError
 
-    async def _failing_reconcile(*args: object, **kwargs: object) -> list[str]:
+    async def _failing_reconcile(*args: str | int | bool | float | None, **kwargs: str | int | bool | float | None) -> list[str]:
         raise RuntimeError("github exploded")
 
     with (
@@ -96,7 +97,7 @@ async def test_threshold_from_env(
     received_threshold: list[int] = []
 
     async def _capture_reconcile(
-        session: object,
+        session: JsonValue,
         *,
         stale_threshold_minutes: int = 10,
     ) -> list[str]:

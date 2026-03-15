@@ -28,6 +28,7 @@ from pathlib import Path
 
 import httpx
 
+from agentception.types import JsonValue
 from agentception.db.persist import (
     acknowledge_agent_run,
     block_agent_run,
@@ -57,7 +58,7 @@ async def _rebase_and_push_worktree(
     wt_path: str,
     agent_run_id: str | None,
     base: str = "origin/dev",
-) -> dict[str, object] | None:
+) -> dict[str, JsonValue] | None:
     """Rebase the worktree branch onto *base* and force-push.
 
     Returns ``None`` on success, or a structured error dict on rebase conflict
@@ -215,7 +216,7 @@ async def _maybe_trigger_plan_merge(plan_id: str) -> None:
     )
 
 
-async def build_claim_run(run_id: str) -> dict[str, object]:
+async def build_claim_run(run_id: str) -> dict[str, JsonValue]:
     """Atomically claim a pending run before spawning its Task agent.
 
     Transitions the run from ``pending_launch`` → ``implementing``.  Call this
@@ -305,7 +306,7 @@ async def build_complete_run(
     agent_run_id: str | None = None,
     grade: str = "",
     reviewer_feedback: str = "",
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Record that the agent has finished work and transition to completed.
 
     Persists the ``done`` event (linking the PR and updating workflow state),
@@ -353,7 +354,7 @@ async def build_complete_run(
     # ── Determine caller role before persisting so the done-event payload
     # can include grade/feedback for reviewer runs.
     caller_role = await get_agent_run_role(agent_run_id) if agent_run_id else None
-    _done_payload: dict[str, object] = {"pr_url": pr_url, "summary": summary}
+    _done_payload: dict[str, JsonValue] = {"pr_url": pr_url, "summary": summary}
     if caller_role == "reviewer":
         _done_payload["grade"] = grade.strip().upper()
         _done_payload["reviewer_feedback"] = reviewer_feedback
@@ -535,7 +536,7 @@ async def build_complete_run(
     return {"ok": True, "event": "done", "status": "completed"}
 
 
-async def build_teardown_worktree(agent_run_id: str) -> dict[str, object]:
+async def build_teardown_worktree(agent_run_id: str) -> dict[str, JsonValue]:
     """Clean up the git worktree for a completed or stopped run.
 
     Fires ``teardown_agent_worktree`` as a background task so the caller
@@ -566,7 +567,7 @@ async def build_teardown_worktree(agent_run_id: str) -> dict[str, object]:
     return {"ok": True, "run_id": agent_run_id, "teardown": "queued"}
 
 
-async def build_block_run(run_id: str) -> dict[str, object]:
+async def build_block_run(run_id: str) -> dict[str, JsonValue]:
     """Transition an ``implementing`` run to ``blocked``.
 
     Call when the agent cannot proceed without external input (a human decision,
@@ -593,7 +594,7 @@ async def build_block_run(run_id: str) -> dict[str, object]:
     return {"ok": True, "run_id": run_id, "status": "blocked"}
 
 
-async def build_resume_run(run_id: str, agent_run_id: str) -> dict[str, object]:
+async def build_resume_run(run_id: str, agent_run_id: str) -> dict[str, JsonValue]:
     """Transition a ``blocked`` or ``stopped`` run back to ``implementing``.
 
     Idempotent: if the run is already ``implementing`` and ``agent_run_id``
@@ -626,7 +627,7 @@ async def build_resume_run(run_id: str, agent_run_id: str) -> dict[str, object]:
     return {"ok": True, "run_id": run_id, "status": "implementing"}
 
 
-async def build_cancel_run(run_id: str) -> dict[str, object]:
+async def build_cancel_run(run_id: str) -> dict[str, JsonValue]:
     """Transition any active run to ``cancelled``.
 
     ``cancelled`` is a terminal state — the run cannot be resumed.  Use
@@ -653,7 +654,7 @@ async def build_cancel_run(run_id: str) -> dict[str, object]:
     return {"ok": True, "run_id": run_id, "status": "cancelled"}
 
 
-async def build_stop_run(run_id: str) -> dict[str, object]:
+async def build_stop_run(run_id: str) -> dict[str, JsonValue]:
     """Transition any active run to ``stopped``.
 
     Unlike ``build_cancel_run``, a stopped run can be resumed via
@@ -686,7 +687,7 @@ async def build_spawn_adhoc_child(
     task_description: str,
     figure: str = "",
     base_branch: str = "origin/dev",
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Spawn a child agent run from within another agent's tool loop.
 
     This is the MCP-native way for a coordinator to dispatch engineer agents.

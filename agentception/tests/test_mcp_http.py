@@ -16,6 +16,8 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock, patch
 
+from agentception.types import JsonValue
+
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient, ASGITransport
@@ -28,8 +30,8 @@ def app() -> FastAPI:
     return fastapi_app
 
 
-def _rpc(method: str, params: dict[str, object] | None = None, req_id: int | None = 1) -> dict[str, object]:
-    req: dict[str, object] = {"jsonrpc": "2.0", "method": method}
+def _rpc(method: str, params: dict[str, JsonValue] | None = None, req_id: int | None = 1) -> dict[str, JsonValue]:
+    req: dict[str, JsonValue] = {"jsonrpc": "2.0", "method": method}
     if req_id is not None:
         req["id"] = req_id
     if params is not None:
@@ -123,7 +125,7 @@ class TestMcpHttpNotifications:
     async def test_unknown_notification_returns_202(self, app: FastAPI) -> None:
         # An unknown method with no id is a notification → 202 (not an error)
         # MCP spec: servers must not respond to notifications
-        rpc_msg: dict[str, object] = {"jsonrpc": "2.0", "method": "notifications/cancel"}
+        rpc_msg: dict[str, JsonValue] = {"jsonrpc": "2.0", "method": "notifications/cancel"}
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.post("/api/mcp", json=rpc_msg)
         # handle_request_async returns method-not-found for unknown methods, so
@@ -166,7 +168,7 @@ class TestMcpHttpBatch:
 
     @pytest.mark.anyio
     async def test_batch_mixed_notification_and_request(self, app: FastAPI) -> None:
-        batch: list[dict[str, object]] = [
+        batch: list[dict[str, JsonValue]] = [
             {"jsonrpc": "2.0", "method": "initialized"},
             _rpc("ping", req_id=99),
         ]

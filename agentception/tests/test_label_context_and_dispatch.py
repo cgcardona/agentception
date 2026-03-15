@@ -29,6 +29,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agentception.app import app
+from agentception.types import JsonValue
 from agentception.routes.api.dispatch import (
     _label_slug,
     _role_and_tier_for_scope,
@@ -66,7 +67,7 @@ def _make_worktree_exec() -> MagicMock:
     When ``git worktree add <path> -b <branch>`` is called the mock creates the
     directory for the agent worktree.
     """
-    async def _side_effect(*args: str, **_kwargs: object) -> AsyncMock:
+    async def _side_effect(*args: str, **_kwargs: str | int | bool | float | None) -> AsyncMock:
         if len(args) >= 4 and args[1] == "worktree" and args[2] == "add":
             Path(args[3]).mkdir(parents=True, exist_ok=True)
         return _make_fake_proc()
@@ -97,8 +98,8 @@ def _make_agent_task_capture() -> tuple[list[str], Callable[..., int]]:
     return written, _capture
 
 
-def _dispatch_label_body(**overrides: object) -> dict[str, object]:
-    base: dict[str, object] = {
+def _dispatch_label_body(**overrides: JsonValue) -> dict[str, JsonValue]:
+    base: dict[str, JsonValue] = {
         "label": "ac-workflow",
         "scope": "full_initiative",
         "repo": "cgcardona/agentception",

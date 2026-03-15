@@ -10,12 +10,14 @@ Run targeted:
     pytest agentception/tests/test_agentception_github.py -v
 """
 
+import json
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 import agentception.readers.github as gh_module
+from agentception.types import JsonValue
 from agentception.readers.github import (
     _cache,
     _cache_invalidate,
@@ -39,7 +41,7 @@ from agentception.readers.github import (
 # Mock helpers
 # ---------------------------------------------------------------------------
 
-def _mock_response(payload: object, status_code: int = 200) -> MagicMock:
+def _mock_response(payload: JsonValue, status_code: int = 200) -> MagicMock:
     """Build a mock httpx response."""
     resp = MagicMock()
     resp.status_code = status_code
@@ -62,11 +64,11 @@ def _mock_response(payload: object, status_code: int = 200) -> MagicMock:
 
 def _mock_client(
     *,
-    get: object | None = None,
-    post: object | None = None,
-    patch: object | None = None,
-    put: object | None = None,
-    delete: object | None = None,
+    get: JsonValue | None = None,
+    post: JsonValue | None = None,
+    patch: JsonValue | None = None,
+    put: JsonValue | None = None,
+    delete: JsonValue | None = None,
     status_code: int = 200,
 ) -> MagicMock:
     """Build a mock httpx.AsyncClient context manager.
@@ -79,7 +81,7 @@ def _mock_client(
     client.__aenter__ = AsyncMock(return_value=client)
     client.__aexit__ = AsyncMock(return_value=False)
 
-    def _resp(payload: object, code: int = status_code) -> MagicMock:
+    def _resp(payload: JsonValue, code: int = status_code) -> MagicMock:
         return _mock_response(payload, code)
 
     client.get = AsyncMock(return_value=_resp(get if get is not None else []))
@@ -107,7 +109,7 @@ def clear_cache_before_each() -> None:
 @pytest.mark.anyio
 async def test_cache_hit_skips_http_call() -> None:
     """A second _api_get with the same cache_key must NOT make another HTTP call."""
-    payload = [{"number": 1, "title": "Example"}]
+    payload: JsonValue = [{"number": 1, "title": "Example"}]
     mock = _mock_client(get=payload)
 
     with patch("agentception.readers.github.httpx.AsyncClient", return_value=mock):
@@ -156,10 +158,11 @@ async def test_api_get_raises_on_http_error() -> None:
 @pytest.mark.anyio
 async def test_get_open_issues_filters_by_label() -> None:
     """get_open_issues(label=...) must pass labels= to the API and return list."""
-    issues = [
+    issues_raw = [
         {"number": 10, "title": "Issue A", "labels": [], "body": ""},
         {"number": 11, "title": "Issue B", "labels": [], "body": ""},
     ]
+    issues: JsonValue = json.loads(json.dumps(issues_raw))
     mock = _mock_client(get=issues)
 
     with patch("agentception.readers.github.httpx.AsyncClient", return_value=mock):
@@ -187,10 +190,11 @@ async def test_get_open_issues_no_label() -> None:
 @pytest.mark.anyio
 async def test_get_open_issues_excludes_pull_requests() -> None:
     """get_open_issues() must filter out items that have a pull_request key."""
-    items = [
+    items_raw = [
         {"number": 1, "title": "Real issue", "labels": []},
         {"number": 2, "title": "A PR", "labels": [], "pull_request": {"url": "..."}},
     ]
+    items: JsonValue = json.loads(json.dumps(items_raw))
     mock = _mock_client(get=items)
 
     with patch("agentception.readers.github.httpx.AsyncClient", return_value=mock):
@@ -243,10 +247,11 @@ async def test_get_active_label_returns_first_match_from_config() -> None:
         active_labels_order=["phase/0", "phase/1", "phase/2"],
     )
     # Only phase/1 and phase/2 have open issues.
-    api_issues = [
+    api_issues_raw = [
         {"number": 1, "labels": [{"name": "phase/1"}]},
         {"number": 2, "labels": [{"name": "phase/2"}]},
     ]
+    api_issues: JsonValue = json.loads(json.dumps(api_issues_raw))
     mock = _mock_client(get=api_issues)
 
     with (
@@ -269,9 +274,10 @@ async def test_get_active_label_returns_none_when_no_match() -> None:
         pool_size=4,
         active_labels_order=["phase/0", "phase/1"],
     )
-    api_issues = [
+    api_issues_raw = [
         {"number": 3, "labels": [{"name": "enhancement"}]},
     ]
+    api_issues: JsonValue = json.loads(json.dumps(api_issues_raw))
     mock = _mock_client(get=api_issues)
 
     with (
@@ -290,7 +296,7 @@ async def test_get_active_label_returns_none_when_no_match() -> None:
 @pytest.mark.anyio
 async def test_get_open_prs_normalises_field_names() -> None:
     """get_open_prs() must map head.ref→headRefName, base.ref→baseRefName, draft→isDraft."""
-    raw_pr = {
+    raw_pr: dict[str, JsonValue] = {
         "number": 5,
         "title": "feat: something",
         "head": {"ref": "feat/something"},
@@ -400,7 +406,7 @@ async def test_clear_wip_label_invalidates_cache() -> None:
 @pytest.mark.anyio
 async def test_get_issue_normalises_labels_to_strings() -> None:
     """get_issue() must return labels as a list of name strings."""
-    raw = {
+    raw: dict[str, JsonValue] = {
         "number": 42,
         "state": "open",
         "title": "Fix it",
@@ -515,8 +521,7 @@ async def test_approve_pr_raises_on_failure() -> None:
 @pytest.mark.anyio
 async def test_merge_pr_puts_squash_merge() -> None:
     """merge_pr() must PUT merge_method=squash to the PR merge endpoint."""
-    # delete_branch=True needs a GET for head ref, then PUT merge, then DELETE branch.
-    pr_data = {"head": {"ref": "feat/my-feature"}, "number": 99}
+    pr_data: dict[str, JsonValue] = {"head": {"ref": "feat/my-feature"}, "number": 99}
     get_mock = _mock_client(get=pr_data)
     put_mock = _mock_client(put={"merged": True, "sha": "abc123"})
     delete_mock = _mock_client()
@@ -536,7 +541,7 @@ async def test_merge_pr_puts_squash_merge() -> None:
 @pytest.mark.anyio
 async def test_merge_pr_deletes_branch_by_default() -> None:
     """merge_pr() must DELETE the head branch after merging when delete_branch=True."""
-    pr_data = {"head": {"ref": "feat/my-feature"}, "number": 99}
+    pr_data: dict[str, JsonValue] = {"head": {"ref": "feat/my-feature"}, "number": 99}
     get_mock = _mock_client(get=pr_data)
     put_mock = _mock_client(put={"merged": True})
     delete_mock = _mock_client()
@@ -602,9 +607,8 @@ async def test_api_get_retries_on_429() -> None:
 
     from agentception.readers.github import _api_get
 
-    payload = {"number": 1, "title": "Retried"}
+    payload: JsonValue = {"number": 1, "title": "Retried"}
 
-    # First call returns 429; second returns 200.
     resp_429 = _mock_response(None, 429)
     resp_429.headers = {"retry-after": "0"}
     resp_200 = _mock_response(payload, 200)
@@ -652,7 +656,7 @@ async def test_api_post_retries_on_429() -> None:
     """_api_post must retry after a 429 and succeed on the second attempt."""
     from agentception.readers.github import _api_post
 
-    payload = {"number": 42, "html_url": "https://github.com/x/y/issues/42"}
+    payload: JsonValue = {"number": 42, "html_url": "https://github.com/x/y/issues/42"}
 
     resp_429 = _mock_response(None, 429)
     resp_429.headers = {"retry-after": "0"}
@@ -678,7 +682,7 @@ async def test_create_issue_returns_issue_dict() -> None:
     """create_issue() must POST to the issues endpoint and return the response dict."""
     from agentception.readers.github import create_issue
 
-    issue_payload = {
+    issue_payload: JsonValue = {
         "number": 99,
         "html_url": "https://github.com/x/y/issues/99",
         "state": "open",
@@ -702,7 +706,7 @@ async def test_update_issue_patches_only_provided_fields() -> None:
     """update_issue() must PATCH only the fields that are not None."""
     from agentception.readers.github import update_issue
 
-    updated_payload = {
+    updated_payload: JsonValue = {
         "number": 7,
         "state": "closed",
         "title": "Original title",
@@ -726,7 +730,7 @@ async def test_ensure_label_exists_updates_on_422_already_exists() -> None:
     from agentception.readers.github import ensure_label_exists
 
     # POST returns 422 with "already_exists" error code; PATCH succeeds.
-    already_exists_body = {
+    already_exists_body: dict[str, JsonValue] = {
         "message": "Validation Failed",
         "errors": [{"resource": "Label", "code": "already_exists", "field": "name"}],
     }
@@ -767,7 +771,7 @@ async def test_ensure_label_exists_raises_on_422_validation_error() -> None:
     """
     from agentception.readers.github import ensure_label_exists
 
-    validation_error_body = {
+    validation_error_body: dict[str, JsonValue] = {
         "message": "Validation Failed",
         "errors": [{"resource": "Label", "code": "invalid", "field": "name"}],
     }

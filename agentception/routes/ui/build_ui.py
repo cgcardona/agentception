@@ -51,6 +51,7 @@ from agentception.db.queries import (
     get_workflow_states_by_issue,
 )
 from agentception.services.cognitive_arch import figure_display_name, ROLE_DEFAULT_FIGURE
+from agentception.types import JsonValue
 from ._shared import _TEMPLATES
 
 _TAXONOMY_PATH = (
@@ -73,20 +74,26 @@ def _build_role_figure_map() -> dict[str, list[str]]:
     dropdown never offers a figure the backend doesn't know about.
     """
     try:
-        raw: object = yaml.safe_load(_TAXONOMY_PATH.read_text(encoding="utf-8"))
+        raw: JsonValue = yaml.safe_load(_TAXONOMY_PATH.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             return {}
         result: dict[str, list[str]] = {}
-        for level in raw.get("levels", []):
+        raw_levels: JsonValue = raw.get("levels", [])
+        if not isinstance(raw_levels, list):
+            return {}
+        for level in raw_levels:
             if not isinstance(level, dict):
                 continue
-            for role in level.get("roles", []):
+            raw_roles: JsonValue = level.get("roles", [])
+            if not isinstance(raw_roles, list):
+                continue
+            for role in raw_roles:
                 if not isinstance(role, dict):
                     continue
                 slug = role.get("slug")
                 if not isinstance(slug, str) or not slug:
                     continue
-                figs: object = role.get("compatible_figures", [])
+                figs: JsonValue = role.get("compatible_figures", [])
                 result[slug] = [str(f) for f in figs] if isinstance(figs, list) else []
         return result
     except Exception:
@@ -383,11 +390,22 @@ async def _inspector_sse(run_id: str) -> AsyncGenerator[str, None]:
         )
 
         # Merge by recorded_at so events and thoughts are emitted in chronological order.
-        merged: list[tuple[str, str, object]] = []
+        merged: list[tuple[str, str, dict[str, int | str]]] = []
         for ev in events:
-            merged.append((ev["recorded_at"], "event", ev))
+            merged.append((ev["recorded_at"], "event", {
+                "id": ev["id"],
+                "event_type": ev["event_type"],
+                "payload": ev["payload"],
+                "recorded_at": ev["recorded_at"],
+            }))
         for th in thoughts:
-            merged.append((th["recorded_at"], "thought", th))
+            merged.append((th["recorded_at"], "thought", {
+                "seq": th["seq"],
+                "role": th["role"],
+                "content": th["content"],
+                "tool_name": th["tool_name"],
+                "recorded_at": th["recorded_at"],
+            }))
         merged.sort(key=lambda x: x[0])
 
         for _recorded_at, kind, item in merged:
@@ -395,7 +413,7 @@ async def _inspector_sse(run_id: str) -> AsyncGenerator[str, None]:
                 ev_item = item
                 assert isinstance(ev_item, dict)
                 last_event_id = max(last_event_id, int(ev_item["id"]))
-                payload_obj = json.loads(ev_item["payload"])
+                payload_obj = json.loads(str(ev_item["payload"]))
                 if ev_item["event_type"] == "activity":
                     payload = json.dumps(
                         {
@@ -427,7 +445,7 @@ async def _inspector_sse(run_id: str) -> AsyncGenerator[str, None]:
                         {
                             "t": "tool_call",
                             "tool_name": thought["tool_name"],
-                            "args_preview": _preview(thought["content"]),
+                            "args_preview": _preview(str(thought["content"])),
                             "recorded_at": thought["recorded_at"],
                         }
                     )
@@ -439,7 +457,7 @@ async def _inspector_sse(run_id: str) -> AsyncGenerator[str, None]:
                         {
                             "t": "tool_result",
                             "tool_name": tool_name,
-                            "result_preview": _preview(thought["content"]),
+                            "result_preview": _preview(str(thought["content"])),
                             "recorded_at": thought["recorded_at"],
                         }
                     )

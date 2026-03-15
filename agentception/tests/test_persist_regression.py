@@ -14,8 +14,8 @@ phase-0 reader fixes:
 
 import datetime
 import json
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager, AbstractAsyncContextManager
-from typing import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from agentception.db.base import Base
 from agentception.db.models import ACIssue, ACInitiativePhase
 from agentception.db.persist import _upsert_issues
+from agentception.types import JsonValue
 from agentception.db.queries import get_initiatives
 
 
@@ -92,7 +93,7 @@ async def test_stale_issue_clears_after_close() -> None:
         await session.commit()
 
         # Step 2: upsert the same issue with state="closed".
-        closed_record: dict[str, object] = {
+        closed_record: dict[str, JsonValue] = {
             "number": issue_number,
             "title": "My open issue",
             "state": "closed",
@@ -154,7 +155,7 @@ def _issue_rows(label_lists: list[list[str]]) -> MagicMock:
 def _mock_two_query_session(
     phase_result: MagicMock,
     issue_result: MagicMock,
-) -> object:
+) -> Callable[[], AbstractAsyncContextManager[AsyncMock]]:
     """Return a ``get_session`` replacement that serves two sequential queries.
 
     The first ``async with get_session()`` call returns a session that yields

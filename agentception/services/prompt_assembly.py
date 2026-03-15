@@ -33,6 +33,7 @@ from pathlib import Path
 import yaml
 
 from agentception.config import settings
+from agentception.types import JsonValue
 
 logger = logging.getLogger(__name__)
 
@@ -212,7 +213,7 @@ def _load_figure_identity(figure_id: str) -> tuple[str, str]:
         return figure_id, ""
 
     try:
-        raw: object = yaml.safe_load(figure_path.read_text(encoding="utf-8"))
+        raw: JsonValue = yaml.safe_load(figure_path.read_text(encoding="utf-8"))
     except Exception as exc:  # noqa: BLE001
         logger.warning(
             "⚠️ build_system_prompt: failed to parse figure YAML for %r: %s",

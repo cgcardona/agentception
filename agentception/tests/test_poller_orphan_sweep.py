@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agentception.db.models import ACAgentEvent, ACAgentRun
 from agentception.db import persist as _persist
+from agentception.types import JsonValue
 
 
 # ---------------------------------------------------------------------------
@@ -338,10 +339,10 @@ async def test_no_autoflush_prevents_premature_flush_on_second_orphan() -> None:
             _no_autoflush_depth[0] += 1
             return self
 
-        def __exit__(self, *args: object) -> None:
+        def __exit__(self, *args: str | int | bool | float | None) -> None:
             _no_autoflush_depth[0] -= 1
 
-    async def _scalar_side_effect(stmt: object) -> int:
+    async def _scalar_side_effect(stmt: JsonValue) -> int:
         # Record whether we are inside no_autoflush when scalar() fires.
         no_autoflush_active.append(_no_autoflush_depth[0] > 0)
         return 0  # no build_complete_run event — both orphans should be failed

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agentception.db.models import ACAgentRun
 from agentception.reconcile import reconcile_stale_runs
+from agentception.types import JsonValue
 
 _UTC = datetime.timezone.utc
 
@@ -172,7 +173,7 @@ async def test_partial_github_failure() -> None:
 
     call_count = 0
 
-    async def _get_issue_side_effect(number: int) -> dict[str, object]:
+    async def _get_issue_side_effect(number: int) -> dict[str, JsonValue]:
         nonlocal call_count
         call_count += 1
         if number == 401:

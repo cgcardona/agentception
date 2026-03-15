@@ -281,7 +281,7 @@ async def test_spawn_child_db_persist_failure_cleans_up_worktree() -> None:
 
     subprocess_calls: list[tuple[str, ...]] = []
 
-    async def fake_subprocess(*args: str, **kwargs: object) -> MagicMock:
+    async def fake_subprocess(*args: str, **kwargs: str | int | bool | float | None) -> MagicMock:
         subprocess_calls.append(args)
         return mock_proc
 

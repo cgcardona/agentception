@@ -32,6 +32,7 @@ from fastapi.testclient import TestClient
 
 from agentception.app import app
 from agentception.routes.ui.org_chart import _load_presets, _PRESETS_PATH
+from agentception.types import JsonValue
 
 
 @pytest.fixture(scope="module")
@@ -57,7 +58,7 @@ def tmp_pipeline_config(tmp_path: Path) -> Generator[Path, None, None]:
 
 
 @pytest.fixture()
-def sample_presets() -> list[dict[str, object]]:
+def sample_presets() -> list[dict[str, JsonValue]]:
     """Minimal preset list for mocking _load_presets."""
     return [
         {
@@ -96,7 +97,7 @@ class TestOrgChartPage:
     def test_org_chart_returns_200(
         self,
         client: TestClient,
-        sample_presets: list[dict[str, object]],
+        sample_presets: list[dict[str, JsonValue]],
     ) -> None:
         """GET /org-chart should return HTTP 200 with a valid HTML body."""
         with (
@@ -111,7 +112,7 @@ class TestOrgChartPage:
     def test_org_chart_contains_preset_names(
         self,
         client: TestClient,
-        sample_presets: list[dict[str, object]],
+        sample_presets: list[dict[str, JsonValue]],
     ) -> None:
         """Preset card names should appear in the rendered HTML."""
         with (
@@ -128,7 +129,7 @@ class TestOrgChartPage:
     def test_org_chart_contains_right_panel_shell(
         self,
         client: TestClient,
-        sample_presets: list[dict[str, object]],
+        sample_presets: list[dict[str, JsonValue]],
     ) -> None:
         """The right panel shell div must exist for future issues #829 and #830."""
         with (
@@ -142,7 +143,7 @@ class TestOrgChartPage:
     def test_org_chart_marks_active_preset(
         self,
         client: TestClient,
-        sample_presets: list[dict[str, object]],
+        sample_presets: list[dict[str, JsonValue]],
     ) -> None:
         """When active_org is set in config, the matching card should have the active class."""
         with (
@@ -176,7 +177,7 @@ class TestSelectPreset:
     def test_select_preset_persists_active_org(
         self,
         client: TestClient,
-        sample_presets: list[dict[str, object]],
+        sample_presets: list[dict[str, JsonValue]],
         tmp_pipeline_config: Path,
     ) -> None:
         """Selecting a valid preset should write active_org to pipeline-config.json."""
@@ -190,7 +191,7 @@ class TestSelectPreset:
     def test_select_preset_returns_refreshed_partial(
         self,
         client: TestClient,
-        sample_presets: list[dict[str, object]],
+        sample_presets: list[dict[str, JsonValue]],
         tmp_pipeline_config: Path,
     ) -> None:
         """The response should contain the preset list partial with the new active card."""
@@ -205,7 +206,7 @@ class TestSelectPreset:
     def test_select_preset_rejects_unknown_id(
         self,
         client: TestClient,
-        sample_presets: list[dict[str, object]],
+        sample_presets: list[dict[str, JsonValue]],
     ) -> None:
         """An unknown preset_id should return HTTP 422."""
         with patch("agentception.routes.ui.org_chart._load_presets", return_value=sample_presets):
@@ -219,7 +220,7 @@ class TestSelectPreset:
     def test_select_preset_active_card_marked(
         self,
         client: TestClient,
-        sample_presets: list[dict[str, object]],
+        sample_presets: list[dict[str, JsonValue]],
         tmp_pipeline_config: Path,
     ) -> None:
         """After selection, the returned partial should mark the chosen card as active."""
@@ -486,7 +487,7 @@ class TestOrgTree:
     def test_org_tree_returns_404_when_no_active_org(
         self,
         client: TestClient,
-        sample_presets: list[dict[str, object]],
+        sample_presets: list[dict[str, JsonValue]],
     ) -> None:
         """When no active org is set, the endpoint should return HTTP 404."""
         with (
@@ -500,7 +501,7 @@ class TestOrgTree:
     def test_org_tree_returns_200_for_active_preset(
         self,
         client: TestClient,
-        sample_presets: list[dict[str, object]],
+        sample_presets: list[dict[str, JsonValue]],
     ) -> None:
         """When an active preset is set, the endpoint should return HTTP 200."""
         with (
@@ -522,7 +523,7 @@ class TestOrgTree:
     def test_org_tree_root_name_matches_preset(
         self,
         client: TestClient,
-        sample_presets: list[dict[str, object]],
+        sample_presets: list[dict[str, JsonValue]],
     ) -> None:
         """The root node name should match the selected preset's display name."""
         with (
@@ -546,7 +547,7 @@ class TestOrgTree:
     def test_org_tree_contains_tier_children(
         self,
         client: TestClient,
-        sample_presets: list[dict[str, object]],
+        sample_presets: list[dict[str, JsonValue]],
     ) -> None:
         """The tree should contain leadership and workers tier children."""
         with (
@@ -570,7 +571,7 @@ class TestOrgTree:
     def test_org_tree_roles_include_slug_and_tier(
         self,
         client: TestClient,
-        sample_presets: list[dict[str, object]],
+        sample_presets: list[dict[str, JsonValue]],
     ) -> None:
         """Each role node must include slug, name, tier, assigned_phases, and figures fields."""
         with (
@@ -604,7 +605,7 @@ class TestOrgTree:
     def test_org_tree_figures_capped_at_two(
         self,
         client: TestClient,
-        sample_presets: list[dict[str, object]],
+        sample_presets: list[dict[str, JsonValue]],
     ) -> None:
         """Even if a role has many compatible figures, the endpoint returns at most 2."""
         many_figures = ["fig1", "fig2", "fig3", "fig4", "fig5"]
@@ -633,7 +634,7 @@ class TestOrgTree:
     def test_org_tree_returns_404_for_unknown_active_org(
         self,
         client: TestClient,
-        sample_presets: list[dict[str, object]],
+        sample_presets: list[dict[str, JsonValue]],
     ) -> None:
         """If active_org references a preset not in the presets list, return HTTP 404."""
         with (
@@ -650,7 +651,7 @@ class TestOrgTree:
     def test_org_tree_org_tree_panel_present_in_page(
         self,
         client: TestClient,
-        sample_presets: list[dict[str, object]],
+        sample_presets: list[dict[str, JsonValue]],
     ) -> None:
         """The org-chart page HTML must contain the #org-tree-panel div."""
         with (

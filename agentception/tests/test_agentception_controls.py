@@ -302,7 +302,7 @@ def test_active_label_unpin_returns_auto_resolved(client: TestClient) -> None:
 
 def _make_async_subprocess_noop() -> MagicMock:
     """Return a mock for asyncio.create_subprocess_exec that always succeeds."""
-    async def _noop(*_args: str, **_kwargs: object) -> AsyncMock:
+    async def _noop(*_args: str, **_kwargs: str | int | bool | float | None) -> AsyncMock:
         proc = AsyncMock()
         proc.returncode = 0
         proc.communicate.return_value = (b"", b"")

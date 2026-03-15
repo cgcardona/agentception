@@ -25,6 +25,7 @@ import signal
 import sys
 import traceback
 from collections.abc import AsyncGenerator, AsyncIterator
+from types import FrameType
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -131,7 +132,7 @@ def _on_exit() -> None:
         pass
 
 
-def _on_sigterm(signum: int, frame: object) -> None:
+def _on_sigterm(signum: int, frame: FrameType | None) -> None:
     """SIGTERM: log RSS + stack before uvicorn's shutdown handler takes over."""
     _log_rss("SIGTERM")
     frames = sys._current_frames()

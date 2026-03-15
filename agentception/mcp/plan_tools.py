@@ -30,11 +30,13 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 import yaml
 
 from pydantic import ValidationError
+
+from agentception.types import JsonSchemaObj, JsonValue
 
 from agentception.models import EnrichedManifest, PlanSpec
 from agentception.readers.github import get_repo_labels
@@ -60,6 +62,50 @@ class CognitiveFigureEntry(TypedDict):
     description: str
 
 
+class CognitiveFiguresResult(TypedDict):
+    """Return shape of ``plan_get_cognitive_figures``."""
+
+    role: str
+    figures: list[CognitiveFigureEntry]
+    error: NotRequired[str]
+
+
+class ValidateSpecSuccessResult(TypedDict):
+    """Successful PlanSpec validation result."""
+
+    valid: bool
+    spec: dict[str, JsonValue]
+
+
+class ValidationErrorResult(TypedDict):
+    """Failed validation result (shared by spec and manifest)."""
+
+    valid: bool
+    errors: list[str]
+
+
+class RepoLabelEntry(TypedDict):
+    """A single label from the GitHub label catalogue."""
+
+    name: str
+    description: str
+
+
+class LabelsResult(TypedDict):
+    """Return shape of ``plan_get_labels``."""
+
+    labels: list[RepoLabelEntry]
+
+
+class ValidateManifestSuccessResult(TypedDict):
+    """Successful EnrichedManifest validation result."""
+
+    valid: bool
+    manifest: dict[str, JsonValue]
+    total_issues: int
+    estimated_waves: int
+
+
 def _load_compatible_figures(role: str) -> list[str] | None:
     """Return the ``compatible_figures`` list for *role* from the taxonomy.
 
@@ -69,13 +115,19 @@ def _load_compatible_figures(role: str) -> list[str] | None:
     if not _TAXONOMY_PATH.exists():
         logger.warning("⚠️ role-taxonomy.yaml not found at %s", _TAXONOMY_PATH)
         return None
-    raw: object = yaml.safe_load(_TAXONOMY_PATH.read_text(encoding="utf-8"))
+    raw: JsonValue = yaml.safe_load(_TAXONOMY_PATH.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         return None
-    for level in raw.get("levels", []):
+    raw_levels: JsonValue = raw.get("levels", [])
+    if not isinstance(raw_levels, list):
+        return None
+    for level in raw_levels:
         if not isinstance(level, dict):
             continue
-        for role_entry in level.get("roles", []):
+        raw_roles: JsonValue = level.get("roles", [])
+        if not isinstance(raw_roles, list):
+            continue
+        for role_entry in raw_roles:
             if not isinstance(role_entry, dict):
                 continue
             if role_entry.get("slug") == role:
@@ -94,7 +146,7 @@ def _figure_entry(figure_id: str) -> CognitiveFigureEntry | None:
     if not path.exists():
         return None
     try:
-        raw: object = yaml.safe_load(path.read_text(encoding="utf-8"))
+        raw: JsonValue = yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError:
         return None
     if not isinstance(raw, dict):
@@ -107,7 +159,7 @@ def _figure_entry(figure_id: str) -> CognitiveFigureEntry | None:
     return {"id": figure_id, "display_name": display_name, "description": first_sentence}
 
 
-def plan_get_cognitive_figures(role: str) -> dict[str, object]:
+def plan_get_cognitive_figures(role: str) -> CognitiveFiguresResult:
     """Return the catalog of cognitive figures compatible with *role*.
 
     Reads ``role-taxonomy.yaml`` to obtain the ``compatible_figures`` list for
@@ -157,10 +209,10 @@ def plan_get_cognitive_figures(role: str) -> dict[str, object]:
     return {"role": role, "figures": entries}
 
 # Module-level cache: populated on the first call to plan_get_schema().
-_schema_cache: dict[str, object] | None = None
+_schema_cache: JsonSchemaObj | None = None
 
 
-def plan_get_schema() -> dict[str, object]:
+def plan_get_schema() -> JsonSchemaObj:
     """Return the JSON Schema for PlanSpec.
 
     The schema is generated once from the Pydantic model and cached for the
@@ -168,19 +220,19 @@ def plan_get_schema() -> dict[str, object]:
     not mutate it.
 
     Returns:
-        A ``dict[str, object]`` containing the full JSON Schema for
+        A ``dict[str, JsonValue]`` containing the full JSON Schema for
         :class:`~agentception.models.PlanSpec`, including all nested
         definitions for ``PlanPhase`` and ``PlanIssue``.
     """
     global _schema_cache
     if _schema_cache is None:
-        raw: dict[str, object] = PlanSpec.model_json_schema()
+        raw: JsonSchemaObj = PlanSpec.model_json_schema()
         _schema_cache = raw
         logger.debug("✅ PlanSpec JSON schema generated and cached")
     return _schema_cache
 
 
-def plan_validate_spec(spec_json: str) -> dict[str, object]:
+def plan_validate_spec(spec_json: str) -> ValidateSpecSuccessResult | ValidationErrorResult:
     """Validate a JSON string against the PlanSpec schema.
 
     Parses ``spec_json`` as JSON and attempts to construct a
@@ -200,7 +252,7 @@ def plan_validate_spec(spec_json: str) -> dict[str, object]:
     so that the MCP caller receives a well-formed tool result in every case.
     """
     try:
-        raw: object = json.loads(spec_json)
+        raw: JsonValue = json.loads(spec_json)
     except json.JSONDecodeError as exc:
         logger.warning("⚠️ plan_validate_spec: JSON parse error — %s", exc)
         return {"valid": False, "errors": [f"JSON parse error: {exc}"]}
@@ -219,7 +271,8 @@ def plan_validate_spec(spec_json: str) -> dict[str, object]:
         return {"valid": False, "errors": [f"Validation error: {exc}"]}
 
     logger.debug("✅ plan_validate_spec: spec is valid")
-    return {"valid": True, "spec": spec.model_dump()}
+    spec_dict: dict[str, JsonValue] = json.loads(spec.model_dump_json())
+    return {"valid": True, "spec": spec_dict}
 
 
 # ---------------------------------------------------------------------------
@@ -227,7 +280,7 @@ def plan_validate_spec(spec_json: str) -> dict[str, object]:
 # ---------------------------------------------------------------------------
 
 
-async def plan_get_labels() -> dict[str, object]:
+async def plan_get_labels() -> LabelsResult:
     """Fetch the full GitHub label list for the configured repository.
 
     Uses :func:`agentception.readers.github.get_repo_labels` to call the
@@ -243,20 +296,20 @@ async def plan_get_labels() -> dict[str, object]:
     repo = settings.gh_repo
     raw = await get_repo_labels(limit=100)
 
-    labels: list[dict[str, str]] = []
+    labels: list[RepoLabelEntry] = []
     for item in raw:
         name = item.get("name", "")
         description = item.get("description", "")
-        labels.append({
-            "name": str(name),
-            "description": str(description) if description else "",
-        })
+        labels.append(RepoLabelEntry(
+            name=str(name),
+            description=str(description) if description else "",
+        ))
 
     logger.info("✅ plan_get_labels: fetched %d labels from %s", len(labels), repo)
     return {"labels": labels}
 
 
-def plan_validate_manifest(json_text: str) -> dict[str, object]:
+def plan_validate_manifest(json_text: str) -> ValidateManifestSuccessResult | ValidationErrorResult:
     """Validate a JSON string against the EnrichedManifest schema.
 
     Parses ``json_text`` as JSON and validates it against
@@ -279,7 +332,7 @@ def plan_validate_manifest(json_text: str) -> dict[str, object]:
     Never raises — all errors are captured in the result dict.
     """
     try:
-        raw: object = json.loads(json_text)
+        raw: JsonValue = json.loads(json_text)
     except json.JSONDecodeError as exc:
         logger.warning("⚠️ plan_validate_manifest: JSON parse error — %s", exc)
         return {"valid": False, "errors": [f"JSON parse error: {exc}"]}
@@ -299,7 +352,7 @@ def plan_validate_manifest(json_text: str) -> dict[str, object]:
         logger.warning("⚠️ plan_validate_manifest: unexpected error — %s", exc)
         return {"valid": False, "errors": [f"Validation error: {exc}"]}
 
-    manifest_dict: dict[str, object] = json.loads(manifest.model_dump_json())
+    manifest_dict: dict[str, JsonValue] = json.loads(manifest.model_dump_json())
     logger.info(
         "✅ plan_validate_manifest: valid — %d issues, %d waves",
         manifest.total_issues,

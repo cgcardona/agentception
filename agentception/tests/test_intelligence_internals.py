@@ -37,6 +37,7 @@ from agentception.intelligence.guards import (
     detect_stale_claims,
 )
 from agentception.models import StaleClaim
+from agentception.types import JsonValue
 
 
 # ── parse_deps_from_body ──────────────────────────────────────────────────────
@@ -329,7 +330,7 @@ async def test_detect_stale_claims_empty_wip_list_returns_empty(tmp_path: Path) 
 async def test_detect_stale_claims_live_worktree_not_stale(tmp_path: Path) -> None:
     """An issue whose worktree directory exists must NOT appear in the result."""
     (tmp_path / "issue-5").mkdir()
-    wip = [{"number": 5, "title": "Active work"}]
+    wip: list[dict[str, JsonValue]] = [{"number": 5, "title": "Active work"}]
     result = await detect_stale_claims(wip, tmp_path)
     assert result == []
 
@@ -337,7 +338,7 @@ async def test_detect_stale_claims_live_worktree_not_stale(tmp_path: Path) -> No
 @pytest.mark.anyio
 async def test_detect_stale_claims_missing_worktree_is_stale(tmp_path: Path) -> None:
     """An issue with no worktree directory must be classified as a stale claim."""
-    wip = [{"number": 7, "title": "Abandoned"}]
+    wip: list[dict[str, JsonValue]] = [{"number": 7, "title": "Abandoned"}]
     result = await detect_stale_claims(wip, tmp_path)
     assert len(result) == 1
     assert isinstance(result[0], StaleClaim)
@@ -348,7 +349,7 @@ async def test_detect_stale_claims_missing_worktree_is_stale(tmp_path: Path) -> 
 @pytest.mark.anyio
 async def test_detect_stale_claims_sorted_by_issue_number(tmp_path: Path) -> None:
     """Results must be sorted ascending by issue number."""
-    wip = [{"number": 20, "title": "B"}, {"number": 10, "title": "A"}]
+    wip: list[dict[str, JsonValue]] = [{"number": 20, "title": "B"}, {"number": 10, "title": "A"}]
     result = await detect_stale_claims(wip, tmp_path)
     assert [c.issue_number for c in result] == [10, 20]
 
@@ -356,7 +357,7 @@ async def test_detect_stale_claims_sorted_by_issue_number(tmp_path: Path) -> Non
 @pytest.mark.anyio
 async def test_detect_stale_claims_non_int_number_is_skipped(tmp_path: Path) -> None:
     """An issue with a non-integer number must be skipped without raising."""
-    wip: list[dict[str, object]] = [{"number": "not-an-int", "title": "Bad"}]
+    wip: list[dict[str, JsonValue]] = [{"number": "not-an-int", "title": "Bad"}]
     result = await detect_stale_claims(wip, tmp_path)
     assert result == []
 
@@ -365,7 +366,7 @@ async def test_detect_stale_claims_non_int_number_is_skipped(tmp_path: Path) -> 
 async def test_detect_stale_claims_mixed_live_and_stale(tmp_path: Path) -> None:
     """Only the issues without a live worktree must appear in the result."""
     (tmp_path / "issue-1").mkdir()  # live — should NOT be stale
-    wip = [
+    wip: list[dict[str, JsonValue]] = [
         {"number": 1, "title": "Live"},
         {"number": 2, "title": "Stale"},
     ]

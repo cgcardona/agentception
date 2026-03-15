@@ -27,6 +27,7 @@ from agentception.readers.templates import (
     import_template,
     list_stored_templates,
 )
+from agentception.types import JsonValue
 
 client = TestClient(app)
 
@@ -117,7 +118,7 @@ def test_export_manifest_contains_correct_metadata(tmp_path: Path) -> None:
     with tarfile.open(fileobj=buf, mode="r:gz") as tar:
         mf = tar.extractfile("template-manifest.json")
         assert mf is not None
-        data: object = json.loads(mf.read())
+        data: JsonValue = json.loads(mf.read())
 
     assert isinstance(data, dict)
     manifest = TemplateManifest.model_validate(data)

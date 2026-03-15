@@ -17,6 +17,8 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from agentception.types import JsonValue
+
 logger = logging.getLogger(__name__)
 
 # Path to the canonical role taxonomy — three directories up from this file (repo root).
@@ -43,15 +45,21 @@ def _load_valid_roles() -> frozenset[str]:
             _TAXONOMY_PATH,
         )
         return frozenset()
-    raw: object = yaml.safe_load(_TAXONOMY_PATH.read_text(encoding="utf-8"))
+    raw: JsonValue = yaml.safe_load(_TAXONOMY_PATH.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         logger.warning("⚠️ role-taxonomy.yaml has unexpected structure — VALID_ROLES will be empty")
         return frozenset()
     roles: set[str] = set()
-    for level in raw.get("levels", []):
+    raw_levels: JsonValue = raw.get("levels", [])
+    if not isinstance(raw_levels, list):
+        return frozenset()
+    for level in raw_levels:
         if not isinstance(level, dict):
             continue
-        for role in level.get("roles", []):
+        level_roles: JsonValue = level.get("roles", [])
+        if not isinstance(level_roles, list):
+            continue
+        for role in level_roles:
             if isinstance(role, dict) and role.get("spawnable") is True:
                 slug = role.get("slug")
                 if isinstance(slug, str):
@@ -222,7 +230,7 @@ class PipelineState(BaseModel):
     closed_issues_count: int = 0
     merged_prs_count: int = 0
     stale_branches: list[str] = []
-    pending_approval: list[dict[str, object]] = []
+    pending_approval: list[dict[str, JsonValue]] = []
     plan_draft_events: list[PlanDraftEvent] = []
     loop_guard_triggered: list[str] = []
     stalled_agents: list[StalledAgentEvent] = []
@@ -990,30 +998,37 @@ class PlanSpec(BaseModel):
         Per-issue ``cognitive_arch`` and ``skills`` are always included when
         non-empty so users can inspect and edit them in the Phase 1B editor.
         """
-        data: dict[str, object] = {
+        data: dict[str, JsonValue] = {
             "initiative": self.initiative,
         }
         if self.coordinator_arch:
-            data["coordinator_arch"] = dict(self.coordinator_arch)
-        data["phases"] = [
-            {
+            coord: dict[str, JsonValue] = {
+                k: v for k, v in self.coordinator_arch.items()
+            }
+            data["coordinator_arch"] = coord
+        phases_list: list[JsonValue] = []
+        for phase in self.phases:
+            issues_list: list[JsonValue] = []
+            for issue in phase.issues:
+                issue_dict: dict[str, JsonValue] = {
+                    "id": issue.id,
+                    "title": issue.title,
+                    "body": issue.body,
+                    "depends_on": list(issue.depends_on),
+                }
+                if issue.skills:
+                    issue_dict["skills"] = list(issue.skills)
+                if issue.cognitive_arch:
+                    issue_dict["cognitive_arch"] = issue.cognitive_arch
+                issues_list.append(issue_dict)
+            phase_dict: dict[str, JsonValue] = {
                 "label": phase.label,
                 "description": phase.description,
-                "depends_on": phase.depends_on,
-                "issues": [
-                    {
-                        "id": issue.id,
-                        "title": issue.title,
-                        "body": issue.body,
-                        "depends_on": issue.depends_on,
-                        **({"skills": issue.skills} if issue.skills else {}),
-                        **({"cognitive_arch": issue.cognitive_arch} if issue.cognitive_arch else {}),
-                    }
-                    for issue in phase.issues
-                ],
+                "depends_on": list(phase.depends_on),
+                "issues": issues_list,
             }
-            for phase in self.phases
-        ]
+            phases_list.append(phase_dict)
+        data["phases"] = phases_list
         return yaml.safe_dump(data, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
     @classmethod
@@ -1025,7 +1040,7 @@ class PlanSpec(BaseModel):
                 or violates any PlanSpec invariant (empty phases, bad deps).
         """
         try:
-            raw: object = yaml.safe_load(text)
+            raw: JsonValue = yaml.safe_load(text)
         except yaml.YAMLError as exc:
             raise ValueError(f"Malformed YAML: {exc}") from exc
         if not isinstance(raw, dict):

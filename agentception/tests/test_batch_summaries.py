@@ -69,10 +69,10 @@ async def test_get_batch_summaries_returns_empty_on_db_error() -> None:
         async def __aenter__(self) -> "_FailingSession":
             return self
 
-        async def __aexit__(self, *_: object) -> None:
+        async def __aexit__(self, *_: str | int | bool | float | None) -> None:
             pass
 
-        async def execute(self, *_: object) -> None:
+        async def execute(self, *_: str | int | bool | float | None) -> None:
             raise RuntimeError("DB unavailable")
 
     with patch(

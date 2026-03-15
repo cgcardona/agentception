@@ -29,6 +29,7 @@ from fastapi.testclient import TestClient
 
 from agentception.app import app
 from agentception.routes.api.wizard import _has_workflow_label, _read_active_org
+from agentception.types import JsonValue
 
 _UTC = datetime.timezone.utc
 
@@ -48,9 +49,9 @@ def client() -> Generator[TestClient, None, None]:
 def _make_issue(
     number: int,
     label_names: list[str] | None = None,
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Return a minimal open-issue dict."""
-    label_objs: list[object] = [{"name": n} for n in (label_names or [])]
+    label_objs: list[JsonValue] = [{"name": n} for n in (label_names or [])]
     return {"number": number, "title": "Test issue", "labels": label_objs, "body": ""}
 
 
@@ -399,31 +400,31 @@ def _mock_db_error() -> MagicMock:
 
 def test_has_workflow_label_string_match() -> None:
     """String label that starts with ac-workflow/ is matched."""
-    issue: dict[str, object] = {"labels": ["ac-workflow/1-scaffold", "bug"]}
+    issue: dict[str, JsonValue] = {"labels": ["ac-workflow/1-scaffold", "bug"]}
     assert _has_workflow_label(issue) is True
 
 
 def test_has_workflow_label_dict_match() -> None:
     """Dict label with matching name is matched (GitHub API shape)."""
-    issue: dict[str, object] = {"labels": [{"name": "ac-workflow/2-core"}, {"name": "bug"}]}
+    issue: dict[str, JsonValue] = {"labels": [{"name": "ac-workflow/2-core"}, {"name": "bug"}]}
     assert _has_workflow_label(issue) is True
 
 
 def test_has_workflow_label_no_match_string() -> None:
     """String labels that do not start with ac-workflow/ are not matched."""
-    issue: dict[str, object] = {"labels": ["bug", "enhancement"]}
+    issue: dict[str, JsonValue] = {"labels": ["bug", "enhancement"]}
     assert _has_workflow_label(issue) is False
 
 
 def test_has_workflow_label_no_match_dict() -> None:
     """Dict labels whose name does not start with ac-workflow/ are not matched."""
-    issue: dict[str, object] = {"labels": [{"name": "bug"}, {"name": "feature"}]}
+    issue: dict[str, JsonValue] = {"labels": [{"name": "bug"}, {"name": "feature"}]}
     assert _has_workflow_label(issue) is False
 
 
 def test_has_workflow_label_empty_list() -> None:
     """Empty labels list returns False."""
-    issue: dict[str, object] = {"labels": []}
+    issue: dict[str, JsonValue] = {"labels": []}
     assert _has_workflow_label(issue) is False
 
 
@@ -440,13 +441,13 @@ def test_has_workflow_label_non_list_labels() -> None:
 
 def test_has_workflow_label_dict_without_name_key() -> None:
     """Dict label missing the 'name' key is skipped, not matched."""
-    issue: dict[str, object] = {"labels": [{"title": "ac-workflow/x"}]}
+    issue: dict[str, JsonValue] = {"labels": [{"title": "ac-workflow/x"}]}
     assert _has_workflow_label(issue) is False
 
 
 def test_has_workflow_label_mixed_list() -> None:
     """A mix of non-matching dicts and a matching string is handled correctly."""
-    issue: dict[str, object] = {"labels": [{"name": "bug"}, "ac-workflow/0-triage"]}
+    issue: dict[str, JsonValue] = {"labels": [{"name": "bug"}, "ac-workflow/0-triage"]}
     assert _has_workflow_label(issue) is True
 
 

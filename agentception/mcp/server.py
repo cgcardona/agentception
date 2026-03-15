@@ -42,8 +42,18 @@ Boundary constraint: zero imports from external packages.
 
 import json
 import logging
-from typing import TypedDict
 
+from agentception.types import JsonValue
+from agentception.mcp.types import (
+    InitializeResult,
+    McpCapabilities,
+    McpResultPayload,
+    McpServerInfo,
+    PromptListResult,
+    ResourceListResult,
+    ResourceTemplateListResult,
+    ToolListResult,
+)
 from agentception.mcp.build_commands import (
     build_block_run,
     build_cancel_run,
@@ -105,12 +115,7 @@ logger = logging.getLogger(__name__)
 _MCP_PROTOCOL_VERSION = "2025-03-26"
 
 #: Server identity advertised in the ``initialize`` response.
-class _ServerInfo(TypedDict):
-    name: str
-    version: str
-
-
-_SERVER_INFO: _ServerInfo = {"name": "agentception", "version": "0.1.1"}
+_SERVER_INFO: McpServerInfo = {"name": "agentception", "version": "0.1.1"}
 
 #: Retired tool names mapped to the ``ac://`` resource URI that supersedes them.
 #: Reconstructed on every call_tool invocation in the old design; hoisted here
@@ -716,7 +721,7 @@ def _make_error_response(
     request_id: int | str | None,
     code: int,
     message: str,
-    data: object = None,
+    data: JsonValue = None,
 ) -> JsonRpcErrorResponse:
     """Build a well-formed JSON-RPC 2.0 error response."""
     error: JsonRpcError = JsonRpcError(code=code, message=message, data=data)
@@ -725,13 +730,13 @@ def _make_error_response(
 
 def _make_success_response(
     request_id: int | str | None,
-    result: object,
+    result: McpResultPayload,
 ) -> JsonRpcSuccessResponse:
     """Build a well-formed JSON-RPC 2.0 success response."""
     return JsonRpcSuccessResponse(jsonrpc="2.0", id=request_id, result=result)
 
 
-def _tool_result_to_text(result: dict[str, object]) -> str:
+def _tool_result_to_text(result: dict[str, JsonValue]) -> str:
     """Serialise a tool result dict to a compact JSON string."""
     return json.dumps(result, ensure_ascii=False)
 
@@ -771,7 +776,7 @@ def list_prompts() -> list[ACPromptDef]:
     return list(PROMPTS)
 
 
-def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
+def call_tool(name: str, arguments: dict[str, JsonValue]) -> ACToolResult:
     """Dispatch a ``tools/call`` request to the named tool function.
 
     Note: all tools that require async I/O (build_*, log_*, github_*, plan
@@ -801,9 +806,9 @@ def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
                 content=[ACToolContent(type="text", text=err_text)],
                 isError=True,
             )
-        result = plan_validate_spec(spec_json)
-        text = _tool_result_to_text(result)
-        is_error = not bool(result.get("valid", False))
+        spec_result = plan_validate_spec(spec_json)
+        text = json.dumps(spec_result, ensure_ascii=False)
+        is_error = not bool(spec_result.get("valid", False))
         return ACToolResult(
             content=[ACToolContent(type="text", text=text)],
             isError=is_error,
@@ -819,9 +824,9 @@ def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
                 content=[ACToolContent(type="text", text=err_text)],
                 isError=True,
             )
-        result = plan_validate_manifest(json_text)
-        text = _tool_result_to_text(result)
-        is_error = not bool(result.get("valid", False))
+        manifest_result = plan_validate_manifest(json_text)
+        text = json.dumps(manifest_result, ensure_ascii=False)
+        is_error = not bool(manifest_result.get("valid", False))
         return ACToolResult(
             content=[ACToolContent(type="text", text=text)],
             isError=is_error,
@@ -885,7 +890,7 @@ def call_tool(name: str, arguments: dict[str, object]) -> ACToolResult:
 
 async def call_tool_async(
     name: str,
-    arguments: dict[str, object],
+    arguments: dict[str, JsonValue],
 ) -> ACToolResult:
     """Async dispatcher for tools that require async I/O.
 
@@ -1274,7 +1279,7 @@ async def call_tool_async(
 
 
 def handle_request(
-    raw: dict[str, object],
+    raw: dict[str, JsonValue],
 ) -> JsonRpcSuccessResponse | JsonRpcErrorResponse | None:
     """Dispatch a JSON-RPC 2.0 request dict and return a response dict.
 
@@ -1288,7 +1293,7 @@ def handle_request(
     the wire for a ``None`` return value.
 
     Args:
-        raw: A ``dict[str, object]`` parsed from a JSON-RPC 2.0 request body.
+        raw: A ``dict[str, JsonValue]`` parsed from a JSON-RPC 2.0 request body.
 
     Returns:
         A :class:`~agentception.mcp.types.JsonRpcSuccessResponse`,
@@ -1297,7 +1302,7 @@ def handle_request(
 
     Never raises.
     """
-    _raw_id: object = raw.get("id")
+    _raw_id: JsonValue = raw.get("id")
     request_id: int | str | None = (
         _raw_id if isinstance(_raw_id, (int, str)) else None
     )
@@ -1323,12 +1328,12 @@ def handle_request(
     # ── MCP lifecycle handshake ──────────────────────────────────────────────
 
     if method == "initialize":
-        result: dict[str, object] = {
+        init_result: InitializeResult = {
             "protocolVersion": _MCP_PROTOCOL_VERSION,
-            "capabilities": {"tools": {}, "resources": {}, "prompts": {}},
+            "capabilities": McpCapabilities(tools={}, resources={}, prompts={}),
             "serverInfo": _SERVER_INFO,
         }
-        return _make_success_response(request_id, result)
+        return _make_success_response(request_id, init_result)
 
     if method == "initialized":
         logger.debug("✅ MCP initialized notification received")
@@ -1341,7 +1346,7 @@ def handle_request(
 
     if method == "tools/list":
         tools = list_tools()
-        return _make_success_response(request_id, {"tools": tools})
+        return _make_success_response(request_id, ToolListResult(tools=tools))
 
     if method == "tools/call":
         params = raw.get("params")
@@ -1368,7 +1373,7 @@ def handle_request(
                 "params.arguments must be an object",
             )
 
-        arguments: dict[str, object] = {k: v for k, v in arguments_raw.items()}
+        arguments: dict[str, JsonValue] = {k: v for k, v in arguments_raw.items()}
 
         try:
             tool_result = call_tool(tool_name, arguments)
@@ -1388,7 +1393,7 @@ def handle_request(
 
     if method == "prompts/list":
         return _make_success_response(
-            request_id, {"prompts": list_prompts()}
+            request_id, PromptListResult(prompts=list_prompts())
         )
 
     if method == "prompts/get":
@@ -1434,7 +1439,7 @@ def handle_request(
 
 
 async def handle_request_async(
-    raw: dict[str, object],
+    raw: dict[str, JsonValue],
 ) -> JsonRpcSuccessResponse | JsonRpcErrorResponse | None:
     """Async variant of :func:`handle_request` — routes ``tools/call`` through
     :func:`call_tool_async` so that async tools (all build tools and
@@ -1447,7 +1452,7 @@ async def handle_request_async(
     Returns ``None`` for JSON-RPC notifications (no ``id`` field).
     Never raises.
     """
-    _raw_id: object = raw.get("id")
+    _raw_id: JsonValue = raw.get("id")
     request_id: int | str | None = (
         _raw_id if isinstance(_raw_id, (int, str)) else None
     )
@@ -1471,12 +1476,12 @@ async def handle_request_async(
     logger.debug("🔧 handle_request_async: method=%r id=%r", method, request_id)
 
     if method == "initialize":
-        result_a: dict[str, object] = {
+        init_result_a: InitializeResult = {
             "protocolVersion": _MCP_PROTOCOL_VERSION,
-            "capabilities": {"tools": {}, "resources": {}, "prompts": {}},
+            "capabilities": McpCapabilities(tools={}, resources={}, prompts={}),
             "serverInfo": _SERVER_INFO,
         }
-        return _make_success_response(request_id, result_a)
+        return _make_success_response(request_id, init_result_a)
 
     if method == "initialized":
         logger.debug("✅ MCP initialized notification received")
@@ -1489,7 +1494,7 @@ async def handle_request_async(
 
     if method == "tools/list":
         tools = list_tools()
-        return _make_success_response(request_id, {"tools": tools})
+        return _make_success_response(request_id, ToolListResult(tools=tools))
 
     if method == "tools/call":
         params = raw.get("params")
@@ -1516,7 +1521,7 @@ async def handle_request_async(
                 "params.arguments must be an object",
             )
 
-        arguments: dict[str, object] = {k: v for k, v in arguments_raw.items()}
+        arguments: dict[str, JsonValue] = {k: v for k, v in arguments_raw.items()}
 
         try:
             tool_result = await call_tool_async(tool_name, arguments)
@@ -1538,7 +1543,7 @@ async def handle_request_async(
 
     if method == "prompts/list":
         return _make_success_response(
-            request_id, {"prompts": list_prompts()}
+            request_id, PromptListResult(prompts=list_prompts())
         )
 
     if method == "prompts/get":
@@ -1569,13 +1574,13 @@ async def handle_request_async(
     if method == "resources/list":
         resources = list_resources()
         return _make_success_response(
-            request_id, {"resources": resources}
+            request_id, ResourceListResult(resources=resources)
         )
 
     if method == "resources/templates/list":
         templates = list_resource_templates()
         return _make_success_response(
-            request_id, {"resourceTemplates": templates}
+            request_id, ResourceTemplateListResult(resourceTemplates=templates)
         )
 
     if method == "resources/read":

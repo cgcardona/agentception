@@ -28,6 +28,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from agentception.models import StaleClaim
+from agentception.types import JsonValue
 from agentception.readers.github import get_active_label, get_issue, get_open_prs_with_body
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,7 @@ _CLOSES_PATTERN: re.Pattern[str] = re.compile(r"[Cc]loses?\s+#(\d+)")
 
 
 async def detect_stale_claims(
-    wip_issues: list[dict[str, object]],
+    wip_issues: list[dict[str, JsonValue]],
     worktrees_dir: Path,
 ) -> list[StaleClaim]:
     """Detect issues with ``agent/wip`` label but no corresponding worktree.

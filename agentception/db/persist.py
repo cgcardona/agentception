@@ -22,6 +22,8 @@ import re
 import uuid
 from typing import TYPE_CHECKING, TypedDict
 
+from agentception.types import JsonValue
+
 from sqlalchemy import delete, select, update
 
 # Label namespace prefixes that are part of the taxonomy and must never be
@@ -49,6 +51,8 @@ from agentception.db.models import (
 )
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
     from agentception.models import AgentNode, PipelineState
 
 logger = logging.getLogger(__name__)
@@ -85,11 +89,11 @@ def _parse_blocked_by(body: str) -> list[int]:
 
 async def persist_tick(
     state: PipelineState,
-    open_issues: list[dict[str, object]],
-    open_prs: list[dict[str, object]],
+    open_issues: list[dict[str, JsonValue]],
+    open_prs: list[dict[str, JsonValue]],
     gh_repo: str,
-    closed_issues: list[dict[str, object]] | None = None,
-    merged_prs: list[dict[str, object]] | None = None,
+    closed_issues: list[dict[str, JsonValue]] | None = None,
+    merged_prs: list[dict[str, JsonValue]] | None = None,
 ) -> None:
     """Persist everything derived from one polling tick.
 
@@ -125,7 +129,7 @@ async def persist_tick(
 # ---------------------------------------------------------------------------
 
 
-async def _upsert_snapshot(session: object, state: PipelineState) -> None:
+async def _upsert_snapshot(session: AsyncSession, state: PipelineState) -> None:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     assert isinstance(session, AsyncSession)
@@ -146,8 +150,8 @@ async def _upsert_snapshot(session: object, state: PipelineState) -> None:
 
 
 async def _upsert_issues(
-    session: object,
-    issues: list[dict[str, object]],
+    session: AsyncSession,
+    issues: list[dict[str, JsonValue]],
     active_label: str | None,
     repo: str,
 ) -> None:
@@ -237,7 +241,7 @@ async def _upsert_issues(
 
 
 async def upsert_issues(
-    issues: list[dict[str, object]],
+    issues: list[dict[str, JsonValue]],
     active_label: str | None,
     repo: str,
 ) -> int:
@@ -275,8 +279,8 @@ async def upsert_issues(
 
 
 async def _upsert_prs(
-    session: object,
-    prs: list[dict[str, object]],
+    session: AsyncSession,
+    prs: list[dict[str, JsonValue]],
     repo: str,
 ) -> None:
     """Hash-diff upsert for PR rows.
@@ -313,7 +317,7 @@ async def _upsert_prs(
         label_names: list[str] = []
         if isinstance(labels_raw, list):
             label_names = [
-                lbl.get("name", "") if isinstance(lbl, dict) else str(lbl)
+                str(lbl.get("name", "")) if isinstance(lbl, dict) else str(lbl)
                 for lbl in labels_raw
                 if isinstance(lbl, (str, dict))
             ]
@@ -407,7 +411,7 @@ _CLOSES_RE: re.Pattern[str] = re.compile(
 )
 
 
-async def _auto_close_pr_linked_issues(session: object, repo: str) -> None:
+async def _auto_close_pr_linked_issues(session: AsyncSession, repo: str) -> None:
     """Close issues in the DB (and on GitHub) when their linked PR is merged.
 
     Agents open PRs against the ``dev`` branch rather than ``main``, which
@@ -522,7 +526,7 @@ async def _gh_close_issue(repo: str, issue_number: int) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _recompute_workflow_state(session: object, repo: str) -> list[str]:
+async def _recompute_workflow_state(session: AsyncSession, repo: str) -> list[str]:
     """Recompute PR↔Issue links and canonical workflow state for all issues.
 
     Called within ``persist_tick`` after issues, PRs, and runs are upserted.
@@ -825,7 +829,7 @@ from agentception.workflow.status import TERMINAL_STATUSES  # noqa: E402
 
 
 async def _upsert_agent_runs(
-    session: object,
+    session: AsyncSession,
     agents: list[AgentNode],
 ) -> None:
     from sqlalchemy import or_
@@ -1867,7 +1871,7 @@ async def persist_run_heartbeat(run_id: str) -> datetime.datetime | None:
 async def persist_agent_event(
     issue_number: int,
     event_type: str,
-    payload: dict[str, object],
+    payload: dict[str, JsonValue],
     agent_run_id: str | None = None,
 ) -> None:
     """Write one structured agent event row to ``agent_events``.
@@ -1930,7 +1934,7 @@ async def persist_agent_event(
 
 async def persist_agent_messages_async(
     agent_run_id: str,
-    messages: list[dict[str, object]],
+    messages: list[dict[str, JsonValue]],
 ) -> None:
     """Persist transcript messages without blocking the caller.
 
@@ -1943,7 +1947,7 @@ async def persist_agent_messages_async(
 
 async def _write_messages(
     agent_run_id: str,
-    messages: list[dict[str, object]],
+    messages: list[dict[str, JsonValue]],
 ) -> None:
     try:
         async with get_session() as session:

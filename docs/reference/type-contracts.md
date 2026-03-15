@@ -1,6 +1,6 @@
 # AgentCeption — Type Contracts Reference
 
-> Updated: 2026-03-15 | Reflects the full entity surface including the planner/executor architecture, stall detection, plan-scoped branches, daily metrics, org presets, working memory, and task runner protocol. `Any` does not exist in any production file. Every type boundary is named.
+> Updated: 2026-03-15 | Reflects the full entity surface including shared type aliases (`JsonValue`, `JsonSchemaObj`), MCP method-level result TypedDicts, query result TypedDicts, plan tool result TypedDicts, the planner/executor architecture, stall detection, plan-scoped branches, daily metrics, org presets, working memory, and task runner protocol. `Any` and `object` do not exist in any production file. `JsonValue` uses invariant `list`/`dict` — no covariance. Every type boundary is named.
 
 This document is the single source of truth for every named entity (TypedDict, Pydantic BaseModel, SQLAlchemy ORM class, Enum, Protocol) in the AgentCeption codebase. It covers the full contract of each type: fields, types, optionality, and intended use.
 
@@ -9,7 +9,8 @@ This document is the single source of truth for every named entity (TypedDict, P
 ## Table of Contents
 
 1. [Design Philosophy](#design-philosophy)
-2. [Domain Models (`agentception/models/`)](#domain-models)
+2. [Shared Type Aliases (`agentception/types.py`)](#shared-type-aliases)
+3. [Domain Models (`agentception/models/`)](#domain-models)
    - [Agent Lifecycle](#agent-lifecycle)
    - [Pipeline State](#pipeline-state)
    - [Agent Task Spec](#agent-task-spec)
@@ -38,35 +39,41 @@ This document is the single source of truth for every named entity (TypedDict, P
 9. [Working Memory Types (`agentception/services/working_memory.py`)](#working-memory-types)
 10. [Task Runner Protocol (`agentception/services/task_runner.py`)](#task-runner-protocol)
 11. [MCP Protocol Types (`agentception/mcp/types.py`)](#mcp-protocol-types)
-12. [Workflow Types](#workflow-types)
+    - [MCP Method-Level Result Types](#mcp-method-level-result-types)
+    - [MCP Result Payload Union](#mcp-result-payload-union)
+12. [MCP Query Result Types (`agentception/mcp/query_tools.py`)](#mcp-query-result-types)
+13. [MCP Plan Tool Result Types (`agentception/mcp/plan_tools.py`)](#mcp-plan-tool-result-types)
+14. [Workflow Types](#workflow-types)
     - [Status (`workflow/status.py`)](#status)
     - [State Machine (`workflow/state_machine.py`)](#state-machine)
     - [Link Discovery (`workflow/linking.py`)](#link-discovery)
     - [Invariants (`workflow/invariants.py`)](#invariants)
-13. [Intelligence Types](#intelligence-types)
+15. [Intelligence Types](#intelligence-types)
     - [Dependency DAG (`intelligence/dag.py`)](#dependency-dag)
     - [Issue Analyzer (`intelligence/analyzer.py`)](#issue-analyzer)
     - [Pipeline Guards (`intelligence/guards.py`)](#pipeline-guards)
     - [Scaling (`intelligence/scaling.py`)](#scaling)
     - [A/B Results (`intelligence/ab_results.py`)](#ab-results)
-14. [Telemetry Types (`agentception/telemetry.py`)](#telemetry-types)
-15. [Org Preset Types (`agentception/data/org_presets.py`)](#org-preset-types)
-16. [Entity Hierarchy](#entity-hierarchy)
-17. [Entity Graphs (Mermaid)](#entity-graphs-mermaid)
+16. [Telemetry Types (`agentception/telemetry.py`)](#telemetry-types)
+17. [Org Preset Types (`agentception/data/org_presets.py`)](#org-preset-types)
+18. [Entity Hierarchy](#entity-hierarchy)
+19. [Entity Graphs (Mermaid)](#entity-graphs-mermaid)
 
 ---
 
 ## Design Philosophy
 
-Every entity in this codebase follows four rules:
+Every entity in this codebase follows five rules:
 
-1. **No `Any`. Ever.** `Any` collapses type safety for all downstream callers. Every boundary is typed with a concrete named entity — `TypedDict`, `BaseModel`, `Protocol`, or a specific union.
+1. **No `Any`. No `object`. Ever.** Both collapse type safety for downstream callers. Every boundary is typed with a concrete named entity — `TypedDict`, `BaseModel`, `Protocol`, or a specific union.
 
-2. **Boundaries own coercion.** When external data arrives (JSON from GitHub, DB rows, TOML files), the boundary module coerces it to the canonical internal type. Downstream code always sees clean types.
+2. **No covariance in type aliases.** `JsonValue` uses invariant `list`/`dict`, never covariant `Sequence`/`Mapping`. If a function's return contains `list[str]` values in a dict, create a TypedDict for that specific shape instead of forcing `dict[str, JsonValue]`.
 
-3. **TypedDicts for read-only query results, Pydantic for validated I/O.** DB query functions return `TypedDict` rows — plain, fast, no validation overhead. HTTP request/response bodies and pipeline config use Pydantic `BaseModel` so validation errors surface at the boundary with clear messages.
+3. **Boundaries own coercion.** When external data arrives (JSON from GitHub, DB rows, YAML files), the boundary module coerces it to the canonical internal type. Downstream code always sees clean types. `JsonValue` is reserved for genuinely dynamic JSON with unknown shape (e.g. raw `json.loads()` / `yaml.safe_load()` output before validation).
 
-4. **ORM models stay in `db/`.** SQLAlchemy `Base` subclasses never cross into `routes/` or `services/`. They are converted to `TypedDict` rows by query functions in `db/queries/`.
+4. **TypedDicts for read-only query results, Pydantic for validated I/O.** DB query functions return `TypedDict` rows — plain, fast, no validation overhead. HTTP request/response bodies and pipeline config use Pydantic `BaseModel` so validation errors surface at the boundary with clear messages. MCP tool results and query results each get their own named TypedDict.
+
+5. **ORM models stay in `db/`.** SQLAlchemy `Base` subclasses never cross into `routes/` or `services/`. They are converted to `TypedDict` rows by query functions in `db/queries/`.
 
 ### What to use instead
 
@@ -76,9 +83,40 @@ Every entity in this codebase follows four rules:
 | `object` | The actual type or a constrained union |
 | `list` (bare) | `list[X]` with concrete element type |
 | `dict` (bare) | `dict[K, V]` with concrete key/value types |
-| `dict[str, X]` with known keys | `TypedDict` or `BaseModel` |
+| `dict[str, X]` with known keys | `TypedDict` or `BaseModel` — name the keys |
+| `Sequence`/`Mapping` in type aliases | `list`/`dict` — no covariance |
 | `cast(T, x)` | Fix the callee to return `T` |
 | `# type: ignore` | Fix the underlying type error |
+
+---
+
+## Shared Type Aliases
+
+**Path:** `agentception/types.py`
+
+Cross-cutting type aliases referenced by multiple packages (services, readers, routes, MCP, etc.).
+
+#### `JsonValue`
+
+`TypeAlias` — The true runtime type of `json.loads()` and `yaml.safe_load()` output. Only used for genuinely dynamic JSON with unknown shape — known structures always get their own named TypedDict.
+
+```python
+JsonValue: TypeAlias = (
+    str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
+)
+```
+
+Uses **invariant** `list`/`dict` (not covariant `Sequence`/`Mapping`). This means `list[str]` is NOT `list[JsonValue]` — if you need to put `list[str]` values inside a dict, create a TypedDict for that dict shape instead of using `dict[str, JsonValue]`.
+
+#### `JsonSchemaObj`
+
+`TypeAlias` — A JSON Schema object (Draft-07 / OpenAPI 3.x compatible). The schema spec is inherently recursive (`items`, `properties` values, `allOf` members are all schemas themselves), so the value type is `JsonValue`.
+
+```python
+JsonSchemaObj: TypeAlias = dict[str, JsonValue]
+```
+
+Used for `ToolFunction.parameters`, `plan_get_schema()` return, and any MCP `inputSchema` field.
 
 ---
 
@@ -195,7 +233,7 @@ The canonical `AgentStatus` in `agentception/workflow/status.py` includes two ad
 | `closed_issues_count` | `int` | `0` | Issues closed in the last 24 hours |
 | `merged_prs_count` | `int` | `0` | PRs merged in the last 24 hours |
 | `stale_branches` | `list[str]` | `[]` | Local branches without a live worktree |
-| `pending_approval` | `list[dict[str, object]]` | `[]` | Issues awaiting human approval |
+| `pending_approval` | `list[dict[str, JsonValue]]` | `[]` | Issues awaiting human approval |
 | `plan_draft_events` | `list[PlanDraftEvent]` | `[]` | New plan-draft events for this tick |
 | `loop_guard_triggered` | `list[str]` | `[]` | Run IDs flagged by loop guard |
 | `stalled_agents` | `list[StalledAgentEvent]` | `[]` | Agents with stale DB heartbeats |
@@ -863,7 +901,7 @@ The LLM layer exposes a **provider-agnostic contract**: the same three entry poi
 
 | TypedDict | Fields | Description |
 |-----------|--------|-------------|
-| `ToolFunction` | `name: str`, `description: str`, `parameters: dict[str, object]` | Function spec inside a tool definition |
+| `ToolFunction` | `name: str`, `description: str`, `parameters: JsonSchemaObj` | Function spec inside a tool definition |
 | `ToolDefinition` | `type: Literal["function"]`, `function: ToolFunction` | OpenAI-format tool definition passed to model |
 
 #### Tool call response shapes
@@ -983,7 +1021,7 @@ Implementations: `CursorTaskRunner` (Cursor IDE), `AnthropicTaskRunner` (direct 
 
 **Path:** `agentception/mcp/types.py`
 
-Named `TypedDict` for every shape in the MCP JSON-RPC 2.0 wire protocol. No `dict[str, object]` is used here.
+Named `TypedDict` for every shape in the MCP JSON-RPC 2.0 wire protocol. No `dict[str, object]` or `Any` is used here. Every result payload has its own named TypedDict.
 
 ### JSON-RPC 2.0 Error Constants
 
@@ -999,7 +1037,7 @@ Named `TypedDict` for every shape in the MCP JSON-RPC 2.0 wire protocol. No `dic
 
 | TypedDict | Fields | Description |
 |-----------|--------|-------------|
-| `ACToolDef` | `name`, `description`, `inputSchema: dict[str, object]` | One `tools/list` item |
+| `ACToolDef` | `name`, `description`, `inputSchema: JsonSchemaObj` | One `tools/list` item |
 | `ACToolContent` | `type: str` (`"text"`), `text: str` | One content item in a tool result |
 | `ACToolResult` | `content: list[ACToolContent]`, `isError: bool` | `tools/call` result |
 
@@ -1048,13 +1086,118 @@ Named `TypedDict` for every shape in the MCP JSON-RPC 2.0 wire protocol. No `dic
 | `ACPromptMessage` | `role: str` (`"user"`), `content: ACPromptContent` | One message in a prompt result |
 | `ACPromptResult` | `description: str`, `messages: list[ACPromptMessage]` | `prompts/get` result (1 message) |
 
+### MCP Method-Level Result Types
+
+Named TypedDicts for each MCP JSON-RPC method's `result` payload. Each method returns a specific, well-defined shape — no generic catch-all types.
+
+| TypedDict | Fields | MCP Method |
+|-----------|--------|------------|
+| `McpServerInfo` | `name: str`, `version: str` | Embedded in `InitializeResult` |
+| `McpCapabilities` | `tools: dict[str, str]`, `resources: dict[str, str]`, `prompts: dict[str, str]` | Embedded in `InitializeResult` |
+| `InitializeResult` | `protocolVersion: str`, `capabilities: McpCapabilities`, `serverInfo: McpServerInfo` | `initialize` |
+| `ToolListResult` | `tools: list[ACToolDef]` | `tools/list` |
+| `PromptListResult` | `prompts: list[ACPromptDef]` | `prompts/list` |
+| `ResourceListResult` | `resources: list[ACResourceDef]` | `resources/list` |
+| `ResourceTemplateListResult` | `resourceTemplates: list[ACResourceTemplate]` | `resources/templates/list` |
+
+### MCP Result Payload Union
+
+`McpResultPayload` is a `TypeAlias` union of all concrete result TypedDicts that can appear as the `result` field of a `JsonRpcSuccessResponse`:
+
+```python
+McpResultPayload = (
+    ACToolResult
+    | ACPromptResult
+    | ACResourceResult
+    | InitializeResult
+    | ToolListResult
+    | PromptListResult
+    | ResourceListResult
+    | ResourceTemplateListResult
+    | dict[str, str | int | float | bool | None]
+)
+```
+
+The trailing `dict[str, ...]` arm covers simple scalar-valued responses (e.g. `ping`). Every structured result is a named TypedDict — no `JsonValue` or `object` in the union.
+
 ### JSON-RPC 2.0 envelope types
 
 | TypedDict | Fields | Description |
 |-----------|--------|-------------|
-| `JsonRpcError` | `code: int`, `message: str`, `data: object` | Error object in an error response |
-| `JsonRpcSuccessResponse` | `jsonrpc: str`, `id: int \| str \| None`, `result: object` | Success response envelope |
+| `JsonRpcError` | `code: int`, `message: str`, `data: JsonValue` | Error object in an error response |
+| `JsonRpcSuccessResponse` | `jsonrpc: str`, `id: int \| str \| None`, `result: McpResultPayload` | Success response envelope |
 | `JsonRpcErrorResponse` | `jsonrpc: str`, `id: int \| str \| None`, `error: JsonRpcError` | Error response envelope |
+
+---
+
+## MCP Query Result Types
+
+**Path:** `agentception/mcp/query_tools.py`
+
+Every MCP query function returns its own named TypedDict — no generic `dict[str, JsonValue]` for known shapes. Functions with found/not-found outcomes return explicit union types.
+
+### Query result TypedDicts
+
+| TypedDict | Fields | Returned by |
+|-----------|--------|-------------|
+| `PendingRunsResult` | `pending: list[PendingLaunchRow]`, `count: int` | `query_pending_runs()` |
+| `QueryRunFoundResult` | `ok: bool`, `run: RunSummaryRow` | `query_run()` (found) |
+| `QueryRunNotFoundResult` | `ok: bool`, `error: str` | `query_run()` (not found) |
+| `QueryContextFoundResult` | `ok: bool`, `context: RunContextRow` | `query_run_context()` (found) |
+| `QueryChildrenResult` | `ok: bool`, `children: list[RunSummaryRow]`, `count: int` | `query_children()` |
+| `QueryEventsResult` | `ok: bool`, `events: list[AgentEventRow]`, `count: int` | `query_run_events()` |
+| `QueryActiveRunsResult` | `ok: bool`, `runs: list[RunSummaryRow]`, `count: int` | `query_active_runs()` |
+| `QueryRunTreeResult` | `ok: bool`, `nodes: list[RunTreeNodeRow]`, `count: int` | `query_run_tree()` |
+| `QueryDispatcherResult` | `ok: bool`, `status_counts: list[StatusCountRow]`, `active_count: int`, `latest_batch_id: str \| None` | `query_dispatcher_state()` |
+| `QueryRunStatusFoundResult` | `ok: bool`, `run_id: str`, `status: str`, `completed_at: str \| None` | `query_run_status()` (found) |
+| `QueryHealthResult` | `ok: bool`, `db_ok: bool`, `status_counts: list[StatusCountRow]`, `total_runs: int` | `query_system_health()` |
+
+### Function return types
+
+Functions that can return different shapes use explicit union return types:
+
+| Function | Return Type |
+|----------|-------------|
+| `query_pending_runs()` | `PendingRunsResult` |
+| `query_run(run_id)` | `QueryRunFoundResult \| QueryRunNotFoundResult` |
+| `query_run_context(run_id)` | `QueryContextFoundResult \| QueryRunNotFoundResult` |
+| `query_children(run_id)` | `QueryChildrenResult` |
+| `query_run_events(run_id, after_id)` | `QueryEventsResult` |
+| `query_active_runs()` | `QueryActiveRunsResult` |
+| `query_run_tree(batch_id)` | `QueryRunTreeResult` |
+| `query_dispatcher_state()` | `QueryDispatcherResult` |
+| `query_run_status(run_id)` | `QueryRunStatusFoundResult \| QueryRunNotFoundResult` |
+| `query_system_health()` | `QueryHealthResult` |
+
+---
+
+## MCP Plan Tool Result Types
+
+**Path:** `agentception/mcp/plan_tools.py`
+
+Every plan tool function returns its own named TypedDict. Validation tools use explicit union types for success/failure outcomes.
+
+### Plan tool TypedDicts
+
+| TypedDict | Fields | Returned by |
+|-----------|--------|-------------|
+| `CognitiveFigureEntry` | `id: str`, `display_name: str`, `description: str` | Embedded in `CognitiveFiguresResult` |
+| `CognitiveFiguresResult` | `role: str`, `figures: list[CognitiveFigureEntry]`, `error: NotRequired[str]` | `plan_get_cognitive_figures()` |
+| `ValidateSpecSuccessResult` | `valid: bool`, `spec: dict[str, JsonValue]` | `plan_validate_spec()` (success) |
+| `ValidationErrorResult` | `valid: bool`, `errors: list[str]` | `plan_validate_spec()` / `plan_validate_manifest()` (failure) |
+| `RepoLabelEntry` | `name: str`, `description: str` | Embedded in `LabelsResult` |
+| `LabelsResult` | `labels: list[RepoLabelEntry]` | `plan_get_labels()` |
+| `ValidateManifestSuccessResult` | `valid: bool`, `manifest: dict[str, JsonValue]`, `total_issues: int`, `estimated_waves: int` | `plan_validate_manifest()` (success) |
+
+### Function return types
+
+| Function | Return Type |
+|----------|-------------|
+| `plan_get_cognitive_figures(role)` | `CognitiveFiguresResult` |
+| `plan_get_schema()` | `JsonSchemaObj` |
+| `plan_validate_spec(spec_json)` | `ValidateSpecSuccessResult \| ValidationErrorResult` |
+| `plan_get_labels()` | `LabelsResult` |
+| `plan_validate_manifest(json_text)` | `ValidateManifestSuccessResult \| ValidationErrorResult` |
 
 ---
 
@@ -1414,6 +1557,10 @@ Tick-level invariant checks and alerts for the workflow state machine.
 ```
 AgentCeption
 │
+├── Shared Type Aliases (agentception/types.py)
+│   ├── JsonValue                  — TypeAlias: recursive JSON union (invariant list/dict)
+│   └── JsonSchemaObj              — TypeAlias: dict[str, JsonValue]
+│
 ├── Domain Models (agentception/models/__init__.py)
 │   │
 │   ├── Agent Lifecycle
@@ -1532,7 +1679,22 @@ AgentCeption
 │   ├── Tools: ACToolDef, ACToolContent, ACToolResult
 │   ├── Resources: ACResourceDef, ACResourceTemplate, ACResourceContent, ACResourceResult
 │   ├── Prompts: ACPromptArgument, ACPromptDef, ACPromptContent, ACPromptMessage, ACPromptResult
+│   ├── Method Results: McpServerInfo, McpCapabilities, InitializeResult,
+│   │   ToolListResult, PromptListResult, ResourceListResult, ResourceTemplateListResult
+│   ├── McpResultPayload           — TypeAlias: union of all result TypedDicts
 │   └── JSON-RPC: JsonRpcError, JsonRpcSuccessResponse, JsonRpcErrorResponse
+│
+├── MCP Query Results (agentception/mcp/query_tools.py)
+│   ├── PendingRunsResult, QueryRunFoundResult, QueryRunNotFoundResult
+│   ├── QueryContextFoundResult, QueryChildrenResult, QueryEventsResult
+│   ├── QueryActiveRunsResult, QueryRunTreeResult, QueryDispatcherResult
+│   └── QueryRunStatusFoundResult, QueryHealthResult
+│
+├── MCP Plan Tool Results (agentception/mcp/plan_tools.py)
+│   ├── CognitiveFigureEntry, CognitiveFiguresResult
+│   ├── ValidateSpecSuccessResult, ValidationErrorResult
+│   ├── RepoLabelEntry, LabelsResult
+│   └── ValidateManifestSuccessResult
 │
 ├── Workflow Layer (agentception/workflow/)
 │   ├── Status: AgentStatus (canonical, 10 values), ACTIVE_STATUSES, TERMINAL_STATUSES, …
@@ -1877,7 +2039,7 @@ classDiagram
         <<TypedDict>>
         +name : str
         +description : str
-        +parameters : dict~str, object~
+        +parameters : JsonSchemaObj
     }
     class ToolDefinition {
         <<TypedDict>>
@@ -1969,7 +2131,7 @@ classDiagram
 
 ### Diagram 6 — MCP Protocol Types
 
-The full MCP JSON-RPC 2.0 wire protocol. `JsonRpcSuccessResponse` and `JsonRpcErrorResponse` are the two response envelopes. Tool, resource, and prompt result types are nested inside `JsonRpcSuccessResponse.result`.
+The full MCP JSON-RPC 2.0 wire protocol. `JsonRpcSuccessResponse` and `JsonRpcErrorResponse` are the two response envelopes. `McpResultPayload` is a union of all named result TypedDicts — no `object` or `Any`. Each MCP method returns a specific result shape.
 
 ```mermaid
 classDiagram
@@ -1977,7 +2139,7 @@ classDiagram
         <<TypedDict>>
         +jsonrpc : str
         +id : int | str | None
-        +result : object
+        +result : McpResultPayload
     }
     class JsonRpcErrorResponse {
         <<TypedDict>>
@@ -1989,68 +2151,89 @@ classDiagram
         <<TypedDict>>
         +code : int
         +message : str
-        +data : object
+        +data : JsonValue
+    }
+    class McpResultPayload {
+        <<TypeAlias>>
+        ACToolResult
+        ACPromptResult
+        ACResourceResult
+        InitializeResult
+        ToolListResult
+        PromptListResult
+        ResourceListResult
+        ResourceTemplateListResult
+    }
+    class InitializeResult {
+        <<TypedDict>>
+        +protocolVersion : str
+        +capabilities : McpCapabilities
+        +serverInfo : McpServerInfo
+    }
+    class McpCapabilities {
+        <<TypedDict>>
+        +tools : dict~str, str~
+        +resources : dict~str, str~
+        +prompts : dict~str, str~
+    }
+    class McpServerInfo {
+        <<TypedDict>>
+        +name : str
+        +version : str
+    }
+    class ToolListResult {
+        <<TypedDict>>
+        +tools : list~ACToolDef~
+    }
+    class PromptListResult {
+        <<TypedDict>>
+        +prompts : list~ACPromptDef~
+    }
+    class ResourceListResult {
+        <<TypedDict>>
+        +resources : list~ACResourceDef~
+    }
+    class ResourceTemplateListResult {
+        <<TypedDict>>
+        +resourceTemplates : list~ACResourceTemplate~
     }
     class ACToolDef {
         <<TypedDict>>
         +name : str
         +description : str
-        +inputSchema : dict~str, object~
-    }
-    class ACToolContent {
-        <<TypedDict>>
-        +type : str
-        +text : str
+        +inputSchema : JsonSchemaObj
     }
     class ACToolResult {
         <<TypedDict>>
         +content : list~ACToolContent~
         +isError : bool
     }
-    class ACResourceDef {
-        <<TypedDict>>
-        +uri : str
-        +name : str
-        +description : str
-        +mimeType : str
-    }
-    class ACResourceTemplate {
-        <<TypedDict>>
-        +uriTemplate : str
-        +name : str
-        +mimeType : str
-    }
-    class ACResourceContent {
-        <<TypedDict>>
-        +uri : str
-        +mimeType : str
-        +text : str
-    }
     class ACResourceResult {
         <<TypedDict>>
         +contents : list~ACResourceContent~
-    }
-    class ACPromptDef {
-        <<TypedDict>>
-        +name : str
-        +description : str
-        +arguments : list~ACPromptArgument~
     }
     class ACPromptResult {
         <<TypedDict>>
         +description : str
         +messages : list~ACPromptMessage~
     }
-    class ACPromptMessage {
-        <<TypedDict>>
-        +role : str
-        +content : ACPromptContent
-    }
 
+    JsonRpcSuccessResponse --> McpResultPayload : result
     JsonRpcErrorResponse --> JsonRpcError : error
-    ACToolResult --> ACToolContent : content items
-    ACResourceResult --> ACResourceContent : contents
-    ACPromptResult --> ACPromptMessage : messages
+    McpResultPayload ..> ACToolResult
+    McpResultPayload ..> ACPromptResult
+    McpResultPayload ..> ACResourceResult
+    McpResultPayload ..> InitializeResult
+    McpResultPayload ..> ToolListResult
+    McpResultPayload ..> PromptListResult
+    McpResultPayload ..> ResourceListResult
+    McpResultPayload ..> ResourceTemplateListResult
+    InitializeResult --> McpCapabilities : capabilities
+    InitializeResult --> McpServerInfo : serverInfo
+    ToolListResult --> ACToolDef : tools
+    PromptListResult ..> ACPromptDef : prompts
+    ResourceListResult ..> ACResourceDef : resources
+    ResourceTemplateListResult ..> ACResourceTemplate : resourceTemplates
 ```
 
 ---
@@ -2312,4 +2495,122 @@ classDiagram
     WaveRow --> WaveAgentRow : agents
     InitiativeSummary --> InitiativePhaseRow : phases
     RunTreeNodeRow --> RunTreeNodeRow : parent_run_id (tree)
+```
+
+---
+
+### Diagram 10 — MCP Query and Plan Tool Result Types
+
+Named TypedDicts for every MCP query and plan tool return shape. Functions with found/not-found outcomes return explicit unions. Leaf nodes reference `db/queries/types.py` rows.
+
+```mermaid
+classDiagram
+    class PendingRunsResult {
+        <<TypedDict>>
+        +pending : list~PendingLaunchRow~
+        +count : int
+    }
+    class QueryRunFoundResult {
+        <<TypedDict>>
+        +ok : bool
+        +run : RunSummaryRow
+    }
+    class QueryRunNotFoundResult {
+        <<TypedDict>>
+        +ok : bool
+        +error : str
+    }
+    class QueryContextFoundResult {
+        <<TypedDict>>
+        +ok : bool
+        +context : RunContextRow
+    }
+    class QueryChildrenResult {
+        <<TypedDict>>
+        +ok : bool
+        +children : list~RunSummaryRow~
+        +count : int
+    }
+    class QueryEventsResult {
+        <<TypedDict>>
+        +ok : bool
+        +events : list~AgentEventRow~
+        +count : int
+    }
+    class QueryActiveRunsResult {
+        <<TypedDict>>
+        +ok : bool
+        +runs : list~RunSummaryRow~
+        +count : int
+    }
+    class QueryRunTreeResult {
+        <<TypedDict>>
+        +ok : bool
+        +nodes : list~RunTreeNodeRow~
+        +count : int
+    }
+    class QueryDispatcherResult {
+        <<TypedDict>>
+        +ok : bool
+        +status_counts : list~StatusCountRow~
+        +active_count : int
+        +latest_batch_id : str | None
+    }
+    class QueryHealthResult {
+        <<TypedDict>>
+        +ok : bool
+        +db_ok : bool
+        +status_counts : list~StatusCountRow~
+        +total_runs : int
+    }
+    class CognitiveFiguresResult {
+        <<TypedDict>>
+        +role : str
+        +figures : list~CognitiveFigureEntry~
+        +error : NotRequired~str~
+    }
+    class CognitiveFigureEntry {
+        <<TypedDict>>
+        +id : str
+        +display_name : str
+        +description : str
+    }
+    class ValidateSpecSuccessResult {
+        <<TypedDict>>
+        +valid : bool
+        +spec : dict~str, JsonValue~
+    }
+    class ValidationErrorResult {
+        <<TypedDict>>
+        +valid : bool
+        +errors : list~str~
+    }
+    class LabelsResult {
+        <<TypedDict>>
+        +labels : list~RepoLabelEntry~
+    }
+    class RepoLabelEntry {
+        <<TypedDict>>
+        +name : str
+        +description : str
+    }
+    class ValidateManifestSuccessResult {
+        <<TypedDict>>
+        +valid : bool
+        +manifest : dict~str, JsonValue~
+        +total_issues : int
+        +estimated_waves : int
+    }
+
+    PendingRunsResult --> PendingLaunchRow : pending
+    QueryRunFoundResult --> RunSummaryRow : run
+    QueryContextFoundResult --> RunContextRow : context
+    QueryChildrenResult --> RunSummaryRow : children
+    QueryEventsResult --> AgentEventRow : events
+    QueryActiveRunsResult --> RunSummaryRow : runs
+    QueryRunTreeResult --> RunTreeNodeRow : nodes
+    QueryDispatcherResult --> StatusCountRow : status_counts
+    QueryHealthResult --> StatusCountRow : status_counts
+    CognitiveFiguresResult --> CognitiveFigureEntry : figures
+    LabelsResult --> RepoLabelEntry : labels
 ```
