@@ -119,6 +119,7 @@ agentception/
       cognitive_arch.py → /cognitive-arch, /cognitive-arch/{id}
     api/
       dispatch.py    → /api/dispatch/* (issue, label, context, prompt)
+      mcp.py         → POST /api/mcp (MCP JSON-RPC 2.0)
       runs.py        → /api/runs/* (pending, acknowledge, children, step, …)
       agent_run.py   → /api/runs/{run_id}/execute (Cursor-free dispatch)
       system.py      → /api/system/index-codebase, /api/system/search
@@ -126,7 +127,6 @@ agentception/
   mcp/
     server.py        → MCP tool definitions (plan_*, build_*, …)
     stdio_server.py  → stdio transport for Cursor integration
-    http_server.py   → HTTP Streamable MCP transport (/api/mcp)
   static/
     app.js           → Compiled JS bundle (never edit directly)
     app.css          → Compiled CSS bundle (never edit directly)

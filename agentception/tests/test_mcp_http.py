@@ -180,6 +180,26 @@ class TestMcpHttpBatch:
         assert len(body) == 1
         assert body[0]["id"] == 99
 
+    @pytest.mark.anyio
+    async def test_batch_one_invalid_item_one_valid_returns_mixed_results(self, app: FastAPI) -> None:
+        """Batch with one non-dict item and one valid request returns list of 2: error + success."""
+        batch: list[JsonValue] = [
+            42,
+            _rpc("ping", req_id=1),
+        ]
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/mcp", json=batch)
+        assert r.status_code == 200
+        body = r.json()
+        assert isinstance(body, list)
+        assert len(body) == 2
+        first, second = body[0], body[1]
+        assert "error" in first
+        assert first["error"]["code"] == -32600
+        assert "result" in second
+        assert second["id"] == 1
+        assert second["result"] == {}
+
 
 # ---------------------------------------------------------------------------
 # Error cases
@@ -228,6 +248,47 @@ class TestMcpHttpErrors:
         # handle_request_async will return an error for a non-dict input
         # (it gets wrapped correctly by _handle_single)
         assert r.status_code in (200, 400)
+
+    @pytest.mark.anyio
+    async def test_resources_read_invalid_uri_via_http(self, app: FastAPI) -> None:
+        """resources/read with unknown ac:// URI returns 200 with error in result content."""
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post(
+                "/api/mcp",
+                json=_rpc("resources/read", {"uri": "ac://unknown/path"}),
+            )
+        assert r.status_code == 200
+        body = r.json()
+        assert "result" in body
+        result = body["result"]
+        assert "contents" in result
+        contents = result["contents"]
+        assert len(contents) == 1
+        text = contents[0]["text"]
+        payload = json.loads(text)
+        assert "error" in payload
+
+    @pytest.mark.anyio
+    async def test_tools_call_missing_required_arguments_returns_error(self, app: FastAPI) -> None:
+        """tools/call with missing required arguments returns 200 with isError true in result."""
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post(
+                "/api/mcp",
+                json=_rpc(
+                    "tools/call",
+                    {"name": "build_claim_run", "arguments": {}},
+                ),
+            )
+        assert r.status_code == 200
+        body = r.json()
+        assert "result" in body
+        result = body["result"]
+        assert result.get("isError") is True
+        content = result.get("content", [])
+        assert len(content) == 1
+        text = content[0]["text"]
+        payload = json.loads(text)
+        assert "error" in payload
 
 
 # ---------------------------------------------------------------------------
