@@ -1,12 +1,17 @@
 """Retrofit missing / truncated activity events for historical agent runs.
 
-Applies three back-fills in a single transaction:
+Applies back-fills in a single transaction:
 
 1. **dir_listed** — Runs that called ``list_directory`` before the
    ``dir_listed`` activity-event type was introduced get synthetic events
    reconstructed from the raw tool results stored in ``agent_messages``.
 
-2. **llm_reply text_preview** — Events whose ``text_preview`` was stored
+2. **search_results** — Runs that called ``search_codebase`` / ``search_text``
+   before the ``search_results`` activity-event type was introduced get
+   synthetic events reconstructed from the raw tool results stored in
+   ``agent_messages``.
+
+3. **llm_reply text_preview** — Events whose ``text_preview`` was stored
    with the old 200-character limit are extended to 1 500 characters using
    the full assistant text in ``agent_messages``.
 
@@ -320,6 +325,168 @@ async def _extend_llm_reply_previews(session: AsyncSession) -> int:
 
 
 # ---------------------------------------------------------------------------
+# 3. search_results back-fill
+# ---------------------------------------------------------------------------
+
+def _parse_search_files(content: str) -> list[str]:
+    """Extract unique relative file paths from a search tool result payload.
+
+    Handles two result shapes:
+    - ``search_codebase``: ``{"ok": true, "matches": [{"file": "...", ...}]}``
+    - ``search_text``: ``{"ok": true, "matches": "<rg --heading output>"}``
+    """
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError:
+        return []
+    if not parsed.get("ok"):
+        return []
+
+    raw_matches = parsed.get("matches")
+
+    # search_codebase — structured list of match objects.
+    if isinstance(raw_matches, list):
+        seen: set[str] = set()
+        files: list[str] = []
+        for m in raw_matches:
+            if not isinstance(m, dict):
+                continue
+            f = m.get("file", "")
+            fp = f if isinstance(f, str) else str(f)
+            if fp and fp not in seen:
+                seen.add(fp)
+                files.append(fp)
+        return files
+
+    # search_text — raw rg --heading output: file path lines interleaved with
+    # "N:match content" lines.  File paths are lines that don't start with a digit.
+    if isinstance(raw_matches, str):
+        seen_t: set[str] = set()
+        files_t: list[str] = []
+        for line in raw_matches.splitlines():
+            stripped = line.strip()
+            if stripped and not stripped[0].isdigit() and ":" not in stripped[:6]:
+                if stripped not in seen_t:
+                    seen_t.add(stripped)
+                    files_t.append(stripped)
+        return files_t
+
+    return []
+
+
+async def _backfill_search_results(session: AsyncSession) -> int:
+    """Insert search_results events from stored tool results in agent_messages.
+
+    Returns the number of events inserted.
+    """
+    needs_backfill: list[str] = [
+        r[0]
+        for r in (
+            await session.execute(
+                text("""
+                    SELECT DISTINCT agent_run_id
+                    FROM agent_events
+                    WHERE event_type = 'activity'
+                      AND (payload::jsonb)->>'subtype' = 'tool_invoked'
+                      AND (payload::jsonb)->>'tool_name' IN ('search_codebase', 'search_text')
+                      AND agent_run_id NOT IN (
+                          SELECT DISTINCT agent_run_id
+                          FROM agent_events
+                          WHERE (payload::jsonb)->>'subtype' = 'search_results'
+                      )
+                    ORDER BY 1
+                """)
+            )
+        ).fetchall()
+    ]
+
+    if not needs_backfill:
+        log.info("search_results — nothing to backfill")
+        return 0
+
+    log.info("search_results — runs needing backfill: %s", needs_backfill)
+    total_inserted = 0
+
+    for run_id in needs_backfill:
+        # search tool invocations, ordered by time.
+        invocations: list[_ToolInvoked] = [
+            {"event_id": r[0], "run_id": run_id, "recorded_at": r[1]}
+            for r in (
+                await session.execute(
+                    text("""
+                        SELECT id, recorded_at
+                        FROM agent_events
+                        WHERE agent_run_id = :run_id
+                          AND event_type = 'activity'
+                          AND (payload::jsonb)->>'subtype' = 'tool_invoked'
+                          AND (payload::jsonb)->>'tool_name' IN ('search_codebase', 'search_text')
+                        ORDER BY recorded_at
+                    """),
+                    {"run_id": run_id},
+                )
+            ).fetchall()
+        ]
+
+        # Tool results that contain a "matches" key (unique to search tools).
+        results: list[_ToolResult] = [
+            {"seq": r[0], "content": r[1], "recorded_at": r[2]}
+            for r in (
+                await session.execute(
+                    text("""
+                        SELECT sequence_index, content, recorded_at
+                        FROM agent_messages
+                        WHERE agent_run_id = :run_id
+                          AND role = 'tool'
+                          AND content LIKE '%"matches"%'
+                        ORDER BY sequence_index
+                    """),
+                    {"run_id": run_id},
+                )
+            ).fetchall()
+        ]
+
+        pairs = list(zip(invocations, results))
+        if len(invocations) != len(results):
+            log.warning(
+                "search_results — run %s: %d invocations vs %d results — pairing what we can",
+                run_id, len(invocations), len(results),
+            )
+
+        inserted = 0
+        for invocation, result in pairs:
+            files = _parse_search_files(result["content"])
+            emit_at = result["recorded_at"]
+
+            payload = json.dumps({
+                "subtype": "search_results",
+                "result_count": len(files),
+                "files": "\n".join(files),
+            })
+
+            if not DRY_RUN:
+                await session.execute(
+                    text("""
+                        INSERT INTO agent_events
+                            (agent_run_id, issue_number, event_type, payload, recorded_at)
+                        VALUES
+                            (:run_id, NULL, 'activity', :payload, :recorded_at)
+                    """),
+                    {"run_id": run_id, "payload": payload, "recorded_at": emit_at},
+                )
+            log.info(
+                "search_results — %s run=%s files=%d%s",
+                "[DRY]" if DRY_RUN else "[INSERT]",
+                run_id, len(files),
+                " (dry-run, not written)" if DRY_RUN else "",
+            )
+            inserted += 1
+
+        total_inserted += inserted
+
+    return total_inserted
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -328,19 +495,20 @@ async def main() -> None:
     async with get_session() as session:
         log.info("=== Activity-event retrofit  (dry_run=%s) ===", DRY_RUN)
 
-        dir_listed_count = await _backfill_dir_listed(session)
-        llm_reply_count  = await _extend_llm_reply_previews(session)
+        dir_listed_count    = await _backfill_dir_listed(session)
+        search_results_count = await _backfill_search_results(session)
+        llm_reply_count     = await _extend_llm_reply_previews(session)
 
         if not DRY_RUN:
             await session.commit()
             log.info(
-                "=== Done — dir_listed inserted: %d  llm_reply updated: %d ===",
-                dir_listed_count, llm_reply_count,
+                "=== Done — dir_listed: %d  search_results: %d  llm_reply: %d ===",
+                dir_listed_count, search_results_count, llm_reply_count,
             )
         else:
             log.info(
-                "=== Dry-run complete — would insert: %d dir_listed  update: %d llm_reply ===",
-                dir_listed_count, llm_reply_count,
+                "=== Dry-run — would insert: %d dir_listed  %d search_results  update: %d llm_reply ===",
+                dir_listed_count, search_results_count, llm_reply_count,
             )
 
 
