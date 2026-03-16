@@ -15,6 +15,7 @@
 import * as icons from './icons';
 import {
   humanizeTool,
+  humanizeDetailKey,
   parseArgsRaw,
   formatArgsCompact,
   shortenPath,
@@ -272,23 +273,44 @@ function buildToolDetail(payload: Record<string, unknown>): HTMLElement {
   const parsed = parseArgsRaw(argPreview);
 
   if (parsed !== null && Object.keys(parsed).length > 0) {
-    for (const [key, val] of Object.entries(parsed)) {
+    // Collapse start_line + end_line into a single "lines: 1–50" entry.
+    const startLine = parsed['start_line'];
+    const endLine   = parsed['end_line'];
+    const hasRange  = startLine !== undefined && endLine !== undefined;
+
+    const renderLine = (label: string, value: string): void => {
       const line = document.createElement('div');
       line.className = 'af__detail-line';
 
       const k = document.createElement('span');
       k.className = 'af__detail-key';
-      k.textContent = key;
+      k.textContent = label;
 
       const v = document.createElement('span');
       v.className = 'af__detail-val';
-      v.textContent = typeof val === 'string'
-        ? val
-        : JSON.stringify(val, null, 2);
+      v.textContent = value;
 
       line.appendChild(k);
       line.appendChild(v);
       panel.appendChild(line);
+    };
+
+    for (const [key, val] of Object.entries(parsed)) {
+      // Skip start_line/end_line — rendered as a collapsed range below.
+      if (key === 'start_line' || key === 'end_line') continue;
+
+      const label = humanizeDetailKey(key);
+      const value = typeof val === 'string' ? val : JSON.stringify(val, null, 2);
+      renderLine(label, value);
+    }
+
+    // Append the collapsed line range after other keys.
+    if (hasRange) {
+      const s = typeof startLine === 'number' ? startLine : parseInt(String(startLine), 10);
+      const e = typeof endLine   === 'number' ? endLine   : parseInt(String(endLine),   10);
+      if (!Number.isNaN(s) && !Number.isNaN(e)) {
+        renderLine('lines', `${s}–${e}`);
+      }
     }
   } else if (argPreview && argPreview !== '{}') {
     // Couldn't parse — show raw preview

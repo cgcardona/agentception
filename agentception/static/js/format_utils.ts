@@ -150,6 +150,65 @@ export function humanizeTool(name: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+// ── Arg key humanisation ───────────────────────────────────────────────────────
+
+/**
+ * Map of raw API/payload key names → human-readable labels for the detail panel.
+ * Keys not present here fall back to replacing underscores with spaces.
+ */
+const ARG_KEY_LABELS: Readonly<Record<string, string>> = {
+  // Search
+  n_results:       'results',
+  num_results:     'results',
+  max_results:     'max results',
+  query:           'query',
+  // File operations
+  path:            'path',
+  file_path:       'path',
+  start_line:      'from line',
+  end_line:        'to line',
+  total_lines:     'total lines',
+  offset:          'offset',
+  limit:           'limit',
+  encoding:        'encoding',
+  // Shell / command
+  cmd_preview:     'command',
+  command:         'command',
+  cmd:             'command',
+  cwd:             'dir',
+  // Git / PR
+  branch:          'branch',
+  base:            'base',
+  head:            'head',
+  title:           'title',
+  body:            'body',
+  owner:           'owner',
+  repo:            'repo',
+  // Issue / PR numbers
+  issue_number:    'issue',
+  pull_number:     'PR',
+  number:          'number',
+  // Generic
+  message:         'message',
+  description:     'description',
+  content:         'content',
+  pattern:         'pattern',
+  glob:            'glob',
+  replacement:     'replacement',
+  old_string:      'find',
+  new_string:      'replace',
+};
+
+/**
+ * Return a human-readable label for a raw payload key name.
+ * Falls back to replacing underscores with spaces.
+ */
+export function humanizeDetailKey(key: string): string {
+  const label = ARG_KEY_LABELS[key];
+  if (label !== undefined) return label;
+  return key.replace(/_/g, ' ');
+}
+
 // ── Path shortening ────────────────────────────────────────────────────────────
 
 // Keys whose values are filesystem paths worth shortening.

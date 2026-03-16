@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   humanizeTool,
+  humanizeDetailKey,
   shortenPath,
   parseArgsRaw,
   formatArgsCompact,
@@ -115,6 +116,40 @@ describe('humanizeTool', () => {
   it('falls back to capitalised underscore-split for unknown tools', () => {
     expect(humanizeTool('custom_tool')).toBe('Custom tool');
     expect(humanizeTool('some_long_tool_name')).toBe('Some long tool name');
+  });
+});
+
+describe('humanizeDetailKey', () => {
+  it('humanizes n_results → results', () => {
+    expect(humanizeDetailKey('n_results')).toBe('results');
+  });
+
+  it('humanizes start_line → from line', () => {
+    expect(humanizeDetailKey('start_line')).toBe('from line');
+  });
+
+  it('humanizes end_line → to line', () => {
+    expect(humanizeDetailKey('end_line')).toBe('to line');
+  });
+
+  it('humanizes cmd_preview → command', () => {
+    expect(humanizeDetailKey('cmd_preview')).toBe('command');
+  });
+
+  it('humanizes old_string → find', () => {
+    expect(humanizeDetailKey('old_string')).toBe('find');
+  });
+
+  it('humanizes new_string → replace', () => {
+    expect(humanizeDetailKey('new_string')).toBe('replace');
+  });
+
+  it('falls back to replacing underscores for unknown keys', () => {
+    expect(humanizeDetailKey('some_custom_key')).toBe('some custom key');
+  });
+
+  it('passes through keys with no underscores unchanged', () => {
+    expect(humanizeDetailKey('query')).toBe('query');
   });
 });
 
