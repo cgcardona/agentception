@@ -1515,36 +1515,16 @@ def _build_tool_definitions(
 _RECON_SYSTEM_ADDENDUM = """
 ---
 
-## RECON MODE — one-shot planning turn
+## Planning pass — JSON only
 
-THIS IS NOT A TOOL-USE TURN.  There is no tool loop, no function dispatcher,
-and no way to call read_file, search_codebase, or any other tool here.
-Calling tools in this turn is impossible and will not work.
-
-Your ONLY job is to output a single JSON object that names the files and
-searches the main agent loop should execute BEFORE it starts work.
-
-FORBIDDEN — do not produce any of these:
-- Tool calls, function calls, or any invocation syntax (read_file(...), etc.)
-- bash, python, or any code fences other than the single ```json block below
-- Prose paragraphs, reasoning text, or markdown headers
-- Any text before or after the JSON object
-
-REQUIRED — respond with exactly this structure and nothing else:
+You are not in a tool loop. Tools cannot be called here.
+Respond with exactly one JSON object — no prose, no other fences:
 
 ```json
-{
-  "files": ["<relative path — e.g. agentception/services/foo.py>"],
-  "searches": ["<natural-language semantic search query>"],
-  "plan": "<one sentence: your implementation approach>"
-}
+{"files": ["path/to/file.py"], "searches": ["semantic query"], "plan": "one sentence"}
 ```
 
-Constraints:
-- Maximum 8 entries in `files`, 5 entries in `searches`.
-- Both arrays may be empty if no pre-loading is needed.
-- Files mentioned verbatim in the issue are pre-loaded automatically — omit them.
-- Prefer files you will edit or copy patterns from over files you are merely curious about.
+`files` ≤ 8, `searches` ≤ 5. Files named in the issue are pre-loaded — omit them.
 """
 
 # Matches relative file paths that appear verbatim in issue text.
