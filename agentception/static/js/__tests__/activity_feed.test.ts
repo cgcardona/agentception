@@ -224,14 +224,14 @@ describe('formatRelativeTime', () => {
     resetFeedStartTime();
   });
 
-  it('returns "now" for the first event', () => {
-    expect(formatRelativeTime('2026-03-15T12:00:00Z')).toBe('now');
+  it('returns "0:00" for the first event', () => {
+    expect(formatRelativeTime('2026-03-15T12:00:00Z')).toBe('0:00');
   });
 
-  it('returns "now" for a second event at the same timestamp', () => {
+  it('returns "0:00" for a second event at the same timestamp', () => {
     resetFeedStartTime();
     formatRelativeTime('2026-03-15T12:00:00Z');
-    expect(formatRelativeTime('2026-03-15T12:00:00Z')).toBe('now');
+    expect(formatRelativeTime('2026-03-15T12:00:00Z')).toBe('0:00');
   });
 
   it('returns M:SS for subsequent events (0:29 for 29 seconds)', () => {
@@ -479,8 +479,8 @@ describe('resetFeedSession', () => {
 
   it('resets feed start time and step context', () => {
     resetFeedSession();
-    // After reset, the next event returns "now"
-    expect(formatRelativeTime('2026-03-15T12:00:00Z')).toBe('now');
+    // After reset, the next event returns "0:00"
+    expect(formatRelativeTime('2026-03-15T12:00:00Z')).toBe('0:00');
   });
 
   it('resets the model header flag so it re-appears after a new run', () => {
