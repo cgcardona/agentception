@@ -1,65 +1,81 @@
 // ── Activity feed row (SSE activity messages) ─────────────────────────────────
+//
+// Terminal-style log: icon | content (grows) | timestamp (right-aligned).
+// Rows are compact (24px line-height) to maximise visible history.
 
 .activity-feed__row {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.2rem 0.5rem;
-  font-size: 0.75rem;
-  color: var(--text-secondary, #888);
-  max-width: 100%;
-  overflow-x: hidden;
-  word-break: break-word;
-  border-left: 3px solid transparent;
-  border-radius: 0 var(--radius-xs, 4px) var(--radius-xs, 4px) 0;
-  transition: background 0.12s;
+  display: grid;
+  grid-template-columns: 1.1rem 1fr auto;
+  align-items: baseline;
+  gap: 0 0.45rem;
+  padding: 0.05rem 0.75rem 0.05rem 0.5rem;
+  min-height: 22px;
+  font-size: 0.695rem;
+  line-height: 1.9;
+  color: rgba(255, 255, 255, 0.5);
+  border-left: 2px solid transparent;
+  transition: background 0.08s;
 
   &:hover {
-    background: var(--bg-hover);
+    background: rgba(255, 255, 255, 0.03);
   }
 
   // Color-coded left border by event category
-  &[data-subtype^="llm"]   { border-left-color: var(--accent-purple, #9b6dff); }
-  &[data-subtype^="file"]  { border-left-color: var(--accent-green,  #3ecf8e); }
-  &[data-subtype="tool"],
+  &[data-subtype^="llm"]   { border-left-color: #7c3aed; }
+  &[data-subtype^="file"]  { border-left-color: #10b981; }
   &[data-subtype="tool_invoked"],
-  &[data-subtype="github_tool"] { border-left-color: var(--accent-orange, #f5a623); }
-  &[data-subtype^="shell"] { border-left-color: var(--text-muted, #6a8aaa); }
-  &[data-subtype="git_push"]    { border-left-color: var(--accent-blue, #4dabf7); }
-  &[data-subtype="delay"]       { border-left-color: var(--warning, #f5a623); opacity: 0.7; }
-  &[data-subtype="error"]       { border-left-color: var(--error, #e53e3e); }
+  &[data-subtype="github_tool"] { border-left-color: #f59e0b; }
+  &[data-subtype^="shell"] { border-left-color: #4b5563; }
+  &[data-subtype="git_push"]    { border-left-color: #38bdf8; }
+  &[data-subtype="delay"]       { border-left-color: #f59e0b; opacity: 0.55; }
+  &[data-subtype="error"]       { border-left-color: #ef4444; color: #fca5a5; }
 
-  // Non-zero shell exit: override border to error red and tint background
+  // LLM rows are slightly brighter — they carry the key iteration signal
+  &[data-subtype="llm_iter"] {
+    color: rgba(167, 139, 250, 0.85);
+  }
+
+  &[data-subtype="llm_usage"] {
+    color: rgba(167, 139, 250, 0.5);
+  }
+
+  // File writes are highlighted
+  &[data-subtype="file_replaced"],
+  &[data-subtype="file_inserted"],
+  &[data-subtype="file_written"] {
+    color: rgba(52, 211, 153, 0.8);
+  }
+
+  // Non-zero shell exit: error tint
   &[data-subtype="shell_done"][data-exit-nonzero] {
-    border-left-color: var(--error, #e53e3e);
-    background: rgba(229, 62, 62, 0.06);
-    color: var(--error, #e53e3e);
+    border-left-color: #ef4444;
+    background: rgba(239, 68, 68, 0.06);
+    color: #fca5a5;
   }
 
   .activity-feed__icon {
-    flex-shrink: 0;
-    line-height: 1;
-    &[aria-hidden='true'] {
-      opacity: 0.7;
-    }
+    font-size: 0.7rem;
+    line-height: 1.9;
+    opacity: 0.7;
+    text-align: center;
   }
 
   .activity-feed__summary {
-    flex: 1;
     min-width: 0;
-    white-space: nowrap;
     overflow: hidden;
+    white-space: nowrap;
     text-overflow: ellipsis;
     font-family: var(--font-mono);
-    font-size: 0.7rem;
+    font-size: 0.68rem;
+    letter-spacing: 0.01em;
   }
 
   .activity-feed__ts {
-    flex-shrink: 0;
-    font-size: 0.65rem;
+    font-size: 0.6rem;
     font-variant-numeric: tabular-nums;
-    color: var(--text-faint, #555);
+    color: rgba(255, 255, 255, 0.2);
     font-family: var(--font-mono);
-    opacity: 0.8;
+    white-space: nowrap;
+    padding-left: 0.5rem;
   }
 }

@@ -1,58 +1,79 @@
 // ── Event card ────────────────────────────────────────────────────────────────
 // Structured MCP lifecycle events: step_start, blocker, decision, done,
 // message (free-form agent note), error (structured MCP error).
+//
+// These cards live inside the dark terminal #activity-feed container and act
+// as section dividers (step_start) or highlighted lifecycle markers.
 
 .event-card {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.25rem 0.5rem;
-  border-left: 3px solid var(--text-muted, #6a8aaa);
-  border-radius: 0 var(--radius-xs, 4px) var(--radius-xs, 4px) 0;
-  font-size: 0.75rem;
-  color: var(--text-secondary, #aaa);
-  max-width: 100%;
-  overflow-x: hidden;
-  word-break: break-word;
+  padding: 0.1rem 0.75rem;
+  font-size: 0.695rem;
+  color: rgba(255, 255, 255, 0.5);
+  font-family: var(--font-mono);
+  border-left: 2px solid transparent;
+  line-height: 1.9;
 
+  // Step start: full-width section divider
   &[data-event-type='step_start'] {
-    border-left-color: var(--text-muted, #6a8aaa);
-    color: var(--text-secondary, #aaa);
+    margin-top: 0.4rem;
+    padding-top: 0.35rem;
+    padding-bottom: 0.2rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    border-left: none;
+    color: rgba(255, 255, 255, 0.35);
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+
+    // First step_start has no top separator
+    &:first-child {
+      margin-top: 0;
+      border-top: none;
+    }
+
+    .event-card__icon {
+      color: rgba(255, 255, 255, 0.2);
+      font-size: 0.55rem;
+    }
   }
 
   &[data-event-type='blocker'] {
-    border-left-color: var(--warning, #f5a623);
-    color: var(--warning, #f5a623);
-    background: rgba(245, 166, 35, 0.05);
+    border-left-color: #f59e0b;
+    color: #fcd34d;
+    background: rgba(245, 158, 11, 0.06);
   }
 
   &[data-event-type='decision'] {
-    border-left-color: var(--accent-blue, #4dabf7);
-    color: var(--text-secondary, #aaa);
+    border-left-color: #38bdf8;
+    color: rgba(186, 230, 253, 0.75);
   }
 
   &[data-event-type='done'] {
-    border-left-color: var(--success, #3ecf8e);
-    color: var(--success, #3ecf8e);
+    border-left-color: #10b981;
+    color: #6ee7b7;
     font-weight: 600;
-    font-size: 0.8rem;
-    background: rgba(62, 207, 142, 0.05);
+    background: rgba(16, 185, 129, 0.06);
   }
 
   &[data-event-type='message'] {
-    border-left-color: var(--border-default, #444);
-    color: var(--text-secondary, #aaa);
+    border-left-color: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.45);
   }
 
   &[data-event-type='error'] {
-    border-left-color: var(--error, #e53e3e);
-    color: var(--error, #e53e3e);
-    background: rgba(229, 62, 62, 0.05);
+    border-left-color: #ef4444;
+    color: #fca5a5;
+    background: rgba(239, 68, 68, 0.07);
   }
 
   &__icon {
     flex-shrink: 0;
-    opacity: 0.85;
+    opacity: 0.8;
+    font-size: 0.75rem;
   }
 
   &__text {

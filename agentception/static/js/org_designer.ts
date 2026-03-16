@@ -652,10 +652,14 @@ function renderLiveD3(
     .x((d: D3HierarchyNode) => d.x + offsetX)
     .y((d: D3HierarchyNode) => d.y + offsetY + NODE_H);
 
+  // d.data here is LiveOrgNode (D3 hierarchy wraps LiveOrgNode); the actual
+  // RunTreeNodeRow is one level deeper at d.data.data.
   svg.selectAll('.od-link')
     .data((d3Root as unknown as D3HierarchyNode).links() as unknown as D3HierarchyNode[], (d: D3HierarchyNode) => {
       const lnk = d as unknown as D3HierarchyLink;
-      return `${lnk.source?.data?.id}-${lnk.target?.data?.id}`;
+      const srcId = (lnk.source?.data as unknown as LiveOrgNode | undefined)?.data?.id ?? '';
+      const tgtId = (lnk.target?.data as unknown as LiveOrgNode | undefined)?.data?.id ?? '';
+      return `${srcId}-${tgtId}`;
     })
     .join('path')
     .attr('class', 'od-link')
@@ -663,7 +667,7 @@ function renderLiveD3(
 
   const descendants = (d3Root as unknown as D3HierarchyNode).descendants();
   const cards = cardLayer.selectAll('.od-node')
-    .data(descendants, (d: D3HierarchyNode) => d.data.id);
+    .data(descendants, (d: D3HierarchyNode) => (d.data as unknown as LiveOrgNode).data.id);
 
   const entered = cards.enter().append('div').attr('class', 'od-node od-node--live');
   const all     = entered.merge(cards);
@@ -672,15 +676,15 @@ function renderLiveD3(
     .style('left', (d: D3HierarchyNode) => `${d.x + offsetX - NODE_W / 2}px`)
     .style('top',  (d: D3HierarchyNode) => `${d.y + offsetY}px`)
     .classed('od-node--coordinator', (d: D3HierarchyNode) => {
-      const row = d.data as unknown as RunTreeNodeRow;
+      const row = (d.data as unknown as LiveOrgNode).data;
       return !!row.role && isCoordinator(row.role);
     })
     .classed('od-node--worker', (d: D3HierarchyNode) => {
-      const row = d.data as unknown as RunTreeNodeRow;
+      const row = (d.data as unknown as LiveOrgNode).data;
       return !!row.role && !isCoordinator(row.role);
     })
     .html((d: D3HierarchyNode) => {
-      const row = d.data as unknown as RunTreeNodeRow;
+      const row = (d.data as unknown as LiveOrgNode).data;
       return liveNodeCardHtml(row, repo, initiative);
     });
 

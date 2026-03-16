@@ -679,7 +679,7 @@ body:has(.build-layout) nav.topnav {
   overflow: hidden;
   position: sticky;
   top: 64px;
-  max-height: calc(100vh - 80px);
+  height: calc(100vh - 80px);
 
   // ── Empty state ─────────────────────────────────────────────────────────────
   &__empty {
@@ -720,7 +720,8 @@ body:has(.build-layout) nav.topnav {
   &__content {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    flex: 1;
+    min-height: 0; // required so flex children can scroll rather than expanding
     overflow: hidden;
   }
 
@@ -882,14 +883,47 @@ body:has(.build-layout) nav.topnav {
   &__stream-status {
     padding: 0.3rem 0.875rem;
     font-size: 0.6rem;
-    color: var(--text-faint);
+    color: rgba(255, 255, 255, 0.25);
     margin: 0;
-    border-top: 1px solid var(--border-subtle);
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    background: #09090f;
     font-family: var(--font-mono);
     flex-shrink: 0;
     letter-spacing: 0.04em;
 
     &--live { color: var(--success); }
+  }
+
+  &__chat {
+    flex-shrink: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    background: #09090f;
+  }
+
+  &__agent-actions {
+    padding: 0.45rem 0.75rem;
+  }
+
+  &__stop-btn {
+    font-size: 0.68rem;
+    font-weight: 600;
+    font-family: var(--font-mono);
+    padding: 0.3rem 0.7rem;
+    border-radius: 5px;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    background: rgba(239, 68, 68, 0.08);
+    color: #fca5a5;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+
+    &:hover:not(:disabled) {
+      background: rgba(239, 68, 68, 0.18);
+      border-color: rgba(239, 68, 68, 0.6);
+      color: #f87171;
+    }
+
+    &:disabled { opacity: 0.4; cursor: not-allowed; }
   }
 }
 
@@ -2232,15 +2266,22 @@ $preset-accents: (
   &--off { color: rgba(134,239,172,0.7); }
 }
 
-// ── Activity feed container ───────────────────────────────────────────────────
+// ── Activity feed container — terminal-style scrollable log ──────────────────
 
 .build-inspector__activity {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.5rem 0;
+  flex: 1;
+  min-height: 0; // without this the flex child never scrolls — it just expands
   overflow-y: auto;
-  flex: 1 1 auto;
+  padding: 0;
+  background: #09090f;
+  font-family: var(--font-mono);
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
+
+  &::-webkit-scrollbar       { width: 4px; }
+  &::-webkit-scrollbar-track { background: transparent; }
+  &::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
 }
 
 // ── Start agent block (pending_launch state) ──────────────────────────────────
