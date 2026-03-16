@@ -10,10 +10,14 @@
  *   with result text; falls back to a standalone card if none found.
  *
  * arg_preview comes from the backend as str(args)[:120] — Python dict notation.
- * We parse it into readable key=value pairs before display.
+ * Parsing and formatting is delegated to format_utils.
  */
 
 import * as icons from './icons';
+import { parseArgPreview, formatResultPreview, humanizeTool } from './format_utils';
+
+// Re-export so callers and tests can import from a single stable location.
+export { parseArgPreview, formatResultPreview } from './format_utils';
 
 interface ToolCallSseMessage {
   t: "tool_call";
@@ -50,99 +54,14 @@ function categoriseTool(toolName: string): ToolCategory {
 export function svgForTool(toolName: string): string {
   const category = categoriseTool(toolName);
   switch (category) {
-    case 'search':    return icons.search;
-    case 'file-read': return icons.fileDoc;
-    case 'file-write':return icons.pencil;
-    case 'shell':     return icons.terminal;
-    case 'git':       return icons.gitBranch;
-    case 'github':    return icons.gitHub;
-    default:          return icons.wrench;
+    case 'search':     return icons.search;
+    case 'file-read':  return icons.fileDoc;
+    case 'file-write': return icons.pencil;
+    case 'shell':      return icons.terminal;
+    case 'git':        return icons.gitBranch;
+    case 'github':     return icons.gitHub;
+    default:           return icons.wrench;
   }
-}
-
-// ── Arg formatting ─────────────────────────────────────────────────────────────
-
-/**
- * Parse the backend's args_preview (Python dict str() notation, truncated at
- * 120 chars) into a readable "key=value  ·  key=value" string.
- */
-export function parseArgPreview(raw: string): string {
-  if (!raw || raw === '{}' || raw === '') return '';
-
-  let parsed: Record<string, unknown> | null = null;
-
-  // 1. Try JSON directly.
-  try {
-    parsed = JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    // 2. Convert Python dict notation → JSON and retry.
-    try {
-      const json = raw
-        .replace(/'/g, '"')
-        .replace(/\bTrue\b/g, 'true')
-        .replace(/\bFalse\b/g, 'false')
-        .replace(/\bNone\b/g, 'null');
-      parsed = JSON.parse(json) as Record<string, unknown>;
-    } catch {
-      // 3. Return raw with a truncation marker if it was cut off.
-      return raw.length >= 120 ? raw.slice(0, 117) + '…' : raw;
-    }
-  }
-
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return raw;
-  }
-
-  const entries = Object.entries(parsed);
-  if (entries.length === 0) return '';
-
-  return entries
-    .map(([k, v]) => {
-      const raw = typeof v === 'string' ? v : JSON.stringify(v);
-      const val = raw.length > 70 ? raw.slice(0, 67) + '…' : raw;
-      return `${k}=${val}`;
-    })
-    .join('  ·  ');
-}
-
-// ── Result formatting ──────────────────────────────────────────────────────────
-
-/** Format result_preview (JSON string from backend) into a human-readable line. */
-export function formatResultPreview(preview: string): string {
-  if (!preview) return '';
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(preview);
-  } catch {
-    const t = preview.trim();
-    return t.length > 240 ? t.slice(0, 237) + '…' : t;
-  }
-
-  if (typeof parsed === 'string') {
-    const t = parsed.trim();
-    return t.length > 240 ? t.slice(0, 237) + '…' : t;
-  }
-  if (Array.isArray(parsed)) {
-    return `[${parsed.length} item${parsed.length === 1 ? '' : 's'}]`;
-  }
-  if (parsed !== null && typeof parsed === 'object') {
-    const obj = parsed as Record<string, unknown>;
-    // Surface errors immediately.
-    if ('ok' in obj && !obj['ok']) {
-      const msg = typeof obj['error'] === 'string' ? obj['error'] : 'unknown error';
-      return `error: ${msg}`;
-    }
-    // Show up to 4 key=value pairs.
-    return Object.entries(obj)
-      .slice(0, 4)
-      .map(([k, v]) => {
-        const raw = typeof v === 'string' ? v : JSON.stringify(v);
-        return `${k}: ${raw.length > 50 ? raw.slice(0, 47) + '…' : raw}`;
-      })
-      .join('  ·  ');
-  }
-  return String(parsed).slice(0, 240);
 }
 
 // ── DOM builders ───────────────────────────────────────────────────────────────
@@ -153,7 +72,7 @@ function buildToolCallCard(toolName: string, argsPreview: string): HTMLElement {
   card.dataset['tool'] = toolName;
   card.dataset['toolCategory'] = categoriseTool(toolName);
 
-  // Header: icon + tool name
+  // Header: icon + human-readable tool name
   const header = document.createElement('div');
   header.className = 'tool-call-card__header';
 
@@ -165,7 +84,7 @@ function buildToolCallCard(toolName: string, argsPreview: string): HTMLElement {
 
   const name = document.createElement('span');
   name.className = 'tool-call-card__name';
-  name.textContent = toolName;
+  name.textContent = humanizeTool(toolName);
 
   header.appendChild(icon);
   header.appendChild(name);

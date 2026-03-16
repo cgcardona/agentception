@@ -10,6 +10,7 @@
  */
 
 import * as icons from './icons';
+import { humanizeTool, parseArgsRaw, formatArgsCompact, shortenPath } from './format_utils';
 
 /** SSE activity message shape from the inspector stream. */
 export interface ActivityMessage {
@@ -64,31 +65,40 @@ export function formatActivitySummary(subtype: string, payload: Record<string, u
   const p = payload ?? {};
   switch (subtype) {
     case 'tool_invoked':
-      return `→ ${str(p, 'tool_name')} ${str(p, 'arg_preview')}`.trim();
+    case 'github_tool': {
+      // Icon already provides the arrow — no need for `→` text prefix.
+      const toolName = str(p, 'tool_name');
+      const argPreview = str(p, 'arg_preview');
+      const label = humanizeTool(toolName);
+      const parsed = parseArgsRaw(argPreview);
+      const argSummary = parsed !== null ? formatArgsCompact(parsed) : '';
+      return argSummary ? `${label}  ·  ${argSummary}` : label;
+    }
     case 'shell_start':
-      return `$ ${str(p, 'cmd_preview')}`.trim();
+      return str(p, 'cmd_preview') || 'shell';
     case 'shell_done': {
       const code = num(p, 'exit_code');
-      const prefix = code !== 0 ? `✗ exit=${code}` : `exit=${code}`;
-      return `${prefix}  ·  ${fmtBytes(num(p, 'stdout_bytes'))} stdout`;
+      const bytes = num(p, 'stdout_bytes');
+      if (code !== 0) return `exit ${code}  ·  ${fmtBytes(bytes)} out`;
+      return bytes > 0 ? fmtBytes(bytes) : 'ok';
     }
     case 'file_read': {
-      const path = str(p, 'path');
+      const path = shortenPath(str(p, 'path'));
       const s = num(p, 'start_line');
       const e = num(p, 'end_line');
       const t = num(p, 'total_lines');
       return `${path}  ·  ${s}–${e} of ${t}`;
     }
-    case 'file_replaced':
-      return `${str(p, 'path')}  ·  ${num(p, 'replacement_count')} replacement${num(p, 'replacement_count') === 1 ? '' : 's'}`.trim();
+    case 'file_replaced': {
+      const n = num(p, 'replacement_count');
+      return `${shortenPath(str(p, 'path'))}  ·  ${n} replacement${n === 1 ? '' : 's'}`;
+    }
     case 'file_inserted':
-      return `inserted ${str(p, 'path')}`.trim();
+      return shortenPath(str(p, 'path'));
     case 'file_written':
-      return `${str(p, 'path')}  ·  ${fmtBytes(num(p, 'byte_count'))}`.trim();
+      return `${shortenPath(str(p, 'path'))}  ·  ${fmtBytes(num(p, 'byte_count'))}`;
     case 'git_push':
-      return `→ ${str(p, 'branch')}`.trim();
-    case 'github_tool':
-      return `${str(p, 'tool_name')} ${str(p, 'arg_preview')}`.trim();
+      return str(p, 'branch') || 'push';
     case 'llm_iter': {
       const model = str(p, 'model') || 'unknown';
       const turns = num(p, 'turns');
@@ -107,7 +117,8 @@ export function formatActivitySummary(subtype: string, payload: Record<string, u
       return `(${fmtNum(num(p, 'chars'))} ch)  ${str(p, 'text_preview')}`.trim();
     case 'llm_done': {
       const count = num(p, 'tool_call_count');
-      if (count > 0) return `→ ${count} tool call${count === 1 ? '' : 's'}`;
+      // Suppress when tool calls are about to appear — they're shown as nested rows.
+      if (count > 0) return '';
       return str(p, 'stop_reason') || 'done';
     }
     case 'delay':
@@ -171,9 +182,10 @@ export function formatRelativeTime(recordedAt: string): string {
     if (Number.isNaN(t)) return '';
     if (feedStartMs === null) {
       feedStartMs = t;
-      return '+0s';
+      return 'now';
     }
     const delta = Math.max(0, Math.round((t - feedStartMs) / 1000));
+    if (delta === 0) return 'now';
     if (delta < 60) return `+${delta}s`;
     const m = Math.floor(delta / 60);
     const s = delta % 60;
@@ -196,6 +208,10 @@ export function appendActivityRow(msg: ActivityMessage): void {
   row.className = 'activity-feed__row';
   row.setAttribute('data-subtype', msg.subtype);
 
+  // Suppress empty summaries (e.g. llm_done when tool calls follow).
+  const summaryText = formatActivitySummary(msg.subtype, msg.payload);
+  if (summaryText === '') return;
+
   // Mark non-zero shell exits for CSS error highlighting
   if (msg.subtype === 'shell_done') {
     const code = typeof msg.payload['exit_code'] === 'number' ? msg.payload['exit_code'] : 0;
@@ -213,7 +229,7 @@ export function appendActivityRow(msg: ActivityMessage): void {
 
   const summary = document.createElement('span');
   summary.className = 'activity-feed__summary';
-  summary.textContent = formatActivitySummary(msg.subtype, msg.payload);
+  summary.textContent = summaryText;
 
   const ts = document.createElement('time');
   ts.className = 'activity-feed__ts';

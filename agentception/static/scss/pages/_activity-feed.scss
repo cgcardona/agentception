@@ -31,6 +31,17 @@
   &[data-subtype="delay"]       { border-left-color: #f59e0b; opacity: 0.55; }
   &[data-subtype="error"]       { border-left-color: #ef4444; color: #fca5a5; }
 
+  // Nested rows — visually indented under the LLM iteration that spawned them.
+  // The left border stays at the container edge (tree connector effect).
+  &[data-subtype="tool_invoked"],
+  &[data-subtype="github_tool"],
+  &[data-subtype^="file_"],
+  &[data-subtype^="shell"],
+  &[data-subtype="git_push"],
+  &[data-subtype="delay"] {
+    padding-left: 1.4rem;
+  }
+
   // llm_iter: iteration milestone — slightly elevated, model name prominent
   &[data-subtype="llm_iter"] {
     color: rgba(167, 139, 250, 0.9);
