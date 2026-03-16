@@ -119,7 +119,9 @@ Every task follows this complete lifecycle — no step is optional:
    docker compose exec agentception npm run build   # only if .js or .scss files changed
    ```
 7. **Open a pull request.** Always create a PR against `dev` — never push directly. Use the `create_pull_request` MCP tool (preferred) or `gh pr create`. Every change, no matter how small, goes through a PR.
-8. **Merge the PR immediately.** Use `merge_pull_request` MCP tool (squash merge). Do not wait for CI — it does not run on feature → dev PRs. Do not leave PRs open.
+8. **Merge the PR immediately.** Use `merge_pull_request` MCP tool. Do not wait for CI — it does not run on feature → dev PRs. Do not leave PRs open.
+   - **Feature → dev:** `mergeMethod: "squash"` — collapses WIP history into one clean commit.
+   - **Dev → main:** `mergeMethod: "merge"` — never squash. Squashing dev into main severs the commit-graph relationship between the branches: git can no longer determine what has already been merged, so every subsequent dev→main PR generates spurious conflicts. A true merge commit preserves both parents and advances the merge base correctly. After the merge, immediately run `git checkout dev && git merge origin/main && git push` to re-sync the merge base before the next feature cycle.
 9. **Delete the remote branch.** The `merge_pull_request` MCP tool does this automatically with `deleteBranch: true`; if using `gh`, run `git push origin --delete <branch>`.
 10. **Delete the local branch.** `git checkout dev && git branch -D <branch>`.
 11. **Pull dev.** `git pull origin dev` — confirm `git status` shows `nothing to commit, working tree clean` before starting the next task.

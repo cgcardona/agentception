@@ -99,8 +99,10 @@ Only fall back to `gh` CLI when the MCP server does not cover the required opera
    - `docker compose exec agentception npm run build` if any `.js` or `.scss` files changed
    CI does **not** run on feature → dev PRs. Local verification is the gate.
 5. **Open a PR** against `dev` via `create_pull_request` MCP tool (never push directly to `dev`).
-6. **Merge the PR immediately** via `merge_pull_request` MCP tool (squash). Do not wait for CI — it does not run on dev PRs. Never leave a PR open.
-7. **Delete the remote branch** — pass `deleteBranch: true` to `merge_pull_request`, or run `git push origin --delete <branch>`.
+6. **Merge the PR immediately** via `merge_pull_request` MCP tool. Do not wait for CI — it does not run on dev PRs. Never leave a PR open.
+   - **Feature → dev PRs:** use `mergeMethod: "squash"`. Collapses WIP commits into one clean unit; the feature branch is deleted so the squash is never re-traversed.
+   - **Dev → main PRs:** use `mergeMethod: "merge"` (a true merge commit, never squash). Squashing dev into main severs the commit-graph relationship between the branches, which means every subsequent dev→main merge sees conflicts even when nothing actually conflicts. A merge commit preserves both parents so the next merge correctly identifies what has already landed. After the merge commit, immediately pull main into dev (`git checkout dev && git merge origin/main && git push`) to advance the merge base before the next feature cycle.
+7. **Delete the remote branch** — pass `deleteBranch: true` to `merge_pull_request`, or run `git push origin --delete <branch>`. (For dev→main, set `deleteBranch: false` — `dev` is never deleted.)
 8. **Delete the local branch** — `git checkout dev && git branch -D <branch>`.
 9. **Pull dev** — `git pull origin dev`.
 10. **Verify clean** — `git status` must show `nothing to commit, working tree clean`.

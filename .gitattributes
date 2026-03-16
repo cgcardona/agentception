@@ -1,13 +1,26 @@
-agentception/static/scss/pages/_build.scss merge=union
-agentception/static/scss/pages/_inspector-layout.scss merge=union
-agentception/static/scss/pages/_thought-block.scss merge=union
-agentception/static/scss/pages/_file-edit-card.scss merge=union
-agentception/static/scss/pages/_assistant-bubble.scss merge=union
-agentception/static/scss/pages/_tool-call-card.scss merge=union
-agentception/static/scss/pages/_event-card.scss merge=union
-agentception/db/queries/types.py merge=union
-agentception/db/queries/board.py merge=union
-agentception/db/queries/runs.py merge=union
-agentception/db/queries/messages.py merge=union
-agentception/db/queries/events.py merge=union
-agentception/db/queries/metrics.py merge=union
+# ── Text normalisation ─────────────────────────────────────────────────────────
+# Ensure consistent line endings across platforms.
+* text=auto
+
+# ── Generated / compiled bundles ───────────────────────────────────────────────
+# These files are produced by `npm run build` and committed as build artifacts.
+# They must never be text-merged — the result of a three-way merge of minified
+# JS or compiled CSS is always invalid.  During a dev → main merge, always
+# take the incoming (dev) version wholesale.  The next build will regenerate
+# them correctly from source anyway.
+agentception/static/app.js  merge=ours
+agentception/static/app.css merge=ours
+
+# ── Lock files ─────────────────────────────────────────────────────────────────
+# package-lock.json is auto-generated; merge conflicts in it are always noise.
+# Prefer the incoming side and let `npm install` reconcile if needed.
+package-lock.json merge=ours
+
+# ── Diffs ──────────────────────────────────────────────────────────────────────
+# Improve diff output for common file types.
+*.py    diff=python
+*.ts    diff=javascript
+*.js    diff=javascript
+*.scss  diff=css
+*.html  diff=html
+*.md    diff=markdown
