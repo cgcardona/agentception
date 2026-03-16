@@ -2294,7 +2294,7 @@ def _auto_track_file_write(rel_path: str, worktree_path: Path) -> None:
         already_tracked = any(e.path == rel_path for e in current if isinstance(e, FileEditEvent))
         if not already_tracked:
             current.append(FileEditEvent(
-                timestamp=datetime.datetime.utcnow(),
+                timestamp=datetime.datetime.now(datetime.UTC),
                 path=rel_path,
                 diff="",
                 lines_omitted=0,

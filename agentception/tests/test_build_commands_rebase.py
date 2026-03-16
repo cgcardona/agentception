@@ -350,6 +350,7 @@ async def test_rebase_succeeds_with_empty_worktree_path_dict() -> None:
         ),
         patch(
             "agentception.mcp.build_commands.asyncio.create_task",
+            side_effect=make_create_task_side_effect(),
         ) as mock_create_task,
     ):
         result = await build_complete_run(
