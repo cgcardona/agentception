@@ -319,17 +319,8 @@
       </span>
     </template>
 
-    {# Live / Design mode toggle — only shown when there are known batches #}
-    <template x-if="activeBatches.length > 0">
-      <div class="od-header__mode-toggle">
-        <button class="od-header__mode-btn"
-                :class="liveMode ? 'od-header__mode-btn--active' : ''"
-                @click="enterLiveMode()">● Live</button>
-        <button class="od-header__mode-btn"
-                :class="!liveMode ? 'od-header__mode-btn--active' : ''"
-                @click="enterDesignMode()">Design</button>
-      </div>
-    </template>
+    {# Presets + Launch appear here so they expand LEFTWARD into the flex:1
+       title gap — keeping Toggle and Close pinned at the right edge always. #}
 
     {# Back to presets (canvas / design mode only) #}
     <template x-if="!presetsOpen && !liveMode">
@@ -349,6 +340,20 @@
       </button>
     </template>
 
+    {# Live / Design mode toggle — only shown when there are known batches.
+       Always the second-to-last item so it never shifts position. #}
+    <template x-if="activeBatches.length > 0">
+      <div class="od-header__mode-toggle">
+        <button class="od-header__mode-btn"
+                :class="liveMode ? 'od-header__mode-btn--active' : ''"
+                @click="enterLiveMode()">● Live</button>
+        <button class="od-header__mode-btn"
+                :class="!liveMode ? 'od-header__mode-btn--active' : ''"
+                @click="enterDesignMode()">Design</button>
+      </div>
+    </template>
+
+    {# Close is always the last item — never moves. #}
     <button class="od-header__btn od-header__btn--close" @click="close()">✕ Close</button>
   </div>
 
