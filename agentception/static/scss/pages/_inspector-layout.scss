@@ -596,11 +596,16 @@ body:has(.build-layout) nav.topnav {
 }
 
 // PR chip row (PR Open / Reviewing lanes).
+// width: 100% is required so that .build-issue__branch's max-width: 100%
+// resolves against the card width rather than its own content width.
+// Without it the parent flex container shrinks to content and truncation
+// never triggers regardless of how long the branch name is.
 .build-issue__pr-row {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
   align-items: flex-start;
+  width: 100%;
 }
 
 .build-issue__pr-chip {
