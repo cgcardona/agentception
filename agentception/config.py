@@ -263,11 +263,12 @@ class AgentCeptionSettings(BaseSettings):
     ``local_llm_completion_token_ceiling`` when sending requests. Set via
     ``LOCAL_LLM_MAX_TOKENS``."""
 
-    local_llm_completion_token_ceiling: int = 16_384
+    local_llm_completion_token_ceiling: int = 32_768
     """Hard cap on ``max_tokens`` sent to the local OpenAI-compatible server.
-    Qwen3 35B 4-bit with extended chain-of-thought (thinking mode) needs at
-    least 16k to avoid exhausting the reasoning budget before emitting a
-    response. Lower if your server imposes a stricter limit. Set via
+    Qwen3 35B 4-bit with extended chain-of-thought (thinking mode) routinely
+    generates 15-25k reasoning tokens before emitting the actual response on
+    complex multi-turn agent tasks; 32k gives enough headroom for both.
+    Lower if your server imposes a stricter limit. Set via
     ``LOCAL_LLM_COMPLETION_TOKEN_CEILING``."""
 
     local_llm_max_system_chars: int = 20_000

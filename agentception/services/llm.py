@@ -1086,6 +1086,14 @@ async def call_local_with_tools(
         "messages": request_messages,
         "temperature": temperature,
         "max_tokens": _local_cap_max_tokens(max_tokens),
+        # Explicitly enable thinking for the agent tool loop.  Ollama 0.18+
+        # honours this field for Qwen3-family models — without it the server
+        # defaults to thinking=on but the field is absent from the response,
+        # which makes it impossible to separate reasoning tokens from content
+        # tokens when diagnosing token-budget exhaustion.  Setting it
+        # explicitly also future-proofs the call: if a future Ollama version
+        # defaults to think=off, agent quality degrades silently without this.
+        "think": True,
     }
     if tools:
         payload["tools"] = _tools_to_openai(tools)
@@ -1252,11 +1260,11 @@ def _local_completion_payload(
     changing the global ``LOCAL_LLM_MODEL`` setting.  When empty, falls back
     to ``settings.local_llm_model``.
 
-    ``think`` is reserved for future use when Ollama properly honours the
-    ``"think": false`` field to skip CoT for Qwen3-family models.  Currently
-    Ollama ignores it; the field is included in the payload anyway so the
-    intent is visible and the behaviour will improve automatically when Ollama
-    adds support.  Set ``think=True`` for planning/streaming calls.
+    ``think`` controls Qwen3-family chain-of-thought via the Ollama 0.18+
+    ``"think"`` field.  Pass ``think=False`` for calls that need only a short
+    structured response (e.g. recon planning JSON) to avoid burning the token
+    budget on unnecessary reasoning.  Pass ``think=True`` (default for the
+    agent tool loop) when reasoning improves output quality.
     """
     capped = _local_cap_max_tokens(max_tokens)
     payload: dict[str, JsonValue] = {
