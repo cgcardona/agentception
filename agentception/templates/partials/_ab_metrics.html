@@ -1,36 +1,125 @@
-<div class="dev-health-panel">
-  <h3 class="dev-health-panel__title">
-    Developer Run Health
-    <span class="dev-health-panel__window">last 7 days · completed developer runs</span>
-  </h3>
-  <table class="ab-metrics">
-    <thead>
-      <tr>
-        <th>Runs</th>
-        <th>Pass Rate</th>
-        <th>Passed</th>
-        <th>Failed</th>
-        <th>Avg Iters</th>
-        <th>Avg Input Tokens</th>
-      </tr>
-    </thead>
-    <tbody>
-    {% for v in variants %}
-    <tr>
-      <td>{{ v.runs }}</td>
-      <td class="{% if v.pass_rate >= 0.5 %}dev-health__good{% elif v.pass_rate > 0 %}dev-health__warn{% else %}dev-health__bad{% endif %}">
-        {{ "%.0f%%"|format(v.pass_rate * 100) }}
-      </td>
-      <td class="dev-health__good">{{ v.passed }}</td>
-      <td class="{% if v.failed > 0 %}dev-health__bad{% endif %}">{{ v.failed }}</td>
-      <td>{{ "%.1f"|format(v.avg_iterations) }}</td>
-      <td>{{ (v.avg_input_tokens / 1000000) | round(2) }}M</td>
-    </tr>
-    {% else %}
-    <tr>
-      <td colspan="6" class="no-data">No completed developer runs in the last 7 days.</td>
-    </tr>
-    {% endfor %}
-    </tbody>
-  </table>
+{% set r = variants[0] if variants else none %}
+<div class="drh">
+
+  {# ── Header ── #}
+  <div class="drh__header">
+    <span class="drh__icon">⚡</span>
+    <span class="drh__title">Developer Run Health</span>
+    <span class="drh__badge">last 7 days</span>
+    {% if r %}
+    <span class="drh__subtitle">{{ r.runs }} completed developer run{{ 's' if r.runs != 1 else '' }}</span>
+    {% endif %}
+  </div>
+
+  {% if r %}
+
+  {# ── KPI stat tiles ── #}
+  <div class="drh__stats">
+
+    <div class="drh__stat">
+      <div class="drh__stat-label">Runs</div>
+      <div class="drh__stat-value">{{ r.runs }}</div>
+    </div>
+
+    <div class="drh__stat drh__stat--{{ 'good' if r.pass_rate >= 0.5 else ('warn' if r.pass_rate > 0 else 'bad') }}">
+      <div class="drh__stat-label">Pass Rate</div>
+      <div class="drh__stat-value">{{ "%.0f%%"|format(r.pass_rate * 100) }}</div>
+      <div class="drh__stat-sub">
+        <span class="drh__sub-good">{{ r.passed }} passed</span>
+        <span class="drh__sub-sep">·</span>
+        <span class="drh__sub-bad">{{ r.failed }} failed</span>
+      </div>
+    </div>
+
+    <div class="drh__stat">
+      <div class="drh__stat-label">Avg Duration</div>
+      <div class="drh__stat-value">{{ "%.0f"|format(r.avg_duration_secs / 60) }}<span class="drh__stat-unit">min</span></div>
+    </div>
+
+    <div class="drh__stat">
+      <div class="drh__stat-label">Est. Cost / Run</div>
+      <div class="drh__stat-value">${{ "%.2f"|format(r.estimated_cost_per_run) }}</div>
+      <div class="drh__stat-sub">based on token usage</div>
+    </div>
+
+    <div class="drh__stat">
+      <div class="drh__stat-label">Avg Iterations</div>
+      <div class="drh__stat-value">{{ "%.1f"|format(r.avg_iterations) }}</div>
+      <div class="drh__stat-sub">LLM turns / run</div>
+    </div>
+
+    <div class="drh__stat {{ 'drh__stat--warn' if r.retry_rate > 0.15 else '' }}">
+      <div class="drh__stat-label">Retry Rate</div>
+      <div class="drh__stat-value">{{ "%.0f%%"|format(r.retry_rate * 100) }}</div>
+      <div class="drh__stat-sub">{{ r.retry_count }} re-dispatched</div>
+    </div>
+
+    <div class="drh__stat drh__stat--tokens">
+      <div class="drh__stat-label">Avg Tokens</div>
+      <div class="drh__stat-value">{{ (r.avg_input_tokens / 1000000) | round(2) }}M<span class="drh__stat-unit">in</span></div>
+      <div class="drh__stat-sub">
+        {{ (r.avg_output_tokens / 1000000) | round(2) }}M out
+        · {{ (r.avg_cache_read_tokens / 1000000) | round(2) }}M cached
+      </div>
+    </div>
+
+  </div>
+
+  {# ── Grade distribution ── #}
+  <div class="drh__grades">
+    <div class="drh__grades-label">Grade distribution</div>
+    <div class="drh__grades-bars">
+
+      <div class="drh__grade drh__grade--a">
+        <div class="drh__grade-letter">A</div>
+        <div class="drh__grade-track">
+          <div class="drh__grade-fill" style="width: {{ (r.grade_a / r.runs * 100) | round(1) if r.runs else 0 }}%"></div>
+        </div>
+        <div class="drh__grade-count">{{ r.grade_a }}</div>
+        <div class="drh__grade-pct">{{ "%.0f%%"|format(r.grade_a / r.runs * 100) if r.runs else '—' }}</div>
+      </div>
+
+      <div class="drh__grade drh__grade--b">
+        <div class="drh__grade-letter">B</div>
+        <div class="drh__grade-track">
+          <div class="drh__grade-fill" style="width: {{ (r.grade_b / r.runs * 100) | round(1) if r.runs else 0 }}%"></div>
+        </div>
+        <div class="drh__grade-count">{{ r.grade_b }}</div>
+        <div class="drh__grade-pct">{{ "%.0f%%"|format(r.grade_b / r.runs * 100) if r.runs else '—' }}</div>
+      </div>
+
+      <div class="drh__grade drh__grade--c">
+        <div class="drh__grade-letter">C</div>
+        <div class="drh__grade-track">
+          <div class="drh__grade-fill" style="width: {{ (r.grade_c / r.runs * 100) | round(1) if r.runs else 0 }}%"></div>
+        </div>
+        <div class="drh__grade-count">{{ r.grade_c }}</div>
+        <div class="drh__grade-pct">{{ "%.0f%%"|format(r.grade_c / r.runs * 100) if r.runs else '—' }}</div>
+      </div>
+
+      <div class="drh__grade drh__grade--d">
+        <div class="drh__grade-letter">D</div>
+        <div class="drh__grade-track">
+          <div class="drh__grade-fill" style="width: {{ (r.grade_d / r.runs * 100) | round(1) if r.runs else 0 }}%"></div>
+        </div>
+        <div class="drh__grade-count">{{ r.grade_d }}</div>
+        <div class="drh__grade-pct">{{ "%.0f%%"|format(r.grade_d / r.runs * 100) if r.runs else '—' }}</div>
+      </div>
+
+      <div class="drh__grade drh__grade--f">
+        <div class="drh__grade-letter">F</div>
+        <div class="drh__grade-track">
+          <div class="drh__grade-fill" style="width: {{ (r.grade_f / r.runs * 100) | round(1) if r.runs else 0 }}%"></div>
+        </div>
+        <div class="drh__grade-count">{{ r.grade_f }}</div>
+        <div class="drh__grade-pct">{{ "%.0f%%"|format(r.grade_f / r.runs * 100) if r.runs else '—' }}</div>
+      </div>
+
+    </div>
+  </div>
+
+  {% else %}
+  <p class="drh__empty">No completed developer runs in the last 7 days.</p>
+  {% endif %}
+
 </div>
