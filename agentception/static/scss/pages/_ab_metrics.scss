@@ -1,4 +1,33 @@
-// ── A/B metrics panel (Mission Control build page) ─────────────────────────────
+// ── Developer Run Health panel (Mission Control build page) ──────────────────
+
+.dev-health-panel {
+  &__title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin: 0 0 0.5rem;
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+  }
+
+  &__window {
+    font-size: 0.68rem;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--muted);
+    opacity: 0.6;
+  }
+}
+
+.dev-health {
+  &__good { color: #34d399; font-weight: 600; }
+  &__warn { color: #fbbf24; font-weight: 600; }
+  &__bad  { color: #f87171; font-weight: 600; }
+}
 
 .ab-metrics {
   width: 100%;

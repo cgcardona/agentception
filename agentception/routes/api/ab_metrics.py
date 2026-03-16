@@ -1,10 +1,10 @@
-"""A/B metrics API — per-prompt-variant aggregates for developer runs.
+"""Developer Run Health API — aggregate KPIs for completed developer runs.
 
-Read-only endpoint for comparing control vs treatment (e.g. prompt_variant)
-without changing dispatch or prompts. Used when ready to analyse A/B experiments.
-
-When the request includes the HTMX header ``HX-Request: true``, returns an HTML
-partial (table) for in-place swap; otherwise returns JSON.
+Read-only endpoint that surfaces pass rate, iteration count, and token usage
+for developer runs grouped by ``prompt_variant`` (NULL = baseline).  Used as
+a health dashboard on the Build page.  When the request includes the HTMX
+header ``HX-Request: true``, returns an HTML partial for in-place swap;
+otherwise returns JSON.
 """
 
 from __future__ import annotations
