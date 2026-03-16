@@ -652,51 +652,6 @@ body:has(.build-layout) nav.topnav {
   &--done     { -webkit-line-clamp: 2; margin-bottom: 0; }
 }
 
-// ── Card icon links (hover-revealed — transcript + cognitive arch) ────────────
-
-.build-issue__icon-links {
-  position: absolute;
-  top: 0.3rem;
-  right: 0.3rem;
-  display: flex;
-  gap: 0.2rem;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s var(--ease-out);
-  z-index: 1;
-}
-
-// Reveal on hover for any card that is not pointer-events:none (i.e. not --done)
-.build-issue:not(.build-issue--done):hover .build-issue__icon-links {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.build-issue__icon-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: var(--radius-xs);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  color: var(--text-faint);
-  text-decoration: none;
-  transition:
-    color       0.15s var(--ease-out),
-    background  0.15s var(--ease-out),
-    border-color 0.15s var(--ease-out);
-
-  svg { flex-shrink: 0; display: block; }
-
-  &:hover {
-    color: var(--accent-bright);
-    background: var(--bg-overlay);
-    border-color: var(--accent);
-  }
-}
-
 // ── Inspector panel (right) — sticky as board scrolls ────────────────────────
 
 .build-inspector {
@@ -803,6 +758,28 @@ body:has(.build-layout) nav.topnav {
     transition: color 0.15s, background 0.15s;
     margin-top: 1px;
     &:hover { background: var(--bg-overlay); color: var(--text-primary); }
+  }
+
+  &__icon-link {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: var(--radius-xs);
+    background: var(--bg-overlay);
+    border: 1px solid var(--border-default);
+    color: var(--text-faint);
+    text-decoration: none;
+    margin-top: 1px;
+    transition: color 0.15s var(--ease-out), background 0.15s var(--ease-out), border-color 0.15s var(--ease-out);
+    svg { flex-shrink: 0; display: block; }
+    &:hover {
+      color: var(--accent-bright);
+      background: var(--bg-surface);
+      border-color: var(--accent);
+    }
   }
 
   &__run-meta {
@@ -2320,6 +2297,94 @@ $preset-accents: (
 
   &--on  { color: var(--warning); }
   &--off { color: var(--success); }
+}
+
+// ── Inspector persona mini-card ───────────────────────────────────────────────
+
+.build-inspector__persona {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+}
+
+.build-inspector__persona-skeleton {
+  padding: 0.5rem 0.875rem;
+  font-size: 0.75rem;
+  color: var(--text-faint);
+}
+
+.persona-card {
+  padding: 0.5rem 0.875rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+
+  &__header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  &__emoji {
+    font-size: 1.25rem;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+
+  &__meta {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+
+  &__name {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__archetype {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+
+  &__profile-link {
+    flex-shrink: 0;
+    font-size: 0.7rem;
+    color: var(--accent-bright);
+    text-decoration: none;
+    white-space: nowrap;
+    &:hover { text-decoration: underline; }
+  }
+
+  &__skills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    padding-left: 1.75rem; // indent under emoji
+  }
+
+  &__skill-chip {
+    display: inline-block;
+    font-size: 0.65rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    background: var(--bg-overlay);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-xs);
+    padding: 0.1rem 0.4rem;
+
+    &--more {
+      color: var(--text-faint);
+      background: transparent;
+    }
+  }
 }
 
 // ── Activity feed container — terminal-style scrollable log ──────────────────
