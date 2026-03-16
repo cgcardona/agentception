@@ -328,7 +328,7 @@ LOOP:
        # → returns list of {number, title, labels, ...}; iterate each .number as NUM
        for NUM in <numbers from list_issues (user-github) result>; do
          # Open PR guard — branch name is the canonical link between issue and PR.
-         # MCP: list_pull_requests (user-github)(state="open") → filter where .headRefName startswith "feat/issue-${NUM}"
+         # MCP: list_pull_requests (user-github)(state="open") → filter where .headRefName startswith "agent/issue-${NUM}"
          OPEN_PR=<pr_number from list_pull_requests (user-github) result, or empty>
          if [ -n "$OPEN_PR" ]; then
            echo "CTO preflight: keeping agent/wip on #$NUM (open PR #$OPEN_PR — worktree pruning expected)"

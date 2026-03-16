@@ -761,7 +761,7 @@ SQLAlchemy async `Base` subclasses. Never exposed directly to routes — consume
 |-------|-----------|----------|
 | `explicit` | 100 | Directly written by `build_report_done` |
 | `body_closes` | 95 | `Closes #N` pattern in PR body |
-| `branch_regex` | 90 | `ac/issue-{N}` branch naming |
+| `branch_regex` | 90 | `agent/issue-{N}` branch naming |
 | `run_pr_number` | 85 | Agent run's stored `pr_number` |
 | `title_mention` | varies | Title keyword match |
 

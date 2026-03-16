@@ -712,17 +712,17 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
         run_id = f"issue-{req.issue_number}"
 
     # Branch name resolution:
-    # - reviewer: pr_branch override or feat/issue-{N} (the implementer's branch)
+    # - reviewer: pr_branch override or agent/issue-{N} (the implementer's branch)
     # - developer continuation (rework after C/D/F): continuation_branch (existing PR branch)
-    # - developer fresh: feat/issue-{N}
+    # - developer fresh: agent/issue-{N}
     if is_reviewer:
-        branch = req.pr_branch if req.pr_branch else f"feat/issue-{req.issue_number}"
+        branch = req.pr_branch if req.pr_branch else f"agent/issue-{req.issue_number}"
         is_continuation = False
     elif req.continuation_branch is not None:
         branch = req.continuation_branch
         is_continuation = True
     else:
-        branch = f"feat/issue-{req.issue_number}"
+        branch = f"agent/issue-{req.issue_number}"
         is_continuation = False
     batch_id = _make_batch_id(req.issue_number)
     worktree_path = str(Path(settings.worktrees_dir) / slug)

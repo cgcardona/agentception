@@ -66,7 +66,7 @@ def _mock_run_dict(
         "status": status,
         "agent_status": agent_status,
         "pr_number": None,
-        "branch": "feat/issue-82",
+        "branch": "agent/issue-82",
         "spawned_at": "2026-03-04T23:00:00+00:00",
         "last_activity_at": None,
         "current_step": current_step,

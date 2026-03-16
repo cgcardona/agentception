@@ -19,10 +19,9 @@ Coverage:
     When get_agent_run_teardown returns no worktree_path the rebase block
     is skipped entirely and the reviewer is still dispatched.
 - test_label_dispatch_branch_forwarded_to_reviewer
-    Regression: org-chart (label) dispatches use agent/{slug}-{hex} branches.
-    The branch read from teardown_info must be forwarded as pr_branch to
-    auto_dispatch_reviewer so it fetches the correct remote ref instead of
-    defaulting to the nonexistent feat/issue-{N} name.
+    Regression: the branch stored in teardown_info must always be forwarded
+    as pr_branch to auto_dispatch_reviewer — whether the run used agent/issue-{N}
+    (issue dispatch) or agent/{slug}-{hex} (label dispatch).
 
 Run targeted:
     pytest agentception/tests/test_build_commands_rebase.py -v
@@ -72,7 +71,7 @@ async def test_rebase_succeeds_force_pushes_and_dispatches_reviewer() -> None:
 
     agent_run_id = "dev-issue-10-abc"
     wt_path = "/worktrees/issue-10"
-    branch_name = "feat/issue-10"
+    branch_name = "agent/issue-10"
 
     # Subprocess sequence: fetch, rebase, rev-parse, push
     fetch_proc = _make_proc(0)
@@ -388,26 +387,25 @@ async def test_rebase_succeeds_with_empty_worktree_path_dict() -> None:
 
 @pytest.mark.anyio
 async def test_label_dispatch_branch_forwarded_to_reviewer() -> None:
-    """Regression: org-chart label runs use non-standard branches — must be forwarded.
+    """Regression: the branch from teardown_info must always be forwarded to auto_dispatch_reviewer.
 
-    Agents dispatched via POST /api/dispatch/label (e.g. from the org chart
-    Ticket-scope picker) receive a branch name like ``agent/{slug}-{hex}``,
-    NOT the ``feat/issue-{N}`` convention.  When the implementer calls
-    build_complete_run, the branch read from get_agent_run_teardown must be
-    passed as ``pr_branch`` to auto_dispatch_reviewer so it fetches the
-    correct remote ref — without this, the reviewer dispatch silently fails
-    with a 422 "branch not found" error and no reviewer is ever spawned.
+    Label-scoped org-chart dispatches create branches like ``agent/{slug}-{hex}``.
+    Issue-scoped dispatches create ``agent/issue-{N}``.  In both cases the exact
+    branch stored in the DB must be passed as ``pr_branch`` so the reviewer
+    fetches the correct remote ref.  Without forwarding, the reviewer dispatch
+    silently fails with a 422 "branch not found" error and no reviewer is spawned.
     """
     from agentception.mcp.build_commands import build_complete_run
 
     agent_run_id = "label-documentation-improvement-a1b2c3"
     wt_path = "/worktrees/label-documentation-improvement-a1b2c3"
-    # This is the non-standard branch created by /api/dispatch/label.
-    non_standard_branch = "agent/documentation-improvement-a1b2"
+    # Label-scoped dispatch uses agent/{slug}-{hex} — the branch IS in agent/ space
+    # but is not the issue-scoped agent/issue-{N} form, so forwarding is still required.
+    label_branch = "agent/documentation-improvement-a1b2"
 
     fetch_proc = _make_proc(0)
     rebase_proc = _make_proc(0)
-    rev_parse_proc = _make_proc(0, stdout=f"{non_standard_branch}\n".encode())
+    rev_parse_proc = _make_proc(0, stdout=f"{label_branch}\n".encode())
     push_proc = _make_proc(0)
     subprocess_calls = iter([fetch_proc, rebase_proc, rev_parse_proc, push_proc])
 
@@ -434,7 +432,7 @@ async def test_label_dispatch_branch_forwarded_to_reviewer() -> None:
             new_callable=AsyncMock,
             return_value={
                 "worktree_path": wt_path,
-                "branch": non_standard_branch,
+                "branch": label_branch,
             },
         ),
         patch(
@@ -469,15 +467,12 @@ async def test_label_dispatch_branch_forwarded_to_reviewer() -> None:
         f"Expected auto-reviewer-1072 task; got: {task_names}"
     )
 
-    # The non-standard branch must have been forwarded as pr_branch.
-    # auto_dispatch_reviewer is called to produce the coroutine that create_task
-    # receives — inspect the call even though the coroutine is closed by the
-    # create_task mock without being awaited.
+    # The branch from teardown_info must be forwarded as pr_branch.
     mock_reviewer.assert_called_once()
     forwarded_branch = mock_reviewer.call_args.kwargs.get("pr_branch")
-    assert forwarded_branch == non_standard_branch, (
-        f"Expected pr_branch={non_standard_branch!r} forwarded to auto_dispatch_reviewer; "
+    assert forwarded_branch == label_branch, (
+        f"Expected pr_branch={label_branch!r} forwarded to auto_dispatch_reviewer; "
         f"got pr_branch={forwarded_branch!r}. "
-        "Without this, org-chart-dispatched runs never spawn a reviewer because "
-        "auto_dispatch_reviewer defaults to feat/issue-N which does not exist."
+        "Without this, the reviewer dispatch would try to fetch the default "
+        "agent/issue-N name instead of the actual label-run branch."
     )

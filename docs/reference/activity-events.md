@@ -253,7 +253,7 @@ Emitted after a successful `git push` to the remote.
 ```json
 {
   "subtype": "git_push",
-  "branch": "feat/issue-938"
+  "branch": "agent/issue-938"
 }
 ```
 
@@ -272,7 +272,7 @@ Emitted when the agent calls a GitHub MCP tool (e.g. `create_pull_request`).
 {
   "subtype": "github_tool",
   "tool_name": "create_pull_request",
-  "arg_preview": "{\"title\": \"feat: activity event schema\", \"head\": \"feat/issue-938\"}"
+  "arg_preview": "{\"title\": \"feat: activity event schema\", \"head\": \"agent/issue-938\"}"
 }
 ```
 

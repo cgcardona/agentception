@@ -30,7 +30,7 @@ async def test_reviewer_worktree_released_after_failing_grade() -> None:
 
     reviewer_run_id = "reviewer-issue-42-abc123"
     wt_path = "/worktrees/review-99"
-    pr_branch = "feat/issue-42"
+    pr_branch = "agent/issue-42"
 
     with (
         patch(
@@ -171,7 +171,7 @@ async def test_redispatch_fires_after_failing_grade() -> None:
     pr_url = "https://github.com/cgcardona/agentception/pull/200"
     reviewer_feedback = "1. Missing type hints\n2. No tests for failure path"
     grade = "F"
-    pr_branch = "feat/issue-77"
+    pr_branch = "agent/issue-77"
 
     with (
         patch(
@@ -455,7 +455,7 @@ async def test_implementer_completion_fails_when_release_worktree_returns_false(
     """build_complete_run returns error and does not dispatch reviewer when release_worktree fails.
 
     Regression: if git worktree remove fails, dispatching the reviewer would fail with
-    'feat/issue-N is already used by worktree at /worktrees/issue-N'. We must not
+    'agent/issue-N is already used by worktree at /worktrees/issue-N'. We must not
     dispatch until the worktree is actually released.
     """
     from agentception.mcp.build_commands import build_complete_run
@@ -481,7 +481,7 @@ async def test_implementer_completion_fails_when_release_worktree_returns_false(
         patch(
             "agentception.mcp.build_commands.get_agent_run_teardown",
             new_callable=AsyncMock,
-            return_value={"worktree_path": wt_path, "branch": "feat/issue-939"},
+            return_value={"worktree_path": wt_path, "branch": "agent/issue-939"},
         ),
         patch(
             "agentception.mcp.build_commands.release_worktree",

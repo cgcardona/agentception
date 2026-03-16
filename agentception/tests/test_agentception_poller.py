@@ -235,7 +235,7 @@ async def test_no_stale_claim_when_worktree_exists(tmp_path: Path) -> None:
     )
     # Create the expected worktree directory so the issue is considered live.
     (tmp_path / "issue-99").mkdir()
-    worktrees = [_make_worktree(issue_number=99, branch="feat/issue-99")]
+    worktrees = [_make_worktree(issue_number=99, branch="agent/issue-99")]
     with (
         patch("agentception.poller.settings") as mock_settings,
         patch(
@@ -259,7 +259,7 @@ async def test_out_of_order_pr_alert(tmp_path: Path) -> None:
         open_prs=[
             {
                 "number": 77,
-                "headRefName": "feat/issue-77",
+                "headRefName": "agent/issue-77",
                 "labels": [{"name": "agentception/0-scaffold"}],  # old phase
             }
         ],
@@ -293,7 +293,7 @@ async def test_stuck_agent_alert_detected(tmp_path: Path) -> None:
             task_description=None,
             issue_number=55,
             pr_number=None,
-            branch="feat/issue-55",
+            branch="agent/issue-55",
             worktree_path=str(tmp_path),
             batch_id=None,
             tier="worker",
@@ -344,7 +344,7 @@ async def test_stall_detection_primary_signal_cold_heartbeat(tmp_path: Path) -> 
             task_description=None,
             issue_number=99,
             pr_number=None,
-            branch="feat/issue-99",
+            branch="agent/issue-99",
             worktree_path=str(tmp_path),
             batch_id=None,
             tier="worker",
@@ -405,7 +405,7 @@ async def test_stall_detection_no_stall_when_heartbeat_warm(tmp_path: Path) -> N
             task_description=None,
             issue_number=88,
             pr_number=None,
-            branch="feat/issue-88",
+            branch="agent/issue-88",
             worktree_path=str(tmp_path),
             batch_id=None,
             tier="worker",
@@ -495,10 +495,10 @@ async def test_merge_agents_reviewing_status() -> None:
     board = GitHubBoard(
         active_label=None,
         open_issues=[],
-        open_prs=[{"number": 10, "headRefName": "feat/issue-10", "labels": []}],
+        open_prs=[{"number": 10, "headRefName": "agent/issue-10", "labels": []}],
         wip_issues=[],
     )
-    worktrees = [_make_worktree(issue_number=10, branch="feat/issue-10")]
+    worktrees = [_make_worktree(issue_number=10, branch="agent/issue-10")]
     agents = await merge_agents(worktrees, board)
 
     assert len(agents) == 1
@@ -515,7 +515,7 @@ async def test_merge_agents_implementing_status() -> None:
         open_prs=[],
         wip_issues=[{"number": 20, "title": "...", "labels": [{"name": "agent/wip"}]}],
     )
-    worktrees = [_make_worktree(issue_number=20, branch="feat/issue-20")]
+    worktrees = [_make_worktree(issue_number=20, branch="agent/issue-20")]
     agents = await merge_agents(worktrees, board)
 
     assert len(agents) == 1
@@ -530,7 +530,7 @@ async def test_merge_agents_implementing_when_issue_number_present() -> None:
     the agent/wip GitHub label because leaf agents may not have claimed the
     issue by the time the first poller tick fires.
     """
-    worktrees = [_make_worktree(issue_number=30, branch="feat/issue-30")]
+    worktrees = [_make_worktree(issue_number=30, branch="agent/issue-30")]
     agents = await merge_agents(worktrees, _empty_board())
 
     assert len(agents) == 1
@@ -564,7 +564,7 @@ async def test_merge_agents_passes_pr_number_from_task_file() -> None:
         task_description=None,
         issue_number=20,
         pr_number=99,
-        branch="feat/issue-20",
+        branch="agent/issue-20",
         worktree_path="/tmp/fake-worktree-20",
         batch_id=None,
         tier="worker",

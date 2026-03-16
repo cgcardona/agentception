@@ -15,15 +15,21 @@ from agentception.readers.git import _AGENT_BRANCH_RE
 # ---------------------------------------------------------------------------
 
 _SHOULD_MATCH = [
-    # dispatcher-created top-level worktree branches
+    # issue-scoped worker branches
+    "agent/issue-176",
+    "agent/issue-1",
+    "agent/issue-42",
+    # coordinator branches
+    "agent/coord-cognitive-arch-propagation-81ac",
+    "agent/coord-some-label-e072",
+    # reviewer branches
+    "agent/review-188-06dd",
+    # label/org-chart branches
     "agent/cognitive-arch-propagation-e072",
     "agent/some-label-abc123",
-    # pipeline engineer / coordinator / reviewer branches
-    "ac/issue-176",
-    "ac/issue-1",
-    "ac/coord-cognitive-arch-propagation-81ac",
-    "ac/review-188-06dd",
-    "ac/issue-176-resolve",
+    # plan integration branches
+    "agent/plan-readme-section",
+    "agent/plan-42-add-auth",
 ]
 
 _SHOULD_NOT_MATCH = [
@@ -37,6 +43,9 @@ _SHOULD_NOT_MATCH = [
     "feat/plain",
     "feat/issue-",
     "feat/issue-abc",
+    "ac/issue-176",         # removed — ac/* naming, no longer used
+    "ac/coord-cognitive-arch-propagation-81ac",
+    "ac/review-188-06dd",
     "",
 ]
 

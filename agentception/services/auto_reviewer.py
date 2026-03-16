@@ -72,7 +72,7 @@ async def auto_dispatch_reviewer(
     pr_number = extract_pr_number(pr_url)
     if pr_number is None:
         return
-    branch = pr_branch or f"feat/issue-{issue_number}"
+    branch = pr_branch or f"agent/issue-{issue_number}"
 
     # Small delay so GitHub has time to register the pushed branch before the
     # reviewer fetches it.

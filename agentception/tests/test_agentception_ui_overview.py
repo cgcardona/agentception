@@ -53,7 +53,7 @@ def populated_state() -> PipelineState:
                 role="developer",
                 status=AgentStatus.IMPLEMENTING,
                 issue_number=615,
-                branch="feat/issue-615-overview-ui",
+                branch="agent/issue-615-overview-ui",
                 batch_id="eng-20260302T001107Z-2810",
             )
         ],
