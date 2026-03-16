@@ -114,11 +114,17 @@ RUN pip install --no-cache-dir -e /app
 # so downloading at runtime inside the container will fail (403 CONNECT tunnel).
 # Baking the model here means it is always present after a clean build and
 # survives volume recreation without any manual recovery steps.
-RUN python3 -c "\
+#
+# HF_HOME must be set to the agentception user's cache directory so the model
+# lands in the same path the runtime app reads from.  Without this, the build
+# runs as root and writes to /root/.cache/huggingface — a cache miss every
+# startup — causing fastembed to re-download the model at runtime.
+RUN HF_HOME=/home/agentception/.cache/huggingface python3 -c "\
 from fastembed import TextEmbedding; \
 m = TextEmbedding(model_name='jinaai/jina-embeddings-v2-base-code'); \
 list(m.embed(['warm-up'])); \
-print('Embedding model pre-downloaded.')"
+print('Embedding model pre-downloaded.')" \
+    && chown -R agentception:agentception /home/agentception/.cache
 
 # Entrypoint: performs privileged startup (resolv.conf, asset compilation,
 # DB migrations, ownership fixes) then drops to the agentception user via
