@@ -8,6 +8,7 @@ import {
   parseArgPreview,
   formatResultPreview,
   parseModelInfo,
+  modelLabel,
 } from '../format_utils';
 
 describe('parseModelInfo', () => {
@@ -29,10 +30,40 @@ describe('parseModelInfo', () => {
     expect(result.modelShort).toBe('3.5');
   });
 
-  it('parses local → Local / local', () => {
+  it('parses local → Local with empty modelShort (avoids "Local: local")', () => {
     const result = parseModelInfo('local');
     expect(result.network).toBe('Local');
-    expect(result.modelShort).toBe('local');
+    expect(result.modelShort).toBe('');
+  });
+
+  it('parses qwen2.5:7b → Local / Qwen 2.5', () => {
+    const result = parseModelInfo('qwen2.5:7b');
+    expect(result.network).toBe('Local');
+    expect(result.modelShort).toBe('Qwen 2.5');
+  });
+
+  it('parses qwen3:14b → Local / Qwen 3', () => {
+    const result = parseModelInfo('qwen3:14b');
+    expect(result.network).toBe('Local');
+    expect(result.modelShort).toBe('Qwen 3');
+  });
+
+  it('parses qwen2.5-coder:7b → Local / Qwen 2.5', () => {
+    const result = parseModelInfo('qwen2.5-coder:7b');
+    expect(result.network).toBe('Local');
+    expect(result.modelShort).toBe('Qwen 2.5');
+  });
+
+  it('parses llama3.1:8b → Local / Llama 3.1', () => {
+    const result = parseModelInfo('llama3.1:8b');
+    expect(result.network).toBe('Local');
+    expect(result.modelShort).toBe('Llama 3.1');
+  });
+
+  it('parses mistral:7b → Local / Mistral', () => {
+    const result = parseModelInfo('mistral:7b');
+    expect(result.network).toBe('Local');
+    expect(result.modelShort).toBe('Mistral');
   });
 
   it('parses gpt-4o → OpenAI', () => {
@@ -47,6 +78,20 @@ describe('parseModelInfo', () => {
     const result = parseModelInfo('unknown-model-xyz');
     expect(result.network).toBe('Remote');
     expect(result.modelShort).toBe('unknown-model-xyz');
+  });
+});
+
+describe('modelLabel', () => {
+  it('formats network + modelShort when both present', () => {
+    expect(modelLabel({ network: 'Anthropic', modelShort: 'sonnet 4.6' })).toBe('Anthropic: sonnet 4.6');
+  });
+
+  it('shows just network when modelShort is empty (avoids "Local: local")', () => {
+    expect(modelLabel({ network: 'Local', modelShort: '' })).toBe('Local');
+  });
+
+  it('formats local Qwen model', () => {
+    expect(modelLabel(parseModelInfo('qwen2.5:7b'))).toBe('Local: Qwen 2.5');
   });
 });
 

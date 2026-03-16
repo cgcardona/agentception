@@ -19,6 +19,7 @@ import {
   formatArgsCompact,
   shortenPath,
   parseModelInfo,
+  modelLabel,
 } from './format_utils';
 import { getCurrentAppendTarget, resetStepContext } from './step_context';
 
@@ -111,12 +112,8 @@ export function formatActivitySummary(subtype: string, payload: Record<string, u
       return `${shortenPath(str(p, 'path'))}  ·  ${fmtBytes(num(p, 'byte_count'))}`;
     case 'git_push':
       return str(p, 'branch') || 'push';
-    case 'llm_iter': {
-      // Single-line fallback (DOM builder renders two-line layout).
-      const { network, modelShort } = parseModelInfo(str(p, 'model'));
-      const turns = num(p, 'turns');
-      return `${network}: ${modelShort}  ·  Iteration ${turns}`;
-    }
+    case 'llm_iter':
+      return modelLabel(parseModelInfo(str(p, 'model')));
     case 'llm_usage': {
       const inp = num(p, 'input_tokens');
       const cw  = num(p, 'cache_write');
@@ -255,27 +252,18 @@ function buildToolSummary(summaryText: string): HTMLElement {
 }
 
 /**
- * Build the two-line summary element for llm_iter rows:
- *   Line 1 (prominent): "{network}: {modelShort}"  e.g. "Anthropic: sonnet 4.6"
- *   Line 2 (muted):     "Iteration N"
+ * Build the summary element for llm_iter rows.
+ * Shows "{network}: {modelShort}" or just "{network}" when the model is unknown.
  */
 function buildIterSummary(payload: Record<string, unknown>): HTMLElement {
-  const { network, modelShort } = parseModelInfo(str(payload, 'model'));
-  const turns = num(payload, 'turns');
-
   const summary = document.createElement('span');
   summary.className = 'activity-feed__summary';
 
-  const line1 = document.createElement('span');
-  line1.className = 'af__iter-model';
-  line1.textContent = `${network}: ${modelShort}`;
+  const label = document.createElement('span');
+  label.className = 'af__iter-model';
+  label.textContent = modelLabel(parseModelInfo(str(payload, 'model')));
 
-  const line2 = document.createElement('span');
-  line2.className = 'af__iter-num';
-  line2.textContent = `Iteration ${turns}`;
-
-  summary.appendChild(line1);
-  summary.appendChild(line2);
+  summary.appendChild(label);
   return summary;
 }
 

@@ -105,17 +105,22 @@ describe('formatActivitySummary', () => {
     expect(formatActivitySummary('unknown_subtype', {})).toBe('unknown_subtype');
   });
 
-  it('formats llm_iter with network: model · Iteration N', () => {
-    // claude-3-5 → 2-part version → Anthropic: 3.5
+  it('formats llm_iter as network: modelShort (no iteration count)', () => {
     expect(
       formatActivitySummary('llm_iter', { model: 'claude-3-5', turns: 2 })
-    ).toBe('Anthropic: 3.5  ·  Iteration 2');
+    ).toBe('Anthropic: 3.5');
   });
 
-  it('formats llm_iter for local model', () => {
+  it('formats llm_iter for local placeholder model as just "Local"', () => {
     expect(
       formatActivitySummary('llm_iter', { model: 'local', turns: 1 })
-    ).toBe('Local: local  ·  Iteration 1');
+    ).toBe('Local');
+  });
+
+  it('formats llm_iter for Ollama Qwen model', () => {
+    expect(
+      formatActivitySummary('llm_iter', { model: 'qwen2.5:7b', turns: 1 })
+    ).toBe('Local: Qwen 2.5');
   });
 
   it('formats llm_usage as human-readable token counts', () => {
@@ -310,7 +315,20 @@ describe('appendActivityRow', () => {
     expect(row?.hasAttribute('data-exit-nonzero')).toBe(false);
   });
 
-  it('renders llm_iter as two-line summary (af__iter-model + af__iter-num)', () => {
+  it('renders llm_iter as single-line summary with af__iter-model span', () => {
+    appendActivityRow({
+      t: 'activity',
+      subtype: 'llm_iter',
+      payload: { model: 'qwen2.5:7b', turns: 1 },
+      recorded_at: '',
+    });
+    const row = document.querySelector('.activity-feed__row');
+    expect(row?.getAttribute('data-subtype')).toBe('llm_iter');
+    expect(row?.querySelector('.af__iter-model')?.textContent).toBe('Local: Qwen 2.5');
+    expect(row?.querySelector('.af__iter-num')).toBeNull();
+  });
+
+  it('renders llm_iter for unknown local model as just "Local"', () => {
     appendActivityRow({
       t: 'activity',
       subtype: 'llm_iter',
@@ -318,9 +336,7 @@ describe('appendActivityRow', () => {
       recorded_at: '',
     });
     const row = document.querySelector('.activity-feed__row');
-    expect(row?.getAttribute('data-subtype')).toBe('llm_iter');
-    expect(row?.querySelector('.af__iter-model')?.textContent).toBe('Local: local');
-    expect(row?.querySelector('.af__iter-num')?.textContent).toBe('Iteration 1');
+    expect(row?.querySelector('.af__iter-model')?.textContent).toBe('Local');
   });
 
   it('renders tool_invoked with split label / value spans', () => {
