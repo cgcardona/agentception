@@ -1279,7 +1279,7 @@ You are running **inside the AgentCeption Docker container**, not on the host ma
   you modified.  Full directory scans spawn a subprocess that cold-loads the entire project
   type graph (~1-2 GB extra RSS) on top of the loaded ONNX model weights and crash the container.
 - The repository is mounted at `/app`.  Your worktree path is provided in your
-  initial message.  Read `ac://runs/{run_id}/context` for your full task context.
+  initial message.
 - Git operations run in the worktree directory.
 - Use `run_command` for shell execution.  Use `read_file` / `write_file` for files.
 - Use GitHub MCP tools (`get_issue`, `list_issues`, `add_issue_comment`,
