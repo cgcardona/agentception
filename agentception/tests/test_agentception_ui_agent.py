@@ -42,7 +42,7 @@ def agent_node() -> AgentNode:
         role="developer",
         status=AgentStatus.IMPLEMENTING,
         issue_number=616,
-        branch="feat/issue-616-agent-inspector-ui",
+        branch="agent/issue-616-agent-inspector-ui",
         batch_id="eng-20260302T013317Z-4e62",
         worktree_path="/worktrees/issue-616",
         message_count=3,

@@ -97,7 +97,7 @@ Every worktree has a corresponding `ac_agent_runs` DB row. Agents read their con
 type = "issue-to-pr"          # or "pr-review"
 issue_number = 423            # issue number (for issue-to-pr)
 pr_number = 485               # PR number (for pr-review)
-branch = "feat/issue-423"     # git branch name
+branch = "agent/issue-423"     # git branch name
 worktree_path = "$HOME/.agentception/worktrees/agentception/issue-423"
 role = "developer"     # which cognitive architecture to load
 role_file = "<repo-root>/.agentception/roles/developer.md"
@@ -171,7 +171,7 @@ git worktree list
 
 ```bash
 # For each issue to implement:
-git worktree add -b feat/issue-{N} ~/.agentception/worktrees/agentception/issue-{N} origin/dev
+git worktree add -b agent/issue-{N} ~/.agentception/worktrees/agentception/issue-{N} origin/dev
 
 # For each PR to review (checkout the PR's branch):
 # Call pull_request_read(pullNumber=N) and read the headRefName field

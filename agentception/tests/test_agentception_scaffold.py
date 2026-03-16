@@ -65,7 +65,7 @@ def test_agent_node_serializes_roundtrip() -> None:
         role="developer",
         status=AgentStatus.IMPLEMENTING,
         issue_number=609,
-        branch="feat/issue-609",
+        branch="agent/issue-609",
         batch_id="eng-20260301T211956Z-741f",
         message_count=42,
     )
@@ -114,7 +114,7 @@ def test_agent_task_spec_parses_known_fields() -> None:
         task="issue-to-pr",
         gh_repo="cgcardona/agentception",
         issue_number=609,
-        branch="feat/issue-609",
+        branch="agent/issue-609",
         role="developer",
         batch_id="eng-20260301T211956Z-741f",
         spawn_sub_agents=False,

@@ -489,7 +489,7 @@ def test_reviewer_run_id_uses_pr_number_slug() -> None:
         role="reviewer",
         repo="cgcardona/agentception",
         pr_number=555,
-        pr_branch="feat/issue-450",
+        pr_branch="agent/issue-450",
     )
 
     is_reviewer = reviewer_req.role == "reviewer"

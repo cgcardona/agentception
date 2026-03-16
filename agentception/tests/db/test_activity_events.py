@@ -129,11 +129,11 @@ def test_persist_activity_event_payload_includes_subtype(db_session: Session) ->
         session=db_session,
         run_id="issue-100",
         subtype="git_push",
-        payload={"branch": "feat/issue-100"},
+        payload={"branch": "agent/issue-100"},
     )
     db_session.flush()
 
     row = db_session.query(ACAgentEvent).filter_by(agent_run_id="issue-100").one()
     stored = json.loads(row.payload)
     assert stored["subtype"] == "git_push"
-    assert stored["branch"] == "feat/issue-100"
+    assert stored["branch"] == "agent/issue-100"

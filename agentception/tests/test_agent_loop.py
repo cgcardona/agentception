@@ -2300,7 +2300,7 @@ class TestReviewerWarmup:
         ):
             await _run_reviewer_warmup(
                 worktree_path=worktree,
-                pr_branch="feat/issue-37",
+                pr_branch="agent/issue-37",
                 issue_number=37,
                 messages=messages,
                 github_client=mock_client,
@@ -2332,7 +2332,7 @@ class TestReviewerWarmup:
             cognitive_arch="Review carefully.",
             issue_number=99,
             worktree=str(worktree),
-            branch="feat/issue-99",
+            branch="agent/issue-99",
             gh_repo="cgcardona/agentception",
         )
 

@@ -41,8 +41,8 @@ POST /api/dispatch/issue  (role: "developer")
                 ├─ release executor worktree  (directory removed, branch kept for PR)
                 └─ POST /api/dispatch/issue  (role: "reviewer", internal)
                         │
-                        ├─ git fetch origin feat/issue-{N}
-                        ├─ git worktree add /worktrees/review-{N} feat/issue-{N}
+                        ├─ git fetch origin agent/issue-{N}
+                        ├─ git worktree add /worktrees/review-{N} agent/issue-{N}
                         └─ asyncio.create_task(run_agent_loop)
                                 │
                                 ▼
@@ -82,15 +82,15 @@ curl -s -X POST http://localhost:1337/api/dispatch/issue \
   -H "Content-Type: application/json" \
   -d '{
     "issue_number": 35,
-    "issue_title":  "PR review for feat/issue-35 (#436)",
-    "issue_body":   "Review PR #436 (feat/issue-35). Run mypy, typing_audit, pytest. Merge if acceptable.",
+    "issue_title":  "PR review for agent/issue-35 (#436)",
+    "issue_body":   "Review PR #436 (agent/issue-35). Run mypy, typing_audit, pytest. Merge if acceptable.",
     "role":         "reviewer",
     "repo":         "cgcardona/agentception",
     "pr_number":    436
   }'
 ```
 
-If the PR branch does **not** follow the `feat/issue-{N}` convention, pass
+If the PR branch does **not** follow the `agent/issue-{N}` convention, pass
 `pr_branch` explicitly:
 
 ```bash
@@ -121,7 +121,7 @@ curl -s -X POST http://localhost:1337/api/dispatch/issue \
 | `role` | yes | `"developer"` for implementation. `"reviewer"` for review. |
 | `repo` | yes | `owner/repo` string — e.g. `"cgcardona/agentception"` |
 | `pr_number` | no | PR number to associate with this run. Required for `reviewer` dispatches. Omit for implementers — the executor self-reports it via `build_complete_run` |
-| `pr_branch` | no | Exact remote branch name for the PR. `reviewer` only. Omit when the branch follows `feat/issue-{N}` naming |
+| `pr_branch` | no | Exact remote branch name for the PR. `reviewer` only. Omit when the branch follows `agent/issue-{N}` naming |
 
 ---
 
@@ -132,7 +132,7 @@ curl -s -X POST http://localhost:1337/api/dispatch/issue \
   "run_id":        "issue-35",
   "worktree":      "/worktrees/issue-35",
   "host_worktree": "/Users/you/.agentception/worktrees/agentception/issue-35",
-  "branch":        "feat/issue-35",
+  "branch":        "agent/issue-35",
   "batch_id":      "issue-35-20260310T010149Z-37c6",
   "status":        "implementing"
 }
@@ -228,11 +228,11 @@ docker compose exec agentception \
 docker compose exec agentception git -C /app worktree prune
 
 # 4. Delete the local branch (if it exists)
-docker compose exec agentception git -C /app branch -D feat/issue-35
+docker compose exec agentception git -C /app branch -D agent/issue-35
 
 # 5. Delete the remote branch ONLY if no PR is open for it
 #    (deleting a branch with an open PR closes the PR on GitHub)
-git push origin --delete feat/issue-35
+git push origin --delete agent/issue-35
 ```
 
 > **Do not delete the remote branch if a PR is open.** GitHub closes the PR
@@ -292,8 +292,8 @@ Typical turn counts per tier:
 3. Run `python3 tools/typing_audit.py --dirs agentception/ agentception/tests/ --max-any 0` — passes.
 4. Run `pytest agentception/tests/ -v` — all green.
 5. Run `python3 /app/scripts/gen_prompts/generate.py --check` — no drift (if `.j2` templates were edited, run without `--check` first then re-run with `--check`).
-6. `git_commit_and_push` on `feat/issue-{N}`.
-7. `create_pull_request` — head `feat/issue-{N}`, base `dev`.
+6. `git_commit_and_push` on `agent/issue-{N}`.
+7. `create_pull_request` — head `agent/issue-{N}`, base `dev`.
 8. Call `build_complete_run` — triggers the auto-reviewer and marks the run `completed`.
 
 ---

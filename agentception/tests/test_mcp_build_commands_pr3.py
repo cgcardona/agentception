@@ -446,7 +446,7 @@ async def test_build_complete_run_releases_worktree_before_reviewer() -> None:
     """Executor worktree is released before the reviewer is dispatched.
 
     Regression for the "branch already used by worktree" failure: if the
-    executor's worktree still holds feat/issue-N when the reviewer tries to
+    executor's worktree still holds agent/issue-N when the reviewer tries to
     create its own worktree for the same branch, git rejects the second
     worktree with a fatal error.  build_complete_run must call
     release_worktree (remove dir + prune refs) first.
@@ -469,7 +469,7 @@ async def test_build_complete_run_releases_worktree_before_reviewer() -> None:
         patch(
             "agentception.mcp.build_commands.get_agent_run_teardown",
             new_callable=AsyncMock,
-            return_value={"worktree_path": "/worktrees/issue-99", "branch": "feat/issue-99"},
+            return_value={"worktree_path": "/worktrees/issue-99", "branch": "agent/issue-99"},
         ),
         patch(
             "agentception.mcp.build_commands.release_worktree",

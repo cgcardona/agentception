@@ -116,7 +116,7 @@ _ISSUE_NUMBER = 37
 _PR_URL = "https://github.com/cgcardona/agentception/pull/569"
 _GRADE = "C"
 _FEEDBACK = "1. dir() smell\n2. SCSS not moved\n3. No regression test"
-_PR_BRANCH = "feat/issue-37"
+_PR_BRANCH = "agent/issue-37"
 
 
 @pytest.mark.anyio

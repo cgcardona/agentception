@@ -33,7 +33,7 @@ async def test_reaper_calls_release_not_teardown(tmp_path: Path) -> None:
         patch(
             "agentception.services.worktree_reaper.get_terminal_runs_with_worktrees",
             new_callable=AsyncMock,
-            return_value=[{"id": "issue-99", "worktree_path": str(fake_worktree), "branch": "feat/issue-99"}],
+            return_value=[{"id": "issue-99", "worktree_path": str(fake_worktree), "branch": "agent/issue-99"}],
         ),
         patch(
             "agentception.services.worktree_reaper.release_worktree",
@@ -71,7 +71,7 @@ async def test_reaper_clears_db_ref_for_missing_dirs(tmp_path: Path) -> None:
         patch(
             "agentception.services.worktree_reaper.get_terminal_runs_with_worktrees",
             new_callable=AsyncMock,
-            return_value=[{"id": "issue-100", "worktree_path": absent, "branch": "feat/issue-100"}],
+            return_value=[{"id": "issue-100", "worktree_path": absent, "branch": "agent/issue-100"}],
         ),
         patch(
             "agentception.services.worktree_reaper.release_worktree",
@@ -135,9 +135,9 @@ async def test_reaper_counts_multiple_released_dirs(tmp_path: Path) -> None:
     absent = str(tmp_path / "issue-3")  # not on disk — must be skipped
 
     runs = [
-        {"id": "issue-1", "worktree_path": str(dir_a), "branch": "feat/issue-1"},
-        {"id": "issue-2", "worktree_path": str(dir_b), "branch": "feat/issue-2"},
-        {"id": "issue-3", "worktree_path": absent, "branch": "feat/issue-3"},
+        {"id": "issue-1", "worktree_path": str(dir_a), "branch": "agent/issue-1"},
+        {"id": "issue-2", "worktree_path": str(dir_b), "branch": "agent/issue-2"},
+        {"id": "issue-3", "worktree_path": absent, "branch": "agent/issue-3"},
     ]
 
     with (
@@ -174,7 +174,7 @@ async def test_reaper_clears_db_only_when_release_succeeds(tmp_path: Path) -> No
         patch(
             "agentception.services.worktree_reaper.get_terminal_runs_with_worktrees",
             new_callable=AsyncMock,
-            return_value=[{"id": "issue-101", "worktree_path": str(fake_worktree), "branch": "feat/issue-101"}],
+            return_value=[{"id": "issue-101", "worktree_path": str(fake_worktree), "branch": "agent/issue-101"}],
         ),
         patch(
             "agentception.services.worktree_reaper.release_worktree",
@@ -209,7 +209,7 @@ async def test_reaper_does_not_clear_db_when_release_fails(tmp_path: Path) -> No
         patch(
             "agentception.services.worktree_reaper.get_terminal_runs_with_worktrees",
             new_callable=AsyncMock,
-            return_value=[{"id": "issue-102", "worktree_path": str(fake_worktree), "branch": "feat/issue-102"}],
+            return_value=[{"id": "issue-102", "worktree_path": str(fake_worktree), "branch": "agent/issue-102"}],
         ),
         patch(
             "agentception.services.worktree_reaper.release_worktree",
@@ -364,7 +364,7 @@ async def test_reaper_does_not_delete_branch_for_issue_run(tmp_path: Path) -> No
             return_value=[{
                 "id": "issue-999",
                 "worktree_path": str(fake_worktree),
-                "branch": "feat/issue-999",
+                "branch": "agent/issue-999",
             }],
         ),
         patch(
