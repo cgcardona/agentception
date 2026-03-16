@@ -608,9 +608,10 @@
                     <label class="od-editor__label">Ticket</label>
                     <select class="od-scope-select"
                             x-model.number="editScopeIssueNumber">
-                      <option value="" disabled>— select a ticket —</option>
+                      <option value="" :selected="editScopeIssueNumber === null" disabled>— select a ticket —</option>
                       <template x-for="iss in issues" :key="iss.number">
                         <option :value="iss.number"
+                                :selected="iss.number === editScopeIssueNumber"
                                 :disabled="iss.blocked"
                                 :class="{'od-scope-select__opt--blocked': iss.blocked}"
                                 x-text="'#' + iss.number + ' — ' + (iss.title.length > 52 ? iss.title.slice(0, 52) + '…' : iss.title) + (iss.blocked ? ' (blocked)' : '')"></option>
