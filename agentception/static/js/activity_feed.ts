@@ -533,16 +533,16 @@ export function appendActivityRow(msg: ActivityMessage): void {
   }
 
   // dir_listed: inject entries into the preceding list_directory detail panel.
+  // Search the full feed (not just current step) so timing edge-cases at step
+  // boundaries don't cause the injector to miss the target panel.
   if (msg.subtype === 'dir_listed') {
-    const target = getCurrentAppendTarget(feed);
-    injectDirListedIntoPanel(target, msg.payload);
+    injectDirListedIntoPanel(feed, msg.payload);
     return;
   }
 
   // search_results: inject matched file list into the preceding search detail panel.
   if (msg.subtype === 'search_results') {
-    const target = getCurrentAppendTarget(feed);
-    injectSearchResultsIntoPanel(target, msg.payload);
+    injectSearchResultsIntoPanel(feed, msg.payload);
     return;
   }
 

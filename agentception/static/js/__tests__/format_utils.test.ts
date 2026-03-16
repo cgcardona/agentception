@@ -120,8 +120,8 @@ describe('humanizeTool', () => {
 });
 
 describe('humanizeDetailKey', () => {
-  it('humanizes n_results → results', () => {
-    expect(humanizeDetailKey('n_results')).toBe('results');
+  it('humanizes n_results → limit (the request cap, not result count)', () => {
+    expect(humanizeDetailKey('n_results')).toBe('limit');
   });
 
   it('humanizes start_line → from line', () => {
