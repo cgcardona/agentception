@@ -25,7 +25,7 @@ import {
 
 /** Subtypes that support click-to-expand detail panel. */
 const EXPANDABLE_SUBTYPES = new Set([
-  'tool_invoked', 'github_tool', 'file_read', 'dir_listed', 'llm_reply',
+  'tool_invoked', 'github_tool', 'file_read', 'llm_reply',
 ]);
 import { getCurrentAppendTarget, getCurrentStepHeader, resetStepContext } from './step_context';
 
@@ -414,19 +414,34 @@ function buildFileReadDetail(payload: Record<string, unknown>): HTMLElement {
 }
 
 /**
- * Build the expandable detail panel for a dir_listed row.
- * Renders the entries list as a compact preformatted block, one entry per line.
- * Directories show a trailing /, files are plain names.
+ * Append directory-listing entries into an existing tool-detail panel.
+ *
+ * dir_listed is not a standalone row — it is a child of the list_directory
+ * tool_invoked row that preceded it.  This function finds the most recently
+ * rendered list_directory detail panel (identified by data-list-dir-target)
+ * within the given container and injects the entries beneath the existing
+ * arg key-value lines.
  */
-function buildDirListedDetail(payload: Record<string, unknown>): HTMLElement {
-  const panel = document.createElement('div');
-  panel.className = 'af__tool-detail af__tool-detail--dir-listed';
-  panel.setAttribute('hidden', '');
+function injectDirListedIntoPanel(
+  container: HTMLElement,
+  payload: Record<string, unknown>,
+): void {
+  const panels = container.querySelectorAll<HTMLElement>('[data-list-dir-target]');
+  const panel = panels.length > 0 ? panels[panels.length - 1] : null;
+  if (panel === null) return;
 
   const rawEntries = payload['entries'];
   const entries: string[] = typeof rawEntries === 'string' && rawEntries.length > 0
     ? rawEntries.split('\n').filter(e => e.length > 0)
     : [];
+
+  const entriesLine = document.createElement('div');
+  entriesLine.className = 'af__detail-line';
+  const k = document.createElement('span');
+  k.className = 'af__detail-key';
+  k.textContent = 'entries';
+  entriesLine.appendChild(k);
+  panel.appendChild(entriesLine);
 
   if (entries.length > 0) {
     const pre = document.createElement('pre');
@@ -437,10 +452,8 @@ function buildDirListedDetail(payload: Record<string, unknown>): HTMLElement {
     const note = document.createElement('span');
     note.className = 'af__detail-val';
     note.textContent = '(empty directory)';
-    panel.appendChild(note);
+    entriesLine.appendChild(note);
   }
-
-  return panel;
 }
 
 /**
@@ -474,6 +487,13 @@ export function appendActivityRow(msg: ActivityMessage): void {
   // llm_iter: show model once in a sticky header at the top of the feed, then skip.
   if (msg.subtype === 'llm_iter') {
     ensureModelHeader(feed, msg.payload);
+    return;
+  }
+
+  // dir_listed: inject entries into the preceding list_directory detail panel.
+  if (msg.subtype === 'dir_listed') {
+    const target = getCurrentAppendTarget(feed);
+    injectDirListedIntoPanel(target, msg.payload);
     return;
   }
 
@@ -548,10 +568,14 @@ export function appendActivityRow(msg: ActivityMessage): void {
     chevron.innerHTML = icons.chevronRight;
     row.appendChild(chevron);
 
-    detailPanel = msg.subtype === 'file_read'   ? buildFileReadDetail(msg.payload)
-      : msg.subtype === 'dir_listed'             ? buildDirListedDetail(msg.payload)
-      : msg.subtype === 'llm_reply'              ? buildLlmReplyDetail(msg.payload)
+    detailPanel = msg.subtype === 'file_read' ? buildFileReadDetail(msg.payload)
+      : msg.subtype === 'llm_reply'          ? buildLlmReplyDetail(msg.payload)
       : buildToolDetail(msg.payload);
+
+    // Tag list_directory panels so dir_listed can inject entries into them.
+    if (str(msg.payload, 'tool_name') === 'list_directory') {
+      detailPanel.setAttribute('data-list-dir-target', '');
+    }
 
     const toggle = (): void => {
       const isOpen = row.getAttribute('aria-expanded') === 'true';

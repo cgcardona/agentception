@@ -533,19 +533,32 @@ describe('appendActivityRow', () => {
       });
     });
 
-    describe('dir_listed expandable rows', () => {
-      it('dir_listed row has data-expandable', () => {
+    describe('dir_listed nested inside list_directory row', () => {
+      it('dir_listed does NOT create a standalone row', () => {
+        // Emit a list_directory tool_invoked first, then a dir_listed result.
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'tool_invoked',
+          payload: { tool_name: 'list_directory', arg_preview: "{'path': '.'}" },
+          recorded_at: '',
+        });
         appendActivityRow({
           t: 'activity',
           subtype: 'dir_listed',
           payload: { path: '.', entry_count: 3, entries: 'src/\ntests/\nREADME.md' },
           recorded_at: '',
         });
-        const row = document.querySelector<HTMLElement>('.activity-feed__row');
-        expect(row?.dataset['expandable']).toBe('true');
+        // Only one row — the tool_invoked one.
+        expect(document.querySelectorAll('.activity-feed__row').length).toBe(1);
       });
 
-      it('clicking dir_listed row reveals entry list', () => {
+      it('dir_listed injects entries into the list_directory detail panel', () => {
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'tool_invoked',
+          payload: { tool_name: 'list_directory', arg_preview: "{'path': '.'}" },
+          recorded_at: '',
+        });
         appendActivityRow({
           t: 'activity',
           subtype: 'dir_listed',
@@ -553,24 +566,20 @@ describe('appendActivityRow', () => {
           recorded_at: '',
         });
         const row = document.querySelector<HTMLElement>('.activity-feed__row');
-        const detail = document.querySelector('.af__tool-detail');
-        expect(detail?.hasAttribute('hidden')).toBe(true);
         row?.click();
-        expect(detail?.hasAttribute('hidden')).toBe(false);
+        const detail = document.querySelector('[data-list-dir-target]');
         const pre = detail?.querySelector('.af__content-preview');
         expect(pre?.textContent).toBe('src/\ntests/\nREADME.md');
       });
 
-      it('dir_listed summary shows entry count', () => {
-        expect(
-          formatActivitySummary('dir_listed', { entry_count: 5, path: '.', entries: '' })
-        ).toBe('5 entries');
-      });
-
-      it('dir_listed summary uses singular for 1 entry', () => {
-        expect(
-          formatActivitySummary('dir_listed', { entry_count: 1, path: '.', entries: 'README.md' })
-        ).toBe('1 entry');
+      it('dir_listed with no preceding list_directory is silently dropped', () => {
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'dir_listed',
+          payload: { path: '.', entry_count: 1, entries: 'README.md' },
+          recorded_at: '',
+        });
+        expect(document.querySelector('.activity-feed__row')).toBeNull();
       });
     });
 
