@@ -1088,14 +1088,15 @@ async def call_local_with_tools(
         "messages": request_messages,
         "temperature": temperature,
         "max_tokens": _local_cap_max_tokens(max_tokens),
-        # Explicitly enable thinking for the agent tool loop.  Ollama 0.18+
-        # honours this field for Qwen3-family models — without it the server
-        # defaults to thinking=on but the field is absent from the response,
-        # which makes it impossible to separate reasoning tokens from content
-        # tokens when diagnosing token-budget exhaustion.  Setting it
-        # explicitly also future-proofs the call: if a future Ollama version
-        # defaults to think=off, agent quality degrades silently without this.
-        "think": True,
+        # Disable chain-of-thought for individual tool-call iterations.
+        # Each agent turn is a small decision ("read this file", "search for
+        # that pattern") that does not benefit from 30k+ tokens of internal
+        # reasoning.  With think=True the model exhausts the entire 32k token
+        # budget on reasoning and has zero tokens left to write the tool call,
+        # producing empty content and stop_reason=tool_calls with 0 calls.
+        # The iterative tool-calling loop IS the reasoning mechanism — the
+        # model builds understanding turn-by-turn, not in one giant CoT block.
+        "think": False,
     }
     if tools:
         payload["tools"] = _tools_to_openai(tools)
