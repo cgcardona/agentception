@@ -7,7 +7,48 @@ import {
   formatArgsFull,
   parseArgPreview,
   formatResultPreview,
+  parseModelInfo,
 } from '../format_utils';
+
+describe('parseModelInfo', () => {
+  it('parses claude-sonnet-4-6 → Anthropic / sonnet 4.6', () => {
+    const result = parseModelInfo('claude-sonnet-4-6');
+    expect(result.network).toBe('Anthropic');
+    expect(result.modelShort).toBe('sonnet 4.6');
+  });
+
+  it('parses claude-opus-4-6 → Anthropic / opus 4.6', () => {
+    const result = parseModelInfo('claude-opus-4-6');
+    expect(result.network).toBe('Anthropic');
+    expect(result.modelShort).toBe('opus 4.6');
+  });
+
+  it('parses two-part claude version (claude-3-5 → Anthropic / 3.5)', () => {
+    const result = parseModelInfo('claude-3-5');
+    expect(result.network).toBe('Anthropic');
+    expect(result.modelShort).toBe('3.5');
+  });
+
+  it('parses local → Local / local', () => {
+    const result = parseModelInfo('local');
+    expect(result.network).toBe('Local');
+    expect(result.modelShort).toBe('local');
+  });
+
+  it('parses gpt-4o → OpenAI', () => {
+    expect(parseModelInfo('gpt-4o').network).toBe('OpenAI');
+  });
+
+  it('parses gemini-pro → Google', () => {
+    expect(parseModelInfo('gemini-pro').network).toBe('Google');
+  });
+
+  it('falls back to Remote for unknown models', () => {
+    const result = parseModelInfo('unknown-model-xyz');
+    expect(result.network).toBe('Remote');
+    expect(result.modelShort).toBe('unknown-model-xyz');
+  });
+});
 
 describe('humanizeTool', () => {
   it('maps known tool names to human labels', () => {

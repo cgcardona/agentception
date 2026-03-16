@@ -5,9 +5,11 @@ import {
   attachActivityFeedHandler,
   getSubtypeIcon,
   resetFeedStartTime,
+  resetFeedSession,
   formatRelativeTime,
   type ActivityMessage,
 } from '../activity_feed';
+import { resetStepContext } from '../step_context';
 
 function makeSource(): EventSource {
   return new EventTarget() as unknown as EventSource;
@@ -103,10 +105,17 @@ describe('formatActivitySummary', () => {
     expect(formatActivitySummary('unknown_subtype', {})).toBe('unknown_subtype');
   });
 
-  it('formats llm_iter — model and turn at front', () => {
+  it('formats llm_iter with network: model · Iteration N', () => {
+    // claude-3-5 → 2-part version → Anthropic: 3.5
     expect(
       formatActivitySummary('llm_iter', { model: 'claude-3-5', turns: 2 })
-    ).toBe('claude-3-5  ·  turn 2');
+    ).toBe('Anthropic: 3.5  ·  Iteration 2');
+  });
+
+  it('formats llm_iter for local model', () => {
+    expect(
+      formatActivitySummary('llm_iter', { model: 'local', turns: 1 })
+    ).toBe('Local: local  ·  Iteration 1');
   });
 
   it('formats llm_usage as human-readable token counts', () => {
@@ -220,22 +229,22 @@ describe('formatRelativeTime', () => {
     expect(formatRelativeTime('2026-03-15T12:00:00Z')).toBe('now');
   });
 
-  it('returns +Ns for subsequent events', () => {
-    resetFeedStartTime();
-    formatRelativeTime('2026-03-15T12:00:00Z'); // seed start time
-    expect(formatRelativeTime('2026-03-15T12:00:29Z')).toBe('+29s');
-  });
-
-  it('returns +Mm for minute offsets', () => {
+  it('returns M:SS for subsequent events (0:29 for 29 seconds)', () => {
     resetFeedStartTime();
     formatRelativeTime('2026-03-15T12:00:00Z');
-    expect(formatRelativeTime('2026-03-15T12:02:00Z')).toBe('+2m');
+    expect(formatRelativeTime('2026-03-15T12:00:29Z')).toBe('0:29');
   });
 
-  it('returns +MmNs for mixed offsets', () => {
+  it('returns M:SS with zero-padded seconds (2:00 for 2 minutes)', () => {
     resetFeedStartTime();
     formatRelativeTime('2026-03-15T12:00:00Z');
-    expect(formatRelativeTime('2026-03-15T12:01:05Z')).toBe('+1m5s');
+    expect(formatRelativeTime('2026-03-15T12:02:00Z')).toBe('2:00');
+  });
+
+  it('returns M:SS with zero-padded seconds (1:05 for 1m5s)', () => {
+    resetFeedStartTime();
+    formatRelativeTime('2026-03-15T12:00:00Z');
+    expect(formatRelativeTime('2026-03-15T12:01:05Z')).toBe('1:05');
   });
 
   it('returns empty string for invalid timestamp', () => {
@@ -248,6 +257,7 @@ describe('appendActivityRow', () => {
   beforeEach(() => {
     document.body.innerHTML = '<div id="activity-feed"></div>';
     resetFeedStartTime();
+    resetStepContext();
   });
 
   it('appends a row with data-subtype, summary, and relative time', () => {
@@ -300,6 +310,31 @@ describe('appendActivityRow', () => {
     expect(row?.hasAttribute('data-exit-nonzero')).toBe(false);
   });
 
+  it('renders llm_iter as two-line summary (af__iter-model + af__iter-num)', () => {
+    appendActivityRow({
+      t: 'activity',
+      subtype: 'llm_iter',
+      payload: { model: 'local', turns: 1 },
+      recorded_at: '',
+    });
+    const row = document.querySelector('.activity-feed__row');
+    expect(row?.getAttribute('data-subtype')).toBe('llm_iter');
+    expect(row?.querySelector('.af__iter-model')?.textContent).toBe('Local: local');
+    expect(row?.querySelector('.af__iter-num')?.textContent).toBe('Iteration 1');
+  });
+
+  it('renders tool_invoked with split label / value spans', () => {
+    appendActivityRow({
+      t: 'activity',
+      subtype: 'tool_invoked',
+      payload: { tool_name: 'read_file', arg_preview: "{'path': 'src/foo.py'}" },
+      recorded_at: '',
+    });
+    const row = document.querySelector('.activity-feed__row');
+    expect(row?.querySelector('.af__tool-label')?.textContent).toBe('Read file');
+    expect(row?.querySelector('.af__tool-value')?.textContent).toContain('foo.py');
+  });
+
   it('does NOT append a row for llm_done when tool calls follow', () => {
     appendActivityRow({
       t: 'activity',
@@ -322,10 +357,19 @@ describe('appendActivityRow', () => {
   });
 });
 
+describe('resetFeedSession', () => {
+  it('resets feed start time and step context', () => {
+    resetFeedSession();
+    // After reset, the next event returns "now"
+    expect(formatRelativeTime('2026-03-15T12:00:00Z')).toBe('now');
+  });
+});
+
 describe('attachActivityFeedHandler', () => {
   beforeEach(() => {
     document.body.innerHTML = '<div id="activity-feed"></div>';
     resetFeedStartTime();
+    resetStepContext();
   });
 
   it('appends a row when msg.t === "activity"', () => {

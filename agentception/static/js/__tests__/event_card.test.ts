@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { attachEventCardHandler } from '../event_card';
+import { resetStepContext } from '../step_context';
 
 function makeSource(): EventSource {
   return new EventTarget() as unknown as EventSource;
@@ -12,13 +13,16 @@ function dispatch(src: EventTarget, data: object): void {
 describe('attachEventCardHandler', () => {
   beforeEach(() => {
     document.body.innerHTML = '<div id="activity-feed"></div>';
+    resetStepContext();
   });
 
-  it('renders step_start card with correct text', () => {
+  it('renders step_start card inside a .step-group wrapper', () => {
     const src = makeSource();
     attachEventCardHandler(src);
     dispatch(src, { t: 'event', event_type: 'step_start', payload: { step: 'Step 2' }, recorded_at: '' });
-    const card = document.querySelector('.event-card');
+    const group = document.querySelector('.step-group');
+    expect(group).not.toBeNull();
+    const card = group?.querySelector('.event-card');
     expect(card).not.toBeNull();
     expect(card?.getAttribute('data-event-type')).toBe('step_start');
     expect(card?.querySelector('.event-card__text')?.textContent).toBe('Step 2');
@@ -30,6 +34,26 @@ describe('attachEventCardHandler', () => {
     dispatch(src, { t: 'event', event_type: 'step_start', payload: { step: 'Step 1' }, recorded_at: '' });
     const icon = document.querySelector('.event-card__icon');
     expect(icon?.innerHTML).toContain('<svg');
+  });
+
+  it('collapses the previous step group when a new step_start arrives', () => {
+    const src = makeSource();
+    attachEventCardHandler(src);
+    dispatch(src, { t: 'event', event_type: 'step_start', payload: { step: 'Step 1' }, recorded_at: '' });
+    dispatch(src, { t: 'event', event_type: 'step_start', payload: { step: 'Step 2' }, recorded_at: '' });
+    const groups = document.querySelectorAll('.step-group');
+    expect(groups.length).toBe(2);
+    expect(groups[0]?.classList.contains('step-group--collapsed')).toBe(true);
+    expect(groups[1]?.classList.contains('step-group--current')).toBe(true);
+  });
+
+  it('step_start card is clickable (has role=button)', () => {
+    const src = makeSource();
+    attachEventCardHandler(src);
+    dispatch(src, { t: 'event', event_type: 'step_start', payload: { step: 'Step 1' }, recorded_at: '' });
+    const card = document.querySelector('.event-card[data-event-type="step_start"]');
+    expect(card?.getAttribute('role')).toBe('button');
+    expect(card?.getAttribute('aria-expanded')).toBe('true');
   });
 
   it('renders done card with summary text', () => {
