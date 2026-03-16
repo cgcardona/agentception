@@ -1136,6 +1136,12 @@ export function orgDesigner(): OrgDesignerComponent {
      *  error that must be resolved before launching. */
     get scopeError(): string {
       if (!this._root) return '';
+      // If the edit panel is open for the root node and a ticket is already selected
+      // in the panel (even before Apply), the user is actively fixing the config — suppress.
+      const editingRoot = this.selectedNodeId === this._root.id;
+      if (editingRoot && this.editScope === 'issue' && this.editScopeIssueNumber !== null) {
+        return '';
+      }
       if (this._root.scope === 'issue' && this._root.scopeIssueNumber === null) {
         return 'Select a ticket: open the node editor, choose Ticket scope, and pick a ticket.';
       }
