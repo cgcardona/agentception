@@ -211,10 +211,10 @@ export function formatRelativeTime(recordedAt: string): string {
     if (Number.isNaN(t)) return '';
     if (feedStartMs === null) {
       feedStartMs = t;
-      return 'now';
+      return '0:00';
     }
     const delta = Math.max(0, Math.round((t - feedStartMs) / 1000));
-    if (delta === 0) return 'now';
+    if (delta === 0) return '0:00';
     const m = Math.floor(delta / 60);
     const s = delta % 60;
     const ss = s.toString().padStart(2, '0');
