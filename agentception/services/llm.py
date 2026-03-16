@@ -1007,7 +1007,9 @@ def _normalize_openai_message_content(message: dict[str, JsonValue]) -> str:
     """
     raw: JsonValue = message.get("content")
     if raw is None or raw == "":
-        reasoning: JsonValue = message.get("reasoning")
+        # Ollama ≤0.17 uses "reasoning"; Ollama 0.18+ uses "reasoning_content".
+        # Check both so the warning fires regardless of server version.
+        reasoning: JsonValue = message.get("reasoning_content") or message.get("reasoning")
         if isinstance(reasoning, str) and reasoning:
             logger.warning(
                 "⚠️ Local LLM returned empty content with non-empty reasoning — "
