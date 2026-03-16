@@ -118,13 +118,14 @@ services:
       # Standard-case and uppercase variants are both set for maximum tool
       # coverage (curl, git, npm, Python httpx/requests all check one or both).
       # NO_PROXY excludes internal Docker services that must not go through the
-      # proxy: postgres, qdrant, and the local LLM server on the host.
+      # proxy: postgres, qdrant (both short name and full container name),
+      # and the local LLM server on the host.
       HTTP_PROXY: "http://proxy:8888"
       HTTPS_PROXY: "http://proxy:8888"
-      NO_PROXY: "localhost,127.0.0.1,postgres,qdrant,host.docker.internal,::1"
+      NO_PROXY: "localhost,127.0.0.1,postgres,qdrant,agentception-qdrant,host.docker.internal,::1"
       http_proxy: "http://proxy:8888"
       https_proxy: "http://proxy:8888"
-      no_proxy: "localhost,127.0.0.1,postgres,qdrant,host.docker.internal,::1"
+      no_proxy: "localhost,127.0.0.1,postgres,qdrant,agentception-qdrant,host.docker.internal,::1"
     volumes:
       # gh CLI auth (read-only). Container HOME is /home/agentception.
       - ${HOME}/.config/gh:/home/agentception/.config/gh:ro
