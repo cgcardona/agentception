@@ -175,6 +175,35 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
+// ── File-read content preview ──────────────────────────────────────────────────
+// Shown inside .af__tool-detail--file-read when content_preview is present.
+// Rendered as a compact code block, not a key-value list.
+
+.af__content-preview {
+  margin: 0;
+  padding: 0.35rem 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  line-height: 1.65;
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  white-space: pre;
+  overflow-x: auto;
+  max-height: 10rem;
+  overflow-y: auto;
+  // Prevent the pre from stretching the panel wider than the feed column
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+[data-theme="light"] .af__content-preview {
+  color: rgba(0, 0, 0, 0.65);
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
 // ── Light mode overrides ───────────────────────────────────────────────────────
 
 [data-theme="light"] .af__model-header {

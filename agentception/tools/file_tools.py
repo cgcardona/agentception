@@ -311,11 +311,20 @@ def read_file_lines(
     )
     # activity event — see docs/reference/activity-events.md
     if run_id is not None and session is not None:
+        # Build a short content excerpt for the inspector detail panel.
+        # Cap at 10 lines and 400 chars so the payload stays lightweight.
+        _PREVIEW_MAX_LINES = 10
+        _PREVIEW_MAX_CHARS = 400
+        preview_lines = lines[clamped_start - 1 : clamped_start - 1 + _PREVIEW_MAX_LINES]
+        raw_preview = "".join(preview_lines)
+        if len(raw_preview) > _PREVIEW_MAX_CHARS:
+            raw_preview = raw_preview[:_PREVIEW_MAX_CHARS] + "…"
         _emit_activity(session, run_id, "file_read", {
             "path": _shorten_path(p, run_id),
             "start_line": clamped_start,
             "end_line": clamped_end,
             "total_lines": total,
+            "content_preview": raw_preview,
         })
     return {
         "ok": True,

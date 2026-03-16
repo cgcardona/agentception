@@ -23,8 +23,8 @@ import {
   modelLabel,
 } from './format_utils';
 
-/** Subtypes that support click-to-expand args detail. */
-const EXPANDABLE_SUBTYPES = new Set(['tool_invoked', 'github_tool']);
+/** Subtypes that support click-to-expand detail panel. */
+const EXPANDABLE_SUBTYPES = new Set(['tool_invoked', 'github_tool', 'file_read']);
 import { getCurrentAppendTarget, getCurrentStepHeader, resetStepContext } from './step_context';
 
 /** SSE activity message shape from the inspector stream. */
@@ -327,6 +327,33 @@ function buildToolDetail(payload: Record<string, unknown>): HTMLElement {
 }
 
 /**
+ * Build the expandable detail panel for a file_read row.
+ * Shows the content_preview as a preformatted code excerpt when present.
+ * Falls back to a plain "no preview" note for older events that predate
+ * the content_preview field.
+ */
+function buildFileReadDetail(payload: Record<string, unknown>): HTMLElement {
+  const panel = document.createElement('div');
+  panel.className = 'af__tool-detail af__tool-detail--file-read';
+  panel.setAttribute('hidden', '');
+
+  const preview = str(payload, 'content_preview');
+  if (preview) {
+    const pre = document.createElement('pre');
+    pre.className = 'af__content-preview';
+    pre.textContent = preview;
+    panel.appendChild(pre);
+  } else {
+    const note = document.createElement('span');
+    note.className = 'af__detail-val';
+    note.textContent = '(no preview — re-run the agent to capture content)';
+    panel.appendChild(note);
+  }
+
+  return panel;
+}
+
+/**
  * Insert a sticky model-info row at the top of the feed on the first llm_iter event.
  * Subsequent llm_iter events are ignored — the model is constant for a run.
  */
@@ -414,7 +441,7 @@ export function appendActivityRow(msg: ActivityMessage): void {
   row.appendChild(summaryEl);
   row.appendChild(ts);
 
-  // Expandable tool rows: chevron + detail panel
+  // Expandable rows: chevron + subtype-specific detail panel
   const isExpandable = EXPANDABLE_SUBTYPES.has(msg.subtype);
   let detailPanel: HTMLElement | null = null;
 
@@ -431,7 +458,9 @@ export function appendActivityRow(msg: ActivityMessage): void {
     chevron.innerHTML = icons.chevronRight;
     row.appendChild(chevron);
 
-    detailPanel = buildToolDetail(msg.payload);
+    detailPanel = msg.subtype === 'file_read'
+      ? buildFileReadDetail(msg.payload)
+      : buildToolDetail(msg.payload);
 
     const toggle = (): void => {
       const isOpen = row.getAttribute('aria-expanded') === 'true';

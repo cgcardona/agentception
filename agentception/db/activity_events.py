@@ -29,7 +29,7 @@ import datetime
 import json
 import logging
 from collections.abc import Mapping
-from typing import TypedDict, Union
+from typing import NotRequired, TypedDict, Union
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
@@ -149,12 +149,15 @@ class FileReadPayload(TypedDict):
     """Payload for ``file_read`` activity events.
 
     Emitted when the agent reads a file or a line range from a file.
+    ``content_preview`` is a short excerpt (max 10 lines / 400 chars) of the
+    content that was actually read, shown in the inspector detail panel.
     """
 
     path: str
     start_line: int
     end_line: int
     total_lines: int
+    content_preview: NotRequired[str]
 
 
 class FileReplacedPayload(TypedDict):
