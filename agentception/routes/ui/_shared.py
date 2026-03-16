@@ -9,6 +9,7 @@ This module is the single source of truth for:
 from __future__ import annotations
 
 import datetime
+import hashlib
 import logging
 import os
 from pathlib import Path
@@ -217,3 +218,23 @@ _TEMPLATES.env.globals["gh_repo"] = _settings.gh_repo
 _TEMPLATES.env.globals["gh_base_url"] = f"https://github.com/{_settings.gh_repo}"
 # Bare repo name (without org prefix) used to build RESTful URL paths.
 _TEMPLATES.env.globals["repo_name"] = _settings.gh_repo.split("/")[-1]
+
+# ---------------------------------------------------------------------------
+# Asset cache-busting: ?v=<first-8-chars-of-md5> appended to CSS/JS URLs.
+# Re-computed at process startup so every `docker compose restart` picks up
+# the latest bundle without the browser serving a stale cached version.
+# ---------------------------------------------------------------------------
+def _asset_fingerprint(filename: str) -> str:
+    """Return the first 8 hex chars of the MD5 of *filename* under static/.
+
+    Falls back to "dev" if the file is missing (e.g. in CI before first build).
+    """
+    static_dir = _HERE.parent.parent / "static"
+    path = static_dir / filename
+    try:
+        digest = hashlib.md5(path.read_bytes(), usedforsecurity=False).hexdigest()  # noqa: S324
+        return digest[:8]
+    except OSError:
+        return "dev"
+
+_TEMPLATES.env.globals["static_ver"] = _asset_fingerprint("app.js")

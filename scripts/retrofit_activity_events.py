@@ -24,6 +24,11 @@ Applies back-fills in a single transaction:
    predate the ``stdout_preview`` field are patched with a lorem-ipsum
    placeholder so the shell-output injection UX can be validated.
 
+5b. **shell_done (missing)** — ``run_command`` invocations that have NO
+    corresponding ``shell_done`` event at all (emitted by older code that
+    skipped the event) get a placeholder ``shell_done`` inserted so the
+    injection target panel receives content.
+
 6. **github_result** — Historical ``github_tool`` calls that predate the
    ``github_result`` event type get a lorem-ipsum placeholder injected so
    the GitHub result preview UX can be validated.
@@ -697,6 +702,108 @@ async def _backfill_shell_output(session: AsyncSession) -> int:
 
 
 # ---------------------------------------------------------------------------
+# 5b. shell_done missing-event back-fill
+# ---------------------------------------------------------------------------
+
+async def _backfill_missing_shell_done(session: AsyncSession) -> int:
+    """Insert placeholder shell_done events for run_command calls with no shell_done.
+
+    Some historical runs have ``run_command`` tool_invoked events but no
+    corresponding ``shell_done`` event (the event was never emitted by an older
+    version of the code).  A placeholder with lorem-ipsum stdout_preview is
+    inserted at ``invocation.recorded_at + 1 second`` so the shell-output
+    injection UX can be validated.
+
+    Matching algorithm: for each run, sort ``run_command`` invocations and
+    ``shell_done`` events by time and match them greedily (each invocation is
+    paired with the earliest ``shell_done`` that follows it).  Unmatched
+    invocations get a placeholder.
+
+    Returns the number of placeholder events inserted.
+    """
+    invocations_rows = (
+        await session.execute(
+            text("""
+                SELECT id, agent_run_id, recorded_at
+                FROM agent_events
+                WHERE event_type = 'activity'
+                  AND (payload::jsonb)->>'subtype' = 'tool_invoked'
+                  AND (payload::jsonb)->>'tool_name' = 'run_command'
+                ORDER BY agent_run_id, recorded_at
+            """)
+        )
+    ).fetchall()
+
+    if not invocations_rows:
+        log.info("missing_shell_done — no run_command invocations found")
+        return 0
+
+    shell_done_rows = (
+        await session.execute(
+            text("""
+                SELECT agent_run_id, recorded_at
+                FROM agent_events
+                WHERE event_type = 'activity'
+                  AND (payload::jsonb)->>'subtype' = 'shell_done'
+                ORDER BY agent_run_id, recorded_at
+            """)
+        )
+    ).fetchall()
+
+    # Group shell_done timestamps by run_id (mutable list, consumed as we match).
+    from collections import defaultdict
+    shell_done_by_run: dict[str, list[datetime.datetime]] = defaultdict(list)
+    for row in shell_done_rows:
+        shell_done_by_run[row[0]].append(row[1])
+
+    inserted = 0
+    for inv_id, run_id, inv_ts in invocations_rows:
+        dones = shell_done_by_run[run_id]
+        # Find first shell_done that comes AFTER this invocation.
+        matched = False
+        for i, done_ts in enumerate(dones):
+            if done_ts > inv_ts:
+                dones.pop(i)
+                matched = True
+                break
+        if matched:
+            continue
+
+        # No matching shell_done — insert a placeholder.
+        emit_at = inv_ts + datetime.timedelta(seconds=1)
+        placeholder = {
+            "subtype": "shell_done",
+            "exit_code": 0,
+            "stdout_bytes": len(_LOREM_IPSUM),
+            "stderr_bytes": 0,
+            "stdout_preview": _LOREM_IPSUM,
+            "stderr_preview": "",
+        }
+        if not DRY_RUN:
+            await session.execute(
+                text("""
+                    INSERT INTO agent_events
+                        (agent_run_id, event_type, payload, recorded_at)
+                    VALUES (:run_id, 'activity', :payload, :ts)
+                """),
+                {
+                    "run_id": run_id,
+                    "payload": json.dumps(placeholder),
+                    "ts": emit_at,
+                },
+            )
+        log.info(
+            "missing_shell_done — %s run=%s inv_id=%d at=%s%s",
+            "[DRY]" if DRY_RUN else "[INSERT]",
+            run_id, inv_id, emit_at,
+            " (dry-run, not written)" if DRY_RUN else "",
+        )
+        inserted += 1
+
+    return inserted
+
+
+# ---------------------------------------------------------------------------
 # 6. github_result back-fill
 # ---------------------------------------------------------------------------
 
@@ -795,27 +902,30 @@ async def main() -> None:
     async with get_session() as session:
         log.info("=== Activity-event retrofit  (dry_run=%s) ===", DRY_RUN)
 
-        dir_listed_count    = await _backfill_dir_listed(session)
-        search_results_count = await _backfill_search_results(session)
-        llm_reply_count     = await _extend_llm_reply_previews(session)
-        file_read_count     = await _backfill_file_read(session)
-        shell_output_count  = await _backfill_shell_output(session)
-        github_result_count = await _backfill_github_result(session)
+        dir_listed_count         = await _backfill_dir_listed(session)
+        search_results_count     = await _backfill_search_results(session)
+        llm_reply_count          = await _extend_llm_reply_previews(session)
+        file_read_count          = await _backfill_file_read(session)
+        shell_output_count       = await _backfill_shell_output(session)
+        missing_shell_done_count = await _backfill_missing_shell_done(session)
+        github_result_count      = await _backfill_github_result(session)
 
         if not DRY_RUN:
             await session.commit()
             log.info(
                 "=== Done — dir_listed: %d  search_results: %d  llm_reply: %d  "
-                "file_read: %d  shell_output: %d  github_result: %d ===",
+                "file_read: %d  shell_output: %d  missing_shell_done: %d  github_result: %d ===",
                 dir_listed_count, search_results_count, llm_reply_count,
-                file_read_count, shell_output_count, github_result_count,
+                file_read_count, shell_output_count, missing_shell_done_count, github_result_count,
             )
         else:
             log.info(
                 "=== Dry-run — would insert/update: %d dir_listed  %d search_results  "
-                "%d file_read  %d shell_output  %d github_result  update: %d llm_reply ===",
+                "%d file_read  %d shell_output  %d missing_shell_done  "
+                "%d github_result  update: %d llm_reply ===",
                 dir_listed_count, search_results_count,
-                file_read_count, shell_output_count, github_result_count, llm_reply_count,
+                file_read_count, shell_output_count, missing_shell_done_count,
+                github_result_count, llm_reply_count,
             )
 
 
