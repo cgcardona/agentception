@@ -410,6 +410,7 @@ class PhaseSummaryItem(BaseModel):
 
     label: str
     count: int
+    blocked: bool
 
 
 class IssueSummaryItem(BaseModel):
@@ -417,6 +418,7 @@ class IssueSummaryItem(BaseModel):
 
     number: int
     title: str
+    blocked: bool
 
 
 class LabelContextResponse(BaseModel):
@@ -436,16 +438,22 @@ async def get_label_context_route(
     Response shape::
 
         {
-          "phases": [{"label": "ac-workflow/5-plan-step-v2", "count": 3}, ...],
-          "issues": [{"number": 108, "title": "..."}, ...]
+          "phases": [{"label": "ac-workflow/5-plan-step-v2", "count": 3, "blocked": false}, ...],
+          "issues": [{"number": 108, "title": "...", "blocked": false}, ...]
         }
 
     Falls back to empty lists when the initiative has no recorded data yet.
     """
     ctx = await get_label_context(repo=repo, initiative_label=label)
     return LabelContextResponse(
-        phases=[PhaseSummaryItem(label=p["label"], count=p["count"]) for p in ctx["phases"]],
-        issues=[IssueSummaryItem(number=i["number"], title=i["title"]) for i in ctx["issues"]],
+        phases=[
+            PhaseSummaryItem(label=p["label"], count=p["count"], blocked=p["blocked"])
+            for p in ctx["phases"]
+        ],
+        issues=[
+            IssueSummaryItem(number=i["number"], title=i["title"], blocked=i["blocked"])
+            for i in ctx["issues"]
+        ],
     )
 
 

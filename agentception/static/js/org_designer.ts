@@ -143,11 +143,18 @@ interface ApiPresetDetail extends ApiPresetSummary {
 interface PhaseItem {
   label: string;
   count: number;
+  blocked: boolean;
+}
+
+interface IssueItem {
+  number: number;
+  title: string;
+  blocked: boolean;
 }
 
 interface ContextResponse {
   phases: PhaseItem[];
-  issues: Array<{ number: number; title: string }>;
+  issues: IssueItem[];
 }
 
 interface DispatchResponse {
@@ -948,6 +955,7 @@ interface OrgDesignerComponent {
   editScopeLabel: string;
   editScopeIssueNumber: number | null;
   phases: PhaseItem[];
+  issues: IssueItem[];
 
   // ── Submission
   launching: boolean;
@@ -1052,6 +1060,7 @@ export function orgDesigner(): OrgDesignerComponent {
     editScopeLabel:       '',
     editScopeIssueNumber: null,
     phases:               [],
+    issues:               [],
 
     // ── Submission state ──────────────────────────────────────────────────────
     launching:    false,
@@ -1131,10 +1140,10 @@ export function orgDesigner(): OrgDesignerComponent {
     get loneWorkerWarning(): string {
       if (!this._root || !this._root.role) return '';
       if (isCoordinator(this._root.role)) return '';
-      // When scoped to a specific issue the user has made an explicit choice — no warning.
-      if (this._root.scope === 'issue') return '';
+      // When scoped to a specific issue or phase the user has made an explicit choice — no warning.
+      if (this._root.scope === 'issue' || this._root.scope === 'phase') return '';
       if (this._root.scope !== 'full_initiative') return '';
-      return `⚠️ "${roleLabel(this._root.role)}" is a worker, not a coordinator. Workers don't pick up tickets automatically. Add a coordinator (e.g. CTO) as the root, or set scope to "Specific Issue".`;
+      return `⚠️ "${roleLabel(this._root.role)}" is a worker, not a coordinator. Workers don't pick up tickets automatically. Add a coordinator (e.g. CTO) as the root, or set scope to "Phase" or "Ticket".`;
     },
 
     get isRootSelected(): boolean {
@@ -1330,9 +1339,10 @@ export function orgDesigner(): OrgDesignerComponent {
         if (res.ok) {
           const data = await res.json() as ContextResponse;
           this.phases = data.phases ?? [];
+          this.issues = data.issues ?? [];
         }
       } catch {
-        // Non-critical — scope picker just won't show phases.
+        // Non-critical — scope picker just won't show phases or issues.
       }
     },
 

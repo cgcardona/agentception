@@ -1971,6 +1971,36 @@ $preset-accents: (
   &:focus { outline: none; border-color: #7c3aed; box-shadow: 0 0 0 2px rgba(124,58,237,0.25); }
 }
 
+// Scope cascade pickers (Phase dropdown, Ticket dropdown)
+.od-scope-select {
+  font-size: 0.78rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: 7px;
+  border: 1.5px solid $od-border;
+  background: rgba(255,255,255,0.04);
+  color: #fff;
+  width: 100%;
+  cursor: pointer;
+  transition: border-color 0.15s;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='rgba(255,255,255,0.35)'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  padding-right: 2rem;
+
+  option, optgroup { background: #1a1a2e; color: #fff; }
+  option:disabled, &__opt--blocked { color: rgba(255,255,255,0.28); }
+  &:focus { outline: none; border-color: #7c3aed; box-shadow: 0 0 0 2px rgba(124,58,237,0.25); }
+}
+
+.od-scope-empty {
+  font-size: 0.7rem;
+  color: rgba(255,255,255,0.35);
+  margin: 0;
+  padding: 0.25rem 0;
+  font-style: italic;
+}
+
 .od-editor__actions {
   display: flex;
   gap: 0.625rem;

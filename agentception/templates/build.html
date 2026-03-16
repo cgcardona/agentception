@@ -490,28 +490,66 @@
                   <label class="od-scope-opt" :class="{'od-scope-opt--active': editScope === 'full_initiative'}">
                     <input type="radio" x-model="editScope" value="full_initiative">
                     <span class="od-scope-opt__text">
-                      <strong>Full Initiative</strong>
-                      <em>Coordinator sweeps all open tickets</em>
+                      <strong>Label</strong>
+                      <em>Coordinator sweeps all tickets in the initiative</em>
+                    </span>
+                  </label>
+                  <label class="od-scope-opt" :class="{'od-scope-opt--active': editScope === 'phase'}">
+                    <input type="radio" x-model="editScope" value="phase">
+                    <span class="od-scope-opt__text">
+                      <strong>Phase</strong>
+                      <em>Target all tickets in a specific phase</em>
                     </span>
                   </label>
                   <label class="od-scope-opt" :class="{'od-scope-opt--active': editScope === 'issue'}">
                     <input type="radio" x-model="editScope" value="issue">
                     <span class="od-scope-opt__text">
-                      <strong>Specific Issue</strong>
+                      <strong>Ticket</strong>
                       <em>Target a single ticket directly</em>
                     </span>
                   </label>
                 </div>
-                <template x-if="editScope === 'issue'">
+
+                {# Phase picker — dropdown of phases, blocked ones disabled #}
+                <template x-if="editScope === 'phase'">
                   <div class="od-editor__issue-row">
-                    <label class="od-editor__label">Issue #</label>
-                    <input type="number"
-                           class="od-editor__input od-editor__input--issue"
-                           x-model.number="editScopeIssueNumber"
-                           placeholder="e.g. 42"
-                           min="1">
+                    <label class="od-editor__label">Phase</label>
+                    <select class="od-scope-select"
+                            x-model="editScopeLabel">
+                      <option value="" disabled>— select a phase —</option>
+                      <template x-for="ph in phases" :key="ph.label">
+                        <option :value="ph.label"
+                                :disabled="ph.blocked"
+                                :class="{'od-scope-select__opt--blocked': ph.blocked}"
+                                x-text="ph.label + (ph.blocked ? ' (blocked)' : '') + ' · ' + ph.count + ' open'"></option>
+                      </template>
+                    </select>
+                    <template x-if="phases.length === 0">
+                      <p class="od-scope-empty">No phases found for this initiative.</p>
+                    </template>
                   </div>
                 </template>
+
+                {# Ticket picker — dropdown of issues, blocked ones disabled #}
+                <template x-if="editScope === 'issue'">
+                  <div class="od-editor__issue-row">
+                    <label class="od-editor__label">Ticket</label>
+                    <select class="od-scope-select"
+                            x-model.number="editScopeIssueNumber">
+                      <option value="" disabled>— select a ticket —</option>
+                      <template x-for="iss in issues" :key="iss.number">
+                        <option :value="iss.number"
+                                :disabled="iss.blocked"
+                                :class="{'od-scope-select__opt--blocked': iss.blocked}"
+                                x-text="'#' + iss.number + ' — ' + (iss.title.length > 52 ? iss.title.slice(0, 52) + '…' : iss.title) + (iss.blocked ? ' (blocked)' : '')"></option>
+                      </template>
+                    </select>
+                    <template x-if="issues.length === 0">
+                      <p class="od-scope-empty">No tickets found for this initiative.</p>
+                    </template>
+                  </div>
+                </template>
+
               </div>
             </template>
 
