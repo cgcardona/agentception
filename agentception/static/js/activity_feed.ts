@@ -496,6 +496,70 @@ function injectSearchResultsIntoPanel(
 }
 
 /**
+ * Append shell stdout/stderr preview into the most recent run_command tool panel.
+ *
+ * shell_done continues to render its own summary row (exit code + byte count)
+ * AND additionally injects stdout into the preceding run_command tool_invoked
+ * detail panel (tagged data-shell-output-target) so the output is visible on
+ * expand without leaving the tool row.
+ */
+function injectShellOutputIntoPanel(
+  container: HTMLElement,
+  payload: Record<string, unknown>,
+): void {
+  const panels = container.querySelectorAll<HTMLElement>('[data-shell-output-target]');
+  const panel = panels.length > 0 ? panels[panels.length - 1] : null;
+  if (panel === null) return;
+
+  const stdout = str(payload, 'stdout_preview');
+  const stderr = str(payload, 'stderr_preview');
+  if (!stdout && !stderr) return;
+
+  if (stdout) {
+    const pre = document.createElement('pre');
+    pre.className = 'af__content-preview';
+    pre.textContent = stdout;
+    panel.appendChild(pre);
+  }
+  if (stderr) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'af__diff-block af__diff-block--old';
+    const lbl = document.createElement('span');
+    lbl.className = 'af__diff-label';
+    lbl.textContent = 'stderr';
+    const pre = document.createElement('pre');
+    pre.className = 'af__content-preview';
+    pre.textContent = stderr;
+    wrapper.appendChild(lbl);
+    wrapper.appendChild(pre);
+    panel.appendChild(wrapper);
+  }
+}
+
+/**
+ * Append GitHub MCP tool result preview into the most recent github_tool panel.
+ *
+ * github_result is not a standalone row — it is injected as a child of the
+ * github_tool invocation row that preceded it.
+ */
+function injectGithubResultIntoPanel(
+  container: HTMLElement,
+  payload: Record<string, unknown>,
+): void {
+  const panels = container.querySelectorAll<HTMLElement>('[data-github-result-target]');
+  const panel = panels.length > 0 ? panels[panels.length - 1] : null;
+  if (panel === null) return;
+
+  const preview = str(payload, 'result_preview');
+  if (!preview) return;
+
+  const pre = document.createElement('pre');
+  pre.className = 'af__content-preview';
+  pre.textContent = preview;
+  panel.appendChild(pre);
+}
+
+/**
  * Insert a sticky model-info row at the top of the feed on the first llm_iter event.
  * Subsequent llm_iter events are ignored — the model is constant for a run.
  */
@@ -535,6 +599,12 @@ export function appendActivityRow(msg: ActivityMessage): void {
     return;
   }
 
+  // github_result: inject MCP result text into the preceding github_tool panel.
+  if (msg.subtype === 'github_result') {
+    injectGithubResultIntoPanel(feed, msg.payload);
+    return;
+  }
+
   // dir_listed: inject entries into the preceding list_directory detail panel.
   // Search the full feed (not just current step) so timing edge-cases at step
   // boundaries don't cause the injector to miss the target panel.
@@ -570,9 +640,11 @@ export function appendActivityRow(msg: ActivityMessage): void {
   row.setAttribute('data-subtype', msg.subtype);
 
   // Mark non-zero shell exits for CSS error highlighting.
+  // Also inject stdout/stderr preview into the preceding run_command detail panel.
   if (msg.subtype === 'shell_done') {
     const code = typeof msg.payload['exit_code'] === 'number' ? msg.payload['exit_code'] : 0;
     if (code !== 0) row.dataset['exitNonzero'] = 'true';
+    injectShellOutputIntoPanel(feed, msg.payload);
   }
 
   // Icon: hardcoded SVG via innerHTML (safe — getSubtypeIcon returns only static strings)
@@ -636,6 +708,14 @@ export function appendActivityRow(msg: ActivityMessage): void {
     // Tag read_file / read_file_lines panels so file_read can inject content previews.
     if (toolN === 'read_file' || toolN === 'read_file_lines') {
       detailPanel.setAttribute('data-file-read-target', '');
+    }
+    // Tag run_command panels so shell_done can inject stdout preview into them.
+    if (toolN === 'run_command') {
+      detailPanel.setAttribute('data-shell-output-target', '');
+    }
+    // Tag github_tool panels so github_result can inject result preview into them.
+    if (msg.subtype === 'github_tool') {
+      detailPanel.setAttribute('data-github-result-target', '');
     }
 
     const toggle = (): void => {

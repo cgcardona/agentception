@@ -696,6 +696,100 @@ describe('appendActivityRow', () => {
       });
     });
 
+    describe('shell_done injects stdout into run_command panel', () => {
+      it('shell_done still creates its own row', () => {
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'tool_invoked',
+          payload: { tool_name: 'run_command', arg_preview: "{'command': 'echo hi'}" },
+          recorded_at: '',
+        });
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'shell_done',
+          payload: { exit_code: 0, stdout_bytes: 3, stderr_bytes: 0, stdout_preview: 'hi', stderr_preview: '' },
+          recorded_at: '',
+        });
+        expect(document.querySelectorAll('.activity-feed__row').length).toBe(2);
+      });
+
+      it('shell_done injects stdout_preview into the run_command detail panel', () => {
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'tool_invoked',
+          payload: { tool_name: 'run_command', arg_preview: "{'command': 'echo hi'}" },
+          recorded_at: '',
+        });
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'shell_done',
+          payload: { exit_code: 0, stdout_bytes: 3, stderr_bytes: 0, stdout_preview: 'hi', stderr_preview: '' },
+          recorded_at: '',
+        });
+        const detail = document.querySelector<HTMLElement>('[data-shell-output-target]');
+        expect(detail).not.toBeNull();
+        const pre = detail?.querySelector('.af__content-preview');
+        expect(pre?.textContent).toBe('hi');
+      });
+
+      it('shell_done with no preceding run_command still creates its own row', () => {
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'shell_done',
+          payload: { exit_code: 0, stdout_bytes: 0, stderr_bytes: 0 },
+          recorded_at: '',
+        });
+        expect(document.querySelectorAll('.activity-feed__row').length).toBe(1);
+      });
+    });
+
+    describe('github_result nested inside github_tool row', () => {
+      it('github_result does NOT create a standalone row', () => {
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'github_tool',
+          payload: { tool_name: 'issue_read', arg_preview: "{'owner': 'foo', 'repo': 'bar', 'issue_number': 1}" },
+          recorded_at: '',
+        });
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'github_result',
+          payload: { tool_name: 'issue_read', result_preview: '# Issue 1\nSome content.' },
+          recorded_at: '',
+        });
+        expect(document.querySelectorAll('.activity-feed__row').length).toBe(1);
+      });
+
+      it('github_result injects result_preview into the github_tool detail panel', () => {
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'github_tool',
+          payload: { tool_name: 'issue_read', arg_preview: "{'owner': 'foo', 'repo': 'bar', 'issue_number': 1}" },
+          recorded_at: '',
+        });
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'github_result',
+          payload: { tool_name: 'issue_read', result_preview: '# Issue 1\nSome content.' },
+          recorded_at: '',
+        });
+        const detail = document.querySelector<HTMLElement>('[data-github-result-target]');
+        expect(detail).not.toBeNull();
+        const pre = detail?.querySelector('.af__content-preview');
+        expect(pre?.textContent).toBe('# Issue 1\nSome content.');
+      });
+
+      it('github_result with no preceding github_tool is silently dropped', () => {
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'github_result',
+          payload: { tool_name: 'issue_read', result_preview: 'hello' },
+          recorded_at: '',
+        });
+        expect(document.querySelector('.activity-feed__row')).toBeNull();
+      });
+    });
+
     describe('tool_invoked diff display', () => {
       it('renders find/replace diff blocks for old_string and new_string', () => {
         appendActivityRow({

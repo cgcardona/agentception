@@ -2453,6 +2453,13 @@ async def _dispatch_single_tool(
                         "github_tool",
                         {"tool_name": name, "arg_preview": str(args)[:500]},
                     )
+                    result_preview = "\n".join(text.splitlines()[:30])[:2000]
+                    persist_activity_event(
+                        session,
+                        run_id,
+                        "github_result",
+                        {"tool_name": name, "result_preview": result_preview},
+                    )
                     await session.flush()
                 except Exception as exc:
                     logger.warning("⚠️ persist github_tool failed: %s", exc)
