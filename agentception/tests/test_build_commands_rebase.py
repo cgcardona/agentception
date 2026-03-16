@@ -198,6 +198,7 @@ async def test_rebase_conflict_returns_error_and_aborts() -> None:
         ),
         patch(
             "agentception.mcp.build_commands.asyncio.create_task",
+            side_effect=make_create_task_side_effect(),
         ) as mock_create_task,
         patch(
             "agentception.mcp.build_commands.Path",
@@ -275,6 +276,7 @@ async def test_no_worktree_path_skips_rebase_and_dispatches_reviewer() -> None:
         ),
         patch(
             "agentception.mcp.build_commands.asyncio.create_task",
+            side_effect=make_create_task_side_effect(),
         ) as mock_create_task,
     ):
         result = await build_complete_run(
