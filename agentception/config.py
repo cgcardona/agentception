@@ -359,6 +359,17 @@ class AgentCeptionSettings(BaseSettings):
     """
     qdrant_collection: str = "code"
     """Name of the Qdrant collection used for codebase vectors."""
+    fastembed_cache_dir: str = "/home/agentception/.cache/fastembed"
+    """Local filesystem path where FastEmbed stores downloaded ONNX models.
+
+    Must be writable by the ``agentception`` user at runtime.  The Docker
+    Compose stack mounts a named volume (``agentception-fastembed-cache``) here
+    so that the three ONNX models (jina-v2 ~640 MB, BM25, bge-reranker ~280 MB)
+    survive container rebuilds.  Without a persistent mount the models are
+    re-downloaded on every restart, adding ~60 s to the first dispatch.
+
+    Set via ``FASTEMBED_CACHE_DIR`` env var.
+    """
     embed_model: str = "jinaai/jina-embeddings-v2-base-code"
     """FastEmbed model name for generating code chunk embeddings.
 
@@ -368,7 +379,7 @@ class AgentCeptionSettings(BaseSettings):
     (e.g. ``BAAI/bge-small-en-v1.5``) on code retrieval tasks because it
     understands identifier names, type signatures, and code patterns.  The model
     is downloaded from HuggingFace Hub on first use (~640 MB) and cached in
-    ``FASTEMBED_CACHE_DIR`` (default ``/tmp/fastembed_cache``).
+    ``fastembed_cache_dir``.
     """
     embed_model_dim: int = 768
     """Vector dimension produced by ``embed_model``.

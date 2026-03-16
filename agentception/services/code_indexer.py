@@ -202,7 +202,10 @@ def _get_model() -> TextEmbedding | None:
         from fastembed import TextEmbedding  # noqa: PLC0415
 
         logger.info("✅ code_indexer — loading embed model: %s", settings.embed_model)
-        _cached_model = TextEmbedding(model_name=settings.embed_model)
+        _cached_model = TextEmbedding(
+            model_name=settings.embed_model,
+            cache_dir=settings.fastembed_cache_dir,
+        )
         _rss_after = _p.memory_info().rss // 1024 // 1024
         logger.warning("📊 _get_model: LOADED embed model RSS_after=%dMB (+%dMB)", _rss_after, _rss_after - _rss_before)
     return _cached_model
@@ -226,7 +229,10 @@ def _get_bm25_model() -> SparseTextEmbedding | None:
         from fastembed.sparse import SparseTextEmbedding  # noqa: PLC0415
 
         logger.info("✅ code_indexer — loading BM25 sparse model: Qdrant/bm25")
-        _bm25_model = SparseTextEmbedding("Qdrant/bm25")
+        _bm25_model = SparseTextEmbedding(
+            "Qdrant/bm25",
+            cache_dir=settings.fastembed_cache_dir,
+        )
         _rss_after = _p.memory_info().rss // 1024 // 1024
         logger.warning("📊 _get_bm25_model: LOADED BM25 RSS_after=%dMB (+%dMB)", _rss_after, _rss_after - _rss_before)
     return _bm25_model
@@ -252,7 +258,10 @@ def _get_rerank_model() -> TextCrossEncoder | None:
         logger.info(
             "✅ code_indexer — loading reranker model: %s", settings.rerank_model
         )
-        _rerank_model = TextCrossEncoder(settings.rerank_model)
+        _rerank_model = TextCrossEncoder(
+            settings.rerank_model,
+            cache_dir=settings.fastembed_cache_dir,
+        )
         _rss_after = _p.memory_info().rss // 1024 // 1024
         logger.warning("📊 _get_rerank_model: LOADED reranker RSS_after=%dMB (+%dMB)", _rss_after, _rss_after - _rss_before)
     return _rerank_model
