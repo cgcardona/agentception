@@ -154,7 +154,7 @@ async def test_compute_ab_results_assigns_correct_variant() -> None:
     Given one wave with an even-second batch (→ A, issue 100) and one with an
     odd-second batch (→ B, issue 200), compute_ab_results must place their
     stats in the correct variant buckets.  A merged PR for issue 100 (branch
-    feat/issue-100) is attributed to variant A; one for issue 200 goes to B.
+    agent/issue-100) is attributed to variant A; one for issue 200 goes to B.
     """
     # Even second (00) → variant A.
     wave_a = _make_wave("eng-20260302T120000Z-aaaa", [100], prs_opened=1)
@@ -164,13 +164,13 @@ async def test_compute_ab_results_assigns_correct_variant() -> None:
     merged_prs: list[dict[str, JsonValue]] = [
         {
             "number": 50,
-            "headRefName": "feat/issue-100",
+            "headRefName": "agent/issue-100",
             "body": "✅ Review complete — Grade: `A`\n\nCloses #100",
             "mergedAt": "2026-03-02T12:01:00Z",
         },
         {
             "number": 51,
-            "headRefName": "feat/issue-200",
+            "headRefName": "agent/issue-200",
             "body": "Closes #200",  # no grade in body
             "mergedAt": "2026-03-02T12:02:00Z",
         },

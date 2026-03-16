@@ -70,11 +70,38 @@ echo "[entrypoint] fixing ownership of HuggingFace cache …"
 chown -R agentception:agentception /home/agentception/.cache/huggingface
 
 # /home/agentception/.cache/fastembed — named volume (agentception-fastembed-cache).
-#   FastEmbed downloads ONNX models here on first dispatch; the agentception user
-#   must be able to write here.
-echo "[entrypoint] fixing ownership of FastEmbed cache …"
+#   FastEmbed ONNX models.  Fix ownership so the agentception user can write here,
+#   then verify both ONNX files are present.  If either is missing (fresh volume
+#   or corruption), download now — this is the self-healing mechanism that means
+#   models are downloaded exactly once and never lost across restarts or rebuilds.
+echo "[entrypoint] fixing ownership of fastembed cache …"
 mkdir -p /home/agentception/.cache/fastembed
 chown -R agentception:agentception /home/agentception/.cache/fastembed
+
+JINA_ONNX=$(find /home/agentception/.cache/fastembed/models--jinaai--jina-embeddings-v2-base-code -name 'model.onnx' 2>/dev/null | head -1)
+BGE_ONNX=$(find /home/agentception/.cache/fastembed/models--BAAI--bge-reranker-base -name 'model.onnx' 2>/dev/null | head -1)
+
+if [ -z "$JINA_ONNX" ] || [ -z "$BGE_ONNX" ]; then
+  echo "[entrypoint] FastEmbed ONNX models missing — downloading (one-time setup) …"
+  FASTEMBED_CACHE_PATH=/home/agentception/.cache/fastembed \
+  HOME=/home/agentception \
+  HF_HOME=/home/agentception/.cache/huggingface \
+  HF_TOKEN="${HF_TOKEN:-}" \
+  python3 -c "
+from fastembed import TextEmbedding
+from fastembed.rerank.cross_encoder import TextCrossEncoder
+emb = TextEmbedding(model_name='jinaai/jina-embeddings-v2-base-code', cache_dir='/home/agentception/.cache/fastembed')
+list(emb.embed(['warm-up']))
+print('[entrypoint] Jina embedding model: ready')
+rnk = TextCrossEncoder(model_name='BAAI/bge-reranker-base', cache_dir='/home/agentception/.cache/fastembed')
+list(rnk.rerank('query', ['doc']))
+print('[entrypoint] BGE reranker model: ready')
+"
+  chown -R agentception:agentception /home/agentception/.cache/fastembed
+  echo "[entrypoint] FastEmbed models ready."
+else
+  echo "[entrypoint] FastEmbed models present — skipping download."
+fi
 
 # ── 6. Drop to non-root user ─────────────────────────────────────────────────
 # gosu is a purpose-built setuid helper (analogous to sudo -u but without the

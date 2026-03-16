@@ -217,7 +217,7 @@ cognitive_arch = "feynman:python"
 
 [repo]
 repo = "myorg/myrepo"
-branch = "ac/issue-42-abc1"
+branch = "agent/issue-42"
 ```
 
 | Field | Description |

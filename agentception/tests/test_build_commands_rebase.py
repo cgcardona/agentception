@@ -18,6 +18,10 @@ Coverage:
 - test_no_worktree_path_skips_rebase_and_dispatches_reviewer
     When get_agent_run_teardown returns no worktree_path the rebase block
     is skipped entirely and the reviewer is still dispatched.
+- test_label_dispatch_branch_forwarded_to_reviewer
+    Regression: the branch stored in teardown_info must always be forwarded
+    as pr_branch to auto_dispatch_reviewer — whether the run used agent/issue-{N}
+    (issue dispatch) or agent/{slug}-{hex} (label dispatch).
 
 Run targeted:
     pytest agentception/tests/test_build_commands_rebase.py -v
@@ -67,15 +71,16 @@ async def test_rebase_succeeds_force_pushes_and_dispatches_reviewer() -> None:
 
     agent_run_id = "dev-issue-10-abc"
     wt_path = "/worktrees/issue-10"
-    branch_name = "feat/issue-10"
+    branch_name = "agent/issue-10"
 
-    # Subprocess sequence: fetch, rebase, rev-parse, push
+    # Subprocess sequence: fetch, stash (no-op), rebase, rev-parse, push
     fetch_proc = _make_proc(0)
+    stash_proc = _make_proc(0, stdout=b"No local changes to save; HEAD unchanged")
     rebase_proc = _make_proc(0)
     rev_parse_proc = _make_proc(0, stdout=f"{branch_name}\n".encode())
     push_proc = _make_proc(0)
 
-    subprocess_calls = iter([fetch_proc, rebase_proc, rev_parse_proc, push_proc])
+    subprocess_calls = iter([fetch_proc, stash_proc, rebase_proc, rev_parse_proc, push_proc])
 
     async def fake_create_subprocess_exec(*args: str | int | bool | float | None, **kwargs: str | int | bool | float | None) -> AsyncMock:
         return next(subprocess_calls)
@@ -156,10 +161,11 @@ async def test_rebase_conflict_returns_error_and_aborts() -> None:
     wt_path = "/worktrees/issue-20"
 
     fetch_proc = _make_proc(0)
+    stash_proc = _make_proc(0, stdout=b"No local changes to save; HEAD unchanged")
     rebase_proc = _make_proc(1, stderr=b"CONFLICT (content): Merge conflict in foo.py")
     abort_proc = _make_proc(0)
 
-    subprocess_calls = iter([fetch_proc, rebase_proc, abort_proc])
+    subprocess_calls = iter([fetch_proc, stash_proc, rebase_proc, abort_proc])
 
     async def fake_create_subprocess_exec(*args: str | int | bool | float | None, **kwargs: str | int | bool | float | None) -> AsyncMock:
         return next(subprocess_calls)
@@ -378,4 +384,98 @@ async def test_rebase_succeeds_with_empty_worktree_path_dict() -> None:
     task_names = [c.kwargs.get("name", "") for c in mock_create_task.call_args_list]
     assert "auto-reviewer-40" in task_names, (
         f"Expected auto-reviewer-40 task; got: {task_names}"
+    )
+
+
+@pytest.mark.anyio
+async def test_label_dispatch_branch_forwarded_to_reviewer() -> None:
+    """Regression: the branch from teardown_info must always be forwarded to auto_dispatch_reviewer.
+
+    Label-scoped org-chart dispatches create branches like ``agent/{slug}-{hex}``.
+    Issue-scoped dispatches create ``agent/issue-{N}``.  In both cases the exact
+    branch stored in the DB must be passed as ``pr_branch`` so the reviewer
+    fetches the correct remote ref.  Without forwarding, the reviewer dispatch
+    silently fails with a 422 "branch not found" error and no reviewer is spawned.
+    """
+    from agentception.mcp.build_commands import build_complete_run
+
+    agent_run_id = "label-documentation-improvement-a1b2c3"
+    wt_path = "/worktrees/label-documentation-improvement-a1b2c3"
+    # Label-scoped dispatch uses agent/{slug}-{hex} — the branch IS in agent/ space
+    # but is not the issue-scoped agent/issue-{N} form, so forwarding is still required.
+    label_branch = "agent/documentation-improvement-a1b2"
+
+    fetch_proc = _make_proc(0)
+    stash_proc = _make_proc(0, stdout=b"No local changes to save; HEAD unchanged")
+    rebase_proc = _make_proc(0)
+    rev_parse_proc = _make_proc(0, stdout=f"{label_branch}\n".encode())
+    push_proc = _make_proc(0)
+    subprocess_calls = iter([fetch_proc, stash_proc, rebase_proc, rev_parse_proc, push_proc])
+
+    async def fake_create_subprocess_exec(*args: str | int | bool | float | None, **kwargs: str | int | bool | float | None) -> AsyncMock:
+        return next(subprocess_calls)
+
+    with (
+        patch(
+            "agentception.mcp.build_commands.persist_agent_event",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agentception.mcp.build_commands.complete_agent_run",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands.get_agent_run_role",
+            new_callable=AsyncMock,
+            return_value="developer",
+        ),
+        patch(
+            "agentception.mcp.build_commands.get_agent_run_teardown",
+            new_callable=AsyncMock,
+            return_value={
+                "worktree_path": wt_path,
+                "branch": label_branch,
+            },
+        ),
+        patch(
+            "agentception.mcp.build_commands.asyncio.create_subprocess_exec",
+            side_effect=fake_create_subprocess_exec,
+        ),
+        patch(
+            "agentception.mcp.build_commands.release_worktree",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands.auto_dispatch_reviewer",
+            new_callable=AsyncMock,
+        ) as mock_reviewer,
+        patch(
+            "agentception.mcp.build_commands.asyncio.create_task",
+            side_effect=make_create_task_side_effect(),
+        ) as mock_create_task,
+    ):
+        result = await build_complete_run(
+            issue_number=1072,
+            pr_url="https://github.com/cgcardona/agentception/pull/1075",
+            agent_run_id=agent_run_id,
+        )
+
+    assert result == {"ok": True, "event": "done", "status": "completed"}
+
+    # The auto-reviewer task must have been scheduled.
+    task_names = [c.kwargs.get("name", "") for c in mock_create_task.call_args_list]
+    assert "auto-reviewer-1072" in task_names, (
+        f"Expected auto-reviewer-1072 task; got: {task_names}"
+    )
+
+    # The branch from teardown_info must be forwarded as pr_branch.
+    mock_reviewer.assert_called_once()
+    forwarded_branch = mock_reviewer.call_args.kwargs.get("pr_branch")
+    assert forwarded_branch == label_branch, (
+        f"Expected pr_branch={label_branch!r} forwarded to auto_dispatch_reviewer; "
+        f"got pr_branch={forwarded_branch!r}. "
+        "Without this, the reviewer dispatch would try to fetch the default "
+        "agent/issue-N name instead of the actual label-run branch."
     )

@@ -20,6 +20,7 @@ Usage::
 
 import asyncio
 import logging
+import re as _re
 import time
 import urllib.parse
 
@@ -507,6 +508,64 @@ async def get_open_prs_with_body() -> list[dict[str, JsonValue]]:
     Delegates to ``get_open_prs()`` which always includes body.
     """
     return await get_open_prs()
+
+
+# Matches GitHub closing keywords: closes/closed/close/fixes/fixed/fix/resolves/resolved/resolve
+_PR_CLOSE_RE_TEMPLATE = r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#?{n}\b"
+
+
+async def find_pr_for_issue(
+    issue_number: int,
+    repo: str | None = None,
+) -> dict[str, JsonValue] | None:
+    """Return the first open PR that closes *issue_number*, or ``None``.
+
+    Uses two heuristics in priority order:
+
+    1. **Branch name** — branch contains ``issue-{N}`` (matches the
+       ``agent/issue-{N}`` convention used by ``dispatch_agent``).
+    2. **Closing keyword in body** — PR body contains ``closes #N``,
+       ``fixes #N``, ``resolves #N``, or any GitHub-recognised variant
+       (case-insensitive).
+
+    Searches all open PRs regardless of base branch so PRs opened against
+    ``main``, ``staging``, or a plan branch are not missed.
+
+    Returns the normalised PR dict (same shape as :func:`get_open_prs`) or
+    ``None`` when no match is found.
+    """
+    _repo = repo or settings.gh_repo
+    try:
+        items = await _api_get_all(
+            f"repos/{_repo}/pulls",
+            {"state": "open"},
+            "find_pr_for_issue",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("⚠️ find_pr_for_issue: GitHub API error — %s", exc)
+        return None
+
+    prs = [_normalize_pr(i) for i in items]
+
+    branch_re = _re.compile(rf"\bissue-{issue_number}\b")
+    close_re = _re.compile(
+        _PR_CLOSE_RE_TEMPLATE.format(n=issue_number),
+        _re.IGNORECASE,
+    )
+
+    # Priority 1: branch name embeds the issue number.
+    for pr in prs:
+        head_ref = pr.get("headRefName")
+        if isinstance(head_ref, str) and branch_re.search(head_ref):
+            return pr
+
+    # Priority 2: PR body contains a closing keyword.
+    for pr in prs:
+        body = pr.get("body", "")
+        if isinstance(body, str) and close_re.search(body):
+            return pr
+
+    return None
 
 
 async def get_merged_prs() -> list[dict[str, JsonValue]]:

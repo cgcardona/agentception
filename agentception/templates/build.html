@@ -339,7 +339,10 @@
     </template>
 
     {# Error / success feedback #}
-    <template x-if="launchError">
+    <template x-if="scopeError">
+      <span class="od-header__launch-err" x-text="scopeError"></span>
+    </template>
+    <template x-if="!scopeError && launchError">
       <span class="od-header__launch-err" x-text="launchError"></span>
     </template>
     <template x-if="launchSuccess && launchResult">
@@ -533,7 +536,7 @@
                 <template x-for="group in filteredRoleGroups" :key="group.label">
                   <optgroup :label="group.label">
                     <template x-for="r in group.roles" :key="r.slug">
-                      <option :value="r.slug" x-text="r.label"></option>
+                      <option :value="r.slug" :selected="r.slug === editRole" x-text="r.label"></option>
                     </template>
                   </optgroup>
                 </template>
@@ -546,7 +549,7 @@
               <select class="od-editor__select" x-model="editFigure">
                 <option value="">— role default —</option>
                 <template x-for="fig in filteredFigures" :key="fig.id">
-                  <option :value="fig.id" x-text="fig.name"></option>
+                  <option :value="fig.id" :selected="fig.id === editFigure" x-text="fig.name"></option>
                 </template>
               </select>
             </div>
@@ -605,9 +608,10 @@
                     <label class="od-editor__label">Ticket</label>
                     <select class="od-scope-select"
                             x-model.number="editScopeIssueNumber">
-                      <option value="" disabled>— select a ticket —</option>
+                      <option value="" :selected="editScopeIssueNumber === null" disabled>— select a ticket —</option>
                       <template x-for="iss in issues" :key="iss.number">
                         <option :value="iss.number"
+                                :selected="iss.number === editScopeIssueNumber"
                                 :disabled="iss.blocked"
                                 :class="{'od-scope-select__opt--blocked': iss.blocked}"
                                 x-text="'#' + iss.number + ' — ' + (iss.title.length > 52 ? iss.title.slice(0, 52) + '…' : iss.title) + (iss.blocked ? ' (blocked)' : '')"></option>
@@ -623,6 +627,10 @@
             </template>
 
           </div>
+
+          <template x-if="editError">
+            <p class="od-editor__error" x-text="editError"></p>
+          </template>
 
           <div class="od-editor__actions">
             <button class="od-editor__btn od-editor__btn--apply"

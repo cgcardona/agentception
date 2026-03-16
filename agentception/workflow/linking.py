@@ -33,8 +33,8 @@ _CLOSES_RE = re.compile(
 )
 """Matches ``Closes #17``, ``fixes owner/repo#123``, ``Resolves #42``."""
 
-_AC_ISSUE_BRANCH_RE = re.compile(r"ac/issue-(\d+)")
-"""Matches ``ac/issue-17`` branches created by spawn_child for engineer scope."""
+_AGENT_ISSUE_BRANCH_RE = re.compile(r"agent/issue-(\d+)")
+"""Matches ``agent/issue-17`` branches created for issue-scoped agent runs."""
 
 
 # ---------------------------------------------------------------------------
@@ -124,10 +124,10 @@ def discover_links_for_pr(
             evidence_json=json.dumps({"matched_text": m.group(0).strip()}),
         ))
 
-    # Signal 3: branch regex — matches ``ac/issue-{N}`` branches created by
-    # spawn_child for engineer-scope runs.
+    # Signal 3: branch regex — matches ``agent/issue-{N}`` branches created for
+    # issue-scoped agent runs.
     head_ref = pr["head_ref"] or ""
-    branch_match = _AC_ISSUE_BRANCH_RE.match(head_ref)
+    branch_match = _AGENT_ISSUE_BRANCH_RE.match(head_ref)
     if branch_match:
         issue_num = int(branch_match.group(1))
         candidates.append(CandidateLink(

@@ -318,7 +318,7 @@ const ROLE_GROUPS: RoleGroup[] = [
     label: 'QA / Ops',
     type: 'worker',
     roles: [
-      { slug: 'pr-reviewer',               label: 'PR Reviewer' },
+      { slug: 'reviewer',                   label: 'Reviewer' },
       { slug: 'test-engineer',             label: 'Test Engineer' },
       { slug: 'devops-engineer',           label: 'DevOps Engineer' },
       { slug: 'site-reliability-engineer', label: 'SRE' },
@@ -398,7 +398,7 @@ const CHILD_ROLE_RULES: Record<string, ChildRules> = {
       'rails-developer', 'api-developer', 'full-stack-developer', 'systems-programmer',
       'data-engineer', 'database-architect', 'architect', 'react-developer', 'frontend-developer']),
   },
-  'qa-coordinator':             { coordinator: new Set([]), worker: new Set(['pr-reviewer', 'test-engineer']) },
+  'qa-coordinator':             { coordinator: new Set([]), worker: new Set(['reviewer', 'test-engineer']) },
   'ml-coordinator':             { coordinator: new Set([]), worker: new Set(['ml-engineer', 'ml-researcher', 'data-scientist']) },
   'design-coordinator':         { coordinator: new Set([]), worker: new Set(['frontend-developer', 'react-developer', 'technical-writer', 'content-writer']) },
   'security-coordinator':       { coordinator: new Set([]), worker: new Set(['security-engineer', 'test-engineer']) },
@@ -413,7 +413,7 @@ const CHILD_ROLE_RULES: Record<string, ChildRules> = {
   // Workers — can only spawn a PR Reviewer (for self-initiated code review)
 };
 
-const WORKER_RULES: ChildRules = { coordinator: new Set([]), worker: new Set(['pr-reviewer']) };
+const WORKER_RULES: ChildRules = { coordinator: new Set([]), worker: new Set(['reviewer']) };
 
 /** Returns the allowed child slugs for (parentRole, childType), or null for "all". */
 function getChildRules(parentRole: string, childType: 'coordinator' | 'worker'): Set<string> | null {
@@ -966,6 +966,7 @@ interface OrgDesignerComponent {
   editScope: 'full_initiative' | 'phase' | 'issue';
   editScopeLabel: string;
   editScopeIssueNumber: number | null;
+  editError: string | null;
   phases: PhaseItem[];
   issues: IssueItem[];
 
@@ -999,6 +1000,8 @@ interface OrgDesignerComponent {
   readonly filteredRoleGroups: RoleGroup[];
   readonly filteredFigures: FigureItem[];
   readonly availableEditTypes: Array<'coordinator' | 'worker'>;
+  readonly _rootIsValid: boolean;
+  readonly scopeError: string;
   readonly launchReady: boolean;
   readonly launchPreviewText: string;
   readonly activePresetName: string;
@@ -1071,6 +1074,7 @@ export function orgDesigner(): OrgDesignerComponent {
     editScope:            'full_initiative',
     editScopeLabel:       '',
     editScopeIssueNumber: null,
+    editError:            null,
     phases:               [],
     issues:               [],
 
@@ -1129,8 +1133,31 @@ export function orgDesigner(): OrgDesignerComponent {
       return availableChildTypes(this.editParentRole);
     },
 
+    /** Non-empty string when the current org tree has a scope configuration
+     *  error that must be resolved before launching. */
+    /** True only when the root node's configuration is complete and launch-eligible. */
+    get _rootIsValid(): boolean {
+      if (!this._root || !this._root.role) return false;
+      if (this._root.scope === 'issue' && this._root.scopeIssueNumber === null) return false;
+      return true;
+    },
+
+    /**
+     * Header warning text. Only shown when the editor is NOT open for the root
+     * node — once the user opens the editor they can see the incomplete field
+     * directly; the banner is redundant and confusing while the panel is visible.
+     */
+    get scopeError(): string {
+      if (!this._root) return '';
+      if (this.selectedNodeId === this._root.id) return '';
+      if (this._root.scope === 'issue' && this._root.scopeIssueNumber === null) {
+        return 'Select a ticket: open the node editor, choose Ticket scope, and pick a ticket.';
+      }
+      return '';
+    },
+
     get launchReady(): boolean {
-      return !!(this._root && this._root.role && !this.launching && !this.launchSuccess);
+      return this._rootIsValid && !this.launching && !this.launchSuccess;
     },
 
     get launchPreviewText(): string {
@@ -1442,9 +1469,16 @@ export function orgDesigner(): OrgDesignerComponent {
     },
 
     applyEdit(): void {
+      this.editError = null;
       if (!this._root) return;
       const node = findNode(this._root, this.selectedNodeId ?? '');
       if (!node) return;
+
+      if (this.editScope === 'issue' && this.editScopeIssueNumber === null) {
+        this.editError = 'Select a ticket before applying.';
+        return;
+      }
+
       node.role             = this.editRole;
       node.figure           = this.editFigure;
       node.scope            = this.editScope;

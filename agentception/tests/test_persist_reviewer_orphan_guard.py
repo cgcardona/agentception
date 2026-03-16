@@ -43,7 +43,7 @@ def _make_reviewer_run(role: str = "reviewer") -> ACAgentRun:
         status="implementing",
         issue_number=575,
         pr_number=576,
-        branch="feat/issue-575",
+        branch="agent/issue-575",
         worktree_path="/worktrees/review-576",
         spawned_at=datetime.datetime.now(_UTC),
     )
@@ -96,7 +96,7 @@ def _make_agent_node() -> AgentNode:
         status=AgentStatus.IMPLEMENTING,
         issue_number=575,
         pr_number=576,
-        branch="feat/issue-575",
+        branch="agent/issue-575",
         worktree_path="/worktrees/review-576",
         cognitive_arch="michael_fagan:python",
     )

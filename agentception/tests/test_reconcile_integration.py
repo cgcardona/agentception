@@ -100,7 +100,7 @@ async def test_pr_merged_signal_triggers_completion() -> None:
 
     Invariant: is_branch_merged_into is checked when issue signal does not fire.
     """
-    run = _make_run("issue-50", branch="feat/issue-50", minutes_old=30)
+    run = _make_run("issue-50", branch="agent/issue-50", minutes_old=30)
     session = _make_session([run])
 
     with (

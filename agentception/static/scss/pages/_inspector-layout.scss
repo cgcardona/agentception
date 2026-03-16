@@ -2198,6 +2198,14 @@ $preset-accents: (
   font-style: italic;
 }
 
+.od-editor__error {
+  font-size: 0.72rem;
+  color: var(--error, #e05252);
+  margin: 0;
+  padding: 0.375rem 1.125rem;
+  font-style: italic;
+}
+
 .od-editor__actions {
   display: flex;
   gap: 0.625rem;

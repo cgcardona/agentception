@@ -712,17 +712,17 @@ async def dispatch_agent(req: DispatchRequest) -> DispatchResponse:
         run_id = f"issue-{req.issue_number}"
 
     # Branch name resolution:
-    # - reviewer: pr_branch override or feat/issue-{N} (the implementer's branch)
+    # - reviewer: pr_branch override or agent/issue-{N} (the implementer's branch)
     # - developer continuation (rework after C/D/F): continuation_branch (existing PR branch)
-    # - developer fresh: feat/issue-{N}
+    # - developer fresh: agent/issue-{N}
     if is_reviewer:
-        branch = req.pr_branch if req.pr_branch else f"feat/issue-{req.issue_number}"
+        branch = req.pr_branch if req.pr_branch else f"agent/issue-{req.issue_number}"
         is_continuation = False
     elif req.continuation_branch is not None:
         branch = req.continuation_branch
         is_continuation = True
     else:
-        branch = f"feat/issue-{req.issue_number}"
+        branch = f"agent/issue-{req.issue_number}"
         is_continuation = False
     batch_id = _make_batch_id(req.issue_number)
     worktree_path = str(Path(settings.worktrees_dir) / slug)
@@ -1257,17 +1257,29 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
 
     - ``"full_initiative"`` → coordinator, surveys all tickets, spawns child team.
     - ``"phase"`` → coordinator, owns one phase sub-label only.
-    - ``"issue"`` → leaf, works on a single ticket.
+    - ``"issue"`` + non-reviewer role → leaf worker, implements one ticket.
+    - ``"issue"`` + ``role="reviewer"`` → PR reviewer, anchored to the
+      implementer's PR branch (not ``dev``).  The PR is located automatically
+      via :func:`~agentception.readers.github.find_pr_for_issue`.
 
     A worktree is always created so the agent runs in an isolated checkout.
     All task context is persisted to the DB row.
 
     Raises:
         HTTPException 409: Worktree already exists.
+        HTTPException 422: scope_issue_number missing; or reviewer dispatch
+            when no open PR exists for the issue; or PR branch not found on
+            remote.
         HTTPException 500: git worktree add failed.
     """
     role, tier = _role_and_tier_for_scope(req.scope, req.role)
     org_domain = _org_domain_for_role(role)
+
+    if req.scope == "issue" and req.scope_issue_number is None:
+        raise HTTPException(
+            status_code=422,
+            detail="scope_issue_number is required when scope='issue'.",
+        )
 
     if req.scope == "phase" and req.scope_label:
         scope_value = req.scope_label
@@ -1284,8 +1296,18 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
         req.scope, role, tier, scope_value, req.repo,
     )
 
-    label_slug = _label_slug(req.label)
     batch_id = _make_label_batch_id(req.label)
+
+    # ── Reviewer+issue path ──────────────────────────────────────────────────
+    # A reviewer dispatched against a specific issue ticket must run on the
+    # implementer's PR branch — not a fresh branch from dev.  This path
+    # mirrors dispatch_agent's reviewer logic: looks up the open PR, fetches
+    # the remote branch, and anchors the worktree to it before persisting.
+    if role == "reviewer" and req.scope == "issue" and req.scope_issue_number is not None:
+        return await _dispatch_label_reviewer(req, role, tier, org_domain, batch_id)
+
+    # ── Normal path: coordinator, developer, or non-reviewer worker ──────────
+    label_slug = _label_slug(req.label)
     run_id = f"label-{label_slug}-{uuid.uuid4().hex[:6]}"
     branch = f"agent/{label_slug}-{uuid.uuid4().hex[:4]}"
 
@@ -1360,6 +1382,172 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
         gh_repo=req.repo,
     )
     logger.warning("✅ dispatch-label: persist complete — run_id=%r is now pending_launch", run_id)
+
+    return LabelDispatchResponse(
+        run_id=run_id,
+        tier=tier,
+        role=role,
+        label=req.label,
+        worktree=worktree_path,
+        host_worktree=host_worktree_path,
+        batch_id=batch_id,
+        status="pending_launch",
+    )
+
+
+async def _dispatch_label_reviewer(
+    req: LabelDispatchRequest,
+    role: str,
+    tier: Tier,
+    org_domain: str | None,
+    batch_id: str,
+) -> LabelDispatchResponse:
+    """Handle a reviewer dispatch launched from the org chart for a specific issue.
+
+    Called when ``role == "reviewer"`` and ``scope == "issue"``.  Mirrors the
+    reviewer path in :func:`dispatch_agent`:
+
+    1. Looks up the open PR for the issue via GitHub API.
+    2. Fetches the remote PR branch.
+    3. Creates a worktree anchored to the PR branch (not ``dev``).
+    4. Configures auth, seeds working memory, persists to DB.
+    5. Returns ``pending_launch`` — ``startAgent()`` fires the loop.
+
+    The agent loop's ``_run_reviewer_warmup`` reads ``task.branch`` as the
+    PR branch, so it must be the implementer's branch, not a dev-based label
+    branch.
+
+    Raises:
+        HTTPException 409: reviewer worktree already exists.
+        HTTPException 422: no open PR for the issue, or PR branch not on remote.
+        HTTPException 500: worktree creation failed.
+    """
+    from agentception.readers.git import ensure_worktree  # noqa: PLC0415
+    from agentception.readers.github import find_pr_for_issue  # noqa: PLC0415
+
+    assert req.scope_issue_number is not None  # caller guarantees this
+    issue_number = req.scope_issue_number
+
+    # Step 1 — look up the open PR for this issue.
+    pr = await find_pr_for_issue(issue_number, req.repo)
+    if pr is None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"No open PR found for issue #{issue_number}. "
+                "The implementer must open the pull request before a reviewer "
+                "can be dispatched.  If the PR was already merged and the "
+                "branch deleted, reviewing is no longer possible."
+            ),
+        )
+
+    pr_number_raw = pr.get("number")
+    head_ref_raw = pr.get("headRefName")
+    if not isinstance(pr_number_raw, int) or not isinstance(head_ref_raw, str) or not head_ref_raw:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Could not determine PR number or branch for issue #{issue_number}. "
+                f"PR data: number={pr_number_raw!r} headRefName={head_ref_raw!r}"
+            ),
+        )
+
+    pr_number = pr_number_raw
+    pr_branch = head_ref_raw
+
+    # Reviewer-specific identifiers — consistent with dispatch_agent reviewer logic.
+    run_id = f"review-{pr_number}"
+    worktree_path = str(Path(settings.worktrees_dir) / run_id)
+    host_worktree_path = str(Path(settings.host_worktrees_dir) / run_id)
+
+    logger.warning(
+        "🚀 dispatch-label (reviewer): issue=#%d pr=#%d branch=%r run_id=%r",
+        issue_number, pr_number, pr_branch, run_id,
+    )
+
+    if Path(worktree_path).exists():
+        raise HTTPException(
+            status_code=409,
+            detail=f"Reviewer worktree already exists at {worktree_path}.",
+        )
+
+    repo_dir = get_repo_dir_for(req.repo, settings.repo_dir)
+
+    # Step 2 — fetch the remote PR branch so the worktree can be anchored to it.
+    fetch_proc = await asyncio.create_subprocess_exec(
+        "git", "fetch", "origin", pr_branch,
+        cwd=str(repo_dir),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _out, _err = await fetch_proc.communicate()
+    if fetch_proc.returncode != 0:
+        err_msg = _err.decode(errors="replace").strip()
+        logger.error(
+            "❌ dispatch-label (reviewer): fetch of %r failed — %s", pr_branch, err_msg
+        )
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Remote branch '{pr_branch}' not found. "
+                "If the PR was merged and the branch deleted, reviewing is no "
+                f"longer possible.  git error: {err_msg}"
+            ),
+        )
+
+    # Step 3 — create the worktree anchored to the PR branch.
+    try:
+        await ensure_worktree(
+            Path(worktree_path),
+            pr_branch,
+            f"origin/{pr_branch}",
+            reset=False,  # reuse the implementer's branch — do not tear down
+            main_repo_dir=repo_dir,
+        )
+        logger.info(
+            "✅ dispatch-label (reviewer): worktree at %s (branch=%r)",
+            worktree_path, pr_branch,
+        )
+    except RuntimeError as exc:
+        logger.error("❌ dispatch-label (reviewer): worktree creation failed — %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    # Step 4 — auth, memory, persist.
+    await _configure_worktree_auth(Path(worktree_path), run_id)
+
+    review_plan = (
+        f"# Review PR #{pr_number}: issue #{issue_number}\n\n"
+        f"Your task is to **review** pull request #{pr_number} on branch "
+        f"`{pr_branch}` against `dev`.\n\n"
+        f"The implementation is already committed. Do NOT implement anything. "
+        f"Follow the Review Protocol in your role file."
+    )
+    write_memory(Path(worktree_path), WorkingMemory(plan=review_plan, findings={}))
+
+    label_cognitive_arch = _resolve_cognitive_arch(
+        "", role, figure_override=req.cognitive_arch_override
+    )
+
+    await persist_agent_run_dispatch(
+        run_id=run_id,
+        issue_number=issue_number,
+        role=role,
+        # branch = the actual PR branch so agent_loop's _run_reviewer_warmup
+        # reads task.branch and checks out the right code.
+        branch=pr_branch,
+        worktree_path=worktree_path,
+        batch_id=batch_id,
+        host_worktree_path=host_worktree_path,
+        cognitive_arch=label_cognitive_arch,
+        tier=tier,
+        org_domain=org_domain,
+        gh_repo=req.repo,
+        pr_number=pr_number,
+    )
+    logger.warning(
+        "✅ dispatch-label (reviewer): persisted run_id=%r pr=#%d branch=%r",
+        run_id, pr_number, pr_branch,
+    )
 
     return LabelDispatchResponse(
         run_id=run_id,

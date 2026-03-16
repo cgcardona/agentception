@@ -22,7 +22,7 @@ from agentception.tests.conftest import make_create_task_side_effect
 async def test_ensure_worktree_creates_new_worktree(tmp_path: Path) -> None:
     """ensure_worktree creates a new worktree when it does not exist."""
     worktree_path = tmp_path / "issue-123"
-    branch = "feat/issue-123"
+    branch = "agent/issue-123"
     base_ref = "origin/dev"
 
     mock_proc = AsyncMock()
@@ -41,7 +41,7 @@ async def test_ensure_worktree_idempotent_when_exists(tmp_path: Path) -> None:
     """ensure_worktree returns immediately when worktree already exists."""
     worktree_path = tmp_path / "issue-123"
     worktree_path.mkdir(parents=True)
-    branch = "feat/issue-123"
+    branch = "agent/issue-123"
     base_ref = "origin/dev"
 
     mock_proc = AsyncMock()
@@ -57,7 +57,7 @@ async def test_ensure_worktree_idempotent_when_exists(tmp_path: Path) -> None:
 async def test_ensure_worktree_raises_on_git_failure(tmp_path: Path) -> None:
     """ensure_worktree raises RuntimeError when git worktree add fails."""
     worktree_path = tmp_path / "issue-123"
-    branch = "feat/issue-123"
+    branch = "agent/issue-123"
     base_ref = "origin/dev"
 
     # Mock _git to return empty (branch doesn't exist)
@@ -79,7 +79,7 @@ async def test_ensure_worktree_reset_removes_stale_dir_and_branch(tmp_path: Path
     """ensure_worktree with reset=True tears down any existing dir/branch before recreating."""
     worktree_path = tmp_path / "issue-123"
     worktree_path.mkdir(parents=True)
-    branch = "feat/issue-123"
+    branch = "agent/issue-123"
     base_ref = "origin/dev"
 
     success_proc = AsyncMock()
@@ -93,7 +93,7 @@ async def test_ensure_worktree_reset_removes_stale_dir_and_branch(tmp_path: Path
         return success_proc
 
     with (
-        patch("agentception.readers.git._git", new_callable=AsyncMock, return_value="  feat/issue-123"),
+        patch("agentception.readers.git._git", new_callable=AsyncMock, return_value="  agent/issue-123"),
         patch("agentception.readers.git.asyncio.create_subprocess_exec", side_effect=capture_proc),
         patch("agentception.readers.git.shutil.rmtree"),
     ):
@@ -120,7 +120,7 @@ async def test_ensure_worktree_reset_deletes_remote_branch_stale_state(tmp_path:
     """
     worktree_path = tmp_path / "issue-449"
     worktree_path.mkdir(parents=True)
-    branch = "feat/issue-449"
+    branch = "agent/issue-449"
     base_ref = "origin/dev"
 
     success_proc = AsyncMock()
@@ -135,7 +135,7 @@ async def test_ensure_worktree_reset_deletes_remote_branch_stale_state(tmp_path:
         return success_proc
 
     with (
-        patch("agentception.readers.git._git", new_callable=AsyncMock, return_value="  feat/issue-449"),
+        patch("agentception.readers.git._git", new_callable=AsyncMock, return_value="  agent/issue-449"),
         patch("agentception.readers.git.asyncio.create_subprocess_exec", side_effect=capture_proc),
         patch("agentception.readers.git.shutil.rmtree"),
     ):
@@ -174,7 +174,7 @@ async def test_concurrent_worktree_creation_does_not_race(tmp_path: Path) -> Non
     ):
         results = await asyncio.gather(
             *[
-                ensure_worktree(tmp_path / f"issue-{i}", f"feat/issue-{i}", "origin/dev")
+                ensure_worktree(tmp_path / f"issue-{i}", f"agent/issue-{i}", "origin/dev")
                 for i in range(10)
             ]
         )
@@ -200,7 +200,7 @@ async def test_ensure_worktree_calls_symlink_frontend_resources(tmp_path: Path) 
       successful ``git worktree add``.
     """
     worktree_path = tmp_path / "issue-768"
-    branch = "feat/issue-768"
+    branch = "agent/issue-768"
     base_ref = "origin/dev"
 
     mock_proc = AsyncMock()
@@ -358,7 +358,7 @@ async def test_dispatch_redispatch_cleans_stale_worktree(tmp_path: Path) -> None
     """
     worktree_path = tmp_path / "issue-731"
     worktree_path.mkdir(parents=True)  # simulate stale dir left by crashed agent
-    branch = "feat/issue-731"
+    branch = "agent/issue-731"
     base_ref = "origin/dev"
 
     success_proc = AsyncMock()
@@ -374,7 +374,7 @@ async def test_dispatch_redispatch_cleans_stale_worktree(tmp_path: Path) -> None
         return success_proc
 
     with (
-        patch("agentception.readers.git._git", new_callable=AsyncMock, return_value="  feat/issue-731"),
+        patch("agentception.readers.git._git", new_callable=AsyncMock, return_value="  agent/issue-731"),
         patch("agentception.readers.git.asyncio.create_subprocess_exec", side_effect=capture_proc),
         patch("agentception.readers.git.shutil.rmtree"),
     ):
@@ -410,7 +410,7 @@ async def test_dispatch_redispatch_cleans_stale_worktree(tmp_path: Path) -> None
 @pytest.mark.anyio
 async def test_ensure_branch_creates_new_branch() -> None:
     """ensure_branch creates a new branch when it does not exist."""
-    branch = "feat/issue-123"
+    branch = "agent/issue-123"
     base_ref = "origin/dev"
 
     # Mock list_git_branches to return empty list (branch does not exist)
@@ -432,7 +432,7 @@ async def test_ensure_branch_creates_new_branch() -> None:
 @pytest.mark.anyio
 async def test_ensure_branch_idempotent_when_exists() -> None:
     """ensure_branch returns immediately when branch already exists."""
-    branch = "feat/issue-123"
+    branch = "agent/issue-123"
     base_ref = "origin/dev"
 
     # Mock _git to return the branch name (branch exists)
@@ -446,7 +446,7 @@ async def test_ensure_branch_idempotent_when_exists() -> None:
 @pytest.mark.anyio
 async def test_ensure_branch_raises_on_git_failure() -> None:
     """ensure_branch raises RuntimeError when git branch creation fails."""
-    branch = "feat/issue-123"
+    branch = "agent/issue-123"
     base_ref = "origin/dev"
 
     # Mock _git to return empty (branch doesn't exist)
@@ -471,7 +471,7 @@ async def test_ensure_branch_raises_on_git_failure() -> None:
 @pytest.mark.anyio
 async def test_ensure_pull_request_creates_new_pr() -> None:
     """ensure_pull_request creates a new PR when none exists."""
-    head = "feat/issue-123"
+    head = "agent/issue-123"
     base = "dev"
     title = "Fix issue 123"
     body = "Closes #123"
@@ -499,7 +499,7 @@ async def test_ensure_pull_request_creates_new_pr() -> None:
 @pytest.mark.anyio
 async def test_ensure_pull_request_idempotent_when_exists() -> None:
     """ensure_pull_request returns existing PR when one already exists."""
-    head = "feat/issue-123"
+    head = "agent/issue-123"
     base = "dev"
     title = "Fix issue 123"
     body = "Closes #123"
@@ -523,7 +523,7 @@ async def test_ensure_pull_request_idempotent_when_exists() -> None:
 @pytest.mark.anyio
 async def test_ensure_pull_request_raises_on_creation_failure() -> None:
     """ensure_pull_request propagates RuntimeError when the GitHub API rejects creation."""
-    head = "feat/issue-123"
+    head = "agent/issue-123"
     base = "dev"
     title = "Fix issue 123"
     body = "Closes #123"
@@ -553,7 +553,7 @@ async def test_ensure_pull_request_raises_on_creation_failure() -> None:
 async def test_dispatch_reviewer_fetches_pr_branch_and_uses_it_as_base(tmp_path: Path) -> None:
     """PR-reviewer dispatch fetches the PR branch and passes origin/<branch> as base.
 
-    The critical invariant: ensure_worktree is called with base="origin/feat/issue-35"
+    The critical invariant: ensure_worktree is called with base="origin/agent/issue-35"
     (not "origin/dev") so the reviewer worktree starts on the implementer's code
     without any manual branch-switching turns.
     """
@@ -591,7 +591,7 @@ async def test_dispatch_reviewer_fetches_pr_branch_and_uses_it_as_base(tmp_path:
 
         req = DispatchRequest(
             issue_number=35,
-            issue_title="PR review for feat/issue-35",
+            issue_title="PR review for agent/issue-35",
             issue_body="Review this PR.",
             role="reviewer",
             repo="agentception",
@@ -600,8 +600,8 @@ async def test_dispatch_reviewer_fetches_pr_branch_and_uses_it_as_base(tmp_path:
         await dispatch_agent(req)
 
     # The worktree base must be the PR branch on origin, not origin/dev
-    assert captured_base == ["origin/feat/issue-35"], (
-        f"Expected ensure_worktree to be called with base='origin/feat/issue-35', got {captured_base}"
+    assert captured_base == ["origin/agent/issue-35"], (
+        f"Expected ensure_worktree to be called with base='origin/agent/issue-35', got {captured_base}"
     )
 
 
@@ -652,10 +652,10 @@ async def test_dispatch_implementer_uses_origin_dev_as_base(tmp_path: Path) -> N
 
 @pytest.mark.anyio
 async def test_dispatch_reviewer_pr_branch_override_respected(tmp_path: Path) -> None:
-    """When pr_branch is provided, it overrides the feat/issue-{N} default branch name.
+    """When pr_branch is provided, it overrides the agent/issue-{N} default branch name.
 
     This covers PRs whose branch doesn't follow the standard naming convention
-    (e.g. feat/reviewer-branch-orientation vs feat/issue-35).
+    (e.g. feat/reviewer-branch-orientation vs agent/issue-35).
     """
     from agentception.routes.api.dispatch import dispatch_agent, DispatchRequest
 
@@ -722,7 +722,7 @@ async def test_dispatch_reviewer_deleted_branch_returns_422(tmp_path: Path) -> N
     fetch_proc.returncode = 128
     fetch_proc.communicate.return_value = (
         b"",
-        b"fatal: couldn't find remote ref feat/issue-35",
+        b"fatal: couldn't find remote ref agent/issue-35",
     )
 
     with (
@@ -1118,7 +1118,7 @@ async def test_dispatch_agent_reviewer_does_not_seed_ac_items(tmp_path: Path) ->
             role="reviewer",
             repo="agentception",
             pr_number=500,
-            pr_branch="feat/issue-88",
+            pr_branch="agent/issue-88",
         )
         await dispatch_agent(req)
 

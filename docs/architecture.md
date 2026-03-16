@@ -34,13 +34,13 @@ agentception/
   tests/           → Unit, integration, regression, and E2E tests (single directory)
 ```
 
-## Service Dependencies
+## Services
 
-| Service    | Purpose                                 | Port  |
-|------------|-----------------------------------------|-------|
-| agentception | FastAPI application                   | 1337 |
-| postgres   | Persistent store (runs, phases, issues) | 5433  |
-| qdrant     | Vector store (semantic search)          | 6335  |
+| Service | Container | Port | Purpose |
+|---------|-----------|------|---------|
+| agentception | agentception | 1337 | FastAPI application |
+| postgres | agentception-postgres | 5433 | Persistent store (runs, phases, issues) |
+| qdrant | agentception-qdrant | 6335/6336 | Vector store (semantic search) |
 
 ## Data Flow
 

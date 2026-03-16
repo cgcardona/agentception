@@ -47,7 +47,7 @@ def _make_pr(
     return {
         "number": number,
         "title": title,
-        "headRefName": f"feat/issue-{number}",
+        "headRefName": f"agent/issue-{number}",
         "labels": lbl_jv,
         "body": body,
     }

@@ -108,7 +108,7 @@ async def test_reconciles_on_closed_issue(caplog: pytest.LogCaptureFixture) -> N
 @pytest.mark.anyio
 async def test_reconciles_on_merged_pr(caplog: pytest.LogCaptureFixture) -> None:
     """A stale run whose branch is merged into dev must be set to completed."""
-    run = _make_run(run_id="issue-200", branch="feat/issue-200")
+    run = _make_run(run_id="issue-200", branch="agent/issue-200")
     session = _make_session([run])
 
     with patch(

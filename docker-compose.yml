@@ -77,9 +77,9 @@ services:
       LOCAL_LLM_CHAT_PATH: ${LOCAL_LLM_CHAT_PATH:-/v1/chat/completions}
       LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-}
       LOCAL_LLM_MAX_TOKENS: ${LOCAL_LLM_MAX_TOKENS:-4096}
-      LOCAL_LLM_COMPLETION_TOKEN_CEILING: ${LOCAL_LLM_COMPLETION_TOKEN_CEILING:-8192}
-      LOCAL_LLM_MAX_CONTEXT_CHARS: ${LOCAL_LLM_MAX_CONTEXT_CHARS:-12000}
-      LOCAL_LLM_MAX_SYSTEM_CHARS: ${LOCAL_LLM_MAX_SYSTEM_CHARS:-6000}
+      LOCAL_LLM_COMPLETION_TOKEN_CEILING: ${LOCAL_LLM_COMPLETION_TOKEN_CEILING:-32768}
+      LOCAL_LLM_MAX_CONTEXT_CHARS: ${LOCAL_LLM_MAX_CONTEXT_CHARS:-60000}
+      LOCAL_LLM_MAX_SYSTEM_CHARS: ${LOCAL_LLM_MAX_SYSTEM_CHARS:-20000}
       LOCAL_LLM_BASE_URL_PLAN: ${LOCAL_LLM_BASE_URL_PLAN:-}
       LOCAL_LLM_MODEL_PLAN: ${LOCAL_LLM_MODEL_PLAN:-}
       LOCAL_LLM_BASE_URL_AGENT: ${LOCAL_LLM_BASE_URL_AGENT:-}
@@ -107,6 +107,10 @@ services:
       # HF_HOME under agentception's home so downloads and token file are writable.
       # entrypoint.sh chowns the mounted model_cache volume here before dropping privs.
       HF_HOME: /home/agentception/.cache/huggingface
+      # fastembed reads FASTEMBED_CACHE_PATH to locate its model cache.
+      # Without this it falls back to tempfile.gettempdir() = /tmp/fastembed_cache,
+      # which is wiped on every container restart, causing repeated re-downloads.
+      FASTEMBED_CACHE_PATH: /home/agentception/.cache/fastembed
       # Optional: set HF_TOKEN in .env to avoid HuggingFace rate-limit warnings
       # on model downloads and enable authenticated access to private models.
       HF_TOKEN: ${HF_TOKEN:-}
@@ -118,13 +122,14 @@ services:
       # Standard-case and uppercase variants are both set for maximum tool
       # coverage (curl, git, npm, Python httpx/requests all check one or both).
       # NO_PROXY excludes internal Docker services that must not go through the
-      # proxy: postgres, qdrant, and the local LLM server on the host.
+      # proxy: postgres, qdrant (both short name and full container name),
+      # and the local LLM server on the host.
       HTTP_PROXY: "http://proxy:8888"
       HTTPS_PROXY: "http://proxy:8888"
-      NO_PROXY: "localhost,127.0.0.1,postgres,qdrant,host.docker.internal,::1"
+      NO_PROXY: "localhost,127.0.0.1,postgres,qdrant,agentception-qdrant,host.docker.internal,::1"
       http_proxy: "http://proxy:8888"
       https_proxy: "http://proxy:8888"
-      no_proxy: "localhost,127.0.0.1,postgres,qdrant,host.docker.internal,::1"
+      no_proxy: "localhost,127.0.0.1,postgres,qdrant,agentception-qdrant,host.docker.internal,::1"
     volumes:
       # gh CLI auth (read-only). Container HOME is /home/agentception.
       - ${HOME}/.config/gh:/home/agentception/.config/gh:ro
@@ -162,11 +167,13 @@ services:
       - ${HOME}/.agentception/worktrees/agentception:/worktrees
       # Persist HuggingFace hub files (tokens, metadata) across container restarts.
       - model_cache:/home/agentception/.cache/huggingface
-      # Persist FastEmbed ONNX models across container restarts.
-      # Without this volume the three ONNX models (jina-v2 ~640 MB, BM25, bge-reranker ~280 MB)
-      # are re-downloaded from HuggingFace on every restart, adding ~60 s to the
-      # first dispatch after each restart.  With the volume they are loaded from
-      # disk on first use (~5–10 s) and stay warm for the lifetime of the volume.
+      # Persist FastEmbed ONNX models across container restarts and rebuilds.
+      # fastembed defaults to /tmp/fastembed_cache (tempfile.gettempdir()) which is
+      # wiped on every restart.  The volume ensures models are downloaded exactly
+      # once.  FASTEMBED_CACHE_PATH overrides fastembed's default so both the app
+      # and the entrypoint startup-check write to and read from the same location.
+      # entrypoint.sh verifies model completeness at startup and re-downloads only
+      # if the ONNX file is missing (self-healing for fresh volume or corruption).
       - fastembed_cache:/home/agentception/.cache/fastembed
     # Use Cloudflare DNS instead of Docker's embedded resolver.
     # Docker's embedded DNS caches whichever node it gets first, and GitHub

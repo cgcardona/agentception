@@ -33,10 +33,8 @@ logger = logging.getLogger(__name__)
 # hundreds of dispatches per minute.
 _WORKTREE_ADD_SEM: asyncio.Semaphore = asyncio.Semaphore(5)
 
-# Matches any branch created by AgentCeption:
-#   agent/*  — dispatcher-created top-level worktree branches
-#   ac/*     — pipeline branches (engineer, coordinator, reviewer)
-_AGENT_BRANCH_RE = re.compile(r"^(agent/.+|ac/.+)$")
+# Matches any branch created by AgentCeption — all branches use the agent/ prefix.
+_AGENT_BRANCH_RE = re.compile(r"^agent/.+$")
 
 # Slug for plan branch names: alphanumeric and single hyphens only, max 32 chars.
 _PLAN_SLUG_RE = re.compile(r"[^a-z0-9]+")
@@ -527,7 +525,7 @@ async def get_or_create_plan_branch(plan_id: str, repo: str) -> str:
         return existing
 
     slug = _PLAN_SLUG_RE.sub("-", plan_id.lower()).strip("-")[:32] or "plan"
-    branch_name = f"feat/plan-{slug}"
+    branch_name = f"agent/plan-{slug}"
 
     # Ensure origin/dev is up to date so the plan branch is created from latest.
     repo_str = str(settings.repo_dir)

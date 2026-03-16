@@ -102,6 +102,13 @@ RUN npm ci --include=dev
 COPY agentception/requirements.txt /app/agentception/requirements.txt
 RUN pip install --no-cache-dir -r /app/agentception/requirements.txt
 
+# FastEmbed ONNX models are NOT downloaded at build time.
+# They are stored in the agentception-fastembed-cache named Docker volume and
+# verified / downloaded at container startup by entrypoint.sh.  This means:
+#   - docker compose build is fast (no 600 MB download per build)
+#   - models persist across every rebuild and restart
+#   - entrypoint.sh is self-healing: if the volume is empty it downloads once
+
 # Copy the full package.
 COPY agentception/ /app/agentception/
 COPY pyproject.toml /app/pyproject.toml

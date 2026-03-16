@@ -65,7 +65,7 @@ async def test_auto_dispatch_reviewer_posts_correct_payload() -> None:
     payload = kwargs["json"]
     assert payload["issue_number"] == 42
     assert payload["pr_number"] == 537
-    assert payload["pr_branch"] == "feat/issue-42"
+    assert payload["pr_branch"] == "agent/issue-42"
     assert payload["role"] == "reviewer"
     assert kwargs["headers"]["X-API-Key"] == "test-key"
 

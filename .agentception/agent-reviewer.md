@@ -30,7 +30,7 @@ curl -X POST http://localhost:1337/api/dispatch/issue \
     "role": "reviewer",
     "repo": "cgcardona/agentception",
     "pr_number": 456,
-    "pr_branch": "feat/issue-123"
+    "pr_branch": "agent/issue-123"
   }'
 ```
 

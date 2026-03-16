@@ -49,7 +49,7 @@ When the effective provider is **local**, the following env vars apply. Set them
 | `LOCAL_LLM_MAX_CONTEXT_CHARS` | `12000` | Max characters for the first user message (task briefing) when using the local LLM. Reduces load on small models. |
 | `LOCAL_LLM_MAX_SYSTEM_CHARS` | `6000` | Max characters for the system prompt (role + cognitive arch). Truncation is applied when using the local provider. |
 | `LOCAL_LLM_MAX_TOKENS` | `4096` | Desired max completion tokens per turn (agent loop). Never sent above the ceiling below. |
-| `LOCAL_LLM_COMPLETION_TOKEN_CEILING` | `8192` | Hard cap on `max_tokens` in every local chat request. Ollama supports 8192+; lower if your server imposes a stricter limit. |
+| `LOCAL_LLM_COMPLETION_TOKEN_CEILING` | `32768` | Hard cap on `max_tokens` in every local chat request. Qwen3.5-35B with `reasoning_effort="none"` uses 30–200 tokens per agent turn; raise only if you use thinking mode for single-turn completion. |
 
 ### Per-usecase model overrides (Phase 3 — two models)
 
@@ -139,9 +139,9 @@ LLM_PROVIDER=local
 LOCAL_LLM_BASE_URL=http://host.docker.internal:11434
 LOCAL_LLM_CHAT_PATH=/v1/chat/completions
 LOCAL_LLM_MODEL=qwen2.5-coder:7b
-LOCAL_LLM_COMPLETION_TOKEN_CEILING=8192
-LOCAL_LLM_MAX_CONTEXT_CHARS=24000
-LOCAL_LLM_MAX_SYSTEM_CHARS=12000
+LOCAL_LLM_COMPLETION_TOKEN_CEILING=32768
+LOCAL_LLM_MAX_CONTEXT_CHARS=60000
+LOCAL_LLM_MAX_SYSTEM_CHARS=20000
 LOCAL_LLM_MAX_TOKENS=8192
 ```
 
@@ -228,15 +228,23 @@ When Ollama is running, point the agent at it so it uses the local model instead
 **Recommended context caps by model:**
 
 ```bash
-# Qwen 3.5 9B (16–24 GB)
-LOCAL_LLM_MAX_CONTEXT_CHARS=24000
-LOCAL_LLM_MAX_SYSTEM_CHARS=12000
+# Qwen 3.5 35B MoE (48+ GB) — best quality; reasoning_effort=none is critical
+LOCAL_LLM_MAX_CONTEXT_CHARS=60000
+LOCAL_LLM_MAX_SYSTEM_CHARS=20000
 LOCAL_LLM_MAX_TOKENS=8192
+LOCAL_LLM_COMPLETION_TOKEN_CEILING=32768
+
+# Qwen 3.5 9B (16–24 GB)
+LOCAL_LLM_MAX_CONTEXT_CHARS=40000
+LOCAL_LLM_MAX_SYSTEM_CHARS=20000
+LOCAL_LLM_MAX_TOKENS=8192
+LOCAL_LLM_COMPLETION_TOKEN_CEILING=32768
 
 # Qwen 3.5 4B / Qwen 2.5 Coder 7B (8–16 GB) — more conservative
-LOCAL_LLM_MAX_CONTEXT_CHARS=12000
-LOCAL_LLM_MAX_SYSTEM_CHARS=6000
+LOCAL_LLM_MAX_CONTEXT_CHARS=24000
+LOCAL_LLM_MAX_SYSTEM_CHARS=12000
 LOCAL_LLM_MAX_TOKENS=4096
+LOCAL_LLM_COMPLETION_TOKEN_CEILING=16384
 ```
 
 ---
@@ -269,6 +277,116 @@ watch -n 1 rocm-smi
 ### Windows
 
 Use **Task Manager → Performance** for a quick view, or install **GPU-Z** / **HWiNFO** for detailed GPU metrics.
+
+---
+
+## Thinking mode and `reasoning_effort` (Qwen3.5 / DeepSeek-R1)
+
+Qwen3.5 and DeepSeek-R1 are **thinking models** — they generate internal chain-of-thought tokens before the final answer. Understanding how to control this is critical for agent performance.
+
+### The short answer
+
+**`reasoning_effort="none"` is the correct way to disable thinking on Ollama's OpenAI-compatible endpoint.**
+
+`think=true` / `think=false` is **silently ignored** by `/v1/chat/completions`. It is a native Ollama API parameter (for `/api/chat`) and does nothing on the OpenAI-compatible path.
+
+### Why this matters: token consumption at scale
+
+Measured on `qwen3.5:35b-a3b-q4_K_M` via Ollama 0.18, with a real agent-scale message history:
+
+| Configuration | Completion tokens | Time per turn |
+|---|---|---|
+| Default (thinking ON, no `reasoning_effort`) | **4,850 tokens** | **175 s** |
+| `reasoning_effort="none"` | **173 tokens** | **10.6 s** |
+| Default with small context (5k tokens) | 68 tokens | 8.2 s |
+| `reasoning_effort="none"` with small context | 31 tokens | 1.8 s |
+
+At 29k-token context (10 tool-call rounds, realistic for mid-task agents), default thinking burns **28× more tokens and takes 16× longer** per turn. With a 32k token ceiling, the model would exhaust the budget thinking and produce empty output.
+
+This is why `reasoning_effort="none"` is the default for all agent tool-call turns and single-turn completions in `agentception/services/llm.py`.
+
+### Parameter reference
+
+| Parameter | Endpoint | Effect |
+|---|---|---|
+| `think: true/false` | `/api/chat` (Ollama native) | Enables/disables thinking |
+| `think: true/false` | `/v1/chat/completions` (OpenAI-compat) | **Silently ignored** |
+| `reasoning_effort: "none"` | `/v1/chat/completions` | Disables thinking — 0 reasoning tokens |
+| `reasoning_effort: "low"` | `/v1/chat/completions` | Thinking ON (same as default) |
+| `reasoning_effort: "medium"` | `/v1/chat/completions` | Thinking ON (same as default) |
+| `reasoning_effort: "high"` | `/v1/chat/completions` | Thinking ON (same as default) |
+| *(omitted)* | `/v1/chat/completions` | Thinking ON by default for thinking models |
+
+**Note:** On Ollama 0.18, `low` / `medium` / `high` all appear to produce the same behaviour as the default (thinking ON). `"none"` is the only value that actually changes model behaviour.
+
+### Where thinking is enabled vs disabled in AgentCeption
+
+| Code path | `reasoning_effort` | Rationale |
+|---|---|---|
+| Agent tool-call loop (`call_local_llm_with_tools`) | `"none"` | Each turn is a small decision; the iterative loop IS the reasoning |
+| Recon planning JSON (`completion()`) | `"none"` | Short structured JSON response; CoT wastes the entire token budget |
+| Summaries and single-turn completions | `"none"` | Short structured responses only |
+| Phase 1A streaming plan (Build dashboard) | `"medium"` | Planning quality benefits from reasoning; context is small |
+
+### Verify thinking is actually off
+
+```bash
+curl -s http://localhost:11434/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen3.5:35b-a3b-q4_K_M",
+    "messages": [{"role": "user", "content": "Say hello."}],
+    "max_tokens": 200,
+    "stream": false,
+    "temperature": 0.0,
+    "reasoning_effort": "none"
+  }' | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+usage = d.get('usage', {})
+msg = d['choices'][0]['message']
+thinking = msg.get('reasoning_content') or msg.get('thinking') or msg.get('reasoning') or ''
+print(f'content: {msg[\"content\"]!r}')
+print(f'thinking_chars: {len(thinking)}')   # should be 0
+print(f'completion_tokens: {usage.get(\"completion_tokens\")}')  # should be 2-5
+"
+```
+
+Expected output: `thinking_chars: 0`, `completion_tokens: 2` (just the word "hello").
+
+Without `reasoning_effort="none"`, you would see `thinking_chars: ~500`, `completion_tokens: ~145` for the same prompt.
+
+### CLI and interactive sessions
+
+To control thinking from the Ollama CLI:
+
+```bash
+# Enable thinking
+ollama run qwen3.5:35b-a3b-q4_K_M --think
+
+# Disable thinking
+ollama run qwen3.5:35b-a3b-q4_K_M --think=false
+
+# Inside an interactive session
+/set think       # enable
+/set nothink     # disable
+```
+
+These CLI flags work correctly (they target the native `/api/chat` endpoint). They are unrelated to the `reasoning_effort` parameter used by `/v1/chat/completions`.
+
+### Ollama version requirement
+
+`reasoning_effort` support was added in **Ollama 0.18**. If you are on an older version, upgrade:
+
+```bash
+# macOS
+brew upgrade ollama
+
+# Linux
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+Check: `curl -s http://localhost:11434/api/version` → `{"version":"0.18.0"}` or higher.
 
 ---
 

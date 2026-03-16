@@ -1000,19 +1000,28 @@ def _normalize_openai_message_content(message: dict[str, JsonValue]) -> str:
       reasoning + text), concatenate only non-reasoning text parts so the
       returned string is the final answer.
 
-    Emits a warning when content is empty but a ``reasoning`` field is present
-    (Ollama/Qwen3 non-streaming format), which indicates the token budget was
-    exhausted during chain-of-thought before the model could write its answer.
-    Raise ``LOCAL_LLM_COMPLETION_TOKEN_CEILING`` to fix.
+    Emits a warning when content is empty but a ``reasoning`` / ``thinking``
+    field is present (Ollama/Qwen3 non-streaming format), which indicates the
+    token budget was exhausted during chain-of-thought before the model could
+    write its answer.  This should no longer happen with ``reasoning_effort``
+    set correctly, but the guard remains as a safety net.
     """
     raw: JsonValue = message.get("content")
     if raw is None or raw == "":
-        reasoning: JsonValue = message.get("reasoning")
+        # Ollama 0.18+ uses "reasoning_content" in /v1 responses;
+        # older versions used "reasoning".  Check both.
+        reasoning: JsonValue = (
+            message.get("reasoning_content")
+            or message.get("thinking")
+            or message.get("reasoning")
+        )
         if isinstance(reasoning, str) and reasoning:
             logger.warning(
                 "⚠️ Local LLM returned empty content with non-empty reasoning — "
-                "token budget exhausted during chain-of-thought. "
-                "Raise LOCAL_LLM_COMPLETION_TOKEN_CEILING (currently %d).",
+                "token budget exhausted. "
+                "Verify reasoning_effort=none is accepted by the server "
+                "(Ollama 0.18+ required). "
+                "Current LOCAL_LLM_COMPLETION_TOKEN_CEILING=%d.",
                 settings.local_llm_completion_token_ceiling,
             )
         return ""
@@ -1086,6 +1095,16 @@ async def call_local_with_tools(
         "messages": request_messages,
         "temperature": temperature,
         "max_tokens": _local_cap_max_tokens(max_tokens),
+        # Disable chain-of-thought for individual tool-call iterations.
+        # reasoning_effort="none" is the correct parameter on Ollama's
+        # OpenAI-compatible /v1/chat/completions endpoint — think=true/false
+        # is silently ignored there.  With default thinking ON, Qwen3.5-35B
+        # burns 4000–5000 completion tokens per turn on internal reasoning
+        # before emitting a tool call (175 s at 29k context); with
+        # reasoning_effort="none" the same turn costs ~31–173 tokens and
+        # completes in 2–16 s.  The iterative tool loop IS the reasoning
+        # mechanism; per-turn CoT adds zero quality and exhausts the budget.
+        "reasoning_effort": "none",
     }
     if tools:
         payload["tools"] = _tools_to_openai(tools)
@@ -1243,7 +1262,7 @@ def _local_completion_payload(
     max_tokens: int = 128,
     stream: bool = False,
     model_override: str = "",
-    think: bool = False,
+    reasoning_effort: str = "none",
 ) -> dict[str, JsonValue]:
     """Build request body for local single-turn completion (no tools).
 
@@ -1252,11 +1271,13 @@ def _local_completion_payload(
     changing the global ``LOCAL_LLM_MODEL`` setting.  When empty, falls back
     to ``settings.local_llm_model``.
 
-    ``think`` is reserved for future use when Ollama properly honours the
-    ``"think": false`` field to skip CoT for Qwen3-family models.  Currently
-    Ollama ignores it; the field is included in the payload anyway so the
-    intent is visible and the behaviour will improve automatically when Ollama
-    adds support.  Set ``think=True`` for planning/streaming calls.
+    ``reasoning_effort`` controls Qwen3-family chain-of-thought on Ollama's
+    OpenAI-compatible endpoint.  Valid values: ``"none"`` (off), ``"low"``,
+    ``"medium"``, ``"high"`` (on).  Note: ``think=true/false`` is silently
+    ignored by /v1/chat/completions — ``reasoning_effort`` is the correct
+    parameter.  Defaults to ``"none"`` for structured short-response calls
+    (recon JSON, summaries); pass ``"medium"`` or ``"high"`` for planning
+    streams where chain-of-thought improves output quality.
     """
     capped = _local_cap_max_tokens(max_tokens)
     payload: dict[str, JsonValue] = {
@@ -1268,7 +1289,7 @@ def _local_completion_payload(
         "max_tokens": capped,
         "stream": stream,
         "frequency_penalty": 0.3,
-        "think": think,
+        "reasoning_effort": reasoning_effort,
     }
     model = model_override or settings.local_llm_model
     if model:
@@ -1421,7 +1442,7 @@ async def _local_completion_stream(
             max_tokens=max_tokens,
             stream=True,
             model_override=plan_model,
-            think=True,
+            reasoning_effort="medium",
         )
         # read=120s is the inter-chunk idle timeout: if the server stops sending any
         # SSE data for 120 seconds we abort.  During normal streaming, Ollama emits

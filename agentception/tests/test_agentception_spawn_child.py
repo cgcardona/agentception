@@ -69,17 +69,17 @@ def test_make_run_id_pr_prefix() -> None:
 
 def test_make_branch_label() -> None:
     branch = _make_branch("label", "ac-workflow")
-    assert branch.startswith("ac/coord-ac-workflow-")
+    assert branch.startswith("agent/coord-ac-workflow-")
 
 
 def test_make_branch_issue() -> None:
     branch = _make_branch("issue", "42")
-    assert branch == "ac/issue-42"
+    assert branch == "agent/issue-42"
 
 
 def test_make_branch_pr() -> None:
     branch = _make_branch("pr", "112")
-    assert branch.startswith("ac/review-112-")
+    assert branch.startswith("agent/review-112-")
 
 
 

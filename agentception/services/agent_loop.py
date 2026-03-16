@@ -62,6 +62,7 @@ from agentception.services.llm import (
     completion_with_tools,
 )
 from agentception.services.code_indexer import SearchMatch, search_codebase
+from agentception.services.role_loader import load_role_file
 from agentception.types import JsonSchemaObj, JsonValue
 from agentception.services.github_mcp_client import GitHubMCPClient
 from agentception.tools.definitions import (
@@ -595,7 +596,19 @@ async def _run_agent_loop_inner(
         _gh_repo_raw = task.gh_repo or settings.gh_repo
         _gh_repo = str(_gh_repo_raw) if isinstance(_gh_repo_raw, str) else ""
         _owner, _, _repo_name = _gh_repo.partition("/")
-        _pr_branch = task.branch or f"feat/issue-{issue_number}"
+        # task.branch is set to the PR branch by both dispatch_agent (reviewer
+        # path) and _dispatch_label_reviewer.  The fallback is a last resort
+        # that produces a warning so misconfigured dispatches are visible.
+        _pr_branch = task.branch or ""
+        if not _pr_branch:
+            _pr_branch = f"agent/issue-{issue_number}"
+            logger.warning(
+                "⚠️ reviewer_warmup: task.branch not set for run_id=%s — "
+                "falling back to %r.  Dispatch the reviewer via the org chart "
+                "or auto_dispatch_reviewer so pr_branch is always propagated.",
+                run_id,
+                _pr_branch,
+            )
         await _run_reviewer_warmup(
             worktree_path=worktree_path,
             pr_branch=_pr_branch,
@@ -1248,44 +1261,14 @@ async def _load_task_from_db(run_id: str) -> AgentTaskSpec | None:
 def _load_role_prompt(role: str | None, variant: str | None = None) -> str:
     """Return the Markdown content of the role file for *role*.
 
-    When *variant* is provided and non-empty, the function first looks for a
-    variant-specific file ``{role}-{variant}.md`` and returns its content if
-    found.  If the variant file does not exist, it falls back to the base
-    ``{role}.md`` file — the same behaviour as when *variant* is ``None``.
-
-    Falls back to an empty string when the role is unknown or the file is
-    missing, so the agent still has the system prompt's runtime note.
+    Delegates to :func:`~agentception.services.role_loader.load_role_file` so
+    that the variant and role-family fallback logic lives in one place.
     """
     if not role:
         logger.warning("⚠️ _load_role_prompt — no role specified")
         return ""
-
     roles_dir = settings.repo_dir / ".agentception" / "roles"
-
-    # Try the variant file first when a variant is requested.
-    if variant:
-        candidate = roles_dir / f"{role}-{variant}.md"
-        if candidate.exists():
-            logger.info("Loading role file: %s (variant=%s)", candidate, variant)
-            try:
-                return candidate.read_text(encoding="utf-8")
-            except OSError as exc:
-                logger.warning(
-                    "⚠️ _load_role_prompt — OS error reading %s: %s", candidate, exc
-                )
-                # Fall through to the base file.
-
-    # Base (default) role file.
-    role_path = roles_dir / f"{role}.md"
-    logger.info("Loading role file: %s (variant=%s)", role_path, variant)
-    try:
-        return role_path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        logger.warning("⚠️ _load_role_prompt — role file not found: %s", role_path)
-        return ""
-    except OSError as exc:
-        logger.warning("⚠️ _load_role_prompt — OS error reading %s: %s", role_path, exc)
-        return ""
+    return load_role_file(role, roles_dir, variant=variant)
 
 
 # ---------------------------------------------------------------------------
@@ -1308,7 +1291,7 @@ You are running **inside the AgentCeption Docker container**, not on the host ma
   you modified.  Full directory scans spawn a subprocess that cold-loads the entire project
   type graph (~1-2 GB extra RSS) on top of the loaded ONNX model weights and crash the container.
 - The repository is mounted at `/app`.  Your worktree path is provided in your
-  initial message.  Read `ac://runs/{run_id}/context` for your full task context.
+  initial message.
 - Git operations run in the worktree directory.
 - Use `run_command` for shell execution.  Use `read_file` / `write_file` for files.
 - Use GitHub MCP tools (`get_issue`, `list_issues`, `add_issue_comment`,
@@ -1544,24 +1527,16 @@ def _build_tool_definitions(
 _RECON_SYSTEM_ADDENDUM = """
 ---
 
-## RECON MODE — output a JSON exploration plan ONLY
+## Planning pass — JSON only
 
-Before any implementation, emit exactly ONE JSON object:
+You are not in a tool loop. Tools cannot be called here.
+Respond with exactly one JSON object — no prose, no other fences:
 
 ```json
-{
-  "files": ["<relative paths of files most likely to need editing or serve as patterns — max 8>"],
-  "searches": ["<natural language queries for search_codebase — focus on patterns/helpers to copy — max 5>"],
-  "plan": "<one sentence: your implementation approach>"
-}
+{"files": ["path/to/file.py"], "searches": ["semantic query"], "plan": "one sentence"}
 ```
 
-Rules:
-- Output ONLY the JSON object, nothing else.
-- Do not implement anything yet.
-- Maximum 8 files and 5 searches.
-- Prefer files you know you will edit over files you are merely curious about.
-- Note: files explicitly mentioned in the issue body are pre-loaded automatically — do not repeat them unless you need additional context beyond what is already injected.
+`files` ≤ 8, `searches` ≤ 5. Files named in the issue are pre-loaded — omit them.
 """
 
 # Matches relative file paths that appear verbatim in issue text.
@@ -1632,10 +1607,20 @@ def _parse_recon_json(raw: str) -> _ReconPlan | None:
         return None
     try:
         data: JsonValue = json.loads(text[start:end])
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
+        logger.warning(
+            "⚠️ recon parse: JSONDecodeError at pos %d — %s — extracted=%r",
+            exc.pos,
+            exc.msg,
+            text[start:end][:300],
+        )
         return None
 
     if not isinstance(data, dict):
+        logger.warning(
+            "⚠️ recon parse: parsed value is not a dict (%s)",
+            type(data).__name__,
+        )
         return None
 
     files_raw = data.get("files", [])
@@ -1653,9 +1638,6 @@ def _parse_recon_json(raw: str) -> _ReconPlan | None:
         else []
     )
     plan_str = str(plan_raw) if isinstance(plan_raw, str) else ""
-
-    if not files and not searches:
-        return None
 
     return _ReconPlan(files=files, searches=searches, plan=plan_str)
 
@@ -1894,7 +1876,11 @@ async def _run_recon_phase(
             raw_plan = await completion(
                 task_text,
                 system_prompt=system_prompt + _RECON_SYSTEM_ADDENDUM,
-                max_tokens=500,
+                # 2000 tokens gives Qwen3-family models enough headroom for
+                # extended chain-of-thought before emitting the JSON object.
+                # 500 was exhausted entirely by thinking, leaving no budget
+                # for the actual output and causing parse failures.
+                max_tokens=2000,
                 temperature=0.0,
             )
         except Exception as exc:  # noqa: BLE001
@@ -1903,7 +1889,10 @@ async def _run_recon_phase(
 
         parsed = _parse_recon_json(raw_plan)
         if parsed is None:
-            logger.warning("⚠️ recon phase: could not parse plan from LLM response")
+            logger.warning(
+                "⚠️ recon phase: could not parse plan from LLM response — raw=%r",
+                raw_plan[:2000] if raw_plan else "<empty>",
+            )
             return
         plan = parsed
 

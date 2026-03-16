@@ -47,7 +47,7 @@ def _make_run(
         task_description=None,
         issue_number=issue_number,
         pr_number=None,
-        branch=f"feat/issue-{issue_number}",
+        branch=f"agent/issue-{issue_number}",
         worktree_path=worktree_path,
         batch_id=batch_id,
         tier="worker",

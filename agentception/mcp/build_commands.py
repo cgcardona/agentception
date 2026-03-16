@@ -91,6 +91,24 @@ async def _rebase_and_push_worktree(
     )
     await proc.communicate()
 
+    # Stash any uncommitted changes before rebasing.  Automated steps
+    # (generate.py, indexers) can leave modified files in the worktree even
+    # after the agent commits; git rebase refuses to start when the working
+    # tree is dirty and the rebase commit touches the same files.
+    stash_proc = await asyncio.create_subprocess_exec(
+        "git", "stash", "--include-untracked",
+        cwd=wt_path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stash_stdout, _ = await stash_proc.communicate()
+    stashed = b"No local changes" not in stash_stdout
+    if stashed:
+        logger.info(
+            "ℹ️  _rebase_and_push_worktree: stashed dirty working tree before rebase for run_id=%r",
+            agent_run_id,
+        )
+
     proc = await asyncio.create_subprocess_exec(
         "git", "rebase", base,
         cwd=wt_path,
@@ -107,6 +125,14 @@ async def _rebase_and_push_worktree(
             stderr=asyncio.subprocess.PIPE,
         )
         await abort_proc.communicate()
+        if stashed:
+            pop_proc = await asyncio.create_subprocess_exec(
+                "git", "stash", "pop",
+                cwd=wt_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await pop_proc.communicate()
         logger.error(
             "❌ _rebase_and_push_worktree: rebase onto %s failed for run_id=%r — %s",
             base,
@@ -121,6 +147,21 @@ async def _rebase_and_push_worktree(
                 "Resolve the conflicts manually and call build_complete_run again."
             ),
         }
+
+    if stashed:
+        pop_proc = await asyncio.create_subprocess_exec(
+            "git", "stash", "pop",
+            cwd=wt_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        pop_stdout, pop_stderr = await pop_proc.communicate()
+        if pop_proc.returncode != 0:
+            logger.warning(
+                "⚠️  _rebase_and_push_worktree: stash pop after rebase failed for run_id=%r — %s",
+                agent_run_id,
+                pop_stderr.decode(errors="replace").strip(),
+            )
 
     branch_proc = await asyncio.create_subprocess_exec(
         "git", "rev-parse", "--abbrev-ref", "HEAD",
@@ -494,8 +535,14 @@ async def build_complete_run(
         # the conventional path worktrees_dir/run_id so we still attempt release —
         # otherwise the reviewer dispatch fails with "branch already used by worktree".
         worktree_released = True
+        # Capture the actual branch name so the reviewer can fetch the right
+        # remote ref.  Org-chart-dispatched runs use agent/{slug}-{hex} branches
+        # (not feat/issue-{N}), so we must read it from the DB rather than
+        # falling back to the convention.
+        impl_pr_branch: str | None = None
         if agent_run_id:
             teardown_info = await get_agent_run_teardown(agent_run_id)
+            impl_pr_branch = teardown_info.get("branch") if teardown_info else None
             wt_path = (
                 (teardown_info.get("worktree_path") if teardown_info else None)
                 or str(Path(settings.worktrees_dir) / agent_run_id)
@@ -533,7 +580,11 @@ async def build_complete_run(
 
         if worktree_released:
             asyncio.create_task(
-                auto_dispatch_reviewer(issue_number=issue_number, pr_url=pr_url),
+                auto_dispatch_reviewer(
+                    issue_number=issue_number,
+                    pr_url=pr_url,
+                    pr_branch=impl_pr_branch,
+                ),
                 name=f"auto-reviewer-{issue_number}",
             )
 

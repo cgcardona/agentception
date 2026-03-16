@@ -9,7 +9,7 @@
 ## 1. Why it makes sense
 
 - **Today:** Each dispatched agent gets a worktree branched from `origin/dev`. When the agent completes, its PR is merged into `dev`. So `dev` accumulates one merge per issue. If plan has 10 issues, `dev` gets 10 merges over time. Any other agent that forks from `dev` in between can see a partially updated codebase (e.g. phase 0 done, phase 1 not) or a broken intermediate state (e.g. phase 0 merged but introduced a bug that phase 1 would fix).
-- **Proposed:** One **plan-scoped branch** (e.g. `feat/plan-{id}-{slug}`) is created from `dev` when the plan is approved. Every issue in that plan:
+- **Proposed:** One **plan-scoped branch** (e.g. `agent/plan-{id}-{slug}`) is created from `dev` when the plan is approved. Every issue in that plan:
   - Uses that plan branch as the **base** for its worktree (not `dev`).
   - Opens a PR **into the plan branch** (not into `dev`).
   - When the PR is merged, it lands on the plan branch. `dev` is untouched.
@@ -29,19 +29,19 @@ Benefits:
 ```
 Plan approved
     │
-    ├─ Create branch: feat/plan-{plan_id}-{slug} from origin/dev
-    │  (e.g. feat/plan-readme-section or feat/plan-42-add-auth)
+    ├─ Create branch: agent/plan-{plan_id}-{slug} from origin/dev
+    │  (e.g. agent/plan-readme-section or agent/plan-42-add-auth)
     │
     ▼
 For each issue in the plan:
-    ├─ worktree base = origin/feat/plan-{plan_id}-{slug}   (not origin/dev)
-    ├─ branch = feat/issue-{N}  (or feat/plan-{plan_id}-issue-{N})
-    ├─ Agent works, opens PR: head feat/issue-{N} → base feat/plan-{plan_id}-{slug}
+    ├─ worktree base = origin/agent/plan-{plan_id}-{slug}   (not origin/dev)
+    ├─ branch = agent/issue-{N}  (or feat/plan-{plan_id}-issue-{N})
+    ├─ Agent works, opens PR: head agent/issue-{N} → base agent/plan-{plan_id}-{slug}
     └─ Merge PR → lands on plan branch (dev unchanged)
     │
     ▼
 When plan is “complete” (all issues merged into plan branch):
-    └─ One PR: head feat/plan-{plan_id}-{slug} → base dev
+    └─ One PR: head agent/plan-{plan_id}-{slug} → base dev
        Merge → dev now has the full plan in one commit (or squash).
 ```
 
@@ -59,7 +59,7 @@ So:
 |----------|--------|
 | **When is the plan branch created?** | When the plan is approved in the Build UI; or when the first issue in the plan is dispatched. Creating at approval keeps a single place to “create plan branch” before any work starts. |
 | **How do we know which issues belong to a plan?** | Plan has a stable ID (e.g. from Phase 1A YAML or from the batch/label that launched the plan). Store plan_id on the run or derive from label (e.g. `readme-rules-section/0-readme` → plan = initiative or phase). Need a consistent way to group “all issues that are part of this plan.” |
-| **Naming the plan branch** | `feat/plan-{plan_id}-{slug}` or `integration/{initiative}` or `feat/{initiative}-{short_id}`. Should be unique and recognizable. |
+| **Naming the plan branch** | `agent/plan-{plan_id}-{slug}` or `agent/{initiative}` or `agent/{initiative}-{short_id}`. Should be unique and recognizable. |
 | **Final merge into dev** | (a) Automatic when “plan complete” is detected (e.g. all issues merged into plan branch); (b) Manual (human opens PR plan → dev and merges); (c) Optional “Complete plan” button in UI that opens the PR and/or merges. |
 | **What if the plan is cancelled or partially abandoned?** | Plan branch can stay open (and never be merged into dev), or be deleted. Policy: don’t delete if there are merged PRs into it that we might want to cherry-pick; otherwise safe to delete. |
 | **Interaction with reviewers** | Reviewer today branches from the **implementer’s branch** and opens PR implementer → dev. With plan branch: implementer’s PR goes to plan branch. Reviewer could still branch from implementer’s branch and open PR into plan branch (so reviewer PR: implementer → plan). Flow stays the same; only the target branch changes. |
@@ -69,7 +69,7 @@ So:
 
 ## 4. Where it plugs in
 
-- **Dispatch:** When creating the worktree, `worktree_base` is today always `origin/dev` (or the reviewer’s branch). It would become `origin/feat/plan-{id}-{slug}` when the dispatch is for an issue that belongs to a plan that has a plan branch. So we need:
+- **Dispatch:** When creating the worktree, `worktree_base` is today always `origin/dev` (or the reviewer’s branch). It would become `origin/agent/plan-{id}-{slug}` when the dispatch is for an issue that belongs to a plan that has a plan branch. So we need:
   - A way to know “this dispatch is for issue X which is part of plan P.”
   - A way to get “plan P’s branch name” and ensure it exists (create from dev if first use).
 - **PR creation:** Today the agent (or MCP) opens a PR with base `dev`. It would need to use the plan branch as base when the run is plan-scoped.
@@ -90,7 +90,7 @@ So:
 The idea is sound and aligns with “dev is always stable; feature work is isolated.” Next steps could be:
 
 1. **Define “plan” in the system** — e.g. plan_id = initiative label or a new ID assigned when the user approves the Phase 1A YAML. Ensure every dispatched issue can be associated with a plan (or “no plan” for one-off dispatches).
-2. **Add plan branch creation** — When a plan is approved (or first issue dispatched), create `feat/plan-{id}-{slug}` from `origin/dev` and push it. Store plan_branch in config or DB.
+2. **Add plan branch creation** — When a plan is approved (or first issue dispatched), create `agent/plan-{id}-{slug}` from `origin/dev` and push it. Store plan_branch in config or DB.
 3. **Make worktree base and PR base configurable per run** — From dispatch params or from run’s plan_id, set `worktree_base` and PR base to the plan branch when present; otherwise keep current behavior (origin/dev).
 4. **Implement “plan complete”** — When all issues in the plan have merged PRs into the plan branch, offer “Merge plan into dev” (open PR or merge), with rebase of plan branch onto dev first if desired.
 
