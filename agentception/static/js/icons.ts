@@ -159,6 +159,12 @@ export const checkmark = s('<polyline points="2,7 5.5,10.5 12,4"/>');
 /** Chevron right — expand affordance for tool call rows */
 export const chevronRight = s('<polyline points="5,2 10,7 5,12"/>');
 
+/** Folder — directory listing result */
+export const folder = s(
+  '<path d="M1 3h5l2 2h5a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H1' +
+  'a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/>',
+);
+
 /** Speech bubble — message */
 export const speech = s(
   '<path d="M1 2h12a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H9l-2 2-2-2H1' +

@@ -59,6 +59,7 @@ ACTIVITY_SUBTYPES: frozenset[str] = frozenset(
         "file_written",
         "git_push",
         "github_tool",
+        "dir_listed",
         "delay",
         "error",
     }
@@ -160,6 +161,20 @@ class FileReadPayload(TypedDict):
     content_preview: NotRequired[str]
 
 
+class DirListedPayload(TypedDict):
+    """Payload for ``dir_listed`` activity events.
+
+    Emitted after a successful ``list_directory`` tool call.
+    ``entries`` is a newline-delimited string of file/directory names;
+    directories carry a trailing ``/``.  ``entry_count`` is a convenience
+    field for the summary row so the frontend need not split to count.
+    """
+
+    path: str
+    entry_count: int
+    entries: str  # newline-delimited; split on "\n" to get individual names
+
+
 class FileReplacedPayload(TypedDict):
     """Payload for ``file_replaced`` activity events.
 
@@ -248,6 +263,7 @@ SUBTYPE_TYPEDDICT_NAMES: dict[str, str] = {
     "file_written": "FileWrittenPayload",
     "git_push": "GitPushPayload",
     "github_tool": "GithubToolPayload",
+    "dir_listed": "DirListedPayload",
     "delay": "DelayPayload",
     "error": "ErrorPayload",
 }

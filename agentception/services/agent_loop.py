@@ -2626,7 +2626,26 @@ async def _dispatch_local_tool(
         if not _is_safe_read_path(list_path, worktree_path):
             logger.warning("⚠️ path_sandbox: list_directory blocked — %s", list_path)
             return {"ok": False, "error": f"list_directory: path '{list_path}' is outside the allowed scope."}
-        return list_directory(list_path)
+        result = list_directory(list_path)
+        if result.get("ok") and session is not None and run_id is not None:
+            raw_entries = result.get("entries")
+            str_entries: list[str] = (
+                [e for e in raw_entries if isinstance(e, str)]
+                if isinstance(raw_entries, list)
+                else []
+            )
+            path_str = (
+                str(list_path.relative_to(worktree_path))
+                if list_path.is_relative_to(worktree_path)
+                else str(list_path)
+            )
+            persist_activity_event(session, run_id, "dir_listed", {
+                "path": path_str,
+                "entry_count": len(str_entries),
+                "entries": "\n".join(str_entries),
+            })
+            await session.flush()
+        return result
 
     if name == "search_text":
         pattern_raw = args.get("pattern")

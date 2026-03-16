@@ -24,7 +24,7 @@ import {
 } from './format_utils';
 
 /** Subtypes that support click-to-expand detail panel. */
-const EXPANDABLE_SUBTYPES = new Set(['tool_invoked', 'github_tool', 'file_read']);
+const EXPANDABLE_SUBTYPES = new Set(['tool_invoked', 'github_tool', 'file_read', 'dir_listed']);
 import { getCurrentAppendTarget, getCurrentStepHeader, resetStepContext } from './step_context';
 
 /** SSE activity message shape from the inspector stream. */
@@ -114,6 +114,10 @@ export function formatActivitySummary(subtype: string, payload: Record<string, u
       return shortenPath(str(p, 'path'));
     case 'file_written':
       return `${shortenPath(str(p, 'path'))}  ·  ${fmtBytes(num(p, 'byte_count'))}`;
+    case 'dir_listed': {
+      const count = num(p, 'entry_count');
+      return `${count} ${count === 1 ? 'entry' : 'entries'}`;
+    }
     case 'git_push':
       return str(p, 'branch') || 'push';
     case 'llm_iter':
@@ -168,6 +172,8 @@ export function getSubtypeIcon(subtype: string): string {
     case 'shell_start':
     case 'shell_done':
       return icons.terminal;
+    case 'dir_listed':
+      return icons.folder;
     case 'git_push':
       return icons.gitPush;
     case 'delay':
@@ -354,6 +360,36 @@ function buildFileReadDetail(payload: Record<string, unknown>): HTMLElement {
 }
 
 /**
+ * Build the expandable detail panel for a dir_listed row.
+ * Renders the entries list as a compact preformatted block, one entry per line.
+ * Directories show a trailing /, files are plain names.
+ */
+function buildDirListedDetail(payload: Record<string, unknown>): HTMLElement {
+  const panel = document.createElement('div');
+  panel.className = 'af__tool-detail af__tool-detail--dir-listed';
+  panel.setAttribute('hidden', '');
+
+  const rawEntries = payload['entries'];
+  const entries: string[] = typeof rawEntries === 'string' && rawEntries.length > 0
+    ? rawEntries.split('\n').filter(e => e.length > 0)
+    : [];
+
+  if (entries.length > 0) {
+    const pre = document.createElement('pre');
+    pre.className = 'af__content-preview';
+    pre.textContent = entries.join('\n');
+    panel.appendChild(pre);
+  } else {
+    const note = document.createElement('span');
+    note.className = 'af__detail-val';
+    note.textContent = '(empty directory)';
+    panel.appendChild(note);
+  }
+
+  return panel;
+}
+
+/**
  * Insert a sticky model-info row at the top of the feed on the first llm_iter event.
  * Subsequent llm_iter events are ignored — the model is constant for a run.
  */
@@ -460,7 +496,9 @@ export function appendActivityRow(msg: ActivityMessage): void {
 
     detailPanel = msg.subtype === 'file_read'
       ? buildFileReadDetail(msg.payload)
-      : buildToolDetail(msg.payload);
+      : msg.subtype === 'dir_listed'
+        ? buildDirListedDetail(msg.payload)
+        : buildToolDetail(msg.payload);
 
     const toggle = (): void => {
       const isOpen = row.getAttribute('aria-expanded') === 'true';
