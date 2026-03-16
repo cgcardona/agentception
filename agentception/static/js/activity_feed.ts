@@ -457,6 +457,48 @@ function injectDirListedIntoPanel(
 }
 
 /**
+ * Append search result file paths into an existing tool-detail panel.
+ *
+ * search_results is not a standalone row — it is a child of the search
+ * tool_invoked row that preceded it.  Finds the most recently rendered
+ * search detail panel (data-search-target) within the container and injects
+ * a 'files' key row followed by a pre listing the matched file paths.
+ */
+function injectSearchResultsIntoPanel(
+  container: HTMLElement,
+  payload: Record<string, unknown>,
+): void {
+  const panels = container.querySelectorAll<HTMLElement>('[data-search-target]');
+  const panel = panels.length > 0 ? panels[panels.length - 1] : null;
+  if (panel === null) return;
+
+  const rawFiles = payload['files'];
+  const files: string[] = typeof rawFiles === 'string' && rawFiles.length > 0
+    ? rawFiles.split('\n').filter(f => f.length > 0)
+    : [];
+
+  const filesLine = document.createElement('div');
+  filesLine.className = 'af__detail-line';
+  const k = document.createElement('span');
+  k.className = 'af__detail-key';
+  k.textContent = 'files';
+  filesLine.appendChild(k);
+  panel.appendChild(filesLine);
+
+  if (files.length > 0) {
+    const pre = document.createElement('pre');
+    pre.className = 'af__content-preview';
+    pre.textContent = files.join('\n');
+    panel.appendChild(pre);
+  } else {
+    const note = document.createElement('span');
+    note.className = 'af__detail-val';
+    note.textContent = '(no matches)';
+    filesLine.appendChild(note);
+  }
+}
+
+/**
  * Insert a sticky model-info row at the top of the feed on the first llm_iter event.
  * Subsequent llm_iter events are ignored — the model is constant for a run.
  */
@@ -494,6 +536,13 @@ export function appendActivityRow(msg: ActivityMessage): void {
   if (msg.subtype === 'dir_listed') {
     const target = getCurrentAppendTarget(feed);
     injectDirListedIntoPanel(target, msg.payload);
+    return;
+  }
+
+  // search_results: inject matched file list into the preceding search detail panel.
+  if (msg.subtype === 'search_results') {
+    const target = getCurrentAppendTarget(feed);
+    injectSearchResultsIntoPanel(target, msg.payload);
     return;
   }
 
@@ -575,6 +624,11 @@ export function appendActivityRow(msg: ActivityMessage): void {
     // Tag list_directory panels so dir_listed can inject entries into them.
     if (str(msg.payload, 'tool_name') === 'list_directory') {
       detailPanel.setAttribute('data-list-dir-target', '');
+    }
+    // Tag search panels so search_results can inject file matches into them.
+    const toolN = str(msg.payload, 'tool_name');
+    if (toolN === 'search_codebase' || toolN === 'search_text') {
+      detailPanel.setAttribute('data-search-target', '');
     }
 
     const toggle = (): void => {

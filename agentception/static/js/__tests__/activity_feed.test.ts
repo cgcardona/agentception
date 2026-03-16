@@ -623,6 +623,79 @@ describe('appendActivityRow', () => {
       });
     });
 
+    describe('search_results nested inside search row', () => {
+      it('search_results does NOT create a standalone row', () => {
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'tool_invoked',
+          payload: {
+            tool_name: 'search_codebase',
+            arg_preview: "{'query': 'auth flow', 'n_results': 5}",
+          },
+          recorded_at: '',
+        });
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'search_results',
+          payload: { result_count: 2, files: 'src/auth.ts\nsrc/login.ts' },
+          recorded_at: '',
+        });
+        expect(document.querySelectorAll('.activity-feed__row').length).toBe(1);
+      });
+
+      it('search_results injects file list into the search detail panel', () => {
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'tool_invoked',
+          payload: {
+            tool_name: 'search_codebase',
+            arg_preview: "{'query': 'auth flow', 'n_results': 5}",
+          },
+          recorded_at: '',
+        });
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'search_results',
+          payload: { result_count: 2, files: 'src/auth.ts\nsrc/login.ts' },
+          recorded_at: '',
+        });
+        const row = document.querySelector<HTMLElement>('.activity-feed__row');
+        row?.click();
+        const detail = document.querySelector('[data-search-target]');
+        const pre = detail?.querySelector('.af__content-preview');
+        expect(pre?.textContent).toBe('src/auth.ts\nsrc/login.ts');
+      });
+
+      it('search_results with no matches shows "(no matches)"', () => {
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'tool_invoked',
+          payload: { tool_name: 'search_text', arg_preview: "{'pattern': 'foo'}" },
+          recorded_at: '',
+        });
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'search_results',
+          payload: { result_count: 0, files: '' },
+          recorded_at: '',
+        });
+        const row = document.querySelector<HTMLElement>('.activity-feed__row');
+        row?.click();
+        const detail = document.querySelector('[data-search-target]');
+        expect(detail?.textContent).toContain('no matches');
+      });
+
+      it('search_results with no preceding search is silently dropped', () => {
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'search_results',
+          payload: { result_count: 1, files: 'src/foo.ts' },
+          recorded_at: '',
+        });
+        expect(document.querySelector('.activity-feed__row')).toBeNull();
+      });
+    });
+
     describe('tool_invoked diff display', () => {
       it('renders find/replace diff blocks for old_string and new_string', () => {
         appendActivityRow({

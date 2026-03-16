@@ -2657,7 +2657,30 @@ async def _dispatch_local_tool(
             return {"ok": False, "error": f"search_text: directory '{directory}' is outside the allowed scope."}
         n_results_raw = args.get("n_results", 30)
         n_results = int(n_results_raw) if isinstance(n_results_raw, int) else 30
-        return await search_text(pattern_raw, directory, n_results=n_results)
+        result = await search_text(pattern_raw, directory, n_results=n_results)
+        if result.get("ok") and session is not None and run_id is not None:
+            raw_matches = result.get("matches")
+            # rg --heading output: non-digit lines are file paths; digit:content lines are matches.
+            files: list[str] = []
+            if isinstance(raw_matches, str):
+                seen: set[str] = set()
+                for line in raw_matches.splitlines():
+                    stripped = line.strip()
+                    if stripped and not stripped[0].isdigit() and ":" not in stripped[:6]:
+                        # Shorten to worktree-relative path when possible.
+                        try:
+                            rel = str(Path(stripped).relative_to(worktree_path))
+                        except ValueError:
+                            rel = stripped
+                        if rel not in seen:
+                            seen.add(rel)
+                            files.append(rel)
+            persist_activity_event(session, run_id, "search_results", {
+                "result_count": len(files),
+                "files": "\n".join(files),
+            })
+            await session.flush()
+        return result
 
     if name == "run_command":
         command_raw = args.get("command")
@@ -2712,6 +2735,24 @@ async def _dispatch_local_tool(
         collection_raw = args.get("collection")
         collection_arg: str | None = collection_raw if isinstance(collection_raw, str) else None
         matches = await search_codebase(query_raw, n_results, collection=collection_arg)
+        if session is not None and run_id is not None:
+            seen_files: set[str] = set()
+            unique_files: list[str] = []
+            for m in matches:
+                f = m.get("file", "")
+                file_str = f if isinstance(f, str) else str(f)
+                try:
+                    rel = str(Path(file_str).relative_to(worktree_path))
+                except ValueError:
+                    rel = file_str
+                if rel not in seen_files:
+                    seen_files.add(rel)
+                    unique_files.append(rel)
+            persist_activity_event(session, run_id, "search_results", {
+                "result_count": len(unique_files),
+                "files": "\n".join(unique_files),
+            })
+            await session.flush()
         return {
             "ok": True,
             "matches": [
