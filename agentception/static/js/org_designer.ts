@@ -94,9 +94,11 @@ interface OrgNode {
   role: string;
   figure: string;
   /** Scope for this node's dispatch target. */
-  scope: 'full_initiative' | 'phase';
+  scope: 'full_initiative' | 'phase' | 'issue';
   /** Phase sub-label when scope === 'phase'. */
   scopeLabel: string;
+  /** GitHub issue number when scope === 'issue'. */
+  scopeIssueNumber: number | null;
   /** Set to true after a successful dispatch. */
   launched: boolean;
   /** run_id from a successful dispatch response. */
@@ -109,8 +111,9 @@ interface OrgNodePayload {
   id: string;
   role: string;
   figure: string;
-  scope: 'full_initiative' | 'phase';
+  scope: 'full_initiative' | 'phase' | 'issue';
   scope_label: string;
+  scope_issue_number: number | null;
   children: OrgNodePayload[];
 }
 
@@ -441,7 +444,7 @@ function roleLabel(slug: string): string {
 let _nodeCounter = 0;
 
 function makeNode(role = '', figure = ''): OrgNode {
-  return { id: `n${++_nodeCounter}`, role, figure, scope: 'full_initiative', scopeLabel: '', launched: false, runId: '', children: [] };
+  return { id: `n${++_nodeCounter}`, role, figure, scope: 'full_initiative', scopeLabel: '', scopeIssueNumber: null, launched: false, runId: '', children: [] };
 }
 
 function findNode(node: OrgNode, id: string): OrgNode | null {
@@ -465,12 +468,13 @@ function countNodes(node: OrgNode): number {
 /** Serialise a node for the backend (snake_case keys, no UI-only fields). */
 function serializeNode(node: OrgNode): OrgNodePayload {
   return {
-    id:          node.id,
-    role:        node.role,
-    figure:      node.figure,
-    scope:       node.scope,
-    scope_label: node.scopeLabel,
-    children:    node.children.map(serializeNode),
+    id:                node.id,
+    role:              node.role,
+    figure:            node.figure,
+    scope:             node.scope,
+    scope_label:       node.scopeLabel,
+    scope_issue_number: node.scopeIssueNumber,
+    children:          node.children.map(serializeNode),
   };
 }
 
@@ -481,13 +485,14 @@ function restoreNode(raw: Partial<OrgNode>): OrgNode {
   if (!isNaN(num) && num >= _nodeCounter) _nodeCounter = num + 1;
   return {
     id,
-    role:       raw.role ?? '',
-    figure:     raw.figure ?? '',
-    scope:      raw.scope ?? 'full_initiative',
-    scopeLabel: raw.scopeLabel ?? '',
-    launched:   false,   // always reset on restore — dispatches don't survive refresh
-    runId:      '',
-    children:   (raw.children ?? []).map(c => restoreNode(c as Partial<OrgNode>)),
+    role:             raw.role ?? '',
+    figure:           raw.figure ?? '',
+    scope:            raw.scope ?? 'full_initiative',
+    scopeLabel:       raw.scopeLabel ?? '',
+    scopeIssueNumber: raw.scopeIssueNumber ?? null,
+    launched:         false,   // always reset on restore — dispatches don't survive refresh
+    runId:            '',
+    children:         (raw.children ?? []).map(c => restoreNode(c as Partial<OrgNode>)),
   };
 }
 
@@ -926,8 +931,9 @@ interface OrgDesignerComponent {
   editParentRole: string | null;
   editRole: string;
   editFigure: string;
-  editScope: 'full_initiative' | 'phase';
+  editScope: 'full_initiative' | 'phase' | 'issue';
   editScopeLabel: string;
+  editScopeIssueNumber: number | null;
   phases: PhaseItem[];
 
   // ── Submission
@@ -965,6 +971,8 @@ interface OrgDesignerComponent {
   readonly activePresetName: string;
   readonly activePresetIsBuiltIn: boolean;
   readonly groupedBuiltIns: Array<{ group: string; label: string; presets: ApiPresetSummary[] }>;
+  /** True when the selected node is the root (scope picker only meaningful there). */
+  readonly isRootSelected: boolean;
 
   // ── Methods
   openDesigner(label: string, repo: string, figures: FigureItem[]): void;
@@ -1025,11 +1033,12 @@ export function orgDesigner(): OrgDesignerComponent {
     selectedNodeId: null,
     editType:       'coordinator',
     editParentRole: null,
-    editRole:       '',
-    editFigure:     '',
-    editScope:      'full_initiative',
-    editScopeLabel: '',
-    phases:         [],
+    editRole:             '',
+    editFigure:           '',
+    editScope:            'full_initiative',
+    editScopeLabel:       '',
+    editScopeIssueNumber: null,
+    phases:               [],
 
     // ── Submission state ──────────────────────────────────────────────────────
     launching:    false,
@@ -1109,8 +1118,14 @@ export function orgDesigner(): OrgDesignerComponent {
     get loneWorkerWarning(): string {
       if (!this._root || !this._root.role) return '';
       if (isCoordinator(this._root.role)) return '';
+      // When scoped to a specific issue the user has made an explicit choice — no warning.
+      if (this._root.scope === 'issue') return '';
       if (this._root.scope !== 'full_initiative') return '';
-      return `⚠️ "${roleLabel(this._root.role)}" is a worker, not a coordinator. Workers don't pick up tickets automatically. Add a coordinator (e.g. CTO) as the root, or change scope to a specific issue.`;
+      return `⚠️ "${roleLabel(this._root.role)}" is a worker, not a coordinator. Workers don't pick up tickets automatically. Add a coordinator (e.g. CTO) as the root, or set scope to "Specific Issue".`;
+    },
+
+    get isRootSelected(): boolean {
+      return !!(this._root && this.selectedNodeId === this._root.id);
     },
 
     get activePresetName(): string {
@@ -1362,13 +1377,14 @@ export function orgDesigner(): OrgDesignerComponent {
       if (!this._root) return;
       const node = findNode(this._root, id);
       if (!node) return;
-      this.selectedNodeId = id;
-      this.editParentRole = parentRole;
-      this.editType       = type;
-      this.editRole       = node.role;
-      this.editFigure     = node.figure;
-      this.editScope      = node.scope;
-      this.editScopeLabel = node.scopeLabel;
+      this.selectedNodeId       = id;
+      this.editParentRole       = parentRole;
+      this.editType             = type;
+      this.editRole             = node.role;
+      this.editFigure           = node.figure;
+      this.editScope            = node.scope;
+      this.editScopeLabel       = node.scopeLabel;
+      this.editScopeIssueNumber = node.scopeIssueNumber;
     },
 
     onTypeChange(): void {
@@ -1394,10 +1410,11 @@ export function orgDesigner(): OrgDesignerComponent {
       if (!this._root) return;
       const node = findNode(this._root, this.selectedNodeId ?? '');
       if (!node) return;
-      node.role       = this.editRole;
-      node.figure     = this.editFigure;
-      node.scope      = this.editScope;
-      node.scopeLabel = this.editScope === 'phase' ? this.editScopeLabel : '';
+      node.role             = this.editRole;
+      node.figure           = this.editFigure;
+      node.scope            = this.editScope;
+      node.scopeLabel       = this.editScope === 'phase' ? this.editScopeLabel : '';
+      node.scopeIssueNumber = this.editScope === 'issue' ? this.editScopeIssueNumber : null;
       this.selectedNodeId = null;
       this._render();
       this._saveToStorage();
@@ -1468,6 +1485,7 @@ export function orgDesigner(): OrgDesignerComponent {
         label:                   this.initiative,
         scope:                   this._root.scope,
         scope_label:             this._root.scope === 'phase' ? this._root.scopeLabel : undefined,
+        scope_issue_number:      this._root.scope === 'issue' ? this._root.scopeIssueNumber : undefined,
         repo:                    this.repo,
         role:                    this._root.role,
         cognitive_arch_override: this._root.figure || null,

@@ -1858,6 +1858,82 @@ $preset-accents: (
   }
 }
 
+// ── Scope radio (Specific Issue / Full Initiative) ────────────────────────────
+
+.od-scope-radio {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.od-scope-opt {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 0.875rem;
+  border-radius: 8px;
+  border: 1.5px solid $od-border;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+
+  input[type="radio"] { display: none; }
+
+  &:hover { border-color: $od-border-hi; background: $od-surface-hi; }
+
+  &--active {
+    border-color: #7c3aed;
+    background: rgba(124, 58, 237, 0.12);
+    box-shadow: 0 0 0 1px rgba(124, 58, 237, 0.25) inset;
+  }
+
+  &__text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+
+    strong {
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    em {
+      font-style: normal;
+      font-size: 0.64rem;
+      color: rgba(255,255,255,0.38);
+    }
+  }
+}
+
+// ── Issue number input row ────────────────────────────────────────────────────
+
+.od-editor__issue-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.375rem;
+}
+
+.od-editor__input {
+  font-size: 0.78rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: 7px;
+  border: 1.5px solid $od-border;
+  background: rgba(255,255,255,0.04);
+  color: #fff;
+  transition: border-color 0.15s;
+
+  &:focus { outline: none; border-color: #7c3aed; box-shadow: 0 0 0 2px rgba(124,58,237,0.25); }
+  &::placeholder { color: rgba(255,255,255,0.25); }
+
+  &--issue {
+    width: 100%;
+    // Remove spinner arrows — cleaner for a compact control.
+    &::-webkit-inner-spin-button, &::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    -moz-appearance: textfield;
+  }
+}
+
 .od-editor__select {
   font-size: 0.78rem;
   padding: 0.5rem 0.625rem;
