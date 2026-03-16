@@ -24,6 +24,14 @@ describe('attachEventCardHandler', () => {
     expect(card?.querySelector('.event-card__text')?.textContent).toBe('Step 2');
   });
 
+  it('renders step_start icon as SVG', () => {
+    const src = makeSource();
+    attachEventCardHandler(src);
+    dispatch(src, { t: 'event', event_type: 'step_start', payload: { step: 'Step 1' }, recorded_at: '' });
+    const icon = document.querySelector('.event-card__icon');
+    expect(icon?.innerHTML).toContain('<svg');
+  });
+
   it('renders done card with summary text', () => {
     const src = makeSource();
     attachEventCardHandler(src);
@@ -31,13 +39,20 @@ describe('attachEventCardHandler', () => {
     expect(document.querySelector('.event-card__text')?.textContent).toBe('All green');
   });
 
-  it('renders blocker card with correct data-event-type and icon', () => {
+  it('renders done icon as SVG', () => {
+    const src = makeSource();
+    attachEventCardHandler(src);
+    dispatch(src, { t: 'event', event_type: 'done', payload: { summary: 'ok' }, recorded_at: '' });
+    expect(document.querySelector('.event-card__icon')?.innerHTML).toContain('<svg');
+  });
+
+  it('renders blocker card with correct data-event-type and SVG icon', () => {
     const src = makeSource();
     attachEventCardHandler(src);
     dispatch(src, { t: 'event', event_type: 'blocker', payload: { description: 'Missing dep' }, recorded_at: '' });
     const card = document.querySelector('.event-card');
     expect(card?.getAttribute('data-event-type')).toBe('blocker');
-    expect(card?.querySelector('.event-card__icon')?.textContent).toBe('🚧');
+    expect(card?.querySelector('.event-card__icon')?.innerHTML).toContain('<svg');
   });
 
   it('ignores non-event SSE messages', () => {
@@ -54,29 +69,29 @@ describe('attachEventCardHandler', () => {
     expect(document.querySelector('.event-card')).toBeNull();
   });
 
-  it('renders message card with 💬 icon and message text', () => {
+  it('renders message card with SVG icon and message text', () => {
     const src = makeSource();
     attachEventCardHandler(src);
     dispatch(src, { t: 'event', event_type: 'message', payload: { message: 'Branch created' }, recorded_at: '' });
     const card = document.querySelector('.event-card');
     expect(card).not.toBeNull();
     expect(card?.getAttribute('data-event-type')).toBe('message');
-    expect(card?.querySelector('.event-card__icon')?.textContent).toBe('💬');
+    expect(card?.querySelector('.event-card__icon')?.innerHTML).toContain('<svg');
     expect(card?.querySelector('.event-card__text')?.textContent).toBe('Branch created');
   });
 
-  it('renders error card with ❌ icon and error text', () => {
+  it('renders error card with SVG icon and error text', () => {
     const src = makeSource();
     attachEventCardHandler(src);
     dispatch(src, { t: 'event', event_type: 'error', payload: { error: 'Rate limit hit' }, recorded_at: '' });
     const card = document.querySelector('.event-card');
     expect(card).not.toBeNull();
     expect(card?.getAttribute('data-event-type')).toBe('error');
-    expect(card?.querySelector('.event-card__icon')?.textContent).toBe('❌');
+    expect(card?.querySelector('.event-card__icon')?.innerHTML).toContain('<svg');
     expect(card?.querySelector('.event-card__text')?.textContent).toBe('Rate limit hit');
   });
 
-  it('renders decision card with 💡 icon', () => {
+  it('renders decision card with SVG icon and composed text', () => {
     const src = makeSource();
     attachEventCardHandler(src);
     dispatch(src, {
@@ -86,7 +101,7 @@ describe('attachEventCardHandler', () => {
       recorded_at: '',
     });
     const card = document.querySelector('.event-card');
-    expect(card?.querySelector('.event-card__icon')?.textContent).toBe('💡');
+    expect(card?.querySelector('.event-card__icon')?.innerHTML).toContain('<svg');
     expect(card?.querySelector('.event-card__text')?.textContent).toBe('Use TypeScript — type safety');
   });
 });

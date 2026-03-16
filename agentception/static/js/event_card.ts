@@ -3,12 +3,14 @@
  *
  * Handled event_types:
  *   step_start  ▶  agent begins a named step
- *   blocker     🚧  agent is stalled on external dependency
- *   decision    💡  agent made an architectural choice
- *   done        ✅  agent declared work complete
+ *   blocker     ⚠  agent is stalled on external dependency
+ *   decision    ⚡  agent made an architectural choice
+ *   done        ✓  agent declared work complete
  *   message     💬  free-form agent note (log_run_message)
- *   error       ❌  structured MCP error (log_run_error)
+ *   error       ✕  structured MCP error (log_run_error)
  */
+
+import * as icons from './icons';
 
 interface EventSseMessage {
   t: 'event';
@@ -20,12 +22,12 @@ interface EventSseMessage {
 type AnySseMessage = EventSseMessage | { t: string };
 
 const EVENT_ICONS: Record<string, string> = {
-  step_start: '▶',
-  blocker:    '🚧',
-  decision:   '💡',
-  done:       '✅',
-  message:    '💬',
-  error:      '❌',
+  step_start: icons.stepStart,
+  blocker:    icons.blocker,
+  decision:   icons.decision,
+  done:       icons.checkmark,
+  message:    icons.speech,
+  error:      icons.xCircle,
 };
 
 const RENDERABLE = new Set(['step_start', 'blocker', 'decision', 'done', 'message', 'error']);
@@ -63,10 +65,12 @@ export function attachEventCardHandler(source: EventSource): void {
     card.className = 'event-card';
     card.dataset['eventType'] = m.event_type;
 
+    // Icon: hardcoded SVG via innerHTML (safe — EVENT_ICONS contains only static strings)
     const icon = document.createElement('span');
     icon.className = 'event-card__icon';
     icon.setAttribute('aria-hidden', 'true');
-    icon.textContent = EVENT_ICONS[m.event_type] ?? '•';
+    // eslint-disable-next-line no-unsanitized/property
+    icon.innerHTML = EVENT_ICONS[m.event_type] ?? icons.dot;
 
     const text = document.createElement('span');
     text.className = 'event-card__text';

@@ -1,58 +1,121 @@
 // ── Tool call card ────────────────────────────────────────────────────────────
 // Shows tool invocations and their results inline.
-// tool_call:   icon · name · args preview
-// tool_result: result preview appended below, separated by subtle rule
+//
+// Structure:
+//   .tool-call-card
+//     .tool-call-card__header     (flex row: icon + name)
+//       .tool-call-card__icon
+//       .tool-call-card__name
+//     .tool-call-card__args       (optional — formatted key=value pairs)
+//     .tool-call-card__result     (appended on tool_result SSE)
+//
+// Left-border color is driven by [data-tool-category].
 
 .tool-call-card {
   border-left: 3px solid var(--accent-blue, #4dabf7);
   border-radius: 0 var(--radius-xs, 4px) var(--radius-xs, 4px) 0;
-  padding: 0.25rem 0.5rem 0.25rem 0.625rem;
+  padding: 0.3rem 0.5rem 0.3rem 0.625rem;
   display: flex;
-  flex-direction: row;
-  align-items: baseline;
-  gap: 0.4rem;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 0.15rem;
   max-width: 100%;
   overflow-x: hidden;
-  word-break: break-word;
+
+  // Category-driven border colors
+  &[data-tool-category="search"]     { border-left-color: #4dabf7; }
+  &[data-tool-category="file-read"]  { border-left-color: #60a5fa; }
+  &[data-tool-category="file-write"] { border-left-color: #34d399; }
+  &[data-tool-category="shell"]      { border-left-color: #f59e0b; }
+  &[data-tool-category="git"]        { border-left-color: #a78bfa; }
+  &[data-tool-category="github"]     { border-left-color: #818cf8; }
+  &[data-tool-category="default"]    { border-left-color: #6b7280; }
+
+  // Result separator — shown only when a result is present
+  &--has-result .tool-call-card__args {
+    padding-bottom: 0.15rem;
+  }
+
+  &--result-only {
+    border-left-color: var(--border-subtle, #2a2a2a);
+  }
+
+  &__header {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
 
   &__icon {
     flex-shrink: 0;
-    opacity: 0.8;
-    line-height: 1;
+    opacity: 0.7;
+    display: flex;
+    align-items: center;
+
+    svg {
+      width: 11px;
+      height: 11px;
+      flex-shrink: 0;
+    }
   }
 
   &__name {
     font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     font-weight: 600;
     color: var(--accent-bright, #a78bfa);
     white-space: nowrap;
   }
 
+  // Category-tinted name color
+  &[data-tool-category="search"]     &__name { color: #7dd3fc; }
+  &[data-tool-category="file-read"]  &__name { color: #93c5fd; }
+  &[data-tool-category="file-write"] &__name { color: #6ee7b7; }
+  &[data-tool-category="shell"]      &__name { color: #fcd34d; }
+  &[data-tool-category="git"]        &__name { color: #c4b5fd; }
+  &[data-tool-category="github"]     &__name { color: #a5b4fc; }
+
   &__args {
     font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
-    font-size: 0.7rem;
+    font-size: 0.67rem;
     color: var(--text-muted, #888);
-    word-break: break-all;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 100%;
+    word-break: break-word;
+    padding-left: 1.45rem; // align under tool name (icon width + gap)
+    line-height: 1.55;
+    opacity: 0.9;
   }
 
   &__result {
-    flex-basis: 100%;
     font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
-    font-size: 0.7rem;
-    color: var(--text-muted, #888);
-    padding: 0.2rem 0 0 1.4rem;
-    margin-top: 0.15rem;
-    border-top: 1px solid var(--border-subtle, #2a2a2a);
+    font-size: 0.67rem;
+    color: rgba(255, 255, 255, 0.35);
+    padding: 0.25rem 0 0 1.45rem;
+    margin-top: 0.05rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
     word-break: break-word;
     white-space: pre-wrap;
+    line-height: 1.5;
+
+    // Subtle leading arrow to indicate "result of ↑"
+    &::before {
+      content: '↳ ';
+      opacity: 0.4;
+    }
+  }
+}
+
+// ── Light mode overrides ───────────────────────────────────────────────────────
+
+[data-theme="light"] .tool-call-card {
+  &__args {
+    color: rgba(0, 0, 0, 0.5);
+  }
+
+  &__result {
+    color: rgba(0, 0, 0, 0.45);
+    border-top-color: rgba(0, 0, 0, 0.08);
   }
 
   &--result-only {
-    border-left-color: var(--border-subtle, #2a2a2a);
+    border-left-color: rgba(0, 0, 0, 0.1);
   }
 }

@@ -4,6 +4,7 @@
 //
 // These cards live inside the dark terminal #activity-feed container and act
 // as section dividers (step_start) or highlighted lifecycle markers.
+// Icons are 11×11 inline SVG inheriting currentColor.
 
 .event-card {
   display: flex;
@@ -18,13 +19,13 @@
 
   // Step start: full-width section divider
   &[data-event-type='step_start'] {
-    margin-top: 0.4rem;
-    padding-top: 0.35rem;
-    padding-bottom: 0.2rem;
+    margin-top: 0.5rem;
+    padding-top: 0.4rem;
+    padding-bottom: 0.25rem;
     border-top: 1px solid rgba(255, 255, 255, 0.06);
     border-left: none;
-    color: rgba(255, 255, 255, 0.35);
-    font-size: 0.62rem;
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 0.63rem;
     font-weight: 700;
     letter-spacing: 0.1em;
     text-transform: uppercase;
@@ -36,8 +37,9 @@
     }
 
     .event-card__icon {
-      color: rgba(255, 255, 255, 0.2);
-      font-size: 0.55rem;
+      color: rgba(255, 255, 255, 0.3);
+      // Slightly smaller play triangle
+      svg { width: 9px; height: 9px; }
     }
   }
 
@@ -73,7 +75,14 @@
   &__icon {
     flex-shrink: 0;
     opacity: 0.8;
-    font-size: 0.75rem;
+    display: flex;
+    align-items: center;
+
+    svg {
+      width: 11px;
+      height: 11px;
+      flex-shrink: 0;
+    }
   }
 
   &__text {
@@ -82,5 +91,45 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+}
+
+// ── Light mode overrides ───────────────────────────────────────────────────────
+// Replace hardcoded rgba(255,255,255,…) values that disappear on a light bg.
+
+[data-theme="light"] .event-card {
+  color: rgba(0, 0, 0, 0.55);
+
+  &[data-event-type='step_start'] {
+    border-top-color: rgba(0, 0, 0, 0.08);
+    color: rgba(0, 0, 0, 0.4);
+
+    .event-card__icon {
+      color: rgba(0, 0, 0, 0.25);
+    }
+  }
+
+  &[data-event-type='blocker'] {
+    color: #92400e;
+    background: rgba(245, 158, 11, 0.08);
+  }
+
+  &[data-event-type='decision'] {
+    color: #0369a1;
+  }
+
+  &[data-event-type='done'] {
+    color: #065f46;
+    background: rgba(16, 185, 129, 0.07);
+  }
+
+  &[data-event-type='message'] {
+    border-left-color: rgba(0, 0, 0, 0.12);
+    color: rgba(0, 0, 0, 0.5);
+  }
+
+  &[data-event-type='error'] {
+    color: #dc2626;
+    background: rgba(239, 68, 68, 0.06);
   }
 }

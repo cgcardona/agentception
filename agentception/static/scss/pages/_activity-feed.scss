@@ -1,17 +1,18 @@
 // ── Activity feed row (SSE activity messages) ─────────────────────────────────
 //
 // Terminal-style log: icon | content (grows) | timestamp (right-aligned).
-// Rows are compact (24px line-height) to maximise visible history.
+// Rows are compact to maximise visible history.
+// Icons are 11×11 inline SVG inheriting currentColor.
 
 .activity-feed__row {
   display: grid;
-  grid-template-columns: 1.1rem 1fr auto;
-  align-items: baseline;
-  gap: 0 0.45rem;
-  padding: 0.05rem 0.75rem 0.05rem 0.5rem;
+  grid-template-columns: 1.25rem 1fr auto;
+  align-items: center;
+  gap: 0 0.4rem;
+  padding: 0.075rem 0.75rem 0.075rem 0.5rem;
   min-height: 22px;
   font-size: 0.695rem;
-  line-height: 1.9;
+  line-height: 1.8;
   color: rgba(255, 255, 255, 0.5);
   border-left: 2px solid transparent;
   transition: background 0.08s;
@@ -30,9 +31,13 @@
   &[data-subtype="delay"]       { border-left-color: #f59e0b; opacity: 0.55; }
   &[data-subtype="error"]       { border-left-color: #ef4444; color: #fca5a5; }
 
-  // LLM rows are slightly brighter — they carry the key iteration signal
+  // llm_iter: iteration milestone — slightly elevated, model name prominent
   &[data-subtype="llm_iter"] {
-    color: rgba(167, 139, 250, 0.85);
+    color: rgba(167, 139, 250, 0.9);
+    padding-top: 0.2rem;
+    padding-bottom: 0.15rem;
+    border-left-width: 3px;
+    font-weight: 500;
   }
 
   &[data-subtype="llm_usage"] {
@@ -43,7 +48,7 @@
   &[data-subtype="file_replaced"],
   &[data-subtype="file_inserted"],
   &[data-subtype="file_written"] {
-    color: rgba(52, 211, 153, 0.8);
+    color: rgba(52, 211, 153, 0.85);
   }
 
   // Non-zero shell exit: error tint
@@ -54,10 +59,22 @@
   }
 
   .activity-feed__icon {
-    font-size: 0.7rem;
-    line-height: 1.9;
-    opacity: 0.7;
-    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.65;
+    flex-shrink: 0;
+
+    svg {
+      width: 11px;
+      height: 11px;
+      flex-shrink: 0;
+    }
+  }
+
+  // llm_iter icon slightly brighter to match the elevated row
+  &[data-subtype="llm_iter"] .activity-feed__icon {
+    opacity: 0.85;
   }
 
   .activity-feed__summary {
@@ -66,16 +83,56 @@
     white-space: nowrap;
     text-overflow: ellipsis;
     font-family: var(--font-mono);
-    font-size: 0.68rem;
+    font-size: 0.675rem;
     letter-spacing: 0.01em;
   }
 
   .activity-feed__ts {
-    font-size: 0.6rem;
+    font-size: 0.58rem;
     font-variant-numeric: tabular-nums;
     color: rgba(255, 255, 255, 0.2);
     font-family: var(--font-mono);
     white-space: nowrap;
-    padding-left: 0.5rem;
+    padding-left: 0.4rem;
+    letter-spacing: 0.02em;
+  }
+}
+
+// ── Light mode overrides ───────────────────────────────────────────────────────
+
+[data-theme="light"] .activity-feed__row {
+  color: rgba(0, 0, 0, 0.55);
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.03);
+  }
+
+  &[data-subtype^="shell"] { border-left-color: #9ca3af; }
+
+  &[data-subtype="llm_iter"] {
+    color: rgba(109, 40, 217, 0.9);
+  }
+
+  &[data-subtype="llm_usage"] {
+    color: rgba(109, 40, 217, 0.6);
+  }
+
+  &[data-subtype="file_replaced"],
+  &[data-subtype="file_inserted"],
+  &[data-subtype="file_written"] {
+    color: rgba(5, 150, 105, 0.85);
+  }
+
+  &[data-subtype="error"] {
+    color: #dc2626;
+  }
+
+  &[data-subtype="shell_done"][data-exit-nonzero] {
+    background: rgba(239, 68, 68, 0.05);
+    color: #dc2626;
+  }
+
+  .activity-feed__ts {
+    color: rgba(0, 0, 0, 0.3);
   }
 }
