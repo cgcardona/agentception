@@ -253,26 +253,27 @@ class AgentCeptionSettings(BaseSettings):
     servers use their loaded model in that case. Ollama requires a model name.
     Set via ``LOCAL_LLM_MODEL``."""
 
-    local_llm_max_context_chars: int = 12_000
+    local_llm_max_context_chars: int = 60_000
     """Max characters for the first user message when using the local LLM.
-    Small models (e.g. Qwen 4B) are easily overloaded; truncating the task
-    briefing keeps context manageable. Set via ``LOCAL_LLM_MAX_CONTEXT_CHARS``."""
+    Keeps the task briefing within a manageable window for large local models
+    (Qwen3 35B handles 128k context). Set via ``LOCAL_LLM_MAX_CONTEXT_CHARS``."""
 
     local_llm_max_tokens: int = 4096
     """Desired max output tokens for local LLM (agent loop, etc.). Capped by
     ``local_llm_completion_token_ceiling`` when sending requests. Set via
     ``LOCAL_LLM_MAX_TOKENS``."""
 
-    local_llm_completion_token_ceiling: int = 8192
+    local_llm_completion_token_ceiling: int = 16_384
     """Hard cap on ``max_tokens`` sent to the local OpenAI-compatible server.
-    Ollama supports full context lengths; 8192 is a safe default for a 35B
-    4-bit model. Lower if your server imposes a stricter limit. Set via
+    Qwen3 35B 4-bit with extended chain-of-thought (thinking mode) needs at
+    least 16k to avoid exhausting the reasoning budget before emitting a
+    response. Lower if your server imposes a stricter limit. Set via
     ``LOCAL_LLM_COMPLETION_TOKEN_CEILING``."""
 
-    local_llm_max_system_chars: int = 6000
+    local_llm_max_system_chars: int = 20_000
     """Max characters for the system prompt when using the local LLM. Truncates
-    role + cognitive arch so small models get a digest. Set via
-    ``LOCAL_LLM_MAX_SYSTEM_CHARS``."""
+    role + cognitive arch so models get a complete prompt without exceeding
+    practical context limits. Set via ``LOCAL_LLM_MAX_SYSTEM_CHARS``."""
 
     # ── Per-usecase overrides (Phase 3: two models, purpose-matched) ─────────
     # When LiteLLM Proxy is in use, set these to different model names so the
