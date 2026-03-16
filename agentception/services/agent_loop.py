@@ -1878,7 +1878,10 @@ async def _run_recon_phase(
 
         parsed = _parse_recon_json(raw_plan)
         if parsed is None:
-            logger.warning("⚠️ recon phase: could not parse plan from LLM response")
+            logger.warning(
+                "⚠️ recon phase: could not parse plan from LLM response — raw=%r",
+                raw_plan[:500] if raw_plan else "<empty>",
+            )
             return
         plan = parsed
 
