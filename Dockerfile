@@ -124,7 +124,8 @@ RUN pip install --no-cache-dir -e /app
 #   - jinaai/jina-embeddings-v2-base-code  (embedding — TextEmbedding)
 #   - BAAI/bge-reranker-base               (reranker  — TextCrossEncoder)
 RUN HF_HOME=/home/agentception/.cache/huggingface python3 -c "\
-from fastembed import TextEmbedding, TextCrossEncoder; \
+from fastembed import TextEmbedding; \
+from fastembed.rerank.cross_encoder import TextCrossEncoder; \
 emb = TextEmbedding(model_name='jinaai/jina-embeddings-v2-base-code'); \
 list(emb.embed(['warm-up'])); \
 print('Embedding model pre-downloaded.'); \
