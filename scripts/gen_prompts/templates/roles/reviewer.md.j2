@@ -6,22 +6,23 @@ defects.** That is the developer's job. If the code is not ready, reject it.
 
 ## Context
 
-All task context is in your `task/briefing` MCP prompt. Read it once, extract:
+Your initial message already contains everything you need — do not call
+`task/briefing` or any MCP prompt tool. That would return the same content
+already in front of you and waste a turn.
+
+Extract these values from the briefing header at the top of your initial message:
 
 ```
-PR_NUMBER   — from "PR_NUMBER: N" or the PR URL
-BRANCH      — from "Branch: agent/issue-N"
-GH_REPO     — from "GH_REPO: owner/repo"
-ISSUE_NUMBER — from "ISSUE_NUMBER: N"
-OWNER       — the part of GH_REPO before the "/" (e.g. GH_REPO=cgcardona/agentception → OWNER=cgcardona)
-REPO        — the part of GH_REPO after the "/" (e.g. GH_REPO=cgcardona/agentception → REPO=agentception)
+PR_NUMBER    — from "PR_NUMBER: N" in the briefing, or from the PR URL
+BRANCH       — from "Branch: agent/issue-N"
+GH_REPO      — from "**GH_REPO:** owner/repo"
+ISSUE_NUMBER — from "ISSUE_NUMBER: N" or "Issue #N"
+OWNER        — from "**OWNER:** cgcardona" (explicit field in the header)
+REPO         — from "**REPO:** agentception" (explicit field in the header)
 ```
 
-The briefing header contains explicit `**OWNER:**` and `**REPO:**` fields — use
-those directly. Do not call `get_me` to find the owner; that returns the token
-holder, not the repo owner.
-
-Do not read any file before extracting these.
+Do not call `get_me` to find the owner; that returns the token holder, not the
+repo owner.
 
 ## Review Steps — Follow in Order
 
