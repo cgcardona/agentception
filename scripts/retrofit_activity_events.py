@@ -400,6 +400,34 @@ async def _backfill_search_results(session: AsyncSession) -> int:
         ).fetchall()
     ]
 
+    # Also purge any search_results events that were inserted with wrong
+    # timestamps (same second as run_command / other events) so the
+    # re-insertion below uses the corrected anchor timestamps.
+    purge_runs: list[str] = [
+        r[0]
+        for r in (
+            await session.execute(
+                text("""
+                    SELECT DISTINCT agent_run_id
+                    FROM agent_events
+                    WHERE (payload::jsonb)->>'subtype' = 'search_results'
+                """)
+            )
+        ).fetchall()
+    ]
+    if purge_runs:
+        for pr in purge_runs:
+            await session.execute(
+                text("""
+                    DELETE FROM agent_events
+                    WHERE agent_run_id = :run_id
+                      AND (payload::jsonb)->>'subtype' = 'search_results'
+                """),
+                {"run_id": pr},
+            )
+        log.info("search_results — purged stale events for %d runs before re-insert", len(purge_runs))
+        needs_backfill = list(set(needs_backfill) | set(purge_runs))
+
     if not needs_backfill:
         log.info("search_results — nothing to backfill")
         return 0
@@ -455,7 +483,10 @@ async def _backfill_search_results(session: AsyncSession) -> int:
         inserted = 0
         for invocation, result in pairs:
             files = _parse_search_files(result["content"])
-            emit_at = result["recorded_at"]
+            # Anchor the emit time to the tool_invoked timestamp + 1 s to
+            # guarantee it sorts after the invocation in the SSE stream
+            # regardless of wall-clock precision at result time.
+            emit_at = invocation["recorded_at"] + datetime.timedelta(seconds=1)
 
             payload = json.dumps({
                 "subtype": "search_results",

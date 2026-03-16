@@ -460,7 +460,7 @@ describe('appendActivityRow', () => {
       expect(vals.some(v => v === '10–50')).toBe(true);
     });
 
-    it('detail panel humanizes n_results to "results"', () => {
+    it('detail panel humanizes n_results to "limit"', () => {
       appendActivityRow({
         t: 'activity',
         subtype: 'tool_invoked',
@@ -473,8 +473,9 @@ describe('appendActivityRow', () => {
       const row = document.querySelector<HTMLElement>('.activity-feed__row');
       row?.click();
       const keys = Array.from(document.querySelectorAll('.af__detail-key')).map(el => el.textContent);
-      expect(keys).toContain('results');
+      expect(keys).toContain('limit');
       expect(keys).not.toContain('n_results');
+      expect(keys).not.toContain('results');
     });
 
     describe('file_read expandable rows', () => {

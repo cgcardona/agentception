@@ -158,7 +158,7 @@ export function humanizeTool(name: string): string {
  */
 const ARG_KEY_LABELS: Readonly<Record<string, string>> = {
   // Search
-  n_results:       'results',
+  n_results:       'limit',
   num_results:     'results',
   max_results:     'max results',
   query:           'query',
