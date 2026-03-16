@@ -89,6 +89,55 @@
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* ── Light Theme Overrides ───────────────────────────────────── */
+
+[data-theme="light"] {
+  --bg-void:      #f0f2f7;
+  --bg-base:      #f8f9fc;
+  --bg-surface:   #ffffff;
+  --bg-elevated:  #ffffff;
+  --bg-overlay:   #e8ebf2;
+  --bg-glass:     rgba(255, 255, 255, 0.82);
+
+  --border-subtle:  #e2e6ef;
+  --border-default: #d0d5e0;
+  --border-strong:  #b0b8c9;
+  --border: var(--border-default);
+
+  --text-primary:   #1a1d27;
+  --text-secondary: #484e5e;
+  --text-muted:     #6b7280;
+  --text-faint:     #9ca3af;
+
+  --accent:              #7c3aed;
+  --accent-bright:       #6d28d9;
+  --accent-dim:          #ede9fe;
+  --accent-hover:        #8b5cf6;
+  --accent-glow:         rgba(124, 58, 237, 0.10);
+  --accent-glow-strong:  rgba(124, 58, 237, 0.20);
+
+  --success-dim:    rgba(16, 217, 160, 0.08);
+  --success-border: rgba(16, 217, 160, 0.25);
+  --success-glow:   rgba(16, 217, 160, 0.10);
+
+  --warning-dim:    rgba(251, 191, 36, 0.08);
+  --warning-border: rgba(251, 191, 36, 0.25);
+  --warning-glow:   rgba(251, 191, 36, 0.10);
+
+  --danger-dim:     rgba(244, 63, 94, 0.08);
+  --danger-border:  rgba(244, 63, 94, 0.25);
+  --danger-glow:    rgba(244, 63, 94, 0.10);
+
+  --info-dim:       rgba(56, 189, 248, 0.08);
+  --info-border:    rgba(56, 189, 248, 0.25);
+
+  --shadow-sm:   0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-md:   0 4px 16px rgba(0, 0, 0, 0.10);
+  --shadow-lg:   0 12px 40px rgba(0, 0, 0, 0.12);
+  --shadow-glow: 0 0 24px var(--accent-glow);
+  --shadow-glow-strong: 0 0 36px var(--accent-glow-strong);
+}
+
 /* ── Reset ────────────────────────────────────────────────────── */
 
 *, *::before, *::after {
@@ -249,6 +298,27 @@ nav.topnav a.active {
 .project-switcher__select:focus {
   outline: none;
   border-color: var(--accent);
+}
+
+/* ── Theme toggle ────────────────────────────────────────────── */
+
+.theme-toggle {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 1.125rem;
+  line-height: 1;
+  padding: 0.25rem 0.45rem;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+
+.theme-toggle:hover {
+  color: var(--accent-bright);
+  border-color: var(--accent);
+  background: var(--accent-glow);
 }
 
 /* ── Main content ─────────────────────────────────────────────── */
