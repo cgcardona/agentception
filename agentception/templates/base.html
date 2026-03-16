@@ -34,7 +34,12 @@
       hx-on::after-request="const hdr = event.detail.xhr.getResponseHeader('HX-Trigger'); if (hdr) { try { const triggers = JSON.parse(hdr); if (triggers.toast) window.dispatchEvent(new CustomEvent('toast', { detail: triggers.toast })); } catch(e) {} }">
 
   <nav class="topnav" role="navigation" aria-label="Main navigation">
-    <span class="brand">⚡ Agentception</span>
+    <span class="brand">
+      <svg class="brand__bolt" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 16" aria-hidden="true">
+        <polygon points="6,0 0,9 5,9 3,16 10,7 5,7"/>
+      </svg>
+      Agentception
+    </span>
 
     {# ── Primary nav: Plan → Ship ────────────────────────────────────────── #}
     <a href="/plan" class="nav-cta {% if request.url.path == '/' or request.url.path.startswith('/plan') %}active{% endif %}">Plan</a>

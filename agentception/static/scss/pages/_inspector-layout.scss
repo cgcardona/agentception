@@ -65,11 +65,21 @@ body:has(.build-layout) nav.topnav {
   }
 
   &__title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
     font-size: 1rem;
     font-weight: 700;
     color: var(--text-primary);
     letter-spacing: -0.02em;
     margin: 0;
+  }
+
+  &__bolt {
+    width: 10px;
+    height: 16px;
+    flex-shrink: 0;
+    opacity: 0.85;
   }
 
   &__repo {
@@ -241,10 +251,24 @@ body:has(.build-layout) nav.topnav {
 // ── Phase row elements (icon, label, progress badge, gate, buttons, chevron) ──
 
 .build-phase__icon {
-  font-size: 0.8125rem;
-  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  width: 1rem;
+
+  svg {
+    width: 13px;
+    height: 13px;
+    flex-shrink: 0;
+  }
 }
+
+// Phase icon colors driven by row state class on the parent swimlane row
+.build-swimlane__row--complete .build-phase__icon { color: #34d399; }
+.build-swimlane__row--locked   .build-phase__icon { color: #f59e0b; }
+.build-swimlane__row--empty    .build-phase__icon { color: var(--text-faint); }
+.build-swimlane__row--active   .build-phase__icon { color: var(--text-muted); }
 
 .build-phase__label {
   font-size: 0.75rem;
@@ -2045,6 +2069,10 @@ $preset-accents: (
   background-position: right 0.75rem center;
   padding-right: 2rem;
 
+  [data-theme="light"] & {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='rgba(0,0,0,0.4)'/%3E%3C/svg%3E");
+  }
+
   option, optgroup { background: var(--bg-elevated); color: var(--text-primary); }
   option:disabled, &__opt--blocked { color: var(--text-faint); }
   &:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
@@ -2305,6 +2333,12 @@ $preset-accents: (
   &::-webkit-scrollbar       { width: 4px; }
   &::-webkit-scrollbar-track { background: transparent; }
   &::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+
+  [data-theme="light"] & {
+    scrollbar-color: rgba(0,0,0,0.15) transparent;
+
+    &::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); }
+  }
 }
 
 // ── Start agent block (pending_launch state) ──────────────────────────────────
