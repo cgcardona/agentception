@@ -140,6 +140,22 @@ Both should return HTTP 200.
 
 ---
 
+## Quick health check
+
+Verify the service is running with these curl commands:
+
+```bash
+# Basic health ping
+curl -f http://localhost:1337/health
+# → {"status":"ok"}
+
+# Detailed health snapshot (uptime, memory, worktree count, GitHub API latency)
+curl -f http://localhost:1337/api/health/detailed
+# → {"uptime_seconds":..., "memory_rss_mb":..., "active_worktree_count":0, "github_api_latency_ms":...}
+```
+
+---
+
 ## Step 7 — Index the codebase for semantic search (optional)
 
 The Cursor-free agent loop uses a Qdrant vector index to give agents `@Codebase`-style semantic search without Cursor. Trigger indexing with a single API call:
