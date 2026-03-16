@@ -19,7 +19,7 @@ import pytest
 
 
 def make_create_task_side_effect() -> (
-    Callable[[collections.abc.Coroutine[object, object, object]], asyncio.Future[None]]
+    Callable[..., asyncio.Future[None]]
 ):
     """Return a side-effect for patching ``asyncio.create_task`` in tests.
 
@@ -36,9 +36,11 @@ def make_create_task_side_effect() -> (
     """
 
     def _side_effect(
-        coro: collections.abc.Coroutine[object, object, object],
-        **_: object,
+        coro: collections.abc.Coroutine[None, None, None],
+        *,
+        name: str | None = None,
     ) -> asyncio.Future[None]:
+        del name
         coro.close()
         fut: asyncio.Future[None] = asyncio.get_event_loop().create_future()
         fut.set_result(None)
