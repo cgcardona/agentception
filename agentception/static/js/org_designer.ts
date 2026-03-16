@@ -168,8 +168,16 @@ interface DispatchResponse {
   status: string;
 }
 
+interface FastApiValidationError {
+  msg: string;
+  loc: string[];
+  type: string;
+}
+
 interface DispatchError {
-  detail?: string;
+  // FastAPI returns detail as a string for application errors,
+  // or as an array of validation error objects for 422 responses.
+  detail?: string | FastApiValidationError[];
 }
 
 // ── Live mode types (from GET /api/org/batches and SSE /api/org/live) ─────────
@@ -1524,7 +1532,14 @@ export function orgDesigner(): OrgDesignerComponent {
         });
         const data = await res.json() as DispatchResponse | DispatchError;
         if (!res.ok) {
-          this.launchError = (data as DispatchError).detail ?? `Error ${res.status}`;
+          const errData = data as DispatchError;
+          const detail = errData.detail;
+          if (Array.isArray(detail)) {
+            // FastAPI 422 validation errors — format as readable list.
+            this.launchError = detail.map(e => e.msg).join('; ') || `Error ${res.status}`;
+          } else {
+            this.launchError = detail ?? `Error ${res.status}`;
+          }
         } else {
           const dispatched    = data as DispatchResponse;
           this.launchResult   = dispatched;
