@@ -5,6 +5,8 @@ import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+from agentception.tests.conftest import make_create_task_side_effect
+
 import pytest
 
 
@@ -32,7 +34,7 @@ async def test_dispatch_passes_prompt_variant_to_task_spec(tmp_path: Path) -> No
         patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", side_effect=mock_persist),
         patch("agentception.routes.api.dispatch.acknowledge_agent_run", new_callable=AsyncMock),
         patch("agentception.routes.api.dispatch.run_agent_loop", new_callable=AsyncMock),
-        patch("agentception.routes.api.dispatch.asyncio.create_task", return_value=asyncio.Future()),
+        patch("agentception.routes.api.dispatch.asyncio.create_task", side_effect=make_create_task_side_effect()),
         patch("agentception.routes.api.dispatch._index_worktree", new_callable=AsyncMock),
         patch("agentception.routes.api.dispatch.assemble_developer_context", new_callable=AsyncMock, return_value=""),
         patch("agentception.routes.api.dispatch.settings") as mock_settings,
@@ -80,7 +82,7 @@ async def test_dispatch_prompt_variant_defaults_to_none(tmp_path: Path) -> None:
         patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", side_effect=mock_persist),
         patch("agentception.routes.api.dispatch.acknowledge_agent_run", new_callable=AsyncMock),
         patch("agentception.routes.api.dispatch.run_agent_loop", new_callable=AsyncMock),
-        patch("agentception.routes.api.dispatch.asyncio.create_task", return_value=asyncio.Future()),
+        patch("agentception.routes.api.dispatch.asyncio.create_task", side_effect=make_create_task_side_effect()),
         patch("agentception.routes.api.dispatch._index_worktree", new_callable=AsyncMock),
         patch("agentception.routes.api.dispatch.assemble_developer_context", new_callable=AsyncMock, return_value=""),
         patch("agentception.routes.api.dispatch.settings") as mock_settings,
