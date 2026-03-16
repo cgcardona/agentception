@@ -3,7 +3,7 @@
 [![CI](https://github.com/cgcardona/agentception/actions/workflows/ci.yml/badge.svg)](https://github.com/cgcardona/agentception/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> *The Singularity is here. The infinite machine behind the machines.*
+> *The infinite machine behind the machines.*
 
 For all of recorded history, human progress has been constrained by one thing: the number of hours in a day multiplied by the number of people willing to work. We called it scarcity, and we built entire economic systems around managing it.
 

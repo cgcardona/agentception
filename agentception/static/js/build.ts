@@ -12,7 +12,7 @@
  */
 
 import { marked } from 'marked';
-import { attachActivityFeedHandler, resetFeedSession } from './activity_feed';
+import { attachActivityFeedHandler, clearFeed, resetFeedSession } from './activity_feed';
 import { attachEventCardHandler } from './event_card';
 import { attachFileEditHandler } from './file_edit_card';
 import { attachThoughtHandler } from './thought_block';
@@ -26,6 +26,39 @@ interface AgentRun {
   agent_status?: string;
   tier: string | null;
   role: string | null;
+  steps_completed: number;
+  spawned_at: string;
+  last_activity_at: string | null;
+  current_step: string | null;
+  branch: string | null;
+  cognitive_arch: string | null;
+}
+
+/**
+ * Format a human-readable run duration from ISO timestamps.
+ *
+ * Returns "ran Xm Ys" for completed runs, "running Xm Ys" for active ones.
+ * Falls back to an empty string when `spawnedAt` is missing or unparseable.
+ */
+export function formatRunDuration(
+  spawnedAt: string | null,
+  lastActivityAt: string | null,
+  agentStatus: string,
+): string {
+  if (!spawnedAt) return '';
+  const startMs = Date.parse(spawnedAt);
+  if (isNaN(startMs)) return '';
+  const isActive = agentStatus === 'implementing' || agentStatus === 'reviewing';
+  const endMs = isActive
+    ? Date.now()
+    : lastActivityAt
+      ? (Date.parse(lastActivityAt) || Date.now())
+      : Date.now();
+  const totalSecs = Math.max(0, Math.floor((endMs - startMs) / 1000));
+  const mins = Math.floor(totalSecs / 60);
+  const secs = totalSecs % 60;
+  const prefix = isActive ? 'running ' : 'ran ';
+  return mins > 0 ? `${prefix}${mins}m ${secs}s` : `${prefix}${secs}s`;
 }
 
 export interface ActiveIssue {
@@ -122,6 +155,10 @@ export function buildPage() {
     streamOpen: false,
     _evtSource: null as EventSource | null,
 
+    // ── run duration display ─────────────────────────────────────────────
+    runDuration: '',
+    _durationTimer: null as ReturnType<typeof setInterval> | null,
+
     // ── agent hierarchy tree ─────────────────────────────────────────────
     agentTreeNodes: [] as AgentTreeNode[],
     agentTreeBatchId: null as string | null,
@@ -162,6 +199,15 @@ export function buildPage() {
       return this.agentTreeNodes.length > 0;
     },
 
+    /** Issue labels with initiative slug and phase labels stripped, capped at 3. */
+    get filteredLabels(): string[] {
+      if (!this.activeIssue) return [];
+      const initiative = window._buildInitiative ?? '';
+      return this.activeIssue.labels
+        .filter((l) => !l.startsWith('phase-') && l !== initiative)
+        .slice(0, 3);
+    },
+
     // repo is injected by an inline <script> in the template.
     get repo(): string {
       return window._buildRepo ?? '';
@@ -180,6 +226,8 @@ export function buildPage() {
     onInspect(issue: ActiveIssue): void {
       if (this.activeIssue?.number === issue.number) return;
       this._closeStream();
+      this._stopDurationTimer();
+      clearFeed();
       this.activeIssue = issue;
       this.thoughts = [];
       this.startAgentLoading = false;
@@ -188,13 +236,17 @@ export function buildPage() {
       if (issue.run) {
         this._openStream(issue.run.id);
         this._startTreePoll(`/ship/runs/${encodeURIComponent(issue.run.id)}/tree`);
+        this._startDurationTimer(issue.run);
       }
     },
 
     clearInspect(): void {
       this._closeStream();
       this._stopTreePoll();
+      this._stopDurationTimer();
+      clearFeed();
       this.activeIssue = null;
+      this.runDuration = '';
       this.thoughts = [];
       this.chatMessage = '';
       this.chatError = null;
@@ -274,6 +326,28 @@ export function buildPage() {
         // Non-fatal — board will sync on next poll.
       } finally {
         this.agentStopping = false;
+      }
+    },
+
+    _startDurationTimer(run: AgentRun): void {
+      this._stopDurationTimer();
+      const isActive = run.agent_status === 'implementing' || run.agent_status === 'reviewing';
+      this.runDuration = formatRunDuration(run.spawned_at, run.last_activity_at, run.agent_status ?? '');
+      if (isActive) {
+        this._durationTimer = setInterval(() => {
+          this.runDuration = formatRunDuration(
+            run.spawned_at,
+            run.last_activity_at,
+            run.agent_status ?? '',
+          );
+        }, 1000);
+      }
+    },
+
+    _stopDurationTimer(): void {
+      if (this._durationTimer !== null) {
+        clearInterval(this._durationTimer);
+        this._durationTimer = null;
       }
     },
 
