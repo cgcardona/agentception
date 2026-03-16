@@ -24,7 +24,9 @@ import {
 } from './format_utils';
 
 /** Subtypes that support click-to-expand detail panel. */
-const EXPANDABLE_SUBTYPES = new Set(['tool_invoked', 'github_tool', 'file_read', 'dir_listed']);
+const EXPANDABLE_SUBTYPES = new Set([
+  'tool_invoked', 'github_tool', 'file_read', 'dir_listed', 'llm_reply',
+]);
 import { getCurrentAppendTarget, getCurrentStepHeader, resetStepContext } from './step_context';
 
 /** SSE activity message shape from the inspector stream. */
@@ -266,9 +268,24 @@ function buildToolSummary(summaryText: string): HTMLElement {
 }
 
 /**
+ * Internal implementation details surfaced by tool arg_preview that add no
+ * user-visible value. Hidden in the detail panel.
+ */
+const HIDDEN_DETAIL_KEYS = new Set([
+  'collection',   // Qdrant collection name — internal to search_codebase
+  'run_id',       // agent run identifier
+]);
+
+/**
  * Build the collapsible args detail panel for a tool_invoked / github_tool row.
  * Hidden by default; shown when the parent row is expanded.
  * All content set via textContent — no innerHTML with payload data.
+ *
+ * Special cases:
+ * - Keys in HIDDEN_DETAIL_KEYS are suppressed.
+ * - start_line + end_line are collapsed into a single "lines: N–M" row.
+ * - When both old_string and new_string are present, a diff-style find/replace
+ *   block is rendered instead of two plain key-value rows.
  */
 function buildToolDetail(payload: Record<string, unknown>): HTMLElement {
   const panel = document.createElement('div');
@@ -279,44 +296,61 @@ function buildToolDetail(payload: Record<string, unknown>): HTMLElement {
   const parsed = parseArgsRaw(argPreview);
 
   if (parsed !== null && Object.keys(parsed).length > 0) {
-    // Collapse start_line + end_line into a single "lines: 1–50" entry.
     const startLine = parsed['start_line'];
     const endLine   = parsed['end_line'];
     const hasRange  = startLine !== undefined && endLine !== undefined;
+    const oldStr    = parsed['old_string'];
+    const newStr    = parsed['new_string'];
+    const hasDiff   = oldStr !== undefined && newStr !== undefined;
 
     const renderLine = (label: string, value: string): void => {
       const line = document.createElement('div');
       line.className = 'af__detail-line';
-
       const k = document.createElement('span');
       k.className = 'af__detail-key';
       k.textContent = label;
-
       const v = document.createElement('span');
       v.className = 'af__detail-val';
       v.textContent = value;
-
       line.appendChild(k);
       line.appendChild(v);
       panel.appendChild(line);
     };
 
+    const renderPreBlock = (label: string, text: string, modifier: string): void => {
+      const wrapper = document.createElement('div');
+      wrapper.className = `af__diff-block af__diff-block--${modifier}`;
+      const lbl = document.createElement('span');
+      lbl.className = 'af__diff-label';
+      lbl.textContent = label;
+      const pre = document.createElement('pre');
+      pre.className = 'af__content-preview';
+      pre.textContent = text;
+      wrapper.appendChild(lbl);
+      wrapper.appendChild(pre);
+      panel.appendChild(wrapper);
+    };
+
     for (const [key, val] of Object.entries(parsed)) {
-      // Skip start_line/end_line — rendered as a collapsed range below.
+      if (HIDDEN_DETAIL_KEYS.has(key)) continue;
       if (key === 'start_line' || key === 'end_line') continue;
+      // old_string / new_string rendered together as a diff block below.
+      if (hasDiff && (key === 'old_string' || key === 'new_string')) continue;
 
       const label = humanizeDetailKey(key);
       const value = typeof val === 'string' ? val : JSON.stringify(val, null, 2);
       renderLine(label, value);
     }
 
-    // Append the collapsed line range after other keys.
     if (hasRange) {
       const s = typeof startLine === 'number' ? startLine : parseInt(String(startLine), 10);
       const e = typeof endLine   === 'number' ? endLine   : parseInt(String(endLine),   10);
-      if (!Number.isNaN(s) && !Number.isNaN(e)) {
-        renderLine('lines', `${s}–${e}`);
-      }
+      if (!Number.isNaN(s) && !Number.isNaN(e)) renderLine('lines', `${s}–${e}`);
+    }
+
+    if (hasDiff) {
+      renderPreBlock('find', typeof oldStr === 'string' ? oldStr : JSON.stringify(oldStr), 'old');
+      renderPreBlock('replace', typeof newStr === 'string' ? newStr : JSON.stringify(newStr), 'new');
     }
   } else if (argPreview && argPreview !== '{}') {
     // Couldn't parse — show raw preview
@@ -327,6 +361,26 @@ function buildToolDetail(payload: Record<string, unknown>): HTMLElement {
     v.textContent = argPreview;
     line.appendChild(v);
     panel.appendChild(line);
+  }
+
+  return panel;
+}
+
+/**
+ * Build the expandable detail panel for an llm_reply row.
+ * Shows the full text_preview in a scrollable pre block.
+ */
+function buildLlmReplyDetail(payload: Record<string, unknown>): HTMLElement {
+  const panel = document.createElement('div');
+  panel.className = 'af__tool-detail af__tool-detail--llm-reply';
+  panel.setAttribute('hidden', '');
+
+  const text = str(payload, 'text_preview');
+  if (text) {
+    const pre = document.createElement('pre');
+    pre.className = 'af__content-preview af__content-preview--reply';
+    pre.textContent = text;
+    panel.appendChild(pre);
   }
 
   return panel;
@@ -494,11 +548,10 @@ export function appendActivityRow(msg: ActivityMessage): void {
     chevron.innerHTML = icons.chevronRight;
     row.appendChild(chevron);
 
-    detailPanel = msg.subtype === 'file_read'
-      ? buildFileReadDetail(msg.payload)
-      : msg.subtype === 'dir_listed'
-        ? buildDirListedDetail(msg.payload)
-        : buildToolDetail(msg.payload);
+    detailPanel = msg.subtype === 'file_read'   ? buildFileReadDetail(msg.payload)
+      : msg.subtype === 'dir_listed'             ? buildDirListedDetail(msg.payload)
+      : msg.subtype === 'llm_reply'              ? buildLlmReplyDetail(msg.payload)
+      : buildToolDetail(msg.payload);
 
     const toggle = (): void => {
       const isOpen = row.getAttribute('aria-expanded') === 'true';

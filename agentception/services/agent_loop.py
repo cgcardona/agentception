@@ -2432,7 +2432,7 @@ async def _dispatch_single_tool(
     if session is not None:
         persist_activity_event(
             session, run_id, "tool_invoked",
-            {"tool_name": name, "arg_preview": str(args)[:120]},
+            {"tool_name": name, "arg_preview": str(args)[:500]},
         )
         await session.flush()
 
@@ -2451,7 +2451,7 @@ async def _dispatch_single_tool(
                         session,
                         run_id,
                         "github_tool",
-                        {"tool_name": name, "arg_preview": str(args)[:120]},
+                        {"tool_name": name, "arg_preview": str(args)[:500]},
                     )
                     await session.flush()
                 except Exception as exc:
