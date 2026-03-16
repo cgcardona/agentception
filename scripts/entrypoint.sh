@@ -78,8 +78,20 @@ echo "[entrypoint] fixing ownership of fastembed cache …"
 mkdir -p /home/agentception/.cache/fastembed
 chown -R agentception:agentception /home/agentception/.cache/fastembed
 
-JINA_ONNX=$(find /home/agentception/.cache/fastembed/models--jinaai--jina-embeddings-v2-base-code -name 'model.onnx' 2>/dev/null | head -1)
-BGE_ONNX=$(find /home/agentception/.cache/fastembed/models--BAAI--bge-reranker-base -name 'model.onnx' 2>/dev/null | head -1)
+# Search from the guaranteed-present base directory so `find` never exits 1
+# due to a missing subdirectory (which would abort the script under set -euo pipefail).
+JINA_ONNX=$(find /home/agentception/.cache/fastembed -path '*/jinaai*' -name 'model.onnx' 2>/dev/null | head -1)
+BGE_ONNX=$(find /home/agentception/.cache/fastembed -path '*/BAAI*' -name 'model.onnx' 2>/dev/null | head -1)
+
+if [ -z "$JINA_ONNX" ] || [ -z "$BGE_ONNX" ]; then
+  # In CI (GitHub Actions sets CI=true), skip the download — models are not
+  # needed for mypy/pytest, and the ephemeral runner has no persistent cache.
+  if [ "${CI:-}" = "true" ]; then
+    echo "[entrypoint] CI mode — FastEmbed models not present, skipping download (not needed for CI checks)."
+    JINA_ONNX="skip"
+    BGE_ONNX="skip"
+  fi
+fi
 
 if [ -z "$JINA_ONNX" ] || [ -z "$BGE_ONNX" ]; then
   echo "[entrypoint] FastEmbed ONNX models missing — downloading (one-time setup) …"
