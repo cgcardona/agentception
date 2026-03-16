@@ -112,6 +112,28 @@
                    target="_blank" rel="noopener"
                    x-text="'PR #' + activeIssue.run.pr_number"></a>
               </template>
+              {# Transcript + cognitive-arch links — moved here from the Kanban card #}
+              <template x-if="activeIssue.run && activeIssue.run.id">
+                <a class="build-inspector__icon-link"
+                   :href="'/agents/' + activeIssue.run.id"
+                   title="View agent transcript"
+                   target="_blank" rel="noopener">
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M10 2h4v4"/><path d="M14 2L9 7"/><path d="M7 3H3a1 1 0 00-1 1v9a1 1 0 001 1h9a1 1 0 001-1V9"/>
+                  </svg>
+                </a>
+              </template>
+              <template x-if="activeIssue.run && activeIssue.run.cognitive_arch">
+                <a class="build-inspector__icon-link"
+                   :href="'/cognitive-arch/' + activeIssue.run.cognitive_arch.replaceAll(':', '-')"
+                   title="View cognitive architecture"
+                   target="_blank" rel="noopener">
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="5" cy="5" r="2"/><circle cx="11" cy="5" r="2"/><circle cx="8" cy="12" r="2"/>
+                    <line x1="7" y1="5" x2="9" y2="5"/><line x1="5.8" y1="6.8" x2="7.2" y2="10.2"/><line x1="10.2" y1="6.8" x2="8.8" y2="10.2"/>
+                  </svg>
+                </a>
+              </template>
               <button class="build-inspector__close" @click="clearInspect()">✕</button>
             </div>
           </div>
@@ -153,6 +175,17 @@
           <template x-if="activeIssue.run && activeIssue.run.agent_status === 'failed'">
             <div class="build-inspector__no-agent">
               <p>This run failed. Use <strong>Design org →</strong> to launch again and create a new run.</p>
+            </div>
+          </template>
+
+          {# Persona mini-card — lazy-loaded when a run with a cognitive_arch is selected #}
+          <template x-if="activeIssue.run && activeIssue.run.id && activeIssue.run.cognitive_arch">
+            <div class="build-inspector__persona"
+                 :hx-get="'/ui/runs/' + activeIssue.run.id + '/persona-card'"
+                 hx-trigger="load"
+                 hx-swap="innerHTML"
+                 x-init="$nextTick(() => htmx.process($el))">
+              <div class="build-inspector__persona-skeleton">Loading persona…</div>
             </div>
           </template>
 

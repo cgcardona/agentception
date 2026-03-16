@@ -21,58 +21,18 @@
     background: rgba(255, 255, 255, 0.03);
   }
 
-  // Color-coded left border by event category
-  &[data-subtype^="llm"]   { border-left-color: #7c3aed; }
-  &[data-subtype^="file"]  { border-left-color: #10b981; }
-  &[data-subtype="tool_invoked"],
-  &[data-subtype="github_tool"] { border-left-color: #f59e0b; }
-  &[data-subtype^="shell"] { border-left-color: #4b5563; }
-  &[data-subtype="git_push"]    { border-left-color: #38bdf8; }
-  &[data-subtype="delay"]       { border-left-color: #f59e0b; opacity: 0.55; }
-  &[data-subtype="error"]       { border-left-color: #ef4444; color: #fca5a5; }
+  &[data-subtype="delay"]  { opacity: 0.55; }
+  &[data-subtype="error"]  { border-left-color: #ef4444; color: #fca5a5; }
 
-  // Nested rows — visually indented under the LLM iteration that spawned them.
-  // The left border stays at the container edge (tree connector effect).
-  &[data-subtype="tool_invoked"],
-  &[data-subtype="github_tool"],
-  &[data-subtype^="file_"],
-  &[data-subtype^="shell"],
-  &[data-subtype="git_push"],
-  &[data-subtype="delay"] {
-    padding-left: 1.4rem;
-  }
+  // Expandable tool rows: 4-column grid (chevron at end), pointer cursor
+  &[data-expandable] {
+    grid-template-columns: 1.25rem 1fr auto 0.875rem;
+    cursor: pointer;
+    user-select: none;
 
-  // llm_iter: iteration milestone — two-line layout (model on line 1, iteration on line 2)
-  &[data-subtype="llm_iter"] {
-    align-items: flex-start; // align icon to top of the two-line block
-    padding-top: 0.25rem;
-    padding-bottom: 0.2rem;
-    border-left-width: 3px;
-
-    .activity-feed__summary {
-      display: flex;
-      flex-direction: column;
-      gap: 0.1rem;
+    &[aria-expanded="true"] {
+      .af__chevron svg { transform: rotate(90deg); }
     }
-  }
-
-  &[data-subtype="llm_usage"] {
-    color: rgba(167, 139, 250, 0.5);
-  }
-
-  // Two-line llm_iter typography
-  .af__iter-model {
-    color: rgba(167, 139, 250, 0.9);
-    font-weight: 500;
-    font-size: 0.695rem;
-  }
-
-  .af__iter-num {
-    font-family: var(--font-sans, sans-serif);
-    font-size: 0.595rem;
-    font-weight: 400;
-    color: rgba(167, 139, 250, 0.45);
-    letter-spacing: 0.01em;
   }
 
   // Tool invoked: sans-serif label, mono value — visually separates category from data
@@ -82,12 +42,33 @@
   }
 
   .af__tool-sep {
+    font-family: var(--font-sans, sans-serif);
     color: rgba(255, 255, 255, 0.2);
   }
 
   .af__tool-value {
     font-family: var(--font-mono);
     color: rgba(255, 255, 255, 0.82);
+  }
+
+  // Chevron expand indicator
+  .af__chevron {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.12);
+    transition: color 0.1s;
+    flex-shrink: 0;
+
+    svg {
+      width: 9px;
+      height: 9px;
+      transition: transform 0.15s ease;
+    }
+  }
+
+  &[data-expandable]:hover .af__chevron {
+    color: rgba(255, 255, 255, 0.4);
   }
 
   // File writes are highlighted
@@ -118,11 +99,6 @@
     }
   }
 
-  // llm_iter icon slightly brighter to match the elevated row
-  &[data-subtype="llm_iter"] .activity-feed__icon {
-    opacity: 0.85;
-  }
-
   .activity-feed__summary {
     min-width: 0;
     overflow: hidden;
@@ -144,7 +120,188 @@
   }
 }
 
+// ── Tool call detail panel ─────────────────────────────────────────────────────
+// Sibling to .activity-feed__row[data-expandable]; toggled via `hidden` attr.
+// Left-padded to align with the summary column (nested row indent + icon + gap).
+
+.af__tool-detail {
+  // Left-padding aligns detail text with the summary column:
+  // 0.5rem (row padding-left) + 1.25rem (icon width) + 0.4rem (gap)
+  padding: 0.3rem 0.75rem 0.4rem calc(0.5rem + 1.25rem + 0.4rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  border-left: 2px solid transparent;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+
+  &[hidden] { display: none; }
+}
+
+.af__detail-line {
+  display: flex;
+  gap: 0.6rem;
+  min-width: 0;
+  font-size: 0.625rem;
+  line-height: 1.6;
+}
+
+.af__detail-key {
+  font-family: var(--font-sans, sans-serif);
+  color: rgba(255, 255, 255, 0.3);
+  flex-shrink: 0;
+  min-width: 3.5rem;
+}
+
+.af__detail-val {
+  font-family: var(--font-mono);
+  color: rgba(255, 255, 255, 0.72);
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+// ── Model header ───────────────────────────────────────────────────────────────
+// Shown once at the top of the feed. Displays the model label (e.g. "Local: Qwen 3.5")
+// for the current run so it need not repeat in every step.
+
+.af__model-header {
+  padding: 0.35rem 0.75rem 0.3rem;
+  font-size: 0.6rem;
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+  color: rgba(167, 139, 250, 0.45);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+// ── Content preview (file reads, dir listings, llm replies) ───────────────────
+
+.af__content-preview {
+  margin: 0;
+  padding: 0.35rem 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  line-height: 1.65;
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  white-space: pre;
+  overflow-x: auto;
+  max-height: 10rem;
+  overflow-y: auto;
+  max-width: 100%;
+  box-sizing: border-box;
+
+  // LLM reply preview may contain prose — allow wrapping.
+  &--reply {
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 14rem;
+    font-family: var(--font-sans, sans-serif);
+    font-size: 0.65rem;
+    line-height: 1.6;
+    color: rgba(255, 255, 255, 0.7);
+  }
+}
+
+[data-theme="light"] .af__content-preview {
+  color: rgba(0, 0, 0, 0.65);
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.08);
+
+  &--reply {
+    color: rgba(0, 0, 0, 0.75);
+  }
+}
+
+// ── Diff blocks (find / replace for str_replace / replace_in_file) ─────────────
+
+.af__diff-block {
+  margin-top: 0.4rem;
+
+  &:first-of-type { margin-top: 0.2rem; }
+
+  .af__diff-label {
+    display: block;
+    font-size: 0.55rem;
+    font-family: var(--font-mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 0.2rem;
+  }
+
+  &--old {
+    .af__diff-label { color: rgba(248, 113, 113, 0.6); }
+
+    .af__content-preview {
+      background: rgba(239, 68, 68, 0.06);
+      border-color: rgba(239, 68, 68, 0.15);
+      color: rgba(252, 165, 165, 0.85);
+    }
+  }
+
+  &--new {
+    .af__diff-label { color: rgba(52, 211, 153, 0.6); }
+
+    .af__content-preview {
+      background: rgba(16, 185, 129, 0.06);
+      border-color: rgba(16, 185, 129, 0.15);
+      color: rgba(110, 231, 183, 0.85);
+    }
+  }
+}
+
+[data-theme="light"] {
+  .af__diff-block--old {
+    .af__diff-label { color: rgba(185, 28, 28, 0.6); }
+
+    .af__content-preview {
+      background: rgba(239, 68, 68, 0.05);
+      border-color: rgba(239, 68, 68, 0.12);
+      color: rgba(185, 28, 28, 0.85);
+    }
+  }
+
+  .af__diff-block--new {
+    .af__diff-label { color: rgba(4, 120, 87, 0.6); }
+
+    .af__content-preview {
+      background: rgba(16, 185, 129, 0.05);
+      border-color: rgba(16, 185, 129, 0.12);
+      color: rgba(4, 120, 87, 0.85);
+    }
+  }
+}
+
 // ── Light mode overrides ───────────────────────────────────────────────────────
+
+[data-theme="light"] .af__model-header {
+  color: rgba(109, 40, 217, 0.4);
+  border-bottom-color: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] .af__tool-detail {
+  background: rgba(0, 0, 0, 0.02);
+  border-bottom-color: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] .af__detail-key {
+  color: rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="light"] .af__detail-val {
+  color: rgba(0, 0, 0, 0.75);
+}
+
+[data-theme="light"] .activity-feed__row[data-expandable] .af__chevron {
+  color: rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="light"] .activity-feed__row[data-expandable]:hover .af__chevron {
+  color: rgba(0, 0, 0, 0.4);
+}
 
 [data-theme="light"] .activity-feed__row {
   color: rgba(0, 0, 0, 0.55);
@@ -155,28 +312,17 @@
 
   &[data-subtype^="shell"] { border-left-color: #9ca3af; }
 
-  .af__iter-model {
-    color: rgba(109, 40, 217, 0.85);
-  }
-
-  .af__iter-num {
-    color: rgba(109, 40, 217, 0.45);
-  }
-
   .af__tool-label {
     color: rgba(0, 0, 0, 0.38);
   }
 
   .af__tool-sep {
+    font-family: var(--font-sans, sans-serif);
     color: rgba(0, 0, 0, 0.2);
   }
 
   .af__tool-value {
     color: rgba(0, 0, 0, 0.8);
-  }
-
-  &[data-subtype="llm_usage"] {
-    color: rgba(109, 40, 217, 0.6);
   }
 
   &[data-subtype="file_replaced"],

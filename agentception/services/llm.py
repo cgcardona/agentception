@@ -953,7 +953,7 @@ async def call_anthropic_with_tools(
                 session,
                 run_id,
                 "llm_reply",
-                {"chars": len(content), "text_preview": content[:200]},
+                {"chars": len(content), "text_preview": content[:1500]},
             )
             await session.flush()
 
@@ -1099,7 +1099,9 @@ async def call_local_with_tools(
             session,
             run_id,
             "llm_iter",
-            {"iteration": iteration, "model": model, "turns": len(messages)},
+            # Use the resolved model name so the UI shows e.g. "qwen2.5:7b"
+            # rather than the generic "local" default parameter value.
+            {"iteration": iteration, "model": agent_model or model, "turns": len(messages)},
         )
         await session.flush()
 
@@ -1191,7 +1193,7 @@ async def call_local_with_tools(
                 session,
                 run_id,
                 "llm_reply",
-                {"chars": len(content), "text_preview": content[:200]},
+                {"chars": len(content), "text_preview": content[:1500]},
             )
             await session.flush()
         persist_activity_event(

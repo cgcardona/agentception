@@ -29,7 +29,7 @@ import datetime
 import json
 import logging
 from collections.abc import Mapping
-from typing import TypedDict, Union
+from typing import NotRequired, TypedDict, Union
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
@@ -59,6 +59,9 @@ ACTIVITY_SUBTYPES: frozenset[str] = frozenset(
         "file_written",
         "git_push",
         "github_tool",
+        "github_result",
+        "dir_listed",
+        "search_results",
         "delay",
         "error",
     }
@@ -134,27 +137,61 @@ class ShellStartPayload(dict[str, str | int | float | bool | None]):
     cwd: str
 
 
-class ShellDonePayload(dict[str, str | int | float | bool | None]):
+class ShellDonePayload(TypedDict):
     """Payload for ``shell_done`` activity events.
 
     Emitted after a shell command exits (success or failure).
+    ``stdout_preview`` carries the first 30 lines / 2 000 chars of stdout
+    for display in the inspector detail panel.
     """
 
     exit_code: int
     stdout_bytes: int
     stderr_bytes: int
+    stdout_preview: NotRequired[str]
+    stderr_preview: NotRequired[str]
 
 
 class FileReadPayload(TypedDict):
     """Payload for ``file_read`` activity events.
 
     Emitted when the agent reads a file or a line range from a file.
+    ``content_preview`` is a short excerpt (max 10 lines / 400 chars) of the
+    content that was actually read, shown in the inspector detail panel.
     """
 
     path: str
     start_line: int
     end_line: int
     total_lines: int
+    content_preview: NotRequired[str]
+
+
+class DirListedPayload(TypedDict):
+    """Payload for ``dir_listed`` activity events.
+
+    Emitted after a successful ``list_directory`` tool call.
+    ``entries`` is a newline-delimited string of file/directory names;
+    directories carry a trailing ``/``.  ``entry_count`` is a convenience
+    field for the summary row so the frontend need not split to count.
+    """
+
+    path: str
+    entry_count: int
+    entries: str  # newline-delimited; split on "\n" to get individual names
+
+
+class SearchResultsPayload(TypedDict):
+    """Payload for ``search_results`` activity events.
+
+    Emitted after a successful ``search_codebase`` or ``search_text`` call.
+    ``files`` is a newline-delimited string of unique relative file paths that
+    contained at least one match.  ``result_count`` is the number of unique
+    files — a convenience field so the frontend need not split to count.
+    """
+
+    result_count: int
+    files: str  # newline-delimited; split on "\\n" to get individual paths
 
 
 class FileReplacedPayload(TypedDict):
@@ -195,15 +232,27 @@ class GitPushPayload(dict[str, str | int | float | bool | None]):
     branch: str
 
 
-class GithubToolPayload(dict[str, str | int | float | bool | None]):
+class GithubToolPayload(TypedDict):
     """Payload for ``github_tool`` activity events.
 
     Emitted when the agent calls a GitHub MCP tool (e.g. ``create_pull_request``).
-    ``arg_preview`` is truncated to ≤120 chars before storage.
+    ``arg_preview`` is truncated to ≤500 chars before storage.
     """
 
     tool_name: str
-    arg_preview: str  # ≤120 chars
+    arg_preview: str
+
+
+class GithubResultPayload(TypedDict):
+    """Payload for ``github_result`` activity events.
+
+    Emitted immediately after a ``github_tool`` event with the first 30 lines /
+    2 000 chars of the MCP tool result text.  Injected into the preceding
+    github_tool detail panel in the inspector.
+    """
+
+    tool_name: str
+    result_preview: str
 
 
 class DelayPayload(dict[str, str | int | float | bool | None]):
@@ -245,6 +294,9 @@ SUBTYPE_TYPEDDICT_NAMES: dict[str, str] = {
     "file_written": "FileWrittenPayload",
     "git_push": "GitPushPayload",
     "github_tool": "GithubToolPayload",
+    "github_result": "GithubResultPayload",
+    "dir_listed": "DirListedPayload",
+    "search_results": "SearchResultsPayload",
     "delay": "DelayPayload",
     "error": "ErrorPayload",
 }

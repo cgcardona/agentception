@@ -12,8 +12,6 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from agentception.db.queries import (
-    AgentEventRow,
-    AgentMessageRow,
     AgentRunDetail,
     AgentRunRow,
     BoardIssueRow,
@@ -484,12 +482,10 @@ async def agent_transcript_partial(request: Request, agent_id: str) -> Response:
     state = get_state()
     node = _find_agent(state, agent_id)
 
-    db_messages: list[AgentMessageRow] = []
     if node is None:
         try:
             db_run = await get_agent_run_detail(agent_id)
             if db_run:
-                db_messages = db_run.get("messages", [])
                 raw_status = str(db_run.get("status", "failed")).lower()
                 try:
                     synth_status = _AgentStatus(raw_status)
@@ -510,12 +506,6 @@ async def agent_transcript_partial(request: Request, agent_id: str) -> Response:
 
     messages: list[dict[str, str]] = []
 
-    if not messages and db_messages:
-        messages = [
-            {"role": str(m.get("role", "")), "content": str(m.get("content", ""))}
-            for m in db_messages
-        ]
-
     return _TEMPLATES.TemplateResponse(
         request,
         "partials/agent_transcript.html",
@@ -534,14 +524,15 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
     1. In-memory state — live status, branch, issue number from the poller.
     2. Postgres ``ac_agent_runs`` — historical run metadata and status.
     3. Postgres ``ac_agent_messages`` — transcript messages (stored by the agent loop).
-    4. Postgres ``ac_agent_events`` — structured MCP events for the timeline.
-    5. GitHub API — issue body, PR checks, PR reviews (fetched in parallel).
+    4. GitHub API — issue body, PR checks, PR reviews (fetched in parallel).
+
+    The activity feed is rendered client-side via the SSE stream
+    (``/ship/runs/{run_id}/stream``) rather than pre-fetched here.
 
     Returns HTTP 404 only when the agent is absent from both in-memory state
     and the Postgres history.
     """
     from agentception.db.queries import (
-        get_agent_events_tail,
         get_agent_run_detail,
         get_sibling_runs,
     )
@@ -555,11 +546,8 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
 
     # DB run detail — enrichment regardless of live state.
     db_run: AgentRunDetail | None = None
-    db_messages: list[AgentMessageRow] = []
     try:
         db_run = await get_agent_run_detail(agent_id)
-        if db_run:
-            db_messages = db_run.get("messages", [])
     except Exception as exc:
         logger.debug("DB agent run lookup skipped: %s", exc)
 
@@ -567,7 +555,7 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
         return _TEMPLATES.TemplateResponse(
             request,
             "agent.html",
-            {"node": None, "agent_id": agent_id, "messages": [], "db_run": None,
+            {"node": None, "agent_id": agent_id, "db_run": None,
              "persona": resolve_cognitive_arch(None)},
             status_code=404,
         )
@@ -600,14 +588,6 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
             parent_run_id=db_run.get("parent_run_id"),
             worktree_path=db_run.get("worktree_path"),
         )
-
-    # Messages come from DB; filesystem transcript reading is removed.
-    messages: list[dict[str, str]] = []
-    if not messages and db_messages:
-        messages = [
-            {"role": str(m.get("role", "")), "content": str(m.get("content", ""))}
-            for m in db_messages
-        ]
 
     # ── Parallel enrichment fetches ─────────────────────────────────────────
     # All helpers return [] / {} / None on error so the page never fails.
@@ -651,7 +631,6 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
         except Exception:
             return None
 
-    events: list[AgentEventRow]
     issue_detail: IssueDetailRow | None
     pr_checks: list[dict[str, JsonValue]]
     pr_reviews: list[dict[str, JsonValue]]
@@ -667,20 +646,18 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
             return None
 
     (
-        events,
         issue_detail,
         pr_checks,
         pr_reviews,
         siblings,
     ) = await asyncio.gather(
-        get_agent_events_tail(agent_id),
         _safe_get_issue_from_db(issue_number) if issue_number else _noop_none(),
         _safe_get_pr_checks(pr_number) if pr_number else _noop_list_dict(),
         _safe_get_pr_reviews(pr_number) if pr_number else _noop_list_dict(),
         _safe_get_siblings(batch_id) if batch_id else _noop_list_sibling(),
     )
 
-    # Fetch parent run separately (to avoid the 5-coroutine overload limit in mypy)
+    # Fetch parent run separately (to avoid the 4-coroutine overload limit in mypy)
     # and extract the grandparent run id for the org chart.
     grandparent_run_id: str | None = None
     if parent_run_id:
@@ -688,45 +665,6 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
         if parent_run and isinstance(parent_run, dict):
             gp = parent_run.get("parent_run_id")
             grandparent_run_id = str(gp) if gp else None
-
-    # Pre-process events: parse payload JSON so the template has plain dicts.
-    import json as _json
-
-    def _event_detail_text(ev: AgentEventRow) -> str:
-        """Extract the human-readable summary string from an event payload."""
-        try:
-            p: dict[str, JsonValue] = _json.loads(ev["payload"])
-        except Exception:
-            return ev["payload"]
-        etype = ev["event_type"]
-        if etype == "step_start":
-            return str(p.get("step", ""))
-        if etype == "blocker":
-            return str(p.get("description", ""))
-        if etype == "decision":
-            decision = str(p.get("decision", ""))
-            rationale = str(p.get("rationale", ""))
-            return f"{decision} — {rationale}" if rationale else decision
-        if etype == "done":
-            return str(p.get("summary", "") or p.get("pr_url", ""))
-        return ev["payload"]
-
-    _event_icon: dict[str, str] = {
-        "step_start": "▶",
-        "blocker": "🚧",
-        "decision": "💡",
-        "done": "✅",
-    }
-
-    processed_events = [
-        {
-            "event_type": ev["event_type"],
-            "icon": _event_icon.get(ev["event_type"], "•"),
-            "detail": _event_detail_text(ev),
-            "recorded_at": ev["recorded_at"],
-        }
-        for ev in events
-    ]
 
     # ── Duration / date strings ─────────────────────────────────────────────
     # Only use completed_at for duration — last_activity_at is updated by the
@@ -753,11 +691,8 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
         {
             "node": node,
             "agent_id": agent_id,
-            "messages": messages,
             "db_run": db_run,
             "persona": persona,
-            # Enrichment
-            "events": processed_events,
             "issue_detail": issue_detail,
             "pr_checks": pr_checks,
             "pr_reviews": pr_reviews,

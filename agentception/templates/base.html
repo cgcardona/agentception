@@ -14,7 +14,7 @@
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%238b5cf6'/><text x='50%25' y='56%25' dominant-baseline='middle' text-anchor='middle' font-size='18' font-family='monospace' fill='white'>⚡</text></svg>" />
 
   <!-- Design system (includes Inter @import) -->
-  <link rel="stylesheet" href="/static/app.css" />
+  <link rel="stylesheet" href="/static/app.css?v={{ static_ver }}" />
 
   <!-- HTMX 2.x — server-driven hypermedia -->
   <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.4/dist/htmx.min.js" defer></script>
@@ -22,8 +22,10 @@
   <!-- Alpine.js component library — must load before Alpine initialises.
        type="module" is required because app.js uses ES import statements.
        Module scripts are deferred by default and execute in document order,
-       so this runs before the Alpine CDN tag below. -->
-  <script src="/static/app.js" type="module"></script>
+       so this runs before the Alpine CDN tag below.
+       ?v= fingerprint ensures the browser fetches the latest bundle after
+       every npm run build without requiring a manual cache clear. -->
+  <script src="/static/app.js?v={{ static_ver }}" type="module"></script>
 
   <!-- Alpine.js 3.x — lightweight reactivity (loads after app.js) -->
   <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.3/dist/cdn.min.js" defer></script>

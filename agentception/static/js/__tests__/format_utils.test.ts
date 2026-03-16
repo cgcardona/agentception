@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   humanizeTool,
+  humanizeDetailKey,
   shortenPath,
   parseArgsRaw,
   formatArgsCompact,
@@ -8,6 +9,7 @@ import {
   parseArgPreview,
   formatResultPreview,
   parseModelInfo,
+  modelLabel,
 } from '../format_utils';
 
 describe('parseModelInfo', () => {
@@ -29,10 +31,40 @@ describe('parseModelInfo', () => {
     expect(result.modelShort).toBe('3.5');
   });
 
-  it('parses local → Local / local', () => {
+  it('parses local → Local with empty modelShort (avoids "Local: local")', () => {
     const result = parseModelInfo('local');
     expect(result.network).toBe('Local');
-    expect(result.modelShort).toBe('local');
+    expect(result.modelShort).toBe('');
+  });
+
+  it('parses qwen2.5:7b → Local / Qwen 2.5', () => {
+    const result = parseModelInfo('qwen2.5:7b');
+    expect(result.network).toBe('Local');
+    expect(result.modelShort).toBe('Qwen 2.5');
+  });
+
+  it('parses qwen3:14b → Local / Qwen 3', () => {
+    const result = parseModelInfo('qwen3:14b');
+    expect(result.network).toBe('Local');
+    expect(result.modelShort).toBe('Qwen 3');
+  });
+
+  it('parses qwen2.5-coder:7b → Local / Qwen 2.5', () => {
+    const result = parseModelInfo('qwen2.5-coder:7b');
+    expect(result.network).toBe('Local');
+    expect(result.modelShort).toBe('Qwen 2.5');
+  });
+
+  it('parses llama3.1:8b → Local / Llama 3.1', () => {
+    const result = parseModelInfo('llama3.1:8b');
+    expect(result.network).toBe('Local');
+    expect(result.modelShort).toBe('Llama 3.1');
+  });
+
+  it('parses mistral:7b → Local / Mistral', () => {
+    const result = parseModelInfo('mistral:7b');
+    expect(result.network).toBe('Local');
+    expect(result.modelShort).toBe('Mistral');
   });
 
   it('parses gpt-4o → OpenAI', () => {
@@ -47,6 +79,20 @@ describe('parseModelInfo', () => {
     const result = parseModelInfo('unknown-model-xyz');
     expect(result.network).toBe('Remote');
     expect(result.modelShort).toBe('unknown-model-xyz');
+  });
+});
+
+describe('modelLabel', () => {
+  it('formats network + modelShort when both present', () => {
+    expect(modelLabel({ network: 'Anthropic', modelShort: 'sonnet 4.6' })).toBe('Anthropic: sonnet 4.6');
+  });
+
+  it('shows just network when modelShort is empty (avoids "Local: local")', () => {
+    expect(modelLabel({ network: 'Local', modelShort: '' })).toBe('Local');
+  });
+
+  it('formats local Qwen model', () => {
+    expect(modelLabel(parseModelInfo('qwen2.5:7b'))).toBe('Local: Qwen 2.5');
   });
 });
 
@@ -70,6 +116,40 @@ describe('humanizeTool', () => {
   it('falls back to capitalised underscore-split for unknown tools', () => {
     expect(humanizeTool('custom_tool')).toBe('Custom tool');
     expect(humanizeTool('some_long_tool_name')).toBe('Some long tool name');
+  });
+});
+
+describe('humanizeDetailKey', () => {
+  it('humanizes n_results → limit (the request cap, not result count)', () => {
+    expect(humanizeDetailKey('n_results')).toBe('limit');
+  });
+
+  it('humanizes start_line → from line', () => {
+    expect(humanizeDetailKey('start_line')).toBe('from line');
+  });
+
+  it('humanizes end_line → to line', () => {
+    expect(humanizeDetailKey('end_line')).toBe('to line');
+  });
+
+  it('humanizes cmd_preview → command', () => {
+    expect(humanizeDetailKey('cmd_preview')).toBe('command');
+  });
+
+  it('humanizes old_string → find', () => {
+    expect(humanizeDetailKey('old_string')).toBe('find');
+  });
+
+  it('humanizes new_string → replace', () => {
+    expect(humanizeDetailKey('new_string')).toBe('replace');
+  });
+
+  it('falls back to replacing underscores for unknown keys', () => {
+    expect(humanizeDetailKey('some_custom_key')).toBe('some custom key');
+  });
+
+  it('passes through keys with no underscores unchanged', () => {
+    expect(humanizeDetailKey('query')).toBe('query');
   });
 });
 

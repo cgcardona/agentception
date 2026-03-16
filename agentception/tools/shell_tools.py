@@ -312,6 +312,8 @@ async def run_command(
     # activity event — see docs/reference/activity-events.md
     if run_id and session is not None:
         try:
+            stdout_preview = "\n".join(stdout.splitlines()[:30])[:2000]
+            stderr_preview = "\n".join(stderr.splitlines()[:10])[:500] if stderr.strip() else ""
             activity_events.persist_activity_event(
                 session,
                 run_id,
@@ -320,6 +322,8 @@ async def run_command(
                     "exit_code": exit_code,
                     "stdout_bytes": len(raw_out),
                     "stderr_bytes": len(raw_err),
+                    "stdout_preview": stdout_preview,
+                    "stderr_preview": stderr_preview,
                 },
             )
             await session.flush()

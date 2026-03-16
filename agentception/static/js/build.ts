@@ -12,7 +12,7 @@
  */
 
 import { marked } from 'marked';
-import { attachActivityFeedHandler } from './activity_feed';
+import { attachActivityFeedHandler, resetFeedSession } from './activity_feed';
 import { attachEventCardHandler } from './event_card';
 import { attachFileEditHandler } from './file_edit_card';
 import { attachThoughtHandler } from './thought_block';
@@ -356,6 +356,29 @@ export function buildPage() {
     },
 
     renderMd,
+  };
+}
+
+// ── Agent detail page feed component ─────────────────────────────────────────
+
+/**
+ * Alpine component for the standalone agent detail page (/agents/{run_id}).
+ *
+ * Opens the same SSE stream used by the inspector panel and attaches all the
+ * same activity-feed handlers.  Works for both live and completed runs — for
+ * completed runs the stream drains all stored events then closes.
+ */
+export function agentDetailFeed(runId: string): { init(): void } {
+  return {
+    init(): void {
+      resetFeedSession();
+      const src = new EventSource(`/ship/runs/${encodeURIComponent(runId)}/stream`);
+      attachFileEditHandler(src);
+      attachActivityFeedHandler(src);
+      attachThoughtHandler(src);
+      attachToolCallHandler(src);
+      attachEventCardHandler(src);
+    },
   };
 }
 

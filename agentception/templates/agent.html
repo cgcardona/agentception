@@ -181,26 +181,12 @@
   <div></div>
   {% endif %}
 
-  {# ── Timeline (right) ─────────────────────────────────────────────────── #}
-  {% if events %}
-  <section class="card" aria-label="Timeline">
-    <h2 class="agent-section-title">Timeline</h2>
-    <ul class="build-timeline">
-      {% for ev in events %}
-      <li class="build-timeline__item build-timeline__item--{{ ev.event_type }}">
-        <span class="build-timeline__icon">{{ ev.icon }}</span>
-        <div class="build-timeline__body">
-          <span class="build-timeline__type">{{ ev.event_type | replace('_', ' ') }}</span>
-          <span class="build-timeline__detail">{{ ev.detail }}</span>
-          {%- if ev.recorded_at %}
-          <time class="build-timeline__time" title="{{ ev.recorded_at }}">
-            {{ ev.recorded_at[0:10] }} {{ ev.recorded_at[11:16] }} UTC
-          </time>
-          {%- endif %}
-        </div>
-      </li>
-      {% endfor %}
-    </ul>
+  {# ── Activity feed (right) ────────────────────────────────────────────── #}
+  {% if node and node.id %}
+  <section class="card agent-feed-section" aria-label="Activity"
+           x-data='agentDetailFeed({{ node.id | tojson }})'>
+    <h2 class="agent-section-title">Activity</h2>
+    <div id="activity-feed" class="agent-feed__feed" role="log" aria-live="polite" aria-label="Agent activity"></div>
   </section>
   {% else %}
   <div></div>
@@ -450,35 +436,6 @@
 </section>
 {% endif %}
 
-
-{# ══════════════════════════════════════════════════════════════════════════ #}
-{# CONVERSATION (collapsible)                                                   #}
-{# ══════════════════════════════════════════════════════════════════════════ #}
-{% set conv_messages = messages | selectattr('role', 'in', ['user', 'assistant']) | list %}
-{% if conv_messages %}
-<details class="agent-section-disclosure mt-2">
-  <summary class="agent-section-disclosure__summary">
-    Conversation <span class="agent-section-disclosure__count">({{ conv_messages | length }} messages)</span>
-  </summary>
-  <div class="transcript-container" id="transcript">
-    {% for msg in conv_messages %}
-    <div class="message message--{{ msg.role }}"
-         x-data='{ "expanded": {{ loop.last | tojson }} }'>
-      <div class="message-role">{{ msg.role }}</div>
-      <div class="message-body"
-           :class="expanded ? 'message-body--expanded' : 'message-body--collapsed'"
-           @click="expanded = !expanded">
-        <pre class="message-text">{{ msg.text if msg.text is defined else msg.content }}</pre>
-      </div>
-      <button class="message-expand-btn"
-              @click.stop="expanded = !expanded"
-              aria-label="Toggle full message"
-              x-text="expanded ? '▲ Collapse' : '▼ Expand'"></button>
-    </div>
-    {% endfor %}
-  </div>
-</details>
-{% endif %}
 
 {% endif %}{# node #}
 

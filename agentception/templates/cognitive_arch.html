@@ -95,13 +95,12 @@
   </div>
 
   {% if persona.prompt_prefix %}
-  <div class="cog-panel__prompt mt-2" style="padding:0.75rem 1rem;background:var(--bg-elevated);border-top:1px solid var(--border-subtle);">
-    <div class="cog-panel__section-label" style="margin-bottom:0.4rem;">Prompt Prefix</div>
-    {# Render the full prompt prefix as markdown — it is authored in markdown. #}
+  <details class="cog-panel__prompt-details">
+    <summary class="cog-panel__prompt-toggle">Prompt Prefix</summary>
     <div class="cog-panel__prompt-body"
          x-data
          x-init="$el.innerHTML = renderMd($el.textContent)">{{ persona.prompt_prefix }}</div>
-  </div>
+  </details>
   {% endif %}
 </div>
 

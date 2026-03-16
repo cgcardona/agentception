@@ -10,18 +10,35 @@
 export interface ModelInfo {
   /** Human-readable network/provider name: "Anthropic", "Local", "OpenAI", … */
   network: string;
-  /** Short model label: "sonnet 4.6", "opus 4.6", "local", … */
+  /**
+   * Short model label: "sonnet 4.6", "Qwen 2.5", …
+   * Empty string when the model is unknown local — display as just `network`.
+   */
   modelShort: string;
 }
 
 /**
+ * Format a ModelInfo into a display label.
+ * Shows "{network}: {modelShort}" when modelShort is known, otherwise "{network}".
+ */
+export function modelLabel(info: ModelInfo): string {
+  return info.modelShort ? `${info.network}: ${info.modelShort}` : info.network;
+}
+
+/**
  * Derive a network label and short model name from a raw model identifier.
+ * Handles Anthropic (claude-*), OpenAI (gpt-*, o1, o3), Google (gemini-*),
+ * and common local/Ollama model families (qwen*, llama*, mistral*, phi*, deepseek*).
  *
  * Examples:
- *   "claude-sonnet-4-6"  → { network: "Anthropic", modelShort: "sonnet 4.6" }
- *   "claude-opus-4-6"    → { network: "Anthropic", modelShort: "opus 4.6" }
- *   "local"              → { network: "Local",      modelShort: "local" }
- *   "gpt-4o"             → { network: "OpenAI",     modelShort: "gpt-4o" }
+ *   "claude-sonnet-4-6"   → { network: "Anthropic", modelShort: "sonnet 4.6" }
+ *   "claude-opus-4-6"     → { network: "Anthropic", modelShort: "opus 4.6" }
+ *   "qwen2.5-coder:7b"    → { network: "Local",     modelShort: "Qwen 2.5" }
+ *   "qwen3:14b"           → { network: "Local",     modelShort: "Qwen 3" }
+ *   "llama3.1:8b"         → { network: "Local",     modelShort: "Llama 3.1" }
+ *   "mistral:7b"          → { network: "Local",     modelShort: "Mistral" }
+ *   "local"               → { network: "Local",     modelShort: "" }
+ *   "gpt-4o"              → { network: "OpenAI",    modelShort: "gpt-4o" }
  */
 export function parseModelInfo(model: string): ModelInfo {
   const m = (model ?? '').trim();
@@ -47,8 +64,41 @@ export function parseModelInfo(model: string): ModelInfo {
   if (ml.startsWith('gemini')) {
     return { network: 'Google', modelShort: m };
   }
+
+  // Local/Ollama model families.
+  // Strip Ollama size tags (:7b, :14b, :latest) before matching family names.
+  const ollamaBase = ml.replace(/:.*$/, '');
+
+  if (ollamaBase.startsWith('qwen')) {
+    const match = ollamaBase.match(/qwen(\d+(?:\.\d+)?)/);
+    const ver = match?.[1] ?? '';
+    return { network: 'Local', modelShort: ver ? `Qwen ${ver}` : 'Qwen' };
+  }
+  if (ollamaBase.startsWith('llama')) {
+    const match = ollamaBase.match(/llama(\d+(?:\.\d+)?)/);
+    const ver = match?.[1] ?? '';
+    return { network: 'Local', modelShort: ver ? `Llama ${ver}` : 'Llama' };
+  }
+  if (ollamaBase.startsWith('mistral')) {
+    return { network: 'Local', modelShort: 'Mistral' };
+  }
+  if (ollamaBase.startsWith('phi')) {
+    const match = ollamaBase.match(/phi(\d+(?:\.\d+)?)/);
+    const ver = match?.[1] ?? '';
+    return { network: 'Local', modelShort: ver ? `Phi ${ver}` : 'Phi' };
+  }
+  if (ollamaBase.startsWith('deepseek')) {
+    return { network: 'Local', modelShort: 'DeepSeek' };
+  }
+  if (ollamaBase.startsWith('gemma')) {
+    const match = ollamaBase.match(/gemma(\d+(?:\.\d+)?)/);
+    const ver = match?.[1] ?? '';
+    return { network: 'Local', modelShort: ver ? `Gemma ${ver}` : 'Gemma' };
+  }
+
   if (ml === 'local') {
-    return { network: 'Local', modelShort: 'local' };
+    // Generic local placeholder — show just "Local" with no redundant suffix.
+    return { network: 'Local', modelShort: '' };
   }
   // Unknown model — show as-is with a generic network label
   return { network: 'Remote', modelShort: m };
@@ -59,6 +109,8 @@ export function parseModelInfo(model: string): ModelInfo {
 const TOOL_LABELS: Readonly<Record<string, string>> = {
   read_file:              'Read file',
   read_file_lines:        'Read file',
+  read_symbol:            'Read symbol',
+  read_window:            'Read window',
   get_file_contents:      'Read file',
   list_directory:         'List dir',
   write_file:             'Write file',
@@ -66,6 +118,7 @@ const TOOL_LABELS: Readonly<Record<string, string>> = {
   create_or_update_file:  'Write file',
   replace_in_file:        'Edit file',
   delete_file:            'Delete file',
+  find_call_sites:        'Find usages',
   search_codebase:        'Search',
   search_text:            'Search',
   grep_search:            'Grep',
@@ -98,6 +151,65 @@ export function humanizeTool(name: string): string {
   // Otherwise: replace underscores with spaces, capitalise first word
   const words = name.replace(/_/g, ' ');
   return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+// ── Arg key humanisation ───────────────────────────────────────────────────────
+
+/**
+ * Map of raw API/payload key names → human-readable labels for the detail panel.
+ * Keys not present here fall back to replacing underscores with spaces.
+ */
+const ARG_KEY_LABELS: Readonly<Record<string, string>> = {
+  // Search
+  n_results:       'limit',
+  num_results:     'results',
+  max_results:     'max results',
+  query:           'query',
+  // File operations
+  path:            'path',
+  file_path:       'path',
+  start_line:      'from line',
+  end_line:        'to line',
+  total_lines:     'total lines',
+  offset:          'offset',
+  limit:           'limit',
+  encoding:        'encoding',
+  // Shell / command
+  cmd_preview:     'command',
+  command:         'command',
+  cmd:             'command',
+  cwd:             'dir',
+  // Git / PR
+  branch:          'branch',
+  base:            'base',
+  head:            'head',
+  title:           'title',
+  body:            'body',
+  owner:           'owner',
+  repo:            'repo',
+  // Issue / PR numbers
+  issue_number:    'issue',
+  pull_number:     'PR',
+  number:          'number',
+  // Generic
+  message:         'message',
+  description:     'description',
+  content:         'content',
+  pattern:         'pattern',
+  glob:            'glob',
+  replacement:     'replacement',
+  old_string:      'find',
+  new_string:      'replace',
+};
+
+/**
+ * Return a human-readable label for a raw payload key name.
+ * Falls back to replacing underscores with spaces.
+ */
+export function humanizeDetailKey(key: string): string {
+  const label = ARG_KEY_LABELS[key];
+  if (label !== undefined) return label;
+  return key.replace(/_/g, ' ');
 }
 
 // ── Path shortening ────────────────────────────────────────────────────────────
