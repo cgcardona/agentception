@@ -60,6 +60,7 @@ ACTIVITY_SUBTYPES: frozenset[str] = frozenset(
         "git_push",
         "github_tool",
         "dir_listed",
+        "search_results",
         "delay",
         "error",
     }
@@ -175,6 +176,19 @@ class DirListedPayload(TypedDict):
     entries: str  # newline-delimited; split on "\n" to get individual names
 
 
+class SearchResultsPayload(TypedDict):
+    """Payload for ``search_results`` activity events.
+
+    Emitted after a successful ``search_codebase`` or ``search_text`` call.
+    ``files`` is a newline-delimited string of unique relative file paths that
+    contained at least one match.  ``result_count`` is the number of unique
+    files — a convenience field so the frontend need not split to count.
+    """
+
+    result_count: int
+    files: str  # newline-delimited; split on "\\n" to get individual paths
+
+
 class FileReplacedPayload(TypedDict):
     """Payload for ``file_replaced`` activity events.
 
@@ -264,6 +278,7 @@ SUBTYPE_TYPEDDICT_NAMES: dict[str, str] = {
     "git_push": "GitPushPayload",
     "github_tool": "GithubToolPayload",
     "dir_listed": "DirListedPayload",
+    "search_results": "SearchResultsPayload",
     "delay": "DelayPayload",
     "error": "ErrorPayload",
 }
