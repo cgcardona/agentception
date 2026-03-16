@@ -966,6 +966,7 @@ interface OrgDesignerComponent {
   editScope: 'full_initiative' | 'phase' | 'issue';
   editScopeLabel: string;
   editScopeIssueNumber: number | null;
+  editError: string | null;
   phases: PhaseItem[];
   issues: IssueItem[];
 
@@ -1071,6 +1072,7 @@ export function orgDesigner(): OrgDesignerComponent {
     editScope:            'full_initiative',
     editScopeLabel:       '',
     editScopeIssueNumber: null,
+    editError:            null,
     phases:               [],
     issues:               [],
 
@@ -1442,9 +1444,16 @@ export function orgDesigner(): OrgDesignerComponent {
     },
 
     applyEdit(): void {
+      this.editError = null;
       if (!this._root) return;
       const node = findNode(this._root, this.selectedNodeId ?? '');
       if (!node) return;
+
+      if (this.editScope === 'issue' && this.editScopeIssueNumber === null) {
+        this.editError = 'Select a ticket before applying.';
+        return;
+      }
+
       node.role             = this.editRole;
       node.figure           = this.editFigure;
       node.scope            = this.editScope;

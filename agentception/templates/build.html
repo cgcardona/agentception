@@ -624,6 +624,10 @@
 
           </div>
 
+          <template x-if="editError">
+            <p class="od-editor__error" x-text="editError"></p>
+          </template>
+
           <div class="od-editor__actions">
             <button class="od-editor__btn od-editor__btn--apply"
                     :disabled="!editRole"

@@ -1245,6 +1245,27 @@ async def _load_task_from_db(run_id: str) -> AgentTaskSpec | None:
         return None
 
 
+def _role_base_fallback(role: str) -> str | None:
+    """Return the base role slug to try when *role*'s file is missing.
+
+    Language- and domain-prefixed roles (e.g. ``python-developer``,
+    ``react-developer``, ``data-engineer``) share execution contracts with
+    their base family.  When the specific file is absent, loading the base
+    file is far better than returning an empty system prompt.
+
+    Returns ``None`` when no meaningful fallback exists (e.g. the role has no
+    ``-`` separator, or the suffix is not a known base family).
+    """
+    _BASE_FAMILIES = frozenset({
+        "developer", "coordinator", "engineer", "analyst",
+        "architect", "researcher", "writer", "programmer",
+    })
+    if "-" not in role:
+        return None
+    suffix = role.rsplit("-", 1)[-1]
+    return suffix if suffix in _BASE_FAMILIES else None
+
+
 def _load_role_prompt(role: str | None, variant: str | None = None) -> str:
     """Return the Markdown content of the role file for *role*.
 
@@ -1253,8 +1274,9 @@ def _load_role_prompt(role: str | None, variant: str | None = None) -> str:
     found.  If the variant file does not exist, it falls back to the base
     ``{role}.md`` file — the same behaviour as when *variant* is ``None``.
 
-    Falls back to an empty string when the role is unknown or the file is
-    missing, so the agent still has the system prompt's runtime note.
+    When the exact role file is missing, the function tries the role-family
+    base (e.g. ``python-developer`` → ``developer``) before giving up.  Falls
+    back to an empty string only when no role file can be found at all.
     """
     if not role:
         logger.warning("⚠️ _load_role_prompt — no role specified")
@@ -1275,17 +1297,32 @@ def _load_role_prompt(role: str | None, variant: str | None = None) -> str:
                 )
                 # Fall through to the base file.
 
-    # Base (default) role file.
+    # Try the exact role file.
     role_path = roles_dir / f"{role}.md"
     logger.info("Loading role file: %s (variant=%s)", role_path, variant)
     try:
         return role_path.read_text(encoding="utf-8")
     except FileNotFoundError:
-        logger.warning("⚠️ _load_role_prompt — role file not found: %s", role_path)
-        return ""
+        pass
     except OSError as exc:
         logger.warning("⚠️ _load_role_prompt — OS error reading %s: %s", role_path, exc)
         return ""
+
+    # Exact file missing — try the role-family base (python-developer → developer).
+    base = _role_base_fallback(role)
+    if base:
+        base_path = roles_dir / f"{base}.md"
+        try:
+            content = base_path.read_text(encoding="utf-8")
+            logger.info(
+                "✅ _load_role_prompt — using family fallback %s → %s", role, base
+            )
+            return content
+        except OSError:
+            pass
+
+    logger.warning("⚠️ _load_role_prompt — role file not found: %s", role_path)
+    return ""
 
 
 # ---------------------------------------------------------------------------
