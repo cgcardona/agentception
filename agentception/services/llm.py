@@ -953,7 +953,7 @@ async def call_anthropic_with_tools(
                 session,
                 run_id,
                 "llm_reply",
-                {"chars": len(content), "text_preview": content[:200]},
+                {"chars": len(content), "text_preview": content[:1500]},
             )
             await session.flush()
 
@@ -1193,7 +1193,7 @@ async def call_local_with_tools(
                 session,
                 run_id,
                 "llm_reply",
-                {"chars": len(content), "text_preview": content[:200]},
+                {"chars": len(content), "text_preview": content[:1500]},
             )
             await session.flush()
         persist_activity_event(

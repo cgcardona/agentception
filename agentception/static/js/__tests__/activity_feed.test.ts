@@ -584,6 +584,73 @@ describe('appendActivityRow', () => {
       const row = document.querySelector<HTMLElement>('.activity-feed__row');
       expect(row?.dataset['expandable']).toBeUndefined();
     });
+
+    describe('llm_reply expandable rows', () => {
+      it('llm_reply row gets data-expandable', () => {
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'llm_reply',
+          payload: { chars: 42, text_preview: 'Hello from the model.' },
+          recorded_at: '',
+        });
+        const row = document.querySelector<HTMLElement>('.activity-feed__row');
+        expect(row?.dataset['expandable']).toBe('true');
+      });
+
+      it('clicking llm_reply reveals text_preview in a pre block', () => {
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'llm_reply',
+          payload: { chars: 100, text_preview: 'I have analysed the issue.' },
+          recorded_at: '',
+        });
+        const row = document.querySelector<HTMLElement>('.activity-feed__row');
+        const detail = document.querySelector('.af__tool-detail');
+        expect(detail?.hasAttribute('hidden')).toBe(true);
+        row?.click();
+        expect(detail?.hasAttribute('hidden')).toBe(false);
+        const pre = detail?.querySelector('.af__content-preview');
+        expect(pre?.textContent).toBe('I have analysed the issue.');
+      });
+    });
+
+    describe('tool_invoked diff display', () => {
+      it('renders find/replace diff blocks for old_string and new_string', () => {
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'tool_invoked',
+          payload: {
+            tool_name: 'replace_in_file',
+            arg_preview: "{'old_string': 'foo', 'new_string': 'bar'}",
+          },
+          recorded_at: '',
+        });
+        const row = document.querySelector<HTMLElement>('.activity-feed__row');
+        row?.click();
+        const oldBlock = document.querySelector('.af__diff-block--old');
+        const newBlock = document.querySelector('.af__diff-block--new');
+        expect(oldBlock?.querySelector('.af__content-preview')?.textContent).toBe('foo');
+        expect(newBlock?.querySelector('.af__content-preview')?.textContent).toBe('bar');
+      });
+
+      it('suppresses the collection key in search args', () => {
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'tool_invoked',
+          payload: {
+            tool_name: 'search_codebase',
+            arg_preview: "{'collection': 'my-coll', 'n_results': 5, 'query': 'auth flow'}",
+          },
+          recorded_at: '',
+        });
+        const row = document.querySelector<HTMLElement>('.activity-feed__row');
+        row?.click();
+        const detail = document.querySelector('.af__tool-detail');
+        const text = detail?.textContent ?? '';
+        expect(text).not.toContain('my-coll');
+        expect(text).toContain('auth flow');
+      });
+    });
   });
 
   it('does NOT append a row for llm_done when tool calls follow', () => {

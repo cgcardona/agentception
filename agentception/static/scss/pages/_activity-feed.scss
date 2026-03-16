@@ -175,9 +175,7 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
-// ── File-read content preview ──────────────────────────────────────────────────
-// Shown inside .af__tool-detail--file-read when content_preview is present.
-// Rendered as a compact code block, not a key-value list.
+// ── Content preview (file reads, dir listings, llm replies) ───────────────────
 
 .af__content-preview {
   margin: 0;
@@ -193,15 +191,88 @@
   overflow-x: auto;
   max-height: 10rem;
   overflow-y: auto;
-  // Prevent the pre from stretching the panel wider than the feed column
   max-width: 100%;
   box-sizing: border-box;
+
+  // LLM reply preview may contain prose — allow wrapping.
+  &--reply {
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 14rem;
+    font-family: var(--font-sans, sans-serif);
+    font-size: 0.65rem;
+    line-height: 1.6;
+    color: rgba(255, 255, 255, 0.7);
+  }
 }
 
 [data-theme="light"] .af__content-preview {
   color: rgba(0, 0, 0, 0.65);
   background: rgba(0, 0, 0, 0.03);
   border-color: rgba(0, 0, 0, 0.08);
+
+  &--reply {
+    color: rgba(0, 0, 0, 0.75);
+  }
+}
+
+// ── Diff blocks (find / replace for str_replace / replace_in_file) ─────────────
+
+.af__diff-block {
+  margin-top: 0.4rem;
+
+  &:first-of-type { margin-top: 0.2rem; }
+
+  .af__diff-label {
+    display: block;
+    font-size: 0.55rem;
+    font-family: var(--font-mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 0.2rem;
+  }
+
+  &--old {
+    .af__diff-label { color: rgba(248, 113, 113, 0.6); }
+
+    .af__content-preview {
+      background: rgba(239, 68, 68, 0.06);
+      border-color: rgba(239, 68, 68, 0.15);
+      color: rgba(252, 165, 165, 0.85);
+    }
+  }
+
+  &--new {
+    .af__diff-label { color: rgba(52, 211, 153, 0.6); }
+
+    .af__content-preview {
+      background: rgba(16, 185, 129, 0.06);
+      border-color: rgba(16, 185, 129, 0.15);
+      color: rgba(110, 231, 183, 0.85);
+    }
+  }
+}
+
+[data-theme="light"] {
+  .af__diff-block--old {
+    .af__diff-label { color: rgba(185, 28, 28, 0.6); }
+
+    .af__content-preview {
+      background: rgba(239, 68, 68, 0.05);
+      border-color: rgba(239, 68, 68, 0.12);
+      color: rgba(185, 28, 28, 0.85);
+    }
+  }
+
+  .af__diff-block--new {
+    .af__diff-label { color: rgba(4, 120, 87, 0.6); }
+
+    .af__content-preview {
+      background: rgba(16, 185, 129, 0.05);
+      border-color: rgba(16, 185, 129, 0.12);
+      color: rgba(4, 120, 87, 0.85);
+    }
+  }
 }
 
 // ── Light mode overrides ───────────────────────────────────────────────────────
