@@ -1,9 +1,14 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}Agentception — The Singularity Is Here{% endblock %}</title>
+
+  <!-- Theme — set data-theme before first paint to prevent FOUC -->
+  <script>
+    (function(){var t=localStorage.getItem('ac_theme');if(!t)t=matchMedia('(prefers-color-scheme:light)').matches?'light':'dark';document.documentElement.setAttribute('data-theme',t)})();
+  </script>
 
   <!-- Inline SVG favicon — no 404 on /favicon.ico -->
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%238b5cf6'/><text x='50%25' y='56%25' dominant-baseline='middle' text-anchor='middle' font-size='18' font-family='monospace' fill='white'>⚡</text></svg>" />
@@ -79,6 +84,15 @@
         </template>
       </select>
     </div>
+
+    <button class="theme-toggle"
+            x-data="themeToggle()"
+            @click="toggle()"
+            :aria-label="label"
+            :title="label">
+      <span x-show="dark" x-cloak>&#9788;</span>
+      <span x-show="!dark" x-cloak>&#9790;</span>
+    </button>
   </nav>
 
   <main id="main-content" role="main">

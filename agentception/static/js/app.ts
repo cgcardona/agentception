@@ -29,6 +29,7 @@
  *   transcripts.js  🟡 — transcriptBrowser, transcriptDetail
  *   templates.js    🟡 — exportPanel, importPanel, envSandbox
  *   api.js          🟡 — apiEndpoint
+ *   theme_toggle.ts ✅ — themeToggle
  */
 
 'use strict';
@@ -40,6 +41,7 @@ import { controlsKill } from './controls.ts';
 import { buildPage, renderMd } from './build.ts';
 import { planForm } from './plan.ts';
 import { orgDesigner } from './org_designer.ts';
+import { themeToggle } from './theme_toggle.ts';
 
 // ── Legacy JS modules (converted when their pages are reactivated) ───────────
 import {
@@ -68,6 +70,7 @@ Object.assign(window as unknown as Record<string, unknown>, {
   renderMd,
   planForm,
   orgDesigner,
+  themeToggle,
   // JS modules (untyped until converted)
   pipelineDashboard, agentCard, phaseSwitcher, pipelineControl,
   sweepControl, waveControl, conductorModal, scalingAdvisor, prViolations,

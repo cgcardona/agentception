@@ -68,14 +68,14 @@
   display: none;
   position: absolute;
   z-index: 100;
-  background: var(--bg-overlay, #0f172a);
+  background: var(--bg-overlay);
   border: 1px solid var(--border-default);
   border-radius: 8px;
   padding: 8px 12px;
   pointer-events: none;
   font-size: 0.75rem;
   max-width: 220px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-md);
 }
 
 .org-tooltip-name {
@@ -125,13 +125,13 @@
   width: 100%;
 
   &:hover {
-    border-color: var(--border-hover, #475569);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-sm);
   }
 
   &--active {
-    border-color: #6366f1;
-    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-glow);
   }
 }
 
