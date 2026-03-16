@@ -14,7 +14,7 @@
  *   nav.ts          ✅ — projectSwitcher
  *   toast.ts        ✅ — toastStore
  *   controls.ts     ✅ — controlsKill
- *   build.ts        ✅ — buildPage, renderMd
+ *   build.ts        ✅ — buildPage, renderMd, agentDetailFeed
  *   plan.ts         ✅ — planForm
  *   org_designer.ts ✅ — orgDesigner
  *   overview.js     🟡 — pipelineDashboard, agentCard, phaseSwitcher,
@@ -38,7 +38,7 @@
 import { projectSwitcher } from './nav.ts';
 import { toastStore } from './toast.ts';
 import { controlsKill } from './controls.ts';
-import { buildPage, renderMd } from './build.ts';
+import { buildPage, renderMd, agentDetailFeed } from './build.ts';
 import { planForm } from './plan.ts';
 import { orgDesigner } from './org_designer.ts';
 import { themeToggle } from './theme_toggle.ts';
@@ -68,6 +68,7 @@ Object.assign(window as unknown as Record<string, unknown>, {
   controlsKill,
   buildPage,
   renderMd,
+  agentDetailFeed,
   planForm,
   orgDesigner,
   themeToggle,

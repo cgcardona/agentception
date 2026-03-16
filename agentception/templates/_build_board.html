@@ -21,37 +21,6 @@
   {%- if not group_complete and lane != 'done' %}@click='$dispatch("inspect-issue", {{ issue | tojson }})'{% endif %}
 >
 
-  {# ── Icon links (agent + cog-arch) — shown in active/pr/reviewing lanes only #}
-  {% if active_run and lane in ('active', 'pr_open', 'reviewing') %}
-  <div class="build-issue__icon-links">
-    <a class="build-issue__icon-link"
-       href="/agents/{{ active_run.id }}"
-       title="View agent transcript"
-       @click.stop>
-      <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M10 2h4v4"/>
-        <path d="M14 2L9 7"/>
-        <path d="M7 3H3a1 1 0 00-1 1v9a1 1 0 001 1h9a1 1 0 001-1V9"/>
-      </svg>
-    </a>
-    {% if active_run.cognitive_arch %}
-    <a class="build-issue__icon-link"
-       href="/cognitive-arch/{{ active_run.cognitive_arch | replace(':', '-') }}"
-       title="View cognitive architecture: {{ active_run.cognitive_arch }}"
-       @click.stop>
-      <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <circle cx="5" cy="5" r="2"/>
-        <circle cx="11" cy="5" r="2"/>
-        <circle cx="8" cy="12" r="2"/>
-        <line x1="7" y1="5" x2="9" y2="5"/>
-        <line x1="5.8" y1="6.8" x2="7.2" y2="10.2"/>
-        <line x1="10.2" y1="6.8" x2="8.8" y2="10.2"/>
-      </svg>
-    </a>
-    {% endif %}
-  </div>
-  {% endif %}
-
   {# ── Header: issue number + role label pill + state dot #}
   <div class="build-issue__header">
     <a class="build-issue__number" href="{{ issue.url }}" target="_blank" rel="noopener" @click.stop>

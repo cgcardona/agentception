@@ -526,6 +526,39 @@ async def inspector_partial(request: Request, run_id: str) -> HTMLResponse:
     )
 
 
+@router.get("/ui/runs/{run_id}/persona-card", response_class=HTMLResponse)
+async def persona_card_partial(request: Request, run_id: str) -> HTMLResponse:
+    """Return an inline persona mini-card HTML partial for the inspector panel.
+
+    Fetches the cognitive_arch string for *run_id* from the DB, resolves it via
+    ``resolve_cognitive_arch``, and renders ``_persona_card.html``.  Returns an
+    empty 204 when the run has no cognitive_arch so the HTMX swap is a no-op.
+    """
+    from agentception.routes.roles import resolve_cognitive_arch
+
+    cognitive_arch_str: str | None = None
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ACAgentRun.cognitive_arch).where(ACAgentRun.id == run_id)
+            )
+            raw = result.scalar_one_or_none()
+            cognitive_arch_str = str(raw) if raw is not None else None
+    except Exception:
+        cognitive_arch_str = None
+
+    if not cognitive_arch_str:
+        return HTMLResponse(content="", status_code=204)
+
+    persona = resolve_cognitive_arch(cognitive_arch_str)
+    arch_id = cognitive_arch_str.replace(":", "-")
+    return _TEMPLATES.TemplateResponse(
+        request,
+        "_persona_card.html",
+        {"persona": persona, "arch_id": arch_id},
+    )
+
+
 @router.get("/ship/runs/{run_id}/tree", response_class=Response, response_model=None)
 async def agent_run_tree(run_id: str) -> Response:
     """Return the full agent tree for the batch containing *run_id*.
