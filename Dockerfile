@@ -102,48 +102,12 @@ RUN npm ci --include=dev
 COPY agentception/requirements.txt /app/agentception/requirements.txt
 RUN pip install --no-cache-dir -r /app/agentception/requirements.txt
 
-# Pre-download all ONNX models used by code_indexer into the image layer.
-#
-# IMPORTANT — this step must stay BEFORE "COPY agentception/".  Docker layer
-# caching works top-down: any layer that changes invalidates all layers below
-# it.  If the download were placed after the COPY, every single code change
-# would bust the cache here and force a full 600 MB re-download.  Placing it
-# here means it is only re-run when requirements.txt changes (i.e. a fastembed
-# version bump) — which is exactly the right trigger.
-#
-# HF_TOKEN is passed as a build arg so HuggingFace Hub uses authenticated
-# requests, which have higher rate limits and avoid the unauthenticated-
-# request warning.  The token is declared as an ARG so it is NOT baked into
-# the image layer (Docker ARGs are not persisted in the final image env).
-#
-# HF_HOME is set to the agentception user's cache directory so the models
-# land in the same path the runtime app reads from.  Without this the build
-# runs as root and writes to /root/.cache — a cache miss every startup.
-#
-# Models baked here:
-#   - jinaai/jina-embeddings-v2-base-code  (embedding — TextEmbedding)
-#   - BAAI/bge-reranker-base               (reranker  — TextCrossEncoder)
-ARG HF_TOKEN=""
-# HOME must be set to the agentception user's home so that fastembed writes
-# its cache to /home/agentception/.cache/fastembed/ — fastembed derives its
-# cache root from Path.home(), not from HF_HOME.  Without this the build
-# (running as root) writes to /root/.cache/fastembed/, which is invisible to
-# the runtime agentception user and causes NO_SUCHFILE errors at startup.
-# HF_HOME controls the HuggingFace Hub SDK cache (model card metadata, etc.)
-# and must also point into the agentception user's directory.
-RUN HOME=/home/agentception \
-    HF_HOME=/home/agentception/.cache/huggingface \
-    HF_TOKEN=${HF_TOKEN} \
-    python3 -c "\
-from fastembed import TextEmbedding; \
-from fastembed.rerank.cross_encoder import TextCrossEncoder; \
-emb = TextEmbedding(model_name='jinaai/jina-embeddings-v2-base-code'); \
-list(emb.embed(['warm-up'])); \
-print('Embedding model pre-downloaded.'); \
-rnk = TextCrossEncoder(model_name='BAAI/bge-reranker-base'); \
-list(rnk.rerank('query', ['doc'])); \
-print('Reranker model pre-downloaded.')" \
-    && chown -R agentception:agentception /home/agentception/.cache
+# FastEmbed ONNX models are NOT downloaded at build time.
+# They are stored in the agentception-fastembed-cache named Docker volume and
+# verified / downloaded at container startup by entrypoint.sh.  This means:
+#   - docker compose build is fast (no 600 MB download per build)
+#   - models persist across every rebuild and restart
+#   - entrypoint.sh is self-healing: if the volume is empty it downloads once
 
 # Copy the full package.
 COPY agentception/ /app/agentception/
