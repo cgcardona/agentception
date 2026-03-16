@@ -109,6 +109,8 @@ export function parseModelInfo(model: string): ModelInfo {
 const TOOL_LABELS: Readonly<Record<string, string>> = {
   read_file:              'Read file',
   read_file_lines:        'Read file',
+  read_symbol:            'Read symbol',
+  read_window:            'Read window',
   get_file_contents:      'Read file',
   list_directory:         'List dir',
   write_file:             'Write file',
@@ -116,6 +118,7 @@ const TOOL_LABELS: Readonly<Record<string, string>> = {
   create_or_update_file:  'Write file',
   replace_in_file:        'Edit file',
   delete_file:            'Delete file',
+  find_call_sites:        'Find usages',
   search_codebase:        'Search',
   search_text:            'Search',
   grep_search:            'Grep',

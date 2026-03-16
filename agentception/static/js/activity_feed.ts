@@ -702,11 +702,20 @@ export function appendActivityRow(msg: ActivityMessage): void {
       detailPanel.setAttribute('data-list-dir-target', '');
     }
     // Tag search panels so search_results can inject file matches into them.
-    if (toolN === 'search_codebase' || toolN === 'search_text') {
+    if (
+      toolN === 'search_codebase' ||
+      toolN === 'search_text' ||
+      toolN === 'find_call_sites'
+    ) {
       detailPanel.setAttribute('data-search-target', '');
     }
-    // Tag read_file / read_file_lines panels so file_read can inject content previews.
-    if (toolN === 'read_file' || toolN === 'read_file_lines') {
+    // Tag all file-read tools so file_read can inject content previews.
+    if (
+      toolN === 'read_file' ||
+      toolN === 'read_file_lines' ||
+      toolN === 'read_symbol' ||
+      toolN === 'read_window'
+    ) {
       detailPanel.setAttribute('data-file-read-target', '');
     }
     // Tag run_command panels so shell_done can inject stdout preview into them.

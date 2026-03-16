@@ -2582,6 +2582,20 @@ async def _dispatch_local_tool(
         result = read_file_lines(resolved, start_raw, end_raw)
         if result.get("ok"):
             _auto_track_file_read(resolved, worktree_path)
+            if session is not None and run_id is not None:
+                raw_content = result.get("content")
+                if isinstance(raw_content, str) and raw_content:
+                    preview = "\n".join(raw_content.splitlines()[:20])[:1500]
+                    path_str = (
+                        str(resolved.relative_to(worktree_path))
+                        if resolved.is_relative_to(worktree_path)
+                        else str(resolved)
+                    )
+                    persist_activity_event(session, run_id, "file_read", {
+                        "path": path_str,
+                        "content_preview": preview,
+                    })
+                    await session.flush()
         return result
 
     if name == "replace_in_file":
@@ -2797,6 +2811,20 @@ async def _dispatch_local_tool(
         result = read_symbol(resolved, symbol_raw)
         if result.get("ok"):
             _auto_track_file_read(resolved, worktree_path)
+            if session is not None and run_id is not None:
+                raw_content = result.get("content")
+                if isinstance(raw_content, str) and raw_content:
+                    preview = "\n".join(raw_content.splitlines()[:20])[:1500]
+                    path_str = (
+                        str(resolved.relative_to(worktree_path))
+                        if resolved.is_relative_to(worktree_path)
+                        else str(resolved)
+                    )
+                    persist_activity_event(session, run_id, "file_read", {
+                        "path": path_str,
+                        "content_preview": preview,
+                    })
+                    await session.flush()
         return result
 
     if name == "read_window":
@@ -2817,6 +2845,20 @@ async def _dispatch_local_tool(
         result = read_window(resolved_rw, center_raw, before=before, after=after)
         if result.get("ok"):
             _auto_track_file_read(resolved_rw, worktree_path)
+            if session is not None and run_id is not None:
+                raw_content = result.get("content")
+                if isinstance(raw_content, str) and raw_content:
+                    preview = "\n".join(raw_content.splitlines()[:20])[:1500]
+                    path_str = (
+                        str(resolved_rw.relative_to(worktree_path))
+                        if resolved_rw.is_relative_to(worktree_path)
+                        else str(resolved_rw)
+                    )
+                    persist_activity_event(session, run_id, "file_read", {
+                        "path": path_str,
+                        "content_preview": preview,
+                    })
+                    await session.flush()
         return result
 
     if name == "find_call_sites":
@@ -2825,7 +2867,30 @@ async def _dispatch_local_tool(
             return {"ok": False, "error": "find_call_sites: 'symbol_name' must be a string"}
         n_raw = args.get("n_results", 30)
         n_results_fc = int(n_raw) if isinstance(n_raw, int) else 30
-        return await find_call_sites(symbol_raw, worktree_path, n_results=n_results_fc)
+        fc_result = await find_call_sites(symbol_raw, worktree_path, n_results=n_results_fc)
+        if fc_result.get("ok") and session is not None and run_id is not None:
+            raw_matches = fc_result.get("matches")
+            fc_files: list[str] = []
+            if isinstance(raw_matches, str) and raw_matches != "(no call sites found)":
+                fc_seen: set[str] = set()
+                for line in raw_matches.splitlines():
+                    stripped = line.strip()
+                    # rg --heading: file paths are non-empty, don't start with a
+                    # digit, and don't have a colon in the first 6 chars.
+                    if stripped and not stripped[0].isdigit() and ":" not in stripped[:6]:
+                        try:
+                            rel = str(Path(stripped).relative_to(worktree_path))
+                        except ValueError:
+                            rel = stripped
+                        if rel not in fc_seen:
+                            fc_seen.add(rel)
+                            fc_files.append(rel)
+            persist_activity_event(session, run_id, "search_results", {
+                "result_count": len(fc_files),
+                "files": "\n".join(fc_files),
+            })
+            await session.flush()
+        return fc_result
 
     if name == "update_working_memory":
         update = WorkingMemory()
