@@ -18,6 +18,11 @@ Coverage:
 - test_no_worktree_path_skips_rebase_and_dispatches_reviewer
     When get_agent_run_teardown returns no worktree_path the rebase block
     is skipped entirely and the reviewer is still dispatched.
+- test_label_dispatch_branch_forwarded_to_reviewer
+    Regression: org-chart (label) dispatches use agent/{slug}-{hex} branches.
+    The branch read from teardown_info must be forwarded as pr_branch to
+    auto_dispatch_reviewer so it fetches the correct remote ref instead of
+    defaulting to the nonexistent feat/issue-{N} name.
 
 Run targeted:
     pytest agentception/tests/test_build_commands_rebase.py -v
@@ -378,4 +383,101 @@ async def test_rebase_succeeds_with_empty_worktree_path_dict() -> None:
     task_names = [c.kwargs.get("name", "") for c in mock_create_task.call_args_list]
     assert "auto-reviewer-40" in task_names, (
         f"Expected auto-reviewer-40 task; got: {task_names}"
+    )
+
+
+@pytest.mark.anyio
+async def test_label_dispatch_branch_forwarded_to_reviewer() -> None:
+    """Regression: org-chart label runs use non-standard branches — must be forwarded.
+
+    Agents dispatched via POST /api/dispatch/label (e.g. from the org chart
+    Ticket-scope picker) receive a branch name like ``agent/{slug}-{hex}``,
+    NOT the ``feat/issue-{N}`` convention.  When the implementer calls
+    build_complete_run, the branch read from get_agent_run_teardown must be
+    passed as ``pr_branch`` to auto_dispatch_reviewer so it fetches the
+    correct remote ref — without this, the reviewer dispatch silently fails
+    with a 422 "branch not found" error and no reviewer is ever spawned.
+    """
+    from agentception.mcp.build_commands import build_complete_run
+
+    agent_run_id = "label-documentation-improvement-a1b2c3"
+    wt_path = "/worktrees/label-documentation-improvement-a1b2c3"
+    # This is the non-standard branch created by /api/dispatch/label.
+    non_standard_branch = "agent/documentation-improvement-a1b2"
+
+    fetch_proc = _make_proc(0)
+    rebase_proc = _make_proc(0)
+    rev_parse_proc = _make_proc(0, stdout=f"{non_standard_branch}\n".encode())
+    push_proc = _make_proc(0)
+    subprocess_calls = iter([fetch_proc, rebase_proc, rev_parse_proc, push_proc])
+
+    async def fake_create_subprocess_exec(*args: str | int | bool | float | None, **kwargs: str | int | bool | float | None) -> AsyncMock:
+        return next(subprocess_calls)
+
+    with (
+        patch(
+            "agentception.mcp.build_commands.persist_agent_event",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agentception.mcp.build_commands.complete_agent_run",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands.get_agent_run_role",
+            new_callable=AsyncMock,
+            return_value="developer",
+        ),
+        patch(
+            "agentception.mcp.build_commands.get_agent_run_teardown",
+            new_callable=AsyncMock,
+            return_value={
+                "worktree_path": wt_path,
+                "branch": non_standard_branch,
+            },
+        ),
+        patch(
+            "agentception.mcp.build_commands.asyncio.create_subprocess_exec",
+            side_effect=fake_create_subprocess_exec,
+        ),
+        patch(
+            "agentception.mcp.build_commands.release_worktree",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "agentception.mcp.build_commands.auto_dispatch_reviewer",
+            new_callable=AsyncMock,
+        ) as mock_reviewer,
+        patch(
+            "agentception.mcp.build_commands.asyncio.create_task",
+            side_effect=make_create_task_side_effect(),
+        ) as mock_create_task,
+    ):
+        result = await build_complete_run(
+            issue_number=1072,
+            pr_url="https://github.com/cgcardona/agentception/pull/1075",
+            agent_run_id=agent_run_id,
+        )
+
+    assert result == {"ok": True, "event": "done", "status": "completed"}
+
+    # The auto-reviewer task must have been scheduled.
+    task_names = [c.kwargs.get("name", "") for c in mock_create_task.call_args_list]
+    assert "auto-reviewer-1072" in task_names, (
+        f"Expected auto-reviewer-1072 task; got: {task_names}"
+    )
+
+    # The non-standard branch must have been forwarded as pr_branch.
+    # auto_dispatch_reviewer is called to produce the coroutine that create_task
+    # receives — inspect the call even though the coroutine is closed by the
+    # create_task mock without being awaited.
+    mock_reviewer.assert_called_once()
+    forwarded_branch = mock_reviewer.call_args.kwargs.get("pr_branch")
+    assert forwarded_branch == non_standard_branch, (
+        f"Expected pr_branch={non_standard_branch!r} forwarded to auto_dispatch_reviewer; "
+        f"got pr_branch={forwarded_branch!r}. "
+        "Without this, org-chart-dispatched runs never spawn a reviewer because "
+        "auto_dispatch_reviewer defaults to feat/issue-N which does not exist."
     )
