@@ -688,24 +688,37 @@ async def get_label_context(repo: str, initiative_label: str) -> LabelContext:
             )
             rows = result.all()
 
-        phase_counts: dict[str, int] = {}
+        # phase_label → (total_count, blocked_count)
+        phase_counts: dict[str, list[int]] = {}
         issues: list[IssueSummary] = []
 
         for number, title, labels_json_str, _state in rows:
             labels: list[str] = json.loads(labels_json_str or "[]")
             has_initiative = initiative_label in labels
+            is_blocked = "blocked/deps" in labels
 
             # Collect phase sub-labels (e.g. "ac-workflow/5-plan-step-v2")
             for lbl in labels:
                 if lbl.startswith(phase_prefix):
-                    phase_counts[lbl] = phase_counts.get(lbl, 0) + 1
+                    if lbl not in phase_counts:
+                        phase_counts[lbl] = [0, 0]
+                    phase_counts[lbl][0] += 1
+                    if is_blocked:
+                        phase_counts[lbl][1] += 1
 
             # Collect issues directly tagged with the top-level initiative label
             if has_initiative:
-                issues.append(IssueSummary(number=number, title=title or ""))
+                issues.append(IssueSummary(number=number, title=title or "", blocked=is_blocked))
 
         phases: list[PhaseSummary] = sorted(
-            [PhaseSummary(label=lbl, count=cnt) for lbl, cnt in phase_counts.items()],
+            [
+                PhaseSummary(
+                    label=lbl,
+                    count=counts[0],
+                    blocked=counts[0] > 0 and counts[0] == counts[1],
+                )
+                for lbl, counts in phase_counts.items()
+            ],
             key=lambda p: p["label"],
         )
         issues.sort(key=lambda i: i["number"])

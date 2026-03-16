@@ -499,6 +499,7 @@ class PhaseSummary(TypedDict):
 
     label: str
     count: int
+    blocked: bool  # True when every open issue in the phase carries "blocked/deps"
 
 
 
@@ -507,6 +508,7 @@ class IssueSummary(TypedDict):
 
     number: int
     title: str
+    blocked: bool  # True when the issue carries the "blocked/deps" label
 
 
 
