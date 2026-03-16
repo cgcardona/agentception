@@ -6,6 +6,7 @@ import {
   getSubtypeIcon,
   resetFeedStartTime,
   resetFeedSession,
+  clearFeed,
   formatRelativeTime,
   type ActivityMessage,
 } from '../activity_feed';
@@ -886,6 +887,33 @@ describe('resetFeedSession', () => {
     const header = document.getElementById('af-model-header');
     expect(header).not.toBeNull();
     expect(header?.textContent).toBe('Anthropic: 3.5');
+  });
+});
+
+describe('clearFeed', () => {
+  beforeEach(() => {
+    resetFeedSession();
+  });
+
+  it('removes all child nodes from #activity-feed', () => {
+    document.body.innerHTML = '<div id="activity-feed"><div class="row">old</div></div>';
+    clearFeed();
+    expect(document.getElementById('activity-feed')?.children.length).toBe(0);
+  });
+
+  it('resets feed session state so the next event starts at 0:00', () => {
+    document.body.innerHTML = '<div id="activity-feed"></div>';
+    // Seed a first timestamp so feedStartMs is non-null
+    formatRelativeTime('2026-03-15T12:00:00Z');
+    // clearFeed should reset that state
+    clearFeed();
+    expect(formatRelativeTime('2026-03-15T12:05:00Z')).toBe('0:00');
+  });
+
+  it('is a no-op when #activity-feed does not exist', () => {
+    document.body.innerHTML = '';
+    // Should not throw
+    expect(() => clearFeed()).not.toThrow();
   });
 });
 

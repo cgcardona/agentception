@@ -211,6 +211,18 @@ export function resetFeedSession(): void {
 }
 
 /**
+ * Clear the #activity-feed DOM element and reset all feed session state.
+ *
+ * Call this whenever the inspector switches to a different run so the previous
+ * run's rows don't bleed into the newly selected one.
+ */
+export function clearFeed(): void {
+  const feedEl = document.getElementById('activity-feed');
+  if (feedEl) feedEl.innerHTML = '';
+  resetFeedSession();
+}
+
+/**
  * Format recorded_at as a timer offset from the first feed event.
  * Uses M:SS notation: "now", "0:29", "1:05", "10:30".
  */
