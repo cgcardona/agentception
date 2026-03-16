@@ -1287,7 +1287,7 @@ $_sw-gap: 0.5rem;
 
   &--launch {
     background: var(--grad-accent);
-    color: var(--text-primary);
+    color: #fff;
     box-shadow: 0 2px 12px var(--accent-glow-strong);
     &:hover:not(:disabled) {
       background: linear-gradient(135deg, var(--accent), var(--accent-bright));
@@ -1342,7 +1342,7 @@ $_sw-gap: 0.5rem;
 
 .od-header__btn--save-confirm {
   background: var(--accent-hover);
-  color: var(--text-primary);
+  color: #fff;
   border: none;
   &:disabled { opacity: 0.3; cursor: not-allowed; }
   &:hover:not(:disabled) { background: var(--accent); }
@@ -2047,7 +2047,7 @@ $preset-accents: (
 
   &--apply {
     background: var(--grad-accent);
-    color: var(--text-primary);
+    color: #fff;
     box-shadow: 0 2px 10px var(--accent-glow-strong);
     &:hover:not(:disabled) {
       background: linear-gradient(135deg, var(--accent), var(--accent-bright));
@@ -2091,7 +2091,7 @@ $preset-accents: (
 
   &--active {
     background: var(--accent-hover);
-    color: var(--text-primary);
+    color: #fff;
   }
 }
 

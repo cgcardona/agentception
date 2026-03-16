@@ -66,12 +66,12 @@
 }
 
 .plan-step--active {
-  .plan-step-bubble { background: var(--accent-bright); color: var(--text-primary); }
+  .plan-step-bubble { background: var(--accent-bright); color: #fff; }
   .plan-step-label  { color: var(--accent-bright); }
 }
 
 .plan-step--done {
-  .plan-step-bubble { background: var(--success); color: var(--text-primary); }
+  .plan-step-bubble { background: var(--success); color: #fff; }
   .plan-step-label  { color: var(--success); }
 }
 
@@ -217,7 +217,7 @@
 .plan-options-badge {
   font-size: .72rem;
   background: var(--accent);
-  color: var(--text-primary);
+  color: #fff;
   border-radius: 3px;
   padding: .05rem .35rem;
 }
