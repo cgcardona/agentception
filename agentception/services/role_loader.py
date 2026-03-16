@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 _BASE_FAMILIES: frozenset[str] = frozenset({
     "developer", "coordinator", "engineer", "analyst",
     "architect", "researcher", "writer", "programmer",
+    "reviewer",
 })
 
 
