@@ -477,6 +477,62 @@ describe('appendActivityRow', () => {
       expect(keys).not.toContain('n_results');
     });
 
+    describe('file_read expandable rows', () => {
+      it('file_read row has data-expandable', () => {
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'file_read',
+          payload: {
+            path: 'src/main.py',
+            start_line: 1,
+            end_line: 10,
+            total_lines: 100,
+            content_preview: 'def main():\n    pass\n',
+          },
+          recorded_at: '',
+        });
+        const row = document.querySelector<HTMLElement>('.activity-feed__row');
+        expect(row?.dataset['expandable']).toBe('true');
+        expect(row?.getAttribute('aria-expanded')).toBe('false');
+      });
+
+      it('clicking file_read row reveals content preview', () => {
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'file_read',
+          payload: {
+            path: 'src/main.py',
+            start_line: 1,
+            end_line: 3,
+            total_lines: 50,
+            content_preview: 'def main():\n    pass\n',
+          },
+          recorded_at: '',
+        });
+        const row = document.querySelector<HTMLElement>('.activity-feed__row');
+        const detail = document.querySelector('.af__tool-detail');
+        expect(detail?.hasAttribute('hidden')).toBe(true);
+        row?.click();
+        expect(detail?.hasAttribute('hidden')).toBe(false);
+        const pre = detail?.querySelector('.af__content-preview');
+        expect(pre?.textContent).toBe('def main():\n    pass\n');
+      });
+
+      it('file_read without content_preview shows fallback note', () => {
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'file_read',
+          payload: { path: 'src/main.py', start_line: 1, end_line: 10, total_lines: 50 },
+          recorded_at: '',
+        });
+        const row = document.querySelector<HTMLElement>('.activity-feed__row');
+        row?.click();
+        const detail = document.querySelector('.af__tool-detail');
+        expect(detail?.querySelector('.af__content-preview')).toBeNull();
+        expect(detail?.querySelector('.af__detail-val')?.textContent).toContain('no preview');
+      });
+    });
+
     it('non-tool rows (shell_done) do not get data-expandable', () => {
       appendActivityRow({
         t: 'activity',
