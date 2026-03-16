@@ -51,6 +51,17 @@
     font-size: 0.695rem;
   }
 
+  // Expandable tool rows: 4-column grid (chevron at end), pointer cursor
+  &[data-expandable] {
+    grid-template-columns: 1.25rem 1fr auto 0.875rem;
+    cursor: pointer;
+    user-select: none;
+
+    &[aria-expanded="true"] {
+      .af__chevron svg { transform: rotate(90deg); }
+    }
+  }
+
   // Tool invoked: sans-serif label, mono value — visually separates category from data
   .af__tool-label {
     font-family: var(--font-sans, sans-serif);
@@ -64,6 +75,26 @@
   .af__tool-value {
     font-family: var(--font-mono);
     color: rgba(255, 255, 255, 0.82);
+  }
+
+  // Chevron expand indicator
+  .af__chevron {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.12);
+    transition: color 0.1s;
+    flex-shrink: 0;
+
+    svg {
+      width: 9px;
+      height: 9px;
+      transition: transform 0.15s ease;
+    }
+  }
+
+  &[data-expandable]:hover .af__chevron {
+    color: rgba(255, 255, 255, 0.4);
   }
 
   // File writes are highlighted
@@ -115,7 +146,68 @@
   }
 }
 
+// ── Tool call detail panel ─────────────────────────────────────────────────────
+// Sibling to .activity-feed__row[data-expandable]; toggled via `hidden` attr.
+// Left-padded to align with the summary column (nested row indent + icon + gap).
+
+.af__tool-detail {
+  padding: 0.3rem 0.75rem 0.4rem calc(1.4rem + 1.25rem + 0.4rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  border-left: 2px solid transparent;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+
+  &[hidden] { display: none; }
+}
+
+.af__detail-line {
+  display: flex;
+  gap: 0.6rem;
+  min-width: 0;
+  font-size: 0.625rem;
+  line-height: 1.6;
+}
+
+.af__detail-key {
+  font-family: var(--font-sans, sans-serif);
+  color: rgba(255, 255, 255, 0.3);
+  flex-shrink: 0;
+  min-width: 3.5rem;
+}
+
+.af__detail-val {
+  font-family: var(--font-mono);
+  color: rgba(255, 255, 255, 0.72);
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
 // ── Light mode overrides ───────────────────────────────────────────────────────
+
+[data-theme="light"] .af__tool-detail {
+  background: rgba(0, 0, 0, 0.02);
+  border-bottom-color: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] .af__detail-key {
+  color: rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="light"] .af__detail-val {
+  color: rgba(0, 0, 0, 0.75);
+}
+
+[data-theme="light"] .activity-feed__row[data-expandable] .af__chevron {
+  color: rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="light"] .activity-feed__row[data-expandable]:hover .af__chevron {
+  color: rgba(0, 0, 0, 0.4);
+}
 
 [data-theme="light"] .activity-feed__row {
   color: rgba(0, 0, 0, 0.55);

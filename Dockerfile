@@ -95,7 +95,7 @@ RUN ARCH=$(dpkg --print-architecture) \
 # Install Node.js dependencies — Linux-native binaries baked into the image.
 # A named volume (node_modules) in docker-compose preserves this layer at runtime
 # so the ./:/app bind mount cannot shadow it with macOS host binaries.
-COPY package.json package-lock.json tsconfig.json /app/
+COPY package.json package-lock.json tsconfig.json vitest.config.ts /app/
 RUN npm ci --include=dev
 
 # Install Python dependencies.

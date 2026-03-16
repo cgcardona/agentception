@@ -21,6 +21,9 @@ import {
   parseModelInfo,
   modelLabel,
 } from './format_utils';
+
+/** Subtypes that support click-to-expand args detail. */
+const EXPANDABLE_SUBTYPES = new Set(['tool_invoked', 'github_tool']);
 import { getCurrentAppendTarget, resetStepContext } from './step_context';
 
 /** SSE activity message shape from the inspector stream. */
@@ -252,6 +255,52 @@ function buildToolSummary(summaryText: string): HTMLElement {
 }
 
 /**
+ * Build the collapsible args detail panel for a tool_invoked / github_tool row.
+ * Hidden by default; shown when the parent row is expanded.
+ * All content set via textContent — no innerHTML with payload data.
+ */
+function buildToolDetail(payload: Record<string, unknown>): HTMLElement {
+  const panel = document.createElement('div');
+  panel.className = 'af__tool-detail';
+  panel.setAttribute('hidden', '');
+
+  const argPreview = str(payload, 'arg_preview');
+  const parsed = parseArgsRaw(argPreview);
+
+  if (parsed !== null && Object.keys(parsed).length > 0) {
+    for (const [key, val] of Object.entries(parsed)) {
+      const line = document.createElement('div');
+      line.className = 'af__detail-line';
+
+      const k = document.createElement('span');
+      k.className = 'af__detail-key';
+      k.textContent = key;
+
+      const v = document.createElement('span');
+      v.className = 'af__detail-val';
+      v.textContent = typeof val === 'string'
+        ? val
+        : JSON.stringify(val, null, 2);
+
+      line.appendChild(k);
+      line.appendChild(v);
+      panel.appendChild(line);
+    }
+  } else if (argPreview && argPreview !== '{}') {
+    // Couldn't parse — show raw preview
+    const line = document.createElement('div');
+    line.className = 'af__detail-line';
+    const v = document.createElement('span');
+    v.className = 'af__detail-val';
+    v.textContent = argPreview;
+    line.appendChild(v);
+    panel.appendChild(line);
+  }
+
+  return panel;
+}
+
+/**
  * Build the summary element for llm_iter rows.
  * Shows "{network}: {modelShort}" or just "{network}" when the model is unknown.
  */
@@ -325,9 +374,46 @@ export function appendActivityRow(msg: ActivityMessage): void {
   row.appendChild(summaryEl);
   row.appendChild(ts);
 
+  // Expandable tool rows: chevron + detail panel
+  const isExpandable = EXPANDABLE_SUBTYPES.has(msg.subtype);
+  let detailPanel: HTMLElement | null = null;
+
+  if (isExpandable) {
+    row.dataset['expandable'] = 'true';
+    row.setAttribute('role', 'button');
+    row.setAttribute('aria-expanded', 'false');
+    row.setAttribute('tabindex', '0');
+
+    const chevron = document.createElement('span');
+    chevron.className = 'af__chevron';
+    chevron.setAttribute('aria-hidden', 'true');
+    // eslint-disable-next-line no-unsanitized/property
+    chevron.innerHTML = icons.chevronRight;
+    row.appendChild(chevron);
+
+    detailPanel = buildToolDetail(msg.payload);
+
+    const toggle = (): void => {
+      const isOpen = row.getAttribute('aria-expanded') === 'true';
+      row.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+      if (isOpen) {
+        detailPanel?.setAttribute('hidden', '');
+      } else {
+        detailPanel?.removeAttribute('hidden');
+      }
+    };
+    row.addEventListener('click', toggle);
+    row.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+    });
+  }
+
   // Route into the current step body, or the feed root if no step is open.
   const target = getCurrentAppendTarget(feed);
   target.appendChild(row);
+  if (detailPanel !== null) {
+    target.appendChild(detailPanel);
+  }
 
   if (shouldAutoScroll(feed)) {
     feed.scrollTop = feed.scrollHeight;
