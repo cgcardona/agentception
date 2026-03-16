@@ -423,7 +423,7 @@ describe('appendActivityRow', () => {
       expect(row?.getAttribute('aria-expanded')).toBe('false');
     });
 
-    it('detail panel shows parsed arg key-value pairs', () => {
+    it('detail panel humanizes key names (path stays as path, n_results → results)', () => {
       appendActivityRow({
         t: 'activity',
         subtype: 'tool_invoked',
@@ -436,6 +436,45 @@ describe('appendActivityRow', () => {
       const vals = Array.from(document.querySelectorAll('.af__detail-val')).map(el => el.textContent);
       expect(keys).toContain('path');
       expect(vals.some(v => v?.includes('main.py'))).toBe(true);
+    });
+
+    it('detail panel collapses start_line + end_line into a single "lines: N–M" entry', () => {
+      appendActivityRow({
+        t: 'activity',
+        subtype: 'tool_invoked',
+        payload: {
+          tool_name: 'read_file',
+          arg_preview: '{"path": "src/main.py", "start_line": 10, "end_line": 50}',
+        },
+        recorded_at: '',
+      });
+      const row = document.querySelector<HTMLElement>('.activity-feed__row');
+      row?.click();
+      const keys = Array.from(document.querySelectorAll('.af__detail-key')).map(el => el.textContent);
+      const vals = Array.from(document.querySelectorAll('.af__detail-val')).map(el => el.textContent);
+      // start_line and end_line should not appear as separate keys
+      expect(keys).not.toContain('from line');
+      expect(keys).not.toContain('to line');
+      // They should be collapsed into a single "lines" entry
+      expect(keys).toContain('lines');
+      expect(vals.some(v => v === '10–50')).toBe(true);
+    });
+
+    it('detail panel humanizes n_results to "results"', () => {
+      appendActivityRow({
+        t: 'activity',
+        subtype: 'tool_invoked',
+        payload: {
+          tool_name: 'search_codebase',
+          arg_preview: '{"query": "auth flow", "n_results": 10}',
+        },
+        recorded_at: '',
+      });
+      const row = document.querySelector<HTMLElement>('.activity-feed__row');
+      row?.click();
+      const keys = Array.from(document.querySelectorAll('.af__detail-key')).map(el => el.textContent);
+      expect(keys).toContain('results');
+      expect(keys).not.toContain('n_results');
     });
 
     it('non-tool rows (shell_done) do not get data-expandable', () => {
