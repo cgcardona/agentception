@@ -526,19 +526,106 @@ async def _backfill_search_results(session: AsyncSession) -> int:
 # 4. file_read content_preview back-fill
 # ---------------------------------------------------------------------------
 
+_LOREM_IPSUM = """\
+Lorem ipsum dolor sit amet, consectetur adipiscing elit.  Sed do eiusmod tempor
+incididunt ut labore et dolore magna aliqua.  Ut enim ad minim veniam, quis
+nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu
+fugiat nulla pariatur.  Excepteur sint occaecat cupidatat non proident, sunt in
+culpa qui officia deserunt mollit anim id est laborum.
+
+# Historical run — real content not stored
+# This placeholder was inserted by retrofit_activity_events.py so the
+# file-read preview UX can be validated against existing data.
+"""
+
+
 async def _backfill_file_read(session: AsyncSession) -> int:
-    """Placeholder — file_read content_preview retrofit is not feasible for historical data.
+    """Insert placeholder file_read events for historical read_file invocations.
 
-    Historical agent_messages rows store tool_name=NULL for all tool results, so
-    individual read_file results cannot be reliably matched to their invocation events.
-    File content previews are captured for new runs automatically; historical runs
-    will show no preview when the read_file detail panel is expanded.
+    Historical agent_messages rows do not store tool_name, so individual
+    read_file results cannot be matched to invocation events.  A lorem-ipsum
+    placeholder is written instead, purely so the content-preview UI can be
+    validated against existing runs.
 
-    Returns 0 always.
+    Returns the number of placeholder events inserted.
     """
-    _ = session  # session unused — kept for interface consistency
-    log.info("file_read   — content_preview retrofit not applicable for historical data (tool_name not stored in agent_messages)")
-    return 0
+    needs_backfill: list[str] = [
+        r[0]
+        for r in (
+            await session.execute(
+                text("""
+                    SELECT DISTINCT agent_run_id
+                    FROM agent_events
+                    WHERE event_type = 'activity'
+                      AND (payload::jsonb)->>'subtype' = 'tool_invoked'
+                      AND (payload::jsonb)->>'tool_name' = 'read_file'
+                      AND agent_run_id NOT IN (
+                          SELECT DISTINCT agent_run_id
+                          FROM agent_events
+                          WHERE (payload::jsonb)->>'subtype' = 'file_read'
+                      )
+                    ORDER BY 1
+                """)
+            )
+        ).fetchall()
+    ]
+
+    if not needs_backfill:
+        log.info("file_read   — nothing to backfill")
+        return 0
+
+    log.info("file_read   — runs needing placeholder backfill: %s", needs_backfill)
+    total_inserted = 0
+
+    for run_id in needs_backfill:
+        invocations: list[_ToolInvoked] = [
+            {"event_id": r[0], "run_id": run_id, "recorded_at": r[1]}
+            for r in (
+                await session.execute(
+                    text("""
+                        SELECT id, recorded_at
+                        FROM agent_events
+                        WHERE agent_run_id = :run_id
+                          AND event_type = 'activity'
+                          AND (payload::jsonb)->>'subtype' = 'tool_invoked'
+                          AND (payload::jsonb)->>'tool_name' = 'read_file'
+                        ORDER BY recorded_at
+                    """),
+                    {"run_id": run_id},
+                )
+            ).fetchall()
+        ]
+
+        inserted = 0
+        for invocation in invocations:
+            emit_at = invocation["recorded_at"] + datetime.timedelta(seconds=1)
+            payload = json.dumps({
+                "subtype": "file_read",
+                "path": "",
+                "content_preview": _LOREM_IPSUM,
+            })
+            if not DRY_RUN:
+                await session.execute(
+                    text("""
+                        INSERT INTO agent_events
+                            (agent_run_id, issue_number, event_type, payload, recorded_at)
+                        VALUES
+                            (:run_id, NULL, 'activity', :payload, :recorded_at)
+                    """),
+                    {"run_id": run_id, "payload": payload, "recorded_at": emit_at},
+                )
+            log.info(
+                "file_read   — %s run=%s placeholder inserted%s",
+                "[DRY]" if DRY_RUN else "[INSERT]",
+                run_id,
+                " (dry-run, not written)" if DRY_RUN else "",
+            )
+            inserted += 1
+
+        total_inserted += inserted
+
+    return total_inserted
 
 
 # ---------------------------------------------------------------------------
