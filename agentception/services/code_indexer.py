@@ -1307,6 +1307,18 @@ async def search_codebase(
         return _result2
 
     except Exception as exc:
-        logger.warning("📊 search_codebase FAILED query=%r exc=%s RSS=%dMB elapsed=%.1fs", query[:60], exc, _p_sc.memory_info().rss // 1024 // 1024, _time_sc.monotonic() - _sc_t0)
-        logger.warning("⚠️ code_indexer — search failed: %s", exc)
+        exc_str = str(exc)
+        # 404 means the collection does not exist yet (worktree not indexed).
+        # This is expected during the recon phase of a fresh agent run and is
+        # not an error — log at INFO so it does not alarm operators.
+        if "404" in exc_str or "Not Found" in exc_str:
+            logger.info(
+                "ℹ️ search_codebase — collection not yet indexed, returning empty "
+                "results (query=%r elapsed=%.1fs)",
+                query[:60],
+                _time_sc.monotonic() - _sc_t0,
+            )
+        else:
+            logger.warning("📊 search_codebase FAILED query=%r exc=%s RSS=%dMB elapsed=%.1fs", query[:60], exc, _p_sc.memory_info().rss // 1024 // 1024, _time_sc.monotonic() - _sc_t0)
+            logger.warning("⚠️ code_indexer — search failed: %s", exc)
         return []
