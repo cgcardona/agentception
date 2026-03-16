@@ -124,7 +124,15 @@ RUN pip install --no-cache-dir -r /app/agentception/requirements.txt
 #   - jinaai/jina-embeddings-v2-base-code  (embedding — TextEmbedding)
 #   - BAAI/bge-reranker-base               (reranker  — TextCrossEncoder)
 ARG HF_TOKEN=""
-RUN HF_HOME=/home/agentception/.cache/huggingface \
+# HOME must be set to the agentception user's home so that fastembed writes
+# its cache to /home/agentception/.cache/fastembed/ — fastembed derives its
+# cache root from Path.home(), not from HF_HOME.  Without this the build
+# (running as root) writes to /root/.cache/fastembed/, which is invisible to
+# the runtime agentception user and causes NO_SUCHFILE errors at startup.
+# HF_HOME controls the HuggingFace Hub SDK cache (model card metadata, etc.)
+# and must also point into the agentception user's directory.
+RUN HOME=/home/agentception \
+    HF_HOME=/home/agentception/.cache/huggingface \
     HF_TOKEN=${HF_TOKEN} \
     python3 -c "\
 from fastembed import TextEmbedding; \
