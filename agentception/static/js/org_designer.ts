@@ -1000,6 +1000,7 @@ interface OrgDesignerComponent {
   readonly filteredRoleGroups: RoleGroup[];
   readonly filteredFigures: FigureItem[];
   readonly availableEditTypes: Array<'coordinator' | 'worker'>;
+  readonly scopeError: string;
   readonly launchReady: boolean;
   readonly launchPreviewText: string;
   readonly activePresetName: string;
@@ -1131,8 +1132,24 @@ export function orgDesigner(): OrgDesignerComponent {
       return availableChildTypes(this.editParentRole);
     },
 
+    /** Non-empty string when the current org tree has a scope configuration
+     *  error that must be resolved before launching. */
+    get scopeError(): string {
+      if (!this._root) return '';
+      if (this._root.scope === 'issue' && this._root.scopeIssueNumber === null) {
+        return 'Select a ticket: open the node editor, choose Ticket scope, and pick a ticket.';
+      }
+      return '';
+    },
+
     get launchReady(): boolean {
-      return !!(this._root && this._root.role && !this.launching && !this.launchSuccess);
+      return !!(
+        this._root &&
+        this._root.role &&
+        !this.scopeError &&
+        !this.launching &&
+        !this.launchSuccess
+      );
     },
 
     get launchPreviewText(): string {

@@ -339,7 +339,10 @@
     </template>
 
     {# Error / success feedback #}
-    <template x-if="launchError">
+    <template x-if="scopeError">
+      <span class="od-header__launch-err" x-text="scopeError"></span>
+    </template>
+    <template x-if="!scopeError && launchError">
       <span class="od-header__launch-err" x-text="launchError"></span>
     </template>
     <template x-if="launchSuccess && launchResult">
