@@ -205,7 +205,15 @@
     <div class="build-swimlane__phase-label" @click="open = !open">
       <div class="build-swimlane__phase-label-top">
         <span class="build-phase__icon">
-          {%- if group.complete %}✅{%- elif group.locked %}🔒{%- elif not group.issues %}○{%- else %}🔓{%- endif %}
+          {%- if group.complete -%}
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="2,7 5.5,10.5 12,4"/></svg>
+          {%- elif group.locked -%}
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6.5" width="10" height="6.5" rx="1.5"/><path d="M4.5 6.5V4.5a2.5 2.5 0 0 1 5 0v2"/></svg>
+          {%- elif not group.issues -%}
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="5"/></svg>
+          {%- else -%}
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6.5" width="10" height="6.5" rx="1.5"/><path d="M4.5 6.5V4.5a2.5 2.5 0 0 1 4.5-1.6"/></svg>
+          {%- endif -%}
         </span>
         <span class="build-phase__label">{{ phase_slug }}</span>
         <span class="build-phase__chevron" :class="{ 'build-phase__chevron--open': open }">›</span>
