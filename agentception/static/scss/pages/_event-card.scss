@@ -1,3 +1,37 @@
+// ── Step group — collapsible section wrapper ───────────────────────────────────
+//
+// event_card.ts wraps a step_start header + all subsequent activity rows inside
+// a .step-group div. When the next step arrives the previous group is collapsed.
+// Clicking the step header toggles .step-group--collapsed on the group.
+
+.step-group {
+  // No extra visual chrome — the header and body render as if they were at root.
+
+  &__body {
+    // Rows are hidden when the group is collapsed.
+  }
+
+  // Collapsed state: hide the body.
+  &--collapsed {
+    .step-group__body {
+      display: none;
+    }
+
+    // Rotate the chevron to show "expand" affordance.
+    .event-card[data-event-type='step_start'] .event-card__icon svg {
+      transform: rotate(0deg);
+    }
+  }
+
+  // Expanded/current state: chevron rotated 90° so the triangle points down.
+  &--current,
+  &:not(.step-group--collapsed) {
+    .event-card[data-event-type='step_start'] .event-card__icon svg {
+      transform: rotate(90deg);
+    }
+  }
+}
+
 // ── Event card ────────────────────────────────────────────────────────────────
 // Structured MCP lifecycle events: step_start, blocker, decision, done,
 // message (free-form agent note), error (structured MCP error).
@@ -17,7 +51,7 @@
   border-left: 2px solid transparent;
   line-height: 1.9;
 
-  // Step start: full-width section divider
+  // Step start: full-width section divider + click-to-collapse affordance
   &[data-event-type='step_start'] {
     margin-top: 0.5rem;
     padding-top: 0.4rem;
@@ -29,17 +63,27 @@
     font-weight: 700;
     letter-spacing: 0.1em;
     text-transform: uppercase;
+    cursor: pointer;
+    user-select: none;
 
-    // First step_start has no top separator
-    &:first-child {
+    &:hover {
+      color: rgba(255, 255, 255, 0.6);
+    }
+
+    // First step_start inside a group — no extra top separator needed
+    // since the group itself provides the separator.
+    .step-group:first-child & {
       margin-top: 0;
       border-top: none;
     }
 
     .event-card__icon {
       color: rgba(255, 255, 255, 0.3);
-      // Slightly smaller play triangle
-      svg { width: 9px; height: 9px; }
+      svg {
+        width: 9px;
+        height: 9px;
+        transition: transform 0.15s ease;
+      }
     }
   }
 
@@ -103,6 +147,10 @@
   &[data-event-type='step_start'] {
     border-top-color: rgba(0, 0, 0, 0.08);
     color: rgba(0, 0, 0, 0.4);
+
+    &:hover {
+      color: rgba(0, 0, 0, 0.65);
+    }
 
     .event-card__icon {
       color: rgba(0, 0, 0, 0.25);

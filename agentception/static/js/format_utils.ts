@@ -5,6 +5,55 @@
  * (structured tool-call cards). Keep this module free of DOM and icon imports.
  */
 
+// ── Model info ────────────────────────────────────────────────────────────────
+
+export interface ModelInfo {
+  /** Human-readable network/provider name: "Anthropic", "Local", "OpenAI", … */
+  network: string;
+  /** Short model label: "sonnet 4.6", "opus 4.6", "local", … */
+  modelShort: string;
+}
+
+/**
+ * Derive a network label and short model name from a raw model identifier.
+ *
+ * Examples:
+ *   "claude-sonnet-4-6"  → { network: "Anthropic", modelShort: "sonnet 4.6" }
+ *   "claude-opus-4-6"    → { network: "Anthropic", modelShort: "opus 4.6" }
+ *   "local"              → { network: "Local",      modelShort: "local" }
+ *   "gpt-4o"             → { network: "OpenAI",     modelShort: "gpt-4o" }
+ */
+export function parseModelInfo(model: string): ModelInfo {
+  const m = (model ?? '').trim();
+  const ml = m.toLowerCase();
+
+  if (ml.startsWith('claude-')) {
+    const afterClaude = m.slice('claude-'.length); // e.g. "sonnet-4-6"
+    const parts = afterClaude.split('-').filter(Boolean);
+    if (parts.length >= 3) {
+      // family + major.minor  e.g. ["sonnet", "4", "6"] → "sonnet 4.6"
+      const family = parts.slice(0, -2).join('-');
+      const ver = `${parts[parts.length - 2]}.${parts[parts.length - 1]}`;
+      return { network: 'Anthropic', modelShort: `${family} ${ver}`.trim() };
+    }
+    if (parts.length === 2) {
+      return { network: 'Anthropic', modelShort: `${parts[0]}.${parts[1]}` };
+    }
+    return { network: 'Anthropic', modelShort: afterClaude };
+  }
+  if (ml.startsWith('gpt-') || ml.startsWith('o1') || ml.startsWith('o3')) {
+    return { network: 'OpenAI', modelShort: m };
+  }
+  if (ml.startsWith('gemini')) {
+    return { network: 'Google', modelShort: m };
+  }
+  if (ml === 'local') {
+    return { network: 'Local', modelShort: 'local' };
+  }
+  // Unknown model — show as-is with a generic network label
+  return { network: 'Remote', modelShort: m };
+}
+
 // ── Tool humanisation ──────────────────────────────────────────────────────────
 
 const TOOL_LABELS: Readonly<Record<string, string>> = {

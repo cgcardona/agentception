@@ -7,10 +7,20 @@
  *
  * Smart scroll: new rows scroll the feed only when the user is already near
  * the bottom — reading old content is never interrupted.
+ *
+ * Step grouping: rows are appended into the current step group body (managed
+ * by step_context.ts) so they collapse when the next step starts.
  */
 
 import * as icons from './icons';
-import { humanizeTool, parseArgsRaw, formatArgsCompact, shortenPath } from './format_utils';
+import {
+  humanizeTool,
+  parseArgsRaw,
+  formatArgsCompact,
+  shortenPath,
+  parseModelInfo,
+} from './format_utils';
+import { getCurrentAppendTarget, resetStepContext } from './step_context';
 
 /** SSE activity message shape from the inspector stream. */
 export interface ActivityMessage {
@@ -60,13 +70,15 @@ export function shouldAutoScroll(feed: HTMLElement): boolean {
 /**
  * Human-readable one-line summary from subtype and payload.
  * Uses textContent-safe strings only (no innerHTML with payload).
+ * llm_iter returns a single-line fallback; the DOM builder in
+ * appendActivityRow produces the richer two-line layout.
  */
 export function formatActivitySummary(subtype: string, payload: Record<string, unknown>): string {
   const p = payload ?? {};
   switch (subtype) {
     case 'tool_invoked':
     case 'github_tool': {
-      // Icon already provides the arrow — no need for `→` text prefix.
+      // Icon already provides the arrow — no '→' text prefix needed.
       const toolName = str(p, 'tool_name');
       const argPreview = str(p, 'arg_preview');
       const label = humanizeTool(toolName);
@@ -100,9 +112,10 @@ export function formatActivitySummary(subtype: string, payload: Record<string, u
     case 'git_push':
       return str(p, 'branch') || 'push';
     case 'llm_iter': {
-      const model = str(p, 'model') || 'unknown';
+      // Single-line fallback (DOM builder renders two-line layout).
+      const { network, modelShort } = parseModelInfo(str(p, 'model'));
       const turns = num(p, 'turns');
-      return `${model}  ·  turn ${turns}`;
+      return `${network}: ${modelShort}  ·  Iteration ${turns}`;
     }
     case 'llm_usage': {
       const inp = num(p, 'input_tokens');
@@ -117,7 +130,7 @@ export function formatActivitySummary(subtype: string, payload: Record<string, u
       return `(${fmtNum(num(p, 'chars'))} ch)  ${str(p, 'text_preview')}`.trim();
     case 'llm_done': {
       const count = num(p, 'tool_call_count');
-      // Suppress when tool calls are about to appear — they're shown as nested rows.
+      // Suppress when tool calls follow — they are shown as nested rows below.
       if (count > 0) return '';
       return str(p, 'stop_reason') || 'done';
     }
@@ -175,7 +188,19 @@ export function resetFeedStartTime(): void {
   feedStartMs = null;
 }
 
-/** Format recorded_at as a relative offset from the first feed event: +0s, +1m5s, … */
+/**
+ * Reset all feed session state (timestamp + step groups).
+ * Call this whenever the feed is cleared or a new run begins.
+ */
+export function resetFeedSession(): void {
+  feedStartMs = null;
+  resetStepContext();
+}
+
+/**
+ * Format recorded_at as a timer offset from the first feed event.
+ * Uses M:SS notation: "now", "0:29", "1:05", "10:30".
+ */
 export function formatRelativeTime(recordedAt: string): string {
   try {
     const t = new Date(recordedAt).getTime();
@@ -186,17 +211,77 @@ export function formatRelativeTime(recordedAt: string): string {
     }
     const delta = Math.max(0, Math.round((t - feedStartMs) / 1000));
     if (delta === 0) return 'now';
-    if (delta < 60) return `+${delta}s`;
     const m = Math.floor(delta / 60);
     const s = delta % 60;
-    return s > 0 ? `+${m}m${s}s` : `+${m}m`;
+    const ss = s.toString().padStart(2, '0');
+    return `${m}:${ss}`;
   } catch {
     return '';
   }
 }
 
+// ── Row builders ───────────────────────────────────────────────────────────────
+
 /**
- * Create a single activity row and append it to #activity-feed.
+ * Build the summary element for a tool_invoked / github_tool row.
+ * The tool label uses a sans-serif span so it reads as a category,
+ * while the arg value spans in mono so it reads as data.
+ */
+function buildToolSummary(summaryText: string): HTMLElement {
+  const summary = document.createElement('span');
+  summary.className = 'activity-feed__summary';
+
+  const dotIdx = summaryText.indexOf('  ·  ');
+  if (dotIdx !== -1) {
+    const label = document.createElement('span');
+    label.className = 'af__tool-label';
+    label.textContent = summaryText.slice(0, dotIdx);
+
+    const sep = document.createElement('span');
+    sep.className = 'af__tool-sep';
+    sep.textContent = '  ·  ';
+
+    const val = document.createElement('span');
+    val.className = 'af__tool-value';
+    val.textContent = summaryText.slice(dotIdx + 5);
+
+    summary.appendChild(label);
+    summary.appendChild(sep);
+    summary.appendChild(val);
+  } else {
+    summary.textContent = summaryText;
+  }
+  return summary;
+}
+
+/**
+ * Build the two-line summary element for llm_iter rows:
+ *   Line 1 (prominent): "{network}: {modelShort}"  e.g. "Anthropic: sonnet 4.6"
+ *   Line 2 (muted):     "Iteration N"
+ */
+function buildIterSummary(payload: Record<string, unknown>): HTMLElement {
+  const { network, modelShort } = parseModelInfo(str(payload, 'model'));
+  const turns = num(payload, 'turns');
+
+  const summary = document.createElement('span');
+  summary.className = 'activity-feed__summary';
+
+  const line1 = document.createElement('span');
+  line1.className = 'af__iter-model';
+  line1.textContent = `${network}: ${modelShort}`;
+
+  const line2 = document.createElement('span');
+  line2.className = 'af__iter-num';
+  line2.textContent = `Iteration ${turns}`;
+
+  summary.appendChild(line1);
+  summary.appendChild(line2);
+  return summary;
+}
+
+/**
+ * Create a single activity row and append it to the current step body
+ * (or #activity-feed root if no step is open yet).
  * One SSE message → one DOM append. No innerHTML with payload data.
  * Icon column uses innerHTML with hardcoded SVG strings from icons.ts.
  */
@@ -204,20 +289,22 @@ export function appendActivityRow(msg: ActivityMessage): void {
   const feed = document.getElementById('activity-feed');
   if (!feed) return;
 
+  // Resolve the summary text first so we can bail on empty rows.
+  // llm_iter is handled separately (two-line DOM layout, no plain text needed).
+  let summaryText = '';
+  if (msg.subtype !== 'llm_iter') {
+    summaryText = formatActivitySummary(msg.subtype, msg.payload);
+    if (summaryText === '') return; // e.g. llm_done when tool calls follow
+  }
+
   const row = document.createElement('div');
   row.className = 'activity-feed__row';
   row.setAttribute('data-subtype', msg.subtype);
 
-  // Suppress empty summaries (e.g. llm_done when tool calls follow).
-  const summaryText = formatActivitySummary(msg.subtype, msg.payload);
-  if (summaryText === '') return;
-
-  // Mark non-zero shell exits for CSS error highlighting
+  // Mark non-zero shell exits for CSS error highlighting.
   if (msg.subtype === 'shell_done') {
     const code = typeof msg.payload['exit_code'] === 'number' ? msg.payload['exit_code'] : 0;
-    if (code !== 0) {
-      row.dataset['exitNonzero'] = 'true';
-    }
+    if (code !== 0) row.dataset['exitNonzero'] = 'true';
   }
 
   // Icon: hardcoded SVG via innerHTML (safe — getSubtypeIcon returns only static strings)
@@ -227,20 +314,32 @@ export function appendActivityRow(msg: ActivityMessage): void {
   // eslint-disable-next-line no-unsanitized/property
   icon.innerHTML = getSubtypeIcon(msg.subtype);
 
-  const summary = document.createElement('span');
-  summary.className = 'activity-feed__summary';
-  summary.textContent = summaryText;
-
+  // Timestamp
   const ts = document.createElement('time');
   ts.className = 'activity-feed__ts';
   ts.textContent = formatRelativeTime(msg.recorded_at);
   ts.setAttribute('datetime', msg.recorded_at);
   ts.setAttribute('title', msg.recorded_at);
 
+  // Summary — subtype-specific layout
+  let summaryEl: HTMLElement;
+  if (msg.subtype === 'llm_iter') {
+    summaryEl = buildIterSummary(msg.payload);
+  } else if (msg.subtype === 'tool_invoked' || msg.subtype === 'github_tool') {
+    summaryEl = buildToolSummary(summaryText);
+  } else {
+    summaryEl = document.createElement('span');
+    summaryEl.className = 'activity-feed__summary';
+    summaryEl.textContent = summaryText;
+  }
+
   row.appendChild(icon);
-  row.appendChild(summary);
+  row.appendChild(summaryEl);
   row.appendChild(ts);
-  feed.appendChild(row);
+
+  // Route into the current step body, or the feed root if no step is open.
+  const target = getCurrentAppendTarget(feed);
+  target.appendChild(row);
 
   if (shouldAutoScroll(feed)) {
     feed.scrollTop = feed.scrollHeight;
