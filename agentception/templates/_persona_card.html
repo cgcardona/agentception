@@ -1,35 +1,36 @@
 {#
-  _persona_card.html — compact persona mini-card for the inspector panel.
+  _persona_card.html — compact persona attribution strip for the inspector panel.
   Context:
     persona  — dict from resolve_cognitive_arch()
     arch_id  — URL-safe arch string (colons → hyphens)
 #}
 <div class="persona-card">
-  <div class="persona-card__header">
+  <div class="persona-card__left">
     <span class="persona-card__emoji">{{ persona.archetype_emoji }}</span>
-    <div class="persona-card__meta">
+  </div>
+  <div class="persona-card__body">
+    <div class="persona-card__top">
       <span class="persona-card__name">{{ persona.display_name }}</span>
       {% if persona.archetype %}
       <span class="persona-card__archetype">{{ persona.archetype | replace('_', ' ') | title }}</span>
       {% endif %}
     </div>
-    <a class="persona-card__profile-link"
-       href="/cognitive-arch/{{ arch_id }}"
-       title="Full cognitive architecture profile">
-      Full profile →
-    </a>
-  </div>
-
-  {% if persona.skill_domains %}
-  <div class="persona-card__skills">
-    {% for skill in persona.skill_domains[:4] %}
-    <span class="persona-card__skill-chip">{{ skill | replace('_', ' ') | title }}</span>
-    {% endfor %}
-    {% if persona.skill_domains | length > 4 %}
-    <span class="persona-card__skill-chip persona-card__skill-chip--more">
-      +{{ persona.skill_domains | length - 4 }} more
-    </span>
+    {% if persona.skill_domains %}
+    <div class="persona-card__skills">
+      {% for skill in persona.skill_domains[:4] %}
+      <span class="persona-card__skill-chip">{{ skill | replace('_', ' ') | title }}</span>
+      {% endfor %}
+      {% if persona.skill_domains | length > 4 %}
+      <span class="persona-card__skill-chip persona-card__skill-chip--more">
+        +{{ persona.skill_domains | length - 4 }}
+      </span>
+      {% endif %}
+    </div>
     {% endif %}
   </div>
-  {% endif %}
+  <a class="persona-card__profile-link"
+     href="/cognitive-arch/{{ arch_id }}"
+     title="Full cognitive architecture profile">
+    →
+  </a>
 </div>
