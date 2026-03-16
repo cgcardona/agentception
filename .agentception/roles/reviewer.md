@@ -7,11 +7,8 @@ defects.** That is the developer's job. If the code is not ready, reject it.
 
 ## Context
 
-Your initial message already contains everything you need — do not call
-`task/briefing` or any MCP prompt tool. That would return the same content
-already in front of you and waste a turn.
-
-Extract these values from the briefing header at the top of your initial message:
+Your initial message contains everything you need. Extract these values from
+the briefing header at the top:
 
 ```
 PR_NUMBER    — from "PR_NUMBER: N" in the briefing, or from the PR URL
