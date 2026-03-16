@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Unit tests for the rebase-onto-dev logic inside build_complete_run.
 
 The non-reviewer (implementer) path of build_complete_run:
@@ -25,11 +23,15 @@ Run targeted:
     pytest agentception/tests/test_build_commands_rebase.py -v
 """
 
+from __future__ import annotations
+
 import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+from agentception.tests.conftest import make_create_task_side_effect
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +114,7 @@ async def test_rebase_succeeds_force_pushes_and_dispatches_reviewer() -> None:
         ),
         patch(
             "agentception.mcp.build_commands.asyncio.create_task",
+             side_effect=make_create_task_side_effect(),
         ) as mock_create_task,
     ):
         result = await build_complete_run(
