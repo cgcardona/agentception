@@ -260,8 +260,11 @@
   #}
   <div class="od-header">
 
-    {# Back to presets — design canvas only; lives on the LEFT so nothing
-       to the right shifts when it appears or disappears. #}
+    {# Agent Org is always the far-left anchor. #}
+    <span class="od-header__title">Agent Org</span>
+
+    {# Presets + Launch appear immediately right of the title, expanding into
+       the flex:1 gap — the right-side group never shifts. #}
     <template x-if="!presetsOpen && !liveMode">
       <button class="od-header__btn od-header__btn--presets"
               @click="clearDesign()"
@@ -270,7 +273,6 @@
       </button>
     </template>
 
-    {# Launch button — design canvas only; same left-side treatment. #}
     <template x-if="!presetsOpen && !liveMode">
       <button class="od-header__btn od-header__btn--launch"
               :disabled="!launchReady"
@@ -278,9 +280,6 @@
               x-text="launching ? 'Launching…' : (startAgentLoading ? 'Starting agent…' : launchPreviewText)">
       </button>
     </template>
-
-    {# flex:1 spacer — shrinks when Presets/Launch appear, grows when they hide #}
-    <span class="od-header__title">Agent Org</span>
 
     {# ── Right group — always in the same position ──────────────────────── #}
     <span class="od-header__initiative" x-text="initiative"></span>
