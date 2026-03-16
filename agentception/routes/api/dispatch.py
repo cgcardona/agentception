@@ -64,8 +64,9 @@ class OrgNodeSpec(BaseModel):
     id: str
     role: str
     figure: str = ""
-    scope: Literal["full_initiative", "phase"] = "full_initiative"
+    scope: Literal["full_initiative", "phase", "issue"] = "full_initiative"
     scope_label: str = ""
+    scope_issue_number: int | None = None
     children: list["OrgNodeSpec"] = []
 
 
