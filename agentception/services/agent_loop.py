@@ -1603,10 +1603,20 @@ def _parse_recon_json(raw: str) -> _ReconPlan | None:
         return None
     try:
         data: JsonValue = json.loads(text[start:end])
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
+        logger.warning(
+            "⚠️ recon parse: JSONDecodeError at pos %d — %s — extracted=%r",
+            exc.pos,
+            exc.msg,
+            text[start:end][:300],
+        )
         return None
 
     if not isinstance(data, dict):
+        logger.warning(
+            "⚠️ recon parse: parsed value is not a dict (%s)",
+            type(data).__name__,
+        )
         return None
 
     files_raw = data.get("files", [])
@@ -1877,7 +1887,7 @@ async def _run_recon_phase(
         if parsed is None:
             logger.warning(
                 "⚠️ recon phase: could not parse plan from LLM response — raw=%r",
-                raw_plan[:500] if raw_plan else "<empty>",
+                raw_plan[:2000] if raw_plan else "<empty>",
             )
             return
         plan = parsed
