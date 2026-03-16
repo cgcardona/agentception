@@ -2357,10 +2357,10 @@ $preset-accents: (
   &__profile-link {
     flex-shrink: 0;
     font-size: 0.7rem;
-    color: var(--accent-bright);
+    color: var(--accent);
     text-decoration: none;
     white-space: nowrap;
-    &:hover { text-decoration: underline; }
+    &:hover { color: var(--accent); text-decoration: underline; }
   }
 
   &__skills {
