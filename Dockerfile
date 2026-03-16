@@ -109,6 +109,17 @@ COPY pyproject.toml /app/pyproject.toml
 # Install the package itself so `agentception.*` imports resolve.
 RUN pip install --no-cache-dir -e /app
 
+# Pre-download the ONNX embedding model into the image layer.
+# Docker build has unrestricted network access; the runtime proxy does not,
+# so downloading at runtime inside the container will fail (403 CONNECT tunnel).
+# Baking the model here means it is always present after a clean build and
+# survives volume recreation without any manual recovery steps.
+RUN python3 -c "\
+from fastembed import TextEmbedding; \
+m = TextEmbedding(model_name='jinaai/jina-embeddings-v2-base-code'); \
+list(m.embed(['warm-up'])); \
+print('Embedding model pre-downloaded.')"
+
 # Entrypoint: performs privileged startup (resolv.conf, asset compilation,
 # DB migrations, ownership fixes) then drops to the agentception user via
 # gosu before exec'ing the server command.
