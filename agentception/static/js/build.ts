@@ -12,7 +12,7 @@
  */
 
 import { marked } from 'marked';
-import { attachActivityFeedHandler, resetFeedSession } from './activity_feed';
+import { attachActivityFeedHandler, clearFeed, resetFeedSession } from './activity_feed';
 import { attachEventCardHandler } from './event_card';
 import { attachFileEditHandler } from './file_edit_card';
 import { attachThoughtHandler } from './thought_block';
@@ -227,6 +227,7 @@ export function buildPage() {
       if (this.activeIssue?.number === issue.number) return;
       this._closeStream();
       this._stopDurationTimer();
+      clearFeed();
       this.activeIssue = issue;
       this.thoughts = [];
       this.startAgentLoading = false;
@@ -243,6 +244,7 @@ export function buildPage() {
       this._closeStream();
       this._stopTreePoll();
       this._stopDurationTimer();
+      clearFeed();
       this.activeIssue = null;
       this.runDuration = '';
       this.thoughts = [];
