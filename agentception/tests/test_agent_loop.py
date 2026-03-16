@@ -479,27 +479,27 @@ class TestRoleBaseFallback:
     """Unit tests for _role_base_fallback."""
 
     def test_python_developer_returns_developer(self) -> None:
-        from agentception.services.agent_loop import _role_base_fallback
+        from agentception.services.role_loader import role_family_fallback as _role_base_fallback
 
         assert _role_base_fallback("python-developer") == "developer"
 
     def test_typescript_developer_returns_developer(self) -> None:
-        from agentception.services.agent_loop import _role_base_fallback
+        from agentception.services.role_loader import role_family_fallback as _role_base_fallback
 
         assert _role_base_fallback("typescript-developer") == "developer"
 
     def test_data_engineer_returns_engineer(self) -> None:
-        from agentception.services.agent_loop import _role_base_fallback
+        from agentception.services.role_loader import role_family_fallback as _role_base_fallback
 
         assert _role_base_fallback("data-engineer") == "engineer"
 
     def test_no_hyphen_returns_none(self) -> None:
-        from agentception.services.agent_loop import _role_base_fallback
+        from agentception.services.role_loader import role_family_fallback as _role_base_fallback
 
         assert _role_base_fallback("developer") is None
 
     def test_unknown_suffix_returns_none(self) -> None:
-        from agentception.services.agent_loop import _role_base_fallback
+        from agentception.services.role_loader import role_family_fallback as _role_base_fallback
 
         assert _role_base_fallback("python-specialist") is None
 
@@ -509,54 +509,36 @@ class TestLoadRolePromptFamilyFallback:
 
     def test_python_developer_falls_back_to_developer(self, tmp_path: Path) -> None:
         """python-developer.md missing → load developer.md instead of empty string."""
-        import unittest.mock as mock
+        from agentception.services.role_loader import load_role_file
 
         roles_dir = tmp_path / ".agentception" / "roles"
         roles_dir.mkdir(parents=True)
         (roles_dir / "developer.md").write_text("# Developer role content", encoding="utf-8")
         # python-developer.md intentionally absent
 
-        from agentception.services.agent_loop import _load_role_prompt
-
-        with mock.patch(
-            "agentception.services.agent_loop.settings.repo_dir", tmp_path
-        ):
-            result = _load_role_prompt("python-developer")
-
+        result = load_role_file("python-developer", roles_dir)
         assert result == "# Developer role content"
 
     def test_exact_role_preferred_over_family_fallback(self, tmp_path: Path) -> None:
         """When python-developer.md exists, it wins over developer.md."""
-        import unittest.mock as mock
+        from agentception.services.role_loader import load_role_file
 
         roles_dir = tmp_path / ".agentception" / "roles"
         roles_dir.mkdir(parents=True)
         (roles_dir / "developer.md").write_text("# Developer role content", encoding="utf-8")
         (roles_dir / "python-developer.md").write_text("# Python developer role content", encoding="utf-8")
 
-        from agentception.services.agent_loop import _load_role_prompt
-
-        with mock.patch(
-            "agentception.services.agent_loop.settings.repo_dir", tmp_path
-        ):
-            result = _load_role_prompt("python-developer")
-
+        result = load_role_file("python-developer", roles_dir)
         assert result == "# Python developer role content"
 
     def test_unknown_role_no_fallback_returns_empty(self, tmp_path: Path) -> None:
         """Completely unknown roles still return empty string gracefully."""
-        import unittest.mock as mock
+        from agentception.services.role_loader import load_role_file
 
         roles_dir = tmp_path / ".agentception" / "roles"
         roles_dir.mkdir(parents=True)
 
-        from agentception.services.agent_loop import _load_role_prompt
-
-        with mock.patch(
-            "agentception.services.agent_loop.settings.repo_dir", tmp_path
-        ):
-            result = _load_role_prompt("nonexistent-specialist")
-
+        result = load_role_file("nonexistent-specialist", roles_dir)
         assert result == ""
 
 

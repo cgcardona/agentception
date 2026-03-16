@@ -28,11 +28,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        # Pass HF_TOKEN at build time so the model pre-download step uses
-        # authenticated HuggingFace requests (higher rate limits, no warning).
-        # Set HF_TOKEN in .env — it is read here and in the runtime env below.
-        HF_TOKEN: ${HF_TOKEN:-}
     container_name: agentception-app
     restart: unless-stopped
     # Security hardening: prevent privilege escalation inside the container.
@@ -112,6 +107,10 @@ services:
       # HF_HOME under agentception's home so downloads and token file are writable.
       # entrypoint.sh chowns the mounted model_cache volume here before dropping privs.
       HF_HOME: /home/agentception/.cache/huggingface
+      # fastembed reads FASTEMBED_CACHE_PATH to locate its model cache.
+      # Without this it falls back to tempfile.gettempdir() = /tmp/fastembed_cache,
+      # which is wiped on every container restart, causing repeated re-downloads.
+      FASTEMBED_CACHE_PATH: /home/agentception/.cache/fastembed
       # Optional: set HF_TOKEN in .env to avoid HuggingFace rate-limit warnings
       # on model downloads and enable authenticated access to private models.
       HF_TOKEN: ${HF_TOKEN:-}
@@ -168,13 +167,14 @@ services:
       - ${HOME}/.agentception/worktrees/agentception:/worktrees
       # Persist HuggingFace hub files (tokens, metadata) across container restarts.
       - model_cache:/home/agentception/.cache/huggingface
-      # NOTE: fastembed ONNX models are NOT stored in a named volume.
-      # They are baked into the image layer at build time (see Dockerfile RUN step
-      # before COPY agentception/).  A named volume would shadow the image layer —
-      # if the volume was ever created before the models were correctly baked, it
-      # permanently masks them, causing NO_SUCHFILE errors at runtime.  Using the
-      # image layer directly is simpler and more reliable: models are always present
-      # after a clean build and never go stale.
+      # Persist FastEmbed ONNX models across container restarts and rebuilds.
+      # fastembed defaults to /tmp/fastembed_cache (tempfile.gettempdir()) which is
+      # wiped on every restart.  The volume ensures models are downloaded exactly
+      # once.  FASTEMBED_CACHE_PATH overrides fastembed's default so both the app
+      # and the entrypoint startup-check write to and read from the same location.
+      # entrypoint.sh verifies model completeness at startup and re-downloads only
+      # if the ONNX file is missing (self-healing for fresh volume or corruption).
+      - fastembed_cache:/home/agentception/.cache/fastembed
     # Use Cloudflare DNS instead of Docker's embedded resolver.
     # Docker's embedded DNS caches whichever node it gets first, and GitHub
     # occasionally has dead nodes in rotation (e.g. 140.82.116.6) that refuse
@@ -253,6 +253,8 @@ volumes:
     name: agentception-qdrant-data
   model_cache:
     name: agentception-model-cache
+  fastembed_cache:
+    name: agentception-fastembed-cache
   node_modules:
     name: agentception-node-modules
 
