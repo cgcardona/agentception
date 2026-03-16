@@ -417,6 +417,19 @@ def test_dispatch_label_issue_scope_persists_issue_number_to_db(
     assert kwargs["tier"] == "worker"
 
 
+def test_dispatch_label_issue_scope_missing_issue_number_returns_422(
+    client: TestClient,
+) -> None:
+    """scope=issue without scope_issue_number must return HTTP 422, not silently fall through."""
+    res = client.post(
+        "/api/dispatch/label",
+        json=_dispatch_label_body(scope="issue"),  # scope_issue_number omitted
+    )
+    assert res.status_code == 422
+    detail = res.json()["detail"]
+    assert "scope_issue_number" in detail
+
+
 # ---------------------------------------------------------------------------
 # cascade_enabled field — smoke-test mode
 # ---------------------------------------------------------------------------

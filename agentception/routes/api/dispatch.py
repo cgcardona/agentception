@@ -1269,6 +1269,12 @@ async def dispatch_label_agent(req: LabelDispatchRequest) -> LabelDispatchRespon
     role, tier = _role_and_tier_for_scope(req.scope, req.role)
     org_domain = _org_domain_for_role(role)
 
+    if req.scope == "issue" and req.scope_issue_number is None:
+        raise HTTPException(
+            status_code=422,
+            detail="scope_issue_number is required when scope='issue'.",
+        )
+
     if req.scope == "phase" and req.scope_label:
         scope_value = req.scope_label
         scope_type: ScopeType = "label"
