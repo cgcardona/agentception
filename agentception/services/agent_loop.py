@@ -1865,7 +1865,11 @@ async def _run_recon_phase(
             raw_plan = await completion(
                 task_text,
                 system_prompt=system_prompt + _RECON_SYSTEM_ADDENDUM,
-                max_tokens=500,
+                # 2000 tokens gives Qwen3-family models enough headroom for
+                # extended chain-of-thought before emitting the JSON object.
+                # 500 was exhausted entirely by thinking, leaving no budget
+                # for the actual output and causing parse failures.
+                max_tokens=2000,
                 temperature=0.0,
             )
         except Exception as exc:  # noqa: BLE001
