@@ -243,7 +243,7 @@ function buildToolSummary(summaryText: string): HTMLElement {
 
     const sep = document.createElement('span');
     sep.className = 'af__tool-sep';
-    sep.textContent = '  ·  ';
+    sep.textContent = ': ';
 
     const val = document.createElement('span');
     val.className = 'af__tool-value';
