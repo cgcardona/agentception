@@ -11,12 +11,24 @@
 /** The <div class="step-group__body"> of the currently open step, or null. */
 let _currentStepBody: HTMLElement | null = null;
 
+/** The step-group header card of the currently open step, or null. */
+let _currentStepHeader: HTMLElement | null = null;
+
 /**
  * Return the element that new activity rows should be appended to.
  * Falls back to feed when no step group has been opened yet.
  */
 export function getCurrentAppendTarget(feed: HTMLElement): HTMLElement {
   return _currentStepBody ?? feed;
+}
+
+/**
+ * Return the header card (event-card[data-event-type=step_start]) of the
+ * currently open step group, or null if no step has been opened yet.
+ * Used by activity_feed.ts to inject the token count into the step header.
+ */
+export function getCurrentStepHeader(): HTMLElement | null {
+  return _currentStepHeader;
 }
 
 /**
@@ -30,6 +42,8 @@ export function openStepGroup(feed: HTMLElement, headerEl: HTMLElement): void {
     prev.classList.remove('step-group--current');
     prev.classList.add('step-group--collapsed');
   }
+
+  _currentStepHeader = headerEl;
 
   // Build the new group wrapper.
   const group = document.createElement('div');
@@ -50,4 +64,5 @@ export function openStepGroup(feed: HTMLElement, headerEl: HTMLElement): void {
 /** Reset state — call when the feed is cleared or a new run begins. */
 export function resetStepContext(): void {
   _currentStepBody = null;
+  _currentStepHeader = null;
 }

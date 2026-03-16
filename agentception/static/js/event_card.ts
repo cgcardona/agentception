@@ -73,6 +73,12 @@ export function appendEventCard(feed: HTMLElement, m: EventSseMessage): void {
     card.classList.add('step-group__header');
     card.setAttribute('role', 'button');
     card.setAttribute('aria-expanded', 'true');
+
+    // Token count placeholder — filled by activity_feed.ts when llm_usage fires.
+    const tokens = document.createElement('span');
+    tokens.className = 'event-card__tokens';
+    card.appendChild(tokens);
+
     card.addEventListener('click', () => {
       const group = card.closest<HTMLElement>('.step-group');
       if (group === null) return;

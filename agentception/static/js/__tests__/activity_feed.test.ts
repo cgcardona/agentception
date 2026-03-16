@@ -9,7 +9,7 @@ import {
   formatRelativeTime,
   type ActivityMessage,
 } from '../activity_feed';
-import { resetStepContext } from '../step_context';
+import { openStepGroup, resetStepContext } from '../step_context';
 
 function makeSource(): EventSource {
   return new EventTarget() as unknown as EventSource;
@@ -261,8 +261,8 @@ describe('formatRelativeTime', () => {
 describe('appendActivityRow', () => {
   beforeEach(() => {
     document.body.innerHTML = '<div id="activity-feed"></div>';
-    resetFeedStartTime();
-    resetStepContext();
+    // resetFeedSession resets start time, step context, AND model header flag
+    resetFeedSession();
   });
 
   it('appends a row with data-subtype, summary, and relative time', () => {
@@ -315,28 +315,56 @@ describe('appendActivityRow', () => {
     expect(row?.hasAttribute('data-exit-nonzero')).toBe(false);
   });
 
-  it('renders llm_iter as single-line summary with af__iter-model span', () => {
+  it('llm_iter inserts #af-model-header at top of feed (not a row)', () => {
     appendActivityRow({
       t: 'activity',
       subtype: 'llm_iter',
       payload: { model: 'qwen2.5:7b', turns: 1 },
       recorded_at: '',
     });
-    const row = document.querySelector('.activity-feed__row');
-    expect(row?.getAttribute('data-subtype')).toBe('llm_iter');
-    expect(row?.querySelector('.af__iter-model')?.textContent).toBe('Local: Qwen 2.5');
-    expect(row?.querySelector('.af__iter-num')).toBeNull();
+    // No activity row should be created
+    expect(document.querySelector('.activity-feed__row')).toBeNull();
+    // But the model header should appear
+    const header = document.getElementById('af-model-header');
+    expect(header).not.toBeNull();
+    expect(header?.textContent).toBe('Local: Qwen 2.5');
   });
 
-  it('renders llm_iter for unknown local model as just "Local"', () => {
+  it('llm_iter only inserts model header once for repeated events', () => {
     appendActivityRow({
       t: 'activity',
       subtype: 'llm_iter',
-      payload: { model: 'local', turns: 1 },
+      payload: { model: 'qwen2.5:7b', turns: 1 },
       recorded_at: '',
     });
-    const row = document.querySelector('.activity-feed__row');
-    expect(row?.querySelector('.af__iter-model')?.textContent).toBe('Local');
+    appendActivityRow({
+      t: 'activity',
+      subtype: 'llm_iter',
+      payload: { model: 'claude-3-5', turns: 2 },
+      recorded_at: '',
+    });
+    expect(document.querySelectorAll('#af-model-header').length).toBe(1);
+    expect(document.getElementById('af-model-header')?.textContent).toBe('Local: Qwen 2.5');
+  });
+
+  it('llm_usage updates step header token count (not a row)', () => {
+    // Simulate a step_start so there is a step header with .event-card__tokens
+    const feed = document.getElementById('activity-feed')!;
+    const stepHeader = document.createElement('div');
+    stepHeader.className = 'event-card step-group__header';
+    const tokSpan = document.createElement('span');
+    tokSpan.className = 'event-card__tokens';
+    stepHeader.appendChild(tokSpan);
+    openStepGroup(feed, stepHeader);
+
+    appendActivityRow({
+      t: 'activity',
+      subtype: 'llm_usage',
+      payload: { input_tokens: 17524, cache_write: 0, cache_read: 0 },
+      recorded_at: '',
+    });
+    expect(document.querySelector('.activity-feed__row')).toBeNull();
+    expect(tokSpan.textContent).toBe('17,524 tok');
   });
 
   it('renders tool_invoked with split label / value spans', () => {
@@ -410,11 +438,11 @@ describe('appendActivityRow', () => {
       expect(vals.some(v => v?.includes('main.py'))).toBe(true);
     });
 
-    it('non-tool rows (llm_usage) do not get data-expandable', () => {
+    it('non-tool rows (shell_done) do not get data-expandable', () => {
       appendActivityRow({
         t: 'activity',
-        subtype: 'llm_usage',
-        payload: { input_tokens: 100, cache_write: 0, cache_read: 0 },
+        subtype: 'shell_done',
+        payload: { exit_code: 0, stdout_bytes: 10, stderr_bytes: 0 },
         recorded_at: '',
       });
       const row = document.querySelector<HTMLElement>('.activity-feed__row');
@@ -445,18 +473,47 @@ describe('appendActivityRow', () => {
 });
 
 describe('resetFeedSession', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="activity-feed"></div>';
+  });
+
   it('resets feed start time and step context', () => {
     resetFeedSession();
     // After reset, the next event returns "now"
     expect(formatRelativeTime('2026-03-15T12:00:00Z')).toBe('now');
+  });
+
+  it('resets the model header flag so it re-appears after a new run', () => {
+    // First run: model header appears
+    appendActivityRow({
+      t: 'activity',
+      subtype: 'llm_iter',
+      payload: { model: 'qwen2.5:7b', turns: 1 },
+      recorded_at: '',
+    });
+    expect(document.getElementById('af-model-header')).not.toBeNull();
+
+    // Reset simulates a new run starting
+    resetFeedSession();
+    document.body.innerHTML = '<div id="activity-feed"></div>';
+
+    // Second run: model header should appear again
+    appendActivityRow({
+      t: 'activity',
+      subtype: 'llm_iter',
+      payload: { model: 'claude-3-5', turns: 1 },
+      recorded_at: '',
+    });
+    const header = document.getElementById('af-model-header');
+    expect(header).not.toBeNull();
+    expect(header?.textContent).toBe('Anthropic: 3.5');
   });
 });
 
 describe('attachActivityFeedHandler', () => {
   beforeEach(() => {
     document.body.innerHTML = '<div id="activity-feed"></div>';
-    resetFeedStartTime();
-    resetStepContext();
+    resetFeedSession();
   });
 
   it('appends a row when msg.t === "activity"', () => {

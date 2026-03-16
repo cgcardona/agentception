@@ -136,6 +136,20 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+
+  // Token count — injected by activity_feed.ts when llm_usage fires.
+  // Sits at the far right of the step header line.
+  &__tokens {
+    font-size: 0.58rem;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    color: rgba(167, 139, 250, 0.35);
+    white-space: nowrap;
+    letter-spacing: 0.02em;
+
+    // Hidden until a value is injected
+    &:empty { display: none; }
+  }
 }
 
 // ── Light mode overrides ───────────────────────────────────────────────────────
@@ -143,6 +157,10 @@
 
 [data-theme="light"] .event-card {
   color: rgba(0, 0, 0, 0.55);
+
+  &__tokens {
+    color: rgba(109, 40, 217, 0.3);
+  }
 
   &[data-event-type='step_start'] {
     border-top-color: rgba(0, 0, 0, 0.08);

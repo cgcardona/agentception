@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { getCurrentAppendTarget, openStepGroup, resetStepContext } from '../step_context';
+import { getCurrentAppendTarget, getCurrentStepHeader, openStepGroup, resetStepContext } from '../step_context';
 
 function makeFeed(): HTMLElement {
   const el = document.createElement('div');
@@ -69,5 +69,32 @@ describe('step_context', () => {
     openStepGroup(feed, header);
     const group = feed.querySelector('.step-group');
     expect(group?.contains(header)).toBe(true);
+  });
+
+  it('getCurrentStepHeader returns null before any step is opened', () => {
+    expect(getCurrentStepHeader()).toBeNull();
+  });
+
+  it('getCurrentStepHeader returns the header element after openStepGroup', () => {
+    const feed = makeFeed();
+    const header = makeHeader();
+    openStepGroup(feed, header);
+    expect(getCurrentStepHeader()).toBe(header);
+  });
+
+  it('getCurrentStepHeader updates to the latest header on second openStepGroup', () => {
+    const feed = makeFeed();
+    const header1 = makeHeader();
+    const header2 = makeHeader();
+    openStepGroup(feed, header1);
+    openStepGroup(feed, header2);
+    expect(getCurrentStepHeader()).toBe(header2);
+  });
+
+  it('resetStepContext clears getCurrentStepHeader', () => {
+    const feed = makeFeed();
+    openStepGroup(feed, makeHeader());
+    resetStepContext();
+    expect(getCurrentStepHeader()).toBeNull();
   });
 });

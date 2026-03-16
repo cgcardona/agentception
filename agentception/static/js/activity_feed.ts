@@ -24,7 +24,7 @@ import {
 
 /** Subtypes that support click-to-expand args detail. */
 const EXPANDABLE_SUBTYPES = new Set(['tool_invoked', 'github_tool']);
-import { getCurrentAppendTarget, resetStepContext } from './step_context';
+import { getCurrentAppendTarget, getCurrentStepHeader, resetStepContext } from './step_context';
 
 /** SSE activity message shape from the inspector stream. */
 export interface ActivityMessage {
@@ -183,17 +183,21 @@ export function getSubtypeIcon(subtype: string): string {
 /** ISO timestamp (ms) of the first event appended in this feed session. */
 let feedStartMs: number | null = null;
 
+/** True once the model header has been inserted into the feed. */
+let _modelHeaderShown = false;
+
 /** Reset the feed start time — call when the feed is cleared or a new run begins. */
 export function resetFeedStartTime(): void {
   feedStartMs = null;
 }
 
 /**
- * Reset all feed session state (timestamp + step groups).
+ * Reset all feed session state (timestamp + step groups + model header flag).
  * Call this whenever the feed is cleared or a new run begins.
  */
 export function resetFeedSession(): void {
   feedStartMs = null;
+  _modelHeaderShown = false;
   resetStepContext();
 }
 
@@ -301,19 +305,21 @@ function buildToolDetail(payload: Record<string, unknown>): HTMLElement {
 }
 
 /**
- * Build the summary element for llm_iter rows.
- * Shows "{network}: {modelShort}" or just "{network}" when the model is unknown.
+ * Insert a sticky model-info row at the top of the feed on the first llm_iter event.
+ * Subsequent llm_iter events are ignored — the model is constant for a run.
  */
-function buildIterSummary(payload: Record<string, unknown>): HTMLElement {
-  const summary = document.createElement('span');
-  summary.className = 'activity-feed__summary';
+function ensureModelHeader(feed: HTMLElement, payload: Record<string, unknown>): void {
+  if (_modelHeaderShown) return;
+  _modelHeaderShown = true;
 
-  const label = document.createElement('span');
-  label.className = 'af__iter-model';
-  label.textContent = modelLabel(parseModelInfo(str(payload, 'model')));
+  const label = modelLabel(parseModelInfo(str(payload, 'model')));
+  if (!label) return;
 
-  summary.appendChild(label);
-  return summary;
+  const header = document.createElement('div');
+  header.className = 'af__model-header';
+  header.id = 'af-model-header';
+  header.textContent = label;
+  feed.insertBefore(header, feed.firstChild);
 }
 
 /**
@@ -326,13 +332,27 @@ export function appendActivityRow(msg: ActivityMessage): void {
   const feed = document.getElementById('activity-feed');
   if (!feed) return;
 
-  // Resolve the summary text first so we can bail on empty rows.
-  // llm_iter is handled separately (two-line DOM layout, no plain text needed).
-  let summaryText = '';
-  if (msg.subtype !== 'llm_iter') {
-    summaryText = formatActivitySummary(msg.subtype, msg.payload);
-    if (summaryText === '') return; // e.g. llm_done when tool calls follow
+  // llm_iter: show model once in a sticky header at the top of the feed, then skip.
+  if (msg.subtype === 'llm_iter') {
+    ensureModelHeader(feed, msg.payload);
+    return;
   }
+
+  // llm_usage: inject token count into the current step header, then skip row.
+  if (msg.subtype === 'llm_usage') {
+    const stepHeader = getCurrentStepHeader();
+    if (stepHeader !== null) {
+      const tokEl = stepHeader.querySelector<HTMLElement>('.event-card__tokens');
+      if (tokEl !== null) {
+        tokEl.textContent = `${fmtNum(num(msg.payload, 'input_tokens'))} tok`;
+      }
+    }
+    return;
+  }
+
+  // Resolve summary text; bail on empty (e.g. llm_done when tool calls follow).
+  const summaryText = formatActivitySummary(msg.subtype, msg.payload);
+  if (summaryText === '') return;
 
   const row = document.createElement('div');
   row.className = 'activity-feed__row';
@@ -360,9 +380,7 @@ export function appendActivityRow(msg: ActivityMessage): void {
 
   // Summary — subtype-specific layout
   let summaryEl: HTMLElement;
-  if (msg.subtype === 'llm_iter') {
-    summaryEl = buildIterSummary(msg.payload);
-  } else if (msg.subtype === 'tool_invoked' || msg.subtype === 'github_tool') {
+  if (msg.subtype === 'tool_invoked' || msg.subtype === 'github_tool') {
     summaryEl = buildToolSummary(summaryText);
   } else {
     summaryEl = document.createElement('span');

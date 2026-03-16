@@ -24,33 +24,6 @@
   &[data-subtype="delay"]  { opacity: 0.55; }
   &[data-subtype="error"]  { border-left-color: #ef4444; color: #fca5a5; }
 
-  // Nested rows — visually indented under the LLM iteration that spawned them.
-  // The left border stays at the container edge (tree connector effect).
-  &[data-subtype="tool_invoked"],
-  &[data-subtype="github_tool"],
-  &[data-subtype^="file_"],
-  &[data-subtype^="shell"],
-  &[data-subtype="git_push"],
-  &[data-subtype="delay"] {
-    padding-left: 1.4rem;
-  }
-
-  // llm_iter: LLM iteration milestone row — slightly elevated typography
-  &[data-subtype="llm_iter"] {
-    padding-top: 0.2rem;
-    padding-bottom: 0.15rem;
-  }
-
-  &[data-subtype="llm_usage"] {
-    color: rgba(167, 139, 250, 0.5);
-  }
-
-  .af__iter-model {
-    color: rgba(167, 139, 250, 0.9);
-    font-weight: 500;
-    font-size: 0.695rem;
-  }
-
   // Expandable tool rows: 4-column grid (chevron at end), pointer cursor
   &[data-expandable] {
     grid-template-columns: 1.25rem 1fr auto 0.875rem;
@@ -151,7 +124,9 @@
 // Left-padded to align with the summary column (nested row indent + icon + gap).
 
 .af__tool-detail {
-  padding: 0.3rem 0.75rem 0.4rem calc(1.4rem + 1.25rem + 0.4rem);
+  // Left-padding aligns detail text with the summary column:
+  // 0.5rem (row padding-left) + 1.25rem (icon width) + 0.4rem (gap)
+  padding: 0.3rem 0.75rem 0.4rem calc(0.5rem + 1.25rem + 0.4rem);
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
@@ -186,7 +161,25 @@
   white-space: pre-wrap;
 }
 
+// ── Model header ───────────────────────────────────────────────────────────────
+// Shown once at the top of the feed. Displays the model label (e.g. "Local: Qwen 3.5")
+// for the current run so it need not repeat in every step.
+
+.af__model-header {
+  padding: 0.35rem 0.75rem 0.3rem;
+  font-size: 0.6rem;
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+  color: rgba(167, 139, 250, 0.45);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
 // ── Light mode overrides ───────────────────────────────────────────────────────
+
+[data-theme="light"] .af__model-header {
+  color: rgba(109, 40, 217, 0.4);
+  border-bottom-color: rgba(0, 0, 0, 0.05);
+}
 
 [data-theme="light"] .af__tool-detail {
   background: rgba(0, 0, 0, 0.02);
@@ -218,10 +211,6 @@
 
   &[data-subtype^="shell"] { border-left-color: #9ca3af; }
 
-  .af__iter-model {
-    color: rgba(109, 40, 217, 0.85);
-  }
-
   .af__tool-label {
     color: rgba(0, 0, 0, 0.38);
   }
@@ -232,10 +221,6 @@
 
   .af__tool-value {
     color: rgba(0, 0, 0, 0.8);
-  }
-
-  &[data-subtype="llm_usage"] {
-    color: rgba(109, 40, 217, 0.6);
   }
 
   &[data-subtype="file_replaced"],
