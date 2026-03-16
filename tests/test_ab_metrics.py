@@ -28,7 +28,7 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
 
 
 def _mock_result_two_rows() -> list[dict[str, JsonValue]]:
-    """Two rows: control and streamlined."""
+    """Two rows: control and streamlined — all columns from _AB_QUERY."""
     return [
         {
             "variant": "control",
@@ -36,10 +36,20 @@ def _mock_result_two_rows() -> list[dict[str, JsonValue]]:
             "runs": 10,
             "avg_iterations": 5.2,
             "avg_input_tokens": 50000.0,
+            "avg_output_tokens": 12000.0,
+            "avg_cache_read_tokens": 3000.0,
+            "avg_cache_write_tokens": 1500.0,
             "total_tokens": 520000,
+            "avg_duration_secs": 180.0,
+            "retry_count": 2,
             "pass_rate": 0.8,
             "passed": 8,
             "failed": 2,
+            "grade_a": 5,
+            "grade_b": 3,
+            "grade_c": 1,
+            "grade_d": 1,
+            "grade_f": 0,
         },
         {
             "variant": "streamlined",
@@ -47,10 +57,20 @@ def _mock_result_two_rows() -> list[dict[str, JsonValue]]:
             "runs": 10,
             "avg_iterations": 4.1,
             "avg_input_tokens": 42000.0,
+            "avg_output_tokens": 10000.0,
+            "avg_cache_read_tokens": 2500.0,
+            "avg_cache_write_tokens": 1200.0,
             "total_tokens": 410000,
+            "avg_duration_secs": 150.0,
+            "retry_count": 1,
             "pass_rate": 0.9,
             "passed": 9,
             "failed": 1,
+            "grade_a": 7,
+            "grade_b": 2,
+            "grade_c": 1,
+            "grade_d": 0,
+            "grade_f": 0,
         },
     ]
 

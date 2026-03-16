@@ -64,10 +64,20 @@ async def test_ab_metrics_htmx_returns_html(client: AsyncClient) -> None:
             "runs": 5,
             "avg_iterations": 4.0,
             "avg_input_tokens": 1000.0,
+            "avg_output_tokens": 500.0,
+            "avg_cache_read_tokens": 200.0,
+            "avg_cache_write_tokens": 100.0,
             "total_tokens": 5000,
+            "avg_duration_secs": 120.0,
+            "retry_count": 0,
             "pass_rate": 0.8,
             "passed": 4,
             "failed": 1,
+            "grade_a": 3,
+            "grade_b": 1,
+            "grade_c": 1,
+            "grade_d": 0,
+            "grade_f": 0,
         },
     ]
 
@@ -91,7 +101,7 @@ async def test_ab_metrics_htmx_returns_html(client: AsyncClient) -> None:
 
     assert response.status_code == 200
     assert "text/html" in response.headers.get("content-type", "")
-    assert '<table class="ab-metrics">' in response.text
+    assert '<div class="drh">' in response.text
 
 
 @pytest.mark.anyio

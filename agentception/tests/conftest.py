@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """conftest.py for agentception tests.
 
 Deliberately minimal — no Postgres, no Qdrant, no Redis.
@@ -10,11 +8,45 @@ Run the full agentception suite:
     docker compose exec agentception pytest agentception/tests/ -v
 """
 
+from __future__ import annotations
+
 import asyncio
-from collections.abc import AsyncGenerator, Generator
+import collections.abc
+from collections.abc import AsyncGenerator, Callable, Generator
 from unittest.mock import patch
 
 import pytest
+
+
+def make_create_task_side_effect() -> (
+    Callable[..., asyncio.Future[None]]
+):
+    """Return a side-effect for patching ``asyncio.create_task`` in tests.
+
+    When ``asyncio.create_task`` is mocked the coroutine passed to it is never
+    scheduled, so Python emits ``RuntimeWarning: coroutine … was never awaited``
+    during garbage collection.  This helper closes the incoming coroutine
+    immediately (suppressing the warning) and returns a resolved Future so any
+    code that reads the return value of ``create_task`` still gets a valid object.
+
+    Usage::
+
+        patch("some.module.asyncio.create_task",
+              side_effect=make_create_task_side_effect())
+    """
+
+    def _side_effect(
+        coro: collections.abc.Coroutine[None, None, None],
+        *,
+        name: str | None = None,
+    ) -> asyncio.Future[None]:
+        del name
+        coro.close()
+        fut: asyncio.Future[None] = asyncio.get_event_loop().create_future()
+        fut.set_result(None)
+        return fut
+
+    return _side_effect
 
 
 async def _noop_polling_loop() -> None:

@@ -679,7 +679,7 @@ body:has(.build-layout) nav.topnav {
   overflow: hidden;
   position: sticky;
   top: 64px;
-  max-height: calc(100vh - 80px);
+  height: calc(100vh - 80px);
 
   // ── Empty state ─────────────────────────────────────────────────────────────
   &__empty {
@@ -720,7 +720,8 @@ body:has(.build-layout) nav.topnav {
   &__content {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    flex: 1;
+    min-height: 0; // required so flex children can scroll rather than expanding
     overflow: hidden;
   }
 
@@ -882,14 +883,47 @@ body:has(.build-layout) nav.topnav {
   &__stream-status {
     padding: 0.3rem 0.875rem;
     font-size: 0.6rem;
-    color: var(--text-faint);
+    color: rgba(255, 255, 255, 0.25);
     margin: 0;
-    border-top: 1px solid var(--border-subtle);
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    background: #09090f;
     font-family: var(--font-mono);
     flex-shrink: 0;
     letter-spacing: 0.04em;
 
     &--live { color: var(--success); }
+  }
+
+  &__chat {
+    flex-shrink: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    background: #09090f;
+  }
+
+  &__agent-actions {
+    padding: 0.45rem 0.75rem;
+  }
+
+  &__stop-btn {
+    font-size: 0.68rem;
+    font-weight: 600;
+    font-family: var(--font-mono);
+    padding: 0.3rem 0.7rem;
+    border-radius: 5px;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    background: rgba(239, 68, 68, 0.08);
+    color: #fca5a5;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+
+    &:hover:not(:disabled) {
+      background: rgba(239, 68, 68, 0.18);
+      border-color: rgba(239, 68, 68, 0.6);
+      color: #f87171;
+    }
+
+    &:disabled { opacity: 0.4; cursor: not-allowed; }
   }
 }
 
@@ -1686,6 +1720,28 @@ $preset-accents: (
   margin-top: 0.05rem;
 }
 
+.od-node__issue-link {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 0.3rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  background: rgba(52, 211, 153, 0.12);   // emerald tint matching worker border
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  color: #34d399;
+  font-size: 0.67rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  transition: background 0.12s, border-color 0.12s;
+
+  &:hover {
+    background: rgba(52, 211, 153, 0.22);
+    border-color: rgba(52, 211, 153, 0.6);
+    color: #6ee7b7;
+  }
+}
+
 .od-node__actions {
   display: flex;
   gap: 0.3rem;
@@ -1858,6 +1914,82 @@ $preset-accents: (
   }
 }
 
+// ── Scope radio (Specific Issue / Full Initiative) ────────────────────────────
+
+.od-scope-radio {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.od-scope-opt {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 0.875rem;
+  border-radius: 8px;
+  border: 1.5px solid $od-border;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+
+  input[type="radio"] { display: none; }
+
+  &:hover { border-color: $od-border-hi; background: $od-surface-hi; }
+
+  &--active {
+    border-color: #7c3aed;
+    background: rgba(124, 58, 237, 0.12);
+    box-shadow: 0 0 0 1px rgba(124, 58, 237, 0.25) inset;
+  }
+
+  &__text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+
+    strong {
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    em {
+      font-style: normal;
+      font-size: 0.64rem;
+      color: rgba(255,255,255,0.38);
+    }
+  }
+}
+
+// ── Issue number input row ────────────────────────────────────────────────────
+
+.od-editor__issue-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.375rem;
+}
+
+.od-editor__input {
+  font-size: 0.78rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: 7px;
+  border: 1.5px solid $od-border;
+  background: rgba(255,255,255,0.04);
+  color: #fff;
+  transition: border-color 0.15s;
+
+  &:focus { outline: none; border-color: #7c3aed; box-shadow: 0 0 0 2px rgba(124,58,237,0.25); }
+  &::placeholder { color: rgba(255,255,255,0.25); }
+
+  &--issue {
+    width: 100%;
+    // Remove spinner arrows — cleaner for a compact control.
+    &::-webkit-inner-spin-button, &::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    -moz-appearance: textfield;
+  }
+}
+
 .od-editor__select {
   font-size: 0.78rem;
   padding: 0.5rem 0.625rem;
@@ -1871,6 +2003,36 @@ $preset-accents: (
 
   option, optgroup { background: #1a1a2e; color: #fff; }
   &:focus { outline: none; border-color: #7c3aed; box-shadow: 0 0 0 2px rgba(124,58,237,0.25); }
+}
+
+// Scope cascade pickers (Phase dropdown, Ticket dropdown)
+.od-scope-select {
+  font-size: 0.78rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: 7px;
+  border: 1.5px solid $od-border;
+  background: rgba(255,255,255,0.04);
+  color: #fff;
+  width: 100%;
+  cursor: pointer;
+  transition: border-color 0.15s;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='rgba(255,255,255,0.35)'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  padding-right: 2rem;
+
+  option, optgroup { background: #1a1a2e; color: #fff; }
+  option:disabled, &__opt--blocked { color: rgba(255,255,255,0.28); }
+  &:focus { outline: none; border-color: #7c3aed; box-shadow: 0 0 0 2px rgba(124,58,237,0.25); }
+}
+
+.od-scope-empty {
+  font-size: 0.7rem;
+  color: rgba(255,255,255,0.35);
+  margin: 0;
+  padding: 0.25rem 0;
+  font-style: italic;
 }
 
 .od-editor__actions {
@@ -2104,15 +2266,22 @@ $preset-accents: (
   &--off { color: rgba(134,239,172,0.7); }
 }
 
-// ── Activity feed container ───────────────────────────────────────────────────
+// ── Activity feed container — terminal-style scrollable log ──────────────────
 
 .build-inspector__activity {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.5rem 0;
+  flex: 1;
+  min-height: 0; // without this the flex child never scrolls — it just expands
   overflow-y: auto;
-  flex: 1 1 auto;
+  padding: 0;
+  background: #09090f;
+  font-family: var(--font-mono);
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
+
+  &::-webkit-scrollbar       { width: 4px; }
+  &::-webkit-scrollbar-track { background: transparent; }
+  &::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
 }
 
 // ── Start agent block (pending_launch state) ──────────────────────────────────

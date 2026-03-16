@@ -228,8 +228,8 @@ def test_label_context_returns_empty_lists_when_no_db_data(
 
 def test_label_context_returns_phases_and_issues(client: TestClient) -> None:
     mock_ctx = {
-        "phases": [{"label": "ac-workflow/5-plan-step-v2", "count": 3}],
-        "issues": [{"number": 42, "title": "Fix the thing"}],
+        "phases": [{"label": "ac-workflow/5-plan-step-v2", "count": 3, "blocked": False}],
+        "issues": [{"number": 42, "title": "Fix the thing", "blocked": False}],
     }
     with patch(
         "agentception.routes.api.dispatch.get_label_context",
@@ -244,7 +244,9 @@ def test_label_context_returns_phases_and_issues(client: TestClient) -> None:
     data = res.json()
     assert data["phases"][0]["label"] == "ac-workflow/5-plan-step-v2"
     assert data["phases"][0]["count"] == 3
+    assert data["phases"][0]["blocked"] is False
     assert data["issues"][0]["number"] == 42
+    assert data["issues"][0]["blocked"] is False
 
 
 # ---------------------------------------------------------------------------

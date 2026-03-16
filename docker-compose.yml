@@ -130,11 +130,19 @@ services:
       - ${HOME}/.config/gh:/home/agentception/.config/gh:ro
       # ── Narrow bind mounts (belt-and-suspenders for credential isolation) ──
       # Instead of mounting the full repo root (./:/app) — which would expose
-      # .env, docker-compose secrets, and .git — we mount only the directories
-      # the container actually needs at runtime.  The .env file (which holds
+      # .env and docker-compose secrets — we mount only the directories the
+      # container actually needs at runtime.  The .env file (which holds
       # ANTHROPIC_API_KEY, GITHUB_TOKEN, DB_PASSWORD, etc.) is intentionally
       # excluded.  Credentials reach the container only via environment
       # variables, never via the filesystem.
+      #
+      # .git IS mounted because the entire dispatch pipeline requires it:
+      #   _resolve_dev_sha() runs "git rev-parse origin/dev" with cwd=/app,
+      #   ensure_worktree() runs "git -C /app worktree add …",
+      #   and every linked worktree has a .git file pointing to /app/.git.
+      # The .git directory itself contains no secrets — only objects, refs, and
+      # config with the public remote URL.  Credentials are NOT stored there.
+      - ./.git:/app/.git
       - ./agentception:/app/agentception
       - ./.agentception:/app/.agentception
       - ./pyproject.toml:/app/pyproject.toml
@@ -152,12 +160,14 @@ services:
       # git worktrees created inside the container are immediately visible to
       # processes on the host (e.g. an IDE) at the same absolute path.
       - ${HOME}/.agentception/worktrees/agentception:/worktrees
-      # Persist FastEmbed / HuggingFace model files across container restarts.
-      # Without this volume the three ONNX models (jina-v2, BM25, bge-reranker)
-      # are re-downloaded from HuggingFace on every restart, adding ~50s to the
-      # first dispatch after each restart.  With the volume they are loaded from
-      # disk on first use (~5–10s) and stay warm for the lifetime of the volume.
+      # Persist HuggingFace hub files (tokens, metadata) across container restarts.
       - model_cache:/home/agentception/.cache/huggingface
+      # Persist FastEmbed ONNX models across container restarts.
+      # Without this volume the three ONNX models (jina-v2 ~640 MB, BM25, bge-reranker ~280 MB)
+      # are re-downloaded from HuggingFace on every restart, adding ~60 s to the
+      # first dispatch after each restart.  With the volume they are loaded from
+      # disk on first use (~5–10 s) and stay warm for the lifetime of the volume.
+      - fastembed_cache:/home/agentception/.cache/fastembed
     # Use Cloudflare DNS instead of Docker's embedded resolver.
     # Docker's embedded DNS caches whichever node it gets first, and GitHub
     # occasionally has dead nodes in rotation (e.g. 140.82.116.6) that refuse
@@ -236,6 +246,8 @@ volumes:
     name: agentception-qdrant-data
   model_cache:
     name: agentception-model-cache
+  fastembed_cache:
+    name: agentception-fastembed-cache
   node_modules:
     name: agentception-node-modules
 

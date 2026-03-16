@@ -14,6 +14,8 @@ Run targeted:
 import pytest
 from unittest.mock import AsyncMock, patch
 
+from agentception.tests.conftest import make_create_task_side_effect
+
 
 @pytest.mark.anyio
 async def test_reviewer_worktree_released_after_failing_grade() -> None:
@@ -64,6 +66,7 @@ async def test_reviewer_worktree_released_after_failing_grade() -> None:
         ),
         patch(
             "agentception.mcp.build_commands.asyncio.create_task",
+            side_effect=make_create_task_side_effect(),
         ) as mock_create_task,
         patch("agentception.mcp.build_commands.settings") as mock_settings,
     ):
@@ -122,6 +125,7 @@ async def test_reviewer_worktree_torn_down_after_passing_grade() -> None:
         ),
         patch(
             "agentception.mcp.build_commands.asyncio.create_task",
+            side_effect=make_create_task_side_effect(),
         ) as mock_create_task,
         patch(
             "agentception.mcp.build_commands._is_pr_merged",
@@ -199,6 +203,7 @@ async def test_redispatch_fires_after_failing_grade() -> None:
         ) as mock_redispatch,
         patch(
             "agentception.mcp.build_commands.asyncio.create_task",
+            side_effect=make_create_task_side_effect(),
         ) as mock_create_task,
         patch("agentception.mcp.build_commands.settings") as mock_settings,
     ):
@@ -277,6 +282,7 @@ async def test_redispatch_skipped_after_passing_grade() -> None:
         ) as mock_teardown,
         patch(
             "agentception.mcp.build_commands.asyncio.create_task",
+            side_effect=make_create_task_side_effect(),
         ) as mock_create_task,
         patch(
             "agentception.mcp.build_commands._is_pr_merged",
@@ -350,6 +356,7 @@ async def test_build_complete_run_rejects_empty_grade_from_reviewer() -> None:
         ) as mock_teardown,
         patch(
             "agentception.mcp.build_commands.asyncio.create_task",
+            side_effect=make_create_task_side_effect(),
         ) as mock_create_task,
     ):
         result = await build_complete_run(
@@ -429,6 +436,7 @@ async def test_build_complete_run_accepted_with_valid_pr_url() -> None:
         ),
         patch(
             "agentception.mcp.build_commands.asyncio.create_task",
+            side_effect=make_create_task_side_effect(),
         ),
     ):
         result = await build_complete_run(
@@ -486,6 +494,7 @@ async def test_implementer_completion_fails_when_release_worktree_returns_false(
         ) as mock_reviewer,
         patch(
             "agentception.mcp.build_commands.asyncio.create_task",
+            side_effect=make_create_task_side_effect(),
         ) as mock_create_task,
         patch(
             "agentception.mcp.build_commands._rebase_and_push_worktree",
@@ -546,6 +555,7 @@ async def test_build_complete_run_rejects_whitespace_grade_from_reviewer() -> No
         ) as mock_teardown,
         patch(
             "agentception.mcp.build_commands.asyncio.create_task",
+            side_effect=make_create_task_side_effect(),
         ) as mock_create_task,
     ):
         result = await build_complete_run(
@@ -603,7 +613,7 @@ async def test_done_event_payload_includes_grade_for_reviewer() -> None:
             "agentception.mcp.build_commands.teardown_agent_worktree",
             new_callable=AsyncMock,
         ),
-        patch("agentception.mcp.build_commands.asyncio.create_task"),
+        patch("agentception.mcp.build_commands.asyncio.create_task", side_effect=make_create_task_side_effect()),
         patch(
             "agentception.mcp.build_commands._is_pr_merged",
             new_callable=AsyncMock,
@@ -710,6 +720,7 @@ async def test_build_complete_run_blocks_grade_a_when_pr_not_merged() -> None:
         ),
         patch(
             "agentception.mcp.build_commands.asyncio.create_task",
+            side_effect=make_create_task_side_effect(),
         ) as mock_create_task,
     ):
         result = await build_complete_run(
@@ -765,6 +776,7 @@ async def test_build_complete_run_allows_grade_a_when_pr_merged() -> None:
         ),
         patch(
             "agentception.mcp.build_commands.asyncio.create_task",
+            side_effect=make_create_task_side_effect(),
         ) as mock_create_task,
     ):
         result = await build_complete_run(

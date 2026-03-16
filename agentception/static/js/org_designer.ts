@@ -94,9 +94,11 @@ interface OrgNode {
   role: string;
   figure: string;
   /** Scope for this node's dispatch target. */
-  scope: 'full_initiative' | 'phase';
+  scope: 'full_initiative' | 'phase' | 'issue';
   /** Phase sub-label when scope === 'phase'. */
   scopeLabel: string;
+  /** GitHub issue number when scope === 'issue'. */
+  scopeIssueNumber: number | null;
   /** Set to true after a successful dispatch. */
   launched: boolean;
   /** run_id from a successful dispatch response. */
@@ -109,8 +111,9 @@ interface OrgNodePayload {
   id: string;
   role: string;
   figure: string;
-  scope: 'full_initiative' | 'phase';
+  scope: 'full_initiative' | 'phase' | 'issue';
   scope_label: string;
+  scope_issue_number: number | null;
   children: OrgNodePayload[];
 }
 
@@ -140,11 +143,18 @@ interface ApiPresetDetail extends ApiPresetSummary {
 interface PhaseItem {
   label: string;
   count: number;
+  blocked: boolean;
+}
+
+interface IssueItem {
+  number: number;
+  title: string;
+  blocked: boolean;
 }
 
 interface ContextResponse {
   phases: PhaseItem[];
-  issues: Array<{ number: number; title: string }>;
+  issues: IssueItem[];
 }
 
 interface DispatchResponse {
@@ -158,8 +168,16 @@ interface DispatchResponse {
   status: string;
 }
 
+interface FastApiValidationError {
+  msg: string;
+  loc: string[];
+  type: string;
+}
+
 interface DispatchError {
-  detail?: string;
+  // FastAPI returns detail as a string for application errors,
+  // or as an array of validation error objects for 422 responses.
+  detail?: string | FastApiValidationError[];
 }
 
 // ── Live mode types (from GET /api/org/batches and SSE /api/org/live) ─────────
@@ -441,7 +459,7 @@ function roleLabel(slug: string): string {
 let _nodeCounter = 0;
 
 function makeNode(role = '', figure = ''): OrgNode {
-  return { id: `n${++_nodeCounter}`, role, figure, scope: 'full_initiative', scopeLabel: '', launched: false, runId: '', children: [] };
+  return { id: `n${++_nodeCounter}`, role, figure, scope: 'full_initiative', scopeLabel: '', scopeIssueNumber: null, launched: false, runId: '', children: [] };
 }
 
 function findNode(node: OrgNode, id: string): OrgNode | null {
@@ -465,12 +483,13 @@ function countNodes(node: OrgNode): number {
 /** Serialise a node for the backend (snake_case keys, no UI-only fields). */
 function serializeNode(node: OrgNode): OrgNodePayload {
   return {
-    id:          node.id,
-    role:        node.role,
-    figure:      node.figure,
-    scope:       node.scope,
-    scope_label: node.scopeLabel,
-    children:    node.children.map(serializeNode),
+    id:                node.id,
+    role:              node.role,
+    figure:            node.figure,
+    scope:             node.scope,
+    scope_label:       node.scopeLabel,
+    scope_issue_number: node.scopeIssueNumber,
+    children:          node.children.map(serializeNode),
   };
 }
 
@@ -481,13 +500,14 @@ function restoreNode(raw: Partial<OrgNode>): OrgNode {
   if (!isNaN(num) && num >= _nodeCounter) _nodeCounter = num + 1;
   return {
     id,
-    role:       raw.role ?? '',
-    figure:     raw.figure ?? '',
-    scope:      raw.scope ?? 'full_initiative',
-    scopeLabel: raw.scopeLabel ?? '',
-    launched:   false,   // always reset on restore — dispatches don't survive refresh
-    runId:      '',
-    children:   (raw.children ?? []).map(c => restoreNode(c as Partial<OrgNode>)),
+    role:             raw.role ?? '',
+    figure:           raw.figure ?? '',
+    scope:            raw.scope ?? 'full_initiative',
+    scopeLabel:       raw.scopeLabel ?? '',
+    scopeIssueNumber: raw.scopeIssueNumber ?? null,
+    launched:         false,   // always reset on restore — dispatches don't survive refresh
+    runId:            '',
+    children:         (raw.children ?? []).map(c => restoreNode(c as Partial<OrgNode>)),
   };
 }
 
@@ -632,10 +652,14 @@ function renderLiveD3(
     .x((d: D3HierarchyNode) => d.x + offsetX)
     .y((d: D3HierarchyNode) => d.y + offsetY + NODE_H);
 
+  // d.data here is LiveOrgNode (D3 hierarchy wraps LiveOrgNode); the actual
+  // RunTreeNodeRow is one level deeper at d.data.data.
   svg.selectAll('.od-link')
     .data((d3Root as unknown as D3HierarchyNode).links() as unknown as D3HierarchyNode[], (d: D3HierarchyNode) => {
       const lnk = d as unknown as D3HierarchyLink;
-      return `${lnk.source?.data?.id}-${lnk.target?.data?.id}`;
+      const srcId = (lnk.source?.data as unknown as LiveOrgNode | undefined)?.data?.id ?? '';
+      const tgtId = (lnk.target?.data as unknown as LiveOrgNode | undefined)?.data?.id ?? '';
+      return `${srcId}-${tgtId}`;
     })
     .join('path')
     .attr('class', 'od-link')
@@ -643,7 +667,7 @@ function renderLiveD3(
 
   const descendants = (d3Root as unknown as D3HierarchyNode).descendants();
   const cards = cardLayer.selectAll('.od-node')
-    .data(descendants, (d: D3HierarchyNode) => d.data.id);
+    .data(descendants, (d: D3HierarchyNode) => (d.data as unknown as LiveOrgNode).data.id);
 
   const entered = cards.enter().append('div').attr('class', 'od-node od-node--live');
   const all     = entered.merge(cards);
@@ -652,15 +676,15 @@ function renderLiveD3(
     .style('left', (d: D3HierarchyNode) => `${d.x + offsetX - NODE_W / 2}px`)
     .style('top',  (d: D3HierarchyNode) => `${d.y + offsetY}px`)
     .classed('od-node--coordinator', (d: D3HierarchyNode) => {
-      const row = d.data as unknown as RunTreeNodeRow;
+      const row = (d.data as unknown as LiveOrgNode).data;
       return !!row.role && isCoordinator(row.role);
     })
     .classed('od-node--worker', (d: D3HierarchyNode) => {
-      const row = d.data as unknown as RunTreeNodeRow;
+      const row = (d.data as unknown as LiveOrgNode).data;
       return !!row.role && !isCoordinator(row.role);
     })
     .html((d: D3HierarchyNode) => {
-      const row = d.data as unknown as RunTreeNodeRow;
+      const row = (d.data as unknown as LiveOrgNode).data;
       return liveNodeCardHtml(row, repo, initiative);
     });
 
@@ -744,6 +768,7 @@ function renderD3(
   container:   HTMLElement,
   figures:     FigureItem[],
   selectedId:  string | null,
+  repo:        string,
   onAdd:       (id: string) => void,
   onRemove:    (id: string) => void,
   onSelect:    (id: string) => void,
@@ -822,7 +847,7 @@ function renderD3(
     .classed('od-node--worker',      (d: D3HierarchyNode) => !!d.data.role && !isCoordinator(d.data.role))
     .classed('od-node--pending',     (d: D3HierarchyNode) => !d.data.role && !d.data.launched)
     .classed('od-node--launched',    (d: D3HierarchyNode) => d.data.launched)
-    .html((d: D3HierarchyNode) => nodeCardHtml(d, figMap, offsetX, offsetY));
+    .html((d: D3HierarchyNode) => nodeCardHtml(d, figMap, repo));
 
   cards.exit().remove();
 
@@ -845,10 +870,24 @@ function renderD3(
 function nodeCardHtml(
   d:      D3HierarchyNode,
   figMap: Map<string, string>,
-  _ox:    number,
-  _oy:    number,
+  repo:   string,
 ): string {
   const node = d.data;
+
+  // Build a scope badge shown on the card (phase label or issue # link).
+  function scopeBadge(): string {
+    if (node.scope === 'phase' && node.scopeLabel) {
+      return `<div class="od-node__scope">⌖ ${node.scopeLabel}</div>`;
+    }
+    if (node.scope === 'issue' && node.scopeIssueNumber != null) {
+      const url = `https://github.com/${repo}/issues/${node.scopeIssueNumber}`;
+      return `<a class="od-node__issue-link" href="${url}" target="_blank" rel="noopener noreferrer"
+                 title="Open issue #${node.scopeIssueNumber} on GitHub"
+                 onclick="event.stopPropagation()"
+               ># ${node.scopeIssueNumber}</a>`;
+    }
+    return '';
+  }
 
   if (node.launched) {
     const removeBtn = d.depth > 0
@@ -857,6 +896,7 @@ function nodeCardHtml(
     return `
       <div class="od-node__tier od-node__tier--launched">✅ launched</div>
       <div class="od-node__role">${roleLabel(node.role)}</div>
+      ${scopeBadge()}
       <div class="od-node__run-id">${node.runId}</div>
       <div class="od-node__actions">
         <button class="od-node__btn od-node__btn--edit" data-id="${node.id}" title="View">edit</button>
@@ -869,9 +909,6 @@ function nodeCardHtml(
   const roleLbl    = configured ? roleLabel(node.role) : '— define role —';
   const figName    = configured
     ? (node.figure ? (figMap.get(node.figure) ?? node.figure) : 'role default')
-    : '';
-  const scopeNote  = node.scope === 'phase' && node.scopeLabel
-    ? `<div class="od-node__scope">⌖ ${node.scopeLabel}</div>`
     : '';
   const removeBtn  = d.depth > 0
     ? `<button class="od-node__btn od-node__btn--remove" data-id="${node.id}" title="Remove">×</button>`
@@ -886,7 +923,7 @@ function nodeCardHtml(
     <div class="od-node__tier od-node__tier--${tier}">${tier}</div>
     <div class="od-node__role${configured ? '' : ' od-node__role--empty'}">${roleLbl}</div>
     ${configured ? `<div class="od-node__figure">${figName}</div>` : ''}
-    ${scopeNote}
+    ${scopeBadge()}
     <div class="od-node__actions">
       ${addBtn}
       <button class="od-node__btn od-node__btn--edit" data-id="${node.id}" title="Edit node">edit</button>
@@ -926,9 +963,11 @@ interface OrgDesignerComponent {
   editParentRole: string | null;
   editRole: string;
   editFigure: string;
-  editScope: 'full_initiative' | 'phase';
+  editScope: 'full_initiative' | 'phase' | 'issue';
   editScopeLabel: string;
+  editScopeIssueNumber: number | null;
   phases: PhaseItem[];
+  issues: IssueItem[];
 
   // ── Submission
   launching: boolean;
@@ -965,6 +1004,8 @@ interface OrgDesignerComponent {
   readonly activePresetName: string;
   readonly activePresetIsBuiltIn: boolean;
   readonly groupedBuiltIns: Array<{ group: string; label: string; presets: ApiPresetSummary[] }>;
+  /** True when the selected node is the root (scope picker only meaningful there). */
+  readonly isRootSelected: boolean;
 
   // ── Methods
   openDesigner(label: string, repo: string, figures: FigureItem[]): void;
@@ -1025,11 +1066,13 @@ export function orgDesigner(): OrgDesignerComponent {
     selectedNodeId: null,
     editType:       'coordinator',
     editParentRole: null,
-    editRole:       '',
-    editFigure:     '',
-    editScope:      'full_initiative',
-    editScopeLabel: '',
-    phases:         [],
+    editRole:             '',
+    editFigure:           '',
+    editScope:            'full_initiative',
+    editScopeLabel:       '',
+    editScopeIssueNumber: null,
+    phases:               [],
+    issues:               [],
 
     // ── Submission state ──────────────────────────────────────────────────────
     launching:    false,
@@ -1109,8 +1152,14 @@ export function orgDesigner(): OrgDesignerComponent {
     get loneWorkerWarning(): string {
       if (!this._root || !this._root.role) return '';
       if (isCoordinator(this._root.role)) return '';
+      // When scoped to a specific issue or phase the user has made an explicit choice — no warning.
+      if (this._root.scope === 'issue' || this._root.scope === 'phase') return '';
       if (this._root.scope !== 'full_initiative') return '';
-      return `⚠️ "${roleLabel(this._root.role)}" is a worker, not a coordinator. Workers don't pick up tickets automatically. Add a coordinator (e.g. CTO) as the root, or change scope to a specific issue.`;
+      return `⚠️ "${roleLabel(this._root.role)}" is a worker, not a coordinator. Workers don't pick up tickets automatically. Add a coordinator (e.g. CTO) as the root, or set scope to "Phase" or "Ticket".`;
+    },
+
+    get isRootSelected(): boolean {
+      return !!(this._root && this.selectedNodeId === this._root.id);
     },
 
     get activePresetName(): string {
@@ -1302,9 +1351,10 @@ export function orgDesigner(): OrgDesignerComponent {
         if (res.ok) {
           const data = await res.json() as ContextResponse;
           this.phases = data.phases ?? [];
+          this.issues = data.issues ?? [];
         }
       } catch {
-        // Non-critical — scope picker just won't show phases.
+        // Non-critical — scope picker just won't show phases or issues.
       }
     },
 
@@ -1362,13 +1412,14 @@ export function orgDesigner(): OrgDesignerComponent {
       if (!this._root) return;
       const node = findNode(this._root, id);
       if (!node) return;
-      this.selectedNodeId = id;
-      this.editParentRole = parentRole;
-      this.editType       = type;
-      this.editRole       = node.role;
-      this.editFigure     = node.figure;
-      this.editScope      = node.scope;
-      this.editScopeLabel = node.scopeLabel;
+      this.selectedNodeId       = id;
+      this.editParentRole       = parentRole;
+      this.editType             = type;
+      this.editRole             = node.role;
+      this.editFigure           = node.figure;
+      this.editScope            = node.scope;
+      this.editScopeLabel       = node.scopeLabel;
+      this.editScopeIssueNumber = node.scopeIssueNumber;
     },
 
     onTypeChange(): void {
@@ -1394,10 +1445,11 @@ export function orgDesigner(): OrgDesignerComponent {
       if (!this._root) return;
       const node = findNode(this._root, this.selectedNodeId ?? '');
       if (!node) return;
-      node.role       = this.editRole;
-      node.figure     = this.editFigure;
-      node.scope      = this.editScope;
-      node.scopeLabel = this.editScope === 'phase' ? this.editScopeLabel : '';
+      node.role             = this.editRole;
+      node.figure           = this.editFigure;
+      node.scope            = this.editScope;
+      node.scopeLabel       = this.editScope === 'phase' ? this.editScopeLabel : '';
+      node.scopeIssueNumber = this.editScope === 'issue' ? this.editScopeIssueNumber : null;
       this.selectedNodeId = null;
       this._render();
       this._saveToStorage();
@@ -1451,6 +1503,7 @@ export function orgDesigner(): OrgDesignerComponent {
         this._container,
         this.figures,
         this.selectedNodeId,
+        this.repo,
         id => { this.addChild(id); },
         id => { this.removeNodeById(id); },
         id => { this.selectNodeById(id); },
@@ -1468,6 +1521,7 @@ export function orgDesigner(): OrgDesignerComponent {
         label:                   this.initiative,
         scope:                   this._root.scope,
         scope_label:             this._root.scope === 'phase' ? this._root.scopeLabel : undefined,
+        scope_issue_number:      this._root.scope === 'issue' ? this._root.scopeIssueNumber : undefined,
         repo:                    this.repo,
         role:                    this._root.role,
         cognitive_arch_override: this._root.figure || null,
@@ -1482,7 +1536,14 @@ export function orgDesigner(): OrgDesignerComponent {
         });
         const data = await res.json() as DispatchResponse | DispatchError;
         if (!res.ok) {
-          this.launchError = (data as DispatchError).detail ?? `Error ${res.status}`;
+          const errData = data as DispatchError;
+          const detail = errData.detail;
+          if (Array.isArray(detail)) {
+            // FastAPI 422 validation errors — format as readable list.
+            this.launchError = detail.map(e => e.msg).join('; ') || `Error ${res.status}`;
+          } else {
+            this.launchError = detail ?? `Error ${res.status}`;
+          }
         } else {
           const dispatched    = data as DispatchResponse;
           this.launchResult   = dispatched;
