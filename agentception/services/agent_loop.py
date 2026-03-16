@@ -1625,9 +1625,6 @@ def _parse_recon_json(raw: str) -> _ReconPlan | None:
     )
     plan_str = str(plan_raw) if isinstance(plan_raw, str) else ""
 
-    if not files and not searches:
-        return None
-
     return _ReconPlan(files=files, searches=searches, plan=plan_str)
 
 
