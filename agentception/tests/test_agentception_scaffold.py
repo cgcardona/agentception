@@ -13,6 +13,7 @@ from collections.abc import Generator
 
 import pytest
 from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
 from agentception.app import app
 from agentception.config import AgentCeptionSettings
@@ -26,7 +27,7 @@ def client() -> Generator[TestClient, None, None]:
         yield c
 
 
-# ── /health ──────────────────────────────────────────────────────────────────
+# ─── /health ───────────────────────────────────────────────────────────────────
 
 
 def test_health_returns_200(client: TestClient) -> None:
@@ -36,7 +37,16 @@ def test_health_returns_200(client: TestClient) -> None:
     assert response.json() == {"status": "ok"}
 
 
-# ── Config ────────────────────────────────────────────────────────────────────
+@pytest.mark.anyio
+async def test_health_endpoint_returns_ok() -> None:
+    """GET /health must return 200 with ``{"status": "ok"}`` (async test)."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+# ─── Config ────────────────────────────────────────────────────────────────────
 
 
 def test_settings_loads_defaults() -> None:
@@ -55,7 +65,7 @@ def test_settings_loads_defaults() -> None:
     assert str(s.worktrees_dir) != ""
 
 
-# ── Models ────────────────────────────────────────────────────────────────────
+# ─── Models ────────────────────────────────────────────────────────────────────
 
 
 def test_agent_node_serializes_roundtrip() -> None:
@@ -95,7 +105,7 @@ def test_pipeline_state_empty_valid() -> None:
     assert "polled_at" in data
 
 
-# ── UI ────────────────────────────────────────────────────────────────────────
+# ─── UI ────────────────────────────────────────────────────────────────────────
 
 
 def test_index_returns_html_with_agentception(client: TestClient) -> None:
@@ -105,7 +115,7 @@ def test_index_returns_html_with_agentception(client: TestClient) -> None:
     assert "Agentception" in response.text
 
 
-# ── AgentTaskSpec ─────────────────────────────────────────────────────────────
+# ─── AgentTaskSpec ─────────────────────────────────────────────────────────────
 
 
 def test_agent_task_spec_parses_known_fields() -> None:
