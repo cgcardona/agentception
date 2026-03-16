@@ -38,9 +38,12 @@ import httpx
 from agentception.types import JsonValue
 from agentception.db.persist import (
     acknowledge_agent_run,
+    block_agent_run,
     cancel_agent_run,
     complete_agent_run,
     persist_agent_event,
+    resume_agent_run,
+    stop_agent_run,
 )
 from agentception.config import settings
 from agentception.db.queries import (
@@ -561,6 +564,81 @@ async def build_cancel_run(run_id: str) -> dict[str, JsonValue]:
         }
     logger.info("✅ build_cancel_run: %r → cancelled", run_id)
     return {"ok": True, "run_id": run_id, "status": "cancelled"}
+
+
+async def build_block_run(run_id: str) -> dict[str, JsonValue]:
+    """Transition an ``implementing`` run to ``blocked``.
+
+    Use this when the agent cannot proceed until a dependency resolves or a
+    human intervenes.  A blocked run can be resumed later via
+    :func:`build_resume_run`.  Only succeeds from ``implementing`` state.
+
+    Args:
+        run_id: The run ID to block.
+
+    Returns:
+        ``{"ok": True, "run_id": run_id, "status": "blocked"}`` on success,
+        ``{"ok": False, "reason": "..."}`` if the run is not implementing.
+    """
+    ok = await block_agent_run(run_id)
+    if not ok:
+        logger.warning("⚠️ build_block_run: %r not found or not in implementing state", run_id)
+        return {
+            "ok": False,
+            "reason": f"Run {run_id!r} not found or not in implementing state",
+        }
+    logger.info("✅ build_block_run: %r → blocked", run_id)
+    return {"ok": True, "run_id": run_id, "status": "blocked"}
+
+
+async def build_resume_run(run_id: str, agent_run_id: str) -> dict[str, JsonValue]:
+    """Transition a ``blocked`` or ``stopped`` run back to ``implementing``.
+
+    Idempotent: if the run is already ``implementing`` and the caller's
+    ``agent_run_id`` matches, the call succeeds so a crashed-and-restarted
+    agent can safely call this on startup.
+
+    Args:
+        run_id:       The run ID to resume.
+        agent_run_id: The caller's own run ID (used for idempotency check).
+
+    Returns:
+        ``{"ok": True, "run_id": run_id, "status": "implementing"}`` on success,
+        ``{"ok": False, "reason": "..."}`` if the run is not resumable.
+    """
+    ok = await resume_agent_run(run_id, agent_run_id)
+    if not ok:
+        logger.warning("⚠️ build_resume_run: %r not resumable", run_id)
+        return {
+            "ok": False,
+            "reason": f"Run {run_id!r} not found or not in a resumable state",
+        }
+    logger.info("✅ build_resume_run: %r → implementing", run_id)
+    return {"ok": True, "run_id": run_id, "status": "implementing"}
+
+
+async def build_stop_run(run_id: str) -> dict[str, JsonValue]:
+    """Transition any active run to ``stopped``.
+
+    Unlike ``build_cancel_run``, a stopped run can be resumed later via
+    :func:`build_resume_run`.
+
+    Args:
+        run_id: The run ID to stop.
+
+    Returns:
+        ``{"ok": True, "run_id": run_id, "status": "stopped"}`` on success,
+        ``{"ok": False, "reason": "..."}`` if already terminal.
+    """
+    ok = await stop_agent_run(run_id)
+    if not ok:
+        logger.warning("⚠️ build_stop_run: %r not found or already terminal", run_id)
+        return {
+            "ok": False,
+            "reason": f"Run {run_id!r} not found or already in a terminal state",
+        }
+    logger.info("✅ build_stop_run: %r → stopped", run_id)
+    return {"ok": True, "run_id": run_id, "status": "stopped"}
 
 
 async def build_spawn_adhoc_child(
