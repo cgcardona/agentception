@@ -1,9 +1,44 @@
+// ── Step group — collapsible section wrapper ───────────────────────────────────
+//
+// event_card.ts wraps a step_start header + all subsequent activity rows inside
+// a .step-group div. When the next step arrives the previous group is collapsed.
+// Clicking the step header toggles .step-group--collapsed on the group.
+
+.step-group {
+  // No extra visual chrome — the header and body render as if they were at root.
+
+  &__body {
+    // Rows are hidden when the group is collapsed.
+  }
+
+  // Collapsed state: hide the body.
+  &--collapsed {
+    .step-group__body {
+      display: none;
+    }
+
+    // Rotate the chevron to show "expand" affordance.
+    .event-card[data-event-type='step_start'] .event-card__icon svg {
+      transform: rotate(0deg);
+    }
+  }
+
+  // Expanded/current state: chevron rotated 90° so the triangle points down.
+  &--current,
+  &:not(.step-group--collapsed) {
+    .event-card[data-event-type='step_start'] .event-card__icon svg {
+      transform: rotate(90deg);
+    }
+  }
+}
+
 // ── Event card ────────────────────────────────────────────────────────────────
 // Structured MCP lifecycle events: step_start, blocker, decision, done,
 // message (free-form agent note), error (structured MCP error).
 //
 // These cards live inside the dark terminal #activity-feed container and act
 // as section dividers (step_start) or highlighted lifecycle markers.
+// Icons are 11×11 inline SVG inheriting currentColor.
 
 .event-card {
   display: flex;
@@ -16,28 +51,39 @@
   border-left: 2px solid transparent;
   line-height: 1.9;
 
-  // Step start: full-width section divider
+  // Step start: full-width section divider + click-to-collapse affordance
   &[data-event-type='step_start'] {
-    margin-top: 0.4rem;
-    padding-top: 0.35rem;
-    padding-bottom: 0.2rem;
+    margin-top: 0.5rem;
+    padding-top: 0.4rem;
+    padding-bottom: 0.25rem;
     border-top: 1px solid rgba(255, 255, 255, 0.06);
     border-left: none;
-    color: rgba(255, 255, 255, 0.35);
-    font-size: 0.62rem;
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 0.63rem;
     font-weight: 700;
     letter-spacing: 0.1em;
     text-transform: uppercase;
+    cursor: pointer;
+    user-select: none;
 
-    // First step_start has no top separator
-    &:first-child {
+    &:hover {
+      color: rgba(255, 255, 255, 0.6);
+    }
+
+    // First step_start inside a group — no extra top separator needed
+    // since the group itself provides the separator.
+    .step-group:first-child & {
       margin-top: 0;
       border-top: none;
     }
 
     .event-card__icon {
-      color: rgba(255, 255, 255, 0.2);
-      font-size: 0.55rem;
+      color: rgba(255, 255, 255, 0.3);
+      svg {
+        width: 9px;
+        height: 9px;
+        transition: transform 0.15s ease;
+      }
     }
   }
 
@@ -73,7 +119,14 @@
   &__icon {
     flex-shrink: 0;
     opacity: 0.8;
-    font-size: 0.75rem;
+    display: flex;
+    align-items: center;
+
+    svg {
+      width: 11px;
+      height: 11px;
+      flex-shrink: 0;
+    }
   }
 
   &__text {
@@ -82,5 +135,49 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+}
+
+// ── Light mode overrides ───────────────────────────────────────────────────────
+// Replace hardcoded rgba(255,255,255,…) values that disappear on a light bg.
+
+[data-theme="light"] .event-card {
+  color: rgba(0, 0, 0, 0.55);
+
+  &[data-event-type='step_start'] {
+    border-top-color: rgba(0, 0, 0, 0.08);
+    color: rgba(0, 0, 0, 0.4);
+
+    &:hover {
+      color: rgba(0, 0, 0, 0.65);
+    }
+
+    .event-card__icon {
+      color: rgba(0, 0, 0, 0.25);
+    }
+  }
+
+  &[data-event-type='blocker'] {
+    color: #92400e;
+    background: rgba(245, 158, 11, 0.08);
+  }
+
+  &[data-event-type='decision'] {
+    color: #0369a1;
+  }
+
+  &[data-event-type='done'] {
+    color: #065f46;
+    background: rgba(16, 185, 129, 0.07);
+  }
+
+  &[data-event-type='message'] {
+    border-left-color: rgba(0, 0, 0, 0.12);
+    color: rgba(0, 0, 0, 0.5);
+  }
+
+  &[data-event-type='error'] {
+    color: #dc2626;
+    background: rgba(239, 68, 68, 0.06);
   }
 }

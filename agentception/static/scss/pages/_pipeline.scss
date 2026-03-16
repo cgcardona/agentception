@@ -97,12 +97,21 @@
 /* ── Gate badge ─────────────────────────────────────────────── */
 
 .phase-gate-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
   font-size: 0.65rem;
   font-weight: 700;
   padding: 0.15rem 0.45rem;
   border-radius: 999px;
   white-space: nowrap;
   flex-shrink: 0;
+
+  svg {
+    width: 10px;
+    height: 10px;
+    flex-shrink: 0;
+  }
 
   &--ready {
     background: var(--success-dim);

@@ -233,6 +233,9 @@ nav.topnav {
 
 /* Brand */
 a.brand, nav.topnav .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
   font-size: 0.9375rem;
   font-weight: 700;
   letter-spacing: -0.01em;
@@ -246,6 +249,15 @@ a.brand, nav.topnav .brand {
   margin-right: 0.5rem;
   flex-shrink: 0;
   text-decoration: none;
+}
+
+/* Brand lightning bolt — solid accent, not subject to text-fill gradient */
+.brand__bolt {
+  width: 12px;
+  height: 18px;
+  flex-shrink: 0;
+  /* SVG fill bypasses -webkit-text-fill-color; use explicit fill */
+  fill: #a78bfa;
 }
 
 a.brand:hover, nav.topnav .brand:hover {
