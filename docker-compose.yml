@@ -130,11 +130,19 @@ services:
       - ${HOME}/.config/gh:/home/agentception/.config/gh:ro
       # ── Narrow bind mounts (belt-and-suspenders for credential isolation) ──
       # Instead of mounting the full repo root (./:/app) — which would expose
-      # .env, docker-compose secrets, and .git — we mount only the directories
-      # the container actually needs at runtime.  The .env file (which holds
+      # .env and docker-compose secrets — we mount only the directories the
+      # container actually needs at runtime.  The .env file (which holds
       # ANTHROPIC_API_KEY, GITHUB_TOKEN, DB_PASSWORD, etc.) is intentionally
       # excluded.  Credentials reach the container only via environment
       # variables, never via the filesystem.
+      #
+      # .git IS mounted because the entire dispatch pipeline requires it:
+      #   _resolve_dev_sha() runs "git rev-parse origin/dev" with cwd=/app,
+      #   ensure_worktree() runs "git -C /app worktree add …",
+      #   and every linked worktree has a .git file pointing to /app/.git.
+      # The .git directory itself contains no secrets — only objects, refs, and
+      # config with the public remote URL.  Credentials are NOT stored there.
+      - ./.git:/app/.git
       - ./agentception:/app/agentception
       - ./.agentception:/app/.agentception
       - ./pyproject.toml:/app/pyproject.toml
