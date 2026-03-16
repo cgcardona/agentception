@@ -168,12 +168,13 @@ services:
       - ${HOME}/.agentception/worktrees/agentception:/worktrees
       # Persist HuggingFace hub files (tokens, metadata) across container restarts.
       - model_cache:/home/agentception/.cache/huggingface
-      # Persist FastEmbed ONNX models across container restarts.
-      # Without this volume the three ONNX models (jina-v2 ~640 MB, BM25, bge-reranker ~280 MB)
-      # are re-downloaded from HuggingFace on every restart, adding ~60 s to the
-      # first dispatch after each restart.  With the volume they are loaded from
-      # disk on first use (~5–10 s) and stay warm for the lifetime of the volume.
-      - fastembed_cache:/home/agentception/.cache/fastembed
+      # NOTE: fastembed ONNX models are NOT stored in a named volume.
+      # They are baked into the image layer at build time (see Dockerfile RUN step
+      # before COPY agentception/).  A named volume would shadow the image layer —
+      # if the volume was ever created before the models were correctly baked, it
+      # permanently masks them, causing NO_SUCHFILE errors at runtime.  Using the
+      # image layer directly is simpler and more reliable: models are always present
+      # after a clean build and never go stale.
     # Use Cloudflare DNS instead of Docker's embedded resolver.
     # Docker's embedded DNS caches whichever node it gets first, and GitHub
     # occasionally has dead nodes in rotation (e.g. 140.82.116.6) that refuse
@@ -252,8 +253,6 @@ volumes:
     name: agentception-qdrant-data
   model_cache:
     name: agentception-model-cache
-  fastembed_cache:
-    name: agentception-fastembed-cache
   node_modules:
     name: agentception-node-modules
 

@@ -69,13 +69,6 @@ chown agentception:agentception /worktrees
 echo "[entrypoint] fixing ownership of HuggingFace cache …"
 chown -R agentception:agentception /home/agentception/.cache/huggingface
 
-# /home/agentception/.cache/fastembed — named volume (agentception-fastembed-cache).
-#   FastEmbed downloads ONNX models here on first dispatch; the agentception user
-#   must be able to write here.
-echo "[entrypoint] fixing ownership of FastEmbed cache …"
-mkdir -p /home/agentception/.cache/fastembed
-chown -R agentception:agentception /home/agentception/.cache/fastembed
-
 # ── 6. Drop to non-root user ─────────────────────────────────────────────────
 # gosu is a purpose-built setuid helper (analogous to sudo -u but without the
 # shell overhead).  It sets UID/GID and execs "$@" — typically uvicorn — as
