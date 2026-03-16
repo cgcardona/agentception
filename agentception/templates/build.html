@@ -245,8 +245,44 @@
 >
 
   {# ── Top bar ──────────────────────────────────────────────────────────── #}
+  {#
+    Layout strategy: the od-header is a flex row.  od-header__title has flex:1
+    so it absorbs all remaining space between the left group and right group.
+
+    Left side (variable):
+      [Presets?] [Launch?]  ← design-only; appear here so they push INTO the
+                               flex:1 title gap, not into the stable right group
+    Centre (flex:1 spacer):
+      [Agent Org title]
+
+    Right side (stable — never moves):
+      [initiative label] [badge?] [save-as] [errors] [Toggle] [Close]
+  #}
   <div class="od-header">
+
+    {# Back to presets — design canvas only; lives on the LEFT so nothing
+       to the right shifts when it appears or disappears. #}
+    <template x-if="!presetsOpen && !liveMode">
+      <button class="od-header__btn od-header__btn--presets"
+              @click="clearDesign()"
+              title="Back to preset picker">
+        ⋮ Presets
+      </button>
+    </template>
+
+    {# Launch button — design canvas only; same left-side treatment. #}
+    <template x-if="!presetsOpen && !liveMode">
+      <button class="od-header__btn od-header__btn--launch"
+              :disabled="!launchReady"
+              @click="launch()"
+              x-text="launching ? 'Launching…' : (startAgentLoading ? 'Starting agent…' : launchPreviewText)">
+      </button>
+    </template>
+
+    {# flex:1 spacer — shrinks when Presets/Launch appear, grows when they hide #}
     <span class="od-header__title">Agent Org</span>
+
+    {# ── Right group — always in the same position ──────────────────────── #}
     <span class="od-header__initiative" x-text="initiative"></span>
 
     {# Active preset name badge (canvas view only) #}
@@ -319,29 +355,7 @@
       </span>
     </template>
 
-    {# Presets + Launch appear here so they expand LEFTWARD into the flex:1
-       title gap — keeping Toggle and Close pinned at the right edge always. #}
-
-    {# Back to presets (canvas / design mode only) #}
-    <template x-if="!presetsOpen && !liveMode">
-      <button class="od-header__btn od-header__btn--presets"
-              @click="clearDesign()"
-              title="Back to preset picker">
-        ⋮ Presets
-      </button>
-    </template>
-
-    {# Launch button — design canvas only #}
-    <template x-if="!presetsOpen && !liveMode">
-      <button class="od-header__btn od-header__btn--launch"
-              :disabled="!launchReady"
-              @click="launch()"
-              x-text="launching ? 'Launching…' : (startAgentLoading ? 'Starting agent…' : launchPreviewText)">
-      </button>
-    </template>
-
-    {# Live / Design mode toggle — only shown when there are known batches.
-       Always the second-to-last item so it never shifts position. #}
+    {# Live / Design mode toggle — always second-to-last, never moves. #}
     <template x-if="activeBatches.length > 0">
       <div class="od-header__mode-toggle">
         <button class="od-header__mode-btn"
