@@ -16,3 +16,9 @@
   max-width: 100%;
   overflow-x: hidden;
 }
+
+[data-theme="light"] .assistant-bubble {
+  background: rgba(0, 0, 0, 0.03);
+  border-left-color: rgba(0, 0, 0, 0.15);
+  color: rgba(0, 0, 0, 0.7);
+}
