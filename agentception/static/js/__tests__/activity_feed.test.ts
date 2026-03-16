@@ -351,6 +351,77 @@ describe('appendActivityRow', () => {
     expect(row?.querySelector('.af__tool-value')?.textContent).toContain('foo.py');
   });
 
+  describe('expandable tool rows', () => {
+    it('tool_invoked row has data-expandable and aria-expanded=false', () => {
+      appendActivityRow({
+        t: 'activity',
+        subtype: 'tool_invoked',
+        payload: { tool_name: 'read_file', arg_preview: '{"path": "foo.py"}' },
+        recorded_at: '',
+      });
+      const row = document.querySelector<HTMLElement>('.activity-feed__row');
+      expect(row?.dataset['expandable']).toBe('true');
+      expect(row?.getAttribute('aria-expanded')).toBe('false');
+      expect(row?.querySelector('.af__chevron')).not.toBeNull();
+    });
+
+    it('clicking a tool_invoked row reveals its detail panel', () => {
+      appendActivityRow({
+        t: 'activity',
+        subtype: 'tool_invoked',
+        payload: { tool_name: 'read_file', arg_preview: '{"path": "foo.py"}' },
+        recorded_at: '',
+      });
+      const row = document.querySelector<HTMLElement>('.activity-feed__row');
+      const detail = document.querySelector('.af__tool-detail');
+      expect(detail?.hasAttribute('hidden')).toBe(true);
+      row?.click();
+      expect(detail?.hasAttribute('hidden')).toBe(false);
+      expect(row?.getAttribute('aria-expanded')).toBe('true');
+    });
+
+    it('clicking again collapses the detail panel', () => {
+      appendActivityRow({
+        t: 'activity',
+        subtype: 'tool_invoked',
+        payload: { tool_name: 'read_file', arg_preview: '{"path": "foo.py"}' },
+        recorded_at: '',
+      });
+      const row = document.querySelector<HTMLElement>('.activity-feed__row');
+      const detail = document.querySelector('.af__tool-detail');
+      row?.click();
+      row?.click();
+      expect(detail?.hasAttribute('hidden')).toBe(true);
+      expect(row?.getAttribute('aria-expanded')).toBe('false');
+    });
+
+    it('detail panel shows parsed arg key-value pairs', () => {
+      appendActivityRow({
+        t: 'activity',
+        subtype: 'tool_invoked',
+        payload: { tool_name: 'read_file', arg_preview: '{"path": "src/main.py", "encoding": "utf-8"}' },
+        recorded_at: '',
+      });
+      const row = document.querySelector<HTMLElement>('.activity-feed__row');
+      row?.click();
+      const keys = Array.from(document.querySelectorAll('.af__detail-key')).map(el => el.textContent);
+      const vals = Array.from(document.querySelectorAll('.af__detail-val')).map(el => el.textContent);
+      expect(keys).toContain('path');
+      expect(vals.some(v => v?.includes('main.py'))).toBe(true);
+    });
+
+    it('non-tool rows (llm_usage) do not get data-expandable', () => {
+      appendActivityRow({
+        t: 'activity',
+        subtype: 'llm_usage',
+        payload: { input_tokens: 100, cache_write: 0, cache_read: 0 },
+        recorded_at: '',
+      });
+      const row = document.querySelector<HTMLElement>('.activity-feed__row');
+      expect(row?.dataset['expandable']).toBeUndefined();
+    });
+  });
+
   it('does NOT append a row for llm_done when tool calls follow', () => {
     appendActivityRow({
       t: 'activity',

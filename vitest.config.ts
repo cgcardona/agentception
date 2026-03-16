@@ -5,6 +5,7 @@ export default defineConfig({
     // jsdom gives us localStorage, ReadableStream, TextEncoder, etc.
     environment: 'jsdom',
     include: ['agentception/static/js/**/*.test.ts'],
+    exclude: ['agentception/tests/**', 'node_modules/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],
