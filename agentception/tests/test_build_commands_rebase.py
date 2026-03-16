@@ -73,13 +73,14 @@ async def test_rebase_succeeds_force_pushes_and_dispatches_reviewer() -> None:
     wt_path = "/worktrees/issue-10"
     branch_name = "agent/issue-10"
 
-    # Subprocess sequence: fetch, rebase, rev-parse, push
+    # Subprocess sequence: fetch, stash (no-op), rebase, rev-parse, push
     fetch_proc = _make_proc(0)
+    stash_proc = _make_proc(0, stdout=b"No local changes to save; HEAD unchanged")
     rebase_proc = _make_proc(0)
     rev_parse_proc = _make_proc(0, stdout=f"{branch_name}\n".encode())
     push_proc = _make_proc(0)
 
-    subprocess_calls = iter([fetch_proc, rebase_proc, rev_parse_proc, push_proc])
+    subprocess_calls = iter([fetch_proc, stash_proc, rebase_proc, rev_parse_proc, push_proc])
 
     async def fake_create_subprocess_exec(*args: str | int | bool | float | None, **kwargs: str | int | bool | float | None) -> AsyncMock:
         return next(subprocess_calls)
@@ -160,10 +161,11 @@ async def test_rebase_conflict_returns_error_and_aborts() -> None:
     wt_path = "/worktrees/issue-20"
 
     fetch_proc = _make_proc(0)
+    stash_proc = _make_proc(0, stdout=b"No local changes to save; HEAD unchanged")
     rebase_proc = _make_proc(1, stderr=b"CONFLICT (content): Merge conflict in foo.py")
     abort_proc = _make_proc(0)
 
-    subprocess_calls = iter([fetch_proc, rebase_proc, abort_proc])
+    subprocess_calls = iter([fetch_proc, stash_proc, rebase_proc, abort_proc])
 
     async def fake_create_subprocess_exec(*args: str | int | bool | float | None, **kwargs: str | int | bool | float | None) -> AsyncMock:
         return next(subprocess_calls)
@@ -404,10 +406,11 @@ async def test_label_dispatch_branch_forwarded_to_reviewer() -> None:
     label_branch = "agent/documentation-improvement-a1b2"
 
     fetch_proc = _make_proc(0)
+    stash_proc = _make_proc(0, stdout=b"No local changes to save; HEAD unchanged")
     rebase_proc = _make_proc(0)
     rev_parse_proc = _make_proc(0, stdout=f"{label_branch}\n".encode())
     push_proc = _make_proc(0)
-    subprocess_calls = iter([fetch_proc, rebase_proc, rev_parse_proc, push_proc])
+    subprocess_calls = iter([fetch_proc, stash_proc, rebase_proc, rev_parse_proc, push_proc])
 
     async def fake_create_subprocess_exec(*args: str | int | bool | float | None, **kwargs: str | int | bool | float | None) -> AsyncMock:
         return next(subprocess_calls)
