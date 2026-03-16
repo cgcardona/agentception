@@ -17,8 +17,16 @@ Applies back-fills in a single transaction:
 
 4. **file_read content_preview** — Runs that called ``read_file`` before the
    ``file_read`` activity-event type gained a ``content_preview`` field get
-   synthetic ``file_read`` events reconstructed from the raw tool results
-   stored in ``agent_messages``.
+   lorem-ipsum placeholder ``file_read`` events so the preview UX can be
+   validated against existing runs.
+
+5. **shell_done stdout_preview** — Historical ``shell_done`` events that
+   predate the ``stdout_preview`` field are patched with a lorem-ipsum
+   placeholder so the shell-output injection UX can be validated.
+
+6. **github_result** — Historical ``github_tool`` calls that predate the
+   ``github_result`` event type get a lorem-ipsum placeholder injected so
+   the GitHub result preview UX can be validated.
 
 Run (idempotent — safe to re-run):
 
@@ -629,6 +637,156 @@ async def _backfill_file_read(session: AsyncSession) -> int:
 
 
 # ---------------------------------------------------------------------------
+# 5. shell_done stdout_preview back-fill
+# ---------------------------------------------------------------------------
+
+async def _backfill_shell_output(session: AsyncSession) -> int:
+    """Patch historical shell_done events to include a lorem-ipsum stdout_preview.
+
+    shell_done events written before stdout_preview was added carry no output.
+    This inserts a placeholder so the shell-output injection UX can be
+    validated against existing runs.  Idempotent — events that already have
+    stdout_preview are skipped.
+
+    Returns the number of events updated.
+    """
+    rows: list[tuple[int, str]] = [
+        (r[0], r[1])
+        for r in (
+            await session.execute(
+                text("""
+                    SELECT id, agent_run_id
+                    FROM agent_events
+                    WHERE event_type = 'activity'
+                      AND (payload::jsonb)->>'subtype' = 'shell_done'
+                      AND (payload::jsonb)->>'stdout_preview' IS NULL
+                    ORDER BY id
+                """)
+            )
+        ).fetchall()
+    ]
+
+    if not rows:
+        log.info("shell_output — nothing to backfill")
+        return 0
+
+    log.info("shell_output — %d shell_done events need stdout_preview", len(rows))
+    updated = 0
+    for event_id, run_id in rows:
+        if not DRY_RUN:
+            await session.execute(
+                text("""
+                    UPDATE agent_events
+                    SET payload = payload::jsonb || :patch
+                    WHERE id = :event_id
+                """),
+                {
+                    "event_id": event_id,
+                    "patch": json.dumps({"stdout_preview": _LOREM_IPSUM}),
+                },
+            )
+        log.info(
+            "shell_output — %s id=%d run=%s%s",
+            "[DRY]" if DRY_RUN else "[UPDATE]",
+            event_id, run_id,
+            " (dry-run, not written)" if DRY_RUN else "",
+        )
+        updated += 1
+
+    return updated
+
+
+# ---------------------------------------------------------------------------
+# 6. github_result back-fill
+# ---------------------------------------------------------------------------
+
+async def _backfill_github_result(session: AsyncSession) -> int:
+    """Insert placeholder github_result events for historical github_tool calls.
+
+    github_tool events written before the github_result event type was
+    introduced have no result preview.  A lorem-ipsum placeholder is written
+    so the result-injection UX can be validated against existing runs.
+    Idempotent — runs that already have github_result events are skipped.
+
+    Returns the number of placeholder events inserted.
+    """
+    needs_backfill: list[str] = [
+        r[0]
+        for r in (
+            await session.execute(
+                text("""
+                    SELECT DISTINCT agent_run_id
+                    FROM agent_events
+                    WHERE event_type = 'activity'
+                      AND (payload::jsonb)->>'subtype' = 'github_tool'
+                      AND agent_run_id NOT IN (
+                          SELECT DISTINCT agent_run_id
+                          FROM agent_events
+                          WHERE (payload::jsonb)->>'subtype' = 'github_result'
+                      )
+                    ORDER BY 1
+                """)
+            )
+        ).fetchall()
+    ]
+
+    if not needs_backfill:
+        log.info("github_result — nothing to backfill")
+        return 0
+
+    log.info("github_result — runs needing backfill: %s", needs_backfill)
+    total_inserted = 0
+
+    for run_id in needs_backfill:
+        invocations: list[_ToolInvoked] = [
+            {"event_id": r[0], "run_id": run_id, "recorded_at": r[1]}
+            for r in (
+                await session.execute(
+                    text("""
+                        SELECT id, recorded_at
+                        FROM agent_events
+                        WHERE agent_run_id = :run_id
+                          AND event_type = 'activity'
+                          AND (payload::jsonb)->>'subtype' = 'github_tool'
+                        ORDER BY recorded_at
+                    """),
+                    {"run_id": run_id},
+                )
+            ).fetchall()
+        ]
+
+        inserted = 0
+        for invocation in invocations:
+            emit_at = invocation["recorded_at"] + datetime.timedelta(seconds=1)
+            payload = json.dumps({
+                "subtype": "github_result",
+                "tool_name": "",
+                "result_preview": _LOREM_IPSUM,
+            })
+            if not DRY_RUN:
+                await session.execute(
+                    text("""
+                        INSERT INTO agent_events
+                            (agent_run_id, issue_number, event_type, payload, recorded_at)
+                        VALUES
+                            (:run_id, NULL, 'activity', :payload, :recorded_at)
+                    """),
+                    {"run_id": run_id, "payload": payload, "recorded_at": emit_at},
+                )
+            log.info(
+                "github_result — %s run=%s placeholder inserted%s",
+                "[DRY]" if DRY_RUN else "[INSERT]",
+                run_id,
+                " (dry-run, not written)" if DRY_RUN else "",
+            )
+            inserted += 1
+
+        total_inserted += inserted
+
+    return total_inserted
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -641,17 +799,23 @@ async def main() -> None:
         search_results_count = await _backfill_search_results(session)
         llm_reply_count     = await _extend_llm_reply_previews(session)
         file_read_count     = await _backfill_file_read(session)
+        shell_output_count  = await _backfill_shell_output(session)
+        github_result_count = await _backfill_github_result(session)
 
         if not DRY_RUN:
             await session.commit()
             log.info(
-                "=== Done — dir_listed: %d  search_results: %d  llm_reply: %d  file_read: %d ===",
-                dir_listed_count, search_results_count, llm_reply_count, file_read_count,
+                "=== Done — dir_listed: %d  search_results: %d  llm_reply: %d  "
+                "file_read: %d  shell_output: %d  github_result: %d ===",
+                dir_listed_count, search_results_count, llm_reply_count,
+                file_read_count, shell_output_count, github_result_count,
             )
         else:
             log.info(
-                "=== Dry-run — would insert: %d dir_listed  %d search_results  %d file_read  update: %d llm_reply ===",
-                dir_listed_count, search_results_count, file_read_count, llm_reply_count,
+                "=== Dry-run — would insert/update: %d dir_listed  %d search_results  "
+                "%d file_read  %d shell_output  %d github_result  update: %d llm_reply ===",
+                dir_listed_count, search_results_count,
+                file_read_count, shell_output_count, github_result_count, llm_reply_count,
             )
 
 
