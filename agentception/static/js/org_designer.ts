@@ -749,6 +749,7 @@ function renderD3(
   container:   HTMLElement,
   figures:     FigureItem[],
   selectedId:  string | null,
+  repo:        string,
   onAdd:       (id: string) => void,
   onRemove:    (id: string) => void,
   onSelect:    (id: string) => void,
@@ -827,7 +828,7 @@ function renderD3(
     .classed('od-node--worker',      (d: D3HierarchyNode) => !!d.data.role && !isCoordinator(d.data.role))
     .classed('od-node--pending',     (d: D3HierarchyNode) => !d.data.role && !d.data.launched)
     .classed('od-node--launched',    (d: D3HierarchyNode) => d.data.launched)
-    .html((d: D3HierarchyNode) => nodeCardHtml(d, figMap, offsetX, offsetY));
+    .html((d: D3HierarchyNode) => nodeCardHtml(d, figMap, repo));
 
   cards.exit().remove();
 
@@ -850,10 +851,24 @@ function renderD3(
 function nodeCardHtml(
   d:      D3HierarchyNode,
   figMap: Map<string, string>,
-  _ox:    number,
-  _oy:    number,
+  repo:   string,
 ): string {
   const node = d.data;
+
+  // Build a scope badge shown on the card (phase label or issue # link).
+  function scopeBadge(): string {
+    if (node.scope === 'phase' && node.scopeLabel) {
+      return `<div class="od-node__scope">⌖ ${node.scopeLabel}</div>`;
+    }
+    if (node.scope === 'issue' && node.scopeIssueNumber != null) {
+      const url = `https://github.com/${repo}/issues/${node.scopeIssueNumber}`;
+      return `<a class="od-node__issue-link" href="${url}" target="_blank" rel="noopener noreferrer"
+                 title="Open issue #${node.scopeIssueNumber} on GitHub"
+                 onclick="event.stopPropagation()"
+               ># ${node.scopeIssueNumber}</a>`;
+    }
+    return '';
+  }
 
   if (node.launched) {
     const removeBtn = d.depth > 0
@@ -862,6 +877,7 @@ function nodeCardHtml(
     return `
       <div class="od-node__tier od-node__tier--launched">✅ launched</div>
       <div class="od-node__role">${roleLabel(node.role)}</div>
+      ${scopeBadge()}
       <div class="od-node__run-id">${node.runId}</div>
       <div class="od-node__actions">
         <button class="od-node__btn od-node__btn--edit" data-id="${node.id}" title="View">edit</button>
@@ -874,9 +890,6 @@ function nodeCardHtml(
   const roleLbl    = configured ? roleLabel(node.role) : '— define role —';
   const figName    = configured
     ? (node.figure ? (figMap.get(node.figure) ?? node.figure) : 'role default')
-    : '';
-  const scopeNote  = node.scope === 'phase' && node.scopeLabel
-    ? `<div class="od-node__scope">⌖ ${node.scopeLabel}</div>`
     : '';
   const removeBtn  = d.depth > 0
     ? `<button class="od-node__btn od-node__btn--remove" data-id="${node.id}" title="Remove">×</button>`
@@ -891,7 +904,7 @@ function nodeCardHtml(
     <div class="od-node__tier od-node__tier--${tier}">${tier}</div>
     <div class="od-node__role${configured ? '' : ' od-node__role--empty'}">${roleLbl}</div>
     ${configured ? `<div class="od-node__figure">${figName}</div>` : ''}
-    ${scopeNote}
+    ${scopeBadge()}
     <div class="od-node__actions">
       ${addBtn}
       <button class="od-node__btn od-node__btn--edit" data-id="${node.id}" title="Edit node">edit</button>
@@ -1468,6 +1481,7 @@ export function orgDesigner(): OrgDesignerComponent {
         this._container,
         this.figures,
         this.selectedNodeId,
+        this.repo,
         id => { this.addChild(id); },
         id => { this.removeNodeById(id); },
         id => { this.selectNodeById(id); },
