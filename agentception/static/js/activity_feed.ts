@@ -9,6 +9,8 @@
  * the bottom — reading old content is never interrupted.
  */
 
+import * as icons from './icons';
+
 /** SSE activity message shape from the inspector stream. */
 export interface ActivityMessage {
   t: 'activity';
@@ -34,6 +36,18 @@ function num(p: Record<string, unknown>, key: string): number {
   return 0;
 }
 
+/** Format a byte count as human-readable: 0 B, 1.2 KB, 3.4 MB. */
+function fmtBytes(b: number): string {
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+  return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Format a number with thousands separators. */
+function fmtNum(n: number): string {
+  return n.toLocaleString();
+}
+
 /**
  * Returns true when the feed scroll position is within 80px of the bottom.
  * Used to decide whether appending a new row should auto-scroll.
@@ -56,79 +70,114 @@ export function formatActivitySummary(subtype: string, payload: Record<string, u
     case 'shell_done': {
       const code = num(p, 'exit_code');
       const prefix = code !== 0 ? `✗ exit=${code}` : `exit=${code}`;
-      return `${prefix} stdout:${num(p, 'stdout_bytes')}B`;
+      return `${prefix}  ·  ${fmtBytes(num(p, 'stdout_bytes'))} stdout`;
     }
-    case 'file_read':
-      return `read ${str(p, 'path')} lines ${num(p, 'start_line')}–${num(p, 'end_line')}/${num(p, 'total_lines')}`.trim();
+    case 'file_read': {
+      const path = str(p, 'path');
+      const s = num(p, 'start_line');
+      const e = num(p, 'end_line');
+      const t = num(p, 'total_lines');
+      return `${path}  ·  ${s}–${e} of ${t}`;
+    }
     case 'file_replaced':
-      return `replaced ${str(p, 'path')} (${num(p, 'replacement_count')}×)`.trim();
+      return `${str(p, 'path')}  ·  ${num(p, 'replacement_count')} replacement${num(p, 'replacement_count') === 1 ? '' : 's'}`.trim();
     case 'file_inserted':
       return `inserted ${str(p, 'path')}`.trim();
     case 'file_written':
-      return `wrote ${str(p, 'path')} ${num(p, 'byte_count')}B`.trim();
+      return `${str(p, 'path')}  ·  ${fmtBytes(num(p, 'byte_count'))}`.trim();
     case 'git_push':
-      return `git push → ${str(p, 'branch')}`.trim();
+      return `→ ${str(p, 'branch')}`.trim();
     case 'github_tool':
-      return `🐙 ${str(p, 'tool_name')} ${str(p, 'arg_preview')}`.trim();
-    case 'llm_iter':
-      return `ITER ${num(p, 'iteration')} model=${str(p, 'model')} turns=${num(p, 'turns')}`.trim();
-    case 'llm_usage':
-      return `in=${num(p, 'input_tokens')} cw=${num(p, 'cache_write')} cr=${num(p, 'cache_read')}`;
+      return `${str(p, 'tool_name')} ${str(p, 'arg_preview')}`.trim();
+    case 'llm_iter': {
+      const model = str(p, 'model') || 'unknown';
+      const turns = num(p, 'turns');
+      return `${model}  ·  turn ${turns}`;
+    }
+    case 'llm_usage': {
+      const inp = num(p, 'input_tokens');
+      const cw  = num(p, 'cache_write');
+      const cr  = num(p, 'cache_read');
+      const parts: string[] = [`${fmtNum(inp)} tokens`];
+      if (cw > 0) parts.push(`${fmtNum(cw)} written`);
+      if (cr > 0) parts.push(`${fmtNum(cr)} cached`);
+      return parts.join('  ·  ');
+    }
     case 'llm_reply':
-      return `(${num(p, 'chars')}ch) ${str(p, 'text_preview')}`.trim();
-    case 'llm_done':
-      return `${str(p, 'stop_reason')} → ${num(p, 'tool_call_count')} tool calls`.trim();
+      return `(${fmtNum(num(p, 'chars'))} ch)  ${str(p, 'text_preview')}`.trim();
+    case 'llm_done': {
+      const count = num(p, 'tool_call_count');
+      if (count > 0) return `→ ${count} tool call${count === 1 ? '' : 's'}`;
+      return str(p, 'stop_reason') || 'done';
+    }
     case 'delay':
-      return `⏳ ${num(p, 'secs')}s`;
+      return `${num(p, 'secs')}s pause`;
     case 'error':
-      return `❌ ${str(p, 'message')}`.trim();
+      return str(p, 'message') || 'error';
     default:
       return subtype || 'activity';
   }
 }
 
 /**
- * Map activity subtype to icon character.
- * Pure function with switch statement for explicit subtype mapping.
+ * Map activity subtype to an SVG icon string (set via innerHTML).
+ * All returned strings are hardcoded static SVG — never user data.
  */
 export function getSubtypeIcon(subtype: string): string {
   switch (subtype) {
     case 'llm_iter':
-    case 'llm_usage':
     case 'llm_reply':
     case 'llm_done':
-      return '🧠';
+      return icons.llm;
+    case 'llm_usage':
+      return icons.tokens;
     case 'tool_invoked':
     case 'github_tool':
-      return '⚙️';
+      return icons.arrow;
     case 'file_read':
-      return '👁️';
+      return icons.eye;
     case 'file_replaced':
     case 'file_inserted':
     case 'file_written':
-      return '✏️';
+      return icons.pencil;
     case 'shell_start':
     case 'shell_done':
-      return '$';
+      return icons.terminal;
     case 'git_push':
-      return '⬆️';
+      return icons.gitPush;
     case 'delay':
-      return '⏳';
+      return icons.clock;
     case 'error':
-      return '❌';
+      return icons.xCircle;
     default:
-      return '•';
+      return icons.dot;
   }
 }
 
-/** Format recorded_at (ISO8601) to HH:MM:SS. */
-function formatTime(recordedAt: string): string {
+// ── Relative timestamp ─────────────────────────────────────────────────────────
+
+/** ISO timestamp (ms) of the first event appended in this feed session. */
+let feedStartMs: number | null = null;
+
+/** Reset the feed start time — call when the feed is cleared or a new run begins. */
+export function resetFeedStartTime(): void {
+  feedStartMs = null;
+}
+
+/** Format recorded_at as a relative offset from the first feed event: +0s, +1m5s, … */
+export function formatRelativeTime(recordedAt: string): string {
   try {
-    const d = new Date(recordedAt);
-    const h = d.getHours();
-    const m = d.getMinutes();
-    const s = d.getSeconds();
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    const t = new Date(recordedAt).getTime();
+    if (Number.isNaN(t)) return '';
+    if (feedStartMs === null) {
+      feedStartMs = t;
+      return '+0s';
+    }
+    const delta = Math.max(0, Math.round((t - feedStartMs) / 1000));
+    if (delta < 60) return `+${delta}s`;
+    const m = Math.floor(delta / 60);
+    const s = delta % 60;
+    return s > 0 ? `+${m}m${s}s` : `+${m}m`;
   } catch {
     return '';
   }
@@ -137,6 +186,7 @@ function formatTime(recordedAt: string): string {
 /**
  * Create a single activity row and append it to #activity-feed.
  * One SSE message → one DOM append. No innerHTML with payload data.
+ * Icon column uses innerHTML with hardcoded SVG strings from icons.ts.
  */
 export function appendActivityRow(msg: ActivityMessage): void {
   const feed = document.getElementById('activity-feed');
@@ -148,16 +198,18 @@ export function appendActivityRow(msg: ActivityMessage): void {
 
   // Mark non-zero shell exits for CSS error highlighting
   if (msg.subtype === 'shell_done') {
-    const code = num(msg.payload, 'exit_code');
+    const code = typeof msg.payload['exit_code'] === 'number' ? msg.payload['exit_code'] : 0;
     if (code !== 0) {
       row.dataset['exitNonzero'] = 'true';
     }
   }
 
+  // Icon: hardcoded SVG via innerHTML (safe — getSubtypeIcon returns only static strings)
   const icon = document.createElement('span');
   icon.className = 'activity-feed__icon';
   icon.setAttribute('aria-hidden', 'true');
-  icon.textContent = getSubtypeIcon(msg.subtype);
+  // eslint-disable-next-line no-unsanitized/property
+  icon.innerHTML = getSubtypeIcon(msg.subtype);
 
   const summary = document.createElement('span');
   summary.className = 'activity-feed__summary';
@@ -165,8 +217,9 @@ export function appendActivityRow(msg: ActivityMessage): void {
 
   const ts = document.createElement('time');
   ts.className = 'activity-feed__ts';
-  ts.textContent = formatTime(msg.recorded_at);
+  ts.textContent = formatRelativeTime(msg.recorded_at);
   ts.setAttribute('datetime', msg.recorded_at);
+  ts.setAttribute('title', msg.recorded_at);
 
   row.appendChild(icon);
   row.appendChild(summary);
