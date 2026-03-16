@@ -84,6 +84,10 @@
   --shadow-glow: 0 0 24px var(--accent-glow);
   --shadow-glow-strong: 0 0 36px var(--accent-glow-strong);
 
+  /* Interactive surfaces */
+  --bg-hover:        rgba(255, 255, 255, 0.06);
+  --bg-hover-strong: rgba(255, 255, 255, 0.12);
+
   /* Transitions */
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
@@ -136,6 +140,9 @@
   --shadow-lg:   0 12px 40px rgba(0, 0, 0, 0.12);
   --shadow-glow: 0 0 24px var(--accent-glow);
   --shadow-glow-strong: 0 0 36px var(--accent-glow-strong);
+
+  --bg-hover:        rgba(0, 0, 0, 0.04);
+  --bg-hover-strong: rgba(0, 0, 0, 0.08);
 }
 
 /* ── Reset ────────────────────────────────────────────────────── */

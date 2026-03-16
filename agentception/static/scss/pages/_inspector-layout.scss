@@ -396,7 +396,7 @@ body:has(.build-layout) nav.topnav {
   flex-shrink: 0;
   letter-spacing: 0.02em;
 
-  &:hover { color: #fff; text-decoration: none; }
+  &:hover { color: var(--text-primary); text-decoration: none; }
 }
 
 .build-issue__label-pill {
@@ -554,7 +554,7 @@ body:has(.build-layout) nav.topnav {
 .build-issue__step-badge {
   font-size: 0.65rem;
   font-variant-numeric: tabular-nums;
-  color: #64748b;
+  color: var(--text-muted);
   white-space: nowrap;
 }
 
@@ -594,13 +594,13 @@ body:has(.build-layout) nav.topnav {
     color: var(--accent-bright);
     background: rgba(139, 92, 246, 0.12);
     border: 1px solid rgba(139, 92, 246, 0.28);
-    &:hover { color: #fff; background: rgba(139, 92, 246, 0.22); }
+    &:hover { color: var(--text-primary); background: var(--accent-glow-strong); }
   }
   &--reviewing {
     color: var(--warning);
     background: var(--warning-dim);
     border: 1px solid var(--warning-border);
-    &:hover { color: #fff; }
+    &:hover { color: var(--text-primary); }
   }
 }
 
@@ -752,7 +752,7 @@ body:has(.build-layout) nav.topnav {
     font-weight: 500;
     color: var(--accent-bright);
     text-decoration: none;
-    &:hover { color: #fff; text-decoration: none; }
+    &:hover { color: var(--text-primary); text-decoration: none; }
   }
 
   &__title {
@@ -844,7 +844,7 @@ body:has(.build-layout) nav.topnav {
     border: 1px solid rgba(139, 92, 246, 0.22);
     border-radius: var(--radius-xs);
     padding: 1px 6px;
-    &:hover { color: #fff; text-decoration: none; }
+    &:hover { color: var(--text-primary); text-decoration: none; }
   }
 
   &__no-agent {
@@ -886,7 +886,7 @@ body:has(.build-layout) nav.topnav {
     color: rgba(255, 255, 255, 0.25);
     margin: 0;
     border-top: 1px solid rgba(255, 255, 255, 0.06);
-    background: #09090f;
+    background: var(--bg-void);
     font-family: var(--font-mono);
     flex-shrink: 0;
     letter-spacing: 0.04em;
@@ -897,7 +897,7 @@ body:has(.build-layout) nav.topnav {
   &__chat {
     flex-shrink: 0;
     border-top: 1px solid rgba(255, 255, 255, 0.06);
-    background: #09090f;
+    background: var(--bg-void);
   }
 
   &__agent-actions {
@@ -910,17 +910,17 @@ body:has(.build-layout) nav.topnav {
     font-family: var(--font-mono);
     padding: 0.3rem 0.7rem;
     border-radius: 5px;
-    border: 1px solid rgba(239, 68, 68, 0.3);
-    background: rgba(239, 68, 68, 0.08);
-    color: #fca5a5;
+    border: 1px solid var(--danger-border);
+    background: var(--danger-dim);
+    color: var(--danger);
     cursor: pointer;
     letter-spacing: 0.04em;
     transition: background 0.15s, border-color 0.15s, color 0.15s;
 
     &:hover:not(:disabled) {
-      background: rgba(239, 68, 68, 0.18);
-      border-color: rgba(239, 68, 68, 0.6);
-      color: #f87171;
+      background: var(--danger-border);
+      border-color: var(--danger);
+      color: var(--danger);
     }
 
     &:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -1212,15 +1212,7 @@ $_sw-gap: 0.5rem;
   }
 }
 
-// Canvas palette (always dark — hardcoded, not theme-dependent)
-$od-bg:          #08080f;   // nearly-black canvas
-$od-surface:     #111120;   // node card / editor bg
-$od-surface-hi:  #181830;   // hover / raised surface
-$od-border:      rgba(255,255,255,0.09);
-$od-border-hi:   rgba(255,255,255,0.18);
-$od-coord-color: #a78bfa;   // purple for coordinators
-$od-worker-color:#34d399;   // emerald for workers
-$od-pending-color:#4b5563;  // gray for unconfigured
+// Org Designer — all colours via CSS custom properties from _foundation.scss.
 
 .od-overlay {
   position: fixed;
@@ -1228,7 +1220,7 @@ $od-pending-color:#4b5563;  // gray for unconfigured
   z-index: 400;           // high enough to cover everything
   display: flex;
   flex-direction: column;
-  background: $od-bg;
+  background: var(--bg-void);
   animation: od-enter 0.2s ease-out both;
 }
 
@@ -1245,15 +1237,15 @@ $od-pending-color:#4b5563;  // gray for unconfigured
   align-items: center;
   gap: 1rem;
   padding: 0.875rem 1.5rem;
-  background: $od-surface;
-  border-bottom: 1px solid $od-border;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.04);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+  box-shadow: 0 1px 0 var(--border-subtle);
 }
 
 .od-header__title {
   font-size: 1rem;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-primary);
   letter-spacing: -0.02em;
   flex: 1;
 }
@@ -1261,11 +1253,11 @@ $od-pending-color:#4b5563;  // gray for unconfigured
 .od-header__initiative {
   font-size: 0.72rem;
   font-family: var(--font-mono);
-  color: rgba(255,255,255,0.5);
-  background: rgba(255,255,255,0.06);
+  color: var(--text-muted);
+  background: var(--bg-hover);
   padding: 0.25rem 0.625rem;
   border-radius: 5px;
-  border: 1px solid $od-border;
+  border: 1px solid var(--border-subtle);
 }
 
 .od-header__btn {
@@ -1281,25 +1273,25 @@ $od-pending-color:#4b5563;  // gray for unconfigured
   &:not(:disabled):active { transform: scale(0.97); }
 
   &--reset {
-    background: rgba(255,255,255,0.06);
-    color: rgba(255,255,255,0.45);
-    border: 1px solid rgba(255,255,255,0.1);
-    &:hover:not(:disabled) { background: rgba(239,68,68,0.15); color: #f87171; border-color: rgba(239,68,68,0.35); }
+    background: var(--bg-hover);
+    color: var(--text-faint);
+    border: 1px solid var(--border-subtle);
+    &:hover:not(:disabled) { background: var(--danger-dim); color: var(--danger); border-color: var(--danger-border); }
   }
 
   &--close {
-    background: rgba(255,255,255,0.07);
-    color: rgba(255,255,255,0.6);
-    &:hover:not(:disabled) { background: rgba(255,255,255,0.12); color: #fff; }
+    background: var(--bg-hover);
+    color: var(--text-muted);
+    &:hover:not(:disabled) { background: var(--bg-hover-strong); color: var(--text-primary); }
   }
 
   &--launch {
-    background: linear-gradient(135deg, #6d28d9, #7c3aed);
-    color: #fff;
-    box-shadow: 0 2px 12px rgba(109, 40, 217, 0.5);
+    background: var(--grad-accent);
+    color: var(--text-primary);
+    box-shadow: 0 2px 12px var(--accent-glow-strong);
     &:hover:not(:disabled) {
-      background: linear-gradient(135deg, #7c3aed, #8b5cf6);
-      box-shadow: 0 4px 20px rgba(124, 58, 237, 0.65);
+      background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+      box-shadow: 0 4px 20px var(--accent-glow-strong);
     }
   }
 }
@@ -1307,9 +1299,9 @@ $od-pending-color:#4b5563;  // gray for unconfigured
 .od-header__preset-badge {
   font-size: 0.7rem;
   font-weight: 600;
-  color: rgba(167,139,250,0.9);
-  background: rgba(109,40,217,0.2);
-  border: 1px solid rgba(109,40,217,0.35);
+  color: var(--accent-bright);
+  background: var(--accent-glow);
+  border: 1px solid var(--accent-dim);
   border-radius: 5px;
   padding: 0.2rem 0.6rem;
   letter-spacing: 0.02em;
@@ -1325,54 +1317,54 @@ $od-pending-color:#4b5563;  // gray for unconfigured
   font-size: 0.8rem;
   padding: 0.35rem 0.7rem;
   border-radius: 6px;
-  border: 1px solid rgba(167,139,250,0.4);
-  background: rgba(255,255,255,0.06);
-  color: #fff;
+  border: 1px solid var(--accent-dim);
+  background: var(--bg-hover);
+  color: var(--text-primary);
   outline: none;
   width: 180px;
-  &:focus { border-color: #7c3aed; box-shadow: 0 0 0 2px rgba(124,58,237,0.3); }
-  &::placeholder { color: rgba(255,255,255,0.3); }
+  &:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
+  &::placeholder { color: var(--text-faint); }
 }
 
 .od-header__btn--update {
-  background: rgba(167,139,250,0.12);
-  color: rgba(167,139,250,0.9);
-  border: 1px solid rgba(167,139,250,0.25);
-  &:hover:not(:disabled) { background: rgba(167,139,250,0.22); color: #c4b5fd; }
+  background: var(--accent-glow);
+  color: var(--accent-bright);
+  border: 1px solid var(--accent-dim);
+  &:hover:not(:disabled) { background: var(--accent-glow-strong); color: var(--accent-bright); }
 }
 
 .od-header__btn--saveas {
-  background: rgba(255,255,255,0.06);
-  color: rgba(255,255,255,0.5);
-  border: 1px solid rgba(255,255,255,0.1);
-  &:hover:not(:disabled) { background: rgba(255,255,255,0.1); color: #fff; }
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+  &:hover:not(:disabled) { background: var(--bg-hover-strong); color: var(--text-primary); }
 }
 
 .od-header__btn--save-confirm {
-  background: rgba(109,40,217,0.5);
-  color: #fff;
+  background: var(--accent-hover);
+  color: var(--text-primary);
   border: none;
   &:disabled { opacity: 0.3; cursor: not-allowed; }
-  &:hover:not(:disabled) { background: rgba(124,58,237,0.7); }
+  &:hover:not(:disabled) { background: var(--accent); }
 }
 
 .od-header__btn--save-cancel {
   background: transparent;
-  color: rgba(255,255,255,0.4);
+  color: var(--text-faint);
   border: none;
-  &:hover { color: #fff; }
+  &:hover { color: var(--text-primary); }
 }
 
 .od-header__btn--presets {
-  background: rgba(255,255,255,0.06);
-  color: rgba(255,255,255,0.45);
-  border: 1px solid rgba(255,255,255,0.1);
-  &:hover:not(:disabled) { background: rgba(255,255,255,0.1); color: #fff; }
+  background: var(--bg-hover);
+  color: var(--text-faint);
+  border: 1px solid var(--border-subtle);
+  &:hover:not(:disabled) { background: var(--bg-hover-strong); color: var(--text-primary); }
 }
 
 .od-header__launch-err {
   font-size: 0.7rem;
-  color: #f87171;
+  color: var(--danger);
 }
 
 // ── Lone-worker warning strip — full-width bar below the header ────────────────
@@ -1383,9 +1375,9 @@ $od-pending-color:#4b5563;  // gray for unconfigured
   align-items: flex-start;
   gap: 0.5rem;
   padding: 0.6rem 1.5rem;
-  background: rgba(217, 119, 6, 0.12);
-  border-bottom: 1px solid rgba(217, 119, 6, 0.3);
-  color: #fbbf24;
+  background: var(--warning-dim);
+  border-bottom: 1px solid var(--warning-border);
+  color: var(--warning);
 
   &__icon {
     flex-shrink: 0;
@@ -1396,7 +1388,7 @@ $od-pending-color:#4b5563;  // gray for unconfigured
   &__text {
     font-size: 0.75rem;
     line-height: 1.5;
-    color: rgba(251, 191, 36, 0.9);
+    color: var(--warning);
   }
 }
 
@@ -1423,7 +1415,7 @@ $preset-accents: (
   flex-direction: column;
   gap: 2.5rem;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.1) transparent;
+  scrollbar-color: var(--border-subtle) transparent;
 }
 
 .od-presets__section {
@@ -1437,7 +1429,7 @@ $preset-accents: (
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: rgba(255,255,255,0.3);
+  color: var(--text-faint);
   margin: 0;
 }
 
@@ -1465,8 +1457,8 @@ $preset-accents: (
   text-align: left;
   padding: 1.5rem 1.5rem 1.25rem;
   border-radius: 16px;
-  border: 1px solid rgba(255,255,255,0.07);
-  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-hover);
   cursor: pointer;
   position: relative;
   overflow: hidden;
@@ -1505,42 +1497,42 @@ $preset-accents: (
     align-items: center;
     padding: 1.1rem 1.5rem;
     border-style: dashed;
-    border-color: rgba(255,255,255,0.12);
+    border-color: var(--border-default);
     gap: 1rem;
 
     &:hover {
-      border-color: rgba(167,139,250,0.5);
-      background: rgba(167,139,250,0.08);
-      box-shadow: 0 4px 20px rgba(124,58,237,0.15);
+      border-color: var(--accent-dim);
+      background: var(--accent-glow);
+      box-shadow: 0 4px 20px var(--accent-glow);
       transform: translateY(-2px);
     }
 
     .od-preset-card__icon {
       font-size: 1.4rem;
-      color: rgba(255,255,255,0.5);
+      color: var(--text-muted);
       text-shadow: none;
     }
 
     .od-preset-card__name {
       font-size: 1rem;
-      color: rgba(255,255,255,0.6);
+      color: var(--text-muted);
     }
   }
 
   // ── User-saved design ────────────────────────────────────────────────────
   &--user {
     padding: 1rem 1rem 0.9rem;
-    border-color: rgba(255,255,255,0.08);
+    border-color: var(--border-subtle);
 
     .od-preset-card__icon {
       font-size: 1rem;
-      color: rgba(255,255,255,0.25);
+      color: var(--text-faint);
       text-shadow: none;
     }
 
     &:hover {
-      border-color: rgba(167,139,250,0.35);
-      box-shadow: 0 4px 16px rgba(109,40,217,0.15);
+      border-color: var(--accent-dim);
+      box-shadow: 0 4px 16px var(--accent-glow);
     }
   }
 }
@@ -1560,12 +1552,12 @@ $preset-accents: (
 
 .od-preset-card__date {
   font-size: 0.65rem;
-  color: rgba(255,255,255,0.3);
+  color: var(--text-faint);
   letter-spacing: 0.03em;
 }
 
 .od-presets__loading {
-  color: rgba(255,255,255,0.35);
+  color: var(--text-faint);
   font-size: 0.85rem;
   padding: 1rem 0;
   text-align: center;
@@ -1575,7 +1567,7 @@ $preset-accents: (
 .od-preset-card__name {
   font-size: 1rem;
   font-weight: 800;
-  color: #f1f5f9;
+  color: var(--text-primary);
   line-height: 1.2;
   letter-spacing: -0.01em;
 }
@@ -1583,7 +1575,7 @@ $preset-accents: (
 .od-preset-card__desc {
   font-size: 0.72rem;
   line-height: 1.5;
-  color: rgba(255,255,255,0.38);
+  color: var(--text-faint);
   flex: 1;
 }
 
@@ -1593,7 +1585,7 @@ $preset-accents: (
   right: 0.65rem;
   font-size: 0.9rem;
   line-height: 1;
-  color: rgba(255,255,255,0.2);
+  color: var(--text-faint);
   padding: 0.2rem 0.3rem;
   background: none;
   border: none;
@@ -1601,7 +1593,7 @@ $preset-accents: (
   border-radius: 4px;
   transition: color 0.15s, background 0.15s;
   z-index: 1;
-  &:hover { color: #f87171; background: rgba(239,68,68,0.12); }
+  &:hover { color: var(--danger); background: var(--danger-dim); }
 }
 
 .od-header__launch-ok {
@@ -1609,7 +1601,7 @@ $preset-accents: (
   align-items: center;
   gap: 0.5rem;
   font-size: 0.75rem;
-  color: #4ade80;
+  color: var(--success);
 }
 
 // ── Canvas + editor split ─────────────────────────────────────────────────────
@@ -1626,18 +1618,18 @@ $preset-accents: (
   flex: 1;
   position: relative;
   overflow: auto;
-  background: $od-bg;
+  background: var(--bg-void);
   // Subtle dot grid — makes the canvas feel like a real design surface
-  background-image: radial-gradient(circle, rgba(255,255,255,0.09) 1px, transparent 1px);
+  background-image: radial-gradient(circle, var(--border-subtle) 1px, transparent 1px);
   background-size: 28px 28px;
 }
 
 // D3 bezier edges — colored glow to match coordinator/worker palette
 .od-link {
   fill: none;
-  stroke: rgba(139, 92, 246, 0.35);
+  stroke: var(--accent-dim);
   stroke-width: 2px;
-  filter: drop-shadow(0 0 3px rgba(139, 92, 246, 0.2));
+  filter: drop-shadow(0 0 3px var(--accent-glow));
 }
 
 // ── Node cards ────────────────────────────────────────────────────────────────
@@ -1646,38 +1638,38 @@ $preset-accents: (
   position: absolute;
   width: 240px;
   box-sizing: border-box;
-  background: $od-surface;
-  border: 1.5px solid $od-border;
+  background: var(--bg-surface);
+  border: 1.5px solid var(--border-subtle);
   border-radius: 12px;
   padding: 0.875rem 1rem 0.75rem;
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
-  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+  box-shadow: var(--shadow-md);
   transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
 
   &:hover {
-    border-color: $od-border-hi;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+    border-color: var(--border-default);
+    box-shadow: var(--shadow-lg);
     transform: translateY(-1px);
   }
 
   &--selected {
-    border-color: #7c3aed;
-    box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.4), 0 8px 32px rgba(0,0,0,0.6);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-glow-strong), var(--shadow-lg);
   }
 
   &--coordinator {
-    border-left: 3px solid $od-coord-color;
+    border-left: 3px solid var(--accent-bright);
   }
 
   &--worker {
-    border-left: 3px solid $od-worker-color;
+    border-left: 3px solid var(--success);
   }
 
   &--pending {
-    border-color: rgba(255,255,255,0.05);
-    border-left: 3px solid $od-pending-color;
+    border-color: var(--border-subtle);
+    border-left: 3px solid var(--text-faint);
     box-shadow: none;
   }
 }
@@ -1688,15 +1680,15 @@ $preset-accents: (
   text-transform: uppercase;
   letter-spacing: 0.1em;
 
-  &--coordinator { color: $od-coord-color; }
-  &--worker      { color: $od-worker-color; }
-  &--pending     { color: rgba(255,255,255,0.3); }
+  &--coordinator { color: var(--accent-bright); }
+  &--worker      { color: var(--success); }
+  &--pending     { color: var(--text-faint); }
 }
 
 .od-node__role {
   font-size: 0.9rem;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-primary);
   line-height: 1.25;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1704,7 +1696,7 @@ $preset-accents: (
   letter-spacing: -0.01em;
 
   &--empty {
-    color: rgba(255,255,255,0.3);
+    color: var(--text-faint);
     font-style: italic;
     font-weight: 400;
     font-size: 0.8rem;
@@ -1713,7 +1705,7 @@ $preset-accents: (
 
 .od-node__figure {
   font-size: 0.68rem;
-  color: rgba(255,255,255,0.45);
+  color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1726,9 +1718,9 @@ $preset-accents: (
   margin-top: 0.3rem;
   padding: 0.15rem 0.5rem;
   border-radius: 4px;
-  background: rgba(52, 211, 153, 0.12);   // emerald tint matching worker border
-  border: 1px solid rgba(52, 211, 153, 0.35);
-  color: #34d399;
+  background: var(--success-dim);
+  border: 1px solid var(--success-border);
+  color: var(--success);
   font-size: 0.67rem;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -1736,9 +1728,9 @@ $preset-accents: (
   transition: background 0.12s, border-color 0.12s;
 
   &:hover {
-    background: rgba(52, 211, 153, 0.22);
-    border-color: rgba(52, 211, 153, 0.6);
-    color: #6ee7b7;
+    background: var(--success-border);
+    border-color: var(--success);
+    color: var(--success);
   }
 }
 
@@ -1754,36 +1746,36 @@ $preset-accents: (
   font-weight: 700;
   padding: 0.25rem 0.55rem;
   border-radius: 5px;
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid var(--border-subtle);
   cursor: pointer;
-  background: rgba(255,255,255,0.05);
-  color: rgba(255,255,255,0.5);
+  background: var(--bg-hover);
+  color: var(--text-muted);
   letter-spacing: 0.02em;
   transition: background 0.12s, color 0.12s, border-color 0.12s;
 
   &:hover {
-    background: rgba(255,255,255,0.12);
-    color: #fff;
-    border-color: rgba(255,255,255,0.2);
+    background: var(--bg-hover-strong);
+    color: var(--text-primary);
+    border-color: var(--border-default);
   }
 
   &--add {
-    border-color: rgba($od-worker-color, 0.3);
-    color: rgba($od-worker-color, 0.8);
+    border-color: var(--success-border);
+    color: var(--success);
     &:hover {
-      background: rgba($od-worker-color, 0.12);
-      color: $od-worker-color;
-      border-color: rgba($od-worker-color, 0.6);
+      background: var(--success-dim);
+      color: var(--success);
+      border-color: var(--success);
     }
   }
 
   &--remove {
-    border-color: rgba(#f87171, 0.25);
-    color: rgba(#f87171, 0.6);
+    border-color: var(--danger-border);
+    color: var(--danger);
     &:hover {
-      background: rgba(#f87171, 0.12);
-      color: #f87171;
-      border-color: rgba(#f87171, 0.5);
+      background: var(--danger-dim);
+      color: var(--danger);
+      border-color: var(--danger);
     }
   }
 }
@@ -1795,8 +1787,8 @@ $preset-accents: (
   width: 300px;
   display: flex;
   flex-direction: column;
-  background: $od-surface;
-  border-left: 1px solid $od-border;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border-subtle);
   overflow-y: auto;
   animation: od-editor-enter 0.18s ease-out both;
 }
@@ -1810,9 +1802,9 @@ $preset-accents: (
   padding: 1rem 1.125rem 0.75rem;
   font-size: 0.8rem;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-primary);
   letter-spacing: -0.01em;
-  border-bottom: 1px solid $od-border;
+  border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1821,13 +1813,13 @@ $preset-accents: (
 .od-editor__close {
   font-size: 0.7rem;
   padding: 0.2rem 0.45rem;
-  border: 1px solid rgba(255,255,255,0.08);
+  border: 1px solid var(--border-subtle);
   border-radius: 4px;
   background: transparent;
-  color: rgba(255,255,255,0.35);
+  color: var(--text-faint);
   cursor: pointer;
   transition: color 0.12s, background 0.12s;
-  &:hover { color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.07); }
+  &:hover { color: var(--text-secondary); background: var(--bg-hover); }
 }
 
 .od-editor__body {
@@ -1849,7 +1841,7 @@ $preset-accents: (
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: rgba(255,255,255,0.35);
+  color: var(--text-faint);
 }
 
 .od-editor__optional {
@@ -1857,7 +1849,7 @@ $preset-accents: (
   font-weight: 400;
   text-transform: none;
   letter-spacing: 0;
-  color: rgba(255,255,255,0.2);
+  color: var(--text-faint);
 }
 
 // ── Coordinator / Worker type radio ──────────────────────────────────────────
@@ -1874,18 +1866,18 @@ $preset-accents: (
   gap: 0.875rem;
   padding: 0.875rem 1rem;
   border-radius: 10px;
-  border: 1.5px solid $od-border;
+  border: 1.5px solid var(--border-subtle);
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
 
   input[type="radio"] { display: none; }
 
-  &:hover { border-color: $od-border-hi; background: $od-surface-hi; }
+  &:hover { border-color: var(--border-default); background: var(--bg-elevated); }
 
   &--active {
-    border-color: #7c3aed;
-    background: rgba(124, 58, 237, 0.12);
-    box-shadow: 0 0 0 1px rgba(124, 58, 237, 0.25) inset;
+    border-color: var(--accent);
+    background: var(--accent-glow);
+    box-shadow: 0 0 0 1px var(--accent-dim) inset;
   }
 
   &__icon {
@@ -1902,14 +1894,14 @@ $preset-accents: (
     strong {
       font-size: 0.85rem;
       font-weight: 700;
-      color: #fff;
+      color: var(--text-primary);
       line-height: 1.2;
     }
 
     em {
       font-style: normal;
       font-size: 0.67rem;
-      color: rgba(255,255,255,0.4);
+      color: var(--text-faint);
     }
   }
 }
@@ -1928,18 +1920,18 @@ $preset-accents: (
   gap: 0.75rem;
   padding: 0.65rem 0.875rem;
   border-radius: 8px;
-  border: 1.5px solid $od-border;
+  border: 1.5px solid var(--border-subtle);
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 
   input[type="radio"] { display: none; }
 
-  &:hover { border-color: $od-border-hi; background: $od-surface-hi; }
+  &:hover { border-color: var(--border-default); background: var(--bg-elevated); }
 
   &--active {
-    border-color: #7c3aed;
-    background: rgba(124, 58, 237, 0.12);
-    box-shadow: 0 0 0 1px rgba(124, 58, 237, 0.25) inset;
+    border-color: var(--accent);
+    background: var(--accent-glow);
+    box-shadow: 0 0 0 1px var(--accent-dim) inset;
   }
 
   &__text {
@@ -1950,13 +1942,13 @@ $preset-accents: (
     strong {
       font-size: 0.8rem;
       font-weight: 700;
-      color: #fff;
+      color: var(--text-primary);
     }
 
     em {
       font-style: normal;
       font-size: 0.64rem;
-      color: rgba(255,255,255,0.38);
+      color: var(--text-faint);
     }
   }
 }
@@ -1974,13 +1966,13 @@ $preset-accents: (
   font-size: 0.78rem;
   padding: 0.5rem 0.625rem;
   border-radius: 7px;
-  border: 1.5px solid $od-border;
-  background: rgba(255,255,255,0.04);
-  color: #fff;
+  border: 1.5px solid var(--border-subtle);
+  background: var(--bg-hover);
+  color: var(--text-primary);
   transition: border-color 0.15s;
 
-  &:focus { outline: none; border-color: #7c3aed; box-shadow: 0 0 0 2px rgba(124,58,237,0.25); }
-  &::placeholder { color: rgba(255,255,255,0.25); }
+  &:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
+  &::placeholder { color: var(--text-faint); }
 
   &--issue {
     width: 100%;
@@ -1994,15 +1986,15 @@ $preset-accents: (
   font-size: 0.78rem;
   padding: 0.5rem 0.625rem;
   border-radius: 7px;
-  border: 1.5px solid $od-border;
-  background: rgba(255,255,255,0.04);
-  color: #fff;
+  border: 1.5px solid var(--border-subtle);
+  background: var(--bg-hover);
+  color: var(--text-primary);
   width: 100%;
   cursor: pointer;
   transition: border-color 0.15s;
 
-  option, optgroup { background: #1a1a2e; color: #fff; }
-  &:focus { outline: none; border-color: #7c3aed; box-shadow: 0 0 0 2px rgba(124,58,237,0.25); }
+  option, optgroup { background: var(--bg-elevated); color: var(--text-primary); }
+  &:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
 }
 
 // Scope cascade pickers (Phase dropdown, Ticket dropdown)
@@ -2010,9 +2002,9 @@ $preset-accents: (
   font-size: 0.78rem;
   padding: 0.5rem 0.625rem;
   border-radius: 7px;
-  border: 1.5px solid $od-border;
-  background: rgba(255,255,255,0.04);
-  color: #fff;
+  border: 1.5px solid var(--border-subtle);
+  background: var(--bg-hover);
+  color: var(--text-primary);
   width: 100%;
   cursor: pointer;
   transition: border-color 0.15s;
@@ -2022,14 +2014,14 @@ $preset-accents: (
   background-position: right 0.75rem center;
   padding-right: 2rem;
 
-  option, optgroup { background: #1a1a2e; color: #fff; }
-  option:disabled, &__opt--blocked { color: rgba(255,255,255,0.28); }
-  &:focus { outline: none; border-color: #7c3aed; box-shadow: 0 0 0 2px rgba(124,58,237,0.25); }
+  option, optgroup { background: var(--bg-elevated); color: var(--text-primary); }
+  option:disabled, &__opt--blocked { color: var(--text-faint); }
+  &:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
 }
 
 .od-scope-empty {
   font-size: 0.7rem;
-  color: rgba(255,255,255,0.35);
+  color: var(--text-faint);
   margin: 0;
   padding: 0.25rem 0;
   font-style: italic;
@@ -2039,7 +2031,7 @@ $preset-accents: (
   display: flex;
   gap: 0.625rem;
   padding: 1rem 1.125rem;
-  border-top: 1px solid $od-border;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .od-editor__btn {
@@ -2054,19 +2046,19 @@ $preset-accents: (
   &:active { transform: scale(0.97); }
 
   &--apply {
-    background: linear-gradient(135deg, #6d28d9, #7c3aed);
-    color: #fff;
-    box-shadow: 0 2px 10px rgba(109,40,217,0.45);
+    background: var(--grad-accent);
+    color: var(--text-primary);
+    box-shadow: 0 2px 10px var(--accent-glow-strong);
     &:hover:not(:disabled) {
-      background: linear-gradient(135deg, #7c3aed, #8b5cf6);
+      background: linear-gradient(135deg, var(--accent), var(--accent-bright));
     }
     &:disabled { opacity: 0.35; cursor: not-allowed; }
   }
 
   &--cancel {
-    background: rgba(255,255,255,0.06);
-    color: rgba(255,255,255,0.55);
-    &:hover { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.8); }
+    background: var(--bg-hover);
+    color: var(--text-muted);
+    &:hover { background: var(--bg-hover-strong); color: var(--text-secondary); }
   }
 }
 
@@ -2076,8 +2068,8 @@ $preset-accents: (
   display: flex;
   align-items: center;
   gap: 0;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.1);
+  background: var(--bg-hover);
+  border: 1px solid var(--border-subtle);
   border-radius: 7px;
   overflow: hidden;
 }
@@ -2088,18 +2080,18 @@ $preset-accents: (
   padding: 0.35rem 0.75rem;
   border: none;
   background: transparent;
-  color: rgba(255,255,255,0.45);
+  color: var(--text-faint);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 
   &:hover:not(.od-header__mode-btn--active) {
-    background: rgba(255,255,255,0.08);
-    color: rgba(255,255,255,0.7);
+    background: var(--bg-hover-strong);
+    color: var(--text-secondary);
   }
 
   &--active {
-    background: rgba(109,40,217,0.55);
-    color: #fff;
+    background: var(--accent-hover);
+    color: var(--text-primary);
   }
 }
 
@@ -2110,11 +2102,11 @@ $preset-accents: (
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 1.5rem;
-  background: rgba(255,255,255,0.02);
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  background: var(--bg-hover);
+  border-bottom: 1px solid var(--border-subtle);
   overflow-x: auto;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.08) transparent;
+  scrollbar-color: var(--border-subtle) transparent;
 }
 
 .od-sessions__label {
@@ -2122,7 +2114,7 @@ $preset-accents: (
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: rgba(255,255,255,0.3);
+  color: var(--text-faint);
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -2132,19 +2124,19 @@ $preset-accents: (
   font-weight: 600;
   padding: 0.3rem 0.75rem;
   border-radius: 100px;
-  border: 1px solid rgba(255,255,255,0.1);
-  background: rgba(255,255,255,0.05);
-  color: rgba(255,255,255,0.5);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-hover);
+  color: var(--text-muted);
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 
-  &:hover { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.8); }
+  &:hover { background: var(--bg-hover-strong); color: var(--text-secondary); }
 
   &--active {
-    background: rgba(109,40,217,0.3);
-    color: #c4b5fd;
-    border-color: rgba(109,40,217,0.5);
+    background: var(--accent-glow-strong);
+    color: var(--accent-bright);
+    border-color: var(--accent-dim);
   }
 }
 
@@ -2161,9 +2153,9 @@ $preset-accents: (
   flex: 1;
   position: relative;
   overflow: auto;
-  background: $od-bg;
+  background: var(--bg-void);
   scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.08) transparent;
+  scrollbar-color: var(--border-subtle) transparent;
 }
 
 .od-live__empty {
@@ -2173,7 +2165,7 @@ $preset-accents: (
   height: 100%;
   min-height: 200px;
   font-size: 0.85rem;
-  color: rgba(255,255,255,0.25);
+  color: var(--text-faint);
 }
 
 // ── Org Designer: Live node card contents ─────────────────────────────────────
@@ -2181,7 +2173,7 @@ $preset-accents: (
 .od-node--live {
   cursor: default;
 
-  &:hover { border-color: rgba(255,255,255,0.15); }
+  &:hover { border-color: var(--border-default); }
 }
 
 .od-live__tier {
@@ -2189,14 +2181,14 @@ $preset-accents: (
   font-weight: 800;
   letter-spacing: 0.13em;
   text-transform: uppercase;
-  color: rgba(255,255,255,0.35);
+  color: var(--text-faint);
   margin-bottom: 0.25rem;
 }
 
 .od-live__role {
   font-size: 0.8rem;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-primary);
   display: flex;
   align-items: center;
   gap: 0.4rem;
@@ -2211,34 +2203,34 @@ $preset-accents: (
   padding: 0.15rem 0.45rem;
   border-radius: 100px;
 
-  &--implementing { background: rgba(59,130,246,0.25); color: #93c5fd; }
-  &--reviewing    { background: rgba(139,92,246,0.25); color: #c4b5fd; }
-  &--done         { background: rgba(34,197,94,0.2);   color: #86efac; }
-  &--stale        { background: rgba(245,158,11,0.2);  color: #fcd34d; }
-  &--cancelled    { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.3); }
-  &--blocked      { background: rgba(239,68,68,0.2);   color: #fca5a5; }
-  &--pending      { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.25); }
+  &--implementing { background: var(--info-dim); color: var(--info); }
+  &--reviewing    { background: var(--accent-glow); color: var(--accent-bright); }
+  &--done         { background: var(--success-dim); color: var(--success); }
+  &--stale        { background: var(--warning-dim); color: var(--warning); }
+  &--cancelled    { background: var(--bg-hover); color: var(--text-faint); }
+  &--blocked      { background: var(--danger-dim); color: var(--danger); }
+  &--pending      { background: var(--bg-hover); color: var(--text-faint); }
 }
 
 .od-live__run-id {
   font-size: 0.6rem;
   font-family: var(--font-mono);
-  color: rgba(255,255,255,0.3);
+  color: var(--text-faint);
   margin: 0.2rem 0;
 }
 
 .od-live__issue-link {
-  color: rgba(167,139,250,0.8);
+  color: var(--accent-bright);
   text-decoration: none;
   margin-left: 0.35rem;
   font-size: 0.65rem;
 
-  &:hover { color: #c4b5fd; text-decoration: underline; }
+  &:hover { color: var(--accent-bright); text-decoration: underline; }
 }
 
 .od-live__step {
   font-size: 0.62rem;
-  color: rgba(255,255,255,0.35);
+  color: var(--text-faint);
   font-style: italic;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2254,16 +2246,16 @@ $preset-accents: (
   display: flex;
   align-items: center;
   padding: 0.4rem 1.5rem;
-  background: $od-surface;
-  border-top: 1px solid $od-border;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .od-footer__indexing {
   font-size: 0.65rem;
   font-weight: 600;
 
-  &--on  { color: rgba(245,158,11,0.8); }
-  &--off { color: rgba(134,239,172,0.7); }
+  &--on  { color: var(--warning); }
+  &--off { color: var(--success); }
 }
 
 // ── Activity feed container — terminal-style scrollable log ──────────────────
@@ -2273,7 +2265,7 @@ $preset-accents: (
   min-height: 0; // without this the flex child never scrolls — it just expands
   overflow-y: auto;
   padding: 0;
-  background: #09090f;
+  background: var(--bg-void);
   font-family: var(--font-mono);
   scroll-behavior: smooth;
   scrollbar-width: thin;
