@@ -62,6 +62,7 @@ from agentception.services.llm import (
     completion_with_tools,
 )
 from agentception.services.code_indexer import SearchMatch, search_codebase
+from agentception.services.role_loader import load_role_file
 from agentception.types import JsonSchemaObj, JsonValue
 from agentception.services.github_mcp_client import GitHubMCPClient
 from agentception.tools.definitions import (
@@ -1245,84 +1246,17 @@ async def _load_task_from_db(run_id: str) -> AgentTaskSpec | None:
         return None
 
 
-def _role_base_fallback(role: str) -> str | None:
-    """Return the base role slug to try when *role*'s file is missing.
-
-    Language- and domain-prefixed roles (e.g. ``python-developer``,
-    ``react-developer``, ``data-engineer``) share execution contracts with
-    their base family.  When the specific file is absent, loading the base
-    file is far better than returning an empty system prompt.
-
-    Returns ``None`` when no meaningful fallback exists (e.g. the role has no
-    ``-`` separator, or the suffix is not a known base family).
-    """
-    _BASE_FAMILIES = frozenset({
-        "developer", "coordinator", "engineer", "analyst",
-        "architect", "researcher", "writer", "programmer",
-    })
-    if "-" not in role:
-        return None
-    suffix = role.rsplit("-", 1)[-1]
-    return suffix if suffix in _BASE_FAMILIES else None
-
-
 def _load_role_prompt(role: str | None, variant: str | None = None) -> str:
     """Return the Markdown content of the role file for *role*.
 
-    When *variant* is provided and non-empty, the function first looks for a
-    variant-specific file ``{role}-{variant}.md`` and returns its content if
-    found.  If the variant file does not exist, it falls back to the base
-    ``{role}.md`` file — the same behaviour as when *variant* is ``None``.
-
-    When the exact role file is missing, the function tries the role-family
-    base (e.g. ``python-developer`` → ``developer``) before giving up.  Falls
-    back to an empty string only when no role file can be found at all.
+    Delegates to :func:`~agentception.services.role_loader.load_role_file` so
+    that the variant and role-family fallback logic lives in one place.
     """
     if not role:
         logger.warning("⚠️ _load_role_prompt — no role specified")
         return ""
-
     roles_dir = settings.repo_dir / ".agentception" / "roles"
-
-    # Try the variant file first when a variant is requested.
-    if variant:
-        candidate = roles_dir / f"{role}-{variant}.md"
-        if candidate.exists():
-            logger.info("Loading role file: %s (variant=%s)", candidate, variant)
-            try:
-                return candidate.read_text(encoding="utf-8")
-            except OSError as exc:
-                logger.warning(
-                    "⚠️ _load_role_prompt — OS error reading %s: %s", candidate, exc
-                )
-                # Fall through to the base file.
-
-    # Try the exact role file.
-    role_path = roles_dir / f"{role}.md"
-    logger.info("Loading role file: %s (variant=%s)", role_path, variant)
-    try:
-        return role_path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        pass
-    except OSError as exc:
-        logger.warning("⚠️ _load_role_prompt — OS error reading %s: %s", role_path, exc)
-        return ""
-
-    # Exact file missing — try the role-family base (python-developer → developer).
-    base = _role_base_fallback(role)
-    if base:
-        base_path = roles_dir / f"{base}.md"
-        try:
-            content = base_path.read_text(encoding="utf-8")
-            logger.info(
-                "✅ _load_role_prompt — using family fallback %s → %s", role, base
-            )
-            return content
-        except OSError:
-            pass
-
-    logger.warning("⚠️ _load_role_prompt — role file not found: %s", role_path)
-    return ""
+    return load_role_file(role, roles_dir, variant=variant)
 
 
 # ---------------------------------------------------------------------------
