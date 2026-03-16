@@ -110,14 +110,14 @@ Before agents can use semantic search, the codebase must be indexed. Indexing ru
 ### Trigger indexing
 
 ```bash
-curl -X POST http://localhost:10003/api/system/index-codebase
+curl -X POST http://localhost:1337/api/system/index-codebase
 # → 202 Accepted {"ok": true, "message": "Codebase indexing started in the background."}
 ```
 
 If `AC_API_KEY` is set:
 
 ```bash
-curl -X POST http://localhost:10003/api/system/index-codebase \
+curl -X POST http://localhost:1337/api/system/index-codebase \
   -H "Authorization: Bearer your-key"
 ```
 
@@ -143,7 +143,7 @@ Directories skipped entirely: `.git` `__pycache__` `node_modules` `.venv` `venv`
 ### Search the index directly
 
 ```bash
-curl "http://localhost:10003/api/system/search?q=anthropic+api+key&n=5"
+curl "http://localhost:1337/api/system/search?q=anthropic+api+key&n=5"
 ```
 
 Returns:
@@ -180,7 +180,7 @@ The `POST /api/runs/{run_id}/execute` endpoint dispatches an agent run using the
 ### HTTP request
 
 ```bash
-curl -X POST http://localhost:10003/api/runs/{run_id}/execute \
+curl -X POST http://localhost:1337/api/runs/{run_id}/execute \
   -H "Authorization: Bearer your-key"
 ```
 
@@ -243,7 +243,7 @@ FetchMcpResource(server="user-agentception", uri="ac://runs/{run_id}/events")
 Or directly:
 
 ```bash
-curl http://localhost:10003/api/runs/{run_id}/step
+curl http://localhost:1337/api/runs/{run_id}/step
 ```
 
 ---
@@ -260,11 +260,11 @@ Expected output:
 
 ```
 ══ AgentCeption Smoke Test — Cursor-Free Agent Loop ══
-  AgentCeption: http://127.0.0.1:10003
+  AgentCeption: http://127.0.0.1:1337
   Qdrant:       http://127.0.0.1:6335
 
 ─── Step 1: AgentCeption health check ───
-  OK — AgentCeption at http://127.0.0.1:10003 is healthy
+  OK — AgentCeption at http://127.0.0.1:1337 is healthy
 ─── Step 2: Qdrant connectivity ───
   OK — Qdrant at http://127.0.0.1:6335 is reachable
 ─── Step 3: Trigger codebase indexing ───

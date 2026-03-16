@@ -20,7 +20,7 @@ Two transports are available — both speak the same JSON-RPC 2.0 protocol:
 | Transport | Entry point | Best for |
 |-----------|-------------|----------|
 | **stdio** | `docker compose exec -T agentception python -m agentception.mcp.stdio_server` | IDE sessions (e.g. Cursor, VS Code) |
-| **HTTP** | `POST http://localhost:10003/api/mcp` | Web agents, CI/CD, curl, Anthropic remote MCP |
+| **HTTP** | `POST http://localhost:1337/api/mcp` | Web agents, CI/CD, curl, Anthropic remote MCP |
 
 The HTTP transport follows the [MCP 2025-03-26 Streamable HTTP spec](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports/): single or batch JSON-RPC request bodies, JSON responses. Notifications (requests without `id`) return `202 Accepted`.
 
@@ -41,7 +41,7 @@ When `AC_API_KEY` is configured, the HTTP MCP client must include the key:
 {
   "mcpServers": {
     "agentception": {
-      "url": "http://localhost:10003/api/mcp",
+      "url": "http://localhost:1337/api/mcp",
       "headers": {
         "Authorization": "Bearer your-generated-key-here"
       }
@@ -158,7 +158,7 @@ starting agents, advancing phase gates) always require an explicit human confirm
 {
   "mcpServers": {
     "agentception": {
-      "url": "http://localhost:10003/api/mcp",
+      "url": "http://localhost:1337/api/mcp",
       "autoApprove": [
         "plan_validate_spec",
         "plan_validate_manifest",
@@ -186,7 +186,7 @@ starting agents, advancing phase gates) always require an explicit human confirm
 
 - Resource reads (`FetchMcpResource`), prompt fetches, and observability tool calls happen without interruption.
 - `build_spawn_adhoc_child` and `plan_advance_phase` always require explicit confirmation — a mis-fire creates real GitHub issues and running agent processes that are hard to undo.
-- The HTTP endpoint is available at `http://localhost:10003/api/mcp` once containers are running.
+- The HTTP endpoint is available at `http://localhost:1337/api/mcp` once containers are running.
 
 ## Available tools, resources, and prompts
 

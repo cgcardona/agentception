@@ -20,7 +20,7 @@ dispatch for the resulting PR. No manual coordination is needed.
 To trigger a reviewer manually (e.g. for a PR the auto-dispatch missed):
 
 ```bash
-curl -X POST http://localhost:10003/api/dispatch/issue \
+curl -X POST http://localhost:1337/api/dispatch/issue \
   -H "X-API-Key: $AC_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{

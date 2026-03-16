@@ -139,7 +139,7 @@ The HTTP transport is available at `POST /api/mcp` once the containers are runni
 {
   "mcpServers": {
     "agentception": {
-      "url": "http://localhost:10003/api/mcp",
+      "url": "http://localhost:1337/api/mcp",
       "headers": {
         "Authorization": "Bearer your-generated-key-here"
       }

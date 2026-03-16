@@ -27,7 +27,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 
-BASE_URL = "http://localhost:10003"
+BASE_URL = "http://localhost:1337"
 
 
 @dataclass(frozen=True)

@@ -1,6 +1,6 @@
 # API Reference
 
-All endpoints are served by the AgentCeption container on port 10003. Every browser page and MCP tool call resolves to one of these routes.
+All endpoints are served by the AgentCeption container on port 1337. Every browser page and MCP tool call resolves to one of these routes.
 
 ## Authentication
 

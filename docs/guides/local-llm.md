@@ -171,7 +171,7 @@ docker compose exec agentception curl -s http://host.docker.internal:11434/v1/ch
   -d '{"model":"qwen2.5-coder:7b","messages":[{"role":"user","content":"Say hi"}],"temperature":0,"max_tokens":16,"stream":false}'
 
 # Confirm AgentCeption reaches the local model
-curl -s http://localhost:10003/api/local-llm/hello
+curl -s http://localhost:1337/api/local-llm/hello
 # Expect: {"ok": true, "reply": "..."}
 ```
 
@@ -197,7 +197,7 @@ When Ollama is running, point the agent at it so it uses the local model instead
 3. **Probe the local model (no agent):**
 
    ```bash
-   curl -s http://localhost:10003/api/local-llm/hello
+   curl -s http://localhost:1337/api/local-llm/hello
    ```
 
    You should get `{"ok": true, "reply": "..."}`. If you get 502, the container cannot reach Ollama; check `host.docker.internal` and that Ollama is running on the host.
@@ -205,7 +205,7 @@ When Ollama is running, point the agent at it so it uses the local model instead
 4. **Optional: run an agent that says "hello world":**
 
    ```bash
-   curl -s -X POST http://localhost:10003/api/local-llm/hello-agent
+   curl -s -X POST http://localhost:1337/api/local-llm/hello-agent
    ```
 
    Returns `{"run_id": "local-hello-<uuid>", "status": "implementing"}`. Watch with `python3 scripts/watch_run.py local-hello-<uuid>`.

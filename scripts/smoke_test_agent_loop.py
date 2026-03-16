@@ -7,7 +7,7 @@ Validates the full Cursor-replacement pipeline:
   4. FastEmbed model download + embedding round-trip
 
 This script communicates with a running AgentCeption container at
-http://127.0.0.1:10003.  Start the stack with ``docker compose up -d``
+http://127.0.0.1:1337.  Start the stack with ``docker compose up -d``
 before running:
 
     python3 scripts/smoke_test_agent_loop.py
@@ -26,7 +26,7 @@ import urllib.error
 import urllib.request
 from typing import TypedDict
 
-BASE_URL = "http://127.0.0.1:10003"
+BASE_URL = "http://127.0.0.1:1337"
 QDRANT_URL = "http://127.0.0.1:6335"
 
 

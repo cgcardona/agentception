@@ -41,4 +41,4 @@ RUN sass --style=compressed --no-source-map \
     /app/agentception/static/scss/app.scss \
     /app/agentception/static/app.css
 
-CMD ["uvicorn", "agentception.app:app", "--host", "0.0.0.0", "--port", "10003"]
+CMD ["uvicorn", "agentception.app:app", "--host", "0.0.0.0", "--port", "1337"]

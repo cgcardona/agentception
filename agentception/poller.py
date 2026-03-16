@@ -766,13 +766,21 @@ async def polling_loop() -> None:
     Errors inside a single tick are logged and swallowed so one bad GitHub
     response cannot kill the entire dashboard.
 
-    Rate-limit backoff: when GitHub returns a rate-limit error we back off
-    exponentially (60 s → 120 s → 240 s, capped at 300 s) rather than
-    hammering the API on every loop iteration.
+    Backoff policy:
+    - **Rate limit** (GitHub 429/403 rate-limit): exponential backoff
+      60 s → 120 s → 240 s, capped at 300 s.
+    - **Network / DNS error** (``OSError`` including ``socket.gaierror``):
+      exponential backoff 30 s → 60 s → 120 s, capped at 300 s.  DNS blips
+      are transient but hammering a broken network every ``poll_interval``
+      generates noise and burns retries.
+    - **Other**: log at WARNING and sleep one normal poll interval.
     """
     _RATE_LIMIT_BACKOFF_INITIAL: int = 60
     _RATE_LIMIT_BACKOFF_MAX: int = 300
+    _NET_BACKOFF_INITIAL: int = 30
+    _NET_BACKOFF_MAX: int = 300
     _rate_limit_backoff: int = 0  # 0 = not in backoff
+    _net_backoff: int = 0
 
     logger.info(
         "✅ AgentCeption polling loop started (interval=%ds)",
@@ -782,6 +790,7 @@ async def polling_loop() -> None:
         try:
             await tick()
             _rate_limit_backoff = 0  # reset on success
+            _net_backoff = 0
             try:
                 async with get_session() as _reconcile_session:
                     _reconciled = await reconcile_stale_runs(
@@ -803,6 +812,18 @@ async def polling_loop() -> None:
         except asyncio.CancelledError:
             logger.info("✅ Polling loop stopped cleanly")
             return
+        except OSError as exc:
+            # Covers socket.gaierror (DNS), ConnectionRefusedError, etc.
+            if _net_backoff == 0:
+                _net_backoff = _NET_BACKOFF_INITIAL
+            else:
+                _net_backoff = min(_net_backoff * 2, _NET_BACKOFF_MAX)
+            logger.warning(
+                "⚠️  Polling loop network error — backing off %ds before retry: %s",
+                _net_backoff,
+                exc,
+            )
+            await asyncio.sleep(_net_backoff)
         except Exception as exc:
             exc_str = str(exc).lower()
             if "rate limit" in exc_str or "rate_limit" in exc_str:

@@ -1,6 +1,6 @@
 """AgentCeption FastAPI application factory.
 
-Entry point: ``uvicorn agentception.app:app --port 10003 --reload``
+Entry point: ``uvicorn agentception.app:app --port 1337 --reload``
 
 Architecture:
 - ``lifespan`` starts the background ``polling_loop`` task from ``poller.py``
@@ -242,7 +242,7 @@ def main() -> None:
 
     Launches the AgentCeption dashboard with uvicorn.  Configure the host and
     port via environment variables ``HOST`` (default ``0.0.0.0``) and
-    ``PORT`` (default ``10003``), or override ``agentception.app:app`` directly
+    ``PORT`` (default ``1337``), or override ``agentception.app:app`` directly
     when running under a production ASGI server.
     """
     import os
@@ -250,7 +250,7 @@ def main() -> None:
     import uvicorn
 
     host = os.environ.get("HOST", "0.0.0.0")
-    port = int(os.environ.get("PORT", "10003"))
+    port = int(os.environ.get("PORT", "1337"))
     uvicorn.run("agentception.app:app", host=host, port=port, reload=False)
 
 

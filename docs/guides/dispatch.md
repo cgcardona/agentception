@@ -60,7 +60,7 @@ at the end — you never need to dispatch it manually.
 ### Implementation dispatch (the one you call)
 
 ```bash
-curl -s -X POST http://localhost:10003/api/dispatch/issue \
+curl -s -X POST http://localhost:1337/api/dispatch/issue \
   -H "Content-Type: application/json" \
   -d '{
     "issue_number": 35,
@@ -78,7 +78,7 @@ curl -s -X POST http://localhost:10003/api/dispatch/issue \
 ### Manual PR reviewer dispatch (rare — auto-fires on completion normally)
 
 ```bash
-curl -s -X POST http://localhost:10003/api/dispatch/issue \
+curl -s -X POST http://localhost:1337/api/dispatch/issue \
   -H "Content-Type: application/json" \
   -d '{
     "issue_number": 35,
@@ -94,7 +94,7 @@ If the PR branch does **not** follow the `feat/issue-{N}` convention, pass
 `pr_branch` explicitly:
 
 ```bash
-curl -s -X POST http://localhost:10003/api/dispatch/issue \
+curl -s -X POST http://localhost:1337/api/dispatch/issue \
   -H "Content-Type: application/json" \
   -d '{
     "issue_number": 35,
@@ -176,7 +176,7 @@ Stops all active agents, removes all worktrees, clears all `agent/wip` labels,
 and resets all active DB runs to `failed`. **Idempotent.**
 
 ```bash
-curl -s -X POST http://localhost:10003/api/control/reset-build \
+curl -s -X POST http://localhost:1337/api/control/reset-build \
   -H "Content-Type: application/json" | python3 -m json.tool
 ```
 
@@ -244,7 +244,7 @@ git push origin --delete feat/issue-35
 ## Re-dispatching a failed run
 
 ```bash
-curl -s -X POST http://localhost:10003/api/dispatch/issue \
+curl -s -X POST http://localhost:1337/api/dispatch/issue \
   -H "Content-Type: application/json" \
   -d '{"issue_number": 35, "issue_title": "...", "issue_body": "...", "role": "developer", "repo": "cgcardona/agentception"}'
 ```

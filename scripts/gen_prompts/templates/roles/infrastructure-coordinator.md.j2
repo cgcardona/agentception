@@ -39,7 +39,7 @@ You do NOT own:
 
 ## Operating Stack
 
-This codebase runs on Docker Compose locally and is expected to extend to container orchestration at scale. Services: `agentception` (port 10003), `agentception-postgres` (5433), `agentception-qdrant` (6335/6336), `postgres` (5432), `qdrant` (6333/6334), `nginx` (80/443).
+This codebase runs on Docker Compose locally and is expected to extend to container orchestration at scale. Services: `agentception` (port 1337), `agentception-postgres` (5433), `agentception-qdrant` (6335/6336), `postgres` (5432), `qdrant` (6333/6334), `nginx` (80/443).
 
 Dev bind mounts are active — host file edits are instantly visible in containers. Rebuild only when `requirements.txt`, `Dockerfile`, or `entrypoint.sh` change.
 

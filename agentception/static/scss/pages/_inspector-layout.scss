@@ -1341,6 +1341,31 @@ $od-pending-color:#4b5563;  // gray for unconfigured
   color: #f87171;
 }
 
+// ── Lone-worker warning strip — full-width bar below the header ────────────────
+
+.od-warn-strip {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.6rem 1.5rem;
+  background: rgba(217, 119, 6, 0.12);
+  border-bottom: 1px solid rgba(217, 119, 6, 0.3);
+  color: #fbbf24;
+
+  &__icon {
+    flex-shrink: 0;
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+
+  &__text {
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: rgba(251, 191, 36, 0.9);
+  }
+}
+
 // ── Preset picker ─────────────────────────────────────────────────────────────
 
 // ── Preset palette (accent colours per template) ──────────────────────────────

@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 
 _PR_URL_RE = re.compile(r"/pull/(\d+)")
 
-# Fixed port — the agentception service always binds 10003 inside the container.
-_SERVICE_URL = "http://localhost:10003/api/dispatch/issue"
+# Fixed port — the agentception service always binds 1337 inside the container.
+_SERVICE_URL = "http://localhost:1337/api/dispatch/issue"
 
 # Seconds to wait after build_complete_run before fetching the PR branch.
 # GitHub needs a moment to register the push before the branch is fetchable.
