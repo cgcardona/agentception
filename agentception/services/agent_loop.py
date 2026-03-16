@@ -2541,6 +2541,21 @@ async def _dispatch_local_tool(
         result = read_file(path)
         if result.get("ok"):
             _auto_track_file_read(path, worktree_path)
+            if session is not None and run_id is not None:
+                raw_content = result.get("content")
+                if isinstance(raw_content, str) and raw_content:
+                    preview_lines = raw_content.splitlines()[:20]
+                    preview = "\n".join(preview_lines)[:1500]
+                    path_str = (
+                        str(path.relative_to(worktree_path))
+                        if path.is_relative_to(worktree_path)
+                        else str(path)
+                    )
+                    persist_activity_event(session, run_id, "file_read", {
+                        "path": path_str,
+                        "content_preview": preview,
+                    })
+                    await session.flush()
         return result
 
     if name == "read_file_lines":

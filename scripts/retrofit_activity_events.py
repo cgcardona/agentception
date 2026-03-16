@@ -15,6 +15,11 @@ Applies back-fills in a single transaction:
    with the old 200-character limit are extended to 1 500 characters using
    the full assistant text in ``agent_messages``.
 
+4. **file_read content_preview** — Runs that called ``read_file`` before the
+   ``file_read`` activity-event type gained a ``content_preview`` field get
+   synthetic ``file_read`` events reconstructed from the raw tool results
+   stored in ``agent_messages``.
+
 Run (idempotent — safe to re-run):
 
     docker compose exec agentception python3 /app/scripts/retrofit_activity_events.py
@@ -518,6 +523,25 @@ async def _backfill_search_results(session: AsyncSession) -> int:
 
 
 # ---------------------------------------------------------------------------
+# 4. file_read content_preview back-fill
+# ---------------------------------------------------------------------------
+
+async def _backfill_file_read(session: AsyncSession) -> int:
+    """Placeholder — file_read content_preview retrofit is not feasible for historical data.
+
+    Historical agent_messages rows store tool_name=NULL for all tool results, so
+    individual read_file results cannot be reliably matched to their invocation events.
+    File content previews are captured for new runs automatically; historical runs
+    will show no preview when the read_file detail panel is expanded.
+
+    Returns 0 always.
+    """
+    _ = session  # session unused — kept for interface consistency
+    log.info("file_read   — content_preview retrofit not applicable for historical data (tool_name not stored in agent_messages)")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -529,17 +553,18 @@ async def main() -> None:
         dir_listed_count    = await _backfill_dir_listed(session)
         search_results_count = await _backfill_search_results(session)
         llm_reply_count     = await _extend_llm_reply_previews(session)
+        file_read_count     = await _backfill_file_read(session)
 
         if not DRY_RUN:
             await session.commit()
             log.info(
-                "=== Done — dir_listed: %d  search_results: %d  llm_reply: %d ===",
-                dir_listed_count, search_results_count, llm_reply_count,
+                "=== Done — dir_listed: %d  search_results: %d  llm_reply: %d  file_read: %d ===",
+                dir_listed_count, search_results_count, llm_reply_count, file_read_count,
             )
         else:
             log.info(
-                "=== Dry-run — would insert: %d dir_listed  %d search_results  update: %d llm_reply ===",
-                dir_listed_count, search_results_count, llm_reply_count,
+                "=== Dry-run — would insert: %d dir_listed  %d search_results  %d file_read  update: %d llm_reply ===",
+                dir_listed_count, search_results_count, file_read_count, llm_reply_count,
             )
 
 
