@@ -887,6 +887,7 @@ body:has(.build-layout) nav.topnav {
     margin: 0;
     border-top: 1px solid rgba(255, 255, 255, 0.06);
     background: var(--bg-void);
+    background: #09090f;
     font-family: var(--font-mono);
     flex-shrink: 0;
     letter-spacing: 0.04em;
@@ -898,6 +899,7 @@ body:has(.build-layout) nav.topnav {
     flex-shrink: 0;
     border-top: 1px solid rgba(255, 255, 255, 0.06);
     background: var(--bg-void);
+    background: #09090f;
   }
 
   &__agent-actions {
@@ -913,6 +915,9 @@ body:has(.build-layout) nav.topnav {
     border: 1px solid var(--danger-border);
     background: var(--danger-dim);
     color: var(--danger);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    background: rgba(239, 68, 68, 0.08);
+    color: #fca5a5;
     cursor: pointer;
     letter-spacing: 0.04em;
     transition: background 0.15s, border-color 0.15s, color 0.15s;
@@ -921,6 +926,9 @@ body:has(.build-layout) nav.topnav {
       background: var(--danger-border);
       border-color: var(--danger);
       color: var(--danger);
+      background: rgba(239, 68, 68, 0.18);
+      border-color: rgba(239, 68, 68, 0.6);
+      color: #f87171;
     }
 
     &:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -1392,6 +1400,31 @@ $_sw-gap: 0.5rem;
   }
 }
 
+// ── Lone-worker warning strip — full-width bar below the header ────────────────
+
+.od-warn-strip {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.6rem 1.5rem;
+  background: rgba(217, 119, 6, 0.12);
+  border-bottom: 1px solid rgba(217, 119, 6, 0.3);
+  color: #fbbf24;
+
+  &__icon {
+    flex-shrink: 0;
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+
+  &__text {
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: rgba(251, 191, 36, 0.9);
+  }
+}
+
 // ── Preset picker ─────────────────────────────────────────────────────────────
 
 // ── Preset palette (accent colours per template) ──────────────────────────────
@@ -1721,6 +1754,9 @@ $preset-accents: (
   background: var(--success-dim);
   border: 1px solid var(--success-border);
   color: var(--success);
+  background: rgba(52, 211, 153, 0.12);   // emerald tint matching worker border
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  color: #34d399;
   font-size: 0.67rem;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -1731,6 +1767,9 @@ $preset-accents: (
     background: var(--success-border);
     border-color: var(--success);
     color: var(--success);
+    background: rgba(52, 211, 153, 0.22);
+    border-color: rgba(52, 211, 153, 0.6);
+    color: #6ee7b7;
   }
 }
 
@@ -1921,6 +1960,7 @@ $preset-accents: (
   padding: 0.65rem 0.875rem;
   border-radius: 8px;
   border: 1.5px solid var(--border-subtle);
+  border: 1.5px solid $od-border;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 
@@ -1932,6 +1972,12 @@ $preset-accents: (
     border-color: var(--accent);
     background: var(--accent-glow);
     box-shadow: 0 0 0 1px var(--accent-dim) inset;
+  &:hover { border-color: $od-border-hi; background: $od-surface-hi; }
+
+  &--active {
+    border-color: #7c3aed;
+    background: rgba(124, 58, 237, 0.12);
+    box-shadow: 0 0 0 1px rgba(124, 58, 237, 0.25) inset;
   }
 
   &__text {
@@ -1943,12 +1989,14 @@ $preset-accents: (
       font-size: 0.8rem;
       font-weight: 700;
       color: var(--text-primary);
+      color: #fff;
     }
 
     em {
       font-style: normal;
       font-size: 0.64rem;
       color: var(--text-faint);
+      color: rgba(255,255,255,0.38);
     }
   }
 }
@@ -1973,6 +2021,13 @@ $preset-accents: (
 
   &:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
   &::placeholder { color: var(--text-faint); }
+  border: 1.5px solid $od-border;
+  background: rgba(255,255,255,0.04);
+  color: #fff;
+  transition: border-color 0.15s;
+
+  &:focus { outline: none; border-color: #7c3aed; box-shadow: 0 0 0 2px rgba(124,58,237,0.25); }
+  &::placeholder { color: rgba(255,255,255,0.25); }
 
   &--issue {
     width: 100%;
@@ -2022,6 +2077,36 @@ $preset-accents: (
 .od-scope-empty {
   font-size: 0.7rem;
   color: var(--text-faint);
+  margin: 0;
+  padding: 0.25rem 0;
+  font-style: italic;
+}
+
+// Scope cascade pickers (Phase dropdown, Ticket dropdown)
+.od-scope-select {
+  font-size: 0.78rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: 7px;
+  border: 1.5px solid $od-border;
+  background: rgba(255,255,255,0.04);
+  color: #fff;
+  width: 100%;
+  cursor: pointer;
+  transition: border-color 0.15s;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='rgba(255,255,255,0.35)'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  padding-right: 2rem;
+
+  option, optgroup { background: #1a1a2e; color: #fff; }
+  option:disabled, &__opt--blocked { color: rgba(255,255,255,0.28); }
+  &:focus { outline: none; border-color: #7c3aed; box-shadow: 0 0 0 2px rgba(124,58,237,0.25); }
+}
+
+.od-scope-empty {
+  font-size: 0.7rem;
+  color: rgba(255,255,255,0.35);
   margin: 0;
   padding: 0.25rem 0;
   font-style: italic;
@@ -2266,6 +2351,7 @@ $preset-accents: (
   overflow-y: auto;
   padding: 0;
   background: var(--bg-void);
+  background: #09090f;
   font-family: var(--font-mono);
   scroll-behavior: smooth;
   scrollbar-width: thin;
