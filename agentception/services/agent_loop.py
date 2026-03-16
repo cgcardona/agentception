@@ -596,7 +596,19 @@ async def _run_agent_loop_inner(
         _gh_repo_raw = task.gh_repo or settings.gh_repo
         _gh_repo = str(_gh_repo_raw) if isinstance(_gh_repo_raw, str) else ""
         _owner, _, _repo_name = _gh_repo.partition("/")
-        _pr_branch = task.branch or f"feat/issue-{issue_number}"
+        # task.branch is set to the PR branch by both dispatch_agent (reviewer
+        # path) and _dispatch_label_reviewer.  The fallback is a last resort
+        # that produces a warning so misconfigured dispatches are visible.
+        _pr_branch = task.branch or ""
+        if not _pr_branch:
+            _pr_branch = f"agent/issue-{issue_number}"
+            logger.warning(
+                "⚠️ reviewer_warmup: task.branch not set for run_id=%s — "
+                "falling back to %r.  Dispatch the reviewer via the org chart "
+                "or auto_dispatch_reviewer so pr_branch is always propagated.",
+                run_id,
+                _pr_branch,
+            )
         await _run_reviewer_warmup(
             worktree_path=worktree_path,
             pr_branch=_pr_branch,
