@@ -1,26 +1,36 @@
-<table class="ab-metrics">
-  <thead>
+<div class="dev-health-panel">
+  <h3 class="dev-health-panel__title">
+    Developer Run Health
+    <span class="dev-health-panel__window">last 7 days · completed developer runs</span>
+  </h3>
+  <table class="ab-metrics">
+    <thead>
+      <tr>
+        <th>Runs</th>
+        <th>Pass Rate</th>
+        <th>Passed</th>
+        <th>Failed</th>
+        <th>Avg Iters</th>
+        <th>Avg Input Tokens</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for v in variants %}
     <tr>
-      <th>Variant</th>
-      <th>Runs</th>
-      <th>Avg Iters</th>
-      <th>Pass Rate</th>
-      <th>Avg Tokens</th>
+      <td>{{ v.runs }}</td>
+      <td class="{% if v.pass_rate >= 0.5 %}dev-health__good{% elif v.pass_rate > 0 %}dev-health__warn{% else %}dev-health__bad{% endif %}">
+        {{ "%.0f%%"|format(v.pass_rate * 100) }}
+      </td>
+      <td class="dev-health__good">{{ v.passed }}</td>
+      <td class="{% if v.failed > 0 %}dev-health__bad{% endif %}">{{ v.failed }}</td>
+      <td>{{ "%.1f"|format(v.avg_iterations) }}</td>
+      <td>{{ (v.avg_input_tokens / 1000000) | round(2) }}M</td>
     </tr>
-  </thead>
-  <tbody>
-  {% for v in variants %}
-  <tr>
-    <td>{{ v.variant }}</td>
-    <td>{{ v.runs }}</td>
-    <td>{{ "%.1f"|format(v.avg_iterations) }}</td>
-    <td>{{ "%.0f%%"|format(v.pass_rate * 100) }}</td>
-    <td>{{ v.avg_input_tokens | int }}</td>
-  </tr>
-  {% else %}
-  <tr>
-    <td colspan="5" class="no-data">No completed runs in the last 7 days.</td>
-  </tr>
-  {% endfor %}
-  </tbody>
-</table>
+    {% else %}
+    <tr>
+      <td colspan="6" class="no-data">No completed developer runs in the last 7 days.</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
