@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import collections.abc
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
@@ -10,6 +11,28 @@ import pytest
 
 from agentception.readers.git import _symlink_frontend_resources, ensure_branch, ensure_worktree
 from agentception.readers.github import ensure_pull_request
+
+
+def _make_create_task_side_effect() -> collections.abc.Callable[
+    [collections.abc.Coroutine[object, object, object]], asyncio.Future[None]
+]:
+    """Return a side-effect for patching asyncio.create_task.
+
+    Closes the coroutine passed to create_task so that the
+    'coroutine never awaited' RuntimeWarning is suppressed in tests that mock
+    the entire agent loop — the mock coroutine is intentionally not run.
+    """
+
+    def _side_effect(
+        coro: collections.abc.Coroutine[object, object, object],
+        **_: object,
+    ) -> asyncio.Future[None]:
+        coro.close()
+        fut: asyncio.Future[None] = asyncio.get_event_loop().create_future()
+        fut.set_result(None)
+        return fut
+
+    return _side_effect
 
 
 # ---------------------------------------------------------------------------
@@ -579,7 +602,7 @@ async def test_dispatch_reviewer_fetches_pr_branch_and_uses_it_as_base(tmp_path:
         patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
         patch("agentception.routes.api.dispatch.acknowledge_agent_run", new_callable=AsyncMock),
         patch("agentception.routes.api.dispatch.run_agent_loop", new_callable=AsyncMock),
-        patch("agentception.routes.api.dispatch.asyncio.create_task", return_value=asyncio.Future()),
+        patch("agentception.routes.api.dispatch.asyncio.create_task", side_effect=_make_create_task_side_effect()),
         patch("agentception.routes.api.dispatch._index_worktree", new_callable=AsyncMock),
         patch("agentception.routes.api.dispatch.settings") as mock_settings,
     ):
@@ -625,7 +648,7 @@ async def test_dispatch_implementer_uses_origin_dev_as_base(tmp_path: Path) -> N
         patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
         patch("agentception.routes.api.dispatch.acknowledge_agent_run", new_callable=AsyncMock),
         patch("agentception.routes.api.dispatch.run_agent_loop", new_callable=AsyncMock),
-        patch("agentception.routes.api.dispatch.asyncio.create_task", return_value=asyncio.Future()),
+        patch("agentception.routes.api.dispatch.asyncio.create_task", side_effect=_make_create_task_side_effect()),
         patch("agentception.routes.api.dispatch._index_worktree", new_callable=AsyncMock),
         patch("agentception.routes.api.dispatch.assemble_developer_context", new_callable=AsyncMock, return_value=""),
         patch("agentception.routes.api.dispatch.settings") as mock_settings,
@@ -681,7 +704,7 @@ async def test_dispatch_reviewer_pr_branch_override_respected(tmp_path: Path) ->
         patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
         patch("agentception.routes.api.dispatch.acknowledge_agent_run", new_callable=AsyncMock),
         patch("agentception.routes.api.dispatch.run_agent_loop", new_callable=AsyncMock),
-        patch("agentception.routes.api.dispatch.asyncio.create_task", return_value=asyncio.Future()),
+        patch("agentception.routes.api.dispatch.asyncio.create_task", side_effect=_make_create_task_side_effect()),
         patch("agentception.routes.api.dispatch._index_worktree", new_callable=AsyncMock),
         patch("agentception.routes.api.dispatch.settings") as mock_settings,
     ):
@@ -783,8 +806,9 @@ async def test_dispatch_resets_stale_working_memory_on_redispatch(tmp_path: Path
         patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
         patch("agentception.routes.api.dispatch.acknowledge_agent_run", new_callable=AsyncMock),
         patch("agentception.routes.api.dispatch.run_agent_loop", new_callable=AsyncMock),
-        patch("agentception.routes.api.dispatch.asyncio.create_task", return_value=asyncio.Future()),
+        patch("agentception.routes.api.dispatch.asyncio.create_task", side_effect=_make_create_task_side_effect()),
         patch("agentception.routes.api.dispatch._index_worktree", new_callable=AsyncMock),
+        patch("agentception.routes.api.dispatch.assemble_developer_context", new_callable=AsyncMock, return_value=""),
         patch("agentception.routes.api.dispatch.settings") as mock_settings,
     ):
         mock_settings.worktrees_dir = str(tmp_path / "worktrees")
@@ -1033,7 +1057,7 @@ async def test_dispatch_agent_seeds_next_steps_from_ac_items(tmp_path: Path) -> 
         patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
         patch("agentception.routes.api.dispatch.acknowledge_agent_run", new_callable=AsyncMock),
         patch("agentception.routes.api.dispatch.run_agent_loop", new_callable=AsyncMock),
-        patch("agentception.routes.api.dispatch.asyncio.create_task", return_value=asyncio.Future()),
+        patch("agentception.routes.api.dispatch.asyncio.create_task", side_effect=_make_create_task_side_effect()),
         patch("agentception.routes.api.dispatch._index_worktree", new_callable=AsyncMock),
         patch("agentception.routes.api.dispatch.settings") as mock_settings,
     ):
@@ -1100,7 +1124,7 @@ async def test_dispatch_agent_reviewer_does_not_seed_ac_items(tmp_path: Path) ->
         patch("agentception.routes.api.dispatch.persist_agent_run_dispatch", new_callable=AsyncMock),
         patch("agentception.routes.api.dispatch.acknowledge_agent_run", new_callable=AsyncMock),
         patch("agentception.routes.api.dispatch.run_agent_loop", new_callable=AsyncMock),
-        patch("agentception.routes.api.dispatch.asyncio.create_task", return_value=asyncio.Future()),
+        patch("agentception.routes.api.dispatch.asyncio.create_task", side_effect=_make_create_task_side_effect()),
         patch("agentception.routes.api.dispatch._index_worktree", new_callable=AsyncMock),
         patch("agentception.routes.api.dispatch.settings") as mock_settings,
     ):
