@@ -12,7 +12,6 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from agentception.db.queries import (
-    AgentMessageRow,
     AgentRunDetail,
     AgentRunRow,
     BoardIssueRow,
@@ -483,12 +482,10 @@ async def agent_transcript_partial(request: Request, agent_id: str) -> Response:
     state = get_state()
     node = _find_agent(state, agent_id)
 
-    db_messages: list[AgentMessageRow] = []
     if node is None:
         try:
             db_run = await get_agent_run_detail(agent_id)
             if db_run:
-                db_messages = db_run.get("messages", [])
                 raw_status = str(db_run.get("status", "failed")).lower()
                 try:
                     synth_status = _AgentStatus(raw_status)
@@ -508,12 +505,6 @@ async def agent_transcript_partial(request: Request, agent_id: str) -> Response:
             logger.debug("DB agent run lookup skipped for transcript partial: %s", exc)
 
     messages: list[dict[str, str]] = []
-
-    if not messages and db_messages:
-        messages = [
-            {"role": str(m.get("role", "")), "content": str(m.get("content", ""))}
-            for m in db_messages
-        ]
 
     return _TEMPLATES.TemplateResponse(
         request,
@@ -555,11 +546,8 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
 
     # DB run detail — enrichment regardless of live state.
     db_run: AgentRunDetail | None = None
-    db_messages: list[AgentMessageRow] = []
     try:
         db_run = await get_agent_run_detail(agent_id)
-        if db_run:
-            db_messages = db_run.get("messages", [])
     except Exception as exc:
         logger.debug("DB agent run lookup skipped: %s", exc)
 
@@ -567,7 +555,7 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
         return _TEMPLATES.TemplateResponse(
             request,
             "agent.html",
-            {"node": None, "agent_id": agent_id, "messages": [], "db_run": None,
+            {"node": None, "agent_id": agent_id, "db_run": None,
              "persona": resolve_cognitive_arch(None)},
             status_code=404,
         )
@@ -600,14 +588,6 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
             parent_run_id=db_run.get("parent_run_id"),
             worktree_path=db_run.get("worktree_path"),
         )
-
-    # Messages come from DB; filesystem transcript reading is removed.
-    messages: list[dict[str, str]] = []
-    if not messages and db_messages:
-        messages = [
-            {"role": str(m.get("role", "")), "content": str(m.get("content", ""))}
-            for m in db_messages
-        ]
 
     # ── Parallel enrichment fetches ─────────────────────────────────────────
     # All helpers return [] / {} / None on error so the page never fails.
@@ -711,7 +691,6 @@ async def agent_detail(request: Request, agent_id: str) -> Response:
         {
             "node": node,
             "agent_id": agent_id,
-            "messages": messages,
             "db_run": db_run,
             "persona": persona,
             "issue_detail": issue_detail,
