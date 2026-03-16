@@ -42,6 +42,7 @@ import yaml
 
 from agentception.types import JsonValue
 from agentception.db.queries import RunContextRow, get_run_context
+from agentception.services.role_loader import load_role_file
 from agentception.mcp.types import (
     ACPromptArgument,
     ACPromptContent,
@@ -558,18 +559,15 @@ def _render_task_briefing(ctx: RunContextRow, role_content: str) -> str:
 
 
 def _load_role_content(role: str) -> str:
-    """Return the Markdown content of the role file for *role*, or empty string."""
+    """Return the Markdown content of the role file for *role*, or empty string.
+
+    Delegates to :func:`~agentception.services.role_loader.load_role_file` so
+    that the family-fallback logic (``python-developer`` → ``developer``) is
+    consistent with the agent-loop path.
+    """
     if not role:
         return ""
-    path = _AGENTCEPTION_DIR / "roles" / f"{role}.md"
-    try:
-        return path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        logger.warning("⚠️  task/briefing: role file not found for %r", role)
-        return ""
-    except OSError as exc:
-        logger.warning("⚠️  task/briefing: could not read role file for %r: %s", role, exc)
-        return ""
+    return load_role_file(role, _AGENTCEPTION_DIR / "roles")
 
 
 # ---------------------------------------------------------------------------
