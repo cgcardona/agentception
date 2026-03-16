@@ -207,7 +207,29 @@ def test_parse_recon_json_returns_none_for_garbage() -> None:
     from agentception.services.agent_loop import _parse_recon_json
 
     assert _parse_recon_json("not json at all") is None
-    assert _parse_recon_json('{"files": [], "searches": []}') is None  # both empty
+
+
+def test_parse_recon_json_empty_lists_valid() -> None:
+    """A plan with empty files/searches but a non-empty plan string is valid.
+
+    Reviewer agents intentionally return empty lists when they don't need to
+    pre-load files — the plan field carries the intent and the recon phase
+    becomes a no-op, allowing the agent to proceed with existing context.
+    """
+    from agentception.services.agent_loop import _parse_recon_json
+
+    plan = _parse_recon_json('{"files": [], "searches": [], "plan": "Fetch issue first."}')
+    assert plan is not None
+    assert plan.files == []
+    assert plan.searches == []
+    assert plan.plan == "Fetch issue first."
+
+    # A response with no plan key and both lists empty still returns a plan
+    # (no-op recon) — the guard was removed because empty is a valid outcome.
+    plan2 = _parse_recon_json('{"files": [], "searches": []}')
+    assert plan2 is not None
+    assert plan2.files == []
+    assert plan2.searches == []
 
 
 def test_parse_recon_json_json_in_prose() -> None:
