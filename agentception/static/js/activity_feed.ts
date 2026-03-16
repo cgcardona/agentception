@@ -25,7 +25,7 @@ import {
 
 /** Subtypes that support click-to-expand detail panel. */
 const EXPANDABLE_SUBTYPES = new Set([
-  'tool_invoked', 'github_tool', 'file_read', 'llm_reply',
+  'tool_invoked', 'github_tool', 'llm_reply',
 ]);
 import { getCurrentAppendTarget, getCurrentStepHeader, resetStepContext } from './step_context';
 
@@ -387,30 +387,27 @@ function buildLlmReplyDetail(payload: Record<string, unknown>): HTMLElement {
 }
 
 /**
- * Build the expandable detail panel for a file_read row.
- * Shows the content_preview as a preformatted code excerpt when present.
- * Falls back to a plain "no preview" note for older events that predate
- * the content_preview field.
+ * Append a file content preview into the most recent read_file / read_file_lines
+ * tool detail panel (identified by data-file-read-target).
+ *
+ * file_read is not a standalone row — it is injected as a child of the
+ * read_file / read_file_lines tool_invoked row that preceded it.
  */
-function buildFileReadDetail(payload: Record<string, unknown>): HTMLElement {
-  const panel = document.createElement('div');
-  panel.className = 'af__tool-detail af__tool-detail--file-read';
-  panel.setAttribute('hidden', '');
+function injectFileReadIntoPanel(
+  container: HTMLElement,
+  payload: Record<string, unknown>,
+): void {
+  const panels = container.querySelectorAll<HTMLElement>('[data-file-read-target]');
+  const panel = panels.length > 0 ? panels[panels.length - 1] : null;
+  if (panel === null) return;
 
   const preview = str(payload, 'content_preview');
-  if (preview) {
-    const pre = document.createElement('pre');
-    pre.className = 'af__content-preview';
-    pre.textContent = preview;
-    panel.appendChild(pre);
-  } else {
-    const note = document.createElement('span');
-    note.className = 'af__detail-val';
-    note.textContent = '(no preview — re-run the agent to capture content)';
-    panel.appendChild(note);
-  }
+  if (!preview) return;
 
-  return panel;
+  const pre = document.createElement('pre');
+  pre.className = 'af__content-preview';
+  pre.textContent = preview;
+  panel.appendChild(pre);
 }
 
 /**
@@ -532,6 +529,12 @@ export function appendActivityRow(msg: ActivityMessage): void {
     return;
   }
 
+  // file_read: inject content preview into the preceding read_file / read_file_lines panel.
+  if (msg.subtype === 'file_read') {
+    injectFileReadIntoPanel(feed, msg.payload);
+    return;
+  }
+
   // dir_listed: inject entries into the preceding list_directory detail panel.
   // Search the full feed (not just current step) so timing edge-cases at step
   // boundaries don't cause the injector to miss the target panel.
@@ -617,18 +620,22 @@ export function appendActivityRow(msg: ActivityMessage): void {
     chevron.innerHTML = icons.chevronRight;
     row.appendChild(chevron);
 
-    detailPanel = msg.subtype === 'file_read' ? buildFileReadDetail(msg.payload)
-      : msg.subtype === 'llm_reply'          ? buildLlmReplyDetail(msg.payload)
+    detailPanel = msg.subtype === 'llm_reply'
+      ? buildLlmReplyDetail(msg.payload)
       : buildToolDetail(msg.payload);
 
+    const toolN = str(msg.payload, 'tool_name');
     // Tag list_directory panels so dir_listed can inject entries into them.
-    if (str(msg.payload, 'tool_name') === 'list_directory') {
+    if (toolN === 'list_directory') {
       detailPanel.setAttribute('data-list-dir-target', '');
     }
     // Tag search panels so search_results can inject file matches into them.
-    const toolN = str(msg.payload, 'tool_name');
     if (toolN === 'search_codebase' || toolN === 'search_text') {
       detailPanel.setAttribute('data-search-target', '');
+    }
+    // Tag read_file / read_file_lines panels so file_read can inject content previews.
+    if (toolN === 'read_file' || toolN === 'read_file_lines') {
+      detailPanel.setAttribute('data-file-read-target', '');
     }
 
     const toggle = (): void => {

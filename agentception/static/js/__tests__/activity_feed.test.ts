@@ -478,59 +478,58 @@ describe('appendActivityRow', () => {
       expect(keys).not.toContain('results');
     });
 
-    describe('file_read expandable rows', () => {
-      it('file_read row has data-expandable', () => {
+    describe('file_read nested inside read_file / read_file_lines row', () => {
+      it('file_read does NOT create a standalone row', () => {
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'tool_invoked',
+          payload: { tool_name: 'read_file', arg_preview: "{'path': 'src/main.py'}" },
+          recorded_at: '',
+        });
         appendActivityRow({
           t: 'activity',
           subtype: 'file_read',
-          payload: {
-            path: 'src/main.py',
-            start_line: 1,
-            end_line: 10,
-            total_lines: 100,
-            content_preview: 'def main():\n    pass\n',
-          },
+          payload: { path: 'src/main.py', content_preview: 'def main():\n    pass\n' },
           recorded_at: '',
         });
-        const row = document.querySelector<HTMLElement>('.activity-feed__row');
-        expect(row?.dataset['expandable']).toBe('true');
-        expect(row?.getAttribute('aria-expanded')).toBe('false');
+        // Only one row — the tool_invoked one.
+        expect(document.querySelectorAll('.activity-feed__row').length).toBe(1);
       });
 
-      it('clicking file_read row reveals content preview', () => {
+      it('file_read injects content preview into the read_file detail panel', () => {
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'tool_invoked',
+          payload: { tool_name: 'read_file', arg_preview: "{'path': 'src/main.py'}" },
+          recorded_at: '',
+        });
         appendActivityRow({
           t: 'activity',
           subtype: 'file_read',
-          payload: {
-            path: 'src/main.py',
-            start_line: 1,
-            end_line: 3,
-            total_lines: 50,
-            content_preview: 'def main():\n    pass\n',
-          },
+          payload: { path: 'src/main.py', content_preview: 'def main():\n    pass\n' },
           recorded_at: '',
         });
-        const row = document.querySelector<HTMLElement>('.activity-feed__row');
-        const detail = document.querySelector('.af__tool-detail');
-        expect(detail?.hasAttribute('hidden')).toBe(true);
-        row?.click();
-        expect(detail?.hasAttribute('hidden')).toBe(false);
+        const detail = document.querySelector<HTMLElement>('[data-file-read-target]');
+        expect(detail).not.toBeNull();
         const pre = detail?.querySelector('.af__content-preview');
         expect(pre?.textContent).toBe('def main():\n    pass\n');
       });
 
-      it('file_read without content_preview shows fallback note', () => {
+      it('file_read without content_preview injects nothing into the panel', () => {
+        appendActivityRow({
+          t: 'activity',
+          subtype: 'tool_invoked',
+          payload: { tool_name: 'read_file_lines', arg_preview: "{'path': 'src/main.py', 'start_line': 1, 'end_line': 5}" },
+          recorded_at: '',
+        });
         appendActivityRow({
           t: 'activity',
           subtype: 'file_read',
-          payload: { path: 'src/main.py', start_line: 1, end_line: 10, total_lines: 50 },
+          payload: { path: 'src/main.py' },
           recorded_at: '',
         });
-        const row = document.querySelector<HTMLElement>('.activity-feed__row');
-        row?.click();
-        const detail = document.querySelector('.af__tool-detail');
+        const detail = document.querySelector<HTMLElement>('[data-file-read-target]');
         expect(detail?.querySelector('.af__content-preview')).toBeNull();
-        expect(detail?.querySelector('.af__detail-val')?.textContent).toContain('no preview');
       });
     });
 
