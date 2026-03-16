@@ -109,21 +109,28 @@ COPY pyproject.toml /app/pyproject.toml
 # Install the package itself so `agentception.*` imports resolve.
 RUN pip install --no-cache-dir -e /app
 
-# Pre-download the ONNX embedding model into the image layer.
+# Pre-download all ONNX models used by code_indexer into the image layer.
 # Docker build has unrestricted network access; the runtime proxy does not,
 # so downloading at runtime inside the container will fail (403 CONNECT tunnel).
-# Baking the model here means it is always present after a clean build and
-# survives volume recreation without any manual recovery steps.
+# Baking the models here means they are always present after a clean build and
+# survive volume recreation without any manual recovery steps.
 #
-# HF_HOME must be set to the agentception user's cache directory so the model
-# lands in the same path the runtime app reads from.  Without this, the build
+# HF_HOME must be set to the agentception user's cache directory so the models
+# land in the same path the runtime app reads from.  Without this, the build
 # runs as root and writes to /root/.cache/huggingface — a cache miss every
-# startup — causing fastembed to re-download the model at runtime.
+# startup — causing fastembed to re-download at runtime.
+#
+# Models baked here:
+#   - jinaai/jina-embeddings-v2-base-code  (embedding — TextEmbedding)
+#   - BAAI/bge-reranker-base               (reranker  — TextCrossEncoder)
 RUN HF_HOME=/home/agentception/.cache/huggingface python3 -c "\
-from fastembed import TextEmbedding; \
-m = TextEmbedding(model_name='jinaai/jina-embeddings-v2-base-code'); \
-list(m.embed(['warm-up'])); \
-print('Embedding model pre-downloaded.')" \
+from fastembed import TextEmbedding, TextCrossEncoder; \
+emb = TextEmbedding(model_name='jinaai/jina-embeddings-v2-base-code'); \
+list(emb.embed(['warm-up'])); \
+print('Embedding model pre-downloaded.'); \
+rnk = TextCrossEncoder(model_name='BAAI/bge-reranker-base'); \
+list(rnk.rerank('query', ['doc'])); \
+print('Reranker model pre-downloaded.')" \
     && chown -R agentception:agentception /home/agentception/.cache
 
 # Entrypoint: performs privileged startup (resolv.conf, asset compilation,
