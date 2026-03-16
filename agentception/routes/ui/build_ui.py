@@ -555,7 +555,7 @@ async def persona_card_partial(request: Request, run_id: str) -> HTMLResponse:
     return _TEMPLATES.TemplateResponse(
         request,
         "_persona_card.html",
-        {"persona": persona, "arch_id": arch_id},
+        {"persona": persona, "arch_id": arch_id, "run_id": run_id},
     )
 
 

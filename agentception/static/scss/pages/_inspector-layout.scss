@@ -833,27 +833,6 @@ body:has(.build-layout) nav.topnav {
     &:hover { background: var(--bg-overlay); color: var(--text-primary); }
   }
 
-  &__icon-link {
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    border-radius: var(--radius-xs);
-    background: var(--bg-overlay);
-    border: 1px solid var(--border-default);
-    color: var(--text-faint);
-    text-decoration: none;
-    transition: color 0.15s var(--ease-out), background 0.15s var(--ease-out), border-color 0.15s var(--ease-out);
-    svg { flex-shrink: 0; display: block; }
-    &:hover {
-      color: var(--accent-bright);
-      background: var(--bg-surface);
-      border-color: var(--accent);
-    }
-  }
-
   &__pr-link {
     font-size: 0.6rem;
     font-family: var(--font-mono);
