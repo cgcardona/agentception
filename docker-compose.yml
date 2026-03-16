@@ -28,6 +28,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # Pass HF_TOKEN at build time so the model pre-download step uses
+        # authenticated HuggingFace requests (higher rate limits, no warning).
+        # Set HF_TOKEN in .env — it is read here and in the runtime env below.
+        HF_TOKEN: ${HF_TOKEN:-}
     container_name: agentception-app
     restart: unless-stopped
     # Security hardening: prevent privilege escalation inside the container.

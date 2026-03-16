@@ -102,28 +102,31 @@ RUN npm ci --include=dev
 COPY agentception/requirements.txt /app/agentception/requirements.txt
 RUN pip install --no-cache-dir -r /app/agentception/requirements.txt
 
-# Copy the full package.
-COPY agentception/ /app/agentception/
-COPY pyproject.toml /app/pyproject.toml
-
-# Install the package itself so `agentception.*` imports resolve.
-RUN pip install --no-cache-dir -e /app
-
 # Pre-download all ONNX models used by code_indexer into the image layer.
-# Docker build has unrestricted network access; the runtime proxy does not,
-# so downloading at runtime inside the container will fail (403 CONNECT tunnel).
-# Baking the models here means they are always present after a clean build and
-# survive volume recreation without any manual recovery steps.
 #
-# HF_HOME must be set to the agentception user's cache directory so the models
-# land in the same path the runtime app reads from.  Without this, the build
-# runs as root and writes to /root/.cache/huggingface — a cache miss every
-# startup — causing fastembed to re-download at runtime.
+# IMPORTANT — this step must stay BEFORE "COPY agentception/".  Docker layer
+# caching works top-down: any layer that changes invalidates all layers below
+# it.  If the download were placed after the COPY, every single code change
+# would bust the cache here and force a full 600 MB re-download.  Placing it
+# here means it is only re-run when requirements.txt changes (i.e. a fastembed
+# version bump) — which is exactly the right trigger.
+#
+# HF_TOKEN is passed as a build arg so HuggingFace Hub uses authenticated
+# requests, which have higher rate limits and avoid the unauthenticated-
+# request warning.  The token is declared as an ARG so it is NOT baked into
+# the image layer (Docker ARGs are not persisted in the final image env).
+#
+# HF_HOME is set to the agentception user's cache directory so the models
+# land in the same path the runtime app reads from.  Without this the build
+# runs as root and writes to /root/.cache — a cache miss every startup.
 #
 # Models baked here:
 #   - jinaai/jina-embeddings-v2-base-code  (embedding — TextEmbedding)
 #   - BAAI/bge-reranker-base               (reranker  — TextCrossEncoder)
-RUN HF_HOME=/home/agentception/.cache/huggingface python3 -c "\
+ARG HF_TOKEN=""
+RUN HF_HOME=/home/agentception/.cache/huggingface \
+    HF_TOKEN=${HF_TOKEN} \
+    python3 -c "\
 from fastembed import TextEmbedding; \
 from fastembed.rerank.cross_encoder import TextCrossEncoder; \
 emb = TextEmbedding(model_name='jinaai/jina-embeddings-v2-base-code'); \
@@ -133,6 +136,13 @@ rnk = TextCrossEncoder(model_name='BAAI/bge-reranker-base'); \
 list(rnk.rerank('query', ['doc'])); \
 print('Reranker model pre-downloaded.')" \
     && chown -R agentception:agentception /home/agentception/.cache
+
+# Copy the full package.
+COPY agentception/ /app/agentception/
+COPY pyproject.toml /app/pyproject.toml
+
+# Install the package itself so `agentception.*` imports resolve.
+RUN pip install --no-cache-dir -e /app
 
 # Entrypoint: performs privileged startup (resolv.conf, asset compilation,
 # DB migrations, ownership fixes) then drops to the agentception user via
