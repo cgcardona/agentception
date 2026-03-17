@@ -73,6 +73,7 @@ from agentception.mcp.github_tools import (
     github_remove_label,
 )
 from agentception.mcp.prompts import PROMPTS, get_prompt, get_static_prompt
+from agentception.mcp.elicitation import request_human_input
 from agentception.mcp.plan_advance_phase import plan_advance_phase
 from agentception.mcp.plan_tools import (
     plan_validate_manifest,
@@ -470,6 +471,86 @@ TOOLS: list[ACToolDef] = [
             "additionalProperties": False,
         },
     ),
+    # ── Human-in-the-loop elicitation (MCP 2025-11-25) ───────────────────────
+    ACToolDef(
+        name="request_human_input",
+        description=(
+            "Request clarification or a decision from the human operator. "
+            "Sends an elicitation/create request to the Mission Control dashboard "
+            "and blocks until the human responds, declines, or the timeout expires. "
+            "Use when you need information only the human can provide: architectural "
+            "decisions, credential approval, branching strategy, or any gate that "
+            "should not be automated. "
+            "Returns {action: 'accept', content: {...}} on submission, "
+            "{action: 'decline'} or {action: 'cancel'} when dismissed, "
+            "{action: 'timeout'} after timeout_seconds, or "
+            "{action: 'no_client'} when no dashboard session is connected."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "description": (
+                        "Human-readable explanation of what you need and why. "
+                        "Be specific: include context, options you have already "
+                        "considered, and why you cannot proceed without input."
+                    ),
+                },
+                "fields": {
+                    "type": "array",
+                    "description": "Form fields to present to the human operator.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string",
+                                "description": "Field key — appears in the returned content dict.",
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": ["string", "number", "integer", "boolean"],
+                                "description": "Primitive JSON type for the field value.",
+                            },
+                            "title": {
+                                "type": "string",
+                                "description": "Human-readable field label.",
+                            },
+                            "description": {
+                                "type": "string",
+                                "description": "Helper text shown below the input.",
+                            },
+                            "required": {
+                                "type": "boolean",
+                                "description": "Whether the field must be filled in before submitting.",
+                            },
+                            "default": {
+                                "description": "Pre-filled default value.",
+                            },
+                            "enum": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Allowed values for string fields (renders as <select>).",
+                            },
+                        },
+                        "required": ["name", "type"],
+                        "additionalProperties": False,
+                    },
+                },
+                "run_id": {
+                    "type": "string",
+                    "description": "Your own run ID — shown in the dashboard for context.",
+                },
+                "timeout_seconds": {
+                    "type": "integer",
+                    "description": "Seconds to wait for the human's response. Default: 300.",
+                    "default": 300,
+                },
+            },
+            "required": ["message", "fields"],
+            "additionalProperties": False,
+        },
+    ),
     # ── GitHub tools ────────────────────────────────────────────────────────────
     ACToolDef(
         name="github_add_comment",
@@ -632,6 +713,7 @@ def call_tool(name: str, arguments: dict[str, JsonValue]) -> ACToolResult:
         "github_add_label",
         "github_remove_label",
         "github_add_comment",
+        "request_human_input",
     ):
         err_text = _tool_result_to_text(
             {"error": f"Tool {name!r} is async — use the async call path"}
@@ -896,6 +978,68 @@ async def call_tool_async(
         return ACToolResult(
             content=[ACToolContent(type="text", text=_tool_result_to_text(result))],
             isError=not bool(result.get("ok", False)),
+        )
+
+    # ── Human-in-the-loop elicitation ────────────────────────────────────────
+
+    if name == "request_human_input":
+        from agentception.mcp.types import ElicitationField
+
+        msg = arguments.get("message")
+        if not isinstance(msg, str) or not msg:
+            return ACToolResult(
+                content=[ACToolContent(
+                    type="text",
+                    text='{"error":"request_human_input requires a non-empty message string"}',
+                )],
+                isError=True,
+            )
+        raw_fields = arguments.get("fields", [])
+        if not isinstance(raw_fields, list):
+            return ACToolResult(
+                content=[ACToolContent(
+                    type="text",
+                    text='{"error":"request_human_input requires a fields array"}',
+                )],
+                isError=True,
+            )
+        fields: list[ElicitationField] = []
+        for f in raw_fields:
+            if not isinstance(f, dict):
+                continue
+            fname = f.get("name")
+            ftype = f.get("type")
+            if not isinstance(fname, str) or not isinstance(ftype, str):
+                continue
+            fld = ElicitationField(name=fname, type=ftype)
+            if "title" in f and isinstance(f["title"], str):
+                fld["title"] = f["title"]
+            if "description" in f and isinstance(f["description"], str):
+                fld["description"] = f["description"]
+            if "required" in f and isinstance(f["required"], bool):
+                fld["required"] = f["required"]
+            if "default" in f:
+                fld["default"] = f["default"]
+            if "enum" in f and isinstance(f["enum"], list):
+                fld["enum"] = [str(e) for e in f["enum"]]
+            fields.append(fld)
+
+        elicit_run_id_raw = arguments.get("run_id")
+        elicit_run_id: str | None = (
+            str(elicit_run_id_raw) if isinstance(elicit_run_id_raw, str) else None
+        )
+        timeout_raw = arguments.get("timeout_seconds", 300)
+        timeout: int = int(timeout_raw) if isinstance(timeout_raw, int) else 300
+
+        elicit_result = await request_human_input(
+            message=msg,
+            fields=fields,
+            run_id=elicit_run_id,
+            timeout_seconds=timeout,
+        )
+        return ACToolResult(
+            content=[ACToolContent(type="text", text=_tool_result_to_text(elicit_result))],
+            isError=elicit_result.get("action") not in ("accept",),
         )
 
     # Delegate sync tools

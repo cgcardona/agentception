@@ -292,6 +292,83 @@ McpResultPayload: TypeAlias = (
 )
 
 # ---------------------------------------------------------------------------
+# MCP elicitation types (2025-11-25)
+# ---------------------------------------------------------------------------
+
+
+class ElicitationField(TypedDict):
+    """One form field in a ``request_human_input`` tool call.
+
+    ``name`` is the key that appears in the submitted ``content`` dict.
+    ``type`` is the primitive JSON type — ``"string"``, ``"number"``,
+    ``"integer"``, or ``"boolean"``.
+    All other fields are optional hints for the dashboard's form renderer.
+    """
+
+    name: str
+    type: str  # "string" | "number" | "integer" | "boolean"
+    title: NotRequired[str]
+    description: NotRequired[str]
+    required: NotRequired[bool]
+    default: NotRequired[JsonValue]
+    enum: NotRequired[list[str]]
+    format: NotRequired[str]  # e.g. "email" | "uri" | "date"
+    minimum: NotRequired[float]
+    maximum: NotRequired[float]
+
+
+class ElicitationResult(TypedDict):
+    """Result of an ``elicitation/create`` round-trip.
+
+    ``action`` is one of ``"accept"`` (human submitted the form),
+    ``"decline"`` (human explicitly declined), or ``"cancel"`` (human
+    dismissed without acting).  ``content`` carries the submitted form
+    data and is present only when ``action == "accept"``.
+    """
+
+    action: str  # "accept" | "decline" | "cancel"
+    content: NotRequired[dict[str, JsonValue]]
+
+
+class ClientElicitationFormCapability(TypedDict):
+    """Capability token: client supports form-mode elicitation.
+
+    Per the 2025-11-25 spec the object is currently empty — its presence
+    is the signal.
+    """
+
+
+class ClientElicitationUrlCapability(TypedDict):
+    """Capability token: client supports URL-mode elicitation.
+
+    Per the 2025-11-25 spec the object is currently empty — its presence
+    is the signal.
+    """
+
+
+class ClientElicitationCapabilities(TypedDict):
+    """Client-declared elicitation capabilities.
+
+    Sent inside ``initialize`` params.  Any key whose value is an empty
+    ``{}`` object signals support for that mode.  An entirely absent key
+    means the client does not support that mode.
+    """
+
+    form: NotRequired[ClientElicitationFormCapability]
+    url: NotRequired[ClientElicitationUrlCapability]
+
+
+class ClientCapabilities(TypedDict):
+    """Client capability block sent in ``initialize`` params.
+
+    Only ``elicitation`` is parsed today.  Other MCP capability blocks
+    (``sampling``, ``roots``, ``tasks``) are not used by AgentCeption.
+    """
+
+    elicitation: NotRequired[ClientElicitationCapabilities]
+
+
+# ---------------------------------------------------------------------------
 # JSON-RPC 2.0 envelope types
 # ---------------------------------------------------------------------------
 
