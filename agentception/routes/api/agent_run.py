@@ -1,8 +1,8 @@
 """Agent execution trigger route.
 
-Provides a single endpoint to launch the Cursor-free agent loop for an
-existing run.  The loop runs as a FastAPI ``BackgroundTask`` and reports
-progress through the MCP log tools (visible in the build dashboard).
+Provides a single endpoint to launch the agent loop for an existing run.
+The loop runs as a FastAPI ``BackgroundTask`` and reports progress through
+the MCP log tools (visible in the build dashboard).
 
 Endpoint
 --------
@@ -41,7 +41,7 @@ _DISPATCHABLE_STATUSES: frozenset[str] = frozenset({"pending_launch", "implement
 
 @router.post("/{run_id}/execute", status_code=202)
 async def execute_agent_run(run_id: str, background_tasks: BackgroundTasks) -> JSONResponse:
-    """Launch the Cursor-free agent loop for *run_id*.
+    """Launch the agent loop for *run_id*.
 
     If the run is ``pending_launch`` it is atomically claimed (transitioned to
     ``implementing``) before the background task is scheduled.  Runs already

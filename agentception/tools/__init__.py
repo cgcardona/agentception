@@ -1,4 +1,4 @@
-"""Local tool implementations for the Cursor-free agent loop.
+"""Local tool implementations for the agent loop.
 
 Provides file-system and shell-execution primitives that the agent loop
 dispatches when the model requests a ``read_file``, ``write_file``,

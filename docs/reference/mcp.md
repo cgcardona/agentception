@@ -93,7 +93,7 @@ An MCP client discovers and spawns the server via a configuration file. The entr
 
 Replace `/path/to/agentception` with the absolute path to your local clone.
 
-**Protocol version:** `2025-03-26` (value of `_MCP_PROTOCOL_VERSION` in `agentception/mcp/server.py`).
+**Protocol version:** `2025-11-25` (value of `_MCP_PROTOCOL_VERSION` in `agentception/mcp/server.py`).
 
 **Auto-approved methods** (safe to call without human confirmation):
 
@@ -112,7 +112,20 @@ All other tools require explicit human confirmation before execution.
 
 ### HTTP
 
-The HTTP transport is available at `POST /api/mcp` once the containers are running. It follows the [MCP 2025-03-26 Streamable HTTP spec](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports/).
+The HTTP transport is available at `POST /api/mcp` once the containers are running. It follows the [MCP 2025-11-25 Streamable HTTP spec](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports/).
+
+**Endpoints:**
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/api/mcp` | Send a JSON-RPC 2.0 request, notification, or response to the server |
+| `GET` | `/api/mcp` | Open an SSE stream to receive server-initiated messages (elicitation, notifications) |
+| `DELETE` | `/api/mcp` | Terminate a session |
+
+**Security (2025-11-25 requirements):**
+
+- **Origin validation** — Requests with an `Origin` header from a non-localhost host return `403 Forbidden` (DNS rebinding protection). Programmatic clients never send `Origin`.
+- **MCP-Protocol-Version** — If present, must be `2025-11-25` or `2025-03-26`; any other value returns `400 Bad Request`. Absent header is accepted for backwards compatibility.
 
 **Request shape (JSON-RPC 2.0):**
 

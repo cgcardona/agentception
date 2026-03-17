@@ -19,10 +19,10 @@ Two transports are available — both speak the same JSON-RPC 2.0 protocol:
 
 | Transport | Entry point | Best for |
 |-----------|-------------|----------|
-| **stdio** | `docker compose exec -T agentception python -m agentception.mcp.stdio_server` | IDE sessions (e.g. Cursor, VS Code) |
-| **HTTP** | `POST http://localhost:1337/api/mcp` | Web agents, CI/CD, curl, Anthropic remote MCP |
+| **stdio** | `docker compose exec -T agentception python -m agentception.mcp.stdio_server` | Local MCP clients (e.g. Cursor, Claude Desktop, any stdio-capable client) |
+| **HTTP** | `POST http://localhost:1337/api/mcp` | Agent loops, CI/CD, curl, remote MCP clients, the AgentCeption dashboard |
 
-The HTTP transport follows the [MCP 2025-03-26 Streamable HTTP spec](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports/): single or batch JSON-RPC request bodies, JSON responses. Notifications (requests without `id`) return `202 Accepted`.
+The HTTP transport follows the [MCP 2025-11-25 Streamable HTTP spec](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports/): single or batch JSON-RPC request bodies, JSON responses. Notifications (requests without `id`) return `202 Accepted`. `GET /api/mcp` returns `405 Method Not Allowed` — required by the spec so clients correctly identify this as the Streamable HTTP transport (not the deprecated 2024-11-05 HTTP+SSE transport).
 
 ## Security
 
@@ -32,8 +32,13 @@ See the full [Security Guide](security.md) for threat model, TLS configuration, 
 
 | Transport | Protection |
 |-----------|-----------|
-| stdio | No network socket; communicates over Docker exec pipe — safe by default |
+| stdio | No network socket; communicates over a Docker exec pipe — safe by default |
 | HTTP (`/api/mcp`) | Protected by `ApiKeyMiddleware` when `AC_API_KEY` is set |
+
+The HTTP endpoint also enforces two security requirements from the MCP 2025-11-25 spec:
+
+- **Origin validation** — If the `Origin` header is present and the host is not `localhost` or `127.0.0.1`, the server returns `403 Forbidden`. This blocks DNS rebinding attacks. Programmatic API clients (agent loops, CI) never send an `Origin` header and are unaffected.
+- **Protocol version validation** — If the `MCP-Protocol-Version` header is present but names a version the server does not support, it returns `400 Bad Request`. Absent headers are accepted (backwards compatible with `2025-03-26`).
 
 When `AC_API_KEY` is configured, the HTTP MCP client must include the key:
 
@@ -54,7 +59,7 @@ LLM calls from AgentCeption to Anthropic always use HTTPS — there is no plaint
 
 ## Client configuration (stdio)
 
-Add an `agentception` entry to your MCP client's configuration file (e.g. `~/.cursor/mcp.json` for Cursor, or the equivalent for your IDE):
+Add an `agentception` entry to your MCP client's configuration file (e.g. `mcp.json` for Cursor or the equivalent for your MCP client):
 
 ```json
 {
