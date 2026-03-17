@@ -76,7 +76,7 @@ Authorization: Bearer <key>
 X-API-Key: <key>
 ```
 
-Cursor's MCP client automatically sends `Authorization: Bearer <key>` when configured:
+An MCP client (e.g. Cursor) automatically sends `Authorization: Bearer <key>` when configured:
 
 ```json
 {
@@ -103,7 +103,7 @@ Cursor's MCP client automatically sends `Authorization: Bearer <key>` when confi
 
 ## MCP Transport Security
 
-### stdio transport (Cursor)
+### stdio transport
 
 The stdio MCP server communicates over a Docker exec pipe — no TCP socket, no network exposure. This transport is safe by default and does not require `AC_API_KEY`.
 
@@ -111,7 +111,7 @@ The stdio MCP server communicates over a Docker exec pipe — no TCP socket, no 
 
 The HTTP MCP transport is served at `/api/mcp` — a path under `/api/`, so it is protected by `ApiKeyMiddleware` when `AC_API_KEY` is set. Configure the key in your MCP client's config (e.g. Cursor's `mcp.json`) as shown in the setup guide.
 
-**How it works technically:** The HTTP transport follows the [MCP 2025-03-26 Streamable HTTP spec](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports/). Anthropic's remote MCP integration (currently in beta) can also call this endpoint directly — Claude running on Anthropic's infrastructure sends tool calls to your `POST /api/mcp` endpoint, which executes them locally and returns results. This is the mechanism that enables the Cursor-free agent loop without losing MCP capability.
+**How it works technically:** The HTTP transport follows the [MCP 2025-03-26 Streamable HTTP spec](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports/). Anthropic's remote MCP integration (currently in beta) can also call this endpoint directly — Claude running on Anthropic's infrastructure sends tool calls to your `POST /api/mcp` endpoint, which executes them locally and returns results. This is the mechanism that enables the server-side agent loop without losing MCP capability.
 
 ---
 
@@ -156,7 +156,7 @@ Do not forget `proxy_read_timeout` — SSE connections (the `/events` endpoint a
 
 ## Shell Tool Safety (Agent Loop)
 
-When the Cursor-free agent loop executes shell commands via the `run_command` tool (`agentception/tools/shell_tools.py`), two layers protect the host:
+When the server-side agent loop executes shell commands via the `run_command` tool (`agentception/tools/shell_tools.py`), two layers protect the host:
 
 ### Command Denylist
 

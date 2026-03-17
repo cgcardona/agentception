@@ -29,7 +29,7 @@ This repository is a single standalone service:
 
 ```
 agentception/ # AgentCeption — FastAPI + HTMX + Alpine (port 1337)
-              #   mcp/        # MCP server for Cursor/Claude tool integration
+              #   mcp/        # MCP server for MCP client tool integration
 ```
 
 Architecture layers:

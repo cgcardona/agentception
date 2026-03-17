@@ -13,10 +13,10 @@ reads this policy before executing any command.
 
 ---
 
-## How Cursor's Three Tiers Actually Work
+## How the Three Tiers Work (Cursor as MCP client)
 
 Cursor does not have a formal graylist or blacklist. Here is how the three tiers
-map to Cursor's actual mechanisms:
+map to Cursor's mechanisms when it is used as the MCP client:
 
 | Policy tier | Cursor mechanism | What happens |
 |-------------|-----------------|--------------|

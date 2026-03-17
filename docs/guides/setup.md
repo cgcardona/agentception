@@ -158,7 +158,7 @@ curl -f http://localhost:1337/api/health/detailed
 
 ## Step 7 — Index the codebase for semantic search (optional)
 
-The Cursor-free agent loop uses a Qdrant vector index to give agents `@Codebase`-style semantic search without Cursor. Trigger indexing with a single API call:
+The AgentCeption agent loop uses a Qdrant vector index to give agents semantic codebase search. Trigger indexing with a single API call:
 
 ```bash
 curl -X POST http://localhost:1337/api/system/index-codebase
@@ -187,7 +187,7 @@ curl -X POST http://localhost:1337/api/system/index-codebase \
   -H "Authorization: Bearer your-key"
 ```
 
-See the [Cursor-Free Agent Loop guide](agent-loop.md) for full documentation.
+See the [AgentCeption Agent Loop guide](agent-loop.md) for full documentation.
 
 ---
 

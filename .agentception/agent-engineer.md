@@ -9,7 +9,7 @@
 > 1. Query GitHub for the current batch label to get your canonical issue set — **never use a hardcoded list**.
 > 2. Pull `dev` to confirm it is up to date.
 > 3. Call the `build_spawn_child` MCP tool once per issue to create the worktree, persist context to the DB, and auto-acknowledge the run.
-> 4. Launch one sub-agent per worktree using the **Task tool** (preferred — allows unlimited parallel agents) or a Cursor composer window rooted in that worktree.
+> 4. Launch one sub-agent per worktree using the **Task tool** (preferred — allows unlimited parallel agents) or an agent session rooted in that worktree.
 > 5. Report back once all sub-agents have been launched.
 >
 > **You do NOT:**
@@ -266,8 +266,8 @@ git worktree list
 ```
 
 After running this, launch one agent per worktree using the **Task tool**
-(preferred — no limit on simultaneous agents) or a Cursor composer window
-rooted in each `issue-<N>` directory.
+(preferred — no limit on simultaneous agents) or an agent session rooted
+in each `issue-<N>` directory.
 
 ---
 
@@ -298,7 +298,7 @@ If you see "No module named X", you are on the host. Stop. Use `docker compose e
 
 ## Environment (agents read this first)
 
-**You are running inside a Cursor worktree.** Your working directory is NOT the main repo.
+**You are running inside a git worktree.** Your working directory is NOT the main repo.
 
 ```bash
 # Derive paths — run these at the start of your session

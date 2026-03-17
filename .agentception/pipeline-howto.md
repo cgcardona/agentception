@@ -187,7 +187,7 @@ One file per worktree. Use the TOML format above. Key fields:
 
 ### Step 4 — Launch the two managers (skip the CTO for simple waves)
 
-Open two Cursor composer windows or call the Task tool twice simultaneously:
+Call the Task tool twice simultaneously (or open two agent sessions in parallel):
 
 **QA Coordinator prompt:**
 ```

@@ -425,8 +425,7 @@ class AgentCeptionSettings(BaseSettings):
         """Canonical path to the ``.agentception/`` directory at the repo root.
 
         All AgentCeption-owned config files (roles, prompts, pipeline-config,
-        dispatcher prompt, etc.) live here — not in ``.cursor/``, which belongs
-        to the IDE.
+        dispatcher prompt, etc.) live here — not in the IDE config directory.
         """
         return self.repo_dir / ".agentception"
 
