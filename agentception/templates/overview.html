@@ -294,7 +294,7 @@
 
         <template x-if="result && !launching">
           <div>
-            <p class="text-success mt-1">✅ Conductor ready — open the folder in Cursor to start.</p>
+            <p class="text-success mt-1">✅ Conductor ready — open the worktree folder to start.</p>
             <div class="flex-row gap-1 mt-1" style="align-items:center;flex-wrap:wrap;">
               <code style="font-size:0.8rem;word-break:break-all;" x-text="result.host_worktree"></code>
               <button
@@ -305,7 +305,7 @@
               ></button>
             </div>
             <p class="text-muted mt-1" style="font-size:0.85rem;">
-              Open this folder in Cursor — the conductor will start automatically.
+              Open this worktree folder in your IDE — the conductor will start automatically.
             </p>
             <p class="mt-1" style="font-size:0.85rem;">
               <a href="/agents" class="btn btn-sm btn-secondary">Monitor agents →</a>
@@ -438,7 +438,7 @@
 
         <template x-if="result && !launching">
           <div>
-            <p class="text-success mt-1">✅ Conductor ready — open in Cursor to start.</p>
+            <p class="text-success mt-1">✅ Conductor ready — open the worktree to start.</p>
             <div class="flex-row gap-1 mt-1" style="align-items:center;flex-wrap:wrap;">
               <code style="font-size:0.8rem;word-break:break-all;" x-text="result.host_worktree"></code>
               <button class="btn btn-secondary" style="padding:2px 8px;font-size:0.8rem;" @click="copyPath()">Copy</button>

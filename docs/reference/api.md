@@ -130,7 +130,7 @@ These drive Phase 1A (brain dump → draft) and Phase 1B (review → file issues
 
 #### `POST /api/plan/draft` (Plan step 1.A)
 
-Accept plan text (brain dump), create a git worktree, and write an `DB context row so a Cursor agent can produce the PlanSpec YAML. Returns immediately; completion is signalled asynchronously via **GET /events** (see below).
+Accept plan text (brain dump), create a git worktree, and write an `DB context row so the planning agent can produce the PlanSpec YAML. Returns immediately; completion is signalled asynchronously via **GET /events** (see below).
 
 **Body:** `application/json`
 ```json
@@ -149,7 +149,7 @@ Accept plan text (brain dump), create a git worktree, and write an `DB context r
 }
 ```
 
-**Completion:** Subscribe to **GET /events** (SSE). Each message is a JSON object: the current `PipelineState`. When the poller detects that the Cursor agent has written the file at `output_path`, it appends a **plan_draft_ready** entry to `state.plan_draft_events` for that tick. The entry has `event: "plan_draft_ready"`, `draft_id`, `yaml_text` (the generated YAML), and `output_path`. Match `draft_id` to the value returned by this POST. If the agent does not write the file within the server timeout, a **plan_draft_timeout** entry is emitted instead (same `draft_id`, empty `yaml_text`).
+**Completion:** Subscribe to **GET /events** (SSE). Each message is a JSON object: the current `PipelineState`. When the poller detects that the planning agent has written the file at `output_path`, it appends a **plan_draft_ready** entry to `state.plan_draft_events` for that tick. The entry has `event: "plan_draft_ready"`, `draft_id`, `yaml_text` (the generated YAML), and `output_path`. Match `draft_id` to the value returned by this POST. If the agent does not write the file within the server timeout, a **plan_draft_timeout** entry is emitted instead (same `draft_id`, empty `yaml_text`).
 
 #### `GET /events` (SSE — Plan step 1.A and dashboard)
 
@@ -499,11 +499,11 @@ Advance the phase gate for an initiative. Checks that all issues in `from_phase`
 
 ### Agent Execution — `/api/runs/{run_id}/execute`
 
-Cursor-free agent dispatch. Triggers the `agent_loop.py` pipeline for a run that already exists in the DB. See the [Cursor-Free Agent Loop guide](../guides/agent-loop.md) for full documentation.
+Server-side agent dispatch. Triggers the `agent_loop.py` pipeline for a run that already exists in the DB. See the [AgentCeption Agent Loop guide](../guides/agent-loop.md) for full documentation.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/runs/{run_id}/execute` | Dispatch an agent run without Cursor |
+| `POST` | `/api/runs/{run_id}/execute` | Dispatch an agent run via the server-side loop |
 
 **Status codes:**
 
@@ -522,7 +522,7 @@ Cursor-free agent dispatch. Triggers the `agent_loop.py` pipeline for a run that
 
 ### System — `/api/system/*`
 
-Infrastructure operations: codebase indexing and semantic search. See the [Cursor-Free Agent Loop guide](../guides/agent-loop.md) for full documentation.
+Infrastructure operations: codebase indexing and semantic search. See the [AgentCeption Agent Loop guide](../guides/agent-loop.md) for full documentation.
 
 | Method | Path | Description |
 |--------|------|-------------|

@@ -339,7 +339,7 @@ The enforcement is layered across two paths:
 3. Role-specific instructions.
 4. Tool/capability declarations (appended by caller).
 
-#### Cursor/Dispatcher path (role template STEP 0)
+#### Dispatcher path (role template STEP 0)
 
 All seven role templates (`scripts/gen_prompts/templates/roles/*.md.j2`) include an updated `STEP 0` block that:
 

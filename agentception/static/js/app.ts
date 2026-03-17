@@ -29,7 +29,9 @@
  *   transcripts.js  🟡 — transcriptBrowser, transcriptDetail
  *   templates.js    🟡 — exportPanel, importPanel, envSandbox
  *   api.js          🟡 — apiEndpoint
- *   theme_toggle.ts ✅ — themeToggle
+ *   theme_toggle.ts    ✅ — themeToggle
+ *   mcp_session.ts     ✅ — initMcpSession, terminateMcpSession
+ *   elicitation_modal.ts ✅ — elicitationModal
  */
 
 'use strict';
@@ -42,6 +44,13 @@ import { buildPage, renderMd, agentDetailFeed } from './build.ts';
 import { planForm } from './plan.ts';
 import { orgDesigner } from './org_designer.ts';
 import { themeToggle } from './theme_toggle.ts';
+import {
+  initMcpSession,
+  terminateMcpSession,
+  registerMcpHandler,
+  type ElicitationCreateParams,
+} from './mcp_session.ts';
+import { elicitationModal, dispatchElicitationEvent } from './elicitation_modal.ts';
 
 // ── Legacy JS modules (converted when their pages are reactivated) ───────────
 import {
@@ -58,6 +67,18 @@ import { transcriptBrowser, transcriptDetail } from './transcripts.js';
 import { exportPanel, importPanel, envSandbox } from './templates.js';
 import { apiEndpoint } from './api.js';
 
+// ── MCP session bootstrap ─────────────────────────────────────────────────────
+// Initialize the MCP session as soon as the module loads so the SSE stream
+// is ready before any agents call request_human_input.
+registerMcpHandler('elicitation/create', (params: unknown, rpcId: string | number) => {
+  dispatchElicitationEvent(params as ElicitationCreateParams, rpcId);
+});
+
+void initMcpSession();
+
+// Terminate cleanly on page unload so the server can cancel pending futures.
+window.addEventListener('pagehide', () => { void terminateMcpSession(); });
+
 // ── Global Alpine registration ───────────────────────────────────────────────
 // Expose all Alpine component factory functions so templates can reference
 // them via x-data="functionName()" without bundler integration in the HTML.
@@ -72,6 +93,7 @@ Object.assign(window as unknown as Record<string, unknown>, {
   planForm,
   orgDesigner,
   themeToggle,
+  elicitationModal,
   // JS modules (untyped until converted)
   pipelineDashboard, agentCard, phaseSwitcher, pipelineControl,
   sweepControl, waveControl, conductorModal, scalingAdvisor, prViolations,

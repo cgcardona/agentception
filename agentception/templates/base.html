@@ -113,6 +113,108 @@
 
   {% block extra_scripts %}{% endblock %}
 
+  <!-- MCP elicitation modal — shown when an agent calls request_human_input -->
+  <div id="elicitation-modal"
+       x-data="elicitationModal()"
+       @mcp:elicitation.window="show($event.detail.params, $event.detail.rpcId)"
+       x-show="open"
+       x-cloak
+       class="modal-backdrop elicitation-backdrop"
+       role="dialog"
+       aria-modal="true"
+       aria-labelledby="elicitation-title">
+
+    <div class="modal-box elicitation-box" @click.stop>
+
+      <div class="elicitation-header">
+        <span class="elicitation-icon" aria-hidden="true">🙋</span>
+        <h2 id="elicitation-title" class="modal-title elicitation-title">
+          Agent is requesting input
+        </h2>
+      </div>
+
+      <p class="elicitation-message" x-text="message"></p>
+
+      <form class="elicitation-form" @submit.prevent="submit()">
+        <template x-for="field in fields" :key="field.name">
+          <div class="elicitation-field" :class="{ 'elicitation-field--invalid': field.invalid }">
+
+            <label class="elicitation-label"
+                   :for="'elicit-' + field.name">
+              <span x-text="field.schema.title || field.name"></span>
+              <template x-if="field._required">
+                <span class="elicitation-required" aria-label="required"> *</span>
+              </template>
+            </label>
+
+            <p x-show="field.schema.description"
+               x-text="field.schema.description"
+               class="elicitation-hint"></p>
+
+            <!-- Boolean field → checkbox -->
+            <template x-if="field.schema.type === 'boolean'">
+              <input type="checkbox"
+                     :id="'elicit-' + field.name"
+                     x-model="field.value"
+                     class="elicitation-checkbox">
+            </template>
+
+            <!-- Enum field → select -->
+            <template x-if="field.schema.type === 'string' && field.schema.enum">
+              <select :id="'elicit-' + field.name"
+                      x-model="field.value"
+                      class="elicitation-select">
+                <option value="">— choose —</option>
+                <template x-for="opt in field.schema.enum" :key="opt">
+                  <option :value="opt" x-text="opt"></option>
+                </template>
+              </select>
+            </template>
+
+            <!-- Number / integer field -->
+            <template x-if="field.schema.type === 'number' || field.schema.type === 'integer'">
+              <input type="number"
+                     :id="'elicit-' + field.name"
+                     x-model.number="field.value"
+                     :min="field.schema.minimum ?? undefined"
+                     :max="field.schema.maximum ?? undefined"
+                     :step="field.schema.type === 'integer' ? 1 : 'any'"
+                     class="elicitation-input">
+            </template>
+
+            <!-- Default: text/string field (not enum) -->
+            <template x-if="field.schema.type === 'string' && !field.schema.enum">
+              <input :type="field.schema.format === 'email' ? 'email' : field.schema.format === 'uri' ? 'url' : 'text'"
+                     :id="'elicit-' + field.name"
+                     x-model="field.value"
+                     class="elicitation-input">
+            </template>
+
+            <p x-show="field.invalid"
+               class="elicitation-error"
+               role="alert">This field is required.</p>
+
+          </div>
+        </template>
+
+        <div class="elicitation-actions">
+          <button type="button"
+                  class="elicitation-btn elicitation-btn--decline"
+                  @click="dismiss('decline')">
+            Decline
+          </button>
+          <button type="submit"
+                  class="elicitation-btn elicitation-btn--submit"
+                  :disabled="submitting">
+            <span x-show="!submitting">Submit</span>
+            <span x-show="submitting" x-cloak>Sending…</span>
+          </button>
+        </div>
+      </form>
+
+    </div>
+  </div>
+
   <!-- Toast notification system -->
   <div id="toast-container"
        x-data="toastStore()"

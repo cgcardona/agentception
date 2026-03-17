@@ -132,9 +132,9 @@ See [docs/guides/setup.md](docs/guides/setup.md) for the full first-run walkthro
 
 ---
 
-## MCP Integration (Cursor / Claude)
+## MCP Integration
 
-AgentCeption exposes an MCP server so Cursor and Claude can invoke tools directly:
+AgentCeption exposes an MCP server that any MCP-compatible client can use:
 
 ```json
 {
@@ -159,7 +159,7 @@ See [docs/guides/integrate.md](docs/guides/integrate.md) for the full tool refer
 | [Setup](docs/guides/setup.md) | First-run, Docker, environment variables |
 | [Local LLM / Ollama](docs/guides/local-llm.md) | Running agents on local hardware with Ollama (macOS, Linux, Windows) |
 | [Local LLM Scaling](docs/guides/local-llm-scaling.md) | Multi-agent concurrency and LiteLLM proxy |
-| [MCP Integration](docs/guides/integrate.md) | Cursor / Claude tool integration |
+| [MCP Integration](docs/guides/integrate.md) | MCP client tool integration |
 | [Dispatching Agents](docs/guides/dispatch.md) | How to launch, monitor, and cancel agent runs |
 | [Developer Workflow](docs/guides/developer-workflow.md) | Bind mounts, mypy, tests, build pipeline |
 | [Contributing](docs/guides/contributing.md) | Branch conventions, PR process, commit style |

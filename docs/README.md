@@ -11,8 +11,8 @@ Step-by-step instructions for humans.
 | Guide | Summary |
 |-------|---------|
 | [Setup](guides/setup.md) | First-run walkthrough — Docker, environment variables, database migrations, Qdrant indexing |
-| [MCP Integration](guides/mcp.md) | Connect Cursor / Claude to AgentCeption via the MCP server (stdio and HTTP transports) |
-| [Cursor-Free Agent Loop](guides/agent-loop.md) | Run agents without Cursor — direct Anthropic API, Qdrant semantic search, local tool execution |
+| [MCP Integration](guides/mcp.md) | Connect any MCP client to AgentCeption via the MCP server (stdio and HTTP transports) |
+| [AgentCeption Agent Loop](guides/agent-loop.md) | Server-side agent execution — direct Anthropic API, Qdrant semantic search, local tool execution |
 | [Security](guides/security.md) | API key auth, TLS configuration, shell denylist, secrets management, threat model |
 | [Developer Workflow](guides/developer-workflow.md) | Bind-mount loop, mypy → tests → docs verification order, JS/CSS build pipeline |
 | [Contributing](guides/contributing.md) | Branch naming, commit conventions, PR checklist, code review expectations |
@@ -69,9 +69,9 @@ User input (brain dump)
 │  → ACAgentRun row in DB             │
 └─────────────────────────────────────┘
         │
-        ▼  (POST /api/runs/{run_id}/execute — Cursor-free)
+        ▼  (POST /api/runs/{run_id}/execute)
 ┌─────────────────────────────────────┐
-│  Cursor-Free Agent Loop             │
+│  AgentCeption Agent Loop            │
 │  agent_loop.py                      │
 │  → Reads DB context + role + arch   │
 │  → Calls LLM API (Anthropic or local via config) │
@@ -107,7 +107,7 @@ agentception/
     worktrees.py          → Agent dispatch: git worktree + DB context row
   services/
     llm.py           → completion(), completion_stream(), completion_with_tools(); provider selection (Anthropic or local)
-    agent_loop.py    → Cursor-free agent execution loop (multi-turn + tool dispatch)
+    agent_loop.py    → Server-side agent execution loop (multi-turn + tool dispatch)
     code_indexer.py  → Qdrant codebase indexing + semantic search (FastEmbed)
   tools/
     file_tools.py    → read_file, write_file, list_directory, search_text (rg)
@@ -121,12 +121,12 @@ agentception/
       dispatch.py    → /api/dispatch/* (issue, label, context, prompt)
       mcp.py         → POST /api/mcp (MCP JSON-RPC 2.0)
       runs.py        → /api/runs/* (pending, acknowledge, children, step, …)
-      agent_run.py   → /api/runs/{run_id}/execute (Cursor-free dispatch)
+      agent_run.py   → /api/runs/{run_id}/execute (server-side dispatch)
       system.py      → /api/system/index-codebase, /api/system/search
       ship_api.py    → /api/ship/{initiative}/advance
   mcp/
     server.py        → MCP tool definitions (plan_*, build_*, …)
-    stdio_server.py  → stdio transport for Cursor integration
+    stdio_server.py  → stdio transport for MCP client integration
   static/
     app.js           → Compiled JS bundle (never edit directly)
     app.css          → Compiled CSS bundle (never edit directly)

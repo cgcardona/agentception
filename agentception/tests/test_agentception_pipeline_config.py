@@ -232,8 +232,8 @@ async def test_settings_reads_active_project(tmp_path: Path) -> None:
     """AgentCeptionSettings applies the active project's paths over env-var defaults."""
     from agentception.config import AgentCeptionSettings
 
-    cursor_dir = tmp_path / ".agentception"
-    cursor_dir.mkdir(parents=True)
+    config_dir = tmp_path / ".agentception"
+    config_dir.mkdir(parents=True)
     config_data = {
         "coordinator_limits": _COORD_LIMITS,
         "pool_size": 4,
@@ -258,7 +258,7 @@ async def test_settings_reads_active_project(tmp_path: Path) -> None:
             },
         ],
     }
-    (cursor_dir / "pipeline-config.json").write_text(
+    (config_dir / "pipeline-config.json").write_text(
         json.dumps(config_data), encoding="utf-8"
     )
 

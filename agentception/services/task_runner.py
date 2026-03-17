@@ -14,7 +14,7 @@ class TaskRunner(Protocol):
     
     Implementations spawn agent processes with the given prompt and context.
     The protocol decouples coordinators from specific runner implementations
-    (Cursor, Anthropic, etc.).
+    (Anthropic, local models, etc.).
     """
 
     def run(

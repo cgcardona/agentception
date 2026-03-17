@@ -77,7 +77,7 @@ When you remove something, remove it completely: the implementation, the tests f
 - API contract changes (SSE event shapes, tool schemas, endpoint signatures).
 - Architecture changes (new layers, new services, new execution paths).
 - Security model changes.
-- Changes that affect agents running in Cursor worktrees.
+- Changes that affect agents running in git worktrees.
 
 ---
 
@@ -95,13 +95,13 @@ When facing ambiguity:
 
 ## Branch Discipline — Absolute Rule
 
-**`dev` and `main` are read-only for all agents and all Cursor sessions. Every piece of work — one line or a thousand — happens on a branch or in a worktree.**
+**`dev` and `main` are read-only for all agents and all interactive development sessions. Every piece of work — one line or a thousand — happens on a branch or in a worktree.**
 
 ### AgentCeption pipeline (worktree)
 
 All agent work runs inside a git worktree created from `origin/dev` at dispatch time. The PR is opened from the worktree branch. The main repo's `dev` branch is never modified by an agent. When the agent finishes, it removes its own worktree.
 
-### Cursor / interactive sessions (feature branch)
+### Interactive development sessions (feature branch)
 
 Every task follows this complete lifecycle — no step is optional:
 
@@ -190,7 +190,7 @@ When your changes affect another agent's domain, produce a **handoff prompt** de
 
 ## GitHub interactions — MCP first
 
-The `user-github` MCP server (officially maintained by GitHub) is available in every Cursor session. **Always prefer MCP tools over `gh` CLI for GitHub operations.** MCP calls are typed, structured, and composable; `gh` is a last resort for operations not yet covered by the server.
+The `user-github` MCP server (officially maintained by GitHub) is available in every interactive development session. **Always prefer MCP tools over `gh` CLI for GitHub operations.** MCP calls are typed, structured, and composable; `gh` is a last resort for operations not yet covered by the server.
 
 | Operation | MCP tool |
 |-----------|----------|

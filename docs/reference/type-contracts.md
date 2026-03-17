@@ -377,7 +377,7 @@ The canonical `AgentStatus` in `agentception/workflow/status.py` includes two ad
 | | `role` | `str` | Role slug (validated against taxonomy) |
 | `SpawnResult` | `spawned` | `int` | Issue number that was spawned |
 | | `worktree` | `str` | Container-side worktree path |
-| | `host_worktree` | `str` | Host-side path for Cursor |
+| | `host_worktree` | `str` | Host-side path for the worktree |
 | | `branch` | `str` | Git branch name |
 | | `agent_task` | `str` | Raw DB context row content |
 | | `spawned_at` | `str` | ISO-8601 UTC timestamp |
@@ -664,7 +664,7 @@ Produced by the LLM coordinator after enriching a `PlanSpec` with full issue bod
 
 #### `TaskRunnerChoice`
 
-`str, Enum` — Task runner backend for agent execution. Agent tasks run via the Cursor-free loop.
+`str, Enum` — Task runner backend for agent execution. Agent tasks run via the server-side agent loop.
 
 | Value | Description |
 |-------|-------------|
@@ -712,7 +712,7 @@ SQLAlchemy async `Base` subclasses. Never exposed directly to routes — consume
 | `agent_runs` | `ACAgentRun` | `id: str` | Lifecycle of one agent working one issue |
 | `issues` | `ACIssue` | `(github_number, repo)` | Mirror of a GitHub issue (hash-diff sync) |
 | `pull_requests` | `ACPullRequest` | `(github_number, repo)` | Mirror of a GitHub PR (hash-diff sync) |
-| `agent_messages` | `ACAgentMessage` | `id: int (autoincrement)` | One Cursor transcript message |
+| `agent_messages` | `ACAgentMessage` | `id: int (autoincrement)` | One agent transcript message |
 | `agent_events` | `ACAgentEvent` | `id: int (autoincrement)` | Structured MCP callback events |
 | `initiative_phases` | `ACInitiativePhase` | `(repo, initiative, batch_id, phase_label)` | Phase DAG per initiative |
 | `pipeline_snapshots` | `ACPipelineSnapshot` | `id: int (autoincrement)` | Time-series tick state |
@@ -931,7 +931,7 @@ Internal adapters (e.g. `call_anthropic`, `call_local_completion`) implement the
 
 **Path:** `agentception/services/code_indexer.py`
 
-Qdrant-backed semantic code search — the self-hosted replacement for Cursor's `@Codebase`.
+Qdrant-backed semantic code search — self-hosted vector search for the agent loop.
 
 #### `IndexStats`
 
@@ -1012,7 +1012,7 @@ Qdrant-backed semantic code search — the self-hosted replacement for Cursor's 
 |--------|-----------|-------------|
 | `run` | `(prompt: str, worktree_path: Path, mcp_server: str, role: str, run_id: str) -> str \| None` | Spawn an agent; returns session ID or `None` |
 
-Implementations: `CursorTaskRunner` (Cursor IDE), `AnthropicTaskRunner` (direct API).
+Implementations: `AnthropicTaskRunner` (direct Anthropic API).
 
 ---
 
@@ -1625,7 +1625,7 @@ AgentCeption
 │   └── HealthSnapshot               — BaseModel: system metrics for /api/health/detailed
 │
 ├── Config (agentception/config.py)
-│   ├── TaskRunnerChoice             — str Enum: anthropic (Cursor-free loop)
+│   ├── TaskRunnerChoice             — str Enum: anthropic (server-side agent loop)
 │   ├── LLMProviderChoice            — str Enum: anthropic | local
 │   └── AgentCeptionSettings         — BaseSettings: env-var config
 │
@@ -2072,7 +2072,7 @@ classDiagram
 
 ### Diagram 5 — Code Indexer and Semantic Search
 
-The Qdrant-backed semantic search pipeline that replaces Cursor's `@Codebase`. `IndexStats` is the public result of indexing; `SearchMatch` is the public result of searching.
+The Qdrant-backed semantic search pipeline for self-hosted codebase search. `IndexStats` is the public result of indexing; `SearchMatch` is the public result of searching.
 
 ```mermaid
 classDiagram

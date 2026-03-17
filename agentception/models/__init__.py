@@ -167,7 +167,7 @@ class PlanDraftEvent(BaseModel):
     an empty list for the same draft.
 
     ``event`` is one of ``"plan_draft_ready"`` or ``"plan_draft_timeout"``.
-    ``yaml_text`` is the raw YAML written by the Cursor agent (filled for
+    ``yaml_text`` is the raw YAML written by the planning agent (filled for
     ``plan_draft_ready``, empty string for ``plan_draft_timeout``).
     ``output_path`` is the absolute path of the expected output file.
     """

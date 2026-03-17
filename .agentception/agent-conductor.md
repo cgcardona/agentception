@@ -428,7 +428,7 @@ STEP 7 — REMINDER GATE:
 
 ### What to do next
 Re-run the conductor by pasting the kickoff prompt from \`.agentception/agent-conductor.md\`
-into a new Cursor composer window rooted in the conductor worktree.
+as a new agent session rooted in the conductor worktree.
 
 ### Open issues by phase
 $(for phase in "${ALL_PHASES[@]}"; do

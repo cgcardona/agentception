@@ -29,7 +29,7 @@ Resource URIs follow the ``ac://`` scheme with REST-like path segments:
     ac://plan/figures/{role}          — cognitive-arch figures for a role
 """
 
-from typing import TypeAlias, TypedDict
+from typing import NotRequired, TypeAlias, TypedDict
 
 from agentception.types import JsonSchemaObj, JsonValue
 
@@ -56,11 +56,15 @@ class ACToolDef(TypedDict):
     ``inputSchema`` is a JSON Schema object describing the tool's accepted
     parameters.  An empty schema (``{"type": "object", "properties": {}}``)
     signals that the tool accepts no parameters.
+
+    ``icon`` is optional per the 2025-11-25 spec — a URL to an image
+    that clients may display alongside the tool name.
     """
 
     name: str
     description: str
     inputSchema: JsonSchemaObj
+    icon: NotRequired[str]
 
 
 class ACToolContent(TypedDict):
@@ -97,12 +101,15 @@ class ACResourceDef(TypedDict):
 
     Conforms to the ``resources/list`` response item shape.
     Static resources have a fixed URI — no template expansion required.
+
+    ``icon`` is optional per the 2025-11-25 spec.
     """
 
     uri: str
     name: str
     description: str
     mimeType: str
+    icon: NotRequired[str]
 
 
 class ACResourceTemplate(TypedDict):
@@ -111,12 +118,15 @@ class ACResourceTemplate(TypedDict):
     Conforms to the ``resources/templates/list`` response item shape.
     ``uriTemplate`` follows RFC 6570 Level 1 (``{variable}`` expansion) and
     may include a query component (``{?param}``).
+
+    ``icon`` is optional per the 2025-11-25 spec.
     """
 
     uriTemplate: str
     name: str
     description: str
     mimeType: str
+    icon: NotRequired[str]
 
 
 class ACResourceContent(TypedDict):
@@ -165,11 +175,14 @@ class ACPromptDef(TypedDict):
 
     Conforms to the ``prompts/list`` response item shape.  ``arguments``
     is an empty list for static prompts that require no parameters.
+
+    ``icon`` is optional per the 2025-11-25 spec.
     """
 
     name: str
     description: str
     arguments: list[ACPromptArgument]
+    icon: NotRequired[str]
 
 
 class ACPromptContent(TypedDict):
@@ -211,10 +224,15 @@ class ACPromptResult(TypedDict):
 
 
 class McpServerInfo(TypedDict):
-    """Server identity advertised in the ``initialize`` response."""
+    """Server identity advertised in the ``initialize`` response.
+
+    ``description`` is optional per the 2025-11-25 spec — a human-readable
+    summary used by MCP registries and client UIs.
+    """
 
     name: str
     version: str
+    description: NotRequired[str]
 
 
 class McpCapabilities(TypedDict):
@@ -272,6 +290,83 @@ McpResultPayload: TypeAlias = (
     | ResourceTemplateListResult
     | dict[str, str | int | float | bool | None]
 )
+
+# ---------------------------------------------------------------------------
+# MCP elicitation types (2025-11-25)
+# ---------------------------------------------------------------------------
+
+
+class ElicitationField(TypedDict):
+    """One form field in a ``request_human_input`` tool call.
+
+    ``name`` is the key that appears in the submitted ``content`` dict.
+    ``type`` is the primitive JSON type — ``"string"``, ``"number"``,
+    ``"integer"``, or ``"boolean"``.
+    All other fields are optional hints for the dashboard's form renderer.
+    """
+
+    name: str
+    type: str  # "string" | "number" | "integer" | "boolean"
+    title: NotRequired[str]
+    description: NotRequired[str]
+    required: NotRequired[bool]
+    default: NotRequired[JsonValue]
+    enum: NotRequired[list[str]]
+    format: NotRequired[str]  # e.g. "email" | "uri" | "date"
+    minimum: NotRequired[float]
+    maximum: NotRequired[float]
+
+
+class ElicitationResult(TypedDict):
+    """Result of an ``elicitation/create`` round-trip.
+
+    ``action`` is one of ``"accept"`` (human submitted the form),
+    ``"decline"`` (human explicitly declined), or ``"cancel"`` (human
+    dismissed without acting).  ``content`` carries the submitted form
+    data and is present only when ``action == "accept"``.
+    """
+
+    action: str  # "accept" | "decline" | "cancel"
+    content: NotRequired[dict[str, JsonValue]]
+
+
+class ClientElicitationFormCapability(TypedDict):
+    """Capability token: client supports form-mode elicitation.
+
+    Per the 2025-11-25 spec the object is currently empty — its presence
+    is the signal.
+    """
+
+
+class ClientElicitationUrlCapability(TypedDict):
+    """Capability token: client supports URL-mode elicitation.
+
+    Per the 2025-11-25 spec the object is currently empty — its presence
+    is the signal.
+    """
+
+
+class ClientElicitationCapabilities(TypedDict):
+    """Client-declared elicitation capabilities.
+
+    Sent inside ``initialize`` params.  Any key whose value is an empty
+    ``{}`` object signals support for that mode.  An entirely absent key
+    means the client does not support that mode.
+    """
+
+    form: NotRequired[ClientElicitationFormCapability]
+    url: NotRequired[ClientElicitationUrlCapability]
+
+
+class ClientCapabilities(TypedDict):
+    """Client capability block sent in ``initialize`` params.
+
+    Only ``elicitation`` is parsed today.  Other MCP capability blocks
+    (``sampling``, ``roots``, ``tasks``) are not used by AgentCeption.
+    """
+
+    elicitation: NotRequired[ClientElicitationCapabilities]
+
 
 # ---------------------------------------------------------------------------
 # JSON-RPC 2.0 envelope types

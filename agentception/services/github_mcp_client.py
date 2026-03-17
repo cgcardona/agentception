@@ -3,8 +3,7 @@ from __future__ import annotations
 """Async stdio MCP client for the GitHub MCP server binary.
 
 Spawns ``github-mcp-server stdio`` as a subprocess and communicates via
-newline-delimited JSON-RPC 2.0 — the same protocol Cursor uses when it
-runs the GitHub MCP server locally.
+newline-delimited JSON-RPC 2.0 over stdin/stdout (the MCP stdio transport).
 
 ``GITHUB_PERSONAL_ACCESS_TOKEN`` is set from ``settings.github_token``
 (env var ``GITHUB_TOKEN``) so no extra configuration is required beyond
