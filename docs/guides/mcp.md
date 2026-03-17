@@ -22,7 +22,17 @@ Two transports are available — both speak the same JSON-RPC 2.0 protocol:
 | **stdio** | `docker compose exec -T agentception python -m agentception.mcp.stdio_server` | Local MCP clients (e.g. Cursor, Claude Desktop, any stdio-capable client) |
 | **HTTP** | `POST http://localhost:1337/api/mcp` | Agent loops, CI/CD, curl, remote MCP clients, the AgentCeption dashboard |
 
-The HTTP transport follows the [MCP 2025-11-25 Streamable HTTP spec](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports/): single or batch JSON-RPC request bodies, JSON responses. Notifications (requests without `id`) return `202 Accepted`. `GET /api/mcp` returns `405 Method Not Allowed` — required by the spec so clients correctly identify this as the Streamable HTTP transport (not the deprecated 2024-11-05 HTTP+SSE transport).
+The HTTP transport follows the [MCP 2025-11-25 Streamable HTTP spec](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports/): single or batch JSON-RPC request bodies, JSON responses. Notifications (requests without `id`) return `202 Accepted`.
+
+**HTTP endpoint summary:**
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/api/mcp` | Send a JSON-RPC 2.0 request or response |
+| `GET` | `/api/mcp` | Open an SSE stream to receive server-initiated messages (e.g. `elicitation/create`) |
+| `DELETE` | `/api/mcp` | Terminate a session |
+
+`GET /api/mcp` without `Accept: text/event-stream` returns `405 Method Not Allowed` — the correct signal per the spec so clients distinguish Streamable HTTP from the deprecated 2024-11-05 HTTP+SSE transport. With `Accept: text/event-stream` and a valid `MCP-Session-Id`, it opens a persistent SSE stream that delivers server-initiated requests down to the client.
 
 ## Security
 
@@ -202,6 +212,89 @@ starting agents, advancing phase gates) always require an explicit human confirm
 | `agentception/mcp/prompts.py` | Prompt catalogue, `get_prompt()` dispatcher |
 
 Any MCP-aware client enumerates all three automatically once the server entry is configured.
+
+## Elicitation — human-in-the-loop for running agents
+
+AgentCeption implements the [MCP 2025-11-25 elicitation protocol](https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation) to let any running agent pause and ask the human operator for structured input — a decision, a credential, a deployment target — without aborting the run.
+
+### How it works
+
+```
+Agent calls request_human_input(message, fields)
+        ↓
+MCP server puts elicitation/create in the session's outbound queue
+        ↓ (SSE stream)
+Mission Control dashboard receives the event
+        ↓
+Human sees a modal form, fills it in, clicks Submit
+        ↓
+Dashboard POSTs the JSON-RPC response to POST /api/mcp
+        ↓
+MCP server resolves the asyncio Future
+        ↓
+Agent receives {action: "accept", content: {...}} and continues
+```
+
+### Session lifecycle
+
+1. The dashboard opens Mission Control (`/ship`) — the page auto-connects as an MCP client:
+   - POSTs `initialize` with `capabilities.elicitation.form` declared.
+   - Stores the `MCP-Session-Id` returned in the response header.
+   - Opens `GET /api/mcp` with `Accept: text/event-stream` and the session header.
+2. When an agent calls `request_human_input`, the server finds the connected session and puts an `elicitation/create` request in its outbound queue.
+3. The SSE stream delivers it to the browser within milliseconds.
+4. The dashboard renders a form modal. Human fills it in and submits.
+5. Dashboard POSTs the JSON-RPC response. Server resolves the agent's blocking `await`.
+6. On page unload, the dashboard DELETEs the session.
+
+### The `request_human_input` tool
+
+```json
+{
+  "name": "request_human_input",
+  "message": "Which environment should I deploy to?",
+  "fields": [
+    {
+      "name": "environment",
+      "type": "string",
+      "title": "Environment",
+      "enum": ["dev", "staging", "prod"],
+      "required": true
+    },
+    {
+      "name": "confirm_migration",
+      "type": "boolean",
+      "title": "Run DB migration",
+      "default": false
+    }
+  ],
+  "run_id": "issue-938",
+  "timeout_seconds": 300
+}
+```
+
+**Return values:**
+
+| `action` | When | `content` |
+|----------|------|-----------|
+| `accept` | Human submitted the form | `{"environment": "staging", "confirm_migration": true}` |
+| `decline` | Human clicked Decline | _(absent)_ |
+| `cancel` | Human dismissed the modal | _(absent)_ |
+| `timeout` | No response within `timeout_seconds` | _(absent)_ |
+| `no_client` | No dashboard session connected | _(absent)_ |
+
+### When to use it
+
+- Deployment gate: "Deploy to prod?" — requires human approval.
+- Credential input: "Enter the API key for this service."
+- Architectural decision: "I found two valid approaches — which do you prefer?"
+- Emergency stop: "I'm about to delete 200 issues. Are you sure?"
+
+The tool is designed to be a **last resort**, not a crutch. Agents should make autonomous decisions when they have enough context. Reserve `request_human_input` for genuine unknowns where guessing wrong costs real time or money.
+
+### No-client graceful degradation
+
+When no browser session with elicitation capability is connected (no Mission Control tab open), the tool returns immediately with `action: "no_client"`. Agents must handle this case — either abort gracefully, fall back to a safe default, or log an error and cancel the run with `build_cancel_run`.
 
 ## Related guides
 
