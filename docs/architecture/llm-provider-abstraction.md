@@ -14,7 +14,7 @@
 |----------|-------------|-----------------|
 | **Plan generation (Phase 1A)** | `llm_phase_planner.generate_plan_yaml` | Single-turn: `(user_prompt, system_prompt) → full text`. Non-streaming for MCP; streaming for Build UI preview. |
 | **Plan preview (streaming)** | `plan_ui._llm_stream()` | Async generator of chunks. UI **discards** `thinking`, **accumulates** `content`, then validates YAML. |
-| **Agent loop (tools)** | `agent_loop` | Multi-turn with tools: `(messages, tools, system) → ToolResponse` (text + tool_calls + stop_reason). Used for Cursor-free runs. |
+| **Agent loop (tools)** | `agent_loop` | Multi-turn with tools: `(messages, tools, system) → ToolResponse` (text + tool_calls + stop_reason). Used for server-side agent runs. |
 | **Recon / one-off** | `agent_loop` (recon phase) | Single-turn no tools: same as plan, returns text. |
 
 So the app needs:

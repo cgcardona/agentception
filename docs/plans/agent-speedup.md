@@ -1,8 +1,8 @@
 # Agent Speedup Plan: Cutting Iterations from 50 to ~15
 
 **Problem:** Agents burn 30–40 iterations on pure reconnaissance (one tool call per
-LLM turn, no pre-loaded context) before writing a single line of code. Cursor solves
-the same task in ~15 turns because it has semantic search, multi-tool batching, and
+LLM turn, no pre-loaded context) before writing a single line of code. IDE agents
+solve the same task in ~15 turns because they have semantic search, multi-tool batching, and
 pre-loaded file context. We have all the infrastructure — it just isn't connected.
 
 **Current state (confirmed):**

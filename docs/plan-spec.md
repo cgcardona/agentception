@@ -224,7 +224,7 @@ When the user clicks **Launch**, AgentCeption:
 2. Writes a coordinator `DB context row containing the full PlanSpec.
 3. Creates an isolated git worktree for the coordinator agent.
 
-The **coordinator agent** (running in Cursor via MCP) then:
+The **coordinator agent** (running via MCP) then:
 
 1. Reads the `ac://plan/labels` resource to fetch the phase label configuration.
 2. Iterates phases in order. For each phase:

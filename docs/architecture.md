@@ -260,7 +260,7 @@ phases:
 
 ## TaskRunner Abstraction
 
-The `TaskRunner` protocol (`agentception/services/task_runner.py`) defines a runner-agnostic interface for executing agent tasks. It decouples coordinators from specific execution engines (Cursor, Anthropic, etc.), allowing the system to swap implementations without changing orchestration logic. Concrete implementations live in sibling modules and are selected via the `ac_task_runner` config setting. The protocol uses structural subtyping (`@runtime_checkable`) to verify implementations at runtime without requiring explicit inheritance.
+The `TaskRunner` protocol (`agentception/services/task_runner.py`) defines a runner-agnostic interface for executing agent tasks. It decouples coordinators from specific execution engines (Anthropic, local models, etc.), allowing the system to swap implementations without changing orchestration logic. Concrete implementations live in sibling modules and are selected via the `ac_task_runner` config setting. The protocol uses structural subtyping (`@runtime_checkable`) to verify implementations at runtime without requiring explicit inheritance.
 
 ---
 
@@ -326,7 +326,7 @@ Five mechanisms in `agentception/services/agent_loop.py` keep the context window
 - [Plan-scoped integration branch](architecture/plan-scoped-integration-branch.md)
 - [LLM provider abstraction](architecture/llm-provider-abstraction.md)
 - [Agent tree protocol](agent-tree-protocol.md)
-- [Cursor-Free Agent Loop](guides/agent-loop.md)
+- [AgentCeption Agent Loop](guides/agent-loop.md)
 - [MCP integration guide](guides/mcp.md)
 - [Security Guide](guides/security.md)
 - [Type contracts reference](reference/type-contracts.md)

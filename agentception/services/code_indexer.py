@@ -1,8 +1,8 @@
-"""Qdrant-backed semantic code search for the Cursor-free agent loop.
+"""Qdrant-backed semantic code search for the AgentCeption agent loop.
 
-Replaces Cursor's ``@Codebase`` feature with a self-hosted vector store.
-Files are chunked, embedded with a local ONNX model (FastEmbed), and stored
-in Qdrant.  The agent then searches with natural language instead of regex.
+Self-hosted vector search: files are chunked, embedded with a local ONNX
+model (FastEmbed), and stored in Qdrant.  The agent searches with natural
+language instead of regex, without relying on IDE-bundled search features.
 
 Chunking Strategy
 -----------------

@@ -74,7 +74,7 @@ and the `ac_task_runner` setting — you do not need to touch config.py.
 5. Add a "TaskRunner abstraction" section to
    `docs/reference/architecture.md`. Keep it brief (3–5 sentences):
    explain what the protocol is, why it exists (decouple coordinator from
-   Cursor), and that concrete implementations live in sibling modules.
+   specific task runners), and that concrete implementations live in sibling modules.
    Append it at the end of the file.
 
 6. Run `mypy agentception/services/task_runner.py

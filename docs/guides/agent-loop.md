@@ -1,16 +1,16 @@
-# Cursor-Free Agent Loop
+# AgentCeption Agent Loop
 
-AgentCeption can run agents entirely on its own infrastructure — no Cursor IDE, no local MCP client, no `@Codebase` integration required. This guide explains how the loop works, how to configure it, and how to trigger an agent run.
+AgentCeption runs agents entirely on its own server-side infrastructure — no external IDE required. This guide explains how the loop works, how to configure it, and how to trigger an agent run.
 
 ---
 
-## What It Replaces
+## Built-In Capabilities
 
-| What Cursor provided | What AgentCeption now provides |
-|---------------------|-------------------------------|
-| Local MCP client (tool dispatch) | `agent_loop.py` dispatches tools internally |
-| `@Codebase` semantic search | Qdrant + FastEmbed (`code_indexer.py`) |
-| LLM API connectivity | Anthropic (HTTPS via `llm.py`) |
+| Capability | Implementation |
+|------------|----------------|
+| Tool dispatch | `agent_loop.py` dispatches tools internally |
+| Semantic codebase search | Qdrant + FastEmbed (`code_indexer.py`) |
+| LLM API connectivity | Anthropic (HTTPS via `llm.py`) or local via config |
 | Cognitive architecture injection | Role files + `resolve_arch.py` |
 
 The result: a full agent execution loop that runs inside the Docker container, calls Anthropic's Claude via the Anthropic API, uses your local codebase as context, and executes file and shell operations in isolated git worktrees.
@@ -75,7 +75,7 @@ Local tool implementations executed inside the container:
 
 ### `agentception/services/code_indexer.py` — Semantic Code Search
 
-Replaces Cursor's `@Codebase` with a self-hosted Qdrant + FastEmbed pipeline:
+Self-hosted Qdrant + FastEmbed pipeline for semantic codebase search:
 
 - **`index_codebase(repo_path)`** — walks source files, splits into ~1,500-character overlapping chunks, embeds with `BAAI/bge-small-en-v1.5` (ONNX, runs on CPU, no API key), upserts 384-dim vectors to Qdrant
 - **`search_codebase(query, n_results)`** — embeds the query vector, runs cosine-similarity search in Qdrant, returns `SearchMatch` list with file path, line numbers, chunk text, and score
@@ -169,7 +169,7 @@ Returns:
 
 ## Triggering an Agent Run
 
-The `POST /api/runs/{run_id}/execute` endpoint dispatches an agent run using the Cursor-free loop.
+The `POST /api/runs/{run_id}/execute` endpoint dispatches an agent run using the AgentCeption agent loop.
 
 ### Prerequisites
 
@@ -236,7 +236,6 @@ branch = "agent/issue-42"
 Agent steps are recorded in the DB as `ACRunEvent` rows. The Build dashboard shows them in real time. You can also fetch them via MCP:
 
 ```python
-# In Cursor
 FetchMcpResource(server="user-agentception", uri="ac://runs/{run_id}/events")
 ```
 
@@ -259,7 +258,7 @@ python3 scripts/smoke_test_agent_loop.py
 Expected output:
 
 ```
-══ AgentCeption Smoke Test — Cursor-Free Agent Loop ══
+══ AgentCeption Smoke Test — Agent Loop ══
   AgentCeption: http://127.0.0.1:1337
   Qdrant:       http://127.0.0.1:6335
 

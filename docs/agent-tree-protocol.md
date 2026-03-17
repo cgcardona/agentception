@@ -161,7 +161,7 @@ PARENT_RUN_ID = ""                  # empty for root; set by spawner for all oth
 # ── Callbacks ─────────────────────────────────────────────────────────────────
 AC_URL        = "http://localhost:1337"
 # ROLE_FILE is the container-side path; HOST_ROLE_FILE is the host-side path.
-# Cursor agents running on the developer's machine should use HOST_ROLE_FILE.
+# IDE agents running on the developer's machine should use HOST_ROLE_FILE.
 ROLE_FILE     = "<container-repo-root>/.agentception/roles/cto.md"
 HOST_ROLE_FILE = "<host-repo-root>/.agentception/roles/cto.md"
 ```
@@ -222,7 +222,7 @@ HOST_ROLE_FILE = "<host-repo-root>/.agentception/roles/reviewer.md"
 ## What each tier reads from GitHub
 
 All GitHub queries use the `user-agentception` MCP server tools. Never use
-the `gh` CLI — it is not available inside Cursor agents.
+the `gh` CLI — it is not available inside MCP-only agent sessions.
 
 ### `root` (CTO)
 

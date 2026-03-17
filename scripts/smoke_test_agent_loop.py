@@ -1,6 +1,6 @@
-"""End-to-end smoke test for the Cursor-free agent loop.
+"""End-to-end smoke test for the AgentCeption agent loop.
 
-Validates the full Cursor-replacement pipeline:
+Validates the full server-side pipeline:
   1. Qdrant connectivity check
   2. Codebase indexing (POST /api/system/index-codebase)
   3. Semantic search (GET /api/system/search)
@@ -137,7 +137,7 @@ def step_summary(start: float) -> None:
     print()
     print("══════════════════════════════════════════════")
     print(f"  ✅ ALL STEPS PASSED ({elapsed:.1f}s)")
-    print("  Cursor-free agent loop is fully operational.")
+    print("  AgentCeption agent loop is fully operational.")
     print("══════════════════════════════════════════════")
 
 
@@ -147,7 +147,7 @@ def step_summary(start: float) -> None:
 def main() -> None:
     """Run the full end-to-end smoke test."""
     print()
-    print("══ AgentCeption Smoke Test — Cursor-Free Agent Loop ══")
+    print("══ AgentCeption Smoke Test — Agent Loop ══")
     print(f"  AgentCeption: {BASE_URL}")
     print(f"  Qdrant:       {QDRANT_URL}")
     print()
