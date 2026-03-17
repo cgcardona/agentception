@@ -1,8 +1,8 @@
-"""Cursor-free agent execution loop.
+"""Agent execution loop.
 
-Replaces Cursor as the agent runtime.  An LLM on Anthropic's infrastructure
-does the reasoning; file operations, shell commands, and MCP tool calls execute
-locally inside this container.
+An LLM on Anthropic's infrastructure (or a local provider) does the reasoning;
+file operations, shell commands, and MCP tool calls execute locally inside this
+container.
 
 Pipeline
 --------
@@ -197,10 +197,10 @@ _PYTEST_STOP_OVERRIDE: str = (
 # ---------------------------------------------------------------------------
 # Developer agent — minimal tool surface
 # ---------------------------------------------------------------------------
-# Cursor completes developer tasks in 5–15 tool calls because it has only
-# read/write/run tools.  Our agents were exposed to 74 tools (logging,
-# GitHub MCP, semantic search, working-memory…) and spent 60-70% of their
-# budget calling non-coding tools.
+# Agents with a narrow tool surface (read/write/run only) complete developer
+# tasks in far fewer LLM turns.  Broad tool exposure (logging, GitHub MCP,
+# semantic search, working-memory…) pushes 60-70% of the budget into
+# non-coding tool calls — keep the developer surface minimal.
 #
 # When the loaded task role is "developer", the tool list is filtered to this
 # allowlist before the main loop starts.  The agent cannot even see bookkeeping

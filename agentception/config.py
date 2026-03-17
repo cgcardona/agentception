@@ -35,8 +35,8 @@ logger = logging.getLogger(__name__)
 class TaskRunnerChoice(str, enum.Enum):
     """Task runner backend for agent execution.
 
-    Agent tasks are executed by the Cursor-free loop (direct API calls).
-    Currently the only supported value is ``anthropic`` (default).
+    Agent tasks are executed by the server-side agent loop (direct LLM API
+    calls).  Currently the only supported value is ``anthropic`` (default).
     """
     anthropic = "anthropic"
 
@@ -338,7 +338,7 @@ class AgentCeptionSettings(BaseSettings):
     """Task runner backend for agent execution.
 
     Set via ``AC_TASK_RUNNER`` env var.  Valid value: ``anthropic`` (default).
-    Agent tasks run via the Cursor-free loop (direct Anthropic or local LLM API).
+    Agent tasks run via the server-side agent loop (direct Anthropic or local LLM API).
     """
     ac_min_turn_delay_secs: float = 0.5
     """Minimum seconds between consecutive LLM calls in the agent loop.
