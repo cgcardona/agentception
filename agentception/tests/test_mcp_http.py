@@ -8,6 +8,9 @@ Test categories:
   - Batch requests (array of messages)
   - Error cases: malformed JSON, missing fields, invalid method
   - New tools accessible via HTTP (log_run_error, github_add_comment)
+  - MCP 2025-11-25 compliance: protocol version string, server description
+  - Security: Origin header validation (→ 403), MCP-Protocol-Version (→ 400)
+  - Transport disambiguation: GET /api/mcp → 405
 """
 
 from __future__ import annotations
@@ -58,6 +61,22 @@ class TestMcpHttpBasic:
         assert "tools" in caps
         assert "resources" in caps
         assert "prompts" in caps
+
+    @pytest.mark.anyio
+    async def test_initialize_returns_2025_11_25_protocol_version(self, app: FastAPI) -> None:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/mcp", json=_rpc("initialize"))
+        result = r.json()["result"]
+        assert result["protocolVersion"] == "2025-11-25"
+
+    @pytest.mark.anyio
+    async def test_initialize_returns_server_description(self, app: FastAPI) -> None:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/mcp", json=_rpc("initialize"))
+        server_info = r.json()["result"]["serverInfo"]
+        assert "description" in server_info
+        assert isinstance(server_info["description"], str)
+        assert len(server_info["description"]) > 0
 
     @pytest.mark.anyio
     async def test_ping_returns_empty_result(self, app: FastAPI) -> None:
@@ -349,3 +368,144 @@ class TestMcpHttpNewTools:
         payload = json.loads(text)
         assert isinstance(payload, dict)
         assert payload["comment_url"] == comment_url
+
+
+# ---------------------------------------------------------------------------
+# MCP 2025-11-25: Origin header security (DNS rebinding protection)
+# ---------------------------------------------------------------------------
+
+class TestMcpHttpOriginSecurity:
+    @pytest.mark.anyio
+    async def test_no_origin_header_is_allowed(self, app: FastAPI) -> None:
+        """Programmatic clients (agents) send no Origin — must be accepted."""
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/mcp", json=_rpc("ping"))
+        assert r.status_code == 200
+
+    @pytest.mark.anyio
+    async def test_localhost_origin_is_allowed(self, app: FastAPI) -> None:
+        """Requests from localhost pages are permitted."""
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post(
+                "/api/mcp",
+                json=_rpc("ping"),
+                headers={"Origin": "http://localhost:3000"},
+            )
+        assert r.status_code == 200
+
+    @pytest.mark.anyio
+    async def test_127_0_0_1_origin_is_allowed(self, app: FastAPI) -> None:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post(
+                "/api/mcp",
+                json=_rpc("ping"),
+                headers={"Origin": "http://127.0.0.1:1337"},
+            )
+        assert r.status_code == 200
+
+    @pytest.mark.anyio
+    async def test_external_origin_returns_403(self, app: FastAPI) -> None:
+        """Cross-origin browser requests from external domains must be blocked."""
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post(
+                "/api/mcp",
+                json=_rpc("ping"),
+                headers={"Origin": "https://evil.example.com"},
+            )
+        assert r.status_code == 403
+        body = r.json()
+        assert "error" in body
+
+    @pytest.mark.anyio
+    async def test_malformed_origin_returns_403(self, app: FastAPI) -> None:
+        """An unparseable Origin header is rejected."""
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post(
+                "/api/mcp",
+                json=_rpc("ping"),
+                headers={"Origin": "not-a-url"},
+            )
+        assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# MCP 2025-11-25: MCP-Protocol-Version header validation
+# ---------------------------------------------------------------------------
+
+class TestMcpHttpProtocolVersion:
+    @pytest.mark.anyio
+    async def test_no_version_header_is_accepted(self, app: FastAPI) -> None:
+        """Absent header → backwards compatible, allowed per spec."""
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/mcp", json=_rpc("ping"))
+        assert r.status_code == 200
+
+    @pytest.mark.anyio
+    async def test_current_version_header_is_accepted(self, app: FastAPI) -> None:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post(
+                "/api/mcp",
+                json=_rpc("ping"),
+                headers={"MCP-Protocol-Version": "2025-11-25"},
+            )
+        assert r.status_code == 200
+
+    @pytest.mark.anyio
+    async def test_legacy_version_header_is_accepted(self, app: FastAPI) -> None:
+        """2025-03-26 is still supported for backwards compatibility."""
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post(
+                "/api/mcp",
+                json=_rpc("ping"),
+                headers={"MCP-Protocol-Version": "2025-03-26"},
+            )
+        assert r.status_code == 200
+
+    @pytest.mark.anyio
+    async def test_unsupported_version_header_returns_400(self, app: FastAPI) -> None:
+        """A version string we don't recognise must be rejected with 400."""
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post(
+                "/api/mcp",
+                json=_rpc("ping"),
+                headers={"MCP-Protocol-Version": "2030-01-01"},
+            )
+        assert r.status_code == 400
+        body = r.json()
+        assert "error" in body
+
+    @pytest.mark.anyio
+    async def test_garbage_version_header_returns_400(self, app: FastAPI) -> None:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post(
+                "/api/mcp",
+                json=_rpc("ping"),
+                headers={"MCP-Protocol-Version": "not-a-version"},
+            )
+        assert r.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# MCP 2025-11-25: Transport disambiguation — GET must return 405
+# ---------------------------------------------------------------------------
+
+class TestMcpHttpTransportDisambiguation:
+    @pytest.mark.anyio
+    async def test_get_returns_405(self, app: FastAPI) -> None:
+        """GET /api/mcp must return 405 so 2025-11-25 clients don't confuse
+        this with the deprecated 2024-11-05 HTTP+SSE transport (which used GET
+        to open its event stream)."""
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/mcp")
+        assert r.status_code == 405
+        assert "POST" in r.headers.get("allow", "")
+
+    @pytest.mark.anyio
+    async def test_get_with_origin_still_returns_405_not_403(self, app: FastAPI) -> None:
+        """GET runs before Origin check — 405 is returned regardless of Origin."""
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get(
+                "/api/mcp",
+                headers={"Origin": "https://evil.example.com"},
+            )
+        assert r.status_code == 405

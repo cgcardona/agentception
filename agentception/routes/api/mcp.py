@@ -1,10 +1,10 @@
 """HTTP Streamable MCP endpoint.
 
 Exposes the AgentCeption MCP server over HTTP in addition to the stdio transport,
-following the MCP 2025-03-26 Streamable HTTP transport specification.
+following the MCP 2025-11-25 Streamable HTTP transport specification.
 
-Endpoint
---------
+Endpoints
+---------
 POST /api/mcp
     Accepts a JSON-RPC 2.0 request (single object or array of objects) and
     returns the corresponding response.
@@ -14,6 +14,13 @@ POST /api/mcp
 
     Notifications (messages without an ``id`` field) return ``202 Accepted``
     with no body.
+
+GET /api/mcp
+    Returns ``405 Method Not Allowed``.  The AgentCeption MCP surface is
+    request/response only — no persistent SSE streams are offered.  Returning
+    405 (rather than 404) is the correct signal for 2025-11-25-aware clients
+    distinguishing this transport from the deprecated 2024-11-05 HTTP+SSE
+    transport, which opened its stream via GET.
 
 Why two transports
 ------------------
@@ -28,11 +35,27 @@ surface available to:
 The HTTP endpoint calls ``handle_request_async`` directly, so all async tools,
 resource reads, and prompt fetches work identically over both transports.
 
+Security
+--------
+Origin validation (§ Streamable HTTP, 2025-11-25)
+  The MCP spec requires servers to validate the ``Origin`` header on all HTTP
+  connections to prevent DNS rebinding attacks.  If the header is present and
+  the host is not ``localhost`` or ``127.0.0.1``, the server responds with
+  ``403 Forbidden``.  Programmatic MCP clients (agents, CI) never send an
+  ``Origin`` header, so legitimate callers are unaffected.
+
+MCP-Protocol-Version header (§ Streamable HTTP, 2025-11-25)
+  Clients MUST include ``MCP-Protocol-Version`` on all requests after
+  initialization.  If present, the server validates it against the set of
+  supported versions.  Unsupported versions return ``400 Bad Request``.
+  Absent headers are accepted for backwards compatibility (spec allows servers
+  to assume ``2025-03-26`` in that case).
+
 Notes
 -----
-- No session management: each HTTP request is stateless.
+- No session management: each HTTP request is stateless.  Session IDs are
+  optional for stateless servers per the spec.
 - No server-sent events: the current MCP surface is request/response only.
-  SSE streaming can be added in a future iteration when subscriptions land.
 - Authentication: when ``AC_API_KEY`` is set, this endpoint is protected by
   ``ApiKeyMiddleware`` (all ``/api/*`` routes). See the Security guide for
   client configuration.
@@ -42,6 +65,7 @@ from __future__ import annotations
 
 
 import logging
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
@@ -54,6 +78,85 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["mcp"])
 
+#: Protocol versions this server accepts on the ``MCP-Protocol-Version`` header.
+#: Older versions are allowed for backwards compatibility; unknown future versions
+#: are rejected with 400 so clients learn they need to negotiate downward.
+_SUPPORTED_PROTOCOL_VERSIONS: frozenset[str] = frozenset({"2025-11-25", "2025-03-26"})
+
+#: Hostnames accepted in the ``Origin`` header.  Any other host triggers a 403
+#: to block DNS rebinding attacks from browser-based pages.
+_ALLOWED_ORIGIN_HOSTS: frozenset[str] = frozenset({"localhost", "127.0.0.1"})
+
+
+def _check_origin(request: Request) -> Response | None:
+    """Return a 403 response if the ``Origin`` header is present and invalid.
+
+    Programmatic clients (agents, curl, httpx) never set ``Origin``, so this
+    guard has zero impact on legitimate API use.  It blocks only browser pages
+    attempting cross-origin requests — the DNS rebinding attack vector described
+    in the MCP 2025-11-25 security requirements.
+
+    Returns ``None`` when the request should proceed normally.
+    """
+    origin = request.headers.get("origin")
+    if origin is None:
+        return None
+    try:
+        host = urlparse(origin).hostname or ""
+    except Exception:
+        host = ""
+    if host not in _ALLOWED_ORIGIN_HOSTS:
+        logger.warning("⚠️ mcp_http: rejected request with invalid Origin %r", origin)
+        return JSONResponse(
+            status_code=403,
+            content={
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {"code": -32600, "message": f"Forbidden: invalid Origin {origin!r}"},
+            },
+        )
+    return None
+
+
+def _check_protocol_version(request: Request) -> Response | None:
+    """Return a 400 response if ``MCP-Protocol-Version`` is present but unsupported.
+
+    The header is optional (absent → backwards-compatible 2025-03-26 assumed).
+    Returns ``None`` when the request should proceed normally.
+    """
+    version = request.headers.get("mcp-protocol-version")
+    if version is None:
+        return None
+    if version not in _SUPPORTED_PROTOCOL_VERSIONS:
+        logger.warning("⚠️ mcp_http: unsupported MCP-Protocol-Version %r", version)
+        return JSONResponse(
+            status_code=400,
+            content={
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": -32600,
+                    "message": (
+                        f"Unsupported MCP-Protocol-Version {version!r}. "
+                        f"Supported: {sorted(_SUPPORTED_PROTOCOL_VERSIONS)}"
+                    ),
+                },
+            },
+        )
+    return None
+
+
+@router.get("/mcp")
+async def mcp_http_get(_request: Request) -> Response:
+    """Reject GET requests with 405 Method Not Allowed.
+
+    The AgentCeption HTTP transport is request/response only — no persistent
+    SSE stream is offered.  Returning 405 (not 404) is the correct signal for
+    2025-11-25-aware clients that use GET to distinguish Streamable HTTP from
+    the deprecated 2024-11-05 HTTP+SSE transport.
+    """
+    return Response(status_code=405, headers={"Allow": "POST"})
+
 
 @router.post("/mcp")
 async def mcp_http_endpoint(request: Request) -> Response:
@@ -62,15 +165,25 @@ async def mcp_http_endpoint(request: Request) -> Response:
     Supports single requests and JSON-RPC batch arrays.  Notifications
     (requests with no ``id``) return ``202 Accepted`` immediately.
 
+    Security guards run first:
+      - Invalid ``Origin`` → 403 (DNS rebinding protection)
+      - Unsupported ``MCP-Protocol-Version`` → 400
+
     Args:
         request: The incoming FastAPI request object.
 
     Returns:
         - ``200 OK`` with JSON body for requests that produce a result.
         - ``202 Accepted`` with no body for JSON-RPC notifications.
-        - ``400 Bad Request`` when the body is not valid JSON.
+        - ``400 Bad Request`` when the body is not valid JSON or the protocol version is unsupported.
+        - ``403 Forbidden`` when the ``Origin`` header is present but invalid.
         - ``500 Internal Server Error`` for unexpected processing failures.
     """
+    if (guard := _check_origin(request)) is not None:
+        return guard
+    if (guard := _check_protocol_version(request)) is not None:
+        return guard
+
     try:
         body = await request.json()
     except Exception as exc:

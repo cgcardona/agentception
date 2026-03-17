@@ -103,10 +103,14 @@ from agentception.mcp.types import (
 logger = logging.getLogger(__name__)
 
 #: MCP protocol version this server implements.
-_MCP_PROTOCOL_VERSION = "2025-03-26"
+_MCP_PROTOCOL_VERSION = "2025-11-25"
 
 #: Server identity advertised in the ``initialize`` response.
-_SERVER_INFO: McpServerInfo = {"name": "agentception", "version": "0.1.1"}
+_SERVER_INFO: McpServerInfo = {
+    "name": "agentception",
+    "version": "0.1.1",
+    "description": "Multi-agent orchestration system for AI-powered development workflows.",
+}
 
 # ---------------------------------------------------------------------------
 # Tool registry
